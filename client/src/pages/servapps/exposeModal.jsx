@@ -4,6 +4,7 @@ import { Alert } from '@mui/material';
 import RouteManagement from '../config/routes/routeman';
 import { ValidateRoute, getFaviconURL, sanitizeRoute, getContainersRoutes, getHostnameFromName } from '../../utils/routes';
 import * as API from '../../api';
+import { hostnameSuggestions } from '../../components/hostnameSuggestions';
 import { useTranslation } from 'react-i18next';
 
 const ExposeModal = ({ openModal, setOpenModal, config, updateRoutes, container }) => {
@@ -34,7 +35,8 @@ const ExposeModal = ({ openModal, setOpenModal, config, updateRoutes, container 
                         Name: containerName.replace('/', ''),
                         Description: "Expose " + containerName.replace('/', '') + " to the internet",
                         UseHost: true,
-                        Host: getHostnameFromName(containerName, null, config),
+                        // Fork addition: start on the first proposal (a configured domain, if there is one)
+                        Host: (hostnameSuggestions(containerName, config)[0] || {}).host || getHostnameFromName(containerName, null, config),
                         UsePathPrefix: false,
                         PathPrefix: '',
                         CORSOrigin: '',

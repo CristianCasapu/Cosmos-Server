@@ -8,6 +8,7 @@ import {
   Button,
   Grid,
   IconButton,
+  Tooltip, // Fork addition: Tooltip, for the icon-only buttons
   InputLabel,
   OutlinedInput,
   Stack,
@@ -20,6 +21,7 @@ import { CosmosCheckbox, CosmosCollapse, CosmosFormDivider, CosmosInputText, Cos
 import { CosmosContainerPicker } from '../users/containerPicker';
 import { snackit } from '../../../api/wrap';
 import { IsRouteSocketProxy, ValidateRouteSchema, getHostnameFromName, sanitizeRoute } from '../../../utils/routes';
+import HostnameSuggestions from '../../../components/hostnameSuggestions';
 import { isDomain } from '../../../utils/indexs';
 import { useTranslation } from 'react-i18next';
 import { FilePickerButton } from '../../../components/filePicker';
@@ -332,6 +334,17 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                       checkHost(e.target.value, setHostError)
                     }}
                   />
+                  {/* Fork addition: addresses to pick from, built from the configured domains */}
+                  <HostnameSuggestions
+                    name={formik.values.Name}
+                    value={formik.values.Host}
+                    config={config}
+                    disabled={readOnly}
+                    onPick={(host) => {
+                      formik.setFieldValue('Host', host);
+                      checkHost(host, setHostError);
+                    }}
+                  />
                   {hostError && <Grid item xs={12}>
                     <Alert color='warning'>{hostError}</Alert>
                   </Grid>}
@@ -495,7 +508,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                             />
                           </Grid>
                           <Grid item xs={1}>
-                            <IconButton
+                            <Tooltip title={t('global.delete', 'Delete')}><IconButton
                               color="error"
                               onClick={() => {
                                 const newHeaders = [...formik.values._ExtraHeaders];
@@ -504,7 +517,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                               }}
                             >
                               <DeleteOutlined />
-                            </IconButton>
+                            </IconButton></Tooltip>
                           </Grid>
                         </Grid>
                       ))}
