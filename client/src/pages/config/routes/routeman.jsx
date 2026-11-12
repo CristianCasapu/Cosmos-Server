@@ -17,7 +17,7 @@ import {
   MenuItem,
 } from '@mui/material';
 import { DeleteOutlined, PlusCircleOutlined } from '@ant-design/icons';
-import { CosmosCheckbox, CosmosCollapse, CosmosFormDivider, CosmosInputText, CosmosSelect, ReadOnlyForm } from '../users/formShortcuts';
+import { CosmosCheckbox, CosmosCollapse, CosmosFormDivider, CosmosInputText, CosmosSelect, ReadOnlyForm, ShowFieldErrors } from '../users/formShortcuts';
 import { CosmosContainerPicker } from '../users/containerPicker';
 import { snackit } from '../../../api/wrap';
 import { IsRouteSocketProxy, ValidateRouteSchema, getHostnameFromName, sanitizeRoute } from '../../../utils/routes';
@@ -56,7 +56,8 @@ const checkHost = debounce((host, setHostError) => {
   }
 }, 500);
 
-const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noControls = false, lockTarget = false, title, setRouteConfig, submitButton = false, newRoute, readOnly = false }) => {
+// Fork addition: showErrors, set by a dialog whose Confirm button found the route invalid
+const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noControls = false, lockTarget = false, title, setRouteConfig, submitButton = false, newRoute, readOnly = false, showErrors }) => {
   const { t } = useTranslation();
   const [hostError, setHostError] = React.useState(null);
 
@@ -209,6 +210,8 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
       >
         {(formik) => (
           <form noValidate onSubmit={formik.handleSubmit}>
+            {/* Fork addition: errors next to their fields; the fields the schema requires carry `required` below */}
+            <ShowFieldErrors when={showErrors} fields={['Name', 'Mode', 'Target', 'Host', 'UseHost', 'PathPrefix']} />
             <ReadOnlyForm readOnly={readOnly}>
             <Stack spacing={2}>
               <MainCard name={routeConfig.Name} title={
@@ -227,6 +230,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                     label={t('global.nameTitle')}
                     placeholder={t('global.nameTitle')}
                     formik={formik}
+                    required
                   />
 
                   <CosmosInputText
@@ -247,6 +251,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                       label={t('mgmt.urls.edit.targetType.modeSelection.modeLabel')}
                       formik={formik}
                       disabled={lockTarget}
+                      required
                       options={[
                         ["SERVAPP", t('mgmt.urls.edit.targetType.modeSelection.servAppChoice')],
                         ["PROXY", t('mgmt.urls.edit.targetType.modeSelection.proxyChoice')],
@@ -265,6 +270,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                         formik={formik}
                         lockTarget={lockTarget}
                         TargetContainer={TargetContainer}
+                        required
                         onTargetChange={() => {
                           setRouteConfig && setRouteConfig(formik.values);
                         }}
@@ -283,6 +289,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                         label={formik.values.Mode == "PROXY" ? t('mgmt.urls.edit.targetSettings.targetUrlInput.targetUrlLabel') : t('mgmt.urls.edit.targetFolderPathInput.targetFolderPathLabel')}
                         placeholder={formik.values.Mode == "PROXY" ? "http://localhost:8080" : "/path/to/my/app"}
                         formik={formik}
+                        required
                       /></Stack></Grid>
                   }
 
@@ -308,6 +315,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                       label={t('mgmt.servapps.networks.list.host-port2')}
                       placeholder={1234}
                       formik={formik}
+                      required
                       onChange={(e) => {
                       }}
                     />
@@ -329,6 +337,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                     label={t('mgmt.servapps.networks.list.host')}
                     placeholder={t('mgmt.servapps.networks.list.host')}
                     formik={formik}
+                    required
                     style={{ paddingLeft: '20px' }}
                     onChange={(e) => {
                       checkHost(e.target.value, setHostError)
@@ -366,6 +375,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                     label={t('mgmt.urls.edit.pathPrefixInputx.pathPrefixLabel')}
                     placeholder={t('mgmt.urls.edit.pathPrefixInputx.pathPrefixPlaceholder')}
                     formik={formik}
+                    required
                     style={{ paddingLeft: '20px' }}
                   />}
 

@@ -229,6 +229,7 @@ const DockerContainerSetup = ({
                             label={t('global.nameTitle')}
                             placeholder={t('global.nameTitle')}
                             formik={formik}
+                            required /* Fork addition: mandatory fields are marked */
                           />
                         )}
                         <CosmosInputText
@@ -236,6 +237,7 @@ const DockerContainerSetup = ({
                           label={t('mgmt.servApps.container.overview.imageTitle')}
                           placeholder={t('mgmt.servApps.container.overview.imageTitle')}
                           formik={formik}
+                          required
                         />
                         <CosmosSelect
                           name="restartPolicy"

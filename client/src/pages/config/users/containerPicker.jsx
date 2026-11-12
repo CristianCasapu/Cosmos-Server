@@ -34,7 +34,8 @@ import defaultport from '../../servapps/defaultport.json';
 
 import * as API  from '../../../api';
 
-export function CosmosContainerPicker({formik, nameOnly, lockTarget, TargetContainer, onTargetChange, label, name = "Target"}) {
+// Fork addition: `required` marks the container and its port as mandatory
+export function CosmosContainerPicker({formik, nameOnly, lockTarget, TargetContainer, onTargetChange, label, name = "Target", required}) {
   const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
   const [containers, setContainers] = React.useState([]);
@@ -179,7 +180,7 @@ export function CosmosContainerPicker({formik, nameOnly, lockTarget, TargetConta
 
   return ( <Grid item xs={12}>
     <Stack spacing={1}>
-    <InputLabel htmlFor={name + "-autocomplete"}>{label || t('mgmt.config.containerPicker.containerNameSelection.containerNameLabel')}</InputLabel>
+    <InputLabel htmlFor={name + "-autocomplete"} required={required}>{label || t('mgmt.config.containerPicker.containerNameSelection.containerNameLabel')}</InputLabel>
     {!loading && <Autocomplete
       id={name + "-autocomplete"}
       open={open}
@@ -220,7 +221,7 @@ export function CosmosContainerPicker({formik, nameOnly, lockTarget, TargetConta
       )}
     />}
     {!nameOnly && <>
-      <InputLabel htmlFor={name + "-port"}>{t('mgmt.config.containerPicker.containerPortInput')}</InputLabel>
+      <InputLabel htmlFor={name + "-port"} required={required}>{t('mgmt.config.containerPicker.containerPortInput')}</InputLabel>
       <Autocomplete
         className="px-2 my-2"
         variant="outlined"

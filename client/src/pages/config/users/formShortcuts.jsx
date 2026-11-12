@@ -23,7 +23,7 @@ import {
   Select,
 
 } from '@mui/material';
-import { Field } from 'formik';
+import { Field, useFormikContext } from 'formik';
 import { DownOutlined, UpOutlined } from '@ant-design/icons';
 import { strengthColor, strengthIndicator } from '../../../utils/password-strength';
 import { useTranslation } from 'react-i18next';
@@ -60,11 +60,45 @@ const FieldHelp = ({ text, label, error }) => {
   return (text && !error && text !== label) ? <FormHelperText>{text}</FormHelperText> : null;
 };
 
-export const CosmosInputText = ({ name, style, value, errors, multiline, type, placeholder, onChange, label, formik, disabled, autoComplete, inputProps, helperText }) => {
+// Fork addition: makes a form's validation errors show next to their fields
+// instead of only next to the button that found them. Rendered inside the
+// Formik form. `when` turns truthy (and changes) each time a button outside
+// the form, such as a dialog's Confirm, finds the form invalid: the listed
+// fields are then marked as touched. The first field in error is scrolled
+// into view then, and after each submit of the form itself.
+export const ShowFieldErrors = ({ when, fields }) => {
+  const formik = useFormikContext();
+  const anchor = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!when && !formik.submitCount) {
+      return;
+    }
+    if (when) {
+      const touched = { ...formik.touched };
+      fields.forEach((field) => { touched[field] = true; });
+      formik.setTouched(touched, false);
+    }
+    formik.validateForm().then((errors) => {
+      const first = fields.find((field) => errors && errors[field]);
+      const form = anchor.current && anchor.current.closest('form');
+      const el = first && form && form.querySelector('[id="' + first + '"], [name="' + first + '"]');
+      if (el && el.scrollIntoView) {
+        el.scrollIntoView({ block: 'center' });
+      }
+    });
+  }, [when, formik.submitCount]);
+
+  return <span ref={anchor} hidden />;
+};
+
+// Fork addition (in the helpers below): `required` marks the field as
+// mandatory with MUI's own asterisk after the label.
+export const CosmosInputText = ({ name, style, value, errors, multiline, type, placeholder, onChange, label, formik, disabled, autoComplete, inputProps, helperText, required }) => {
   disabled = disabled || React.useContext(FormReadOnlyContext);
   return <Grid item xs={12}>
     <Stack spacing={1} style={style}>
-      {label && <InputLabel htmlFor={name}>{label}</InputLabel>}
+      {label && <InputLabel htmlFor={name} required={required}>{label}</InputLabel>}
       <OutlinedInput
         id={name}
         disabled={disabled}
@@ -73,7 +107,7 @@ export const CosmosInputText = ({ name, style, value, errors, multiline, type, p
         name={name}
         multiline={multiline}
         autoComplete={autoComplete}
-        inputProps={inputProps}
+        inputProps={required ? { 'aria-required': true, ...inputProps } : inputProps}
         onBlur={(...ar) => {
           return formik && formik.handleBlur(...ar);
         }}
@@ -177,12 +211,12 @@ export const CosmosInputPassword = ({ name, noStrength, type, placeholder, autoC
 }
 
 
-export const CosmosSelect = ({ name, onChange, label, formik, disabled, options, style, helperText }) => {
+export const CosmosSelect = ({ name, onChange, label, formik, disabled, options, style, helperText, required }) => {
   disabled = disabled || React.useContext(FormReadOnlyContext);
   return (
     <Grid item xs={12}>
       <Stack spacing={1}>
-        <InputLabel htmlFor={name}>{label}</InputLabel>
+        <InputLabel htmlFor={name} required={required}>{label}</InputLabel>
         <FormControl variant="outlined" fullWidth error={getNestedValue(formik.touched, name) && Boolean(getNestedValue(formik.errors, name))} disabled={disabled} style={style}>
           <Select
             className="px-2 my-2"
