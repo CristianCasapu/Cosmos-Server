@@ -14,10 +14,10 @@ func TestRetention(t *testing.T) {
 	// 2026-11-12 is a Thursday in ISO week 46; 2026-11-08 a Sunday in week 45;
 	// 2026-11-01 (Sunday) and 2026-10-31 (Saturday) are both in week 44.
 	cases := []struct {
-		name                   string
-		names                  []string
-		daily, weekly, monthly int
-		keep                   []string
+		name                           string
+		names                          []string
+		recent, daily, weekly, monthly int
+		keep                           []string
 	}{
 		{
 			name: "days, weeks and months",
@@ -34,19 +34,19 @@ func TestRetention(t *testing.T) {
 				"2026-10-15_030000", // same month: goes
 				"2026-09-30_030000", // a third month: goes
 			},
-			daily: 3, weekly: 2, monthly: 2,
+			recent: 1, daily: 3, weekly: 2, monthly: 2,
 			keep: []string{"2026-11-12_150000", "2026-11-11_030000", "2026-11-10_030000", "2026-11-08_030000", "2026-10-31_030000"},
 		},
 		{
-			name:  "the order given does not matter",
-			names: []string{"2026-11-10_030000", "2026-11-12_030000", "2026-11-11_030000"},
-			daily: 2, weekly: 1, monthly: 1,
+			name:   "the order given does not matter",
+			names:  []string{"2026-11-10_030000", "2026-11-12_030000", "2026-11-11_030000"},
+			recent: 1, daily: 2, weekly: 1, monthly: 1,
 			keep: []string{"2026-11-12_030000", "2026-11-11_030000"},
 		},
 		{
-			name:  "days without a snapshot do not count",
-			names: []string{"2026-11-12_030000", "2026-11-05_030000", "2026-10-01_030000", "2026-03-01_030000"},
-			daily: 3, weekly: 1, monthly: 1,
+			name:   "days without a snapshot do not count",
+			names:  []string{"2026-11-12_030000", "2026-11-05_030000", "2026-10-01_030000", "2026-03-01_030000"},
+			recent: 1, daily: 3, weekly: 1, monthly: 1,
 			keep: []string{"2026-11-12_030000", "2026-11-05_030000", "2026-10-01_030000"},
 		},
 		{
@@ -58,37 +58,83 @@ func TestRetention(t *testing.T) {
 				"2026-12-27_030000", // Sunday, week 52
 				"2026-12-20_030000", // Sunday, week 51
 			},
-			daily: 1, weekly: 2, monthly: 1,
+			recent: 1, daily: 1, weekly: 2, monthly: 1,
 			keep: []string{"2027-01-02_030000", "2026-12-27_030000"},
 		},
 		{
-			name:  "the newest is kept whatever the counts",
-			names: []string{"2026-11-12_030000", "2026-11-11_030000"},
-			daily: 0, weekly: 0, monthly: 0,
+			name:   "the newest is kept whatever the counts",
+			names:  []string{"2026-11-12_030000", "2026-11-11_030000"},
+			recent: 0, daily: 0, weekly: 0, monthly: 0,
 			keep: []string{"2026-11-12_030000"},
 		},
 		{
-			name:  "one snapshot",
-			names: []string{"2026-11-12_030000"},
-			daily: 7, weekly: 4, monthly: 6,
+			name:   "one snapshot",
+			names:  []string{"2026-11-12_030000"},
+			recent: 1, daily: 7, weekly: 4, monthly: 6,
 			keep: []string{"2026-11-12_030000"},
 		},
 		{
-			name:  "nothing",
-			names: nil,
-			daily: 7, weekly: 4, monthly: 6,
+			name:   "nothing",
+			names:  nil,
+			recent: 1, daily: 7, weekly: 4, monthly: 6,
 			keep: nil,
 		},
 		{
-			name:  "only days",
-			names: []string{"2026-11-12_030000", "2026-11-11_030000", "2026-11-10_030000", "2026-11-09_030000", "2026-10-09_030000"},
-			daily: 5, weekly: 1, monthly: 1,
+			name:   "three on one day, the two most recent stay",
+			names:  []string{"2026-11-12_150000", "2026-11-12_090000", "2026-11-12_030000", "2026-11-11_030000"},
+			recent: 2, daily: 1, weekly: 1, monthly: 1,
+			keep: []string{"2026-11-12_150000", "2026-11-12_090000"},
+		},
+		{
+			name:   "three on one day, all three stay",
+			names:  []string{"2026-11-12_150000", "2026-11-12_090000", "2026-11-12_030000", "2026-11-11_030000"},
+			recent: 3, daily: 1, weekly: 1, monthly: 1,
+			keep: []string{"2026-11-12_150000", "2026-11-12_090000", "2026-11-12_030000"},
+		},
+		{
+			name:   "more recent ones asked for than there are",
+			names:  []string{"2026-11-12_150000", "2026-11-12_030000", "2026-10-01_030000", "2025-01-01_030000"},
+			recent: 10, daily: 1, weekly: 1, monthly: 1,
+			keep: []string{"2026-11-12_150000", "2026-11-12_030000", "2026-10-01_030000", "2025-01-01_030000"},
+		},
+		{
+			name: "the day rule reaches past the most recent ones, and counts from the newest",
+			names: []string{
+				"2026-11-12_150000", // most recent; first day
+				"2026-11-12_090000", // most recent
+				"2026-11-12_030000", // same day, no longer among the most recent: goes
+				"2026-11-11_210000", // second day
+				"2026-11-11_030000", // same day: goes
+				"2026-11-10_030000", // third day
+				"2026-11-09_030000", // a fourth day: goes
+			},
+			recent: 2, daily: 3, weekly: 1, monthly: 1,
+			keep: []string{"2026-11-12_150000", "2026-11-12_090000", "2026-11-11_210000", "2026-11-10_030000"},
+		},
+		{
+			name: "every six hours for three days, with the defaults",
+			names: []string{
+				"2026-11-12_210000", "2026-11-12_150000", "2026-11-12_090000", "2026-11-12_030000",
+				"2026-11-11_210000", "2026-11-11_150000", "2026-11-11_090000", "2026-11-11_030000",
+				"2026-11-10_210000", "2026-11-10_150000", "2026-11-10_090000", "2026-11-10_030000",
+			},
+			recent: 8, daily: 7, weekly: 4, monthly: 6,
+			keep: []string{
+				"2026-11-12_210000", "2026-11-12_150000", "2026-11-12_090000", "2026-11-12_030000",
+				"2026-11-11_210000", "2026-11-11_150000", "2026-11-11_090000", "2026-11-11_030000",
+				"2026-11-10_210000", // the newest of the third day
+			},
+		},
+		{
+			name:   "only days",
+			names:  []string{"2026-11-12_030000", "2026-11-11_030000", "2026-11-10_030000", "2026-11-09_030000", "2026-10-09_030000"},
+			recent: 1, daily: 5, weekly: 1, monthly: 1,
 			keep: []string{"2026-11-12_030000", "2026-11-11_030000", "2026-11-10_030000", "2026-11-09_030000", "2026-10-09_030000"},
 		},
 	}
 
 	for _, c := range cases {
-		keep, remove := retention(c.names, c.daily, c.weekly, c.monthly)
+		keep, remove := retention(c.names, c.recent, c.daily, c.weekly, c.monthly)
 		if !reflect.DeepEqual(keep, c.keep) {
 			t.Errorf("%s: keeps %v, want %v", c.name, keep, c.keep)
 		}
@@ -110,7 +156,7 @@ func TestRetentionNeverNamesAnythingElse(t *testing.T) {
 		"2026-11-12_03000", "2026-11-12-030000", "2026-13-45_999999", "2026-11-12_030000\n",
 	}
 	names := append([]string{"2026-11-12_030000", "2026-11-11_030000", "2026-11-10_030000"}, strangers...)
-	keep, remove := retention(names, 1, 1, 1)
+	keep, remove := retention(names, 1, 1, 1, 1)
 	if !reflect.DeepEqual(keep, []string{"2026-11-12_030000"}) {
 		t.Errorf("keeps %q", keep)
 	}
@@ -120,11 +166,11 @@ func TestRetentionNeverNamesAnythingElse(t *testing.T) {
 }
 
 func TestKeepCounts(t *testing.T) {
-	if d, w, m := keepCounts(utils.SnapshotsConfig{}); d != 7 || w != 4 || m != 6 {
-		t.Errorf("defaults: %d, %d, %d", d, w, m)
+	if r, d, w, m := keepCounts(utils.SnapshotsConfig{}); r != 8 || d != 7 || w != 4 || m != 6 {
+		t.Errorf("defaults: %d, %d, %d, %d", r, d, w, m)
 	}
-	if d, w, m := keepCounts(utils.SnapshotsConfig{KeepDaily: 30, KeepWeekly: 1, KeepMonthly: 12}); d != 30 || w != 1 || m != 12 {
-		t.Errorf("set: %d, %d, %d", d, w, m)
+	if r, d, w, m := keepCounts(utils.SnapshotsConfig{KeepRecent: 2, KeepDaily: 30, KeepWeekly: 1, KeepMonthly: 12}); r != 2 || d != 30 || w != 1 || m != 12 {
+		t.Errorf("set: %d, %d, %d, %d", r, d, w, m)
 	}
 }
 
@@ -157,7 +203,7 @@ func TestPruneRemovesOnlySnapshots(t *testing.T) {
 	write(t, filepath.Join(cfg.Destination, "2020-01-03_000000", "keep.txt"), "another folder", 0644)
 	write(t, filepath.Join(cfg.Destination, "other-source", "2020-01-04_000000", "keep.txt"), "another source", 0644)
 
-	removed, err := prune(cfg.Destination, source, 2, 1, 2)
+	removed, err := prune(cfg.Destination, source, 1, 2, 1, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +233,7 @@ func TestPruneRemovesOnlySnapshots(t *testing.T) {
 	}
 
 	// again: nothing more to remove
-	if removed, err := prune(cfg.Destination, source, 2, 1, 2); err != nil || len(removed) != 0 {
+	if removed, err := prune(cfg.Destination, source, 1, 2, 1, 2); err != nil || len(removed) != 0 {
 		t.Errorf("second prune removed %v, %v", removed, err)
 	}
 }

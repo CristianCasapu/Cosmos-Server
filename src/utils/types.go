@@ -350,8 +350,10 @@ type UPnPConfig struct {
 // which a file that did not change is a hard link to the previous copy.
 // Frequency is "6h", "12h", "daily" (also when empty) or "weekly"; Time
 // ("HH:MM", empty means 03:00) is the time of day it is counted from; Weekday
-// (0 = Sunday) is the day of a weekly run. The Keep counts say how many days,
-// weeks and months keep their newest snapshot; 0 means 7, 4 and 6.
+// (0 = Sunday) is the day of a weekly run. KeepRecent is how many of the
+// newest snapshots stay whatever their date (0 means 8); the other Keep
+// counts say how many days, weeks and months keep their newest snapshot (0
+// means 7, 4 and 6).
 //
 // The values are checked by snapshots.ValidateConfig when the settings are
 // saved and before every run. There are no validate tags on purpose: a tag
@@ -364,6 +366,7 @@ type SnapshotsConfig struct {
 	Frequency   string
 	Time        string
 	Weekday     int
+	KeepRecent  int
 	KeepDaily   int
 	KeepWeekly  int
 	KeepMonthly int

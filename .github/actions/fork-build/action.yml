@@ -76,9 +76,10 @@ runs:
       shell: bash
       run: |
         go test ./src/utils/ -run 'DeliverEmail|UsesImplicitTLS' -count=1
-        go test ./src/upnp/ ./src/configapi/ -count=1
+        go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ -count=1
+        go test ./src/utils/ -run 'WriteFileAtomic|SaveConfigTofile|Timezone' -count=1
         go test ./src/ -run 'CompareVersions|ForkBuild|MaintenanceTime|MaintenanceDue|ServerUpdateRoute|BackupScheduled|BackupDue' -count=1
-        go test ./src/docker/ -run 'StopTimeout|ContainerGone' -count=1
+        go test ./src/docker/ -run 'StopTimeout|ContainerGone|VolumeHostPath' -count=1
         go test ./src/proxy/ -run 'AvahiLive|IsLocalAddress|IsLocalVisitor|LocalNetworkOnly' -count=1 # compiles it; the test itself needs an Avahi daemon
 
     - name: Build the server and the launcher

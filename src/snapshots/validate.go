@@ -146,7 +146,7 @@ func ValidateConfig(cfg *utils.SnapshotsConfig) error {
 	if cfg.Weekday < 0 || cfg.Weekday > 6 {
 		return fmt.Errorf("%s: the day of the week must be between 0 (Sunday) and 6 (Saturday)", label)
 	}
-	for _, keep := range []int{cfg.KeepDaily, cfg.KeepWeekly, cfg.KeepMonthly} {
+	for _, keep := range []int{cfg.KeepRecent, cfg.KeepDaily, cfg.KeepWeekly, cfg.KeepMonthly} {
 		if keep < 0 || keep > maxKeep {
 			return fmt.Errorf("%s: the number of snapshots to keep must be between 0 and %d", label, maxKeep)
 		}

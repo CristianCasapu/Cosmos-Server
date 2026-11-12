@@ -45,7 +45,7 @@ func TestValidateConfigAccepts(t *testing.T) {
 		},
 		{
 			"every setting at its limit",
-			utils.SnapshotsConfig{Enabled: true, Destination: "/backups", Sources: []string{"/data"}, Frequency: "weekly", Time: "23:59", Weekday: 6, KeepDaily: 365, KeepWeekly: 365, KeepMonthly: 365},
+			utils.SnapshotsConfig{Enabled: true, Destination: "/backups", Sources: []string{"/data"}, Frequency: "weekly", Time: "23:59", Weekday: 6, KeepRecent: 365, KeepDaily: 365, KeepWeekly: 365, KeepMonthly: 365},
 			"/backups", []string{"/data"},
 		},
 		{
@@ -135,6 +135,8 @@ func TestValidateConfigRefuses(t *testing.T) {
 		"weekday below 0":                            func(cfg *utils.SnapshotsConfig) { cfg.Weekday = -1 },
 		"weekday above 6":                            func(cfg *utils.SnapshotsConfig) { cfg.Weekday = 7 },
 		"negative keep":                              func(cfg *utils.SnapshotsConfig) { cfg.KeepDaily = -1 },
+		"negative number of recent ones":             func(cfg *utils.SnapshotsConfig) { cfg.KeepRecent = -1 },
+		"keep too many recent ones":                  func(cfg *utils.SnapshotsConfig) { cfg.KeepRecent = 366 },
 		"keep too many weeks":                        func(cfg *utils.SnapshotsConfig) { cfg.KeepWeekly = 366 },
 		"keep too many months":                       func(cfg *utils.SnapshotsConfig) { cfg.KeepMonthly = 1000 },
 	}

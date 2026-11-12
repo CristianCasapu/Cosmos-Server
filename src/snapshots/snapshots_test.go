@@ -24,8 +24,7 @@ func TestMain(m *testing.M) {
 }
 
 // day is three o'clock at night on a day of November 2026. The tests take
-// their snapshots on different days: of two taken on the same day, the
-// retention only keeps the newer one.
+// their snapshots on different days, as a daily schedule does.
 func day(n int) time.Time {
 	return time.Date(2026, 11, n, 3, 0, 0, 0, time.Local)
 }
@@ -834,15 +833,26 @@ func TestTwoSnapshotsInTheSameSecond(t *testing.T) {
 	if filepath.Base(first) != "2026-11-12_030000" || filepath.Base(second) != "2026-11-12_030001" || !exists(second) {
 		t.Errorf("two runs in one second: %s and %s", first, second)
 	}
-	// the second one was linked to the first before the retention removed the
-	// first: of one day, only the newest snapshot stays
 	if meta.BytesCopied != 0 || meta.BytesLinked != int64(len("content")) {
 		t.Errorf("the second snapshot: %+v", meta)
 	}
-	if exists(first) {
-		t.Error("the older snapshot of the same day was kept")
+	// both are among the most recent ones, which stay although they are of one day
+	if !exists(first) || len(List(cfg.Destination, source)) != 2 {
+		t.Error("the earlier snapshot of the same day is gone")
 	}
-	if got := read(t, filepath.Join(second, "file.txt")); got != "content" {
+
+	// with fewer recent ones kept, the day rule decides: the newest of the day stays
+	cfg.KeepRecent = 2
+	third, _ := snap(t, cfg, source, day(12))
+	if exists(first) || !exists(second) || !exists(third) {
+		t.Errorf("keeping the 2 most recent: first %v, second %v, third %v", exists(first), exists(second), exists(third))
+	}
+	cfg.KeepRecent = 1
+	fourth, _ := snap(t, cfg, source, day(12))
+	if list := List(cfg.Destination, source); len(list) != 1 || list[0].ID != filepath.Base(fourth) {
+		t.Errorf("keeping the most recent only: %+v", list)
+	}
+	if got := read(t, filepath.Join(fourth, "file.txt")); got != "content" {
 		t.Errorf("the file in the snapshot that stays: %q", got)
 	}
 }
@@ -1007,7 +1017,7 @@ func TestRunAll(t *testing.T) {
 	if _, kept := GetStatus().LastResults[missing]; kept {
 		t.Error("the result of a folder that is no longer configured is still reported")
 	}
-	// (the runs of this test happen on one day, so each replaces the one before)
+	// (the runs of this test follow each other within seconds: the newest tells them apart)
 	if id := newest(); id <= last {
 		t.Errorf("the second run made no snapshot: newest is %s, was %s", id, last)
 	}

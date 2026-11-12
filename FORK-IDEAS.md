@@ -21,8 +21,13 @@ upstream 0.23.4 unless noted and may have moved.
    (`docker-compose.jsx`, `newServiceForm.jsx`), showing local and external
    links apart on the app cards, attaching or detaching a domain later
    without creating the route by hand, and a hint in the dialog when the
-   router port is not forwarded.
-3. **Incremental backups.** Upstream's incremental (restic) backup is a paid
+   router port is not forwarded. (The market installer and the new-container
+   form are done.)
+3. **Incremental backups: done** as the fork's own snapshots module. Ideas
+   left: an exclude list, a guard against snapshotting an unmounted (empty)
+   source, optional stop/start of the apps around a run, removing old
+   `.before-restore-*` folders, encryption.
+3b. **(history)** Upstream's incremental (restic) backup is a paid
    feature and its settings field is disabled without a licence. The owner
    wants incremental backups; the licence's anti-tampering clause speaks of
    circumventing or avoiding a paywall or feature restriction "directly or
@@ -34,21 +39,15 @@ upstream 0.23.4 unless noted and may have moved.
 | # | Gap | Where |
 | --- | --- | --- |
 | 1 | No choice of where an app's data goes at install (config vs bulk data, per disk); named volumes land in Docker's root | install wizard, `DefaultDataPath` only |
-| 2 | Disks mounted outside `/mnt` are invisible: no graphs, no "disk full" alert for `/storage` and `/archive` | `src/storage/mounts.go:44-47`, `src/metrics/system.go:141-143` |
 | 3 | No system-health overview (certificate expiry, failed jobs, stopped containers, full disks); the container-updates banner never shows (`.length` on a map) | `servapps.jsx:296` |
-| 4 | Time zone is never supplied to containers installed from Cosmos | `TZ=auto` handling in `api_blueprint.go` |
 | 5 | Host ports: no conflict check before a container is created, no overview | container forms |
 | 6 | The new-container form ignores what the image declares (volumes, ports, env) although the API exists | `GET /api/images?imageName=` unused |
-| 7 | Settings forms drop their help texts (19 never rendered) and validate almost nothing | `formShortcuts.jsx`, `configHTTP.jsx:58` typo `allowHTTPLocalIPAccess` |
 | 9 | Cron expressions are typed by hand in three forms (no presets, no validation) | cron, backups, SnapRAID forms; PR #596 upstream adds 5-field crontabs |
 | 10 | "Provided" certificate mode and certificate status | check again on 0.24.0, the Domains tab changed this |
-| 11 | File picker always opens at `/`, no shortcuts to the data disks | `components/filePicker.jsx` |
 | 12 | Mounting a disk: device typed by hand, fstab entry by `/dev/sdX` without `nofail` | storage mounts dialog |
 | 13 | Docker volumes: no location, size or "used by" | volumes page |
-| 14 | Volume paths assume `/var/lib/docker` (here Docker lives on `/storage/docker`) | `containers/volumes.jsx:64`, `src/docker/backups.go:128-129`, upstream #478 |
-| 15 | Alerts: "reset to default" writes a broken key; wildcard alerts never fire; email failures are not recorded | `AlertPage.jsx:323-335`, `src/metrics/alerts.go:21,33-39` |
 
-(8, a configurable maintenance time, is done.)
+(2 data disks, 4 time zone, 7 help texts, 8 maintenance time, 11 file picker shortcuts, 14 volume paths and 15 alerts are done; see `FORK.md`.)
 
 ## Defects found by reading the code (upstream, not fixed here yet)
 
@@ -56,10 +55,7 @@ Confirmed by reading only, on 0.23.4; re-check on 0.24.0 before fixing.
 
 - **Self-signed mode: every full config save wipes the CA and certificate**, so browsers must accept a new one each time.
 - **SmartShield can ban a LAN device permanently**, including from the Cosmos UI (`src/proxy/shield.go`; 0.24.0 rewrote the shield and added a whitelist: re-check).
-- **Config file is rewritten in place**; a crash mid-write leaves it empty and Cosmos does not start (upstream #591). A fix exists in `aseracorp/unstable` commit `779d90db` (take only the `src/utils` and `src/cron` parts).
 - **Editing a container removes it before creating the new one**, with no way back if creation fails; memory and CPU limits are reset by any partial update (fix in `aseracorp/unstable` commit `7f7bdca7`).
-- **Network tab "Update ports" drops the host IP of a binding**, so a port bound to `127.0.0.1` becomes public (upstream #611; #610 is fixed in 0.24.0).
-- **Saving the Volumes tab makes every mount read-write.**
 - **Two-factor codes: no attempt limit; `GET /cosmos/api/mfa` resets a verified secret.**
 - **In HTTPS mode the HTTP port answers 404 instead of redirecting** (still so on 0.24.0, seen in a test; upstream PR #576).
 - **If Let's Encrypt fails the server starts on plain HTTP only**, although it announces a self-signed fallback.

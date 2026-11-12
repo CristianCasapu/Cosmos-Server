@@ -29,7 +29,7 @@ import { PERM_ADMIN } from '../../utils/permissions';
 import { notify } from '../../utils/activity';
 import { simplifyNumber } from '../dashboard/components/utils';
 
-const DEFAULT_KEEP = { Daily: 7, Weekly: 4, Monthly: 6 };
+const DEFAULT_KEEP = { Recent: 8, Daily: 7, Weekly: 4, Monthly: 6 };
 const SHOWN_AT_FIRST = 5;
 const POLL_EVERY = 3000;
 
@@ -44,6 +44,7 @@ export const snapshotsInitialValues = (config) => {
     Snapshots_Frequency: saved.Frequency || 'daily',
     Snapshots_Time: saved.Time || '03:00',
     Snapshots_Weekday: String(saved.Weekday || 0),
+    Snapshots_KeepRecent: saved.KeepRecent || DEFAULT_KEEP.Recent,
     Snapshots_KeepDaily: saved.KeepDaily || DEFAULT_KEEP.Daily,
     Snapshots_KeepWeekly: saved.KeepWeekly || DEFAULT_KEEP.Weekly,
     Snapshots_KeepMonthly: saved.KeepMonthly || DEFAULT_KEEP.Monthly,
@@ -68,6 +69,7 @@ export const snapshotsToConfig = (values) => ({
   Frequency: values.Snapshots_Frequency || 'daily',
   Time: values.Snapshots_Time || '03:00',
   Weekday: Number(values.Snapshots_Weekday) || 0,
+  KeepRecent: Number(values.Snapshots_KeepRecent) || 0,
   KeepDaily: Number(values.Snapshots_KeepDaily) || 0,
   KeepWeekly: Number(values.Snapshots_KeepWeekly) || 0,
   KeepMonthly: Number(values.Snapshots_KeepMonthly) || 0,
@@ -98,6 +100,7 @@ export const snapshotsValidation = (t) => {
     }),
     Snapshots_Time: Yup.string().matches(/^([01]\d|2[0-3]):[0-5]\d$/,
       t('mgmt.config.update.timeValidation', 'Enter a time as HH:MM, for example 02:00')),
+    Snapshots_KeepRecent: keep,
     Snapshots_KeepDaily: keep,
     Snapshots_KeepWeekly: keep,
     Snapshots_KeepMonthly: keep,
@@ -333,6 +336,13 @@ const Snapshots = ({ formik, config }) => {
 
         {/* how long */}
         <CosmosInputText
+          label={t('mgmt.config.snapshots.keepRecent', 'Most recent snapshots that always stay, however close together they were made')}
+          name="Snapshots_KeepRecent"
+          type="number"
+          inputProps={{ min: 1, max: 365, step: 1, inputMode: 'numeric' }}
+          formik={formik}
+        />
+        <CosmosInputText
           label={t('mgmt.config.snapshots.keepDaily', 'Days to go back: the newest snapshot of each of the last … days is kept')}
           name="Snapshots_KeepDaily"
           type="number"
@@ -356,7 +366,7 @@ const Snapshots = ({ formik, config }) => {
         <Grid item xs={12}>
           <Typography variant="caption" color="text.secondary">
             {t('mgmt.config.snapshots.keepNote',
-              'After each run the snapshots that are not kept by one of these rules are removed. Of several snapshots made on the same day only the newest stays.')}
+              'After each run the snapshots that are not kept by one of these rules are removed. Several snapshots made on the same day all stay while they are among the most recent ones; after that only the newest of that day stays.')}
           </Typography>
         </Grid>
 

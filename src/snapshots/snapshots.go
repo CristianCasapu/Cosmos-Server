@@ -521,8 +521,8 @@ func snapshotSource(cfg utils.SnapshotsConfig, source string, now time.Time) (id
 		return unwritable(err)
 	}
 
-	daily, weekly, monthly := keepCounts(cfg)
-	removed, errPrune := prune(cfg.Destination, source, daily, weekly, monthly)
+	recent, daily, weekly, monthly := keepCounts(cfg)
+	removed, errPrune := prune(cfg.Destination, source, recent, daily, weekly, monthly)
 	if len(removed) > 0 {
 		utils.Log(fmt.Sprintf("Snapshots: %s: removed %d old snapshot(s)", source, len(removed)))
 	}

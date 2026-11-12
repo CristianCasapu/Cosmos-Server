@@ -9,6 +9,7 @@ import (
 )
 
 const (
+	defaultKeepRecent  = 8
 	defaultKeepDaily   = 7
 	defaultKeepWeekly  = 4
 	defaultKeepMonthly = 6
@@ -16,8 +17,11 @@ const (
 
 // keepCounts returns the retention of the settings, with the defaults where
 // nothing is set.
-func keepCounts(cfg utils.SnapshotsConfig) (daily int, weekly int, monthly int) {
-	daily, weekly, monthly = cfg.KeepDaily, cfg.KeepWeekly, cfg.KeepMonthly
+func keepCounts(cfg utils.SnapshotsConfig) (recent int, daily int, weekly int, monthly int) {
+	recent, daily, weekly, monthly = cfg.KeepRecent, cfg.KeepDaily, cfg.KeepWeekly, cfg.KeepMonthly
+	if recent <= 0 {
+		recent = defaultKeepRecent
+	}
 	if daily <= 0 {
 		daily = defaultKeepDaily
 	}
@@ -27,15 +31,18 @@ func keepCounts(cfg utils.SnapshotsConfig) (daily int, weekly int, monthly int) 
 	if monthly <= 0 {
 		monthly = defaultKeepMonthly
 	}
-	return daily, weekly, monthly
+	return recent, daily, weekly, monthly
 }
 
 // retention sorts snapshot names into those to keep and those to remove. Kept
-// are the newest snapshot of each of the last `daily` days, of each of the
-// last `weekly` ISO weeks and of each of the last `monthly` months in which
-// there is a snapshot, and always the newest one of all. A name that is not a
+// are the newest `recent` snapshots whatever their dates, so that several
+// made on one day all stay for a while; the newest snapshot of each of the
+// last `daily` days, of each of the last `weekly` ISO weeks and of each of
+// the last `monthly` months in which there is a snapshot; and always the
+// newest one of all. Each rule counts from the newest snapshot, and a
+// snapshot stays as long as one of them keeps it. A name that is not a
 // snapshot's is in neither list: it is never removed.
-func retention(names []string, daily int, weekly int, monthly int) (keep []string, remove []string) {
+func retention(names []string, recent int, daily int, weekly int, monthly int) (keep []string, remove []string) {
 	ids := []string{}
 	for _, name := range names {
 		if validID(name) {
@@ -45,8 +52,10 @@ func retention(names []string, daily int, weekly int, monthly int) (keep []strin
 	sort.Sort(sort.Reverse(sort.StringSlice(ids))) // newest first
 
 	kept := map[string]bool{}
-	if len(ids) > 0 {
-		kept[ids[0]] = true
+	for i, id := range ids {
+		if i == 0 || i < recent {
+			kept[id] = true
+		}
 	}
 
 	rules := []struct {
@@ -90,7 +99,7 @@ func retention(names []string, daily int, weekly int, monthly int) (keep []strin
 // prune applies the retention to the snapshots of source and returns the
 // names it removed. It goes on after a snapshot that cannot be removed and
 // reports the first such problem.
-func prune(destination string, source string, daily int, weekly int, monthly int) (removed []string, err error) {
+func prune(destination string, source string, recent int, daily int, weekly int, monthly int) (removed []string, err error) {
 	dir, err := slugDir(destination, source)
 	if err != nil {
 		return nil, err
@@ -99,7 +108,7 @@ func prune(destination string, source string, daily int, weekly int, monthly int
 	for _, snapshot := range listSnapshots(dir) {
 		names = append(names, snapshot.ID)
 	}
-	_, remove := retention(names, daily, weekly, monthly)
+	_, remove := retention(names, recent, daily, weekly, monthly)
 	for _, id := range remove {
 		if errRemove := removeSnapshotDir(destination, source, id); errRemove != nil {
 			if err == nil {
