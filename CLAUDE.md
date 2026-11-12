@@ -41,6 +41,16 @@ These apply to every change, however small.
   and the server installs releases by itself. Never commit to `production`
   directly: work on `custom`, wait for its checks, then run
   `scripts/fork-promote.sh`. `custom` is not deployed, but keep it releasable.
+- **Merging upstream.** The daily sync only merges what applies cleanly and
+  passes the checks. When it cannot (an issue titled "Upstream vX.Y.Z does not
+  merge cleanly..." is open), nothing is forced: the merge waits for a Claude
+  session. Resolve it on `custom` (`git merge vX.Y.Z`). The owner's rule for
+  conflicts: **what the fork has wins**. Keep the fork's behaviour and
+  additions, and re-apply them on top of upstream's new code when upstream
+  restructured the surroundings (taking "ours" blindly can leave code that no
+  longer fits). Never drop a fork feature to make a merge easier; if keeping
+  it is not possible, stop and ask. Then build, test, start the build on a
+  copy of the production configuration, and only then promote.
 - **Keep the diff against upstream small.** Prefer a new file plus a one-line
   hook over editing upstream code, so the daily upstream merge keeps applying
   cleanly. Mark additions with a `Fork addition:` comment.
@@ -61,9 +71,34 @@ CGO_ENABLED=0 go build -o /tmp/cosmos src/*.go
 CGO_ENABLED=0 go build -o /tmp/cosmos-launcher ./src/launcher/launcher.go ./src/launcher/update.go
 go test ./src/utils/ -run 'DeliverEmail|UsesImplicitTLS' -count=1
 go test ./src/upnp/ ./src/configapi/ -count=1
-go test ./src/ -run 'CompareVersions|ForkBuild' -count=1
+go test ./src/ -run 'CompareVersions|ForkBuild|MaintenanceTime|MaintenanceDue|ServerUpdateRoute' -count=1
+go test ./src/docker/ -run 'StopTimeout|ContainerGone' -count=1
 
 # UI (output in ./static, which is git-ignored)
 npm ci --ignore-scripts --no-audit --no-fund
 npx vite build --base=/cosmos-ui/
 ```
+
+## Checking the UI in a browser
+
+There is no browser on the server and the pages need a login, so UI work is
+checked against a throwaway instance with a headless browser. Never point this
+at the production instance.
+
+```sh
+# 1. build ./static and the server binary (see above) into a scratch folder with a meta.json,
+#    start it in a container on its own Docker network (name: cosmos-smoke, port 18080,
+#    COSMOS_CONFIG_FOLDER inside the container, no Docker socket)
+# 2. finish the setup wizard over the API (POST /cosmos/api/newInstall with step 2, then
+#    step 3 {httpsCertificateMode: "DISABLED", hostname: "cosmos-smoke"}, step 4 {nickname,
+#    password}, step 5), then start the binary again: step 5 exits the process
+# 3. run the checks from the Playwright image on the same network
+docker run --rm --network <net> --ipc=host -v <dir with fork-ui-check.mjs>:/work -w /work \
+  mcr.microsoft.com/playwright:v1.49.1-noble sh -c 'npm i playwright@1.49.1 && node fork-ui-check.mjs'
+```
+
+`scripts/fork-ui-check.mjs` logs in, confirms the password (`/api/sudo`: most
+admin actions need it), visits the main pages in three engines and at phone
+width, and reports script errors. Look at the screenshots it writes. Errors
+about containers are expected: the test instance has no Docker. Remove the
+container, the network and the scratch folders afterwards.
