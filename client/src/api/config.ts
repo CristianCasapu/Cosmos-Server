@@ -56,6 +56,25 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }))
   }
 
+  // Fork addition: UPnP port forwarding status; retry re-applies the saved settings now.
+  function upnpStatus() {
+    return wrap(apiFetch('/cosmos/api/upnp', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }))
+  }
+
+  function upnpRetry() {
+    return wrap(apiFetch('/cosmos/api/upnp', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }))
+  }
+
   async function rawUpdateRoute(routeName: string, operation: Operation, newRoute?: Route): Promise<ApiResponse> {
     const payload = {
       routeName,
@@ -179,6 +198,8 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     addRoute,
     canSendEmail,
     testEmail,
+    upnpStatus,
+    upnpRetry,
     getBackup,
     getDashboard,
     updateDNS,

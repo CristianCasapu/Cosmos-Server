@@ -21,6 +21,16 @@ import PrettyTabbedView from '../../components/tabbedView/tabbedView';
 
 import { useTranslation } from 'react-i18next';
 
+// Fork addition: an empty value or a port number between 1 and 65535.
+const optionalPort = (t) => Yup.string().test(
+  'port',
+  t('mgmt.config.internet.upnp.portValidation', 'Enter a port between 1 and 65535, or leave empty'),
+  (value) => {
+    const text = String(value || '').trim();
+    return text === '' || (/^\d{1,5}$/.test(text) && Number(text) >= 1 && Number(text) <= 65535);
+  },
+);
+
 import ConfigGeneral from './configGeneral';
 import ConfigHTTP from './configHTTP';
 import ConfigHTTPS from './configHTTPS';
@@ -153,6 +163,10 @@ const ConfigManagement = () => {
           AllowSearchEngine: config.HTTPConfig.AllowSearchEngine,
           AllowHTTPLocalIPAccess: config.HTTPConfig.AllowHTTPLocalIPAccess,
           PublishMDNS: config.HTTPConfig.PublishMDNS,
+          UPnP_Enabled: Boolean(config.HTTPConfig.UPnP && config.HTTPConfig.UPnP.Enabled),
+          UPnP_ForwardHTTP: Boolean(config.HTTPConfig.UPnP && config.HTTPConfig.UPnP.ForwardHTTP),
+          UPnP_ExternalHTTPSPort: (config.HTTPConfig.UPnP && config.HTTPConfig.UPnP.ExternalHTTPSPort) || '',
+          UPnP_ExternalHTTPPort: (config.HTTPConfig.UPnP && config.HTTPConfig.UPnP.ExternalHTTPPort) || '',
 
           Email_Enabled: config.EmailConfig.Enabled,
           Email_Host: config.EmailConfig.Host,
@@ -191,6 +205,8 @@ const ConfigManagement = () => {
         validationSchema={Yup.object().shape({
           Hostname: Yup.string().max(255).required(t('mgmt.config.http.hostnameInput.HostnameValidation')),
           LoggingLevel: Yup.string().max(255).required(t('mgmt.config.general.logLevelInput.logLevelValidation')),
+          UPnP_ExternalHTTPSPort: optionalPort(t),
+          UPnP_ExternalHTTPPort: optionalPort(t),
         })}
 
         onSubmit={async (values, { setSubmitting }) => {
@@ -245,6 +261,12 @@ const ConfigManagement = () => {
               AllowSearchEngine: values.AllowSearchEngine,
               AllowHTTPLocalIPAccess: values.AllowHTTPLocalIPAccess,
               PublishMDNS: values.PublishMDNS,
+              UPnP: {
+                Enabled: Boolean(values.UPnP_Enabled),
+                ForwardHTTP: Boolean(values.UPnP_ForwardHTTP),
+                ExternalHTTPSPort: String(values.UPnP_ExternalHTTPSPort || '').trim(),
+                ExternalHTTPPort: String(values.UPnP_ExternalHTTPPort || '').trim(),
+              },
             },
             EmailConfig: {
               ...config.EmailConfig,

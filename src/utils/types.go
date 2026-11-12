@@ -292,7 +292,19 @@ type HTTPConfig struct {
 	AllowSearchEngine bool
 	PublishMDNS bool
 	TrustedProxies []string
+	UPnP UPnPConfig // fork addition, see src/upnp
 } 
+
+// UPnPConfig (fork addition) asks the router to forward Cosmos' own ports.
+// The HTTPS port is forwarded whenever this is enabled and HTTPS is on; the
+// plain HTTP port only if ForwardHTTP is set. An empty external port means
+// "same as the internal one".
+type UPnPConfig struct {
+	Enabled           bool
+	ForwardHTTP       bool
+	ExternalHTTPSPort string `validate:"omitempty,numeric,max=5"`
+	ExternalHTTPPort  string `validate:"omitempty,numeric,max=5"`
+}
 
 const (
 	STRICT = 1

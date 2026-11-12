@@ -5,6 +5,7 @@ import (
 		"github.com/azukaar/cosmos-server/src/utils"
 		"github.com/azukaar/cosmos-server/src/user"
 		"github.com/azukaar/cosmos-server/src/configapi"
+		"github.com/azukaar/cosmos-server/src/upnp"
 		"github.com/azukaar/cosmos-server/src/proxy"
 		"github.com/azukaar/cosmos-server/src/docker"
 		"github.com/azukaar/cosmos-server/src/authorizationserver"
@@ -58,6 +59,8 @@ func startHTTPServer(router *mux.Router) error {
 	if utils.GetMainConfig().HTTPConfig.PublishMDNS {
 		proxy.PublishAllMDNSFromConfig()
 	}
+
+	upnp.Apply() // fork addition: router port forwarding, if enabled
 
 	utils.Log("Listening to HTTP on : 0.0.0.0:" + serverPortHTTP)
 
@@ -207,6 +210,8 @@ func startHTTPSServer(router *mux.Router) error {
 	if config.HTTPConfig.PublishMDNS {
 		proxy.PublishAllMDNSFromConfig()
 	}
+
+	upnp.Apply() // fork addition: router port forwarding, if enabled
 
 	utils.Log("Now listening to HTTPS on :" + serverPortHTTPS)
 
@@ -656,6 +661,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/config", configapi.ConfigRoute)
 	srapiAdmin.HandleFunc("/api/config/dns", configapi.ConfigApiDNS)
 	srapiAdmin.HandleFunc("/api/config/test-email", configapi.ConfigApiTestEmail)
+	srapiAdmin.HandleFunc("/api/upnp", upnp.StatusRoute)
 	srapiAdmin.HandleFunc("/api/_memory", MemStatusRoute)
 	srapiAdmin.HandleFunc("/api/restart", configapi.ConfigApiRestart)
 	

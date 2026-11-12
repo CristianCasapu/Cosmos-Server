@@ -41,6 +41,17 @@ function testEmail(emailConfig, recipient = '') {
   });
 }
 
+function upnpStatus() {
+  return new Promise((resolve, reject) => {
+    resolve({
+      "status": "OK",
+      "data": { "enabled": false, "mappings": [] }
+    })
+  });
+}
+
+const upnpRetry = upnpStatus;
+
 function canSendEmail() {
   return new Promise((resolve, reject) => {
     resolve({
@@ -122,6 +133,8 @@ export {
   addRoute,
   canSendEmail,
   testEmail,
+  upnpStatus,
+  upnpRetry,
   getDashboard,
   getBackup,
 };

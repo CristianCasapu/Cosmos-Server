@@ -15,6 +15,7 @@ import { CosmosCheckbox, CosmosFormDivider, CosmosInputText } from './users/form
 import CountrySelect from '../../components/countrySelect';
 import { isDomain } from '../../utils/indexs';
 import { Trans, useTranslation } from 'react-i18next';
+import InternetAccess from './internetAccess';
 
 const ConfigHTTP = ({ formik }) => {
   const { t } = useTranslation();
@@ -123,6 +124,8 @@ const ConfigHTTP = ({ formik }) => {
           </Grid>
         </Grid>
       </MainCard>
+
+      <InternetAccess formik={formik} />
 
       <MainCard title={t('global.securityTitle')}>
         <Grid container spacing={3}>
