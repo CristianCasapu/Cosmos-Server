@@ -734,7 +734,8 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
             // CREATE NEW VOLUMES
             if (jsoned.services[key].volumes) {
               jsoned.services[key].volumes.forEach((volume) => {
-                if (typeof volume === 'object' && !volume.source.startsWith('/') && !volume.existing) {
+                // Fork addition: a tmpfs mount has no source (volume.source && ...)
+                if (typeof volume === 'object' && volume.source && !volume.source.startsWith('/') && !volume.existing) {
                   newVolumes.push(volume);
                 } else if (typeof volume === 'object' && volume.existing) {
                   delete volume.existing;

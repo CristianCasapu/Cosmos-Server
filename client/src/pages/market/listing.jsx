@@ -163,8 +163,9 @@ const MarketPage = () => {
 
   let openedApp = null;
   if (appName && Object.keys(apps).length > 0) {
-    openedApp = apps[appStore].find((app) => app.name === appName);
-    openedApp.appstore = appStore;
+    // Fork addition: an app or a source that is not in the list (old link, removed source) crashed the page
+    openedApp = (apps[appStore] || []).find((app) => app.name === appName) || null;
+    if (openedApp) openedApp.appstore = appStore;
   }
 
   let appList = apps && Object.keys(apps).reduce((acc, appstore) => {

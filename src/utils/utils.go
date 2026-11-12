@@ -540,15 +540,12 @@ func SaveConfigTofile(config Config) {
 	configFile := GetConfigFileName()
 	CreateDefaultConfigFileIfNecessary()
 
-	file, err := os.OpenFile(configFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		Fatal("Opening Config File", err)
-	}
-	defer file.Close()
-
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
-	err = encoder.Encode(config)
+	// Fork addition: written beside the file and renamed over it, see fork_atomic_write.go
+	err := writeFileAtomic(configFile, 0600, func(file io.Writer) error {
+		encoder := json.NewEncoder(file)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(config)
+	})
 	if err != nil {
 		Fatal("Writing Config File", err)
 	}

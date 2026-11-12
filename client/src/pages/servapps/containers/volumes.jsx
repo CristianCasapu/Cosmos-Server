@@ -24,6 +24,7 @@ import { Backups } from "../../backups/backups";
 import BackupDialog from "../../backups/backupDialog";
 import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_RESOURCES } from '../../../utils/permissions';
+import { bindIsReadOnly, mountHostPath } from './forkContainerFixes'; // Fork addition: read-only mounts, real volume folders
 
 const VolumeContainerSetup = ({
   noCard,
@@ -58,9 +59,7 @@ const VolumeContainerSetup = ({
   };
 
   const formatSource = (mount) => {
-    if (!mount) return null;
-    if (mount.startsWith("/")) return mount;
-    else return "/var/lib/docker/volumes/" + mount + "/_data";
+    return mountHostPath(mount, volumes); // Fork addition: where Docker keeps the volume, not always /var/lib/docker
   }
 
   const wrapCard = (children) => {
@@ -78,6 +77,7 @@ const VolumeContainerSetup = ({
             Type: "bind",
             Source: source,
             Target: destination,
+            ReadOnly: bindIsReadOnly(mode), // Fork addition
           };
         }),
       ],
@@ -110,7 +110,7 @@ const VolumeContainerSetup = ({
           Type: volume.Type,
           Source: volume.Source,
           Target: volume.Target,
-          ReadOnly: false, // TODO: add support for this
+          ReadOnly: !!volume.ReadOnly, // Fork addition: was always false, so saving made every mount writable
         })),
       };
       return API.docker
