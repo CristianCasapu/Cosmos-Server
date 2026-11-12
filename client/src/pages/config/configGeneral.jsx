@@ -15,7 +15,7 @@ import {
   Tooltip,
 } from '@mui/material';
 import { CopyOutlined, EyeInvisibleOutlined, EyeOutlined, WarningFilled } from '@ant-design/icons';
-import { CosmosCheckbox, CosmosInputPassword, CosmosInputText } from './users/formShortcuts';
+import { CosmosCheckbox, CosmosInputPassword, CosmosInputText, CosmosSelect } from './users/formShortcuts';
 import { LoadingButton } from '@mui/lab';
 import { useTranslation } from 'react-i18next';
 import { FilePickerButton } from '../../components/filePicker';
@@ -169,6 +169,35 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
               />
             </Stack>
           </Grid>
+
+          {/* Fork addition: when the configuration backup runs */}
+          <CosmosSelect
+            name="BackupFrequency"
+            label={t('mgmt.config.backupSchedule.frequency', 'How often the configuration is backed up')}
+            formik={formik}
+            options={[
+              ['2h', t('mgmt.config.backupSchedule.2h', 'Every two hours')],
+              ['6h', t('mgmt.config.backupSchedule.6h', 'Every six hours')],
+              ['12h', t('mgmt.config.backupSchedule.12h', 'Every twelve hours')],
+              ['daily', t('mgmt.config.backupSchedule.daily', 'Once a day')],
+              ['weekly', t('mgmt.config.backupSchedule.weekly', 'Once a week')],
+            ]}
+          />
+          {formik.values.BackupFrequency === 'weekly' && <CosmosSelect
+            name="BackupWeekday"
+            label={t('mgmt.config.backupSchedule.weekday', 'Day of the weekly backup')}
+            formik={formik}
+            options={[1, 2, 3, 4, 5, 6, 0].map((day) => [day,
+              new Date(2026, 10, 15 + day).toLocaleDateString(undefined, { weekday: 'long' })])}
+          />}
+          <CosmosInputText
+            label={['daily', 'weekly'].includes(formik.values.BackupFrequency)
+              ? t('mgmt.config.backupSchedule.timeAt', 'Time of the backup (server time)')
+              : t('mgmt.config.backupSchedule.timeFrom', 'Counted from this time of day (server time)')}
+            name="BackupTime"
+            type="time"
+            formik={formik}
+          />
 
           <Grid item xs={12}>
             <Stack direction={"row"} spacing={2} alignItems="flex-end">

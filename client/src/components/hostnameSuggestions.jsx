@@ -25,6 +25,19 @@ export const configuredDomains = (config) => {
     .filter((zone) => zone && !zone.endsWith('.local'));
 };
 
+// The local address every app gets: a .local name when Cosmos publishes
+// them, otherwise upstream's default (the server's address with a free port).
+export const localAddress = (name, config) => {
+  const label = hostLabel(name);
+  if (label && config && config.HTTPConfig && config.HTTPConfig.PublishMDNS) {
+    return label + '.local';
+  }
+  return getHostnameFromName(name, null, config);
+};
+
+// The external address of an app under one of the configured domains.
+export const externalAddress = (name, domain) => hostLabel(name) + '.' + domain;
+
 export const hostnameSuggestions = (name, config) => {
   const label = hostLabel(name);
   if (!label) {
@@ -38,10 +51,11 @@ export const hostnameSuggestions = (name, config) => {
     }
   };
 
-  configuredDomains(config).forEach((domain) => add(label + '.' + domain, false));
+  // the local address first: every app has one; a domain adds an external one
   if (config && config.HTTPConfig && config.HTTPConfig.PublishMDNS) {
     add(label + '.local', true);
   }
+  configuredDomains(config).forEach((domain) => add(label + '.' + domain, false));
 
   const fallback = getHostnameFromName(name, null, config);
   if (fallback && !fallback.includes(' ')) {
@@ -90,6 +104,48 @@ const HostnameSuggestions = ({ name, value, config, onPick, disabled }) => {
       </Typography>}
     </Stack>
   </Grid>;
+};
+
+// DomainPicker attaches domains to an app that is getting its local address:
+// each selected domain adds an external address. None is selected by default.
+export const DomainPicker = ({ name, config, selected, onChange }) => {
+  const { t } = useTranslation();
+  const domains = configuredDomains(config);
+
+  if (domains.length === 0) {
+    return <Typography variant="caption" color="textSecondary">
+      {t('mgmt.urls.external.noDomain',
+        'This address works on the local network. To also give the app an address reachable from the internet, add a domain in Configuration > Domains.')}
+    </Typography>;
+  }
+
+  const toggle = (domain) => onChange(selected.includes(domain) ? selected.filter((d) => d !== domain) : [...selected, domain]);
+
+  return <Stack spacing={1}>
+    <Typography variant="subtitle2">
+      {t('mgmt.urls.external.title', 'Also reachable from the internet through (optional):')}
+    </Typography>
+    <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+      {domains.map((domain) => (
+        <Chip
+          key={domain}
+          clickable
+          icon={<GlobalOutlined />}
+          color={selected.includes(domain) ? 'primary' : 'default'}
+          variant={selected.includes(domain) ? 'filled' : 'outlined'}
+          label={externalAddress(name, domain) || domain}
+          onClick={() => toggle(domain)}
+          sx={{ maxWidth: '100%' }}
+        />
+      ))}
+    </Stack>
+    <Typography variant="caption" color="textSecondary">
+      {selected.length === 0
+        ? t('mgmt.urls.external.none', 'Nothing selected: the app gets its local address only.')
+        : t('mgmt.urls.external.selected',
+          'One more address is created per selected domain. For it to work from outside, the name must point to this server in DNS and the router must forward the port (Configuration > HTTP > Internet access).')}
+    </Typography>
+  </Stack>;
 };
 
 export default HostnameSuggestions;

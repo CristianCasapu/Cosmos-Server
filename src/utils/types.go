@@ -199,6 +199,13 @@ type Config struct {
 	MonitoringDisabled bool
 	MonitoringAlerts map[string]Alert
 	BackupOutputDir string
+	// Fork addition: when the configuration backup runs. BackupFrequency is
+	// "" or "2h" (every two hours), "6h", "12h", "daily" or "weekly";
+	// BackupTime ("HH:MM") is the time of day it is counted from;
+	// BackupWeekday (0 = Sunday) is the day of a weekly backup.
+	BackupFrequency string `json:"BackupFrequency,omitempty" validate:"omitempty,oneof=2h 6h 12h daily weekly"`
+	BackupTime string `json:"BackupTime,omitempty" validate:"omitempty,len=5"`
+	BackupWeekday int `json:"BackupWeekday,omitempty" validate:"min=0,max=6"`
 	IncrBackupOutputDir string
 	DisableHostModeWarning bool
 	AdminWhitelistIPs []string

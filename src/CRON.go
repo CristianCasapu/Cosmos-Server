@@ -277,8 +277,11 @@ func CRON() {
 		// TODO: change to new CRON executor, wth customizable maintenance schedules
 		
 		s := gocron.NewScheduler()
-		s.Every(2).Hours().Do(func() {
-			go RunBackup()
+		// Fork addition: on the schedule set in the settings (upstream: Every(2).Hours()).
+		s.Every(1).Minute().Do(func() {
+			if backupDue(time.Now()) {
+				go RunBackup()
+			}
 		})
 		s.Every(1).Hours().Do(utils.CleanBannedIPs)
 		s.Every(1).Hours().Do(proxy.CleanUp)

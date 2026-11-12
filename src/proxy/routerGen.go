@@ -183,6 +183,11 @@ func RouterGen(route utils.ProxyRouteConfig, router *mux.Router, destination htt
 	
 	// ":<port>" routes too: the socket proxy hands over the client's real address
 	destination = utils.Restrictions(route.RestrictToConstellation, route.WhitelistInboundIPs)(destination)
+
+	// Fork addition: a local link (.local name, private IP) answers on the local network only.
+	if route.UseHost && isLocalAddress(route.Host) {
+		destination = localNetworkOnly(destination)
+	}
 	
 	if route.BlockCommonBots {
 		destination = BotDetectionMiddleware(destination)

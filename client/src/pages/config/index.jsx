@@ -193,6 +193,10 @@ const ConfigManagement = () => {
           MonitoringEnabled: !config.MonitoringDisabled,
 
           BackupOutputDir: config.BackupOutputDir,
+          // fork addition: when the configuration backup runs
+          BackupFrequency: config.BackupFrequency || '2h',
+          BackupTime: config.BackupTime || '00:00',
+          BackupWeekday: config.BackupWeekday || 0,
           IncrBackupOutputDir: config.Backup && config.Backup.Backups && config.Backup.Backups["Cosmos Internal Backup"] ? config.Backup.Backups["Cosmos Internal Backup"].Repository : "",
 
           AdminWhitelistIPs: config.AdminWhitelistIPs && config.AdminWhitelistIPs.join(', '),
@@ -209,6 +213,8 @@ const ConfigManagement = () => {
           Hostname: Yup.string().max(255).required(t('mgmt.config.http.hostnameInput.HostnameValidation')),
           LoggingLevel: Yup.string().max(255).required(t('mgmt.config.general.logLevelInput.logLevelValidation')),
           BackupOutputDir: hostDirectory(t),
+          BackupTime: Yup.string().matches(/^([01]\d|2[0-3]):[0-5]\d$/,
+            t('mgmt.config.update.timeValidation', 'Enter a time as HH:MM, for example 02:00')),
           DefaultDataPath: hostDirectory(t),
           MaintenanceTime: Yup.string().matches(/^([01]\d|2[0-3]):[0-5]\d$/,
             t('mgmt.config.update.timeValidation', 'Enter a time as HH:MM, for example 02:00')),
@@ -244,6 +250,9 @@ const ConfigManagement = () => {
             CountryBlacklistIsWhitelist: values.CountryBlacklistIsWhitelist,
             MonitoringDisabled: !values.MonitoringEnabled,
             BackupOutputDir: values.BackupOutputDir,
+            BackupFrequency: values.BackupFrequency,
+            BackupTime: values.BackupTime,
+            BackupWeekday: Number(values.BackupWeekday) || 0,
             AdminConstellationOnly: values.AdminConstellationOnly,
             AdminWhitelistIPs: (values.AdminWhitelistIPs && values.AdminWhitelistIPs != "") ?
               values.AdminWhitelistIPs.split(',').map((x) => x.trim()) : [],

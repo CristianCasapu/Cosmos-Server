@@ -15,27 +15,20 @@ upstream 0.23.4 unless noted and may have moved.
    and leave only real choices to the admin. Then go through the other forms
    the same way (new container, route editor, mounts, cron jobs, backups,
    alerts). Plan first, then implement.
-2. **Domains for apps.** The Domains tab (upstream 0.24.0, `HTTPConfig.DNSZones`)
-   is the list of external domains the platform may be reached through. When a
-   URL is created for an app, offer those domains to pick from. One app must be
-   reachable under several domains (today: one hostname per route; either
-   several routes for one app, grouped, or an extra-hosts field that the
-   router, the hostname allow-list, zones and DNS records all honour).
-   `.local` names are for the local network only.
-3. **Remote access per app, off by default.** When an app is installed or
-   given a URL: "allow access from the internet", default off. Off must mean
-   the route answers the local network only (and gets no public DNS record);
-   on makes sure the router forwards the port (UPnP). Today a route has no
-   such flag: restricting to the LAN means typing CIDRs into
-   `WhitelistInboundIPs`, and the UPnP forward is global.
-
-4. **Feedback for every action.** (a) A toast with the outcome, success or
-   failure, whenever a command is run from the UI. (b) For anything that takes
-   longer than a second, a floating indicator at the bottom of the page: what
-   is running in plain words ("Installing <app>"), for how long, how many
-   calls are done out of how many ("5/6"), and the step in progress. Best
-   done once, in the API layer (`client/src/api`), not per screen.
-
+2. **App links, the rest.** Done for the ServApps "New URL" dialog: a local
+   address always, plus an external one per attached domain (see `FORK.md`).
+   Still to do: the same in the market installer and the new-container form
+   (`docker-compose.jsx`, `newServiceForm.jsx`), showing local and external
+   links apart on the app cards, attaching or detaching a domain later
+   without creating the route by hand, and a hint in the dialog when the
+   router port is not forwarded.
+3. **Incremental backups.** Upstream's incremental (restic) backup is a paid
+   feature and its settings field is disabled without a licence. The owner
+   wants incremental backups; the licence's anti-tampering clause speaks of
+   circumventing or avoiding a paywall or feature restriction "directly or
+   indirectly", so a replacement built into this fork is a legal risk. Open
+   decision: a tool outside Cosmos (restic or Kopia on the host or as an app),
+   a licence, or accept the risk.
 ## Usability gaps found in the code
 
 | # | Gap | Where |

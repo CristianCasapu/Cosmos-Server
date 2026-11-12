@@ -101,6 +101,17 @@ docker run --rm --network <net> --ipc=host -v <dir with fork-ui-check.mjs>:/work
   mcr.microsoft.com/playwright:v1.49.1-noble sh -c 'npm i playwright@1.49.1 && node fork-ui-check.mjs'
 ```
 
+For the pages that list containers the test instance needs a Docker of its
+own, never the server's: start `docker:27-dind` (`--privileged`,
+`-e DOCKER_TLS_CERTDIR=`) on the same network, create a couple of dummy
+containers inside it, and start the test instance with
+`DOCKER_HOST=tcp://<dind>:2375`. Run the binary in a loop
+(`while true; do ./cosmos; done`): saving a domain or finishing the wizard
+makes it exit and expect to be restarted. The test containers show up in the
+production panel's ServApps list while they exist; the owner has clicked on
+them before, which recreates them and wipes their state, so keep the run short
+and say what they are. `scripts/fork-ui-check-apps.mjs` covers these pages.
+
 `scripts/fork-ui-check.mjs` logs in, confirms the password (`/api/sudo`: most
 admin actions need it), visits the main pages in three engines and at phone
 width, and reports script errors. Look at the screenshots it writes. Errors
