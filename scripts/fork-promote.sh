@@ -5,6 +5,9 @@
 # forward to it.
 set -eu
 
+# Work in the repository this script belongs to, wherever it is called from.
+cd "$(dirname "$0")/.."
+
 repo=$(git remote get-url origin | sed -E 's#^(https://github\.com/|git@github\.com:)##; s#\.git$##')
 
 git fetch --quiet origin custom production
