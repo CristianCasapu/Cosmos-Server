@@ -21,21 +21,24 @@ concurrency:
 
 env:
   UPSTREAM_REPO: azukaar/cosmos-server
-  GH_TOKEN: ${{ github.token }}
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # The build runs third-party code (npm and Go dependencies). It gets no
+      # token: checkout does not leave one on disk, and only the two steps that
+      # talk to GitHub receive it. Actions are pinned to a commit.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0 # all tags, to number this build
+          persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -80,6 +83,7 @@ jobs:
       - name: Fetch the bundled third-party files from the upstream release
         env:
           UPSTREAM: ${{ steps.version.outputs.upstream }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh release download "v$UPSTREAM" --repo "$UPSTREAM_REPO" --dir upstream \
             --pattern "cosmos-cloud-$UPSTREAM-amd64.zip" \
@@ -103,7 +107,9 @@ jobs:
           npm run client-build
 
       - name: Test the fork's additions
-        run: go test ./src/utils/ -run 'DeliverEmail|UsesImplicitTLS' -count=1
+        run: |
+          go test ./src/utils/ -run 'DeliverEmail|UsesImplicitTLS' -count=1
+          go test ./src/upnp/ ./src/configapi/ -count=1
 
       - name: Build the server and the launcher
         run: |
@@ -116,6 +122,34 @@ jobs:
           grep -aq "$GITHUB_REPOSITORY" build/cosmos || { echo "::error::update source was not set in the binary"; exit 1; }
           grep -aq "$GITHUB_REPOSITORY" build/cosmos-launcher || { echo "::error::update source was not set in the launcher"; exit 1; }
           cat build/meta.json
+
+      # The server installs a release by itself and cannot go back to a lower
+      # version, so never publish a build that has not started at least once.
+      - name: Start the build once before releasing it
+        run: |
+          cp -r build "$RUNNER_TEMP/smoke"
+          mkdir "$RUNNER_TEMP/smoke-config"
+          cd "$RUNNER_TEMP/smoke"
+          COSMOS_CONFIG_FOLDER="$RUNNER_TEMP/smoke-config/" COSMOS_HTTP_PORT=18080 COSMOS_HTTPS_PORT=18443 \
+            ./cosmos > "$RUNNER_TEMP/smoke.log" 2>&1 &
+          pid=$!
+
+          code() { curl -s -o /dev/null -m 5 -w '%{http_code}' "http://127.0.0.1:18080$1" || true; }
+          up=""
+          for _ in $(seq 1 90); do
+            if [ "$(code /cosmos-ui/)" = "200" ]; then up=1; break; fi
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 1
+          done
+          ui=$(code /cosmos-ui/); api=$(code /cosmos/api/status); skin=$(code /cosmos-ui/skin/theme.css)
+          kill "$pid" 2>/dev/null || true
+
+          echo "ui=$ui api=$api skin=$skin"
+          if [ -z "$up" ] || [ "$ui" != "200" ] || [ "$api" != "200" ] || [ "$skin" != "200" ]; then
+            tail -n 60 "$RUNNER_TEMP/smoke.log"
+            echo "::error::The build did not start and serve the UI; not releasing it"
+            exit 1
+          fi
 
       - name: Package like upstream
         env:
@@ -144,6 +178,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           UPSTREAM: ${{ steps.version.outputs.upstream }}
           BUILD: ${{ steps.version.outputs.build }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "v$VERSION" \
             "cosmos-cloud-$VERSION-amd64.zip" "cosmos-cloud-$VERSION-amd64.zip.md5" \
