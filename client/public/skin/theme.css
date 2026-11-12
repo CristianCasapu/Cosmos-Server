@@ -1,0 +1,365 @@
+/* ==========================================================================
+   Cosmos custom skin: "Nordic Night"
+   Loaded after the app's own styles (end of <body>), so equal-specificity
+   rules here win without needing !important. Follows the browser's
+   light/dark preference, exactly like Cosmos itself does.
+   ========================================================================== */
+
+/* Cosmos asks for "Public Sans" but never ships it. Serve Inter under that
+   name so every component picks it up without per-element overrides. */
+@font-face {
+  font-family: "Public Sans";
+  src: url("inter.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --ct-accent: #4084ff;
+  --ct-accent-2: #0e96b8;
+  --ct-accent-glow: 64, 132, 255;
+  --ct-gradient: linear-gradient(135deg, var(--ct-accent), var(--ct-accent-2));
+
+  /* dark (default) */
+  --ct-bg: #0a0f1d;
+  --ct-surface: #121a2d;
+  --ct-surface-2: #172138;
+  --ct-elevated: #18223a;
+  --ct-input: rgba(148, 163, 184, 0.06);
+  --ct-border: rgba(148, 163, 184, 0.14);
+  --ct-border-strong: rgba(148, 163, 184, 0.26);
+  --ct-muted: #93a1b8;
+  --ct-hover: rgba(148, 163, 184, 0.08);
+  --ct-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 10px 30px rgba(2, 6, 23, 0.38);
+  --ct-shadow-pop: 0 18px 50px rgba(2, 6, 23, 0.6);
+  --ct-header: rgba(10, 15, 29, 0.72);
+  --ct-scroll: rgba(148, 163, 184, 0.32);
+}
+
+/* ct-mode.js sets data-ct-mode on <html> to the mode Cosmos will render in
+   (the user's choice, or the system's when left on automatic). */
+:root[data-ct-mode="dark"] { color-scheme: dark; }
+
+:root[data-ct-mode="light"] {
+  color-scheme: light;
+  --ct-bg: #f2f5fa;
+  --ct-surface: #ffffff;
+  --ct-surface-2: #f7f9fc;
+  --ct-elevated: #ffffff;
+  --ct-input: #ffffff;
+  --ct-border: #e2e8f0;
+  --ct-border-strong: #cbd5e1;
+  --ct-muted: #64748b;
+  --ct-hover: rgba(15, 23, 42, 0.045);
+  --ct-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 8px 24px rgba(15, 23, 42, 0.06);
+  --ct-shadow-pop: 0 18px 50px rgba(15, 23, 42, 0.18);
+  --ct-header: rgba(255, 255, 255, 0.78);
+  --ct-scroll: rgba(100, 116, 139, 0.4);
+}
+
+/* Same light values for the case where the script did not run. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-ct-mode]) {
+    --ct-bg: #f2f5fa;
+    --ct-surface: #ffffff;
+    --ct-surface-2: #f7f9fc;
+    --ct-elevated: #ffffff;
+    --ct-input: #ffffff;
+    --ct-border: #e2e8f0;
+    --ct-border-strong: #cbd5e1;
+    --ct-muted: #64748b;
+    --ct-hover: rgba(15, 23, 42, 0.045);
+    --ct-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 8px 24px rgba(15, 23, 42, 0.06);
+    --ct-shadow-pop: 0 18px 50px rgba(15, 23, 42, 0.18);
+    --ct-header: rgba(255, 255, 255, 0.78);
+    --ct-scroll: rgba(100, 116, 139, 0.4);
+  }
+}
+
+/* ---------- page ---------------------------------------------------------- */
+
+html,
+body {
+  background-color: var(--ct-bg) !important;
+}
+
+body {
+  background-image:
+    radial-gradient(1100px 620px at 88% -12%, rgba(var(--ct-accent-glow), 0.11), transparent 62%),
+    radial-gradient(900px 560px at -8% 108%, rgba(14, 150, 184, 0.08), transparent 60%) !important;
+  background-attachment: fixed !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv11", "ss03", "calt";
+  letter-spacing: -0.003em;
+}
+
+::selection {
+  background: rgba(var(--ct-accent-glow), 0.32);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ct-scroll) transparent;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--ct-scroll);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* ---------- surfaces ------------------------------------------------------ */
+
+/* Glass tiles on the home page, alerts and the app bar keep their own fills. */
+.MuiPaper-root.MuiPaper-root:not(.MuiAlert-root):not(.MuiAppBar-root):not(.app):not([class*="glass"]) {
+  background-color: var(--ct-surface);
+  background-image: none;
+}
+
+.MuiPaper-rounded.MuiPaper-rounded { border-radius: 14px; }
+
+.MuiCard-root.MuiCard-root {
+  border: 1px solid var(--ct-border);
+  box-shadow: var(--ct-shadow);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.MuiCard-root.MuiCard-root:hover { border-color: var(--ct-border-strong); }
+
+.MuiAccordion-root.MuiAccordion-root {
+  border: 1px solid var(--ct-border);
+  box-shadow: none;
+}
+.MuiAccordion-root.MuiAccordion-root::before { display: none; }
+
+.MuiDivider-root.MuiDivider-root { border-color: var(--ct-border); }
+
+/* ---------- top bar ------------------------------------------------------- */
+
+header.MuiAppBar-root {
+  background-color: var(--ct-header) !important;
+  background-image: none !important;
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+  border-bottom: 1px solid var(--ct-border) !important;
+  box-shadow: none !important;
+}
+
+/* ---------- side navigation ---------------------------------------------- */
+
+.MuiDrawer-root .MuiDrawer-paper {
+  background-color: var(--ct-surface);
+  background-image: linear-gradient(180deg, rgba(var(--ct-accent-glow), 0.05), transparent 38%);
+  border-right: 1px solid var(--ct-border);
+  box-shadow: none;
+}
+
+.MuiDrawer-paper .MuiListItemButton-root {
+  width: auto;
+  margin: 2px 8px;
+  border-radius: 10px;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.MuiDrawer-paper .MuiListItemButton-root:hover { background-color: var(--ct-hover); }
+
+.MuiDrawer-paper .MuiListItemButton-root.Mui-selected,
+.MuiDrawer-paper .MuiListItemButton-root.Mui-selected:hover {
+  background-color: transparent;
+  background-image: linear-gradient(90deg, rgba(var(--ct-accent-glow), 0.2), rgba(14, 150, 184, 0.07));
+  border-right-color: transparent;
+  box-shadow: inset 3px 0 0 var(--ct-accent);
+}
+.MuiDrawer-paper .MuiListItemButton-root.Mui-selected .MuiListItemIcon-root,
+.MuiDrawer-paper .MuiListItemButton-root.Mui-selected .MuiTypography-root {
+  color: var(--ct-accent);
+  font-weight: 600;
+}
+
+.MuiDrawer-paper .MuiListSubheader-root,
+.MuiDrawer-paper .MuiTypography-subtitle2 {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.68rem;
+  color: var(--ct-muted);
+}
+
+/* ---------- buttons ------------------------------------------------------- */
+
+.MuiButton-root.MuiButton-root {
+  border-radius: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.MuiButton-containedPrimary.MuiButton-containedPrimary {
+  box-shadow: 0 6px 18px rgba(var(--ct-accent-glow), 0.28);
+}
+
+/* Outlined buttons draw their border as a gradient behind a solid fill; the
+   fill is hard-coded to the stock card colour, so repaint it per colour. */
+.MuiButton-outlined { --ct-btn-fill: var(--ct-surface); }
+.MuiButton-outlinedPrimary {
+  background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), var(--ct-gradient);
+}
+.MuiButton-outlinedSecondary {
+  background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), linear-gradient(135deg, #0e96b8, #0a6f88);
+}
+.MuiButton-outlinedError {
+  background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), linear-gradient(135deg, #ff4d4f, #a8071a);
+}
+.MuiButton-outlinedSuccess {
+  background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), linear-gradient(135deg, #52c41a, #237804);
+}
+.MuiButton-outlinedWarning {
+  background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), linear-gradient(135deg, #faad14, #ad6800);
+}
+.MuiButton-outlinedInfo {
+  background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), linear-gradient(135deg, #13c2c2, #006d75);
+}
+
+.MuiIconButton-root.MuiIconButton-root { border-radius: 10px; }
+
+/* ---------- forms --------------------------------------------------------- */
+
+.MuiOutlinedInput-root.MuiOutlinedInput-root {
+  border-radius: 10px;
+  background-color: var(--ct-input);
+}
+.MuiOutlinedInput-root .MuiOutlinedInput-notchedOutline { border-color: var(--ct-border-strong); }
+
+.MuiInputLabel-root.MuiInputLabel-root,
+.MuiFormLabel-root.MuiFormLabel-root { font-weight: 500; }
+
+/* ---------- tables -------------------------------------------------------- */
+
+.MuiTableCell-root.MuiTableCell-root { border-color: var(--ct-border); }
+
+.MuiTableCell-head.MuiTableCell-head {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ct-muted);
+  background-color: var(--ct-surface-2);
+}
+
+.MuiTableRow-root.MuiTableRow-hover:hover { background-color: var(--ct-hover); }
+
+/* ---------- tabs, chips, progress ---------------------------------------- */
+
+.MuiTabs-indicator.MuiTabs-indicator {
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background-color: transparent;
+  background-image: linear-gradient(90deg, var(--ct-accent), var(--ct-accent-2));
+}
+.MuiTab-root.MuiTab-root { font-weight: 500; text-transform: none; }
+.MuiTab-root.MuiTab-root.Mui-selected { font-weight: 600; }
+
+.MuiChip-root.MuiChip-root { font-weight: 500; }
+
+.MuiLinearProgress-root.MuiLinearProgress-root {
+  height: 6px;
+  border-radius: 6px;
+  background-color: var(--ct-hover);
+}
+.MuiLinearProgress-barColorPrimary.MuiLinearProgress-barColorPrimary {
+  border-radius: 6px;
+  background-image: linear-gradient(90deg, var(--ct-accent), var(--ct-accent-2));
+}
+
+/* ---------- overlays ------------------------------------------------------ */
+
+.MuiDialog-root .MuiDialog-paper {
+  background-color: var(--ct-elevated);
+  border: 1px solid var(--ct-border);
+  border-radius: 16px;
+  box-shadow: var(--ct-shadow-pop);
+}
+
+.MuiBackdrop-root.MuiBackdrop-root:not(.MuiBackdrop-invisible) {
+  background-color: rgba(4, 8, 18, 0.62);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+.MuiPopover-root .MuiPopover-paper,
+.MuiMenu-root .MuiMenu-paper,
+.MuiAutocomplete-popper .MuiAutocomplete-paper {
+  background-color: var(--ct-elevated);
+  border: 1px solid var(--ct-border);
+  border-radius: 12px;
+  box-shadow: var(--ct-shadow-pop);
+}
+
+.MuiMenuItem-root.MuiMenuItem-root {
+  border-radius: 8px;
+  margin: 2px 6px;
+}
+
+.MuiAlert-root.MuiAlert-root { border-radius: 12px; }
+
+/* ---------- home page ----------------------------------------------------- */
+
+.app { border-radius: 16px !important; }
+
+.app-hover:hover {
+  box-shadow: 0 10px 34px rgba(2, 6, 23, 0.3), 0 0 0 1px rgba(var(--ct-accent-glow), 0.45),
+    0 0 22px rgba(var(--ct-accent-glow), 0.2) !important;
+}
+
+/* ---------- sign-in page -------------------------------------------------- */
+
+/* The large blurred logo behind the sign-in card is pink and purple; rotate
+   its hue so it lands on the blue and cyan of this skin. */
+img[alt="Cosmos"][width="1100"] {
+  filter: hue-rotate(-100deg) saturate(0.85);
+  opacity: 0.55;
+}
+
+/* ---------- light/dark switch (added by ct-mode.js) ----------------------- */
+
+.ct-mode-toggle {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 1250; /* above the side drawer, below dialogs */
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--ct-border-strong);
+  background: var(--ct-elevated);
+  color: var(--ct-muted);
+  box-shadow: var(--ct-shadow);
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+.ct-mode-toggle:hover {
+  opacity: 1;
+  color: var(--ct-accent);
+  border-color: var(--ct-accent);
+  transform: translateY(-1px);
+}
+.ct-mode-toggle:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--ct-accent);
+  outline-offset: 2px;
+}
+/* A dashed ring marks "following the system". */
+.ct-mode-toggle.ct-mode-auto { border-style: dashed; }
+
+@media print {
+  .ct-mode-toggle { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}

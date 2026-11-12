@@ -13,9 +13,17 @@
         }
       }
     </style>
+    <!-- Fork skin. The boot style paints the background before theme.css arrives;
+         mode.js is a classic script so it runs before the app module and can
+         decide the colour mode Cosmos starts in. -->
+    <style id="ct-boot">html{background-color:#0a0f1d !important}html[data-ct-mode="light"]{background-color:#f2f5fa !important}@media (prefers-color-scheme: light){html:not([data-ct-mode]){background-color:#f2f5fa !important}}</style>
+    <script id="ct-mode" src="/skin/mode.js?v=__SKIN_VERSION__"></script>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/index.jsx"></script>
+    <!-- Last in <body>, after the styles the app injects into <head>, so that
+         equal-specificity rules in the skin win. -->
+    <link rel="stylesheet" id="ct-theme" href="/skin/theme.css?v=__SKIN_VERSION__">
   </body>
 </html>
