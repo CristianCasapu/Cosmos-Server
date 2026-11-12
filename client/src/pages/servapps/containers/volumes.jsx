@@ -24,6 +24,7 @@ import { Backups } from "../../backups/backups";
 import BackupDialog from "../../backups/backupDialog";
 import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_RESOURCES } from '../../../utils/permissions';
+import { bindIsReadOnly } from './forkContainerFixes'; // Fork addition: read-only mounts
 
 const VolumeContainerSetup = ({
   noCard,
@@ -78,6 +79,7 @@ const VolumeContainerSetup = ({
             Type: "bind",
             Source: source,
             Target: destination,
+            ReadOnly: bindIsReadOnly(mode), // Fork addition
           };
         }),
       ],
@@ -110,7 +112,7 @@ const VolumeContainerSetup = ({
           Type: volume.Type,
           Source: volume.Source,
           Target: volume.Target,
-          ReadOnly: false, // TODO: add support for this
+          ReadOnly: !!volume.ReadOnly, // Fork addition: was always false, so saving made every mount writable
         })),
       };
       return API.docker
