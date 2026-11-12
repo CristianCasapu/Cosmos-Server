@@ -102,3 +102,104 @@ func TestPrepareConfigDirectories(t *testing.T) {
 		t.Error("a relative data path was accepted")
 	}
 }
+
+// The incremental snapshots (src/snapshots) are checked by the same hook.
+func TestPrepareConfigDirectoriesSnapshots(t *testing.T) {
+	base := t.TempDir()
+	source := filepath.Join(base, "data")
+	os.Mkdir(source, 0755)
+
+	// switched on with a destination that does not exist: created, owner only, stored in its plain form
+	request := utils.Config{}
+	request.Snapshots = utils.SnapshotsConfig{Enabled: true, Destination: base + "//snapshots/here/", Sources: []string{source + "/"}}
+	if err := prepareConfigDirectories(&request, utils.Config{}); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(base, "snapshots", "here")
+	if request.Snapshots.Destination != destination || len(request.Snapshots.Sources) != 1 || request.Snapshots.Sources[0] != source {
+		t.Errorf("stored %+v", request.Snapshots)
+	}
+	info, err := os.Stat(destination)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("%s was not created: %v", destination, err)
+	}
+	if info.Mode().Perm() != 0700 {
+		t.Errorf("created with mode %o, want 700", info.Mode().Perm())
+	}
+	if entries, _ := os.ReadDir(destination); len(entries) != 0 {
+		t.Errorf("the write test left files behind: %v", entries)
+	}
+
+	// settings that cannot work are refused with a reason that names the module, and nothing is created
+	bad := map[string]utils.SnapshotsConfig{
+		"relative destination":         {Enabled: true, Destination: "snapshots", Sources: []string{source}},
+		"no folder":                    {Enabled: true, Destination: filepath.Join(base, "new-1")},
+		"folder inside destination":    {Enabled: true, Destination: filepath.Join(base, "new-2"), Sources: []string{filepath.Join(base, "new-2", "x")}},
+		"destination is a folder":      {Enabled: true, Destination: filepath.Join(base, "new-3"), Sources: []string{filepath.Join(base, "new-3")}},
+		"traversal":                    {Enabled: true, Destination: filepath.Join(base, "new-4"), Sources: []string{base + "/../etc"}},
+		"bad time":                     {Enabled: true, Destination: filepath.Join(base, "new-5"), Sources: []string{source}, Time: "25:00"},
+		"bad paths while switched off": {Destination: "snapshots", Sources: []string{"data"}},
+	}
+	for name, snapshots := range bad {
+		request = utils.Config{Snapshots: snapshots}
+		err := prepareConfigDirectories(&request, utils.Config{})
+		if err == nil {
+			t.Errorf("%s: accepted", name)
+		} else if !strings.HasPrefix(err.Error(), "Incremental backup") {
+			t.Errorf("%s: the reason does not say what it is about: %s", name, err)
+		}
+	}
+	for i := 1; i <= 5; i++ {
+		if _, err := os.Stat(filepath.Join(base, "new-"+string(rune('0'+i)))); err == nil {
+			t.Errorf("new-%d was created for settings that were refused", i)
+		}
+	}
+
+	// a destination that cannot be a folder: refused
+	file := filepath.Join(base, "a-file")
+	os.WriteFile(file, []byte("x"), 0600)
+	request = utils.Config{Snapshots: utils.SnapshotsConfig{Enabled: true, Destination: file, Sources: []string{source}}}
+	if err := prepareConfigDirectories(&request, utils.Config{}); err == nil {
+		t.Error("a file was accepted as the destination")
+	}
+
+	// unchanged settings: a destination that is gone (its disk is not mounted) is not created
+	// again, and saving other settings does not fail
+	gone := utils.SnapshotsConfig{Enabled: true, Destination: filepath.Join(base, "gone"), Sources: []string{source}}
+	request = utils.Config{Snapshots: gone}
+	if err := prepareConfigDirectories(&request, utils.Config{Snapshots: gone}); err != nil {
+		t.Errorf("unchanged settings were checked again: %v", err)
+	}
+	if _, err := os.Stat(gone.Destination); err == nil {
+		t.Error("an unchanged destination was created")
+	}
+
+	// switched off: nothing is created
+	off := gone
+	off.Enabled = false
+	request = utils.Config{Snapshots: off}
+	if err := prepareConfigDirectories(&request, utils.Config{}); err != nil {
+		t.Errorf("switched off: %v", err)
+	}
+	if _, err := os.Stat(gone.Destination); err == nil {
+		t.Error("the destination was created while the snapshots are off")
+	}
+
+	// switched on again, or pointed somewhere else: created
+	request = utils.Config{Snapshots: gone}
+	if err := prepareConfigDirectories(&request, utils.Config{Snapshots: off}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(gone.Destination); err != nil {
+		t.Error("the destination was not created when the snapshots were switched on")
+	}
+	moved := gone
+	moved.Destination = filepath.Join(base, "moved")
+	request = utils.Config{Snapshots: moved}
+	if err := prepareConfigDirectories(&request, utils.Config{Snapshots: gone}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(moved.Destination); err != nil {
+		t.Error("the new destination was not created")
+	}
+}

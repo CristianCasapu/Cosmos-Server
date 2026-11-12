@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/azukaar/cosmos-server/src/snapshots"
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
@@ -77,7 +78,7 @@ func reason(err error) string {
 // prepareConfigDirectories validates the directories in a configuration that
 // is about to be saved and stores them in their plain form. A directory for
 // backups that changed is created if it is missing; the save is refused when
-// it cannot be used.
+// it cannot be used. The same goes for the incremental snapshots.
 func prepareConfigDirectories(request *utils.Config, current utils.Config) error {
 	backupDir, err := cleanHostDirectory("Backup output directory", request.BackupOutputDir)
 	if err != nil {
@@ -94,6 +95,12 @@ func prepareConfigDirectories(request *utils.Config, current utils.Config) error
 	}
 	request.DockerConfig.DefaultDataPath = dataPath
 
+	// Incremental snapshots (src/snapshots): settings that cannot work, or
+	// that would be dangerous, are refused with the reason.
+	if err := snapshots.ValidateConfig(&request.Snapshots); err != nil {
+		return err
+	}
+
 	if backupDir != "" && backupDir != current.BackupOutputDir {
 		created, err := ensureDirectory("Backup output directory", backupDir)
 		if err != nil {
@@ -101,6 +108,19 @@ func prepareConfigDirectories(request *utils.Config, current utils.Config) error
 		}
 		if created {
 			utils.Log("Settings: created the backup output directory " + backupDir)
+		}
+	}
+
+	// The destination of the snapshots is created when they are switched on
+	// or pointed somewhere else, not on every save: if its disk is missing
+	// later, a run must fail instead of filling the disk underneath.
+	if wanted := request.Snapshots; wanted.Enabled && (!current.Snapshots.Enabled || wanted.Destination != current.Snapshots.Destination) {
+		created, err := ensureDirectory("Incremental backup, destination", wanted.Destination)
+		if err != nil {
+			return err
+		}
+		if created {
+			utils.Log("Settings: created the destination of the incremental backup " + wanted.Destination)
 		}
 	}
 	return nil

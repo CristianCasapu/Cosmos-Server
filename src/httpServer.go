@@ -9,6 +9,7 @@ import (
 		"github.com/azukaar/cosmos-server/src/user"
 		"github.com/azukaar/cosmos-server/src/configapi"
 		"github.com/azukaar/cosmos-server/src/upnp"
+		"github.com/azukaar/cosmos-server/src/snapshots" // fork addition
 		"github.com/azukaar/cosmos-server/src/proxy"
 		"github.com/azukaar/cosmos-server/src/docker"
 		"github.com/azukaar/cosmos-server/src/authorizationserver"
@@ -1011,6 +1012,9 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/config/dns", configapi.ConfigApiDNS)
 	srapiAdmin.HandleFunc("/api/config/test-email", configapi.ConfigApiTestEmail)
 	srapiAdmin.HandleFunc("/api/upnp", upnp.StatusRoute)
+	srapiAdmin.HandleFunc("/api/snapshots", snapshots.StatusRoute) // fork addition: incremental snapshots
+	srapiAdmin.HandleFunc("/api/snapshots/run", snapshots.RunRoute) // fork addition
+	srapiAdmin.HandleFunc("/api/snapshots/restore", snapshots.RestoreRoute) // fork addition
 	srapiAdmin.HandleFunc("/api/zones/{zone}", configapi.ZonesIdRoute)
 	srapiAdmin.HandleFunc("/api/zones", configapi.ZonesRoute)
 	srapiAdmin.HandleFunc("/api/zones-addresses", configapi.ZonesApiAddresses)

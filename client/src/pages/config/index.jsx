@@ -39,6 +39,7 @@ const optionalPort = (t) => Yup.string().test(
 );
 
 import ConfigGeneral from './configGeneral';
+import { snapshotsInitialValues, snapshotsToConfig, snapshotsValidation } from './snapshots'; // fork addition
 import ConfigHTTP from './configHTTP';
 import ConfigHTTPS from './configHTTPS';
 import ConfigExternal from './configExternal';
@@ -197,6 +198,7 @@ const ConfigManagement = () => {
           BackupFrequency: config.BackupFrequency || '2h',
           BackupTime: config.BackupTime || '00:00',
           BackupWeekday: config.BackupWeekday || 0,
+          ...snapshotsInitialValues(config), // fork addition: Snapshots_*, the incremental backup
           IncrBackupOutputDir: config.Backup && config.Backup.Backups && config.Backup.Backups["Cosmos Internal Backup"] ? config.Backup.Backups["Cosmos Internal Backup"].Repository : "",
 
           AdminWhitelistIPs: config.AdminWhitelistIPs && config.AdminWhitelistIPs.join(', '),
@@ -220,6 +222,7 @@ const ConfigManagement = () => {
             t('mgmt.config.update.timeValidation', 'Enter a time as HH:MM, for example 02:00')),
           UPnP_ExternalHTTPSPort: optionalPort(t),
           UPnP_ExternalHTTPPort: optionalPort(t),
+          ...snapshotsValidation(t), // fork addition
         })}
 
         onSubmit={async (values, { setSubmitting }) => {
@@ -253,6 +256,7 @@ const ConfigManagement = () => {
             BackupFrequency: values.BackupFrequency,
             BackupTime: values.BackupTime,
             BackupWeekday: Number(values.BackupWeekday) || 0,
+            Snapshots: snapshotsToConfig(values), // fork addition
             AdminConstellationOnly: values.AdminConstellationOnly,
             AdminWhitelistIPs: (values.AdminWhitelistIPs && values.AdminWhitelistIPs != "") ?
               values.AdminWhitelistIPs.split(',').map((x) => x.trim()) : [],

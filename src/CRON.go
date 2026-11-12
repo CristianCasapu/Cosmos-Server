@@ -19,6 +19,7 @@ import (
 	"github.com/azukaar/cosmos-server/src/docker"
 	"github.com/azukaar/cosmos-server/src/proxy"
 	"github.com/azukaar/cosmos-server/src/cron"
+	"github.com/azukaar/cosmos-server/src/snapshots" // fork addition
 	
 
 	"github.com/jasonlvhit/gocron"
@@ -283,6 +284,8 @@ func CRON() {
 				go RunBackup()
 			}
 		})
+		// Fork addition: incremental snapshots, on the schedule set in the settings.
+		s.Every(1).Minute().Do(func() { if snapshots.Due(time.Now()) { go snapshots.RunAll() } })
 		s.Every(1).Hours().Do(utils.CleanBannedIPs)
 		s.Every(1).Hours().Do(proxy.CleanUp)
 		s.Every(1).Hours().Do(proxy.CleanUpSocket)

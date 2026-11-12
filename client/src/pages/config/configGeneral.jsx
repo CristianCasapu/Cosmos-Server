@@ -24,6 +24,7 @@ import { PERM_ADMIN, PERM_CREDENTIALS_READ } from '../../utils/permissions';
 import { useClientInfos } from '../../utils/hooks';
 import EmailTest from './emailTest';
 import ServerUpdate from '../../components/serverUpdate';
+import Snapshots from './snapshots'; // fork addition
 
 // License issuer's public key for signature verification
 const LICENSE_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
@@ -249,6 +250,9 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
           )}
         </Grid>
       </MainCard>
+
+      {/* Fork addition: incremental snapshots of folders (src/snapshots), independent of the card above */}
+      <Snapshots formik={formik} config={config} />
 
       <MainCard title={t('mgmt.config.general.licenceInput.licenceLabel')}>
         <Grid container spacing={3}>

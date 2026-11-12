@@ -206,6 +206,8 @@ type Config struct {
 	BackupFrequency string `json:"BackupFrequency,omitempty" validate:"omitempty,oneof=2h 6h 12h daily weekly"`
 	BackupTime string `json:"BackupTime,omitempty" validate:"omitempty,len=5"`
 	BackupWeekday int `json:"BackupWeekday,omitempty" validate:"min=0,max=6"`
+	// Fork addition: incremental snapshots of folders, see src/snapshots.
+	Snapshots SnapshotsConfig `json:"Snapshots,omitempty"`
 	IncrBackupOutputDir string
 	DisableHostModeWarning bool
 	AdminWhitelistIPs []string
@@ -332,6 +334,30 @@ type UPnPConfig struct {
 	ForwardHTTP       bool
 	ExternalHTTPSPort string `validate:"omitempty,numeric,max=5"`
 	ExternalHTTPPort  string `validate:"omitempty,numeric,max=5"`
+}
+
+// SnapshotsConfig (fork addition) sets up the incremental backup done by
+// src/snapshots: dated copies of the Sources folders under Destination, in
+// which a file that did not change is a hard link to the previous copy.
+// Frequency is "6h", "12h", "daily" (also when empty) or "weekly"; Time
+// ("HH:MM", empty means 03:00) is the time of day it is counted from; Weekday
+// (0 = Sunday) is the day of a weekly run. The Keep counts say how many days,
+// weeks and months keep their newest snapshot; 0 means 7, 4 and 6.
+//
+// The values are checked by snapshots.ValidateConfig when the settings are
+// saved and before every run. There are no validate tags on purpose: a tag
+// that fails answers a save before that check can give its reason, and makes
+// Cosmos refuse to start on a configuration file edited by hand.
+type SnapshotsConfig struct {
+	Enabled     bool
+	Destination string
+	Sources     []string
+	Frequency   string
+	Time        string
+	Weekday     int
+	KeepDaily   int
+	KeepWeekly  int
+	KeepMonthly int
 }
 
 const (

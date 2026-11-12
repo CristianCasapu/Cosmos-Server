@@ -63,6 +63,21 @@ function serverUpdateStatus() {
 
 const checkServerUpdate = serverUpdateStatus;
 
+function snapshotsStatus() {
+  return new Promise((resolve, reject) => {
+    resolve({
+      "status": "OK",
+      "data": { "enabled": false, "destination": "", "running": false, "current": "", "filesDone": 0, "startedAt": null, "sources": [], "suggested": [] }
+    })
+  });
+}
+
+const snapshotsRun = snapshotsStatus;
+
+function snapshotsRestore(source, snapshot) {
+  return snapshotsStatus();
+}
+
 function canSendEmail() {
   return new Promise((resolve, reject) => {
     resolve({
@@ -169,6 +184,9 @@ export {
   upnpRetry,
   serverUpdateStatus,
   checkServerUpdate,
+  snapshotsStatus,
+  snapshotsRun,
+  snapshotsRestore,
   getDashboard,
   getBackup,
 };

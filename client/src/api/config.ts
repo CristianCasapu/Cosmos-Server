@@ -95,6 +95,37 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }))
   }
 
+  // Fork addition: incremental snapshots (src/snapshots). GET = settings in
+  // use, snapshots and what is running; run and restore start in the
+  // background and are followed through the status.
+  function snapshotsStatus() {
+    return wrap(apiFetch('/cosmos/api/snapshots', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }))
+  }
+
+  function snapshotsRun() {
+    return wrap(apiFetch('/cosmos/api/snapshots/run', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }))
+  }
+
+  function snapshotsRestore(source: string, snapshot: string) {
+    return wrap(apiFetch('/cosmos/api/snapshots/restore', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ Source: source, Snapshot: snapshot }),
+    }))
+  }
+
   async function rawUpdateRoute(routeName: string, operation: Operation, newRoute?: Route): Promise<ApiResponse> {
     const payload = {
       routeName,
@@ -222,6 +253,9 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     checkServerUpdate,
     upnpStatus,
     upnpRetry,
+    snapshotsStatus,
+    snapshotsRun,
+    snapshotsRestore,
     getBackup,
     getDashboard,
     updateDNS,
