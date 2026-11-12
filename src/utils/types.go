@@ -198,6 +198,9 @@ type Config struct {
 	ConstellationConfig ConstellationConfig
 	MonitoringDisabled bool
 	MonitoringAlerts map[string]Alert
+	// Fork addition: the data disks that already got their default "disk
+	// full" alert, so that an alert the admin deleted is not created again.
+	DiskAlertsSeeded []string `json:"DiskAlertsSeeded,omitempty"`
 	BackupOutputDir string
 	// Fork addition: when the configuration backup runs. BackupFrequency is
 	// "" or "2h" (every two hours), "6h", "12h", "daily" or "weekly";

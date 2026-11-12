@@ -137,8 +137,10 @@ func GetSystemMetrics() {
 	if err != nil {
 		utils.Error("Metrics - Error fetching Disk usage:", err)
 	} else {
+		dataMounts := storage.ForkDataMountPaths() // Fork addition: data disks are measured wherever they are mounted
+		forkSeedDiskAlerts(dataMounts)             // Fork addition: and get the default "disk full" alert
 		for _, part := range parts {
-			if strings.HasPrefix(part.Mountpoint, "/dev") ||
+			if dataMounts[part.Mountpoint] || strings.HasPrefix(part.Mountpoint, "/dev") ||
 				(strings.HasPrefix(part.Mountpoint, "/mnt") && !strings.HasPrefix(part.Mountpoint, "/mnt/host") ||
 					part.Mountpoint == "/") {
 

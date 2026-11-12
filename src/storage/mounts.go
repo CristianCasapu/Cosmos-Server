@@ -31,6 +31,7 @@ func ListMounts() ([]MountPoint, error) {
 
 	// filter out the mount points that are not disks in a Set
 	finalMountPoints := map[string]MountPoint{}
+	dataMounts := forkDataMountSet(mountPoints) // Fork addition: data disks are listed wherever they are mounted
 	for _, mp := range mountPoints {
 		path := mp.Mountpoint
 		if strings.HasPrefix(path, "/mnt/host") && utils.IsInsideContainer {
@@ -42,7 +43,7 @@ func ListMounts() ([]MountPoint, error) {
 
 		// if not proc or sys or dev or run
 		if !strings.HasPrefix(path, "/mnt") &&
-			 !strings.HasPrefix(path, "/var/mnt") {
+			 !strings.HasPrefix(path, "/var/mnt") && !dataMounts[path] {
 			continue
 		}
 

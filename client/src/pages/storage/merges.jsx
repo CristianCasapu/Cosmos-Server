@@ -22,6 +22,8 @@ import { useClientInfos } from "../../utils/hooks";
 import { PERM_RESOURCES } from "../../utils/permissions";
 import PermissionGuard from "../../components/permissionGuard";
 
+import { mountedHere } from "./mounts";
+
 export const StorageMerges = () => {
   const { t } = useTranslation();
   const { hasPermission } = useClientInfos();
@@ -87,7 +89,7 @@ export const StorageMerges = () => {
               clickable:true, 
               field: (r) => <>
                 <PermissionGuard permission={PERM_RESOURCES}>
-                  <DeleteIconButton disabled={containerized} onDelete={() => {
+                  <DeleteIconButton disabled={containerized || !mountedHere(r.path) /* Fork addition: see mounts.jsx */} onDelete={() => {
                     API.storage.mounts.unmount({ mountPoint: r.path, permanent: true }).then(() => {
                       refresh();
                     });

@@ -310,6 +310,7 @@ const AlertPage = () => {
 
     let toSave = {
       ...config,
+      DiskAlertsSeeded: [], // Fork addition: the server adds the default alerts of the data disks again
       MonitoringAlerts: {
         "Anti Crypto-Miner": {
           "Name": "Anti Crypto-Miner",
