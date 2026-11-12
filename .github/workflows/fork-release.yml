@@ -6,6 +6,10 @@ name: Fork release
 on:
   push:
     branches: [custom]
+    # A release is installed by the server on its own, so do not cut one for
+    # a push that only touches documentation.
+    paths-ignore:
+      - '**.md'
   workflow_dispatch:
 
 permissions:
