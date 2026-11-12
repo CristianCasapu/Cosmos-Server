@@ -67,7 +67,9 @@ These apply to every change, however small.
   independently, even where upstream sells something similar (first one:
   incremental snapshots, `src/snapshots`). Keep such modules self-contained:
   their own package, their own settings and screens, nothing imported from the
-  paid code and nothing of upstream's gating changed.
+  paid code and nothing of upstream's gating changed. What gets built on this
+  fork is the owner's decision: it is free, comes with no warranty, and anyone
+  (upstream included) may take from it. Do not re-argue that decision.
 - **Translations.** Add new strings to `client/src/utils/locales/en/translation.json`
   and pass the English text as the `t()` default so other languages fall back.
 
