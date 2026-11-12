@@ -61,6 +61,11 @@ func AutoUpdateContainerRoute(w http.ResponseWriter, req *http.Request) {
 		_, errEdit := EditContainer(container.ID, container, false)
 		if errEdit != nil {
 			utils.Error("AutoUpdateContainer Edit", errEdit)
+			// Fork addition: a container that was removed meanwhile is not a server error.
+			if containerGone(errEdit) {
+				utils.HTTPError(w, "This container no longer exists: it was removed before the change could be applied", http.StatusConflict, "DS004")
+				return
+			}
 			utils.HTTPError(w, "Internal server error: " + errEdit.Error(), http.StatusInternalServerError, "DS003")
 			return
 		}

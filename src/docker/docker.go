@@ -145,6 +145,8 @@ func EditContainer(oldContainerID string, newConfig types.ContainerJSON, noLock 
 		newConfig.HostConfig.NetworkMode = container.NetworkMode(GetLabel(newConfig, "cosmos-force-network-mode"))
 	}
 	
+	healStopTimeout(&newConfig) // fork addition: see fork_fixes.go
+
 	newName := newConfig.Name
 	oldContainer := newConfig
 

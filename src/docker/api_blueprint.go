@@ -520,7 +520,7 @@ func CreateService(serviceRequest DockerServiceCreateRequest, OnLog func(string)
 			Domainname:   container.Domainname,
 			MacAddress:   container.MacAddress,
 			StopSignal:   container.StopSignal,
-			StopTimeout:  &container.StopGracePeriod,
+			StopTimeout:  stopTimeout(container.StopGracePeriod), // fork addition: no grace period is Docker's default, not 0
 			Tty:          container.Tty,
 			OpenStdin:    container.StdinOpen,
 		}
