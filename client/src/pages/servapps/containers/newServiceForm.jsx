@@ -19,6 +19,7 @@ import DockerTerminal from './terminal';
 import NewDockerService from './newService';
 import RouteManagement from '../../config/routes/routeman';
 import { localAddress } from '../../../components/hostnameSuggestions'; // Fork addition
+import ImageDefaults from './imageDefaults'; // Fork addition
 import { useTranslation } from 'react-i18next';
 
 const NewDockerServiceForm = () => {
@@ -26,6 +27,8 @@ const NewDockerServiceForm = () => {
   const [currentTab, setCurrentTab] = React.useState(0);
   const [maxTab, setMaxTab] = React.useState(0);
   const [config, setConfig] = React.useState(null);
+  // Fork addition: the image name once its field has been left; its defaults are then offered
+  const [imageToInspect, setImageToInspect] = React.useState('');
   const [containerInfo, setContainerInfo] = React.useState({
     Name: '',
     Names: [],
@@ -139,7 +142,12 @@ const NewDockerServiceForm = () => {
         {
           title: 'Docker',
           disabled: false,
-          children: <Stack spacing={2}><DockerContainerSetup newContainer containerInfo={containerInfo} OnChange={(values) => {
+          children: <Stack spacing={2} onBlur={(e) => {
+            // Fork addition
+            if (e.target && e.target.name === 'image') setImageToInspect((e.target.value || '').trim());
+          }}><DockerContainerSetup newContainer containerInfo={containerInfo}
+            afterImage={<ImageDefaults image={imageToInspect} containerInfo={containerInfo} onApply={setContainerInfo} /> /* Fork addition */}
+            OnChange={(values) => {
             const newValues = {
               ...containerInfo,
               Name: values.name,

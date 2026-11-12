@@ -73,6 +73,7 @@ const DockerContainerSetup = ({
   refresh,
   newContainer,
   OnForceSecure,
+  afterImage, // Fork addition: shown under the image field (the image's defaults, in the new container form)
 }) => {
   const { t } = useTranslation();
   const [pullRequest, setPullRequest] = useState(null);
@@ -239,6 +240,7 @@ const DockerContainerSetup = ({
                           formik={formik}
                           required
                         />
+                        {afterImage}
                         <CosmosSelect
                           name="restartPolicy"
                           label={t('mgmt.servapps.newContainer.restartPolicyInput.restartPolicyLabel')}
