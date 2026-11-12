@@ -59,7 +59,15 @@ These apply to every change, however small.
   hook over editing upstream code, so the daily upstream merge keeps applying
   cleanly. Mark additions with a `Fork addition:` comment.
 - **Licence.** Apache 2.0 with Commons Clause and an Anti Tampering Clause: do
-  not alter, bypass or re-implement any paid feature or licensing check.
+  not alter or bypass any licensing check or paid-feature gate, and do not
+  copy, move or reuse the code of upstream's paid features (`src/pro`,
+  `src/constellation`, `src/backups`, `src/storage/rclone.go`,
+  `src/utils/cloud.go`). The owner decided on 2026-11-12, after the risk was
+  put to them, that the fork may carry modules of its own, written
+  independently, even where upstream sells something similar (first one:
+  incremental snapshots, `src/snapshots`). Keep such modules self-contained:
+  their own package, their own settings and screens, nothing imported from the
+  paid code and nothing of upstream's gating changed.
 - **Translations.** Add new strings to `client/src/utils/locales/en/translation.json`
   and pass the English text as the `t()` default so other languages fall back.
 
