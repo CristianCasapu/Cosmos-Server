@@ -305,6 +305,7 @@ const AlertPage = () => {
     });
   }
   
+  // Fork addition: the actions below carried the key "mgmt.storage.typeTitle" instead of "Type", so the restored alerts did nothing
   const resetTodefault = () => {
     setIsLoading(true);
 
@@ -322,15 +323,15 @@ const AlertPage = () => {
           },
           "Actions": [
             {
-              "mgmt.storage.typeTitle": "notification",
+              "Type": "notification",
               "Target": ""
             },
             {
-              "mgmt.storage.typeTitle": "email",
+              "Type": "email",
               "Target": ""
             },
             {
-              "mgmt.storage.typeTitle": "stop",
+              "Type": "stop",
               "Target": ""
             }
           ],
@@ -350,15 +351,15 @@ const AlertPage = () => {
           },
           "Actions": [
             {
-              "mgmt.storage.typeTitle": "notification",
+              "Type": "notification",
               "Target": ""
             },
             {
-              "mgmt.storage.typeTitle": "email",
+              "Type": "email",
               "Target": ""
             },
             {
-              "mgmt.storage.typeTitle": "stop",
+              "Type": "stop",
               "Target": ""
             }
           ],
@@ -378,7 +379,7 @@ const AlertPage = () => {
           },
           "Actions": [
             {
-              "mgmt.storage.typeTitle": "notification",
+              "Type": "notification",
               "Target": ""
             }
           ],

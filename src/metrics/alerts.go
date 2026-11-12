@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"strings"
-	"regexp"
 	"fmt"
 	"time"
 
@@ -14,30 +13,10 @@ func CheckAlerts(TrackingMetric string, Period string, metric utils.AlertMetricT
 	config := utils.GetMainConfig()
 	ActiveAlerts := config.MonitoringAlerts
 	
-	alerts := []utils.Alert{}
-	ok := false
-
-	// if tracking metric contains a wildcard
-	if strings.Contains(TrackingMetric, "*") {
-		regexPattern := "^" + strings.ReplaceAll(TrackingMetric, "*", ".*?")
-		regex, _ := regexp.Compile(regexPattern)
-
-		// Iterate over the map to find a match
-		for _, val := range ActiveAlerts {
-			if regex.MatchString(val.TrackingMetric) && val.Period == Period {
-				alerts = append(alerts, val)
-				ok = true
-			}
-		}
-	} else {
-		for _, val := range ActiveAlerts {
-			if val.TrackingMetric == TrackingMetric  && val.Period == Period {
-				alerts = append(alerts, val)
-				ok = true
-				break 
-			}
-		}
-	}
+	// Fork addition: the wildcard is in the alert, not in the measured key, and every
+	// alert on the metric is checked, see fork_alerts.go
+	alerts := alertsForMetric(ActiveAlerts, TrackingMetric, Period)
+	ok := len(alerts) > 0
 
 	if !ok {
 		return
