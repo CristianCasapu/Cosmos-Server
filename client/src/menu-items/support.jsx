@@ -1,5 +1,5 @@
 // assets
-import { GithubOutlined, QuestionOutlined, BugOutlined } from '@ant-design/icons';
+import { GithubOutlined, QuestionOutlined, BugOutlined, ForkOutlined } from '@ant-design/icons';
 import DiscordOutlined from '../assets/images/icons/discord.svg'
 import DiscordOutlinedWhite from '../assets/images/icons/discord_white.svg'
 import { useTheme } from '@mui/material/styles';
@@ -34,6 +34,16 @@ const support = {
             type: 'item',
             url: 'https://github.com/azukaar/Cosmos-Server',
             icon: GithubOutlined,
+            external: true,
+            target: true
+        },
+        // Fork addition: this build comes from a fork; link to its source.
+        {
+            id: 'fork',
+            title: 'menu-items.support.fork',
+            type: 'item',
+            url: 'https://github.com/CristianCasapu/Cosmos-Server',
+            icon: ForkOutlined,
             external: true,
             target: true
         },

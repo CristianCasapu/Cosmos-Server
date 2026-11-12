@@ -146,6 +146,7 @@
 	"menu-items.support.discord": "Discord",
 	"menu-items.support.docsTitle": "Documentation",
 	"menu-items.support.github": "Github",
+	"menu-items.support.fork": "This fork on GitHub",
 	"mgmt.config.apiTokens.copyWarning": "Copy this token now. It will not be shown again.",
 	"mgmt.config.apiTokens.createTitle": "Create API Token",
 	"mgmt.config.apiTokens.deleteConfirm": "Are you sure you want to delete the token \"{{name}}\"?",

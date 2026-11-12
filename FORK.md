@@ -30,6 +30,7 @@ and nothing here alters any paid feature or licensing mechanism.
 | `.local` names are published again when Avahi loses them (daemon restart, machine renamed after a name conflict, Avahi not yet running when Cosmos started); upstream publishes them once and they stay dead until Cosmos restarts (upstream issue #507) | `src/proxy/avahi_watch.go`, `src/proxy/avahi_live_test.go`; modified: `src/proxy/avahi.go` |
 | Updates come from this fork's releases instead of the original's; fork releases are ordered by build number, and the newest release is chosen by version instead of by position in GitHub's list | modified: `src/update.go` (+ `src/update_fork_test.go`), `src/CRON.go` |
 | The version shown in the menu includes the fork build | modified: `client/src/layout/MainLayout/Drawer/index.jsx` |
+| The Support menu links to this fork | modified: `client/src/menu-items/support.jsx`, `client/src/utils/locales/en/translation.json` |
 | Checks, release, upstream sync and rollback automation | `.github/actions/fork-build/`, `.github/workflows/fork-ci.yml`, `fork-release.yml`, `fork-sync.yml`, `fork-rollback.yml`, `scripts/fork-promote.sh` |
 
 ## Versions and updates
