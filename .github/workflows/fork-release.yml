@@ -1,0 +1,149 @@
+# Fork addition: builds this fork and publishes it as a GitHub release in the
+# layout Cosmos' own updater expects, so an install of this fork updates itself
+# from here instead of from the original project.
+name: Fork release
+
+on:
+  push:
+    branches: [custom]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-release
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: azukaar/cosmos-server
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # all tags, to number this build
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The updater installs a release only if its version is higher than the
+      # running one (semver). Fork builds therefore use
+      #   <upstream major>.<upstream minor>.<upstream patch * 1000 + build>
+      # e.g. 0.23.4001 is build 1 on top of upstream 0.23.4. That sorts above
+      # the upstream release it is based on and below the next upstream patch.
+      - name: Work out the version
+        id: version
+        run: |
+          upstream=$(jq -r .version package.json)
+          base=${upstream%.*}
+          patch=${upstream##*.}
+          case "$patch" in
+            ''|*[!0-9]*) echo "::error::Cannot build on upstream version '$upstream' (not a stable x.y.z)"; exit 1 ;;
+          esac
+
+          build=0
+          while read -r tag; do
+            rest=${tag#"v$base.$patch"}
+            if [[ "$rest" =~ ^[0-9]{3}$ ]]; then
+              n=$((10#$rest))
+              if [ "$n" -gt "$build" ]; then build=$n; fi
+            fi
+          done < <(git tag --list "v$base.$patch*")
+          build=$((build + 1))
+          if [ "$build" -gt 999 ]; then
+            echo "::error::More than 999 fork builds on upstream $upstream"; exit 1
+          fi
+
+          version="$base.$patch$(printf '%03d' "$build")"
+          echo "upstream=$upstream" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "Fork version $version (build $build on upstream $upstream)"
+
+      # GeoLite2, Nebula and restic are not in the repository; upstream's CI
+      # downloads them (GeoLite2 needs a MaxMind key). Take the exact files
+      # upstream shipped for this version from its release.
+      - name: Fetch the bundled third-party files from the upstream release
+        env:
+          UPSTREAM: ${{ steps.version.outputs.upstream }}
+        run: |
+          gh release download "v$UPSTREAM" --repo "$UPSTREAM_REPO" --dir upstream \
+            --pattern "cosmos-cloud-$UPSTREAM-amd64.zip" \
+            --pattern "cosmos-cloud-$UPSTREAM-arm64.zip"
+          unzip -q "upstream/cosmos-cloud-$UPSTREAM-amd64.zip" -d upstream/amd64
+          unzip -q "upstream/cosmos-cloud-$UPSTREAM-arm64.zip" -d upstream/arm64
+          amd="upstream/amd64/cosmos-cloud-$UPSTREAM"
+          arm="upstream/arm64/cosmos-cloud-$UPSTREAM-arm64"
+          cp "$amd/GeoLite2-Country.mmdb" "$amd/nebula" "$amd/nebula-cert" "$amd/restic" .
+          cp "$arm/nebula-arm" "$arm/nebula-arm-cert" .
+          cp "$arm/restic" restic-arm
+          rm -rf upstream
+
+      - name: Build the UI
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Version of this build only; package.json in git keeps upstream's.
+          npm pkg set version="$VERSION"
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run client-build
+
+      - name: Test the fork's additions
+        run: go test ./src/utils/ -run 'DeliverEmail|UsesImplicitTLS' -count=1
+
+      - name: Build the server and the launcher
+        run: |
+          # Both binaries read updateRepo (src/update.go): point it at this fork.
+          export GOFLAGS="-ldflags=-X=main.updateRepo=$GITHUB_REPOSITORY"
+          bash build.sh
+          for f in cosmos cosmos-arm64 cosmos-launcher cosmos-launcher-arm64 static/index.html meta.json; do
+            test -s "build/$f" || { echo "::error::build/$f is missing"; exit 1; }
+          done
+          grep -aq "$GITHUB_REPOSITORY" build/cosmos || { echo "::error::update source was not set in the binary"; exit 1; }
+          grep -aq "$GITHUB_REPOSITORY" build/cosmos-launcher || { echo "::error::update source was not set in the launcher"; exit 1; }
+          cat build/meta.json
+
+      - name: Package like upstream
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          pkg="cosmos-cloud-$VERSION"
+
+          mkdir "$pkg"
+          cp -r build/* "$pkg/"
+          rm "$pkg/cosmos-launcher-arm64" "$pkg/cosmos-arm64" "$pkg/nebula-arm" "$pkg/nebula-arm-cert" "$pkg/restic-arm"
+
+          mkdir "$pkg-arm64"
+          cp -r build/* "$pkg-arm64/"
+          mv "$pkg-arm64/cosmos-arm64" "$pkg-arm64/cosmos"
+          mv "$pkg-arm64/cosmos-launcher-arm64" "$pkg-arm64/cosmos-launcher"
+          mv "$pkg-arm64/restic-arm" "$pkg-arm64/restic"
+
+          zip -qr "$pkg-amd64.zip" "$pkg"
+          zip -qr "$pkg-arm64.zip" "$pkg-arm64"
+          md5sum "$pkg-amd64.zip" > "$pkg-amd64.zip.md5"
+          md5sum "$pkg-arm64.zip" > "$pkg-arm64.zip.md5"
+          ls -l cosmos-cloud-*.zip*
+
+      - name: Publish the release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          UPSTREAM: ${{ steps.version.outputs.upstream }}
+          BUILD: ${{ steps.version.outputs.build }}
+        run: |
+          gh release create "v$VERSION" \
+            "cosmos-cloud-$VERSION-amd64.zip" "cosmos-cloud-$VERSION-amd64.zip.md5" \
+            "cosmos-cloud-$VERSION-arm64.zip" "cosmos-cloud-$VERSION-arm64.zip.md5" \
+            --target "$GITHUB_SHA" \
+            --title "$VERSION" \
+            --notes "Fork build $BUILD on top of upstream Cosmos $UPSTREAM (commit $GITHUB_SHA)."

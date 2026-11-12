@@ -1,0 +1,67 @@
+# Fork addition: keeps the fork current with the original project. Once a day
+# it merges upstream's latest stable release into `custom` and starts a fork
+# release. If the merge conflicts it changes nothing and opens an issue.
+name: Sync with upstream
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: fork-sync
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: azukaar/cosmos-server
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: custom
+          fetch-depth: 0
+
+      - name: Merge the latest upstream release
+        run: |
+          # "latest" is the newest release that is neither a draft nor a
+          # pre-release, so unstable upstream builds are never merged.
+          latest=$(gh api "repos/$UPSTREAM_REPO/releases/latest" --jq .tag_name)
+          echo "Latest upstream release: $latest"
+
+          git fetch --no-tags "https://github.com/$UPSTREAM_REPO.git" "refs/tags/$latest:refs/tags/$latest"
+
+          if git merge-base --is-ancestor "$latest" HEAD; then
+            echo "custom already contains $latest; nothing to do."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if ! git merge --no-edit "$latest"; then
+            conflicts=$(git diff --name-only --diff-filter=U)
+            git merge --abort
+            title="Upstream $latest does not merge cleanly into custom"
+            if [ -z "$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[].number')" ]; then
+              gh issue create --title "$title" --body "$(printf 'The daily sync could not merge upstream release %s into `custom`.\n\nConflicting files:\n\n```\n%s\n```\n\nMerge it by hand (`git merge %s` on `custom`), resolve the conflicts and push; the push starts a fork release.' "$latest" "$conflicts" "$latest")"
+            fi
+            echo "::error::Merge of $latest conflicts in: $conflicts"
+            exit 1
+          fi
+
+          # A push made with the workflow token is rejected if the merge brings
+          # changes under .github/workflows; that needs a manual merge too.
+          git push origin HEAD:custom "refs/tags/$latest"
+
+          # Pushes made with the workflow token do not trigger other workflows,
+          # so start the release explicitly.
+          gh workflow run fork-release.yml --ref custom

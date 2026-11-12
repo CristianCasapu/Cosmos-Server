@@ -63,10 +63,15 @@ func parseMD5File(content string) string {
 	return ""
 }
 
+// Fork addition: the GitHub repository whose releases this build updates from.
+// Release builds set it with -ldflags "-X main.updateRepo=owner/name"; this
+// file is also compiled into the launcher, which picks up the same value.
+var updateRepo = "azukaar/cosmos-server"
+
 func GetLatestVersion(includeBeta bool) (*VersionInfo, error) {
     // Fetch releases from GitHub API
 
-    updateURL := "https://api.github.com/repos/azukaar/cosmos-server/releases"
+    updateURL := "https://api.github.com/repos/" + updateRepo + "/releases"
     if utils.IsPro() {
         updateURL = "https://api.cosmos-cloud.io/proupdates"
     }
