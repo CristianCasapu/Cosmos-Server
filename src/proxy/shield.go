@@ -1,251 +1,138 @@
 package proxy
 
 import (
-	"sync"
-	"time"
-	"net/http"
 	"fmt"
 	"math"
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
-	"github.com/azukaar/cosmos-server/src/utils"
-	"github.com/azukaar/cosmos-server/src/metrics"
 	"github.com/azukaar/cosmos-server/src/constellation"
+	"github.com/azukaar/cosmos-server/src/metrics"
+	"github.com/azukaar/cosmos-server/src/utils"
 )
 
-/*
-	TODO :
-	 - Recalculate throttle every gb for writer wrapper?
-*/
-
-const (
-	STRIKE = 0
-	TEMP = 1
-	PERM = 2
-)
-
-type UserBan struct {
-	ClientID string
-	BanType int
-	time time.Time
-	reason string
-	shieldID string
-}
-
-type GlobalSmartShieldState struct {
-	sync.Mutex
-	bans []*UserBan
-}
-
-
-type smartShieldState struct {
-	sync.Mutex
-	requests []*SmartResponseWriterWrapper
-}
+// SmartShield (HTTP): per-client budgets over a rolling hour, throttling when a
+// budget is exceeded and strikes (see shield_bans.go) when it is exceeded by
+// the policy's strictness factor. Budgets are aggregate counters
+// (shield_budget.go), so cost per request does not grow with traffic.
+//
+// Identity: an authenticated request is budgeted per Cosmos user, an anonymous
+// one per source IP. Abuse counters and IP-level defences stay keyed by IP.
 
 type userUsedBudget struct {
-	ClientID string `json:"clientID"`
-	Time float64 `json:"time"`
-	Requests int `json:"requests"`
-	Bytes int64 `json:"bytes"`
-	Simultaneous int `json:"simultaneous"`
+	ClientID     string  `json:"clientID"`
+	Time         float64 `json:"time"` // seconds
+	Requests     int     `json:"requests"`
+	Packets      int64   `json:"packets,omitempty"`
+	Bytes        int64   `json:"bytes"`
+	Simultaneous int     `json:"simultaneous"`
 }
 
-var shield smartShieldState
-var globalShieldState GlobalSmartShieldState
+var shield = newBudgetStore()
 
 func GetShield() int {
-	return len(shield.requests) + len(globalShieldState.bans)
+	return shield.size() + globalShieldState.count()
 }
 
 func CleanUp() {
-	shield.Lock()
-	defer shield.Unlock()
-
-	globalShieldState.Lock()
-	defer globalShieldState.Unlock()
-
-	shieldSize := len(shield.requests) + len(globalShieldState.bans)
-
-	for i := len(shield.requests) - 1; i >= 0; i-- {
-		request := shield.requests[i]
-		if(request.IsOld()) {
-			shield.requests = append(shield.requests[:i], shield.requests[i+1:]...)
-		}
-	}
-
-	for i := len(globalShieldState.bans) - 1; i >= 0; i-- {
-		ban := globalShieldState.bans[i]
-		if(ban.BanType == TEMP && ban.time.Add(72 * 3600 * time.Second).Before(time.Now())) {
-			globalShieldState.bans = append(globalShieldState.bans[:i], globalShieldState.bans[i+1:]...)
-		}
-		if(ban.BanType == STRIKE && ban.time.Add(72 * 3600 * time.Second).Before(time.Now())) {
-			globalShieldState.bans = append(globalShieldState.bans[:i], globalShieldState.bans[i+1:]...)
-		}
-	}
-
-	utils.Log("SmartShield: Cleaned up " + fmt.Sprintf("%d", shieldSize - (len(shield.requests) + len(globalShieldState.bans))) + " items")
+	now := time.Now()
+	removed := shield.cleanup(now) + globalShieldState.cleanup(now)
+	utils.Log("SmartShield: Cleaned up " + fmt.Sprintf("%d", removed) + " items")
 }
 
-func (shield *smartShieldState) GetServerNbReq(shieldID string) int {
-	shield.Lock()
-	defer shield.Unlock()
-	nbRequests := 0
+// consumed reads a client's usage over the window, in-flight work included.
+func (b *clientBudget) consumed(clientID string, now time.Time) userUsedBudget {
+	b.Lock()
+	defer b.Unlock()
 
-	for i := len(shield.requests) - 1; i >= 0; i-- {
-		request := shield.requests[i]
-		if(request.IsOld()) {
-			return nbRequests
-		}
-		if(!request.IsOver() && request.shieldID == shieldID) {
-			nbRequests++
-		}
+	f := b.finished(now)
+	u := userUsedBudget{
+		ClientID:     clientID,
+		Time:         f.seconds,
+		Requests:     f.requests,
+		Packets:      f.packets,
+		Bytes:        f.bytes,
+		Simultaneous: b.inflight + len(b.live),
 	}
-
-	return nbRequests
+	if b.inflight > 0 {
+		u.Time += float64(int64(b.inflight)*now.UnixNano()-b.inflightStartNs) / 1e9
+	}
+	for w := range b.live {
+		bytes, packets := w.counters()
+		u.Bytes += bytes
+		u.Packets += packets
+		u.Time += now.Sub(w.TimeStarted).Seconds()
+	}
+	return u
 }
 
-func (shield *smartShieldState) GetUserUsedBudgets(shieldID string, ClientID string) userUsedBudget {
-	shield.Lock()
-	defer shield.Unlock()
-
-	userConsumed	:= userUsedBudget{
-		ClientID: ClientID,
-		Time: 0,
-		Requests: 0,
-		Bytes: 0,
-		Simultaneous: 0,
-	}
-
-	// Check for recent requests
-	for i := len(shield.requests) - 1; i >= 0; i-- {
-		request := shield.requests[i]
-		
-		if(request.shieldID != shieldID) {
-			continue
-		}
-
-		if(request.IsOld()) {
-			return userConsumed
-		}
-		if request.ClientID == ClientID && !request.IsOld() {
-			if(request.IsOver()) {
-				userConsumed.Time += request.TimeEnded.Sub(request.TimeStarted).Seconds()
-			} else {
-				userConsumed.Time += time.Now().Sub(request.TimeStarted).Seconds()
-				userConsumed.Simultaneous++
-			}
-			userConsumed.Requests += request.RequestCost
-			userConsumed.Bytes += request.Bytes
-		}
-	}
-
-	return userConsumed
+func (s *budgetStore) GetUserUsedBudgets(shieldID string, clientID string) userUsedBudget {
+	return s.client(shieldID, clientID).consumed(clientID, time.Now())
 }
 
-func GetLastBan(clientID string, needLock bool) *UserBan {
-	if(needLock) {
-		globalShieldState.Lock()
-		defer globalShieldState.Unlock()
-	}
-
-	// Check for bans
-	for i := len(globalShieldState.bans) - 1; i >= 0; i-- {
-		ban := globalShieldState.bans[i]
-		if ban.BanType == STRIKE && ban.ClientID == clientID {
-			return ban
-		}
-	}
-
-	return nil
+func isLocalGateway(clientID string) bool {
+	return clientID == "192.168.1.1" ||
+		clientID == "192.168.0.1" ||
+		clientID == "192.168.0.254" ||
+		clientID == "172.17.0.1"
 }
 
-func (shield *smartShieldState) isAllowedToReqest(shieldID string, policy utils.SmartShieldPolicy, userConsumed userUsedBudget) bool {
-	shield.Lock()
-	defer shield.Unlock()
+func overTimeBudget(policy utils.SmartShieldPolicy, seconds float64) bool {
+	if policy.PerUserTimeBudget <= 0 {
+		return false
+	}
+	return seconds*1000 > policy.PerUserTimeBudget*float64(policy.PolicyStrictness)
+}
 
-	globalShieldState.Lock()
-	defer globalShieldState.Unlock()
+// budgetViolation names the first limit a client is over by the policy's
+// strictness factor. HTTP tolerates 15x the simultaneous limit before a
+// strike (browsers open many connections); TCP does not.
+func budgetViolation(policy utils.SmartShieldPolicy, u userUsedBudget, route string, tcp bool) (utils.ShieldBanReason, bool) {
+	strictness := policy.PolicyStrictness
+	reason := utils.ShieldBanReason{Route: route}
+	switch {
+	case overTimeBudget(policy, u.Time):
+		reason.Limit, reason.Used, reason.Allowed = "time", u.Time*1000, policy.PerUserTimeBudget*float64(strictness)
+	case !tcp && u.Requests > policy.PerUserRequestLimit*strictness:
+		reason.Limit, reason.Used, reason.Allowed = "requests", float64(u.Requests), float64(policy.PerUserRequestLimit*strictness)
+	case tcp && u.Packets > int64(policy.PerUserRequestLimit*1000*strictness):
+		reason.Limit, reason.Used, reason.Allowed = "packets", float64(u.Packets), float64(policy.PerUserRequestLimit*1000*strictness)
+	case u.Bytes > policy.PerUserByteLimit*int64(strictness):
+		reason.Limit, reason.Used, reason.Allowed = "bytes", float64(u.Bytes), float64(policy.PerUserByteLimit*int64(strictness))
+	case !tcp && u.Simultaneous > policy.PerUserSimultaneous*strictness*15:
+		reason.Limit, reason.Used, reason.Allowed = "simultaneous", float64(u.Simultaneous), float64(policy.PerUserSimultaneous*strictness*15)
+	case tcp && u.Simultaneous > policy.PerUserSimultaneous*strictness:
+		reason.Limit, reason.Used, reason.Allowed = "simultaneous", float64(u.Simultaneous), float64(policy.PerUserSimultaneous*strictness)
+	default:
+		return reason, false
+	}
+	return reason, true
+}
 
-	ClientID := userConsumed.ClientID
-
-	if ClientID == "192.168.1.1" || 
-		 ClientID == "192.168.0.1" ||
-		 ClientID == "192.168.0.254" ||
-		 ClientID == "172.17.0.1" {
+// isAllowedToRequest checks bans first, then strikes the client if its usage
+// is beyond the policy times the strictness factor.
+func isAllowedToRequest(shieldID string, policy utils.SmartShieldPolicy, userConsumed userUsedBudget) bool {
+	clientID := userConsumed.ClientID
+	if isLocalGateway(clientID) {
 		return true
 	}
-	
-	nbTempBans := 0
-	nbStrikes := 0
 
-	// Check for bans
-	for i := len(globalShieldState.bans) - 1; i >= 0; i-- {
-		ban := globalShieldState.bans[i]
-
-		if ban.BanType == PERM && ban.ClientID == ClientID {
-			return false
-		} else if ban.BanType == TEMP && ban.ClientID == ClientID {
-			if(ban.time.Add(4 * 3600 * time.Second).After(time.Now())) {
-				return false
-			} else if (ban.time.Add(72 * 3600 * time.Second).After(time.Now())) {
-				nbTempBans++
-			}
-		} else if ban.BanType == STRIKE && ban.ClientID == ClientID {
-			if(ban.time.Add(3600 * time.Second).After(time.Now())) {
-				return false
-			} else if (ban.time.Add(24 * 3600 * time.Second).After(time.Now())) {
-				nbStrikes++
-			}
-		}
-	}
-
-	// Check for new bans
-	if nbTempBans >= 3 {
-		// perm ban
-		globalShieldState.bans = append(globalShieldState.bans, &UserBan{
-			ClientID: ClientID,
-			BanType: PERM,
-			time: time.Now(),
-		})
-
-		utils.Warn("User " + ClientID + " has been banned permanently: "+ fmt.Sprintf("%+v", userConsumed))
-		return false
-	} else if nbStrikes >= 3 {
-		// temp ban
-		globalShieldState.bans = append(globalShieldState.bans, &UserBan{
-			ClientID: ClientID,
-			BanType: TEMP,
-			time: time.Now(),
-		})
-		utils.Warn("User " + ClientID + " has been banned temporarily: "+ fmt.Sprintf("%+v", userConsumed))
+	now := time.Now()
+	if !globalShieldState.allowed(clientID, shieldID, now) {
 		return false
 	}
 
-	// Check for new strikes
-	if (userConsumed.Time > (policy.PerUserTimeBudget * float64(policy.PolicyStrictness))) || 
-		 (userConsumed.Requests > (policy.PerUserRequestLimit * policy.PolicyStrictness)) ||
-		 (userConsumed.Bytes > (policy.PerUserByteLimit * int64(policy.PolicyStrictness))) ||
-		 (userConsumed.Simultaneous > (policy.PerUserSimultaneous * policy.PolicyStrictness * 15)) {
-		globalShieldState.bans = append(globalShieldState.bans, &UserBan{
-			ClientID: ClientID,
-			BanType: STRIKE,
-			time: time.Now(),
-			reason: fmt.Sprintf("%+v out of %+v", userConsumed, policy),
-			shieldID: shieldID,
-		})
-		utils.Warn("User " + ClientID + " has received a strike: "+ fmt.Sprintf("%+v", userConsumed))
+	if reason, over := budgetViolation(policy, userConsumed, shieldID, false); over {
+		globalShieldState.strike(clientID, shieldID, reason, now)
 		return false
 	}
 
 	return true
 }
 
-func (shield *smartShieldState) computeThrottle(policy utils.SmartShieldPolicy, userConsumed userUsedBudget) int {	
-	shield.Lock()
-	defer shield.Unlock()
-
+func computeThrottle(policy utils.SmartShieldPolicy, userConsumed userUsedBudget) int {
 	throttle := 0
 
 	overReq := policy.PerUserRequestLimit - userConsumed.Requests
@@ -256,7 +143,7 @@ func (shield *smartShieldState) computeThrottle(policy utils.SmartShieldPolicy, 
 			throttle = newThrottle
 		}
 	}
-	
+
 	overByte := policy.PerUserByteLimit - userConsumed.Bytes
 	overByteRatio := float64(overByte) / float64(policy.PerUserByteLimit)
 	if overByte < 0 {
@@ -274,28 +161,31 @@ func (shield *smartShieldState) computeThrottle(policy utils.SmartShieldPolicy, 
 			throttle = newThrottle
 		}
 	}
-	
-	// if throttle > 0 {
-		utils.Debug(fmt.Sprintf("User Time: %f, Requests: %d, Bytes: %d", userConsumed.Time, userConsumed.Requests, userConsumed.Bytes))
-		utils.Debug(fmt.Sprintf("Policy Time: %f, Requests: %d, Bytes: %d", policy.PerUserTimeBudget, policy.PerUserRequestLimit, policy.PerUserByteLimit))	
-		utils.Debug(fmt.Sprintf("Throttling: %d", throttle))
-	// }
+
+	if throttle > 0 {
+		utils.Debug(fmt.Sprintf("SmartShield: throttling %s by %dms (requests %d/%d, bytes %d/%d, simultaneous %d/%d)",
+			userConsumed.ClientID, throttle,
+			userConsumed.Requests, policy.PerUserRequestLimit,
+			userConsumed.Bytes, policy.PerUserByteLimit,
+			userConsumed.Simultaneous, policy.PerUserSimultaneous))
+	}
 
 	return throttle
 }
 
 func calculateLowestExhaustedPercentage(policy utils.SmartShieldPolicy, userConsumed userUsedBudget) int64 {
-	timeExhaustedPercentage := 100 - (userConsumed.Time / policy.PerUserTimeBudget) * 100
-	requestsExhaustedPercentage := 100 - (float64(userConsumed.Requests) / float64(policy.PerUserRequestLimit)) * 100
-	bytesExhaustedPercentage := 100 - (float64(userConsumed.Bytes) / float64(policy.PerUserByteLimit)) * 100
-
-	// utils.Debug(fmt.Sprintf("Time: %f, Requests: %d, Bytes: %d", timeExhaustedPercentage, requestsExhaustedPercentage, bytesExhaustedPercentage))
-	
-	return int64(math.Max(0, math.Min(math.Min(timeExhaustedPercentage, requestsExhaustedPercentage), bytesExhaustedPercentage)))
+	lowest := 100.0
+	if policy.PerUserTimeBudget > 0 {
+		lowest = math.Min(lowest, 100-(userConsumed.Time*1000/policy.PerUserTimeBudget)*100)
+	}
+	lowest = math.Min(lowest, 100-(float64(userConsumed.Requests)/float64(policy.PerUserRequestLimit))*100)
+	lowest = math.Min(lowest, 100-(float64(userConsumed.Bytes)/float64(policy.PerUserByteLimit))*100)
+	return int64(math.Max(0, lowest))
 }
 
+// GetClientID returns the source IP of a request, honouring X-Forwarded-For
+// from trusted proxies and authenticated constellation peers.
 func GetClientID(r *http.Request, route utils.ProxyRouteConfig) string {
-	// when using Docker we need to get the real IP
 	remoteAddr, _ := utils.SplitIP(r.RemoteAddr)
 	isConstIP := constellation.IsConstellationIP(remoteAddr)
 	isConstTokenValid := isConstIP && constellation.CheckConstellationToken(r) == nil
@@ -313,6 +203,16 @@ func GetClientID(r *http.Request, route utils.ProxyRouteConfig) string {
 	return ip
 }
 
+// GetShieldIdentity is what budgets and bans are keyed on: the Cosmos user
+// when the request is authenticated, otherwise the source IP. Many users
+// behind one NAT then no longer share one budget.
+func GetShieldIdentity(r *http.Request, clientIP string) string {
+	if nickname := utils.GetAuthContext(r).Nickname; nickname != "" {
+		return "user:" + nickname
+	}
+	return clientIP
+}
+
 func isPrivileged(req *http.Request, policy utils.SmartShieldPolicy) bool {
 	switch {
 	case policy.PrivilegedGroups <= 0:
@@ -324,205 +224,142 @@ func isPrivileged(req *http.Request, policy utils.SmartShieldPolicy) bool {
 	}
 }
 
-func SmartShieldMiddleware(shieldID string, route utils.ProxyRouteConfig) func(http.Handler) http.Handler {
-	policy := route.SmartShield
+func finishRequest(wrapper *SmartResponseWriterWrapper, route utils.ProxyRouteConfig, r *http.Request) {
+	wrapper.TimeEnded = time.Now()
+	wrapper.isOver = true
 
-	if policy.Enabled {
-		if(policy.PerUserTimeBudget == 0) {
-			policy.PerUserTimeBudget = 2 * 60 * 60 * 1000 // 2 hours
-		}
-		if(policy.PerUserRequestLimit == 0) {
-			policy.PerUserRequestLimit = 18000 // 225 requests per minute
-		}
-		if(policy.PerUserByteLimit == 0) {
-			policy.PerUserByteLimit = 200 * 1024 * 1024 * 1024 // 200GB
-		}
-		if(policy.PolicyStrictness == 0) {
-			policy.PolicyStrictness = 2 // NORMAL
-		}
-		if(policy.PerUserSimultaneous == 0) {
-			policy.PerUserSimultaneous = 100
-		}
-		if(policy.MaxGlobalSimultaneous == 0) {
-			policy.MaxGlobalSimultaneous = 2000
-		}
-		if(policy.PrivilegedGroups == 0) {
-			policy.PrivilegedGroups = utils.ADMIN
-		}
+	statusText := "success"
+	level := "info"
+	if wrapper.Status >= 400 {
+		statusText = "error"
+		level = "warning"
 	}
+
+	utils.TriggerEvent(
+		"cosmos.proxy.response."+route.Name+"."+statusText,
+		"Proxy Response "+route.Name+" "+statusText,
+		level,
+		"route@"+route.Name,
+		map[string]interface{}{
+			"route":    route.Name,
+			"status":   wrapper.Status,
+			"method":   wrapper.Method,
+			"clientID": wrapper.ClientIP,
+			"identity": wrapper.ClientID,
+			"time":     wrapper.TimeEnded.Sub(wrapper.TimeStarted).Seconds(),
+			"bytes":    wrapper.Bytes,
+			"hostname": r.Host,
+			"url":      r.URL,
+		})
+
+	go metrics.PushRequestMetrics(route, wrapper.Status, wrapper.TimeStarted, wrapper.Bytes)
+}
+
+func rejectTooManyRequests(w http.ResponseWriter, reason string) {
+	go metrics.PushShieldMetrics("smart-shield")
+	utils.Log("SmartShield: " + reason)
+	http.Error(w, "Too many requests", http.StatusTooManyRequests)
+}
+
+func SmartShieldMiddleware(shieldID string, route utils.ProxyRouteConfig) func(http.Handler) http.Handler {
+	policy := utils.ApplySmartShieldDefaults(route.SmartShield)
+	inflight := shield.shieldInflight(shieldID)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			clientID := GetClientID(r, route)
+			clientIP := GetClientID(r, route)
+			clientID := GetShieldIdentity(r, clientIP)
+			// a whitelisted IP is never budgeted, throttled or struck
+			privileged := isPrivileged(r, policy) || utils.IsShieldWhitelisted(clientIP)
 
-			wrapper := &SmartResponseWriterWrapper {
+			wrapper := &SmartResponseWriterWrapper{
 				ResponseWriter: w,
-				ThrottleNext:   0,
 				TimeStarted:    time.Now(),
 				ClientID:       clientID,
+				ClientIP:       clientIP,
 				RequestCost:    1,
-				Method: 				r.Method,
-				shield: &shield,
-				shieldID: shieldID,
-				policy: policy,
-				isPrivileged: isPrivileged(r, policy),
+				Method:         r.Method,
+				shieldID:       shieldID,
+				policy:         policy,
+				isPrivileged:   privileged,
 			}
 
 			if !policy.Enabled {
 				next.ServeHTTP(wrapper, r)
-				wrapper.TimeEnded = time.Now()
-				wrapper.isOver = true
-
-				statusText := "success"
-				level := "info"
-				if wrapper.Status >= 400 {
-					statusText = "error"
-					level = "warning"
-				}
-
-				utils.TriggerEvent(
-					"cosmos.proxy.response." + route.Name + "." + statusText,
-					"Proxy Response " + route.Name + " " + statusText,
-					level,
-					"route@" + route.Name,
-					map[string]interface{}{
-					"route": route.Name,
-					"status": wrapper.Status,
-					"method": wrapper.Method,
-					"clientID": wrapper.ClientID,
-					"time": wrapper.TimeEnded.Sub(wrapper.TimeStarted).Seconds(),
-					"bytes": wrapper.Bytes,
-					"hostname": r.Host,
-					"url": r.URL,
-				})
-
-				go metrics.PushRequestMetrics(route, wrapper.Status, wrapper.TimeStarted, wrapper.Bytes)
-
+				finishRequest(wrapper, route, r)
 				return
 			}
 
-			currentGlobalRequests := shield.GetServerNbReq(shieldID) + 1
-			utils.Debug(fmt.Sprintf("SmartShield: Current global requests: %d", currentGlobalRequests))
-
-			if !isPrivileged(r, policy) {
-				tooManyReq := currentGlobalRequests > policy.MaxGlobalSimultaneous
-				wayTooManyReq := currentGlobalRequests > policy.MaxGlobalSimultaneous * 10
-				retries := 50
-				if wayTooManyReq {
-					go metrics.PushShieldMetrics("smart-shield")
-					utils.Log("SmartShield: WAYYYY Too many users on the server. Aborting right away.")
-					http.Error(w, "Too many requests", http.StatusTooManyRequests)
+			if !privileged {
+				profile := utils.GetSmartShieldProfile()
+				current := int(inflight.Load()) + 1
+				if current > policy.MaxGlobalSimultaneous*10 {
+					rejectTooManyRequests(w, fmt.Sprintf("way too many requests on %s (%d), rejecting right away", shieldID, current))
 					return
 				}
-				for tooManyReq {
-					time.Sleep(5000 * time.Millisecond)
-					currentGlobalRequests := shield.GetServerNbReq(shieldID) + 1
-					tooManyReq = currentGlobalRequests > policy.MaxGlobalSimultaneous
-					retries--
-					if retries <= 0 {
-						go metrics.PushShieldMetrics("smart-shield")
-						utils.Log("SmartShield: Too many users on the server")
-						http.Error(w, "Too many requests", http.StatusTooManyRequests)
-						return
+				if current > policy.MaxGlobalSimultaneous {
+					deadline := time.Now().Add(profile.GlobalCapWait)
+					for int(inflight.Load())+1 > policy.MaxGlobalSimultaneous {
+						if time.Now().After(deadline) {
+							rejectTooManyRequests(w, fmt.Sprintf("too many requests on %s (%d of %d)", shieldID, current, policy.MaxGlobalSimultaneous))
+							return
+						}
+						time.Sleep(profile.GlobalCapPoll)
 					}
 				}
 			}
 
-			userConsumed := shield.GetUserUsedBudgets(shieldID, clientID)
+			// the request being judged is part of the usage it is judged on
+			budget := shield.client(shieldID, clientID)
+			budget.begin(wrapper.TimeStarted)
+			budget.addRequests(1, wrapper.TimeStarted)
+			userConsumed := budget.consumed(clientID, time.Now())
 
-			if !isPrivileged(r, policy) && !shield.isAllowedToReqest(shieldID, policy, userConsumed) {
-				lastBan := GetLastBan(clientID, true)
+			if !privileged && !isAllowedToRequest(shieldID, policy, userConsumed) {
+				budget.addRequests(-1, wrapper.TimeStarted)
+				budget.end(wrapper.TimeStarted, wrapper.TimeStarted)
+				lastBan := GetLastBan(clientID)
 				go metrics.PushShieldMetrics("smart-shield")
-				utils.IncrementIPAbuseCounter(clientID)
+				utils.IncrementIPAbuseCounter(clientIP)
 
 				utils.TriggerEvent(
-					"cosmos.proxy.shield.abuse." + route.Name,
-					"Proxy Shield " + route.Name + " Abuse by " + clientID,
+					"cosmos.proxy.shield.abuse."+route.Name,
+					"Proxy Shield "+route.Name+" Abuse by "+clientID,
 					"warning",
-					"route@" + route.Name,
+					"route@"+route.Name,
 					map[string]interface{}{
-					"route": route.Name,
-					"consumed": userConsumed,
-					"lastBan": lastBan,
-					"clientID": clientID,
-					"hostname": r.Host,
-					"url": r.URL,
-				})
-
-				utils.Log("SmartShield: User is blocked due to abuse: " + fmt.Sprintf("%+v", lastBan))
-				http.Error(w, "Too many requests", http.StatusTooManyRequests)
-				return
-			} else {
-				throttle := 0
-				if(!isPrivileged(r, policy)) {
-					throttle = shield.computeThrottle(policy, userConsumed)
-				}
-
-				wrapper := &SmartResponseWriterWrapper {
-					ResponseWriter: w,
-					ThrottleNext:   throttle,
-					TimeStarted:    time.Now(),
-					ClientID:       clientID,
-					RequestCost:    1,
-					Method: 				r.Method,
-					shield: &shield,
-					shieldID: shieldID,
-					policy: policy,
-					isPrivileged: isPrivileged(r, policy),
-				}
-
-				// add rate limite headers
-				In20Minutes := strconv.FormatInt(time.Now().Add(20 * time.Minute).Unix(), 10)
-				w.Header().Set("X-RateLimit-Remaining", strconv.FormatInt(calculateLowestExhaustedPercentage(policy, userConsumed), 10))
-				w.Header().Set("X-RateLimit-Limit", strconv.FormatInt(int64(policy.PerUserRequestLimit), 10))
-				w.Header().Set("X-RateLimit-Reset", In20Minutes)
-
-				shield.Lock()
-				shield.requests = append(shield.requests, wrapper)
-				shield.Unlock()
-				
-				ctx := r.Context()
-				done := make(chan struct{})
-
-				go (func() {
-					select {
-					case <-ctx.Done():
-					case <-done:
-					}	
-					shield.Lock()
-					wrapper.TimeEnded = time.Now()
-					wrapper.isOver = true
-
-					statusText := "success"
-					level := "info"
-					if wrapper.Status >= 400 {
-						statusText = "error"
-						level = "warning"
-					}
-
-					utils.TriggerEvent(
-						"cosmos.proxy.response." + route.Name + "." + statusText,
-						"Proxy Response " + route.Name + " " + statusText,
-						level,
-						"route@" + route.Name,
-						map[string]interface{}{
-						"route": route.Name,
-						"status": wrapper.Status,
-						"method": wrapper.Method,
-						"clientID": wrapper.ClientID,
-						"time": wrapper.TimeEnded.Sub(wrapper.TimeStarted).Seconds(),
-						"bytes": wrapper.Bytes,
+						"route":    route.Name,
+						"consumed": userConsumed,
+						"lastBan":  lastBan,
+						"clientID": clientIP,
+						"identity": clientID,
 						"hostname": r.Host,
-						"url": r.URL,
+						"url":      r.URL,
 					})
 
-					go metrics.PushRequestMetrics(route, wrapper.Status, wrapper.TimeStarted, wrapper.Bytes)
-					shield.Unlock()
-				})()
-
-				next.ServeHTTP(wrapper, r)
-				close(done)
+				utils.Log("SmartShield: User is blocked due to abuse: " + describeBan(lastBan))
+				http.Error(w, "Too many requests", http.StatusTooManyRequests)
+				return
 			}
+
+			if !privileged {
+				wrapper.ThrottleNext = computeThrottle(policy, userConsumed)
+			}
+			wrapper.budget = budget
+
+			In20Minutes := strconv.FormatInt(time.Now().Add(20*time.Minute).Unix(), 10)
+			w.Header().Set("X-RateLimit-Remaining", strconv.FormatInt(calculateLowestExhaustedPercentage(policy, userConsumed), 10))
+			w.Header().Set("X-RateLimit-Limit", strconv.FormatInt(int64(policy.PerUserRequestLimit), 10))
+			w.Header().Set("X-RateLimit-Reset", In20Minutes)
+
+			inflight.Add(1)
+			defer func() {
+				inflight.Add(-1)
+				finishRequest(wrapper, route, r)
+				budget.end(wrapper.TimeStarted, wrapper.TimeEnded)
+			}()
+
+			next.ServeHTTP(wrapper, r)
 		})
 	}
 }

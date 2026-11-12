@@ -18,12 +18,14 @@ import { useTranslation } from 'react-i18next';
 import { useClientInfos } from "../../utils/hooks";
 import { PERM_CONFIGURATION } from "../../utils/permissions";
 import PermissionGuard from "../../components/permissionGuard";
+import proFeatures from "../../pro";
 
 export const ConstellationDNS = () => {
   const { t } = useTranslation();
   const { hasPermission } = useClientInfos();
   const isAdmin = hasPermission(PERM_CONFIGURATION);
   const [config, setConfig] = useState(null);
+  const [coStatus, setCoStatus] = useState(null);
 
   const refreshConfig = async () => {
     let configAsync = await API.config.get();
@@ -32,6 +34,7 @@ export const ConstellationDNS = () => {
 
   useEffect(() => {
     refreshConfig();
+    API.getStatus().then((res) => setCoStatus(res.data));
   }, []);
 
   return <>
@@ -167,7 +170,45 @@ export const ConstellationDNS = () => {
           </Formik>
           </Stack>
         </MainCard>
-      </div>  
+      </div>
+      {coStatus && !coStatus.containerized && <div>
+        <MainCard title={t('mgmt.constellation.hostDNS.title')}>
+          <Formik
+            initialValues={{
+              useOnHost: config.ConstellationConfig.DoNotUseConstellationDNSOnHost == null
+                ? !!(proFeatures.isPro && proFeatures.isPro())
+                : !config.ConstellationConfig.DoNotUseConstellationDNSOnHost,
+            }}
+            onSubmit={(values) => {
+              return API.config.set({
+                ...config,
+                ConstellationConfig: {
+                  ...config.ConstellationConfig,
+                  DoNotUseConstellationDNSOnHost: !values.useOnHost,
+                },
+              }).then(() => refreshConfig());
+            }}
+          >
+            {(formik) => (
+              <form onSubmit={formik.handleSubmit}>
+                <Stack spacing={2}>
+                  <Alert severity="info">{t('mgmt.constellation.hostDNS.text')}</Alert>
+                  <CosmosCheckbox formik={formik} name="useOnHost" label={t('mgmt.constellation.hostDNS.label')} />
+                  <PermissionGuard permission={PERM_CONFIGURATION}>
+                    <LoadingButton
+                      variant="contained"
+                      type="submit"
+                      loading={formik.isSubmitting}
+                    >
+                      {t('global.saveAction')}
+                    </LoadingButton>
+                  </PermissionGuard>
+                </Stack>
+              </form>
+            )}
+          </Formik>
+        </MainCard>
+      </div>}
       </Stack>
     </> : <center>
       <CircularProgress color="inherit" size={20} />

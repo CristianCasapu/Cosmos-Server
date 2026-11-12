@@ -10,22 +10,18 @@ import {
   Stack,
 
 } from '@mui/material';
-import RestartModal from '../users/restart';
-import { CosmosCheckbox, CosmosFormDivider, CosmosInputText, CosmosSelect } from '../users/formShortcuts';
+import { CosmosCheckbox, CosmosFormDivider, CosmosInputText, CosmosSelect, ReadOnlyForm } from '../users/formShortcuts';
 import { snackit } from '../../../api/wrap';
 import { IsRouteSocketProxy } from '../../../utils/routes';
 import { useTranslation } from 'react-i18next';
 import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_CONFIGURATION } from '../../../utils/permissions';
 
-const RouteSecurity = ({ routeConfig, config }) => {
+const RouteSecurity = ({ routeConfig, config, readOnly = false }) => {
   const { t } = useTranslation();
-  const [openModal, setOpenModal] = React.useState(false);
   const isNotSocketProxy = !IsRouteSocketProxy(routeConfig);
 
   return <div style={{ maxWidth: '1000px', width: '100%', margin: 'auto', position: 'relative' }}>
-    <RestartModal openModal={openModal} setOpenModal={setOpenModal} config={config} />
-
     {routeConfig && <>
       <Formik
         initialValues={{
@@ -80,7 +76,6 @@ const RouteSecurity = ({ routeConfig, config }) => {
               setStatus({ success: true });
               snackit(t('mgmt.urls.edit.updateSuccess'), 'success');
               setSubmitting(false);
-              setOpenModal(true);
             } else {
               setStatus({ success: false });
               setErrors({ submit: res.status });
@@ -91,6 +86,7 @@ const RouteSecurity = ({ routeConfig, config }) => {
       >
         {(formik) => (
           <form noValidate onSubmit={formik.handleSubmit}>
+            <ReadOnlyForm readOnly={readOnly}>
             <Stack spacing={2}>
             <MainCard name={routeConfig.Name} title={t('global.securityTitle')}>
             <Grid container spacing={2}>
@@ -239,7 +235,7 @@ const RouteSecurity = ({ routeConfig, config }) => {
                   </>}
                 </Grid>
               </MainCard>
-              <MainCard ><PermissionGuard permission={PERM_CONFIGURATION}><Button
+              {!readOnly && <MainCard ><PermissionGuard permission={PERM_CONFIGURATION}><Button
                 fullWidth
                 disableElevation
                 size="large"
@@ -248,8 +244,9 @@ const RouteSecurity = ({ routeConfig, config }) => {
                 color="primary"
               >
                 {t('global.saveAction')}
-              </Button></PermissionGuard></MainCard>
+              </Button></PermissionGuard></MainCard>}
             </Stack>
+            </ReadOnlyForm>
           </form>
         )}
       </Formik>

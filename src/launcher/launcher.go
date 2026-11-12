@@ -12,7 +12,13 @@ import (
 	"path/filepath"
 	"strings"
 	// "os/exec"
+
+	"github.com/azukaar/cosmos-server/src/utils"
 )
+
+// edition is set at build time with -ldflags "-X main.edition=pro" so the launcher
+// checks the same release feed as the server it ships with.
+var edition = "community"
 
 // func run(binaryPath string, args ...string) error {
 // 	// Create the command
@@ -119,7 +125,9 @@ func unzip(src string, dest string) error {
 
 
 func main() {
-	fmt.Println("-- Cosmos Cloud Launcher --")
+	fmt.Println("-- Cosmos Cloud Launcher (" + edition + ") --")
+
+	utils.IsPro = func() bool { return edition == "pro" }
 	fmt.Println("Checking for updates to install...")
 	
 	// killall cosmos procedss before updating

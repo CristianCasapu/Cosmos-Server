@@ -96,6 +96,7 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
         initialValues={{
           networkMode: containerInfo.HostConfig.NetworkMode,
           ports: getPortBindings(),
+          dns: (containerInfo.HostConfig.Dns || []).join(', '),
           Container: (() => {
             if(!containerInfo || !containerInfo.HostConfig || !containerInfo.HostConfig.NetworkMode) return "";
             if(!containerInfo.HostConfig.NetworkMode.startsWith("container:")) return "";
@@ -113,6 +114,8 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
           const realvalues = {
             portBindings: {},
             networkMode: values.networkMode,
+            // a container that shares the network of another one takes its DNS too
+            dns: (values.networkMode || '').startsWith('container:') ? [] : values.dns.split(',').map((s) => s.trim()).filter(Boolean),
           };
           values.ports.forEach((port) => {
             let key = `${port.port}/${port.protocol}`;
@@ -145,11 +148,6 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
 
               <MainCard title={t('mgmt.servApps.newContainer.networkSettingsTitle')}>
                 <Stack spacing={4}>
-                  {containerInfo.State && containerInfo.State.Status !== 'running' && (
-                  <Alert severity="warning" style={{ marginBottom: '0px' }}>
-                      {t('mgmt.servApps.networks.containerotRunningWarning')}
-                    </Alert>
-                  )}
                   {/* {isForceSecure && (
                     <Alert severity="warning" style={{ marginBottom: '0px' }}>
                       {t('mgmt.servApps.networks.forcedSecurityWarning')}          
@@ -174,6 +172,12 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                     label={t('mgmt.servApps.networks.useAsVPN')}
                     nameOnly
                   />
+                  {!(formik.values.networkMode || '').startsWith('container:') && <CosmosInputText
+                    label={t('mgmt.servApps.networks.dnsLabel')}
+                    name="dns"
+                    placeholder={'1.1.1.1, 8.8.8.8'}
+                    formik={formik}
+                  />}
                   <CosmosFormDivider title={t('mgmt.servApps.networks.exposePortsTitle')} />
                   <div>
                     {formik.values.ports.map((port, idx) => (

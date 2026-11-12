@@ -183,6 +183,7 @@ type Config struct {
 	DockerConfig DockerConfig
 	BlockedCountries []string
 	CountryBlacklistIsWhitelist bool
+	ShieldWhitelist []ShieldWhitelistEntry
 	ServerCountry string
 	RequireMFA bool
 	AutoUpdate bool
@@ -271,6 +272,9 @@ type HTTPConfig struct {
 	SelfTLSValidUntil time.Time
 	AuthPrivateKey string
 	AuthPublicKey string
+	// OIDCSigningKey signs the OpenID tokens, one for the whole cluster
+	OIDCSigningKey string `json:"OIDCSigningKey,omitempty"`
+	OIDCSigningKeyShared bool `json:"OIDCSigningKeyShared,omitempty"`
 	GenerateMissingAuthCert bool
 	HTTPSCertificateMode string
 	DNSChallengeProvider string
@@ -282,12 +286,26 @@ type HTTPConfig struct {
 	ProxyConfig ProxyConfig
 	Hostname string `validate:"required,excludesall=0x2C/ "`
 	AllowHTTPLocalIPAccess bool `validate:"omitempty"`
+	// SSLEmail is the contact of the Let's Encrypt certificates. One for the
+	// whole cluster, whichever server issues: SSLEmailShared is set once the
+	// cluster's value was received, a server's own one from before is offered
+	// to the cluster until then.
 	SSLEmail string `validate:"omitempty,email"`
+	SSLEmailShared bool `json:"SSLEmailShared,omitempty"`
 	UseWildcardCertificate bool
 	OverrideWildcardDomains string `validate:"omitempty,excludesall=/ "`
 	AcceptAllInsecureHostname bool
 	DNSChallengeConfig map[string]string `json:"DNSChallengeConfig,omitempty"`
 	DNSChallengeResolvers string
+	DNSZones []DNSZoneConfig `json:"DNSZones,omitempty"`
+	ZoneCerts map[string]ZoneCert `json:"ZoneCerts,omitempty"`
+	// LocalCerts are the certificates this server gets by itself over HTTP-01,
+	// one per domain, keyed by LocalCertZone. Never shared: each server
+	// validates its own hostnames.
+	LocalCerts map[string]ZoneCert `json:"LocalCerts,omitempty"`
+	// AdvertisedAddress is what the DNS records of this node point at: empty for
+	// the detected public IP, "iface:<name>" for a network interface, or an IPv4
+	AdvertisedAddress string `json:"AdvertisedAddress,omitempty"`
 	UseForwardedFor bool
 	AllowSearchEngine bool
 	PublishMDNS bool
@@ -320,6 +338,107 @@ type SmartShieldPolicy struct {
 	PerUserSimultaneous int 	`yaml:"per_user_simultaneous"`
 	MaxGlobalSimultaneous int `yaml:"max_global_simultaneous"`
 	PrivilegedGroups int `yaml:"privileged_groups"`
+}
+
+// LenientExternalSmartShield is a SmartShield policy sized for external bulk-traffic routes (e.g. registry pushes, websites).
+func LenientExternalSmartShield(byteLimit int64) SmartShieldPolicy {
+	return SmartShieldPolicy{
+		Enabled:               true,
+		PolicyStrictness:      LENIENT,
+		PerUserTimeBudget:     24 * 60 * 60 * 1000,
+		PerUserRequestLimit:   200000,
+		PerUserByteLimit:      byteLimit,
+		PerUserSimultaneous:   200,
+		MaxGlobalSimultaneous: 4000,
+	}
+}
+
+// SmartShieldProfile is the deployment-wide shape of SmartShield: the values a
+// route policy falls back to for every field it leaves at zero, plus the knobs
+// that are not per-route. OSS is sized for a home server behind one public IP;
+// Pro is sized for a public deployment serving thousands of concurrent users,
+// where a single source IP is routinely a whole office or carrier NAT.
+type SmartShieldProfile struct {
+	Defaults     SmartShieldPolicy
+	UDPByteLimit int64
+	// AllowPermanentBan: when false, escalation stops at temporary bans. In-memory
+	// permanent bans on a public server only ever hit NATs, and only a restart
+	// clears them.
+	AllowPermanentBan bool
+	// GlobalCapWait / GlobalCapPoll: how long a request parks when the route's
+	// MaxGlobalSimultaneous is reached before being rejected with 429.
+	GlobalCapWait time.Duration
+	GlobalCapPoll time.Duration
+}
+
+// GetSmartShieldProfile picks the profile for this deployment. Routes never
+// persist these numbers: a zero field in a route policy always means "the
+// profile default", so upgrading the license re-sizes every default route.
+func GetSmartShieldProfile() SmartShieldProfile {
+	if IsPro() {
+		return SmartShieldProfile{
+			Defaults: SmartShieldPolicy{
+				PolicyStrictness:      LENIENT,
+				PerUserTimeBudget:     0, // unlimited
+				PerUserRequestLimit:   200000,
+				PerUserByteLimit:      1024 * 1024 * 1024 * 1024, // 1TB
+				PerUserSimultaneous:   500,
+				MaxGlobalSimultaneous: 20000,
+				PrivilegedGroups:      ADMIN,
+			},
+			UDPByteLimit:      1024 * 1024 * 1024 * 1024, // 1TB
+			AllowPermanentBan: false,
+			GlobalCapWait:     2 * time.Second,
+			GlobalCapPoll:     100 * time.Millisecond,
+		}
+	}
+	return SmartShieldProfile{
+		Defaults: SmartShieldPolicy{
+			PolicyStrictness:      NORMAL,
+			PerUserTimeBudget:     0, // unlimited
+			PerUserRequestLimit:   18000, // 300 requests per minute
+			PerUserByteLimit:      200 * 1024 * 1024 * 1024, // 200GB
+			PerUserSimultaneous:   100,
+			MaxGlobalSimultaneous: 2000,
+			PrivilegedGroups:      ADMIN,
+		},
+		UDPByteLimit:      150 * 1024 * 1024 * 1024, // 150GB
+		AllowPermanentBan: true,
+		GlobalCapWait:     250 * time.Second,
+		GlobalCapPoll:     5 * time.Second,
+	}
+}
+
+// ApplySmartShieldDefaults fills every zero field of a route policy from the
+// deployment profile. PerUserTimeBudget is in milliseconds of cumulative
+// request time per rolling hour; 0 leaves it unlimited.
+func ApplySmartShieldDefaults(policy SmartShieldPolicy) SmartShieldPolicy {
+	if !policy.Enabled {
+		return policy
+	}
+	d := GetSmartShieldProfile().Defaults
+	if policy.PolicyStrictness == 0 {
+		policy.PolicyStrictness = d.PolicyStrictness
+	}
+	if policy.PerUserTimeBudget == 0 {
+		policy.PerUserTimeBudget = d.PerUserTimeBudget
+	}
+	if policy.PerUserRequestLimit == 0 {
+		policy.PerUserRequestLimit = d.PerUserRequestLimit
+	}
+	if policy.PerUserByteLimit == 0 {
+		policy.PerUserByteLimit = d.PerUserByteLimit
+	}
+	if policy.PerUserSimultaneous == 0 {
+		policy.PerUserSimultaneous = d.PerUserSimultaneous
+	}
+	if policy.MaxGlobalSimultaneous == 0 {
+		policy.MaxGlobalSimultaneous = d.MaxGlobalSimultaneous
+	}
+	if policy.PrivilegedGroups == 0 {
+		policy.PrivilegedGroups = d.PrivilegedGroups
+	}
+	return policy
 }
 
 type DockerConfig struct {
@@ -378,6 +497,11 @@ type ProxyRouteConfig struct {
 	LBMode                     string                      `yaml:"lb_mode" json:"LBMode,omitempty"`
 	LBStickyMode               bool                        `yaml:"lb_sticky_mode" json:"LBStickyMode,omitempty"`
 	AdditionalTargets          []string                    `yaml:"additional_targets,omitempty" json:"AdditionalTargets,omitempty"`
+	// ManagedByKind / ManagedByName identify the feature that owns this route (see ManagedByKinds); both empty for a user-created route.
+	ManagedByKind              string                      `yaml:"managed_by_kind,omitempty" json:"ManagedByKind,omitempty"`
+	ManagedByName              string                      `yaml:"managed_by_name,omitempty" json:"ManagedByName,omitempty"`
+	// ManagedByVersion is the owner's spec version this copy was rendered from (deployments only; see the routes-only apply in scheduler_node.go).
+	ManagedByVersion           int                         `yaml:"managed_by_version,omitempty" json:"ManagedByVersion,omitempty"`
 	Const_IsTunneled           bool                        `yaml:"-" json:"-"`
 }
 
@@ -424,8 +548,15 @@ type MarketSource struct {
 
 type ConstellationConfig struct {
 	Enabled bool
+	// ClusterDomain is the domain servers joining with a constellation file get
+	// their hostname under (<device>.<domain>). Empty: the zone of this server's hostname.
+	ClusterDomain string `json:"ClusterDomain,omitempty"`
 	DoNotSyncNodes bool
 	DNSDisabled bool
+	// DoNotUseConstellationDNSOnHost keeps the resolver of this server as it is.
+	// Unset, the server uses the Constellation DNS on Pro and keeps its own
+	// resolver on the community edition (see UseConstellationDNSOnHost).
+	DoNotUseConstellationDNSOnHost *bool `json:"DoNotUseConstellationDNSOnHost,omitempty"`
 	DNSPort string
 	DNSFallback string
 	DNSBlockBlacklist bool

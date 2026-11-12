@@ -193,6 +193,7 @@ func Fatal(message string, err error) {
 		RawLogMessage(FATAL, "[FATAL]", bRed, nRed, message)
 	}
 
+	RevertHostDNS()
 	os.Exit(1)
 }
 

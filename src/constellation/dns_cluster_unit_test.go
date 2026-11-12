@@ -2,6 +2,7 @@ package constellation
 
 import (
 	"encoding/json"
+	"github.com/miekg/dns"
 	"reflect"
 	"testing"
 
@@ -94,13 +95,13 @@ func TestUnitHandleDNSRequestClusterHostnames(t *testing.T) {
 		qName string
 		want  []string
 	}{
-		{"b.local.", []string{"192.168.201.2"}},         // another node's plain route
-		{"www.b.local.", []string{"192.168.201.2"}},     // subdomain match
-		{"B.LOCAL.", []string{"192.168.201.2"}},         // case-insensitive
-		{"shared.local.", []string{"192.168.201.5"}},    // local wins a tie
-		{"sub.a.local.", []string{"192.168.201.3"}},     // more specific cluster beats shorter local
-		{"tun.local.", []string{"192.168.201.1"}},       // tunnel advertised elsewhere -> LB
-		{"a.local.", []string{"192.168.201.5"}},         // local unchanged
+		{"b.local.", []string{"192.168.201.2"}},      // another node's plain route
+		{"www.b.local.", []string{"192.168.201.2"}},  // subdomain match
+		{"B.LOCAL.", []string{"192.168.201.2"}},      // case-insensitive
+		{"shared.local.", []string{"192.168.201.5"}}, // local wins a tie
+		{"sub.a.local.", []string{"192.168.201.3"}},  // more specific cluster beats shorter local
+		{"tun.local.", []string{"192.168.201.1"}},    // tunnel advertised elsewhere -> LB
+		{"a.local.", []string{"192.168.201.5"}},      // local unchanged
 		{"deep.sub.a.local.", []string{"192.168.201.3"}},
 	}
 	for _, tt := range tests {
@@ -177,5 +178,13 @@ func TestUnitHandleDNSRequestFromWireHeartbeat(t *testing.T) {
 		if got := answeredIPs(t, tt.qName); !reflect.DeepEqual(got, tt.want) {
 			t.Errorf("DNS answer for %s = %v, want %v", tt.qName, got, tt.want)
 		}
+	}
+}
+
+func TestAnswerATTL(t *testing.T) {
+	m := new(dns.Msg)
+	answerA(m, "app.example.com.", "192.168.201.2")
+	if len(m.Answer) != 1 || m.Answer[0].Header().Ttl != dnsAnswerTTL {
+		t.Fatalf("expected one answer with a %d second TTL, got %v", dnsAnswerTTL, m.Answer)
 	}
 }

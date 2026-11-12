@@ -79,6 +79,17 @@ func ConfigApiPatch(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	// Managed routes are rebuilt by their owner on every apply; only a reorder survives.
+	if routeIndex != -1 && routes[routeIndex].IsManaged() &&
+		updateReq.Operation != "move_up" && updateReq.Operation != "move_down" {
+		managedRouteError(w, routes[routeIndex], "UR006")
+		return
+	}
+	if updateReq.NewRoute != nil {
+		stripped := stripOwner(*updateReq.NewRoute)
+		updateReq.NewRoute = &stripped
+	}
+
 	switch updateReq.Operation {
 		case "replace":
 			utils.Log("RouteSettingsUpdate: Replacing route: "+updateReq.RouteName)
@@ -106,6 +117,19 @@ func ConfigApiPatch(w http.ResponseWriter, req *http.Request) {
 			if updateReq.NewRoute == nil {
 				utils.Error("RouteSettingsUpdate: NewRoute must be provided for add operation", nil)
 				utils.HTTPError(w, "NewRoute must be provided for add operation", http.StatusBadRequest, "UR003")
+				return
+			}
+			// Duplicate-name guard as in createRoute (routeIndex is never resolved for an add).
+			for _, route := range routes {
+				if route.Name != updateReq.NewRoute.Name {
+					continue
+				}
+				if route.IsManaged() {
+					managedRouteError(w, route, "UR006")
+					return
+				}
+				utils.Error("RouteSettingsUpdate: Route already exists: "+route.Name, nil)
+				utils.HTTPError(w, "Route with this name already exists", http.StatusConflict, "UR007")
 				return
 			}
 			routes = append([]utils.ProxyRouteConfig{*updateReq.NewRoute}, routes...)

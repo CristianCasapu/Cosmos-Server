@@ -47,7 +47,6 @@ type ConfigJob struct {
 
 var jobsList = map[string]map[string]ConfigJob{}
 var wasInit = false
-var InternalProcessTracker = NewProcessTracker()
 
 func GetJobsList() map[string]map[string]ConfigJob {
 	return getJobsList()
@@ -415,7 +414,7 @@ func jobRunner_OnSuccess(schedulerName, jobName string) func() {
 }
 
 func WaitForAllJobs() {
-	utils.Log("Waiting for " + strconv.Itoa(InternalProcessTracker.count) + " jobs to finish...")
+	utils.Log("Waiting for " + strconv.Itoa(InternalProcessTracker.Count()) + " jobs to finish...")
 	InternalProcessTracker.WaitForZero()
 }
 

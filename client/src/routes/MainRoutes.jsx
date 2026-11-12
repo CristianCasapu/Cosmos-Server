@@ -13,6 +13,8 @@ import NewDockerServiceForm from '../pages/servapps/containers/newServiceForm';
 import OpenIdList from '../pages/openid/openid-list';
 import MarketPage from '../pages/market/listing';
 import ConstellationIndex  from '../pages/constellation';
+import proFeatures from '../pro';
+import { ProRoute } from '../components/proPage';
 import StorageIndex from '../pages/storage';
 import DashboardDefault from '../pages/dashboard';
 import { CronManager } from '../pages/cron/jobsManage';
@@ -72,6 +74,90 @@ const MainRoutes = {
             element: <ConstellationIndex />
         },
         {
+            path: '/cosmos-ui/constellation/*',
+            element: <ConstellationIndex />
+        },
+        {
+            path: '/cosmos-ui/deployments',
+            element: <ProRoute component={proFeatures.DeploymentsPage} />
+        },
+        {
+            path: '/cosmos-ui/deployments/view/:name',
+            element: <ProRoute component={proFeatures.DeploymentPage} />
+        },
+        {
+            path: '/cosmos-ui/deployments/*',
+            element: <ProRoute component={proFeatures.DeploymentsPage} />
+        },
+        {
+            path: '/cosmos-ui/functions',
+            element: <ProRoute component={proFeatures.FunctionsPage} />
+        },
+        {
+            path: '/cosmos-ui/functions/view/:name',
+            element: <ProRoute component={proFeatures.FunctionPage} />
+        },
+        {
+            path: '/cosmos-ui/functions/*',
+            element: <ProRoute component={proFeatures.FunctionsPage} />
+        },
+        {
+            path: '/cosmos-ui/ci',
+            element: <ProRoute component={proFeatures.CIPage} />
+        },
+        {
+            path: '/cosmos-ui/ci/view/:name/build/:number',
+            element: <ProRoute component={proFeatures.CIBuildPage} />
+        },
+        {
+            path: '/cosmos-ui/ci/view/:name/*',
+            element: <ProRoute component={proFeatures.CIProjectPage} />
+        },
+        {
+            path: '/cosmos-ui/ci/view/:name',
+            element: <ProRoute component={proFeatures.CIProjectPage} />
+        },
+        {
+            path: '/cosmos-ui/ci/*',
+            element: <ProRoute component={proFeatures.CIPage} />
+        },
+        {
+            path: '/cosmos-ui/databases',
+            element: <ProRoute component={proFeatures.DatabasesPage} />
+        },
+        {
+            path: '/cosmos-ui/databases/view/:name',
+            element: <ProRoute component={proFeatures.DatabasePage} />
+        },
+        {
+            path: '/cosmos-ui/databases/*',
+            element: <ProRoute component={proFeatures.DatabasesPage} />
+        },
+        {
+            path: '/cosmos-ui/object-storage',
+            element: <ProRoute component={proFeatures.ObjectStoragePage} />
+        },
+        {
+            path: '/cosmos-ui/object-storage/view/:name',
+            element: <ProRoute component={proFeatures.SeaweedFSInstancePage} />
+        },
+        {
+            path: '/cosmos-ui/object-storage/*',
+            element: <ProRoute component={proFeatures.ObjectStoragePage} />
+        },
+        {
+            path: '/cosmos-ui/registries',
+            element: <ProRoute component={proFeatures.RegistriesPage} />
+        },
+        {
+            path: '/cosmos-ui/registries/view/:name',
+            element: <ProRoute component={proFeatures.RegistryPage} />
+        },
+        {
+            path: '/cosmos-ui/registries/*',
+            element: <ProRoute component={proFeatures.RegistriesPage} />
+        },
+        {
             path: '/cosmos-ui/trust',
             element: <TrustPage />
         },
@@ -105,6 +191,14 @@ const MainRoutes = {
         },
         {
             path: '/cosmos-ui/config-url',
+            element: <ProxyManagement />
+        },
+        {
+            path: '/cosmos-ui/config-url/shield',
+            element: <ProxyManagement />
+        },
+        {
+            path: '/cosmos-ui/config-url/whitelist',
             element: <ProxyManagement />
         },
         {

@@ -16,6 +16,7 @@ import { Backups } from './backups';
 import { Repositories } from './repositories';
 import PremiumSalesPage from '../../utils/free';
 import VMWarning from '../storage/vmWarning';
+import proFeatures from '../../pro';
 
 export default function AllBackupsIndex() {
   const { t } = useTranslation();
@@ -50,6 +51,12 @@ export default function AllBackupsIndex() {
           title: t('mgmt.backup.repositories'),
           children: <Repositories />
         },
+        // Pro cluster state: the records of every Pro feature, and the import
+        // that works when the per-feature pages are empty.
+        ...(proFeatures.ClusterStateTab && coStatus && coStatus.ConstellationName ? [{
+          title: t('mgmt.state.tab'),
+          children: <proFeatures.ClusterStateTab />
+        }] : []),
       ]} />
     </Stack>
   </div>;

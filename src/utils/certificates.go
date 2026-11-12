@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"sync"
 	"crypto/x509"
 	"encoding/pem"
 	"math/big"
@@ -11,7 +12,6 @@ import (
 	"crypto/ed25519"
 	"crypto/x509/pkix"
 	"crypto/ecdsa"
-	"crypto/elliptic"
 	"os"
 	"strings"
 	"net"
@@ -225,12 +225,32 @@ func (u *CertUser) GetPrivateKey() crypto.Signer {
 }
 
 
-func DoLetsEncrypt() (string, string) {
+// process-wide env is the only way to hand credentials to a lego provider, so
+// DNS-01 issuances run one at a time with only their own zone's env applied
+var dnsChallengeEnvLock sync.Mutex
+
+// DoLetsEncrypt obtains a certificate for the domains: through the DNS
+// provider of the zone when one is given, through HTTP-01/TLS-ALPN-01 otherwise.
+func DoLetsEncrypt(domains []string, zone *DNSZoneConfig) (string, string) {
 	config := GetMainConfig()
-	LetsEncryptErrors = []string{}
 	ctx := context.Background()
 
-	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	directory := "https://acme-v02.api.letsencrypt.org/directory"
+	if os.Getenv("ACME_STAGING") == "true" {
+		directory = "https://acme-staging-v02.api.letsencrypt.org/directory"
+	}
+
+	// the account of this server, registered once: Let's Encrypt refuses more
+	// than a few new accounts per IP, and a fresh one per order used to hit that
+	account := LoadACMEAccount(directory)
+	keyPEM := ""
+	var privateKey *ecdsa.PrivateKey
+	var err error
+	if account != nil {
+		privateKey, err = account.PrivateKey()
+	} else {
+		privateKey, keyPEM, err = NewACMEAccountKey()
+	}
 	if err != nil {
 		Error("LETSENCRYPT_ECDSA", err)
 		LetsEncryptErrors = append(LetsEncryptErrors, err.Error())
@@ -241,16 +261,12 @@ func DoLetsEncrypt() (string, string) {
 		Email: config.HTTPConfig.SSLEmail,
 		key:   privateKey,
 	}
+	if account != nil {
+		myUser.Registration = &acme.ExtendedAccount{Location: account.URL}
+	}
 
 	certConfig := lego.NewConfig(&myUser)
-	
-	domains := GetAllHostnames(true, true)
-
-	if os.Getenv("ACME_STAGING") == "true" {
-		certConfig.CADirURL = "https://acme-staging-v02.api.letsencrypt.org/directory"
-	} else {
-		certConfig.CADirURL = "https://acme-v02.api.letsencrypt.org/directory"
-	}
+	certConfig.CADirURL = directory
 
 	client, err := lego.NewClient(certConfig)
 	if err != nil {
@@ -259,8 +275,17 @@ func DoLetsEncrypt() (string, string) {
 		return "", ""
 	}
 
-	if config.HTTPConfig.DNSChallengeProvider != "" {
-		provider, err := dns.NewDNSChallengeProviderByName(config.HTTPConfig.DNSChallengeProvider)
+	if zone != nil {
+		dnsChallengeEnvLock.Lock()
+		defer dnsChallengeEnvLock.Unlock()
+
+		for key, value := range zone.DNSChallengeConfig {
+			key = strings.TrimSpace(key)
+			os.Setenv(key, strings.TrimSpace(value))
+			defer os.Unsetenv(key)
+		}
+
+		provider, err := dns.NewDNSChallengeProviderByName(zone.DNSChallengeProvider)
 		if err != nil {
 			Error("LETSENCRYPT_DNS", err)
 			LetsEncryptErrors = append(LetsEncryptErrors, err.Error())
@@ -270,42 +295,25 @@ func DoLetsEncrypt() (string, string) {
 		// use the authoritative nameservers
 		resolvers := []string{}
 
-		if config.HTTPConfig.DNSChallengeResolvers == "" {
-			processedDomains := map[string]bool{}
-
-			for _, domain := range domains {
-				levels := strings.Split(domain, ".")
-				if len(levels) >= 2 {
-					tld := strings.Join(levels[len(levels)-2:], ".")
-					if processedDomains[tld] {
-						continue
-					}
-
-					nameservers, err := net.LookupNS(tld)
-					
-					if err != nil {
-						continue
-					}
-					
-					for _, ns := range nameservers {
-						resolvers = append(resolvers, ns.Host)
-					}
-
-					processedDomains[tld] = true
+		if zone.DNSChallengeResolvers == "" {
+			nameservers, err := net.LookupNS(zone.Zone)
+			if err == nil {
+				for _, ns := range nameservers {
+					resolvers = append(resolvers, ns.Host)
 				}
 			}
 
 			// append the default resolvers
 			resolvers = append(resolvers, "8.8.8.8", "1.1.1.1")
 		} else {
-			resolvers = strings.Split(config.HTTPConfig.DNSChallengeResolvers, ",")
+			resolvers = strings.Split(zone.DNSChallengeResolvers, ",")
 			// trim
 			for i, r := range resolvers {
 				resolvers[i] = strings.TrimSpace(r)
 			}
 		}
 
-		propagationWaitSec := config.HTTPConfig.DNSChallengePropagationWait
+		propagationWaitSec := zone.DNSChallengePropagationWait
 		if propagationWaitSec <= 0 {
 			propagationWaitSec = 30
 		}
@@ -317,7 +325,7 @@ func DoLetsEncrypt() (string, string) {
 		}))
 
 		err = client.Challenge.SetDNS01Provider(provider,
-			dns01.CondOptions(config.HTTPConfig.DisablePropagationChecks,
+			dns01.CondOptions(zone.DisablePropagationChecks,
 				dns01.PropagationWait(PropagationWait, true)),
 		)
 		if err != nil {
@@ -341,17 +349,29 @@ func DoLetsEncrypt() (string, string) {
 		}
 	}
 
-	// New users will need to register
-	reg, err := client.Registration.Register(ctx, registration.RegisterOptions{TermsOfServiceAgreed: true})
-	if err != nil {
-		Error("LETSENCRYPT_REGISTER", err)
-		LetsEncryptErrors = append(LetsEncryptErrors, err.Error())
-		return "", ""
+	if account == nil {
+		reg, err := client.Registration.Register(ctx, registration.RegisterOptions{TermsOfServiceAgreed: true})
+		if err != nil {
+			Error("LETSENCRYPT_REGISTER", err)
+			LetsEncryptErrors = append(LetsEncryptErrors, err.Error())
+			return "", ""
+		}
+		myUser.Registration = reg
+
+		if err := SaveACMEAccount(ACMEAccount{
+			Directory: directory,
+			URL:       reg.Location,
+			Email:     myUser.Email,
+			Key:       keyPEM,
+		}); err != nil {
+			Warn("ACME: the account could not be saved, the next order will register a new one: " + err.Error())
+		} else {
+			Log("ACME: registered the Let's Encrypt account of this server")
+		}
 	}
-	myUser.Registration = reg
 
 	request := certificate.ObtainRequest{
-		Domains: LetsEncryptValidOnly(domains, config.HTTPConfig.DNSChallengeProvider != ""),
+		Domains: LetsEncryptValidOnly(domains, zone != nil),
 		Bundle:  true,
 		// lego v5: moved off lego.Config.Certificate, and CN is now opt-in
 		KeyType:          certcrypto.RSA2048,

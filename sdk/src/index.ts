@@ -12,6 +12,16 @@ import createRcloneAPI from '../../client/src/api/rclone';
 import createBackupsAPI from '../../client/src/api/backup';
 import createApiTokensAPI from '../../client/src/api/apiTokens';
 import createOpenIDAPI from '../../client/src/api/openid';
+import createGroupsAPI from '../../client/src/api/groups';
+import createDeploymentsAPI from '../../client/src/api/deployments';
+import createDatabasesAPI from '../../client/src/api/databases';
+import createSeaweedFSAPI from '../../client/src/api/seaweedfs';
+import createRegistryAPI from '../../client/src/api/registry';
+import createFunctionsAPI from '../../client/src/api/functions';
+import createCIAPI from '../../client/src/api/ci';
+import createShieldAPI from '../../client/src/api/shield';
+import createZonesAPI from '../../client/src/api/zones';
+import createStateAPI from '../../client/src/api/state';
 import wrap from '../../client/src/api/wrap';
 
 export interface SetupRequest {
@@ -51,6 +61,16 @@ export function createClient({ baseUrl, token }: { baseUrl: string; token: strin
     backups: createBackupsAPI(apiFetch),
     apiTokens: createApiTokensAPI(apiFetch),
     openid: createOpenIDAPI(apiFetch),
+    groups: createGroupsAPI(apiFetch),
+    deployments: createDeploymentsAPI(apiFetch),
+    databases: createDatabasesAPI(apiFetch),
+    seaweedfs: createSeaweedFSAPI(apiFetch),
+    registry: createRegistryAPI(apiFetch),
+    functions: createFunctionsAPI(apiFetch),
+    ci: createCIAPI(apiFetch),
+    shield: createShieldAPI(apiFetch),
+    zones: createZonesAPI(apiFetch),
+    state: createStateAPI(apiFetch),
 
     setup: (request: SetupRequest) => {
       return wrap(apiFetch('/cosmos/api/setup', {
@@ -150,3 +170,10 @@ export type { ConstellationDevice } from '../../client/src/api/constellation';
 export type { CronJob } from '../../client/src/api/cron';
 export type { DiskInfo, MountRequest, UnmountRequest, MergeRequest, SnapRAIDConfig, RaidCreateRequest } from '../../client/src/api/storage';
 export type { BackupConfig, RestoreConfig } from '../../client/src/api/backup';
+export type * from '../../client/src/api/groups';
+export type * from '../../client/src/api/deployments';
+export type * from '../../client/src/api/databases';
+export type * from '../../client/src/api/seaweedfs';
+export type * from '../../client/src/api/registry';
+export type * from '../../client/src/api/functions';
+export type * from '../../client/src/api/ci';

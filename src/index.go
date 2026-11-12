@@ -206,7 +206,7 @@ func main() {
 }
 
 // @title Cosmos Server API
-// @version 0.23.4
+// @version 0.24.0
 // @description REST API for Cosmos Cloud server management
 // @BasePath /cosmos
 // @securityDefinitions.apikey BearerAuth
@@ -215,6 +215,7 @@ func main() {
 func cosmos() {
 	utils.PushShieldMetrics = metrics.PushShieldMetrics
 	utils.GetContainerIPByName = docker.GetContainerIPByName
+	utils.IsLocalDockerIP = docker.IsLocalDockerIP
 	utils.DoesContainerExist = docker.DoesContainerExist
 	utils.CheckDockerNetworkMode = docker.CheckDockerNetworkMode
 	utils.InitPremiumFeatures = InitPremiumFeatures
@@ -242,9 +243,34 @@ func cosmos() {
 		}
 		return pro.NodeIdentity{
 			DeviceName: d.DeviceName,
-			IP:         d.IP,
-			CosmosNode: d.CosmosNode,
+			// deviceNameRe already guarantees a legal NATS subject token; use the raw name.
+			SanitizedName: d.DeviceName,
+			IP:            d.IP,
+			CosmosNode:    d.CosmosNode,
 		}
+	})
+	pro.SetManagedDatabaseProvider(constellation.ManagedDatabaseList)
+	pro.SetSeaweedFSProvider(constellation.SeaweedFSList)
+	pro.SetCIMetricPusher(func(key string, value int, label, unit, object, setOperation, agglo string) {
+		metrics.PushSetMetric(key, value, metrics.DataDef{
+			Period:       time.Minute * 5,
+			Label:        label,
+			AggloType:    agglo,
+			SetOperation: setOperation,
+			Unit:         unit,
+			Object:       object,
+		})
+	})
+	docker.ImagePullAuthProvider = pro.CIImagePullAuth
+	pro.SetSeaweedFSMetricPusher(func(key string, value int, max uint64, label, unit, object string) {
+		metrics.PushSetMetric(key, value, metrics.DataDef{
+			Max:       max,
+			Period:    time.Minute * 5,
+			Label:     label,
+			AggloType: "avg",
+			Unit:      unit,
+			Object:    object,
+		})
 	})
 	
 	utils.InitLogs()
@@ -293,6 +319,8 @@ func cosmos() {
 
 	docker.DockerListenEvents()
 
+	docker.StartLazyReaper()
+
 	docker.BootstrapAllContainersFromTags()
 
 	docker.RemoveSelfUpdater()
@@ -311,10 +339,15 @@ func cosmos() {
 
 	proxy.InitSocketShield()
 	proxy.InitUDPShield()
+	proxy.InitShieldSync()
 
 	if err := utils.InitStore(); err != nil {
 		utils.Fatal("Cannot open auth.db", err)
 	}
+
+	// a new server handed a constellation file needs no setup at all
+	JoinFromFile()
+	config = utils.GetMainConfig()
 
 	if !config.NewInstall {
 		MigratePre013()

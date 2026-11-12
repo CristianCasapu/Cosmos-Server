@@ -1,6 +1,7 @@
 package constellation
 
 import (
+	"github.com/azukaar/cosmos-server/src/pro"
 	"github.com/azukaar/cosmos-server/src/utils"
 	"os/exec"
 	"os"
@@ -386,6 +387,7 @@ func ResetNebula() error {
 	os.RemoveAll(utils.CONFIGFOLDER + "cosmos.crt")
 	os.RemoveAll(utils.CONFIGFOLDER + "cosmos.key")
 	os.RemoveAll(jetstreamDir())
+	pro.RemoveStateFiles()
 
 	// Wipe this node's devices LOCALLY. Deliberately not DeleteDevices: stop()
 	// above leaves the apply loop attached, so a published delete-all — empty
@@ -610,6 +612,8 @@ func getYAMLClientConfig(name, configPath, capki, cert, key, APIKey string, devi
 	configMap["cstln_ip"] = device.IP
 	configMap["cstln_config_endpoint"] = utils.GetServerURL("")
 	configMap["cstln_ip_range"] = utils.GetMainConfig().ConstellationConfig.IPRange
+	// lets a server joining with this file name itself <device>.<domain> without any setup
+	configMap["cstln_cluster_domain"] = ClusterDomain()
 
 	// IsNATSHA (not NATSReplicas directly): only the creator's main config
 	// carries NATSReplicas, so a non-creator manager enrolling a device must

@@ -174,6 +174,22 @@ func API_NewConstellation(w http.ResponseWriter, req *http.Request) {
 // ConnectToExisting applies a Nebula YAML config to connect this node to an
 // existing Constellation network. It returns the updated config. The caller
 // is responsible for persisting the config and restarting Nebula.
+// PreviewJoinHostname reads the hostname a server would take by joining with
+// this constellation file, without touching anything.
+func PreviewJoinHostname(yamlBody []byte) (string, error) {
+	var configMap map[string]interface{}
+	if err := yaml.Unmarshal(yamlBody, &configMap); err != nil {
+		return "", err
+	}
+
+	deviceName, ok := configMap["cstln_device_name"].(string)
+	if !ok || deviceName == "" {
+		return "", errors.New("device name not found in constellation config")
+	}
+	clusterDomain, _ := configMap["cstln_cluster_domain"].(string)
+	return DeviceHostname(deviceName, clusterDomain), nil
+}
+
 func ConnectToExisting(yamlBody []byte, config utils.Config) (utils.Config, error) {
 	utils.Log("ConnectToExisting: connecting to an external Constellation")
 
@@ -237,6 +253,20 @@ func ConnectToExisting(yamlBody []byte, config utils.Config) (utils.Config, erro
 			return config, errors.New("cstln_ip_range is not a string")
 		}
 		config.ConstellationConfig.IPRange = ipRange
+	}
+
+	if clusterDomainVal, ok := configMap["cstln_cluster_domain"]; ok {
+		clusterDomain, ok := clusterDomainVal.(string)
+		if !ok {
+			return config, errors.New("cstln_cluster_domain is not a string")
+		}
+		config.ConstellationConfig.ClusterDomain = clusterDomain
+
+		// a server still in setup takes its hostname from the cluster; one already
+		// configured keeps its own
+		if hostname := DeviceHostname(config.ConstellationConfig.ThisDeviceName, clusterDomain); config.NewInstall && hostname != "" {
+			config.HTTPConfig.Hostname = hostname
+		}
 	}
 
 	// Start at the constellation's real op-log epoch rather than the default 1.

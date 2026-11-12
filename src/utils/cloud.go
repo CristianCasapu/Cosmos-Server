@@ -149,19 +149,27 @@ func (sdk *FirebaseApiSdk) RenewLicense(oldToken string) (string, int, error) {
 			}
 		}
 
+		// the licence server refuses 0: report at least 1 so an unreadable figure
+		// can't lock the node out of its licence
+		var ram uint64 = 1
 		memInfo, err := mem.VirtualMemoryWithContext(ctx)
 		if err != nil {
 			Error("[Cloud] Error fetching RAM for license renewal", err)
-		} else {
-			payload["ram"] = strconv.FormatUint(memInfo.Total, 10)
+		} else if memInfo.Total > ram {
+			ram = memInfo.Total
 		}
-
-		if nbUsers, err := CountUsers(); err != nil {
-			Error("[Cloud] Error counting users for license renewal", err)
-		} else {
-			payload["nbUsers"] = strconv.FormatInt(nbUsers, 10)
-		}
+		payload["ram"] = strconv.FormatUint(ram, 10)
 	}
+
+	// at least 1: a node that just joined a cluster has no users until they
+	// replicate over NATS, which only starts once the licence is valid
+	var nbUsers int64 = 1
+	if count, err := CountUsers(); err != nil {
+		Error("[Cloud] Error counting users for license renewal", err)
+	} else if count > nbUsers {
+		nbUsers = count
+	}
+	payload["nbUsers"] = strconv.FormatInt(nbUsers, 10)
 
 	jsonPayload, err := json.Marshal(payload)
 	if err != nil {

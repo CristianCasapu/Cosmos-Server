@@ -33,6 +33,11 @@ func isAddrQuery(q dns.Question) bool {
 	return q.Qtype == dns.TypeA || q.Qtype == dns.TypeAAAA
 }
 
+// dnsAnswerTTL is how long a Cosmos answer may be cached: the addresses follow
+// the nodes, and the first answers after a start come before the cluster view
+// is complete. The resolver of a server caches them like any client.
+const dnsAnswerTTL = 60
+
 // answerA appends an A record, skipping malformed IPs instead of packing a nil
 // RR, and skipping duplicates so overlapping hostnames only answer once
 func answerA(m *dns.Msg, name string, ip string) {
@@ -54,6 +59,7 @@ func answerA(m *dns.Msg, name string, ip string) {
 		return
 	}
 
+	rr.Header().Ttl = dnsAnswerTTL
 	m.Answer = append(m.Answer, rr)
 }
 
@@ -153,7 +159,7 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	customHandled := false
 
 	// []string hostnames
-	hostnames := utils.GetAllHostnames(false, true)
+	hostnames := utils.GetAllHostnames(true)
 
 	utils.Debug("DNS Request from " + w.RemoteAddr().String() + " for " + r.Question[0].Name)
 	
@@ -335,6 +341,25 @@ func isCurrentDNSServer(s *dns.Server) bool {
 	return dnsServer == s
 }
 
+// constellationDNSAddress is the address this node serves the Constellation DNS
+// on, empty when it serves none. It follows the config rather than DNSStarted,
+// so that a reload of the DNS does not read as a node without DNS.
+func constellationDNSAddress() (string, error) {
+	config := utils.GetMainConfig().ConstellationConfig
+	if !config.Enabled || config.DNSDisabled {
+		return "", nil
+	}
+	device, err := GetCurrentDevice()
+	if err != nil {
+		return "", err
+	}
+	// a client node runs no DNS
+	if device.CosmosNode == 0 {
+		return "", nil
+	}
+	return device.IP, nil
+}
+
 func StopDNS() {
 	dnsMux.Lock()
 	server := dnsServer
@@ -344,6 +369,7 @@ func StopDNS() {
 
 	if server != nil {
 		utils.Log("Stopping Constellation DNS")
+		revertHostDNS()
 		// bounded shutdown so a hung handler can never block stop()/RestartNebula
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -451,6 +477,7 @@ func InitDNS() {
 			DNSStarted = true
 			dnsMux.Unlock()
 			utils.Log("Constellation DNS started!")
+			go applyHostDNS(server, currIp)
 		}
 
 		dnsMux.Lock()
@@ -475,10 +502,15 @@ func InitDNS() {
 		}
 
 		dnsMux.Lock()
-		if dnsServer == server {
+		died := dnsServer == server
+		if died {
 			dnsServer = nil
 			DNSStarted = false
 		}
 		dnsMux.Unlock()
+		if died {
+			// the server went away on its own: do not leave this server resolving through it
+			revertHostDNS()
+		}
 	})()
 }

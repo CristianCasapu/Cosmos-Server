@@ -70,6 +70,7 @@ const NewDockerServiceForm = () => {
         image: containerInfo.Config.Image,
         environment: containerInfo.Config.Env,
         labels: containerInfo.Config.Labels,
+        dns: containerInfo.HostConfig.Dns,
         devices: containerInfo.HostConfig.Devices ? containerInfo.HostConfig.Devices.map((device) => {
           return `${device.PathOnHost}:${device.PathInContainer}`;
         }) : [],
@@ -246,6 +247,7 @@ const NewDockerServiceForm = () => {
               },
               HostConfig: {
                 ...containerInfo.HostConfig,
+                Dns: (values.networkMode || '').startsWith('container:') ? [] : (values.dns || '').split(',').map((s) => s.trim()).filter(Boolean),
                 PortBindings: values.ports.map((port) => {
                   return `${port.hostPort}:${port.port}/${port.protocol}`;
                 }),

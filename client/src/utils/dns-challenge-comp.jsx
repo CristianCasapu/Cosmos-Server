@@ -34,7 +34,24 @@ import { useState } from 'react';
 import { CosmosCollapse, CosmosSelect,CosmosCheckbox, CosmosInputText } from '../pages/config/users/formShortcuts';
 import { useTranslation } from 'react-i18next';
 
-export const DnsChallengeComp = ({ name, configName, style, multiline, type, placeholder, onChange, label, formik }) => {
+// DNS providers records can be managed through (DynDNS), mirrors dnsrecords.SupportedProviders()
+export const recordProviders = ["cloudflare", "desec", "digitalocean", "duckdns", "gandiv5", "hetzner", "namecheap", "ovh", "porkbun", "route53"];
+
+// the provider select: DynDNS-capable providers first, then the certificate-only ones
+const providerOptions = (t) => {
+  const withRecords = dnsList.filter((dns) => recordProviders.includes(dns)).sort();
+  const certsOnly = dnsList.filter((dns) => !recordProviders.includes(dns)).sort();
+  return [
+    ["", "DISABLE"],
+    ...withRecords.map((dns) => [dns, dns + " · " + t('mgmt.config.zones.providerWithDyndns')]),
+    ["__certsonly", t('mgmt.config.zones.providerCertsOnly'), true],
+    ...certsOnly.map((dns) => [dns, dns]),
+  ];
+};
+
+// children render between the provider select and its credentials, so a form
+// can show what the chosen provider enables before asking for its tokens
+export const DnsChallengeComp = ({ name, configName, style, multiline, type, placeholder, onChange, label, formik, children }) => {
     const { t } = useTranslation();
     const filterVars = (obj) => {
       const newObj = {};
@@ -53,13 +70,15 @@ export const DnsChallengeComp = ({ name, configName, style, multiline, type, pla
       onChange={(e) => {
         onChange && onChange(e);
       }}
-      options={[["", "DISABLE"], ...(dnsList).map((dns) => ([dns,dns]))]}
+      options={providerOptions(t)}
     />
+
+      {children}
 
       <Grid item xs={12}>
         <Stack spacing={2}>
         {formik.values[name] && dnsConfig[formik.values[name]] &&<>
-          {dnsConfig[formik.values[name]].vars.length > 0 && <CosmosCollapse title="DNS Challenge setup" >
+          {dnsConfig[formik.values[name]].vars.length > 0 && <CosmosCollapse title={t('mgmt.config.zones.providerSetup', { provider: formik.values[name] })} >
           <Stack spacing={2}>
           <Alert severity="info">
             Please be careful you are filling the correct values. Check the doc if unsure. Leave blank unused variables. <br />

@@ -29,6 +29,17 @@ import { useTranslation } from 'react-i18next';
 
 import { EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
 
+// ReadOnlyForm disables every Cosmos* shortcut below at once; the fieldset also catches raw MUI inputs.
+export const FormReadOnlyContext = React.createContext(false);
+
+export const ReadOnlyForm = ({ readOnly = false, children }) => {
+  return <FormReadOnlyContext.Provider value={!!readOnly}>
+    <fieldset disabled={!!readOnly} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+      {children}
+    </fieldset>
+  </FormReadOnlyContext.Provider>;
+};
+
 export const getNestedValue = (values, path) => {
   return path.split('.').reduce((current, key) => {
     if (current && current[key] !== undefined) {
@@ -43,6 +54,7 @@ export const getNestedValue = (values, path) => {
 };
 
 export const CosmosInputText = ({ name, style, value, errors, multiline, type, placeholder, onChange, label, formik, disabled, autoComplete, inputProps }) => {
+  disabled = disabled || React.useContext(FormReadOnlyContext);
   return <Grid item xs={12}>
     <Stack spacing={1} style={style}>
       {label && <InputLabel htmlFor={name}>{label}</InputLabel>}
@@ -157,6 +169,7 @@ export const CosmosInputPassword = ({ name, noStrength, type, placeholder, autoC
 
 
 export const CosmosSelect = ({ name, onChange, label, formik, disabled, options, style }) => {
+  disabled = disabled || React.useContext(FormReadOnlyContext);
   return (
     <Grid item xs={12}>
       <Stack spacing={1}>
@@ -190,7 +203,8 @@ export const CosmosSelect = ({ name, onChange, label, formik, disabled, options,
   );
 };
 
-export const CosmosCheckbox = ({ name, label, formik, style, disabled }) => {
+export const CosmosCheckbox = ({ name, label, formik, style, disabled, helperText }) => {
+  disabled = disabled || React.useContext(FormReadOnlyContext);
   return <Grid item xs={12}>
     <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
       <Field
@@ -203,6 +217,9 @@ export const CosmosCheckbox = ({ name, label, formik, style, disabled }) => {
         style={style}
       />
     </Stack>
+    {helperText && (
+      <FormHelperText>{helperText}</FormHelperText>
+    )}
     {formik.touched[name] && formik.errors[name] && (
       <FormHelperText error id="standard-weight-helper-text-name-login">
         {formik.errors[name]}

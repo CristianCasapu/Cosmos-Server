@@ -29,17 +29,7 @@ func BuildFromConfig(router *mux.Router, config utils.ProxyConfig) *mux.Router {
 		}
 	}
 
-	remoteConfigs := utils.GetMainConfig().RemoteStorage
-	for _, shares := range remoteConfigs.Shares {
-			route := shares.Route
-			if route.Disabled {
-				continue
-			}
-			if !strings.HasPrefix(route.Target, "http://") && !strings.HasPrefix(route.Target, "https://") {
-				continue
-			}
-			RouterGen(route, router, RouteTo(route))
-	}
+	// Share routes are materialized into config.Routes by storage.ReconcileShareRoutes ("share" owner).
 
 	for i := len(config.Routes)-1; i >= 0; i-- {
 		routeConfig := config.Routes[i]

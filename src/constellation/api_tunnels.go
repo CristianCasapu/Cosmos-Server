@@ -25,10 +25,20 @@ func TunnelList(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Const_IsTunneled never crosses JSON; send explicit Tunneled + Advertisers fields (see routes_op.go).
 	tunnels := GetLocalTunnelCache()
+	out := make([]map[string]interface{}, 0, len(tunnels))
+	for _, t := range tunnels {
+		out = append(out, map[string]interface{}{
+			"Route":       t.Route,
+			"Targets":     t.Targets,
+			"Tunneled":    true,
+			"Advertisers": TunnelAdvertisers(t),
+		})
+	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status": "OK",
-		"data":   tunnels,
+		"data":   out,
 	})
 }

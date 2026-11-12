@@ -36,6 +36,9 @@ type NodeHeartbeat struct {
 	// Hostnames are the names this node serves itself (main hostname and
 	// non-tunneled routes) so every constellation DNS can answer for them.
 	Hostnames []string `json:"hostnames,omitempty"`
+	// PublicAddr is the address the public DNS records of this node point at
+	// (see HTTPConfig.AdvertisedAddress), empty when no zone manages records.
+	PublicAddr string `json:"publicAddr,omitempty"`
 	// RunningDeployments is the list of scheduler-managed deployment names
 	// currently running on this node, derived from docker containers carrying
 	// the `cosmos-deployment` label. Populated from docker at heartbeat time;
@@ -47,9 +50,17 @@ type NodeHeartbeat struct {
 	// detect a node running a stale spec and trigger a rolling re-apply. Built
 	// from docker alongside RunningDeployments each heartbeat.
 	RunningDeploymentVersions map[string]int `json:"runningDeploymentVersions,omitempty"`
-	// CPUPercent and RAMPercent are the node's latest resource-usage sample,
-	// populated from pro.GetCurrentResources() on each heartbeat tick. Used by
-	// the LeastBusyPlacement strategy. Zero when MonitoringOn is false.
+	// Liveness only, from the `cosmos-managed-db` label; never folded into
+	// RunningDeployments, which the scheduler prunes of unrecognized entries.
+	ManagedDBs []string `json:"managedDBs,omitempty"`
+	// Same contract as ManagedDBs, from the `cosmos-seaweedfs` label (masters
+	// only; the volume/filer tiers are deployments and report normally).
+	SeaweedFS []string `json:"seaweedfs,omitempty"`
+	// Registry endpoints this node serves. Same contract as ManagedDBs, but
+	// derived from the access records and this node's tags, not from docker.
+	Registries []string `json:"registries,omitempty"`
+	// Load sample from pro.GetCurrentResources(); RAMPercent is memory
+	// pressure (PSI + exhaustion guard), not occupancy. Zero when MonitoringOn is false.
 	CPUPercent float64 `json:"cpuPercent,omitempty"`
 	RAMPercent float64 `json:"ramPercent,omitempty"`
 	// MonitoringOn signals whether CPU/RAM numbers are trustworthy. False when
@@ -59,6 +70,13 @@ type NodeHeartbeat struct {
 	// Tags mirror ConstellationDevice.Tags so the leader can filter eligible
 	// placement targets by deployment affinity without an extra DB round-trip.
 	Tags []string `json:"tags,omitempty"`
+	// Draining is set while a restart waits for this node's running jobs:
+	// the leader must not hand it new CI builds (see utils.PlanRestart).
+	Draining bool `json:"draining,omitempty"`
+	// Arch is the CPU architecture; Platforms the container platforms the
+	// node can build for (native plus QEMU-emulated), for the CI runners page.
+	Arch      string   `json:"arch,omitempty"`
+	Platforms []string `json:"platforms,omitempty"`
 }
 
 // atomic: written under natsStartMutex, but read lock-free by status/ping paths
@@ -898,6 +916,7 @@ func InitNATSClient() error {
 		utils.Debug("[NATS] Standalone constellation, skipping heartbeat and op-log")
 	} else {
 		go ClientHeartbeatInit()
+		ShieldSyncInit()
 
 		// the apply loop materializes this node's config from the op-log; it
 		// waits for JetStream itself, so starting it here is safe even if JS
@@ -1123,6 +1142,7 @@ func CloseNATSClient() {
 	StopOplogApply()
 
 	StopHeartbeat()
+	StopShieldSync()
 
 	utils.Debug("[NATS] Closing NATS client connection")
 
@@ -1257,6 +1277,39 @@ func MasterNATSClientRouter() {
 		if subErr := pro.RegisterNodeDispatchHandler(nc, self); subErr != nil {
 			utils.Warn("[SCHED-NODE] failed to register dispatch handler: " + subErr.Error())
 		}
+
+		if _, subErr := RegisterRoutesOpResponder(nc, self); subErr != nil {
+			utils.Warn("[ROUTES] failed to register op responder: " + subErr.Error())
+		}
+
+		if _, subErr := pro.RegisterManagedDBResponder(nc, self); subErr != nil {
+			utils.Warn("[MDB] failed to register op responder: " + subErr.Error())
+		}
+		pro.StartManagedDBBackupReconciler()
+
+		if _, subErr := pro.RegisterSeaweedFSResponder(nc, self); subErr != nil {
+			utils.Warn("[SWFS] failed to register op responder: " + subErr.Error())
+		}
+		pro.SetSeaweedFSClusterHandles(SeaweedFSClusterHandles)
+		pro.StartSeaweedFSReconciler()
+
+		pro.SetRegistryClusterHandles(RegistryClusterHandles)
+		pro.SetRegistryNodeProvider(RegistryNodeInfo)
+		pro.SetCIClusterDomainProvider(ClusterDomain)
+
+		pro.SetStateClusterHandles(StateClusterHandles)
+		pro.StartStateMirror()
+		pro.StartRegistryServing()
+		// GC and cron triggers are leadership-bound so each runs once per cluster.
+		pro.StartRegistryGC()
+		pro.StartFunctionTriggers()
+
+		if _, subErr := pro.RegisterCIResponder(nc, self); subErr != nil {
+			utils.Warn("[CI] failed to register op responder: " + subErr.Error())
+		}
+		pro.StartCIScheduler()
+
+		pro.StartFeatureMetrics()
 	} else {
 		utils.Warn("[SCHED-NODE] cannot register dispatch handler: GetCurrentDevice failed: " + err.Error())
 	}

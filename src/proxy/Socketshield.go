@@ -3,28 +3,20 @@ package proxy
 import (
 	"fmt"
 	"net"
-	"sync"
-	"time"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/azukaar/cosmos-server/src/utils"
 	"github.com/azukaar/cosmos-server/src/metrics"
 	"github.com/azukaar/cosmos-server/src/constellation"
 )
 
-type TCPSmartShieldState struct {
-	sync.Mutex
-	Connections []*TCPConnectionWrapper
-	Bans        []*UserBan
-}
-
-type TCPUserUsedBudget struct {
-	ClientID      string
-	Time          float64
-	Packets       int64
-	Bytes         int64
-	Simultaneous  int
-}
+// TCPSmartShield: same budgets and bans as the HTTP shield, per connection.
+// A connection's bytes and packets accumulate on its wrapper while it is
+// open and fold into the client's rolling window when it closes; the budget
+// enforcer runs every 10s to throttle or kick clients that went over.
 
 type TCPConnectionWrapper struct {
 	Conn          net.Conn
@@ -37,9 +29,11 @@ type TCPConnectionWrapper struct {
 	ShieldID      string
 	Policy        utils.SmartShieldPolicy
 	IsPrivileged  bool
-	ThrottleUntil time.Duration
+	throttleNs    atomic.Int64
 	mutex         sync.Mutex
-	Route 			 utils.ProxyRouteConfig
+	Route         utils.ProxyRouteConfig
+	budget        *clientBudget
+	closeOnce     sync.Once
 }
 
 // Implement the missing methods to satisfy the net.Conn interface
@@ -63,149 +57,46 @@ func (w *TCPConnectionWrapper) SetWriteDeadline(t time.Time) error {
 	return w.Conn.SetWriteDeadline(t)
 }
 
-var socketShield TCPSmartShieldState
+func (w *TCPConnectionWrapper) counters() (int64, int64) {
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+	return w.Bytes, w.Packets
+}
 
-func (shield *TCPSmartShieldState) GetServerConnections(shieldID string) int {
-	shield.Lock()
-	defer shield.Unlock()
-	connections := 0
+var socketShield = newBudgetStore()
 
-	for _, conn := range shield.Connections {
-		if !conn.IsOver && conn.ShieldID == shieldID {
-			connections++
-		}
-	}
-
-	return connections
+func (s *budgetStore) GetServerConnections(shieldID string) int {
+	return int(s.shieldInflight(shieldID).Load())
 }
 
 func CleanUpSocket() {
-	socketShield.Lock()
-	defer socketShield.Unlock()
-
-	shieldSize := len(socketShield.Connections)
-
-	for i := len(socketShield.Connections) - 1; i >= 0; i-- {
-		request := socketShield.Connections[i]
-		oneHourAgo := time.Now().Add(-time.Hour)
-		if(request.IsOver && request.TimeEnded.Before(oneHourAgo)) {
-			socketShield.Connections = append(socketShield.Connections[:i], socketShield.Connections[i+1:]...)
-		}
-	}
-
-	utils.Log("SmartShield: Cleaned up " + fmt.Sprintf("%d", shieldSize-len(socketShield.Connections)) + " old requests")
+	removed := socketShield.cleanup(time.Now())
+	utils.Log("SmartShield: Cleaned up " + fmt.Sprintf("%d", removed) + " idle socket clients")
 }
 
-func (shield *TCPSmartShieldState) GetUserUsedBudgets(shieldID string, clientID string) TCPUserUsedBudget {
-	shield.Lock()
-	defer shield.Unlock()
-
-	userConsumed := TCPUserUsedBudget{
-		ClientID:     clientID,
-		Time:         0,
-		Packets:      0,
-		Bytes:        0,
-		Simultaneous: 0,
-	}
-
-	for _, conn := range shield.Connections {
-		if conn.ShieldID != shieldID || conn.ClientID != clientID {
-			continue
-		}
-
-		if conn.IsOver {
-			userConsumed.Time += conn.TimeEnded.Sub(conn.TimeStarted).Seconds()
-		} else {
-			userConsumed.Time += time.Now().Sub(conn.TimeStarted).Seconds()
-			userConsumed.Simultaneous++
-		}
-		userConsumed.Packets += conn.Packets
-		userConsumed.Bytes += conn.Bytes
-	}
-
-	return userConsumed
-}
-
-func (shield *TCPSmartShieldState) IsAllowedToConnect(shieldID string, policy utils.SmartShieldPolicy, userConsumed TCPUserUsedBudget) bool {
-	if(!policy.Enabled) {
+// IsAllowedToConnect checks bans, then strikes the client if its usage is
+// beyond the policy times the strictness factor.
+func IsAllowedToConnect(shieldID string, policy utils.SmartShieldPolicy, userConsumed userUsedBudget) bool {
+	if !policy.Enabled {
 		return true
 	}
-	
-	shield.Lock()
-	defer shield.Unlock()
-
-	globalShieldState.Lock()
-	defer globalShieldState.Unlock()
 
 	clientID := userConsumed.ClientID
-
-	if clientID == "192.168.1.1" || clientID == "192.168.0.1" || clientID == "192.168.0.254" || clientID == "172.17.0.1" {
+	if isLocalGateway(clientID) {
 		return true
 	}
 
-	nbTempBans := 0
-	nbStrikes := 0
-
-	for _, ban := range globalShieldState.bans {
-		if ban.ClientID != clientID {
-			continue
-		}
-
-		switch ban.BanType {
-		case PERM:
-			return false
-		case TEMP:
-			if ban.time.Add(4 * time.Hour).After(time.Now()) {
-				return false
-			} else if ban.time.Add(72 * time.Hour).After(time.Now()) {
-				nbTempBans++
-			}
-		case STRIKE:
-			if ban.time.Add(time.Hour).After(time.Now()) {
-				return false
-			} else if ban.time.Add(24 * time.Hour).After(time.Now()) {
-				nbStrikes++
-			}
-		}
-	}
-
-	if nbTempBans >= 3 {
-		globalShieldState.bans = append(globalShieldState.bans, &UserBan{
-			ClientID: clientID,
-			BanType:  PERM,
-			time:     time.Now(),
-			shieldID: shieldID,
-		})
-		utils.Warn(fmt.Sprintf("TCP User %s has been banned permanently: %+v", clientID, userConsumed))
-		return false
-	} else if nbStrikes >= 3 {
-		globalShieldState.bans = append(globalShieldState.bans, &UserBan{
-			ClientID: clientID,
-			BanType:  TEMP,
-			time:     time.Now(),
-			shieldID: shieldID,
-		})
-		utils.Warn(fmt.Sprintf("TCP User %s has been banned temporarily: %+v", clientID, userConsumed))
+	now := time.Now()
+	if !globalShieldState.allowed(clientID, shieldID, now) {
 		return false
 	}
 
-	if (userConsumed.Time > policy.PerUserTimeBudget*float64(policy.PolicyStrictness)) ||
-		(userConsumed.Packets > int64(policy.PerUserRequestLimit*1000*policy.PolicyStrictness)) ||
-		(userConsumed.Bytes > policy.PerUserByteLimit*int64(policy.PolicyStrictness)) ||
-		(userConsumed.Simultaneous > policy.PerUserSimultaneous*policy.PolicyStrictness) {
-		globalShieldState.bans = append(globalShieldState.bans, &UserBan{
-			ClientID: clientID,
-			BanType:  STRIKE,
-			time:     time.Now(),
-			reason:   fmt.Sprintf("%+v out of %+v", userConsumed, policy),
-			shieldID: shieldID,
-		})
-		utils.Warn(fmt.Sprintf("TCP User %s has received a strike: %+v", clientID, userConsumed))
+	if reason, over := budgetViolation(policy, userConsumed, shieldID, true); over {
+		globalShieldState.strike(clientID, shieldID, reason, now)
 		return false
 	}
 
 	utils.Debug(fmt.Sprintf("TCPSmartShield: User %s is allowed to connect", clientID))
-
 	return true
 }
 
@@ -219,13 +110,19 @@ func TCPSmartShieldWrapper(conn net.Conn, shieldID string, route utils.ProxyRout
 		ShieldID:     shieldID,
 		Policy:       policy,
 		Route:        route,
-		IsPrivileged: false, // You may want to implement a way to determine privileged connections
+		IsPrivileged: utils.IsShieldWhitelisted(clientID),
+		budget:       socketShield.client(shieldID, clientID),
 	}
 
-	socketShield.Lock()
-	socketShield.Connections = append(socketShield.Connections, wrapper)
-	socketShield.Unlock()
-	
+	wrapper.budget.Lock()
+	if wrapper.budget.live == nil {
+		wrapper.budget.live = map[*TCPConnectionWrapper]struct{}{}
+	}
+	wrapper.budget.live[wrapper] = struct{}{}
+	wrapper.budget.lastSeen = wrapper.TimeStarted
+	wrapper.budget.Unlock()
+	socketShield.shieldInflight(shieldID).Add(1)
+
 	utils.TriggerEvent(
 		"cosmos.socket-proxy.opened." + wrapper.Route.Name,
 		"Socket Proxy " + wrapper.Route.Name + " Opened for " + wrapper.ClientID,
@@ -238,11 +135,14 @@ func TCPSmartShieldWrapper(conn net.Conn, shieldID string, route utils.ProxyRout
 	return wrapper
 }
 
+func (w *TCPConnectionWrapper) throttle() {
+	if ns := w.throttleNs.Load(); ns > 0 {
+		time.Sleep(time.Duration(ns))
+	}
+}
 
 func (w *TCPConnectionWrapper) Write(b []byte) (int, error) {
-	if w.ThrottleUntil > 0 {
-		time.Sleep(w.ThrottleUntil)
-	}
+	w.throttle()
 
 	n, err := w.Conn.Write(b)
 
@@ -251,14 +151,11 @@ func (w *TCPConnectionWrapper) Write(b []byte) (int, error) {
 	w.Packets++
 	w.mutex.Unlock()
 
-	// utils.Debug(fmt.Sprintf("TCPSmartShield: Wrote %d bytes and %d packets. ThrottleUntil: %v", w.Bytes, w.Packets, w.ThrottleUntil))
 	return n, err
 }
 
 func (w *TCPConnectionWrapper) Read(b []byte) (int, error) {
-	if w.ThrottleUntil > 0 {
-		time.Sleep(w.ThrottleUntil)
-	}
+	w.throttle()
 
 	n, err := w.Conn.Read(b)
 
@@ -270,35 +167,42 @@ func (w *TCPConnectionWrapper) Read(b []byte) (int, error) {
 	return n, err
 }
 
-func (shield *TCPSmartShieldState) EnforceBudget() {
-	shield.Lock()
-	defer shield.Unlock()
-
-	globalShieldState.Lock()
-	defer globalShieldState.Unlock()
-
-	for _, conn := range shield.Connections {
-		if conn.IsOver || !conn.Policy.Enabled {
-			continue
+// EnforceBudget throttles every live connection of a client that is over
+// its policy, and kicks the client (one strike, all its connections) when it
+// is over by the strictness factor.
+func (s *budgetStore) EnforceBudget() {
+	now := time.Now()
+	s.each(func(b *clientBudget) {
+		b.Lock()
+		conns := make([]*TCPConnectionWrapper, 0, len(b.live))
+		for conn := range b.live {
+			conns = append(conns, conn)
+		}
+		b.Unlock()
+		if len(conns) == 0 {
+			return
 		}
 
-		policy := conn.Policy
+		// one policy per shield/client pair: every live conn carries the same one
+		policy := conns[0].Policy
+		clientID := conns[0].ClientID
+		if !policy.Enabled || conns[0].IsPrivileged {
+			return
+		}
 
-		shield.Unlock()
-		userConsumed := shield.GetUserUsedBudgets(conn.ShieldID, conn.ClientID)
-		shield.Lock()
+		userConsumed := b.consumed(clientID, now)
 
 		throttle := 0
 
-		overReq := int64(policy.PerUserRequestLimit * 1000) - userConsumed.Packets
-		overReqRatio := float64(overReq) / float64((policy.PerUserRequestLimit * 1000))
+		overReq := int64(policy.PerUserRequestLimit*1000) - userConsumed.Packets
+		overReqRatio := float64(overReq) / float64(policy.PerUserRequestLimit*1000)
 		if overReq < 0 {
 			newThrottle := int(float64(300) * -overReqRatio)
 			if newThrottle > throttle {
 				throttle = newThrottle
 			}
 		}
-		
+
 		overByte := policy.PerUserByteLimit - userConsumed.Bytes
 		overByteRatio := float64(overByte) / float64(policy.PerUserByteLimit)
 		if overByte < 0 {
@@ -307,7 +211,7 @@ func (shield *TCPSmartShieldState) EnforceBudget() {
 				throttle = newThrottle
 			}
 		}
-	
+
 		overSim := policy.PerUserSimultaneous - userConsumed.Simultaneous
 		overSimRatio := float64(overSim) / float64(policy.PerUserSimultaneous)
 		if overSim < 0 {
@@ -317,22 +221,23 @@ func (shield *TCPSmartShieldState) EnforceBudget() {
 			}
 		}
 
-		utils.Debug(fmt.Sprintf("TCPSmartShield: Ratio: %f, %f, %f", overReqRatio, overByteRatio, overSimRatio))
-
-		conn.ThrottleUntil = time.Duration(throttle * int(time.Millisecond))
-
-		if !conn.Policy.Enabled {
-			continue
+		for _, conn := range conns {
+			conn.throttleNs.Store(int64(time.Duration(throttle) * time.Millisecond))
 		}
 
-		if (userConsumed.Time > policy.PerUserTimeBudget*float64(policy.PolicyStrictness)) ||
-			(userConsumed.Packets > int64(policy.PerUserRequestLimit*1000*policy.PolicyStrictness)) ||
-			(userConsumed.Bytes > policy.PerUserByteLimit*int64(policy.PolicyStrictness)) {
+		// live connections are not kicked for being many, only for what they moved
+		usage := userConsumed
+		usage.Simultaneous = 0
+		reason, over := budgetViolation(policy, usage, conns[0].ShieldID, true)
+		if !over {
+			return
+		}
 
-			utils.Warn(fmt.Sprintf("TCPSmartShield: Kicking out user %s due to exceeded budget", conn.ClientID))
-			
+		utils.Warn(fmt.Sprintf("TCPSmartShield: Kicking out user %s due to exceeded budget", clientID))
+		globalShieldState.strike(clientID, conns[0].ShieldID, reason, now)
+
+		for _, conn := range conns {
 			conn.Close()
-
 			utils.TriggerEvent(
 				"cosmos.proxy.shield.abuse." + conn.Route.Name,
 				"Socket Shield " + conn.Route.Name + " Abuse by " + conn.ClientID,
@@ -341,19 +246,11 @@ func (shield *TCPSmartShieldState) EnforceBudget() {
 				map[string]interface{}{
 				"route": conn.Route.Name,
 				"consumed": userConsumed,
-				"lastBan": GetLastBan(conn.ClientID, false),
+				"lastBan": GetLastBan(conn.ClientID),
 				"clientID": conn.ClientID,
 			})
-
-			globalShieldState.bans = append(globalShieldState.bans, &UserBan{
-				ClientID: conn.ClientID,
-				BanType:  STRIKE,
-				time:     time.Now(),
-				reason:   fmt.Sprintf("%+v out of %+v", userConsumed, policy),
-				shieldID: conn.ShieldID,
-			})
 		}
-	}
+	})
 }
 
 func StartBudgetEnforcer() {
@@ -375,9 +272,22 @@ func IPInRange(ip, cidr string) (bool, error) {
 }
 
 func (w *TCPConnectionWrapper) Close() error {
-	if !w.IsOver {
+	w.closeOnce.Do(func() {
 		w.TimeEnded = time.Now()
 		w.IsOver = true
+
+		bytes, packets := w.counters()
+		if w.budget != nil {
+			w.budget.Lock()
+			delete(w.budget.live, w)
+			slot := w.budget.slot(w.TimeEnded)
+			slot.bytes += bytes
+			slot.packets += packets
+			slot.seconds += w.TimeEnded.Sub(w.TimeStarted).Seconds()
+			w.budget.lastSeen = w.TimeEnded
+			w.budget.Unlock()
+			socketShield.shieldInflight(w.ShieldID).Add(-1)
+		}
 
 		utils.TriggerEvent(
 			"cosmos.socket-proxy.closed." + w.Route.Name,
@@ -386,15 +296,15 @@ func (w *TCPConnectionWrapper) Close() error {
 			"route@" + w.Route.Name,
 			map[string]interface{}{
 			"route": w.Route.Name,
-			"consumed": w.Bytes,
-			"packets": w.Packets,
+			"consumed": bytes,
+			"packets": packets,
 			"time": w.TimeEnded.Sub(w.TimeStarted).Seconds(),
 			"clientID": w.ClientID,
 		})
 
-		go metrics.PushRequestMetrics(w.Route, 0, w.TimeStarted, w.Bytes)
-	}
-	
+		go metrics.PushRequestMetrics(w.Route, 0, w.TimeStarted, bytes)
+	})
+
 	return w.Conn.Close()
 }
 
@@ -403,36 +313,14 @@ func InitSocketShield() {
 }
 
 func TCPSmartShieldMiddleware(shieldID string, route utils.ProxyRouteConfig) func(net.Conn) net.Conn {
-	policy := route.SmartShield
+	policy := utils.ApplySmartShieldDefaults(route.SmartShield)
 
-	if policy.Enabled {
-		if(policy.PerUserTimeBudget == 0) {
-			policy.PerUserTimeBudget = 2 * 60 * 60 * 1000 // 2 hours
-		}
-		if(policy.PerUserRequestLimit == 0) {
-			policy.PerUserRequestLimit = 18000
-		}
-		if(policy.PerUserByteLimit == 0) {
-			policy.PerUserByteLimit = 200 * 1024 * 1024 * 1024 // 200GB
-		}
-		if(policy.PolicyStrictness == 0) {
-			policy.PolicyStrictness = 2 // NORMAL
-		}
-		if(policy.PerUserSimultaneous == 0) {
-			policy.PerUserSimultaneous = 100
-		}
-		if(policy.MaxGlobalSimultaneous == 0) {
-			policy.MaxGlobalSimultaneous = 2000
-		}
-		if(policy.PrivilegedGroups == 0) {
-			policy.PrivilegedGroups = utils.ADMIN
-		}
-	}
-	
 	return func(conn net.Conn) net.Conn {
 		clientID, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
+		shieldEntry, shieldWhitelisted := utils.ShieldWhitelistMatch(clientID)
 
-		if(utils.GetIPAbuseCounter(clientID) > 275) {
+		if !shieldWhitelisted && utils.GetIPAbuseCounter(clientID) > 275 {
+			conn.Close()
 			return nil
 		}
 
@@ -442,8 +330,10 @@ func TCPSmartShieldMiddleware(shieldID string, route utils.ProxyRouteConfig) fun
 		// Whitelist / Constellation check
 
 		isUsingWhitelist := len(whitelistInboundIPs) > 0
-		isInWhitelist := false
+		isInWhitelist := shieldWhitelisted && shieldEntry.BypassIPRestriction
 		isInConstellation := constellation.IsConstellationIP(clientID)
+		// a local peer's packets never crossed Nebula but satisfy restrictToConstellation too
+		isLocalPeer := utils.IsLocalPeer(clientID)
 
 		for _, ipRange := range whitelistInboundIPs {
 			utils.Debug(fmt.Sprintf("Checking if %s is in %s", clientID, ipRange))
@@ -458,7 +348,7 @@ func TCPSmartShieldMiddleware(shieldID string, route utils.ProxyRouteConfig) fun
 			}
 		}
 
-		if restrictToConstellation && !isInConstellation {
+		if restrictToConstellation && !isInConstellation && !isLocalPeer {
 			if !isUsingWhitelist || (isUsingWhitelist && !isInWhitelist) {
 				utils.PushShieldMetrics("ip-whitelists")
 				utils.TriggerEvent(
@@ -497,6 +387,9 @@ func TCPSmartShieldMiddleware(shieldID string, route utils.ProxyRouteConfig) fun
 		// Geo check
 		
 		countryCode, err := utils.GetIPLocation(clientID)
+		if shieldWhitelisted && shieldEntry.BypassGeo {
+			err = fmt.Errorf("geo check bypassed by shield whitelist")
+		}
 		if err == nil {
 			config := utils.GetMainConfig()
 			countryBlacklistIsWhitelist := config.CountryBlacklistIsWhitelist
@@ -565,7 +458,7 @@ func TCPSmartShieldMiddleware(shieldID string, route utils.ProxyRouteConfig) fun
 		
 		userConsumed := socketShield.GetUserUsedBudgets(shieldID, clientID)
 
-		if !socketShield.IsAllowedToConnect(shieldID, policy, userConsumed) {
+		if !shieldWhitelisted && !IsAllowedToConnect(shieldID, policy, userConsumed) {
 			utils.TriggerEvent(
 				"cosmos.proxy.shield.abuse." + route.Name,
 				"Socket Shield " + route.Name + " Abuse by " + clientID,
@@ -574,7 +467,7 @@ func TCPSmartShieldMiddleware(shieldID string, route utils.ProxyRouteConfig) fun
 				map[string]interface{}{
 				"route": route.Name,
 				"consumed": userConsumed,
-				"lastBan": GetLastBan(clientID, false),
+				"lastBan": GetLastBan(clientID),
 				"clientID": clientID,
 			})
 
@@ -585,8 +478,8 @@ func TCPSmartShieldMiddleware(shieldID string, route utils.ProxyRouteConfig) fun
 
 		wrapper := TCPSmartShieldWrapper(conn, shieldID, route, policy)
 
-		if policy.Enabled {
-			currentConnections := socketShield.GetServerConnections(shieldID) + 1
+		if policy.Enabled && !shieldWhitelisted {
+			currentConnections := socketShield.GetServerConnections(shieldID)
 			utils.Debug(fmt.Sprintf("TCPSmartShield: Current global connections: %d", currentConnections))
 	
 			if currentConnections > policy.MaxGlobalSimultaneous {

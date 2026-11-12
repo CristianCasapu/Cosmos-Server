@@ -4,6 +4,22 @@ import { useState } from "react";
 import { useTheme } from '@mui/material/styles';
 import { Trans, useTranslation } from 'react-i18next';
 import MenuButton from './MenuButton';
+import { Link } from 'react-router-dom';
+import { managedRouteOwner } from '../utils/routes';
+
+// Badge linking a managed route to its owner's edit page.
+export const ManagedByChip = ({ route, size = 'small' }) => {
+  const { t } = useTranslation();
+  const owner = managedRouteOwner(route);
+  if (!owner) return null;
+  const label = t('mgmt.urls.managedBy', { kind: t('mgmt.urls.managedKind.' + owner.kind, { defaultValue: owner.kind }), name: owner.name });
+  const chip = <Chip size={size} icon={<LockOutlined />} label={label} color="primary" variant="outlined" clickable={!!owner.link} />;
+  return <Tooltip title={t('tooltip.route.managedWarn')}>
+    <span onClick={(e) => e.stopPropagation()}>
+      {owner.link ? <Link to={owner.link} style={{ textDecoration: 'none' }}>{chip}</Link> : chip}
+    </span>
+  </Tooltip>;
+};
 
 let routeImages = {
   "TUNNEL": {
@@ -51,7 +67,8 @@ export const RouteMode = ({route}) => {
 
   let cicon = c.icon;
   
-  if (!route._IsTunnel && route.TunnelVia) {
+  // The origin side of a tunnel: the route is served from other nodes too.
+  if (!route._IsTunnel && route.Tunnel) {
     cicon = c.icon + " 💫";
   }
 

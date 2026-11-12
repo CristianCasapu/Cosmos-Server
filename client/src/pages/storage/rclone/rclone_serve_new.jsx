@@ -181,36 +181,16 @@ const RCloneNewServeConfig = ({ onClose, initialValues }) => {
               shares = shares.filter((s) => s.Name !== originalName);
             }
             
-            // if samba we do not add a route
+            // Only the user-facing half is sent; the server completes the route and reuses any existing target.
             const isSamba = selectedProvider === "samba";
-
+            const previous = (isEdit && initialValues.Route) || {};
             if (!isSamba) {
-              let nextFreePort = 12000;
-              let busyPorts = [];
-              shares.forEach((s) => {
-                if (s.Route && s.Route.Target) {
-                  let port = parseInt(s.Route.Target.split(":")[s.Route.Target.split(":").length - 1]);
-                  if (!port.isNaN) {
-                    busyPorts = [...busyPorts, port];
-                  }
-                }
-              });
-              
-              while (busyPorts.includes(nextFreePort)) {
-                nextFreePort++;
-              }
-
-              let scheme = ServeConfig.find(config => config.Name === selectedProvider).Proxy;
-
-              let calculatedInternalTarget = scheme + "://127.0.0.1:" + nextFreePort;
-
               fullValues.Route = {
-                Name: "netshare_" + fullValues.Name,
-                Target: calculatedInternalTarget,
-                Mode: "PROXY",
+                ...previous,
                 UseHost: true,
                 Host: fullValues.Source,
                 SmartShield: {
+                  ...(previous.SmartShield || {}),
                   Enabled: smartShieldEnabled
                 }
               }

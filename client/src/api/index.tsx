@@ -11,8 +11,16 @@ import createRcloneAPI from './rclone';
 import createBackupsAPI from './backup';
 import createApiTokensAPI from './apiTokens';
 import createOpenIDAPI from './openid';
+import createZonesAPI from './zones';
 import createGroupsAPI from './groups';
 import createDeploymentsAPI from './deployments';
+import createDatabasesAPI from './databases';
+import createSeaweedFSAPI from './seaweedfs';
+import createRegistryAPI from './registry';
+import createFunctionsAPI from './functions';
+import createCIAPI from './ci';
+import createShieldAPI from './shield';
+import createStateAPI from './state';
 
 import * as authDemo from './authentication.demo';
 import * as usersDemo from './users.demo';
@@ -25,6 +33,10 @@ import * as metricsDemo from './metrics.demo';
 import * as storageDemo from './storage.demo';
 import * as cronDemo from './cron.demo';
 import * as backupDemo from './backup.demo';
+import * as zonesDemo from './zones.demo';
+import * as shieldDemo from './shield.demo';
+import * as apiTokensDemo from './apiTokens.demo';
+import * as rcloneDemo from './rclone.demo';
 
 import wrap from './wrap';
 import { createApiClient } from './client';
@@ -57,8 +69,16 @@ export function createClient({ baseUrl, token }) {
     backups: createBackupsAPI(apiFetch),
     apiTokens: createApiTokensAPI(apiFetch),
     openid: createOpenIDAPI(apiFetch),
+    zones: createZonesAPI(apiFetch),
     groups: createGroupsAPI(apiFetch),
     deployments: createDeploymentsAPI(apiFetch),
+    databases: createDatabasesAPI(apiFetch),
+    seaweedfs: createSeaweedFSAPI(apiFetch),
+    registry: createRegistryAPI(apiFetch),
+    functions: createFunctionsAPI(apiFetch),
+    ci: createCIAPI(apiFetch),
+    shield: createShieldAPI(apiFetch),
+    state: createStateAPI(apiFetch),
 
     getStatus: () => {
       return wrap(apiFetch('/cosmos/api/status', {
@@ -302,6 +322,16 @@ let newInstall = (req, onProgress) => {
   }
 }
 
+let setupJoin = (req) => {
+  return wrap(defaultFetch('/cosmos/api/setup-join', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(req)
+  }))
+}
+
 let checkHost = (host) => {
   return defaultFetch('/cosmos/api/dns-check?url=' + host, {
     method: 'GET',
@@ -394,8 +424,16 @@ let rclone = createRcloneAPI(defaultFetch);
 let backups = createBackupsAPI(defaultFetch);
 let apiTokens = createApiTokensAPI(defaultFetch);
 let openid = createOpenIDAPI(defaultFetch);
+let zones = createZonesAPI(defaultFetch);
 let groups = createGroupsAPI(defaultFetch);
 let deployments = createDeploymentsAPI(defaultFetch);
+let databases = createDatabasesAPI(defaultFetch);
+let seaweedfs = createSeaweedFSAPI(defaultFetch);
+let registry = createRegistryAPI(defaultFetch);
+let functions = createFunctionsAPI(defaultFetch);
+let ci = createCIAPI(defaultFetch);
+let shield = createShieldAPI(defaultFetch);
+let state = createStateAPI(defaultFetch);
 
 if(isDemo) {
   auth = authDemo;
@@ -416,6 +454,12 @@ if(isDemo) {
   storage = storageDemo;
   cron = cronDemo;
   backups = backupDemo;
+  zones = zonesDemo;
+  shield = shieldDemo;
+  apiTokens = apiTokensDemo;
+  rclone = rcloneDemo;
+  setupJoin = indexDemo.setupJoin;
+  forceAutoUpdate = indexDemo.forceAutoUpdate;
 }
 
 export {
@@ -427,6 +471,7 @@ export {
   constellation,
   getStatus,
   newInstall,
+  setupJoin,
   isOnline,
   checkHost,
   getDNS,
@@ -441,6 +486,14 @@ export {
   backups,
   apiTokens,
   openid,
+  zones,
   groups,
   deployments,
+  databases,
+  seaweedfs,
+  registry,
+  functions,
+  ci,
+  shield,
+  state,
 };

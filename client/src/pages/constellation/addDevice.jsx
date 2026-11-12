@@ -22,7 +22,10 @@ import PermissionGuard from '../../components/permissionGuard';
 import { useTranslation } from 'react-i18next';
 import { json } from 'react-router';
 
-const AddDeviceModal = ({ users, config, refreshConfig, devices, canCreateManager, canCreateAgent }) => {
+// HA JetStream keeps every bucket at 3 replicas: it only works once 3 managers exist
+export const haManagerCount = (devices) => (devices || []).filter(d => !d.blocked && d.cosmosNode === 2).length;
+
+const AddDeviceModal = ({ users, config, refreshConfig, devices, natsHA, canCreateManager, canCreateAgent }) => {
   const { t } = useTranslation();
   const [openModal, setOpenModal] = useState(false);
   const [isDone, setIsDone] = useState(null);
@@ -195,6 +198,10 @@ const AddDeviceModal = ({ users, config, refreshConfig, devices, canCreateManage
                         disabled
                       />
                     </>)}
+
+                    {natsHA && formik.values.deviceType === 'cosmos-manager' && haManagerCount(devices) < 2 && (
+                      <Alert severity="info">{t('mgmt.constellation.setup.haNeedsThreeManagers', { managers: haManagerCount(devices) + 1 })}</Alert>
+                    )}
 
                     <CosmosInputText
                       name="deviceName"

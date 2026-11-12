@@ -1,49 +1,48 @@
 package proxy
 
 import (
-	"github.com/azukaar/cosmos-server/src/utils"
 	"bufio"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"time"
-	"fmt"
-	"errors"
+
+	"github.com/azukaar/cosmos-server/src/utils"
 )
 
 type SmartResponseWriterWrapper struct {
 	http.ResponseWriter
-	ClientID string
-	Status   int
-	Bytes    int64
-	ThrottleNext int
-	TimeStarted time.Time
-	TimeEnded time.Time
-	RequestCost int
-	Method string
-	shield *smartShieldState
-	policy utils.SmartShieldPolicy
-	isOver bool
+	ClientID           string // shield identity (user or IP)
+	ClientIP           string
+	Status             int
+	Bytes              int64
+	ThrottleNext       int
+	TimeStarted        time.Time
+	TimeEnded          time.Time
+	RequestCost        int
+	Method             string
+	budget             *clientBudget
+	policy             utils.SmartShieldPolicy
+	isOver             bool
 	hasBeenInterrupted bool
-	isPrivileged bool
-	shieldID string
+	isPrivileged       bool
+	headerWritten      bool
+	shieldID           string
 }
 
 func (w *SmartResponseWriterWrapper) IsOver() bool {
 	return w.isOver
 }
 
-func (w *SmartResponseWriterWrapper) IsOld() bool {
-	if !w.IsOver() {
-		return false
-	}
-	oneHourAgo := time.Now().Add(-time.Hour)
-	if w.TimeEnded.Before(oneHourAgo) {
-		return true
-	}
-	return false
-}
-
+// WriteHeader prices the request once its outcome is known: non-GET costs 5
+// requests, an error response 30 times that, so failed logins and scraping
+// exhaust a budget far faster than browsing does.
 func (w *SmartResponseWriterWrapper) WriteHeader(status int) {
+	if w.headerWritten {
+		return
+	}
+	w.headerWritten = true
 	w.Status = status
 	w.RequestCost = 1
 	if w.Method != "GET" {
@@ -52,39 +51,44 @@ func (w *SmartResponseWriterWrapper) WriteHeader(status int) {
 	if w.Status >= 400 {
 		w.RequestCost *= 30
 	}
+	if w.budget != nil && w.RequestCost > 1 {
+		w.budget.addRequests(w.RequestCost-1, time.Now())
+	}
 	if !w.IsOver() {
 		w.ResponseWriter.WriteHeader(status)
 	}
 }
 
 func (w *SmartResponseWriterWrapper) Write(p []byte) (int, error) {
-	userConsumed := shield.GetUserUsedBudgets(w.shieldID, w.ClientID)
-	if !w.isPrivileged && !shield.isAllowedToReqest(w.shieldID, w.policy, userConsumed) {
-		utils.Log(fmt.Sprintf("SmartShield: %s has been blocked due to abuse", w.ClientID))
-		w.isOver = true
-		w.TimeEnded = time.Now()
-		w.hasBeenInterrupted = true
-		w.ResponseWriter.WriteHeader(http.StatusServiceUnavailable)
-		w.ResponseWriter.(http.Flusher).Flush()
-		return 0, errors.New("Pending request cancelled due to SmartShield")
-	}
-	thro := 0
-
-	if !w.isPrivileged {
-		shield.computeThrottle(w.policy, userConsumed)
+	if w.budget != nil && !w.isPrivileged {
+		userConsumed := w.budget.consumed(w.ClientID, time.Now())
+		if !isAllowedToRequest(w.shieldID, w.policy, userConsumed) {
+			utils.Log(fmt.Sprintf("SmartShield: %s has been blocked due to abuse", w.ClientID))
+			w.isOver = true
+			w.TimeEnded = time.Now()
+			w.hasBeenInterrupted = true
+			if !w.headerWritten {
+				w.headerWritten = true
+				w.Status = http.StatusServiceUnavailable
+				w.ResponseWriter.WriteHeader(http.StatusServiceUnavailable)
+			}
+			if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			return 0, errors.New("Pending request cancelled due to SmartShield")
+		}
 	}
 
 	// initial throttle
 	if w.ThrottleNext > 0 {
 		time.Sleep(time.Duration(w.ThrottleNext) * time.Millisecond)
+		w.ThrottleNext = 0
 	}
-	w.ThrottleNext = 0
 
-	// ongoing throttle
-	if thro > 0 {
-		time.Sleep(time.Duration(thro) * time.Millisecond)
+	if !w.headerWritten {
+		w.WriteHeader(http.StatusOK)
 	}
-	
+
 	n, err := w.ResponseWriter.Write(p)
 
 	if err != nil {
@@ -94,6 +98,9 @@ func (w *SmartResponseWriterWrapper) Write(p []byte) (int, error) {
 	}
 
 	w.Bytes += int64(n)
+	if w.budget != nil && n > 0 {
+		w.budget.addBytes(int64(n), time.Now())
+	}
 
 	return n, err
 }
@@ -112,4 +119,3 @@ func (w *SmartResponseWriterWrapper) Flush() {
 		flusher.Flush()
 	}
 }
-

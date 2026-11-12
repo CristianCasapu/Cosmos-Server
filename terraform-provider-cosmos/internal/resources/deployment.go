@@ -63,12 +63,18 @@ type deploymentResource struct {
 }
 
 type deploymentModel struct {
-	Name     types.String `tfsdk:"name"`
-	Replicas types.Int64  `tfsdk:"replicas"`
-	Strategy types.String `tfsdk:"strategy"`
-	Tags     types.Set    `tfsdk:"tags"`
-	Storage  types.Set    `tfsdk:"storage"`
-	Compose  types.String `tfsdk:"compose"`
+	Name            types.String `tfsdk:"name"`
+	Replicas        types.Int64  `tfsdk:"replicas"`
+	MinReplicas     types.Int64  `tfsdk:"min_replicas"`
+	MaxReplicas     types.Int64  `tfsdk:"max_replicas"`
+	ReplicaFill     types.Bool   `tfsdk:"replica_fill"`
+	ReplicaFillMode types.String `tfsdk:"replica_fill_mode"`
+	Strategy        types.String `tfsdk:"strategy"`
+	Tags            types.Set    `tfsdk:"tags"`
+	Storage         types.Set    `tfsdk:"storage"`
+	Compose         types.String `tfsdk:"compose"`
+	Function        types.String `tfsdk:"function"`
+	Version         types.Int64  `tfsdk:"version"`
 }
 
 func (r *deploymentResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -87,8 +93,24 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				},
 			},
 			"replicas": schema.Int64Attribute{
-				Description: "Target number of container replicas across eligible nodes.",
-				Required:    true,
+				Description: "Fixed replica count. Exactly one replica mode must be set: replicas (fixed), min_replicas/max_replicas (autoscale) or replica_fill (one per eligible node).",
+				Optional:    true,
+			},
+			"min_replicas": schema.Int64Attribute{
+				Description: "Autoscale mode: lower bound of the load-based replica count. Set together with max_replicas.",
+				Optional:    true,
+			},
+			"max_replicas": schema.Int64Attribute{
+				Description: "Autoscale mode: upper bound of the load-based replica count. Set together with min_replicas.",
+				Optional:    true,
+			},
+			"replica_fill": schema.BoolAttribute{
+				Description: "Fill mode: one replica on every alive node matching tags (every node when tags is empty).",
+				Optional:    true,
+			},
+			"replica_fill_mode": schema.StringAttribute{
+				Description: "Refines fill mode (only with replica_fill): \"full\" (default) keeps one replica on every eligible node, \"bare\" scales with load between 1 and the eligible set, \"empty\" is bare plus lazy containers so the deployment scales from zero.",
+				Optional:    true,
 			},
 			"strategy": schema.StringAttribute{
 				Description: "Placement strategy: \"round-robin\" (default) or \"least-busy\".",
@@ -107,8 +129,16 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				ElementType: types.StringType,
 			},
 			"compose": schema.StringAttribute{
-				Description: "JSON-encoded docker.DockerServiceCreateRequest (services, volumes, networks). Use jsonencode() in HCL.",
-				Required:    true,
+				Description: "JSON-encoded docker.DockerServiceCreateRequest (services, volumes, networks). Use jsonencode() in HCL. Exclusive with function.",
+				Optional:    true,
+			},
+			"function": schema.StringAttribute{
+				Description: "JSON-encoded pro.DeploymentFunction (runtime, source, handlers...) making this a function deployment: the compose is derived from it. Use jsonencode() in HCL. Exclusive with compose.",
+				Optional:    true,
+			},
+			"version": schema.Int64Attribute{
+				Description: "Server-assigned spec version, bumped on every create/update.",
+				Computed:    true,
 			},
 		},
 	}
@@ -130,19 +160,45 @@ func (r *deploymentResource) Configure(_ context.Context, req resource.Configure
 }
 
 func (r *deploymentResource) buildBody(ctx context.Context, m *deploymentModel) (*cosmossdk.ProDeployment, error) {
-	var compose cosmossdk.DockerDockerServiceCreateRequest
 	composeStr := m.Compose.ValueString()
-	if composeStr == "" {
-		return nil, fmt.Errorf("compose must be a non-empty JSON object")
-	}
-	if err := json.Unmarshal([]byte(composeStr), &compose); err != nil {
-		return nil, fmt.Errorf("parsing compose JSON: %w", err)
+	functionStr := m.Function.ValueString()
+	if (composeStr == "") == (functionStr == "") {
+		return nil, fmt.Errorf("exactly one of compose or function must be set")
 	}
 
 	body := &cosmossdk.ProDeployment{
-		Name:     m.Name.ValueString(),
-		Replicas: int(m.Replicas.ValueInt64()),
-		Compose:  compose,
+		Name: m.Name.ValueString(),
+	}
+
+	if composeStr != "" {
+		var compose cosmossdk.DockerDockerServiceCreateRequest
+		if err := json.Unmarshal([]byte(composeStr), &compose); err != nil {
+			return nil, fmt.Errorf("parsing compose JSON: %w", err)
+		}
+		body.Compose = &compose
+	} else {
+		var function cosmossdk.ProDeploymentFunction
+		if err := json.Unmarshal([]byte(functionStr), &function); err != nil {
+			return nil, fmt.Errorf("parsing function JSON: %w", err)
+		}
+		body.Function = &function
+	}
+
+	if !m.Replicas.IsNull() && !m.Replicas.IsUnknown() {
+		body.Replicas = client.IntPtr(int(m.Replicas.ValueInt64()))
+	}
+	if !m.MinReplicas.IsNull() && !m.MinReplicas.IsUnknown() {
+		body.MinReplicas = client.IntPtr(int(m.MinReplicas.ValueInt64()))
+	}
+	if !m.MaxReplicas.IsNull() && !m.MaxReplicas.IsUnknown() {
+		body.MaxReplicas = client.IntPtr(int(m.MaxReplicas.ValueInt64()))
+	}
+	if !m.ReplicaFill.IsNull() && !m.ReplicaFill.IsUnknown() && m.ReplicaFill.ValueBool() {
+		body.ReplicaFill = client.BoolPtr(true)
+	}
+	if !m.ReplicaFillMode.IsNull() && !m.ReplicaFillMode.IsUnknown() && m.ReplicaFillMode.ValueString() != "" {
+		mode := cosmossdk.ProDeploymentReplicaFillMode(m.ReplicaFillMode.ValueString())
+		body.ReplicaFillMode = &mode
 	}
 
 	if !m.Strategy.IsNull() && !m.Strategy.IsUnknown() && m.Strategy.ValueString() != "" {
@@ -175,7 +231,35 @@ func (r *deploymentResource) buildBody(ctx context.Context, m *deploymentModel) 
 
 func (r *deploymentResource) populateState(ctx context.Context, m *deploymentModel, dep *cosmossdk.ProDeployment) error {
 	m.Name = types.StringValue(dep.Name)
-	m.Replicas = types.Int64Value(int64(dep.Replicas))
+	m.Version = types.Int64Value(int64(client.IntPtrVal(dep.Version)))
+
+	// The replica-mode fields are only refreshed when the server reports them,
+	// so an unset (null) attribute never drifts to a zero value.
+	if dep.Replicas != nil && *dep.Replicas > 0 {
+		m.Replicas = types.Int64Value(int64(*dep.Replicas))
+	} else {
+		m.Replicas = types.Int64Null()
+	}
+	if dep.MinReplicas != nil && *dep.MinReplicas > 0 {
+		m.MinReplicas = types.Int64Value(int64(*dep.MinReplicas))
+	} else {
+		m.MinReplicas = types.Int64Null()
+	}
+	if dep.MaxReplicas != nil && *dep.MaxReplicas > 0 {
+		m.MaxReplicas = types.Int64Value(int64(*dep.MaxReplicas))
+	} else {
+		m.MaxReplicas = types.Int64Null()
+	}
+	if dep.ReplicaFill != nil && *dep.ReplicaFill {
+		m.ReplicaFill = types.BoolValue(true)
+	} else if m.ReplicaFill.IsNull() || m.ReplicaFill.ValueBool() {
+		m.ReplicaFill = types.BoolNull()
+	}
+	if dep.ReplicaFillMode != nil && *dep.ReplicaFillMode != "" {
+		m.ReplicaFillMode = types.StringValue(string(*dep.ReplicaFillMode))
+	} else {
+		m.ReplicaFillMode = types.StringNull()
+	}
 
 	if dep.Strategy != nil && *dep.Strategy != "" {
 		m.Strategy = types.StringValue(string(*dep.Strategy))
@@ -203,7 +287,7 @@ func (r *deploymentResource) populateState(ctx context.Context, m *deploymentMod
 		m.Storage = types.SetNull(types.StringType)
 	}
 
-	// Compose is intentionally not refreshed from the server. The server
+	// Compose and function are intentionally not refreshed from the server. The server
 	// roundtrips it through docker.DockerServiceCreateRequest (zero-value
 	// fields without omitempty re-emit on response) and further mutates it
 	// at deploy time, so the response can't byte-match what the user wrote.

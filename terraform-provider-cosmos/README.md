@@ -66,7 +66,18 @@ All attributes can be set via environment variables: `COSMOS_BASE_URL`, `COSMOS_
 | `cosmos_constellation_device` | VPN device (config YAML returned once on create) |
 | `cosmos_constellation_dns` | Constellation DNS entry |
 | `cosmos_snapraid` | SnapRAID array configuration |
+| `cosmos_domain` | Domain with its HTTPS mode, DNS provider and DynDNS setup |
 | `cosmos_storage_mount` | Storage mount (all fields require replacement) |
+| `cosmos_group` | User group with permissions (Pro) |
+| `cosmos_deployment` | Cluster deployment: fixed, autoscaled or one-per-node replicas, from a compose or a function spec (Pro) |
+| `cosmos_registry` | Package registry: docker, npm, pypi, static sites or generic files (Pro) |
+| `cosmos_registry_token` | Registry deploy token (token value returned once on create) (Pro) |
+| `cosmos_database` | Managed database instance, exposes the superuser connection (Pro) |
+| `cosmos_database_logical` | Logical database and role inside a managed database (Pro) |
+| `cosmos_object_storage` | Managed S3-compatible object storage, exposes the S3 credentials (Pro) |
+| `cosmos_function` | Function served from a package in a Cosmos registry, scaled from zero (Pro) |
+| `cosmos_ci_project` | CI/CD project building and deploying a git repository (Pro) |
+| `cosmos_install` / `cosmos_remote_install` | Install Cosmos on a fresh server |
 
 ## Data Sources
 
@@ -81,6 +92,7 @@ See the [examples/](examples/) directory for complete, working configurations:
 
 - **[web-app](examples/web-app/)** — Token, volume, container, route with smart shield, backup, and alert
 - **[vpn](examples/vpn/)** — Constellation VPN init, device, and DNS
+- **[ci-cd](examples/ci-cd/)** — Object storage, docker registry, managed database, CI/CD project and a function (Pro)
 
 ## Development
 

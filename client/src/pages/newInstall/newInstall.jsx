@@ -20,6 +20,7 @@ import { Box } from '@mui/system';
 import { isDomain, redirectTo, redirectToLocal } from '../../utils/indexs';
 import { DnsChallengeComp } from '../../utils/dns-challenge-comp';
 import { LanguagesSelect } from '../../layout/MainLayout/Drawer/languages';
+import UploadButtons from '../../components/fileUpload';
 // ================================|| LOGIN ||================================ //
 
 const debounce = (func, wait) => {
@@ -47,6 +48,8 @@ const debounce = (func, wait) => {
   }, 500)
 
 const hostnameIsDomainReg = /^((?!localhost|\d+\.\d+\.\d+\.\d+)[a-zA-Z0-9\-]{1,63}\.)+[a-zA-Z]{2,63}$/
+// bare "host" or "host:port", same rule as the server: no scheme, path or trailing slash
+const hostnameSyntaxReg = /^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*(:\d{1,5})?$/
 
 const NewInstall = () => {
     const { t } = useTranslation();
@@ -57,6 +60,39 @@ const NewInstall = () => {
     const [hostError, setHostError] = useState(null);
     const [hostIp, setHostIp] = useState(null);
     const [cleanInstall, setCleanInstall] = useState(true);
+    const [joinFile, setJoinFile] = useState(null);
+    const [joinHostname, setJoinHostname] = useState('');
+    const [joinError, setJoinError] = useState(null);
+    const [joining, setJoining] = useState(false);
+
+    // a server added to a cluster takes everything from it: the constellation file is the whole setup
+    const readJoinFile = (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            setJoinError(null);
+            setJoinFile(e.target.result);
+            API.setupJoin({ constellationConfig: e.target.result, preview: true })
+                .then((res) => setJoinHostname(res.data.hostname))
+                .catch(() => setJoinHostname(''));
+        };
+        reader.readAsText(file);
+    };
+
+    const join = () => {
+        setJoining(true);
+        setJoinError(null);
+        API.setupJoin({ constellationConfig: joinFile, hostname: joinHostname, cleanInstall }).then((res) => {
+            const target = res.data.hostname;
+            setTimeout(() => {
+                redirectTo((isDomain(target.split(':')[0]) ? "https://" : "http://") + target + "/cosmos-ui/login");
+            }, 4000);
+        }).catch((err) => {
+            setJoining(false);
+            setJoinError(err.message);
+        });
+    };
 
     const refreshStatus = async () => {
         try {
@@ -108,6 +144,28 @@ const NewInstall = () => {
                 <br /><br />
                 <Checkbox checked={cleanInstall} onChange={(e) => setCleanInstall(e.target.checked)} />{t('newInstall.cleanInstallCheckbox')}
                 <br /><br />
+                <Stack spacing={2} style={{marginBottom: '20px'}}>
+                    <div>{t('newInstall.join.text')}</div>
+                    <UploadButtons
+                        accept=".yml,.yaml"
+                        variant="outlined"
+                        label={t('newInstall.join.upload')}
+                        OnChange={readJoinFile}
+                    />
+                    {joinFile && <>
+                        <CosmosInputText
+                            label={t('newInstall.join.hostname')}
+                            name="joinHostname"
+                            value={joinHostname}
+                            onChange={(e) => setJoinHostname(e.target.value)}
+                        />
+                        {joinHostname && !hostnameSyntaxReg.test(joinHostname) && <Alert severity="error">{t('newInstall.join.hostnameInvalid')}</Alert>}
+                        {joinError && <Alert severity="error">{joinError}</Alert>}
+                        <Button variant="contained" disabled={joining || !hostnameSyntaxReg.test(joinHostname)} onClick={join}>
+                            {joining ? t('newInstall.join.joining') : t('newInstall.join.action')}
+                        </Button>
+                    </>}
+                </Stack>
                 <a style={{color: 'white', textDecoration: 'none'}} target='_blank' rel="noopener noreferrer" href="https://cosmos-cloud.io/doc/2%20setup">
                     <Button variant="outlined" color="inherit" startIcon={<QuestionCircleOutlined />}>
                      {t('newInstall.linkToDocs')}

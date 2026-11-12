@@ -69,29 +69,35 @@ func cleanupUDPConnections() {
 func UDPSmartShieldMiddleware(shieldID string, route utils.ProxyRouteConfig) func([]byte, net.Addr) []byte {
 	policy := route.SmartShield
 	if policy.Enabled {
-		if(policy.PerUserByteLimit == 0) {
-			policy.PerUserByteLimit = 150 * 1024 * 1024 * 1024 // 150GB
+		profile := utils.GetSmartShieldProfile()
+		if policy.PerUserByteLimit == 0 {
+			policy.PerUserByteLimit = profile.UDPByteLimit
 		}
-		if(policy.PolicyStrictness == 0) {
-			policy.PolicyStrictness = 2 // NORMAL
+		if policy.PolicyStrictness == 0 {
+			policy.PolicyStrictness = profile.Defaults.PolicyStrictness
 		}
 	}
-	
+
 	return func(buffer []byte, remoteAddr net.Addr) []byte {
 		clientID, _, _ := net.SplitHostPort(remoteAddr.String())
+		shieldEntry, shieldWhitelisted := utils.ShieldWhitelistMatch(clientID)
 
-		if(utils.GetIPAbuseCounter(clientID) > 275) {
+		if !shieldWhitelisted && utils.GetIPAbuseCounter(clientID) > 275 {
 			return nil
 		}
 
 		if !(clientID == "192.168.1.1" || clientID == "192.168.0.1" || clientID == "192.168.0.254" || clientID == "172.17.0.1") {
 			// Whitelist / Constellation check
-			if !isAllowedIP(clientID, route) {
+			if !(shieldWhitelisted && shieldEntry.BypassIPRestriction) && !isAllowedIP(clientID, route) {
 				return nil
 			}
 
 			// Geo check
-			if !isAllowedCountry(clientID, route) {
+			if !(shieldWhitelisted && shieldEntry.BypassGeo) && !isAllowedCountry(clientID, route) {
+				return nil
+			}
+
+			if policy.Enabled && !shieldWhitelisted && !globalShieldState.allowed(clientID, shieldID, time.Now()) {
 				return nil
 			}
 
@@ -112,7 +118,7 @@ func UDPSmartShieldMiddleware(shieldID string, route utils.ProxyRouteConfig) fun
 			info.BytesSent += int64(len(buffer))
 			info.LastActivity = time.Now()
 
-			if info.BytesSent > policy.PerUserByteLimit*int64(policy.PolicyStrictness) {
+			if policy.Enabled && !shieldWhitelisted && info.BytesSent > policy.PerUserByteLimit*int64(policy.PolicyStrictness) {
 				utils.TriggerEvent(
 					"cosmos.proxy.shield.abuse." + route.Name,
 					"Socket Shield " + route.Name + " Abuse by " + info.ClientID,
@@ -121,66 +127,16 @@ func UDPSmartShieldMiddleware(shieldID string, route utils.ProxyRouteConfig) fun
 					map[string]interface{}{
 					"route": route.Name,
 					"consumed": info.BytesSent,
-					"lastBan": GetLastBan(info.ClientID, false),
+					"lastBan": GetLastBan(info.ClientID),
 					"clientID": info.ClientID,
 				})
 
-				utils.Debug(fmt.Sprintf("UDP User %s has been banned: %+v", clientID, info.BytesSent))
-
-				globalShieldState.bans = append(globalShieldState.bans, &UserBan{
-					ClientID: info.ClientID,
-					BanType:  STRIKE,
-					time:     time.Now(),
-					reason:   fmt.Sprintf("%+v out of %+v", info.BytesSent, policy.PerUserByteLimit),
-					shieldID: info.ShieldID,
-				})
-				
-				return nil
-			}
-
-			nbTempBans := 0
-			nbStrikes := 0
-
-			for _, ban := range globalShieldState.bans {
-				if ban.ClientID != clientID {
-					continue
-				}
-
-				switch ban.BanType {
-				case PERM:
-					return  nil
-				case TEMP:
-					if ban.time.Add(4 * time.Hour).After(time.Now()) {
-						return nil
-					} else if ban.time.Add(72 * time.Hour).After(time.Now()) {
-						nbTempBans++
-					}
-				case STRIKE:
-					if ban.time.Add(time.Hour).After(time.Now()) {
-						return nil
-					} else if ban.time.Add(24 * time.Hour).After(time.Now()) {
-						nbStrikes++
-					}
-				}
-			}
-
-			if nbTempBans >= 3 {
-				globalShieldState.bans = append(globalShieldState.bans, &UserBan{
-					ClientID: clientID,
-					BanType:  PERM,
-					time:     time.Now(),
-					shieldID: shieldID,
-				})
-				utils.Warn(fmt.Sprintf("UDP User %s has been banned permanently: %+v", clientID, info.BytesSent))
-				return nil
-			} else if nbStrikes >= 3 {
-				globalShieldState.bans = append(globalShieldState.bans, &UserBan{
-					ClientID: clientID,
-					BanType:  TEMP,
-					time:     time.Now(),
-					shieldID: shieldID,
-				})
-				utils.Warn(fmt.Sprintf("UDP User %s has been banned temporarily: %+v", clientID, info.BytesSent))
+				globalShieldState.strike(info.ClientID, info.ShieldID, utils.ShieldBanReason{
+					Limit:   "bytes",
+					Used:    float64(info.BytesSent),
+					Allowed: float64(policy.PerUserByteLimit * int64(policy.PolicyStrictness)),
+					Route:   route.Name,
+				}, time.Now())
 				return nil
 			}
 
@@ -198,6 +154,8 @@ func isAllowedIP(clientID string, route utils.ProxyRouteConfig) bool {
 	isUsingWhitelist := len(whitelistInboundIPs) > 0
 	isInWhitelist := false
 	isInConstellation := constellation.IsConstellationIP(clientID)
+	// see the matching comment in TCPSmartShieldMiddleware
+	isLocalPeer := utils.IsLocalPeer(clientID)
 
 	for _, ipRange := range whitelistInboundIPs {
 		if strings.Contains(ipRange, "/") {
@@ -211,7 +169,7 @@ func isAllowedIP(clientID string, route utils.ProxyRouteConfig) bool {
 		}
 	}
 
-	if restrictToConstellation && !isInConstellation {
+	if restrictToConstellation && !isInConstellation && !isLocalPeer {
 		if !isUsingWhitelist || (isUsingWhitelist && !isInWhitelist) {
 			utils.PushShieldMetrics("ip-whitelists")
 			utils.TriggerEvent(

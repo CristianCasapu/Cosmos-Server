@@ -182,6 +182,17 @@ function autoUpdate(name) {
   });
 }
 
+function lazy(name, toggle, opts) {
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      resolve({
+        "status": "ok",
+      })},
+      1000
+    );
+  });
+}
+
 function pullImage(imageName, onProgress, ifMissing) {
   onProgress('Updating...')
     new Promise((resolve, reject) => {
@@ -202,7 +213,25 @@ function pullImage(imageName, onProgress, ifMissing) {
 const updateContainerImage = pullImage;
 const createService = pullImage;
 
+function exportContainer(name) {
+  return Promise.resolve({
+    "status": "OK",
+    "data": {
+      "container_name": name,
+      "image": "lscr.io/linuxserver/" + name.toLowerCase() + ":latest",
+      "restart": "unless-stopped",
+      "environment": ["PUID=1000", "PGID=1000"],
+    },
+  });
+}
+
+function migrateHost(values) {
+  return Promise.resolve({ "status": "OK" });
+}
+
 export {
+  exportContainer,
+  migrateHost,
   list,
   get,
   newDB,
@@ -224,5 +253,6 @@ export {
   createService,
   pullImage,
   autoUpdate,
+  lazy,
   updateContainerImage,
 };

@@ -13,7 +13,19 @@ type DeviceResyncRequest struct {
 	DeviceName string `json:"deviceName" validate:"required,min=3,max=32"`
 }
 
-// GetDeviceConfigManualSync rebuilds a device's config (no pki/api key) for a resync QR
+// GetDeviceConfigManualSync godoc
+// @Summary Rebuild a Constellation device configuration for a manual resync
+// @Description Rebuilds the device's configuration, without its private key or API key, for a resync QR code. Allowed for an admin or the device's owner.
+// @Tags constellation
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param body body DeviceResyncRequest true "Device to resync"
+// @Success 200 {object} utils.APIResponse
+// @Failure 400 {object} utils.HTTPErrorResult
+// @Failure 403 {object} utils.HTTPErrorResult
+// @Failure 404 {object} utils.HTTPErrorResult
+// @Router /api/constellation/config-manual-sync [post]
 func GetDeviceConfigManualSync(w http.ResponseWriter, req *http.Request) {
 	if req.Method != "POST" {
 		utils.Error("DeviceConfigManualSync: Method not allowed" + req.Method, nil)

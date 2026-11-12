@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/azukaar/cosmos-server/src/pro"
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
@@ -137,6 +138,12 @@ func performForceReform(selfName string) (uint64, []string, error) {
 	// down, and nothing scheduled to bring any of it back — recoverable only by
 	// restarting the process.
 	defer func() { go RestartNebula() }()
+
+	// The Pro buckets (deployments, databases, S3, registries, CI) have no SQLite
+	// to be reseeded from: carry them across as a file, imported by the restart.
+	if err := pro.StageStateReseed(); err != nil {
+		utils.Warn("[REFORM] " + err.Error() + " — Pro records will NOT be restored after the reform")
+	}
 
 	StopOplogApply()
 	StopNATS()

@@ -1,42 +1,7 @@
 package cron
 
-import (
-	"sync"
-)
+import "github.com/azukaar/cosmos-server/src/utils"
 
-type ProcessTracker struct {
-	mu     sync.Mutex
-	count  int
-	zeroCh chan struct{}
-}
-
-func NewProcessTracker() *ProcessTracker {
-	return &ProcessTracker{
-		zeroCh: make(chan struct{}, 1),
-	}
-}
-
-func (pt *ProcessTracker) StartProcess() {
-	pt.mu.Lock()
-	pt.count++
-	pt.mu.Unlock()
-}
-
-func (pt *ProcessTracker) EndProcess() {
-	pt.mu.Lock()
-	pt.count--
-	if pt.count == 0 {
-		select {
-		case pt.zeroCh <- struct{}{}:
-		default:
-		}
-	}
-	pt.mu.Unlock()
-}
-
-func (pt *ProcessTracker) WaitForZero() {
-	if pt.count == 0 {
-		return
-	}
-	<-pt.zeroCh
-}
+// InternalProcessTracker is the restart-blocking tracker shared with the rest
+// of the server (see utils.InternalProcessTracker); kept under its old name.
+var InternalProcessTracker = utils.InternalProcessTracker

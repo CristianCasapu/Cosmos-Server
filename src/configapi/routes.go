@@ -3,10 +3,25 @@ package configapi
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
+	"github.com/azukaar/cosmos-server/src/constellation"
 	"github.com/azukaar/cosmos-server/src/utils"
 	"github.com/gorilla/mux"
 )
+
+// managedRouteError rejects edits to owner-managed routes.
+func managedRouteError(w http.ResponseWriter, route utils.ProxyRouteConfig, code string) {
+	msg := "Route \"" + route.Name + "\" is managed by " + route.ManagedBy() + " and can only be edited from there"
+	utils.Error("Routes: "+msg, nil)
+	utils.HTTPError(w, msg, http.StatusConflict, code)
+}
+
+// stripOwner clears the owner pair from a user-supplied route.
+func stripOwner(route utils.ProxyRouteConfig) utils.ProxyRouteConfig {
+	route.ManagedByKind, route.ManagedByName, route.ManagedByVersion = "", "", 0
+	return route
+}
 
 // validateRoute returns an error message when the route is invalid, "" otherwise.
 func validateRoute(route utils.ProxyRouteConfig) string {
@@ -139,6 +154,7 @@ func createRoute(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, msg, http.StatusBadRequest, "RT009")
 		return
 	}
+	newRoute = stripOwner(newRoute)
 
 	utils.ConfigLock.Lock()
 	defer utils.ConfigLock.Unlock()
@@ -163,8 +179,7 @@ func createRoute(w http.ResponseWriter, req *http.Request) {
 		"Route created: "+newRoute.Name,
 		"success",
 		"",
-		map[string]interface{}{
-	})
+		map[string]interface{}{})
 
 	go func() {
 		utils.RestartHTTPServer()
@@ -206,8 +221,19 @@ func updateRoute(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if !updatedRoute.UseHost && !updatedRoute.UsePathPrefix {
+		utils.HTTPError(w, "Route must have at least one of UseHost or UsePathPrefix enabled, otherwise it will catch all requests", http.StatusBadRequest, "RT008")
+		return
+	}
+
+	if msg := validateRoute(updatedRoute); msg != "" {
+		utils.Error("UpdateRoute: "+msg, nil)
+		utils.HTTPError(w, msg, http.StatusBadRequest, "RT009")
+		return
+	}
+	updatedRoute = stripOwner(updatedRoute)
+
 	utils.ConfigLock.Lock()
-	defer utils.ConfigLock.Unlock()
 
 	config := utils.ReadConfigFromFile()
 	routes := config.HTTPConfig.ProxyConfig.Routes
@@ -221,24 +247,22 @@ func updateRoute(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if routeIndex == -1 {
-		utils.HTTPError(w, "Route not found", http.StatusNotFound, "RT006")
+		// Not in local config: dispatch the edit to the tunnel's origin nodes (they take their own lock).
+		utils.ConfigLock.Unlock()
+		dispatchTunnelRouteOp(w, constellation.RouteOpRequest{Op: constellation.RouteOpUpdate, Name: name, Route: &updatedRoute}, "RT006")
 		return
 	}
 
-	if !updatedRoute.UseHost && !updatedRoute.UsePathPrefix {
-		utils.HTTPError(w, "Route must have at least one of UseHost or UsePathPrefix enabled, otherwise it will catch all requests", http.StatusBadRequest, "RT008")
-		return
-	}
-
-	if msg := validateRoute(updatedRoute); msg != "" {
-		utils.Error("UpdateRoute: "+msg, nil)
-		utils.HTTPError(w, msg, http.StatusBadRequest, "RT009")
+	if routes[routeIndex].IsManaged() {
+		utils.ConfigLock.Unlock()
+		managedRouteError(w, routes[routeIndex], "RT010")
 		return
 	}
 
 	routes[routeIndex] = updatedRoute
 	config.HTTPConfig.ProxyConfig.Routes = routes
 	utils.SetBaseMainConfig(config)
+	utils.ConfigLock.Unlock()
 
 	utils.Log("Route updated: " + name)
 
@@ -247,8 +271,7 @@ func updateRoute(w http.ResponseWriter, req *http.Request) {
 		"Route updated: "+name,
 		"success",
 		"",
-		map[string]interface{}{
-	})
+		map[string]interface{}{})
 
 	go func() {
 		utils.RestartHTTPServer()
@@ -257,6 +280,45 @@ func updateRoute(w http.ResponseWriter, req *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status": "OK",
 		"data":   updatedRoute,
+	})
+}
+
+// dispatchTunnelRouteOp forwards an edit of a tunnel-advertised route to its advertisers; notFoundCode preserves the caller's 404 code.
+func dispatchTunnelRouteOp(w http.ResponseWriter, op constellation.RouteOpRequest, notFoundCode string) {
+	tunnel, ok := constellation.FindLocalTunnel(op.Name)
+	if !ok {
+		utils.HTTPError(w, "Route not found", http.StatusNotFound, notFoundCode)
+		return
+	}
+	if tunnel.Route.IsManaged() {
+		managedRouteError(w, tunnel.Route, "RT010")
+		return
+	}
+
+	acked, err := constellation.DispatchTunnelRouteOp(op)
+	if err != nil {
+		msg := "Route \"" + op.Name + "\" is tunneled from other nodes and the edit could not be applied everywhere: " + err.Error()
+		if len(acked) > 0 {
+			msg += " (applied on " + strings.Join(acked, ", ") + ")"
+		}
+		utils.Error("Routes: "+msg, nil)
+		utils.HTTPError(w, msg, http.StatusBadGateway, "RT012")
+		return
+	}
+
+	utils.Log("Tunneled route " + op.Op + " dispatched for " + op.Name + " to " + strings.Join(acked, ", "))
+
+	utils.TriggerEvent(
+		"cosmos.routes",
+		"Tunneled route "+op.Op+"d on "+strings.Join(acked, ", ")+": "+op.Name,
+		"success",
+		"",
+		map[string]interface{}{"nodes": acked})
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "OK",
+		"data":   op.Route,
+		"nodes":  acked,
 	})
 }
 
@@ -280,7 +342,6 @@ func deleteRoute(w http.ResponseWriter, req *http.Request) {
 	name := mux.Vars(req)["name"]
 
 	utils.ConfigLock.Lock()
-	defer utils.ConfigLock.Unlock()
 
 	config := utils.ReadConfigFromFile()
 	routes := config.HTTPConfig.ProxyConfig.Routes
@@ -294,14 +355,21 @@ func deleteRoute(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if routeIndex == -1 {
-		utils.HTTPError(w, "Route not found", http.StatusNotFound, "RT007")
+		utils.ConfigLock.Unlock()
+		dispatchTunnelRouteOp(w, constellation.RouteOpRequest{Op: constellation.RouteOpDelete, Name: name}, "RT007")
+		return
+	}
+
+	if routes[routeIndex].IsManaged() {
+		utils.ConfigLock.Unlock()
+		managedRouteError(w, routes[routeIndex], "RT010")
 		return
 	}
 
 	routes = append(routes[:routeIndex], routes[routeIndex+1:]...)
 	config.HTTPConfig.ProxyConfig.Routes = routes
 	utils.SetBaseMainConfig(config)
-
+	utils.ConfigLock.Unlock()
 
 	utils.Log("Route deleted: " + name)
 
@@ -310,8 +378,7 @@ func deleteRoute(w http.ResponseWriter, req *http.Request) {
 		"Route deleted: "+name,
 		"success",
 		"",
-		map[string]interface{}{
-	})
+		map[string]interface{}{})
 
 	go func() {
 		utils.RestartHTTPServer()

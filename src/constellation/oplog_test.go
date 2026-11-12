@@ -374,11 +374,38 @@ func TestUnitOplogDirectWritePath(t *testing.T) {
 	}
 }
 
+func TestUnitOplogOIDCSigningKeyDomain(t *testing.T) {
+	setupTestEnv(t, nil)
+
+	apply := func(key string) {
+		t.Helper()
+		state, err := json.Marshal(OIDCSigningKeyPayload{Key: key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := oplogDomains[DomainOIDCSigningKey].Apply(state); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	apply("cluster-key")
+	http := utils.GetMainConfig().HTTPConfig
+	if http.OIDCSigningKey != "cluster-key" || !http.OIDCSigningKeyShared {
+		t.Fatalf("key not installed: %q shared=%v", http.OIDCSigningKey, http.OIDCSigningKeyShared)
+	}
+
+	apply("")
+	if got := utils.GetMainConfig().HTTPConfig.OIDCSigningKey; got != "cluster-key" {
+		t.Fatalf("an empty state wiped the key: %q", got)
+	}
+}
+
 func TestUnitOplogDomainRegistry(t *testing.T) {
 	setupTestEnv(t, nil)
 
 	for _, name := range []string{DomainAuthKeys, DomainDNS, DomainAPITokens, DomainRoles,
-		DomainOpenIDClients, DomainFileCACrt, DomainFileCAKey, DomainFileRclone, DomainDatabase} {
+		DomainOpenIDClients, DomainFileCACrt, DomainFileCAKey, DomainFileRclone, DomainDatabase,
+		DomainDNSZones, DomainZoneCerts, DomainOIDCSigningKey} {
 		d, ok := oplogDomains[name]
 		if !ok {
 			t.Fatalf("domain %q is not registered", name)
@@ -443,6 +470,51 @@ func TestUnitOplogDomainRegistry(t *testing.T) {
 
 // The database domain replicates the Postgres connection only; NodeName stays
 // node-local as this node's metrics identity.
+// Apply directly in both: the zones reaction restarts the HTTP server, absent in a unit env
+func applyDomainNoReact(t *testing.T, name string, state interface{}) {
+	t.Helper()
+	raw, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	utils.ConfigLock.Lock()
+	err = oplogDomains[name].Apply(raw)
+	utils.ConfigLock.Unlock()
+	if err != nil {
+		t.Fatal("apply "+name+":", err)
+	}
+}
+
+func TestUnitOplogZonesDomains(t *testing.T) {
+	setupTestEnv(t, nil)
+
+	applyDomainNoReact(t, DomainDNSZones, []utils.DNSZoneConfig{
+		{Zone: "domain.com", DNSChallengeProvider: "cloudflare"},
+		{Zone: "other.org", DNSChallengeProvider: "cloudflare"},
+	})
+	applyDomainNoReact(t, DomainZoneCerts, map[string]utils.ZoneCert{
+		"domain.com": {TLSCert: "cert-a", TLSKey: "key-a"},
+		"other.org":  {TLSCert: "cert-b", TLSKey: "key-b"},
+	})
+
+	if got := utils.GetMainConfig().HTTPConfig; len(got.DNSZones) != 2 || got.ZoneCerts["other.org"].TLSKey != "key-b" {
+		t.Fatalf("zones or zone certs not applied: %+v", got.DNSZones)
+	}
+
+	// a node that has no certificate yet can't wipe everyone's
+	applyDomainNoReact(t, DomainZoneCerts, map[string]utils.ZoneCert{})
+	if len(utils.GetMainConfig().HTTPConfig.ZoneCerts) != 2 {
+		t.Fatal("an empty zone_certs state must not be applied")
+	}
+
+	// the certificate of a deleted zone goes with it
+	applyDomainNoReact(t, DomainDNSZones, []utils.DNSZoneConfig{{Zone: "domain.com", DNSChallengeProvider: "cloudflare"}})
+	certs := utils.GetMainConfig().HTTPConfig.ZoneCerts
+	if _, ok := certs["other.org"]; ok || certs["domain.com"].TLSCert != "cert-a" {
+		t.Fatalf("zone certs after zone deletion: %+v", certs)
+	}
+}
+
 func TestUnitOplogDatabaseDomain(t *testing.T) {
 	setupTestEnv(t, nil)
 

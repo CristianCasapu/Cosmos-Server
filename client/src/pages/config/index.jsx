@@ -68,8 +68,8 @@ const SaveButton = ({ formik, saveLabel }) => {
 const ConfigManagement = () => {
   const { t } = useTranslation();
   const [config, setConfig] = React.useState(null);
+  const [serverCertificate, setServerCertificate] = React.useState("");
   const [status, setStatus] = React.useState(null);
-  const [openModal, setOpenModal] = React.useState(false);
   const [openResartModal, setOpenRestartModal] = React.useState(false);
   const [saveLabel, setSaveLabel] = React.useState(t('global.saveAction'));
   const { hasPermission } = useClientInfos();
@@ -79,6 +79,7 @@ const ConfigManagement = () => {
   function refresh() {
     API.config.get().then((res) => {
       setConfig(res.data);
+      setServerCertificate(res.serverCertificate || "");
     });
 
     API.getStatus().then((res) => {
@@ -128,7 +129,6 @@ const ConfigManagement = () => {
 
   return <div>
     {config && <>
-      <RestartModal openModal={openModal} setOpenModal={setOpenModal} config={config} />
       <RestartModal openModal={openResartModal} setOpenModal={setOpenRestartModal} />
 
       <Formik
@@ -149,15 +149,10 @@ const ConfigManagement = () => {
           HTTPPort: config.HTTPConfig.HTTPPort,
           HTTPSPort: config.HTTPConfig.HTTPSPort,
           SSLEmail: config.HTTPConfig.SSLEmail,
-          UseWildcardCertificate: config.HTTPConfig.UseWildcardCertificate,
-          HTTPSCertificateMode: config.HTTPConfig.HTTPSCertificateMode,
-          DNSChallengeProvider: config.HTTPConfig.DNSChallengeProvider,
-          DNSChallengeConfig: config.HTTPConfig.DNSChallengeConfig,
-          DisablePropagationChecks: config.HTTPConfig.DisablePropagationChecks,
-          DNSChallengePropagationWait: config.HTTPConfig.DNSChallengePropagationWait || "",
-          DNSChallengeResolvers: config.HTTPConfig.DNSChallengeResolvers,
+          // a server only chooses between HTTPS and none: how is up to each domain
+          HTTPSCertificateMode: (!config.HTTPConfig.HTTPSCertificateMode || config.HTTPConfig.HTTPSCertificateMode === "DISABLED") ? "DISABLED" : "LETSENCRYPT",
           ForceHTTPSCertificateRenewal: config.HTTPConfig.ForceHTTPSCertificateRenewal,
-          OverrideWildcardDomains: config.HTTPConfig.OverrideWildcardDomains,
+          AdvertisedAddress: config.HTTPConfig.AdvertisedAddress || "",
           UseForwardedFor: config.HTTPConfig.UseForwardedFor,
           TrustedProxies: config.HTTPConfig.TrustedProxies && config.HTTPConfig.TrustedProxies.join(', '),
           AllowSearchEngine: config.HTTPConfig.AllowSearchEngine,
@@ -246,15 +241,9 @@ const ConfigManagement = () => {
               HTTPPort: values.HTTPPort,
               HTTPSPort: values.HTTPSPort,
               SSLEmail: values.SSLEmail,
-              UseWildcardCertificate: values.UseWildcardCertificate,
               HTTPSCertificateMode: values.HTTPSCertificateMode,
-              DNSChallengeProvider: values.DNSChallengeProvider,
-              DNSChallengeConfig: values.DNSChallengeConfig,
-              DisablePropagationChecks: values.DisablePropagationChecks,
-              DNSChallengePropagationWait: parseInt(values.DNSChallengePropagationWait, 10) || 0,
-              DNSChallengeResolvers: values.DNSChallengeResolvers,
               ForceHTTPSCertificateRenewal: values.ForceHTTPSCertificateRenewal,
-              OverrideWildcardDomains: values.OverrideWildcardDomains.replace(/\s/g, ''),
+              AdvertisedAddress: values.AdvertisedAddress,
               UseForwardedFor: values.UseForwardedFor,
               TrustedProxies: (values.TrustedProxies && values.TrustedProxies != "") ?
                 values.TrustedProxies.split(',').map((x) => x.trim()) : [],
@@ -315,13 +304,11 @@ const ConfigManagement = () => {
 
           return API.config.set(toSave).then(() => {
             refresh();
-            setOpenModal(true);
             setSaveLabel(t('global.savedConfirmation'));
             setTimeout(() => {
               setSaveLabel(t('global.saveAction'));
             }, 3000);
           }).catch(() => {
-            setOpenModal(true);
             setSaveLabel(t('global.savedError'));
             setTimeout(() => {
               setSaveLabel(t('global.saveAction'));
@@ -345,8 +332,8 @@ const ConfigManagement = () => {
                   url: "/http-server",
                 },
                 {
-                  title: "HTTPS",
-                  children: wrapTab(formik, <ConfigHTTPS formik={formik} config={config} />),
+                  title: t('mgmt.config.zones.title'),
+                  children: wrapTab(formik, <ConfigHTTPS formik={formik} config={config} serverCertificate={serverCertificate} />),
                   url: "/https",
                 },
                 {

@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"encoding/json"
+	"time"
 	"runtime"
 	"bytes"
 	"encoding/gob"
@@ -80,7 +81,7 @@ func StatusRoute(w http.ResponseWriter, req *http.Request) {
 				"database": utils.DBStatus,
 				"docker": docker.DockerIsConnected.Load(),
 				"backup_status": docker.ExportError,
-				"letsencrypt": utils.GetMainConfig().HTTPConfig.HTTPSCertificateMode == "LETSENCRYPT" && utils.GetMainConfig().HTTPConfig.SSLEmail == "",
+				"letsencrypt": utils.GetMainConfig().HTTPConfig.SSLEmail == "" && utils.NeedsLetsEncrypt(utils.GetMainConfig()),
 				"domain": utils.GetMainConfig().HTTPConfig.Hostname == "localhost" || utils.GetMainConfig().HTTPConfig.Hostname == "0.0.0.0",
 				"HTTPSCertificateMode": utils.GetMainConfig().HTTPConfig.HTTPSCertificateMode,
 				"CACert": utils.GetMainConfig().HTTPConfig.CACert,
@@ -245,14 +246,15 @@ func LogsRoute(w http.ResponseWriter, req *http.Request) {
 
 // ForceUpdateRoute godoc
 // @Summary Force check for server updates
-// @Description Triggers a manual check for available server updates
+// @Description Checks container images and the server release feed now, regardless of the auto-update setting. Returns the server version comparison; when a newer server release exists it is downloaded and the server restarts to install it.
 // @Tags system
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} utils.APIResponse
+// @Success 200 {object} utils.APIResponse{data=ServerUpdateCheck}
 // @Failure 401 {object} utils.HTTPErrorResult
 // @Failure 403 {object} utils.HTTPErrorResult
 // @Failure 405 {object} utils.HTTPErrorResult
+// @Failure 500 {object} utils.HTTPErrorResult
 // @Router /api/force-server-update [post]
 func ForceUpdateRoute(w http.ResponseWriter, req *http.Request) {
 	if utils.CheckPermissions(w, req, utils.PERM_ADMIN) != nil {
@@ -261,7 +263,49 @@ func ForceUpdateRoute(w http.ResponseWriter, req *http.Request) {
 
 	if(req.Method == "POST") {
 		utils.Log("API: Force update")
-		checkUpdatesAvailable()
+
+		utils.UpdateAvailable = docker.CheckUpdatesAvailable()
+
+		if utils.IsInsideContainer {
+			json.NewEncoder(w).Encode(utils.APIResponse{
+				Status: "OK",
+				Data: ServerUpdateCheck{
+					CurrentVersion: GetCosmosVersion(),
+					Containerized:  true,
+				},
+			})
+			return
+		}
+
+		useBeta := utils.GetMainConfig().BetaUpdates
+
+		check, updates, err := findServerUpdate(useBeta)
+		if err != nil {
+			utils.Error("ForceUpdateRoute", err)
+			utils.HTTPError(w, "Could not check for updates: " + err.Error(), http.StatusInternalServerError, "UPD001")
+			return
+		}
+
+		if check.UpdateAvailable {
+			utils.Log("New version available: " + check.LatestVersion)
+		} else {
+			utils.Log("No new version available")
+		}
+
+		json.NewEncoder(w).Encode(utils.APIResponse{
+			Status: "OK",
+			Data:   check,
+		})
+
+		if check.UpdateAvailable {
+			// let the response reach the client before the download and restart
+			go func() {
+				time.Sleep(2 * time.Second)
+				if err := applyServerUpdate(updates, useBeta); err != nil {
+					utils.Error("ForceUpdateRoute", err)
+				}
+			}()
+		}
 	} else {
 		utils.Error("Logs: Method not allowed" + req.Method, nil)
 		utils.HTTPError(w, "Method not allowed", http.StatusMethodNotAllowed, "HTTP001")
@@ -294,10 +338,12 @@ func restartHostMachineRoute(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
+		utils.PlanRestart()
 		utils.WaitForAllJobs()
 
 		err := restartHostMachine()
 		if err != nil {
+			utils.ClearPlannedRestart()
 			utils.Error("restartHostMachine: Error restarting host machine (This usually means Cosmos does not have the permissions to restart your host server)", err)
 			utils.HTTPError(w, "Error restarting host machine (This usually means Cosmos does not have the permissions to restart your host server) - " + err.Error(), http.StatusInternalServerError, "HTTP001")
 			return

@@ -1,6 +1,6 @@
 module github.com/azukaar/cosmos-server
 
-go 1.26.0
+go 1.27.3
 
 require (
 	github.com/256dpi/lungo v0.3.7
@@ -158,6 +158,7 @@ require (
 	github.com/dave/jennifer v1.4.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dgraph-io/ristretto v0.1.1 // indirect
+	github.com/digitalocean/godo v1.148.0 // indirect
 	github.com/diskfs/go-diskfs v1.7.0 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/dnsimple/dnsimple-go/v9 v9.1.0 // indirect
@@ -259,6 +260,17 @@ require (
 	github.com/labbsr0x/goh v1.0.1 // indirect
 	github.com/lanrat/extsort v1.4.2 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
+	github.com/libdns/cloudflare v0.2.2 // indirect
+	github.com/libdns/desec v1.1.1 // indirect
+	github.com/libdns/digitalocean v0.0.0-20250606071607-dfa7af5c2e31 // indirect
+	github.com/libdns/duckdns v0.3.0 // indirect
+	github.com/libdns/gandi v1.1.0 // indirect
+	github.com/libdns/hetzner v1.0.0 // indirect
+	github.com/libdns/libdns v1.1.1 // indirect
+	github.com/libdns/namecheap v1.0.0 // indirect
+	github.com/libdns/ovh v1.1.0 // indirect
+	github.com/libdns/porkbun v1.1.0 // indirect
+	github.com/libdns/route53 v1.6.2 // indirect
 	github.com/linode/linodego v1.69.1 // indirect
 	github.com/liquidweb/liquidweb-cli v0.7.0 // indirect
 	github.com/liquidweb/liquidweb-go v1.6.4 // indirect

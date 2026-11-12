@@ -18,6 +18,7 @@ These assume you already have a configured Cosmos server and an admin token; the
 |---------|-----------|
 | [provider](./provider/main.tf) | Bare provider configuration (`base_url` + `token`). Copy as a starter. |
 | [vpn](./vpn/main.tf) | `cosmos_constellation` + `cosmos_constellation_device` + `cosmos_constellation_dns` for setting up a VPN on an existing Cosmos server. |
+| [ci-cd](./ci-cd/main.tf) | `cosmos_object_storage` + `cosmos_registry` + `cosmos_registry_token` + `cosmos_database` + `cosmos_database_logical` + `cosmos_ci_project` + `cosmos_function`: a repository built and deployed on the cluster (Pro). |
 | [web-app](./web-app/main.tf) | `cosmos_api_token`, `cosmos_docker_volume`, `cosmos_docker_service`, `cosmos_route`, `cosmos_backup`, `cosmos_alert` — typical app stack on a configured server. |
 | [backup](./backup/main.tf) | `cosmos_backup` standalone. **Destroying this resource permanently deletes its backups.** |
 

@@ -12,10 +12,12 @@ import (
 	"encoding/json"
 )
 
-func shouldCookieBeSecured(ip string) bool {
+func shouldCookieBeSecured(req *http.Request) bool {
 	config := utils.GetMainConfig()
+	ip := req.RemoteAddr
 
-	if !utils.IsHTTPS {
+	// the hostname asked for decides: one of an HTTP-only zone never sees a secure cookie again
+	if !utils.HostServedOverHTTPS(req.Host) {
 		return false
 	} else {
 		if config.HTTPConfig.AllowHTTPLocalIPAccess && utils.IsLocalIP(ip) {
@@ -56,7 +58,7 @@ func RefreshUserToken(w http.ResponseWriter, req *http.Request) ([]utils.Permiss
 	// if new install
 	if config.NewInstall {
 		// check route
-		if req.URL.Path != "/cosmos/api/status" && req.URL.Path != "/cosmos/api/newInstall" && req.URL.Path != "/cosmos/api/dns" && req.URL.Path != "/cosmos/api/setup" {
+		if req.URL.Path != "/cosmos/api/status" && req.URL.Path != "/cosmos/api/newInstall" && req.URL.Path != "/cosmos/api/dns" && req.URL.Path != "/cosmos/api/setup" && req.URL.Path != "/cosmos/api/setup-join" {
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"status": "NEW_INSTALL",
 			})
@@ -262,7 +264,7 @@ func logOutUser(w http.ResponseWriter, req *http.Request) {
 		Value: "",
 		Expires: time.Now().Add(-time.Hour * 24 * 365),
 		Path: "/",
-		Secure: shouldCookieBeSecured(req.RemoteAddr),
+		Secure: shouldCookieBeSecured(req),
 		HttpOnly: true,
 	}
 
@@ -271,7 +273,7 @@ func logOutUser(w http.ResponseWriter, req *http.Request) {
 		Value: "{}",
 		Expires: time.Now().Add(-time.Hour * 24 * 365),
 		Path: "/",
-		Secure: shouldCookieBeSecured(req.RemoteAddr),
+		Secure: shouldCookieBeSecured(req),
 		HttpOnly: false,
 	}
 
@@ -355,7 +357,7 @@ func SendUserToken(w http.ResponseWriter, req *http.Request, user utils.User, mf
 		Value: tokenString,
 		Expires: expiration,
 		Path: "/",
-		Secure: shouldCookieBeSecured(req.RemoteAddr),
+		Secure: shouldCookieBeSecured(req),
 		HttpOnly: true,
 	}
 
@@ -371,7 +373,7 @@ func SendUserToken(w http.ResponseWriter, req *http.Request, user utils.User, mf
 		Value: user.Nickname + "," + permsString + "," + strconv.Itoa(int(sudoUntil)),
 		Expires: expiration,
 		Path: "/",
-		Secure: shouldCookieBeSecured(req.RemoteAddr),
+		Secure: shouldCookieBeSecured(req),
 		HttpOnly: false,
 	}
 

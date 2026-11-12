@@ -125,86 +125,113 @@ func checkVersion() {
 	}
 }
 
+// ServerUpdateCheck is the outcome of comparing the running server against the release feed.
+type ServerUpdateCheck struct {
+	CurrentVersion  string `json:"currentVersion"`
+	LatestVersion   string `json:"latestVersion"`
+	UpdateAvailable bool   `json:"updateAvailable"`
+	Containerized   bool   `json:"containerized"`
+}
+
+// findServerUpdate queries the release feed and compares it against the running version.
+// It never installs anything.
+func findServerUpdate(useBeta bool) (ServerUpdateCheck, *VersionInfo, error) {
+	check := ServerUpdateCheck{
+		CurrentVersion: GetCosmosVersion(),
+		Containerized:  utils.IsInsideContainer,
+	}
+
+	updates, err := GetLatestVersion(useBeta)
+	if err != nil {
+		return check, nil, err
+	}
+	if updates == nil {
+		return check, nil, nil
+	}
+
+	check.LatestVersion = updates.Version
+
+	// Fork addition: fork releases are ordered by their build number.
+	cp, err := CompareVersions(check.CurrentVersion, updates.Version)
+	if err != nil {
+		return check, nil, err
+	}
+
+	check.UpdateAvailable = cp == -1
+	return check, updates, nil
+}
+
+// applyServerUpdate downloads the release next to the binary and exits so the launcher installs it.
+func applyServerUpdate(updates *VersionInfo, useBeta bool) error {
+	url := updates.AMDURL
+	if runtime.GOARCH == "arm64" {
+		url = updates.ARMURL
+	}
+
+	utils.Log("Downloading update from " + url)
+
+	execPath, err := os.Executable()
+	if err != nil {
+		return err
+	}
+
+	currentFolder := filepath.Dir(execPath)
+
+	dlPath := currentFolder + "/cosmos-update.zip"
+	betaFile := currentFolder + "/.BETA"
+
+	if err := utils.DownloadFileToLocation(dlPath, url); err != nil {
+		return err
+	}
+
+	if useBeta && !utils.FileExists(betaFile) {
+		utils.Log("Saving BETA file")
+		if err := ioutil.WriteFile(betaFile, []byte("BETA"), 0600); err != nil {
+			return err
+		}
+	} else if !useBeta && utils.FileExists(betaFile) {
+		utils.Log("Removing BETA file")
+		if err := os.Remove(betaFile); err != nil {
+			return err
+		}
+	}
+
+	utils.PlanRestart()
+	cron.WaitForAllJobs() // wait for all jobs to finish
+
+	utils.Log("Update downloaded, restarting server")
+	storage.StopAllRCloneProcess(true)
+	utils.RevertHostDNS()
+	os.Exit(0)
+	return nil
+}
+
+// checkUpdatesAvailable is the scheduled check: containers always, the server binary only
+// when auto-update is enabled and we are not containerized.
 func checkUpdatesAvailable() {
 	utils.UpdateAvailable = docker.CheckUpdatesAvailable()
 
-	if !utils.IsInsideContainer && utils.GetMainConfig().AutoUpdate {
-		useBeta := utils.GetMainConfig().BetaUpdates
+	if utils.IsInsideContainer || !utils.GetMainConfig().AutoUpdate {
+		return
+	}
 
-		currentVersion := GetCosmosVersion()
-		updates, err := GetLatestVersion(useBeta)
-		if err != nil {
-			utils.Error("checkUpdatesAvailable", err)
-			return
-		}
-		if updates == nil {
-			return
-		}
+	useBeta := utils.GetMainConfig().BetaUpdates
 
-		if updates != nil {
-			// Fork addition: fork releases are ordered by their build number.
-			cp, errc := CompareVersions(currentVersion, updates.Version)
-		
-			if errc != nil {
-				utils.Error("checkVersion", errc)
-				return
-			}
-		
-			if cp == -1 {
-				utils.Log("New version available: " + updates.Version)
-				
-				url := updates.AMDURL
-				if runtime.GOARCH == "arm64" {
-					url = updates.ARMURL
-				}
+	check, updates, err := findServerUpdate(useBeta)
+	if err != nil {
+		utils.Error("checkUpdatesAvailable", err)
+		return
+	}
 
-				utils.Log("Downloading update from " + url)
+	if !check.UpdateAvailable {
+		utils.Log("No new version available")
+		return
+	}
 
-				execPath, err := os.Executable()
-				if err != nil {
-					utils.Error("checkUpdatesAvailable", err)
-					return
-				}
-				
-				currentFolder := filepath.Dir(execPath)
+	utils.Log("New version available: " + check.LatestVersion)
 
-				dlPath := currentFolder + "/cosmos-update.zip"
-				betaFile := currentFolder + "/.BETA"
-				
-				err = utils.DownloadFileToLocation(dlPath, url)
-
-				if err != nil {
-					utils.Error("checkUpdatesAvailable", err)
-					return
-				}
-
-				if useBeta && !utils.FileExists(betaFile) {
-					// save .BETA file
-					utils.Log("Saving BETA file")
-					err := ioutil.WriteFile(betaFile, []byte("BETA"), 0600)
-					if err != nil {
-						utils.Error("checkUpdatesAvailable", err)
-						return
-					}
-				} else if !useBeta && utils.FileExists(betaFile) {
-					// remove .BETA file
-					utils.Log("Removing BETA file")
-					err := os.Remove(betaFile)
-					if err != nil {
-						utils.Error("checkUpdatesAvailable", err)
-						return
-					}
-				}
-
-				cron.WaitForAllJobs() // wait for all jobs to finish
-
-				utils.Log("Update downloaded, restarting server")
-				storage.StopAllRCloneProcess(true)
-				os.Exit(0)
-			} else {
-				utils.Log("No new version available")
-			}
-		}
+	if err := applyServerUpdate(updates, useBeta); err != nil {
+		utils.Error("checkUpdatesAvailable", err)
 	}
 }
 
@@ -212,14 +239,22 @@ func checkCerts() {
 	config := utils.GetMainConfig()
 	HTTPConfig := config.HTTPConfig
 
-	if (
-		HTTPConfig.HTTPSCertificateMode == utils.HTTPSCertModeList["SELFSIGNED"] ||
-		HTTPConfig.HTTPSCertificateMode == utils.HTTPSCertModeList["LETSENCRYPT"]) {
+	if !utils.ServerHTTPSDisabled(HTTPConfig) {
 		utils.Log("Checking certificates for renewal")
 		if !CertificateIsExpiredSoon(HTTPConfig.TLSValidUntil) {
 			utils.Log("Certificates are not valid anymore, renewing")
 			RestartHTTPServer()
+		} else if HTTPConfig.HTTPSCertificateMode == utils.HTTPSCertModeList["LETSENCRYPT"] && len(utils.LocalCertsToIssue(config, utils.LocalCertHostnamesNow(config), false)) > 0 {
+			utils.Log("Certificates need a refresh, renewing")
+			RestartHTTPServer()
+		} else if utils.IsZoneIssuer() && len(utils.ZoneCertsToIssue(config, false)) > 0 {
+			utils.Log("Zone certificates need a refresh, renewing")
+			RestartHTTPServer()
 		}
+	} else if config.ConstellationConfig.Enabled && utils.IsZoneIssuer() && len(utils.ZoneCertsToIssue(config, false)) > 0 {
+		// an HTTP-only leader serves no certificate but still issues the ones of its cluster
+		utils.Log("Zone certificates need a refresh, renewing")
+		utils.RefreshZoneCerts()
 	}
 }
 

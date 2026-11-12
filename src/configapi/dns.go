@@ -51,6 +51,12 @@ func ConfigApiDNS(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if err := utils.ValidateDNSFallback(updateReq.DNSFallback); err != nil {
+		utils.Error("DNSConfigUpdate: Invalid DNS fallback", err)
+		utils.HTTPError(w, err.Error(), http.StatusBadRequest, "DNS004")
+		return
+	}
+
 	utils.ConfigLock.Lock()
 
 	config := utils.ReadConfigFromFile()

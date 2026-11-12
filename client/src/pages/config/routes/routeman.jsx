@@ -16,8 +16,7 @@ import {
   MenuItem,
 } from '@mui/material';
 import { DeleteOutlined, PlusCircleOutlined } from '@ant-design/icons';
-import RestartModal from '../users/restart';
-import { CosmosCheckbox, CosmosCollapse, CosmosFormDivider, CosmosInputText, CosmosSelect } from '../users/formShortcuts';
+import { CosmosCheckbox, CosmosCollapse, CosmosFormDivider, CosmosInputText, CosmosSelect, ReadOnlyForm } from '../users/formShortcuts';
 import { CosmosContainerPicker } from '../users/containerPicker';
 import { snackit } from '../../../api/wrap';
 import { IsRouteSocketProxy, ValidateRouteSchema, getHostnameFromName, sanitizeRoute } from '../../../utils/routes';
@@ -55,9 +54,8 @@ const checkHost = debounce((host, setHostError) => {
   }
 }, 500);
 
-const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noControls = false, lockTarget = false, title, setRouteConfig, submitButton = false, newRoute }) => {
+const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noControls = false, lockTarget = false, title, setRouteConfig, submitButton = false, newRoute, readOnly = false }) => {
   const { t } = useTranslation();
-  const [openModal, setOpenModal] = React.useState(false);
   const [hostError, setHostError] = React.useState(null);
 
   const [tunnels, setTunnels] = React.useState([]);
@@ -76,8 +74,6 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
   }, [])
  
   return <div style={{ maxWidth: '1000px', width: '100%', margin: 'auto', position: 'relative' }}>
-    <RestartModal openModal={openModal} setOpenModal={setOpenModal} config={config} />
-    
     {routeConfig && <>
       <Formik
         initialValues={{
@@ -151,6 +147,9 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
             let op;
             if(newRoute) {
               op = API.config.newRoute(routeConfig.Name, fullValues)
+            } else if (routeConfig._IsTunnel) {
+              // Tunnels live on other nodes: the by-name endpoint dispatches the edit to the advertisers.
+              op = API.config.updateRouteByName(routeConfig.Name, fullValues)
             } else {
               op = API.config.replaceRoute(routeConfig.Name, fullValues)
             }
@@ -160,7 +159,6 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                 setStatus({ success: true });
                 snackit(t('mgmt.urls.edit.updateSuccess'), 'success')
                 setSubmitting(false);
-                setOpenModal(true);
               } else {
                 setStatus({ success: false });
                 setErrors({ submit: res.status });
@@ -209,6 +207,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
       >
         {(formik) => (
           <form noValidate onSubmit={formik.handleSubmit}>
+            <ReadOnlyForm readOnly={readOnly}>
             <Stack spacing={2}>
               <MainCard name={routeConfig.Name} title={
                 noControls ? t('mgmt.urls.edit.newUrlTitle') :
@@ -258,7 +257,8 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                   <CosmosFormDivider title={t('mgmt.urls.edit.targetSettingsTitle')} />
 
                   {
-                    (formik.values.Mode === "SERVAPP") ?
+                    /* Locked target without a container (managed route): plain field, the picker needs the container's ports. */
+                    (formik.values.Mode === "SERVAPP" && (!lockTarget || TargetContainer)) ?
                       <CosmosContainerPicker
                         formik={formik}
                         lockTarget={lockTarget}
@@ -277,6 +277,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                       <CosmosInputText
                         style={{  }}
                         name="Target"
+                        disabled={lockTarget}
                         label={formik.values.Mode == "PROXY" ? t('mgmt.urls.edit.targetSettings.targetUrlInput.targetUrlLabel') : t('mgmt.urls.edit.targetFolderPathInput.targetFolderPathLabel')}
                         placeholder={formik.values.Mode == "PROXY" ? "http://localhost:8080" : "/path/to/my/app"}
                         formik={formik}
@@ -534,7 +535,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                   </CosmosCollapse>
                 </Grid>
               </MainCard>
-              {submitButton && <MainCard ><PermissionGuard permission={PERM_CONFIGURATION}><Button
+              {submitButton && !readOnly && <MainCard ><PermissionGuard permission={PERM_CONFIGURATION}><Button
                 fullWidth
                 disableElevation
                 size="large"
@@ -545,6 +546,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                 {t('global.saveAction')}
               </Button></PermissionGuard></MainCard>}
             </Stack>
+            </ReadOnlyForm>
           </form>
         )}
       </Formik>

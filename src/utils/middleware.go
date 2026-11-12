@@ -150,7 +150,7 @@ func BandwithLimiterMiddleware(max int64) func(next http.Handler) http.Handler {
 
 func SetSecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if(IsHTTPS) {
+		if(HostServedOverHTTPS(r.Host)) {
 			// TODO: Add preload if we have a valid certificate
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
@@ -171,14 +171,53 @@ func SetCosmosHeader(next http.Handler) http.Handler {
 	})
 }
 
+// SetCORSHeaders writes the CORS answer for a request, given the allowed
+// origins (comma or space separated). "*" allows every origin without
+// credentials: browsers refuse "*" together with Allow-Credentials, so the
+// two are never sent together. Any other list is matched against the
+// request's Origin: the matched origin is echoed with credentials allowed,
+// and Vary: Origin keeps caches from serving it to another origin. An entry
+// can be a full origin ("https://app.example.com") or a bare host
+// ("app.example.com", "app.example.com:8443"), which then matches any scheme.
+func SetCORSHeaders(w http.ResponseWriter, r *http.Request, allowed string) {
+	entries := strings.FieldsFunc(allowed, func(c rune) bool { return c == ',' || c == ' ' })
+	if len(entries) == 0 {
+		return
+	}
+
+	for _, entry := range entries {
+		if entry == "*" {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Del("Access-Control-Allow-Credentials")
+			return
+		}
+	}
+
+	// the answer depends on the request's Origin from here on
+	w.Header().Add("Vary", "Origin")
+
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return
+	}
+	originHost := origin
+	if i := strings.Index(origin, "://"); i >= 0 {
+		originHost = origin[i+3:]
+	}
+
+	for _, entry := range entries {
+		if strings.EqualFold(entry, origin) || strings.EqualFold(entry, originHost) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			return
+		}
+	}
+}
+
 func CORSHeader(origin string) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
-			if origin != "" {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Credentials", "true")
-			}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			SetCORSHeaders(w, r, origin)
 
 			next.ServeHTTP(w, r)
 		})
@@ -187,8 +226,7 @@ func CORSHeader(origin string) func(next http.Handler) http.Handler {
 
 func PublicCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		SetCORSHeaders(w, r, "*")
 
 		next.ServeHTTP(w, r)
 	})
@@ -228,6 +266,11 @@ func BlockByCountryMiddleware(blockedCountries []string, CountryBlacklistIsWhite
 			ip, ok := r.Context().Value("ClientID").(string)
 			if !ok || ip == "" {
 				http.Error(w, "Invalid request", http.StatusBadRequest)
+				return
+			}
+
+			if ShieldBypassesGeo(ip) {
+				next.ServeHTTP(w, r)
 				return
 			}
 
@@ -345,14 +388,25 @@ func EnsureHostname(next http.Handler) http.Handler {
 			return
 		}
 
-		hostnames := GetAllHostnames(false, false)
+		hostnames := GetAllHostnames(false)
 
 		reqHostNoPort := strings.Split(r.Host, ":")[0]
-		
+		reqPort := ""
+		if i := strings.LastIndex(r.Host, ":"); i != -1 {
+			reqPort = r.Host[i+1:]
+		}
+
 		isOk := false
 
 		for _, hostname := range hostnames {
 			hostnameNoPort := strings.Split(hostname, ":")[0]
+			if hostnameNoPort == "" {
+				// A ":<port>" route Host is a port-wildcard, so any request Host on that port is legitimate.
+				if p := strings.TrimPrefix(hostname, ":"); p != "" && p == reqPort {
+					isOk = true
+				}
+				continue
+			}
 			if reqHostNoPort == hostnameNoPort {
 				isOk = true
 			}
@@ -467,7 +521,7 @@ func IsValidHostname(hostname string) bool {
 	}
 
 
-	hostnames := GetAllHostnames(false, false)
+	hostnames := GetAllHostnames(false)
 
 	reqHostNoPort := strings.Split(hostname, ":")[0]
 	
@@ -504,10 +558,22 @@ func IPInRange(ipStr, cidrStr string) (bool, error) {
 	return cidrNet.Contains(ip), nil
 }
 
+// CheckIPAccess reports whether a peer passes the constellation restriction and inbound whitelist. Only a Nebula device IP satisfies restrictToConstellation.
 func CheckIPAccess(clientIP string, remoteAddr string, restrictToConstellation bool, whitelistIPs []string) bool {
+	return checkIPAccess(clientIP, remoteAddr, restrictToConstellation, whitelistIPs, false)
+}
+
+// CheckRouteIPAccess additionally lets a local peer (IsLocalPeer) satisfy restrictToConstellation; the whitelist is never relaxed.
+func CheckRouteIPAccess(clientIP string, remoteAddr string, restrictToConstellation bool, whitelistIPs []string) bool {
+	return checkIPAccess(clientIP, remoteAddr, restrictToConstellation, whitelistIPs, true)
+}
+
+func checkIPAccess(clientIP string, remoteAddr string, restrictToConstellation bool, whitelistIPs []string, allowLocalPeer bool) bool {
 	isUsingWhiteList := len(whitelistIPs) > 0
-	isInWhitelist := false
+	// the global shield whitelist can vouch for an IP on every route
+	isInWhitelist := ShieldBypassesIPRestriction(clientIP)
 	isInConstellation := IsConstellationIP(remoteAddr)
+	isLocalPeer := allowLocalPeer && IsLocalPeer(remoteAddr)
 
 	for _, ipRange := range whitelistIPs {
 		if strings.Contains(ipRange, "/") {
@@ -522,7 +588,7 @@ func CheckIPAccess(clientIP string, remoteAddr string, restrictToConstellation b
 	}
 
 	if restrictToConstellation {
-		return isInConstellation || isInWhitelist
+		return isInConstellation || isInWhitelist || isLocalPeer
 	}
 	if isUsingWhiteList {
 		return isInWhitelist
@@ -542,7 +608,7 @@ func Restrictions(RestrictToConstellation bool, WhitelistInboundIPs []string) fu
 
 		remoteAddr, _, _ := net.SplitHostPort(r.RemoteAddr)
 
-		if !CheckIPAccess(ip, remoteAddr, RestrictToConstellation, WhitelistInboundIPs) {
+		if !CheckRouteIPAccess(ip, remoteAddr, RestrictToConstellation, WhitelistInboundIPs) {
 			PushShieldMetrics("ip-whitelists")
 
 			TriggerEvent(

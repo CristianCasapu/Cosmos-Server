@@ -60,6 +60,7 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
   const { hasPermission } = useClientInfos();
   const canReadCredentials = hasPermission(PERM_CREDENTIALS_READ);
   const [isCheckingUpdate, setIsCheckingUpdate] = React.useState(false);
+  const [updateCheck, setUpdateCheck] = React.useState(null);
   const [licenseValidation, setLicenseValidation] = React.useState({ checked: false, valid: null });
   const [showInternalBackupPwd, setShowInternalBackupPwd] = React.useState(false);
 
@@ -80,32 +81,42 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
               <PermissionGuard permission={PERM_ADMIN}>
                 <LoadingButton loading={isCheckingUpdate} variant="outlined" color="primary" onClick={() => {
                   setIsCheckingUpdate(true);
-                  API.forceAutoUpdate().then(() => {
+                  setUpdateCheck(null);
+                  API.forceAutoUpdate().then((res) => {
+                    setUpdateCheck(res.data);
+                  }).finally(() => {
                     setIsCheckingUpdate(false);
-                  })
+                  });
                 }}>{t('mgmt.config.general.forceAutoUpdateButton')}</LoadingButton>
               </PermissionGuard>
             </Grid>
+
+            {updateCheck && <Grid item xs={12}>
+              {updateCheck.containerized ? (
+                <Alert severity="info">{t('mgmt.config.general.updateCheck.containerized')}</Alert>
+              ) : updateCheck.updateAvailable ? (
+                <Alert severity="info">{t('mgmt.config.general.updateCheck.updateFound', { version: updateCheck.latestVersion })}</Alert>
+              ) : (
+                <Alert severity="success">{t('mgmt.config.general.updateCheck.upToDate', { version: updateCheck.currentVersion })}</Alert>
+              )}
+            </Grid>}
 
             <CosmosCheckbox
               label={t('mgmt.config.general.autoupdates')}
               name="AutoUpdate"
               formik={formik}
-              helperText={t('mgmt.config.general.autoupdates')}
             />
 
             <CosmosCheckbox
               label={t('mgmt.config.general.betaupdate')}
               name="BetaUpdates"
               formik={formik}
-              helperText={t('mgmt.config.general.betaupdate')}
             /></>}
 
           <CosmosCheckbox
             label={t('mgmt.config.general.forceMfaCheckbox.forceMfaLabel')}
             name="RequireMFA"
             formik={formik}
-            helperText={t('mgmt.config.general.forceMfaCheckbox.forceMfaHelperText')}
           />
 
           <Grid item xs={12}>
@@ -325,7 +336,6 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
             label={t('mgmt.config.email.enableCheckbox.enableLabel')}
             name="Email_Enabled"
             formik={formik}
-            helperText={t('mgmt.config.email.enableCheckbox.enableHelperText')}
           />
 
           {formik.values.Email_Enabled && (<>
@@ -370,7 +380,6 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
               label={t('mgmt.config.email.tlsCheckbox.tlsLabel')}
               name="Email_UseTLS"
               formik={formik}
-              helperText={t('mgmt.config.email.tlsCheckbox.tlsLabel')}
             />
 
             {formik.values.Email_UseTLS && (
@@ -378,7 +387,6 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
                 label={t('mgmt.config.email.selfSignedCheckbox.SelfSignedLabel')}
                 name="Email_AllowInsecureTLS"
                 formik={formik}
-                helperText={t('mgmt.config.email.selfSignedCheckbox.SelfSignedHelperText')}
               />
             )}
 

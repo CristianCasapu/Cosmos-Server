@@ -2,6 +2,8 @@ package utils
 
 import (
 	"encoding/json"
+	crand "crypto/rand"
+	"math/big"
 	"math/rand"
 	"regexp"
 	"net/http"
@@ -18,6 +20,8 @@ import (
 	"errors"
 	"path/filepath"
 	"os/exec"
+	"os/signal"
+	"syscall"
 	"encoding/hex"
 	"crypto/sha256"
 	_url "net/url"
@@ -29,7 +33,6 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/net"
-	"golang.org/x/net/publicsuffix"
 	"github.com/Masterminds/semver"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -58,7 +61,11 @@ var ConfigLockInternal sync.Mutex
 // a plain global is a data race.
 var baseMainConfig atomic.Pointer[Config]
 var mainConfig atomic.Pointer[Config]
+// IsHTTPS: the server's own hostname is served over HTTPS. HTTPSListening: the
+// HTTPS listener is up, some hostnames may still be HTTP-only (see
+// HostServedOverHTTPS for the scheme of a given hostname).
 var IsHTTPS = false
+var HTTPSListening = false
 var NewVersionAvailable = false
 
 var NeedsRestart = false
@@ -76,6 +83,72 @@ var RestartCRON func()
 
 var IsConstellationIP = func(string) bool { return false }
 
+// UseConstellationDNSOnHost reports whether this server resolves its own
+// lookups through the Constellation DNS, so that it reaches the registries
+// and services of the cluster by their names like any Constellation device.
+// Defaults to the edition: on for Pro, off for the community edition.
+// Never inside a container, which cannot reach the resolver of its host.
+func UseConstellationDNSOnHost() bool {
+	if IsInsideContainer {
+		return false
+	}
+	setting := GetMainConfig().ConstellationConfig.DoNotUseConstellationDNSOnHost
+	if setting == nil {
+		return IsPro()
+	}
+	return !*setting
+}
+
+// RevertHostDNS gives the server its own resolver back, called before the
+// process exits. Wired in constellation/index.go (utils cannot import constellation).
+var RevertHostDNS = func() {}
+
+// ValidateDNSFallback rejects the stub of systemd-resolved as a fallback: a
+// server that resolves through the Constellation DNS would send it its own
+// lookups back, in a loop.
+func ValidateDNSFallback(fallback string) error {
+	host := fallback
+	if h, _, err := osnet.SplitHostPort(fallback); err == nil {
+		host = h
+	}
+	if host == "127.0.0.53" || host == "127.0.0.54" {
+		return errors.New("the DNS fallback cannot be the local resolver of systemd (" + host + "), its lookups would loop back to the Constellation DNS")
+	}
+	return nil
+}
+
+var exitHooks []func()
+var exitHooksMux sync.Mutex
+var exitSignalOnce sync.Once
+
+// OnExit registers a cleanup to run when the process receives SIGTERM or
+// SIGINT. The hooks run in the order they were registered, then the process exits.
+func OnExit(hook func()) {
+	exitHooksMux.Lock()
+	exitHooks = append(exitHooks, hook)
+	exitHooksMux.Unlock()
+
+	exitSignalOnce.Do(func() {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+
+		go func() {
+			sig := <-sigChan
+			Log(fmt.Sprintf("Received signal %v, cleaning up before exiting...", sig))
+			exitHooksMux.Lock()
+			hooks := append([]func(){}, exitHooks...)
+			exitHooksMux.Unlock()
+			for _, hook := range hooks {
+				hook()
+			}
+			os.Exit(0)
+		}()
+	})
+}
+
+// Wired to docker.IsLocalDockerIP in src/index.go (utils cannot import docker); defaults to strict "no".
+var IsLocalDockerIP = func(string) bool { return false }
+
 var GetContainerIPByName func(string) (string, error)
 var DoesContainerExist func(string) bool
 var CheckDockerNetworkMode func() string
@@ -86,6 +159,11 @@ var IsPro func() bool = func() bool { return false }
 var InitPremiumFeatures func()
 
 var GetConstellationTunnelRoutes = func() []ProxyRouteConfig { return []ProxyRouteConfig{} }
+
+// ConstellationDNSAddress is the address this node serves the Constellation DNS
+// on, empty when it serves none. An error means it cannot tell right now.
+// Wired in constellation/index.go.
+var ConstellationDNSAddress = func() (string, error) { return "", nil }
 
 // PublishRolesOp publishes the roles config domain through the constellation
 // op-log. Wired in constellation/index.go: the pro package can't call
@@ -260,10 +338,16 @@ func GetPublicAuthKey() string {
 
 var AlphaNumRunes = []rune("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
+// GenerateRandomString is used for secrets: it has to stay on crypto/rand
 func GenerateRandomString(n int) string {
 	b := make([]rune, n)
+	size := big.NewInt(int64(len(AlphaNumRunes)))
 	for i := range b {
-		b[i] = AlphaNumRunes[rand.Intn(len(AlphaNumRunes))]
+		index, err := crand.Int(crand.Reader, size)
+		if err != nil {
+			Fatal("Generating a random string", err)
+		}
+		b[i] = AlphaNumRunes[index.Int64()]
 	}
 	return string(b)
 }
@@ -350,9 +434,6 @@ func LoadBaseMainConfig(config Config) {
 	}
 	if os.Getenv("COSMOS_HOSTNAME") != "" {
 		main.HTTPConfig.Hostname = os.Getenv("COSMOS_HOSTNAME")
-	}
-	if os.Getenv("COSMOS_HTTPS_MODE") != "" {
-		main.HTTPConfig.HTTPSCertificateMode = os.Getenv("COSMOS_HTTPS_MODE")
 	}
 	if os.Getenv("COSMOS_GENERATE_MISSING_AUTH_CERT") != "" {
 		main.HTTPConfig.GenerateMissingAuthCert = os.Getenv("COSMOS_GENERATE_MISSING_AUTH_CERT") == "true"
@@ -477,10 +558,12 @@ func SaveConfigTofile(config Config) {
 
 func RestartServer(code int) {
 	Log("Restarting server...")
+	PlanRestart()
 	WaitForAllJobs()
 	if StopAllRCloneProcess != nil {
 		StopAllRCloneProcess(false)
 	}
+	RevertHostDNS()
 	os.Exit(code)
 }
 
@@ -490,6 +573,8 @@ func SoftRestartServer() {
 	RestartHTTPServer()
 
 	go func() {
+		PlanRestart()
+		defer ClearPlannedRestart()
 		WaitForAllJobs()
 		RestartConstellation() // Constellation
 		InitRemoteStorage() // rclone
@@ -500,6 +585,8 @@ func SoftRestartServer() {
 	}()
 }
 
+// LetsEncryptValidOnly keeps the hostnames a public CA can certify (see
+// letsEncryptable for the rule) and logs what it drops.
 func LetsEncryptValidOnly(hostnames []string, acceptWildcard bool) []string {
 	wrongPattern := `^(localhost(:\d+)?|(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(:\d+)?|.*\.local(:\d+)?)$`
 	
@@ -507,7 +594,7 @@ func LetsEncryptValidOnly(hostnames []string, acceptWildcard bool) []string {
 
 	var validDomains []string
 	for _, domain := range hostnames {
-		if !re.MatchString(domain) && (acceptWildcard || !strings.Contains(domain, "*")) && !strings.Contains(domain, " ")  && !strings.Contains(domain, "::") && !strings.Contains(domain, ",") {
+		if !re.MatchString(domain) && (acceptWildcard || !strings.Contains(domain, "*")) && !strings.Contains(domain, " ")  && !strings.Contains(domain, "::") && !strings.Contains(domain, ",") && PublicTLD(domain) {
 			validDomains = append(validDomains, domain)
 		} else {
 			Warn("Invalid domain found in URLs: " + domain + " it was removed from the certificate to not break Let's Encrypt")
@@ -524,22 +611,6 @@ func RemoveStringFromSlice(slice []string, s string) []string {
 		}
 	}
 	return slice
-}
-
-func filterHostnamesByWildcard(hostnames []string, wildcards []string) []string {
-	finalHostnames := make([]string, len(hostnames))
-	copy(finalHostnames, hostnames)
-
-	for _, wildcard := range wildcards {
-		for _, hostname := range hostnames {
-			if strings.HasSuffix(hostname, wildcard[1:]) && hostname != wildcard[2:] {
-				// remove hostname
-				finalHostnames = RemoveStringFromSlice(finalHostnames, hostname)
-			}
-		}
-	}
-
-	return finalHostnames
 }
 
 var nonWildcardableDomains = []string{
@@ -582,9 +653,8 @@ func canDomainWildcard(domain string) bool {
 	return true
 }
 
-func GetAllHostnames(applyWildCard bool, removePorts bool) []string {
+func GetAllHostnames(removePorts bool) []string {
 	mainHostname := GetMainConfig().HTTPConfig.Hostname
-	OverrideWildcardDomains := GetMainConfig().HTTPConfig.OverrideWildcardDomains
 
 	if removePorts {
 		mainHostname = strings.Split(mainHostname, ":")[0]
@@ -600,7 +670,14 @@ func GetAllHostnames(applyWildCard bool, removePorts bool) []string {
 	for _, proxy := range proxies {
 		if proxy.UseHost && proxy.Host != "" && !strings.Contains(proxy.Host, ",") && !strings.Contains(proxy.Host, " ") {
 			if removePorts {
-				hostnames = append(hostnames, strings.Split(proxy.Host, ":")[0])
+				// a ":<port>" or "0.0.0.0:<port>" route answers any host: it has no
+				// hostname to certify or publish. Kept with ports, as EnsureHostname
+				// accepts any request Host on that port.
+				host := strings.Split(proxy.Host, ":")[0]
+				if host == "" || host == "0.0.0.0" {
+					continue
+				}
+				hostnames = append(hostnames, host)
 			} else {
 				hostnames = append(hostnames, proxy.Host)
 			}
@@ -614,57 +691,6 @@ func GetAllHostnames(applyWildCard bool, removePorts bool) []string {
 		if _, ok := seen[hostname]; !ok {
 			seen[hostname] = true
 			uniqueHostnames = append(uniqueHostnames, hostname)
-		}
-	}
-
-	bareMainHostname, _ := publicsuffix.EffectiveTLDPlusOne(mainHostname)
-	canWildcard := canDomainWildcard(bareMainHostname) || (OverrideWildcardDomains != "")
-
-	if applyWildCard && GetMainConfig().HTTPConfig.UseWildcardCertificate && canWildcard {
-
-		Debug("bareMainHostname: " + bareMainHostname)
-
-		filteredHostnames := []string{
-			bareMainHostname,
-			"*." + bareMainHostname,
-		}
-
-		if(OverrideWildcardDomains != "") {
-			filteredHostnames = strings.Split(OverrideWildcardDomains, ",")
-		}
-
-		wildcards := []string{}
-		othersHostname := []string{}
-		for _, hostname := range append(uniqueHostnames, filteredHostnames...) {
-			if strings.HasPrefix(hostname, "*.") {
-				wildcards = append(wildcards, hostname)
-			} else {
-				othersHostname = append(othersHostname, hostname)
-			}
-		}
-
-		tempUniqueHostnames := append(wildcards, filterHostnamesByWildcard(othersHostname, wildcards)...)
-
-		// hardcode wildcard for local domains
-		// if(GetMainConfig().HTTPConfig.HTTPSCertificateMode == HTTPSCertModeList["SELFSIGNED"]) {
-		// 	for _, hostname := range tempUniqueHostnames {
-		// 		if strings.HasSuffix(hostname, ".local") {
-		// 			tempUniqueHostnames = append(tempUniqueHostnames, "*.local")
-		// 			break
-		// 		}
-		// 	}
-		// }
-
-		// dedupe
-		seen = make(map[string]bool)
-		uniqueHostnames = []string{}
-		for _, hostname := range tempUniqueHostnames {
-			if hostname != "" {
-				if _, ok := seen[hostname]; !ok {
-					seen[hostname] = true
-					uniqueHostnames = append(uniqueHostnames, hostname)
-				}
-			}
 		}
 	}
 
@@ -1006,6 +1032,33 @@ func IsDomain(domain string) bool {
 	return false
 }
 
+var hostnameLabelRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// IsValidHostnameSyntax checks a bare server hostname, "host" or "host:port":
+// an IP or dot-separated DNS labels, no scheme, path or trailing slash
+func IsValidHostnameSyntax(hostname string) bool {
+	host := hostname
+	if h, port, err := osnet.SplitHostPort(hostname); err == nil {
+		p, err := strconv.Atoi(port)
+		if err != nil || p < 1 || p > 65535 {
+			return false
+		}
+		host = h
+	}
+	if host == "" || len(host) > 253 {
+		return false
+	}
+	if osnet.ParseIP(host) != nil {
+		return true
+	}
+	for _, label := range strings.Split(strings.ToLower(host), ".") {
+		if !hostnameLabelRe.MatchString(label) {
+			return false
+		}
+	}
+	return true
+}
+
 func IsLocalDomain(domain string) bool {
 	if strings.HasSuffix(domain, ".local") || strings.HasSuffix(domain, ".lan") || strings.HasSuffix(domain, ".home") {
 		return true
@@ -1081,6 +1134,17 @@ func Exec(cmd string, args ...string) (string, error) {
 		errF = errors.New(err.Error() + ": " + string(out))
 	}
 	return string(out), errF
+}
+
+// IsLocalPeer reports whether a peer address belongs to this very machine: loopback, or one of our own docker networks. Deliberately separate from IsConstellationIP, which also gates trust of node tokens and X-Forwarded-For — a local container must not inherit those.
+func IsLocalPeer(ip string) bool {
+	if parsed := osnet.ParseIP(ip); parsed != nil && parsed.IsLoopback() {
+		return true
+	}
+	if IsInsideContainer && !IsHostNetwork {
+		return false
+	}
+	return IsLocalDockerIP(ip)
 }
 
 func IsLocalIP(ip string) bool {
@@ -1327,12 +1391,12 @@ func GetProxyOIDCredentials(route ProxyRouteConfig, hashSecret bool) *fosite.Def
 // secret already made. Native/SPA apps (Path B) generate their own random verifier and
 // never use this function.
 //
-// A distinct key slice ([0:32]) and domain-separation prefix are used so the result never
-// collides with the state hash (which uses AuthPrivateKey[32:64]). RawURLEncoding of a
+// The whole key is hashed: its first characters are the same on every server. The
+// domain-separation prefix keeps the result apart from the state hash. RawURLEncoding of a
 // 32-byte SHA-256 yields 43 chars from [A-Za-z0-9-_], meeting RFC 7636's verifier rules.
 func DerivePKCEVerifier(host string, path string) string {
 	config := GetMainConfig()
-	h := sha256.Sum256([]byte("cosmos-pkce:" + host + "\x00" + path + config.HTTPConfig.AuthPrivateKey[0:32]))
+	h := sha256.Sum256([]byte("cosmos-pkce:" + host + "\x00" + path + config.HTTPConfig.AuthPrivateKey))
 	return base64.RawURLEncoding.EncodeToString(h[:])
 }
 

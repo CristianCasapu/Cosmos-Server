@@ -14,6 +14,7 @@ import MiniPlotComponent from '../../dashboard/components/mini-plot';
 import ImageWithPlaceholder from '../../../components/imageWithPlaceholder';
 import UploadButtons from '../../../components/fileUpload';
 import { useTranslation } from 'react-i18next';
+import { HostZoneInfo } from '../configZones';
 
 const info = {
   backgroundColor: 'rgba(0, 0, 0, 0.1)',
@@ -21,7 +22,7 @@ const info = {
   borderRadius: '5px',
 }
 
-const RouteOverview = ({ routeConfig, refreshConfig }) => {
+const RouteOverview = ({ routeConfig, refreshConfig, readOnly = false }) => {
   const { t } = useTranslation();
   const isMobile = useMediaQuery((theme) => theme.breakpoints.down('sm'));
   const [confirmDelete, setConfirmDelete] = React.useState(false);
@@ -29,7 +30,9 @@ const RouteOverview = ({ routeConfig, refreshConfig }) => {
 
   function deleteRoute(event) {
     event.stopPropagation();
-    API.config.deleteRoute(routeConfig.Name).then(() => {
+    // Tunneled routes aren't in local config: the by-name endpoint dispatches the delete to the advertisers.
+    const op = routeConfig._IsTunnel ? API.config.deleteRouteByName(routeConfig.Name) : API.config.deleteRoute(routeConfig.Name);
+    op.then(() => {
       redirectToLocal('/cosmos-ui/config-url');
     });
   }
@@ -38,8 +41,8 @@ const RouteOverview = ({ routeConfig, refreshConfig }) => {
     {routeConfig && <>
       <MainCard name={routeConfig.Name} title={<div>
         {routeConfig.Name} &nbsp;&nbsp;
-        {!confirmDelete && (<Chip label={<DeleteOutlined />} onClick={() => setConfirmDelete(true)}/>)}
-        {confirmDelete && (<Chip label={<CheckOutlined />} color="error" onClick={(event) => deleteRoute(event)}/>)}
+        {!readOnly && !confirmDelete && (<Chip label={<DeleteOutlined />} onClick={() => setConfirmDelete(true)}/>)}
+        {!readOnly && confirmDelete && (<Chip label={<CheckOutlined />} color="error" onClick={(event) => deleteRoute(event)}/>)}
       </div>}>
         <Stack spacing={2} direction={isMobile ? 'column' : 'row'} alignItems={isMobile ? 'center' : 'flex-start'}>
           <Stack spacing={1} alignItems="center">
@@ -67,6 +70,10 @@ const RouteOverview = ({ routeConfig, refreshConfig }) => {
             <div style={info}>{routeConfig.Description}</div>
             <strong><NodeExpandOutlined /> {t('mgmt.config.proxy.urlTitle')}</strong>
             <div><HostChip route={routeConfig} /></div>
+            {routeConfig.UseHost && <>
+              <strong><LockOutlined /> {t('mgmt.config.zones.zoneAndCertificate')}</strong>
+              <div><HostZoneInfo host={routeConfig.Host} /></div>
+            </>}
             <strong><InfoCircleOutlined /> {t('global.target')}</strong>
             <div><RouteMode route={routeConfig} /> <Chip label={routeConfig.Target} /></div>
             <strong><SafetyCertificateOutlined/> {t('global.securityTitle')}</strong>
