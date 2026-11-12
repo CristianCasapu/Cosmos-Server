@@ -139,6 +139,7 @@ const ConfigManagement = () => {
           CountryBlacklistIsWhitelist: config.CountryBlacklistIsWhitelist,
           AutoUpdate: config.AutoUpdate,
           BetaUpdates: config.BetaUpdates,
+          MaintenanceTime: config.MaintenanceTime || '02:00', // fork addition
 
           Licence: config.Licence,
           ServerToken: config.ServerToken,
@@ -200,6 +201,8 @@ const ConfigManagement = () => {
         validationSchema={Yup.object().shape({
           Hostname: Yup.string().max(255).required(t('mgmt.config.http.hostnameInput.HostnameValidation')),
           LoggingLevel: Yup.string().max(255).required(t('mgmt.config.general.logLevelInput.logLevelValidation')),
+          MaintenanceTime: Yup.string().matches(/^([01]\d|2[0-3]):[0-5]\d$/,
+            t('mgmt.config.update.timeValidation', 'Enter a time as HH:MM, for example 02:00')),
           UPnP_ExternalHTTPSPort: optionalPort(t),
           UPnP_ExternalHTTPPort: optionalPort(t),
         })}
@@ -227,6 +230,7 @@ const ConfigManagement = () => {
             RequireMFA: values.RequireMFA,
             AutoUpdate: values.AutoUpdate,
             BetaUpdates: values.BetaUpdates,
+            MaintenanceTime: values.MaintenanceTime, // fork addition
             BlockedCountries: values.GeoBlocking,
             CountryBlacklistIsWhitelist: values.CountryBlacklistIsWhitelist,
             MonitoringDisabled: !values.MonitoringEnabled,

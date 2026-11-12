@@ -52,6 +52,17 @@ function upnpStatus() {
 
 const upnpRetry = upnpStatus;
 
+function serverUpdateStatus() {
+  return new Promise((resolve, reject) => {
+    resolve({
+      "status": "OK",
+      "data": { "currentVersion": "demo", "latestVersion": "demo", "updateAvailable": false, "autoUpdate": true, "maintenanceTime": "02:00", "checkedAt": new Date().toISOString() }
+    })
+  });
+}
+
+const checkServerUpdate = serverUpdateStatus;
+
 function canSendEmail() {
   return new Promise((resolve, reject) => {
     resolve({
@@ -156,6 +167,8 @@ export {
   testEmail,
   upnpStatus,
   upnpRetry,
+  serverUpdateStatus,
+  checkServerUpdate,
   getDashboard,
   getBackup,
 };

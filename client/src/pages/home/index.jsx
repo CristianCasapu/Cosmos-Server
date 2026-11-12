@@ -3,6 +3,7 @@ import Back from "../../components/back";
 import { Alert, Box, CircularProgress, Grid, Stack, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { lazy, useEffect, useState } from "react";
 import * as API from "../../api";
+import { ServerUpdateAlert } from '../../components/serverUpdate';
 import wallpaper from '../../assets/images/wallpaper2.jpg';
 import wallpaperLight from '../../assets/images/wallpaper2_light.jpg';
 import Grid2 from "@mui/material/Unstable_Grid2/Grid2";
@@ -393,11 +394,8 @@ const HomePage = () => {
                 </Alert>
             )}
 
-            {isAdmin && coStatus && coStatus.newVersionAvailable && (
-                <Alert severity="warning">
-                    {t('navigation.home.newCosmosVersionError')}
-                </Alert>
-            )}
+            {/* Fork addition: names the version and offers to install it (upstream: a plain notice) */}
+            {isAdmin && coStatus && coStatus.newVersionAvailable && <ServerUpdateAlert />}
 
             {isAdmin && coStatus && !coStatus.hostmode && config && (
                 <Alert severity="warning">

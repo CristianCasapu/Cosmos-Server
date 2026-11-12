@@ -75,6 +75,26 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }))
   }
 
+  // Fork addition: is there a newer server release? GET = last known answer,
+  // POST = ask again. Neither installs anything.
+  function serverUpdateStatus() {
+    return wrap(apiFetch('/cosmos/api/server-update', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }))
+  }
+
+  function checkServerUpdate() {
+    return wrap(apiFetch('/cosmos/api/server-update', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }))
+  }
+
   async function rawUpdateRoute(routeName: string, operation: Operation, newRoute?: Route): Promise<ApiResponse> {
     const payload = {
       routeName,
@@ -198,6 +218,8 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     addRoute,
     canSendEmail,
     testEmail,
+    serverUpdateStatus,
+    checkServerUpdate,
     upnpStatus,
     upnpRetry,
     getBackup,

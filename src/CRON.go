@@ -284,7 +284,12 @@ func CRON() {
 		s.Every(1).Hours().Do(proxy.CleanUp)
 		s.Every(1).Hours().Do(proxy.CleanUpSocket)
 		s.Every(1).Hours().Do(docker.CleanupExitedDeploymentContainers)
-		s.Every(1).Day().At("2:00").Do(func() {
+		// Fork addition: at the configured time (upstream: always At("2:00")),
+		// asked every minute so a changed time needs no restart.
+		s.Every(1).Minute().Do(func() {
+			if !maintenanceDue(time.Now()) {
+				return
+			}
 			utils.RunDatabaseRetention()
 			imageCleanUp()
 			checkCerts()
@@ -296,7 +301,9 @@ func CRON() {
 		h.Write([]byte(hostname))
 		randomHour := int(h.Sum32()%23) + 1
 		s.Every(1).Day().At(fmt.Sprintf("%02d:45", randomHour)).Do(utils.ProcessLicence)
-		s.Every(1).Day().At(fmt.Sprintf("%02d:15", randomHour)).Do(checkVersion)
+		// Fork addition: the new-version notice comes from this fork's releases
+		// (upstream: checkVersion, once a day, against its own version service).
+		startUpdateChecks()
 
 		s.Start()
 	}()

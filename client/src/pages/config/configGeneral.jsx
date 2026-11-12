@@ -23,6 +23,7 @@ import PermissionGuard from '../../components/permissionGuard';
 import { PERM_ADMIN, PERM_CREDENTIALS_READ } from '../../utils/permissions';
 import { useClientInfos } from '../../utils/hooks';
 import EmailTest from './emailTest';
+import ServerUpdate from '../../components/serverUpdate';
 
 // License issuer's public key for signature verification
 const LICENSE_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
@@ -77,33 +78,20 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
           </Grid>
 
           {status && !status.containerized && <>
-            <Grid item xs={3}>
-              <PermissionGuard permission={PERM_ADMIN}>
-                <LoadingButton loading={isCheckingUpdate} variant="outlined" color="primary" onClick={() => {
-                  setIsCheckingUpdate(true);
-                  setUpdateCheck(null);
-                  API.forceAutoUpdate().then((res) => {
-                    setUpdateCheck(res.data);
-                  }).finally(() => {
-                    setIsCheckingUpdate(false);
-                  });
-                }}>{t('mgmt.config.general.forceAutoUpdateButton')}</LoadingButton>
-              </PermissionGuard>
-            </Grid>
-
-            {updateCheck && <Grid item xs={12}>
-              {updateCheck.containerized ? (
-                <Alert severity="info">{t('mgmt.config.general.updateCheck.containerized')}</Alert>
-              ) : updateCheck.updateAvailable ? (
-                <Alert severity="info">{t('mgmt.config.general.updateCheck.updateFound', { version: updateCheck.latestVersion })}</Alert>
-              ) : (
-                <Alert severity="success">{t('mgmt.config.general.updateCheck.upToDate', { version: updateCheck.currentVersion })}</Alert>
-              )}
-            </Grid>}
+            {/* Fork addition: update status, "check" without installing, "update now" (upstream: one button that did both) */}
+            <ServerUpdate />
 
             <CosmosCheckbox
               label={t('mgmt.config.general.autoupdates')}
               name="AutoUpdate"
+              formik={formik}
+            />
+
+            {/* Fork addition */}
+            <CosmosInputText
+              label={t('mgmt.config.update.timeLabel', 'Time of the nightly maintenance and automatic update (server time)')}
+              name="MaintenanceTime"
+              type="time"
               formik={formik}
             />
 

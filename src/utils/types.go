@@ -188,6 +188,9 @@ type Config struct {
 	RequireMFA bool
 	AutoUpdate bool
 	BetaUpdates bool
+	// Fork addition: when the nightly maintenance and the automatic update
+	// run, as "HH:MM" in the server's time zone. Empty means 02:00.
+	MaintenanceTime string `json:"MaintenanceTime,omitempty" validate:"omitempty,len=5"`
 	OpenIDClients []OpenIDClient
 	MarketConfig MarketConfig
 	HomepageConfig HomepageConfig

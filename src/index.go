@@ -327,7 +327,7 @@ func cosmos() {
 
 	go func() {
 		time.Sleep(180 * time.Second)
-		checkUpdatesAvailable()
+		checkUpdatesAtBoot() // fork addition: look for updates, install them at night only (upstream: checkUpdatesAvailable)
 	}()
 
 	version, err := docker.DockerClient.ServerVersion(context.Background())
