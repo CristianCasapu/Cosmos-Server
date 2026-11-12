@@ -35,6 +35,10 @@ These apply to every change, however small.
    from another origin. Think about what a request with hostile input does
    before writing the handler.
 
+6. **Ask through the question dialog.** When a decision is the owner's, ask it
+   with the interactive question tool (options to choose from, the
+   recommendation first), not as questions written into a reply.
+
 ## Things that are easy to get wrong here
 
 - **`production` is the server.** A push to `production` publishes a release
