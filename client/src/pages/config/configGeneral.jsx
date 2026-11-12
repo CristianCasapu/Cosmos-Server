@@ -24,6 +24,7 @@ import { PERM_ADMIN, PERM_CREDENTIALS_READ } from '../../utils/permissions';
 import { useClientInfos } from '../../utils/hooks';
 import EmailTest from './emailTest';
 import ServerUpdate from '../../components/serverUpdate';
+import TimezoneInput from './timezoneInput'; // fork addition
 
 // License issuer's public key for signature verification
 const LICENSE_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
@@ -100,6 +101,9 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
               name="BetaUpdates"
               formik={formik}
             /></>}
+
+          {/* Fork addition: the time zone given to new containers that ask for the server's (TZ=auto) */}
+          <TimezoneInput formik={formik} detected={status && status.hostTimezone} />
 
           <CosmosCheckbox
             label={t('mgmt.config.general.forceMfaCheckbox.forceMfaLabel')}

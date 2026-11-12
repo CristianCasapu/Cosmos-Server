@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"github.com/azukaar/cosmos-server/src/constellation"
 	"github.com/azukaar/cosmos-server/src/storage"
 	"github.com/azukaar/cosmos-server/src/utils"
@@ -180,6 +181,16 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 			utils.Error("SettingsUpdate: "+errD.Error(), nil)
 			utils.HTTPError(w, errD.Error(), http.StatusBadRequest, "UC008")
 			return
+		}
+
+		// Fork addition: the time zone for new containers must be one the server can load; an unchanged one is left alone.
+		request.Timezone = strings.TrimSpace(request.Timezone)
+		if request.Timezone != utils.GetMainConfig().Timezone {
+			if errT := utils.ValidateTimezone(request.Timezone); errT != nil {
+				utils.Error("SettingsUpdate: "+errT.Error(), nil)
+				utils.HTTPError(w, errT.Error(), http.StatusBadRequest, "UC009")
+				return
+			}
 		}
 
 		// this PUT writes routes wholesale: validate before any write, including the op-log publish

@@ -147,6 +147,7 @@ const ConfigManagement = () => {
           AutoUpdate: config.AutoUpdate,
           BetaUpdates: config.BetaUpdates,
           MaintenanceTime: config.MaintenanceTime || '02:00', // fork addition
+          Timezone: config.Timezone || '', // fork addition
 
           Licence: config.Licence,
           ServerToken: config.ServerToken,
@@ -218,6 +219,11 @@ const ConfigManagement = () => {
           DefaultDataPath: hostDirectory(t),
           MaintenanceTime: Yup.string().matches(/^([01]\d|2[0-3]):[0-5]\d$/,
             t('mgmt.config.update.timeValidation', 'Enter a time as HH:MM, for example 02:00')),
+          // Fork addition: the server decides whether the zone exists
+          Timezone: Yup.string().trim().matches(/^[A-Za-z0-9_+-]+(\/[A-Za-z0-9_+-]+)*$/, {
+            message: t('mgmt.config.timezone.validation', 'Enter a time zone name such as Europe/Bucharest, or leave empty'),
+            excludeEmptyString: true,
+          }),
           UPnP_ExternalHTTPSPort: optionalPort(t),
           UPnP_ExternalHTTPPort: optionalPort(t),
         })}
@@ -246,6 +252,7 @@ const ConfigManagement = () => {
             AutoUpdate: values.AutoUpdate,
             BetaUpdates: values.BetaUpdates,
             MaintenanceTime: values.MaintenanceTime, // fork addition
+            Timezone: (values.Timezone || '').trim(), // fork addition
             BlockedCountries: values.GeoBlocking,
             CountryBlacklistIsWhitelist: values.CountryBlacklistIsWhitelist,
             MonitoringDisabled: !values.MonitoringEnabled,
