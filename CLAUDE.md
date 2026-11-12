@@ -37,9 +37,10 @@ These apply to every change, however small.
 
 ## Things that are easy to get wrong here
 
-- **A push to `custom` is a deploy.** `fork-release.yml` publishes a release for
-  every push (documentation-only pushes excepted) and the server installs
-  releases by itself. Do not push work in progress to `custom`.
+- **`production` is the server.** A push to `production` publishes a release
+  and the server installs releases by itself. Never commit to `production`
+  directly: work on `custom`, wait for its checks, then run
+  `scripts/fork-promote.sh`. `custom` is not deployed, but keep it releasable.
 - **Keep the diff against upstream small.** Prefer a new file plus a one-line
   hook over editing upstream code, so the daily upstream merge keeps applying
   cleanly. Mark additions with a `Fork addition:` comment.
@@ -59,6 +60,8 @@ cp src/update.go src/launcher/update.go
 CGO_ENABLED=0 go build -o /tmp/cosmos src/*.go
 CGO_ENABLED=0 go build -o /tmp/cosmos-launcher ./src/launcher/launcher.go ./src/launcher/update.go
 go test ./src/utils/ -run 'DeliverEmail|UsesImplicitTLS' -count=1
+go test ./src/upnp/ ./src/configapi/ -count=1
+go test ./src/ -run 'CompareVersions|ForkBuild' -count=1
 
 # UI (output in ./static, which is git-ignored)
 npm ci --ignore-scripts --no-audit --no-fund

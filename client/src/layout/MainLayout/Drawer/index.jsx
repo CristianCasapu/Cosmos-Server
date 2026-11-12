@@ -15,6 +15,10 @@ import NavCard from './DrawerContent/NavCard';
 import {version} from '../../../../../package.json';
 import { LanguagesSelect } from './languages';
 
+// Fork addition: the fork's build number, set when a release is built. The
+// version above stays upstream's, which is what app requirements refer to.
+const forkBuild = import.meta.env.VITE_FORK_BUILD ? '-fork.' + import.meta.env.VITE_FORK_BUILD : '';
+
 // ==============================|| MAIN LAYOUT - DRAWER ||============================== //
 
 const MainDrawer = ({ open, handleDrawerToggle, window }) => {
@@ -30,7 +34,7 @@ const MainDrawer = ({ open, handleDrawerToggle, window }) => {
     const footer = <div style={{ margin: '10px', display: 'flex', justifyContent: 'center' }}>
         <LanguagesSelect />
         <Chip
-            label={version.replace('unstable', '')}
+            label={version.replace('unstable', '') + forkBuild}
             sx={{ marginLeft: '10px', height: 24, '& .MuiChip-label': { fontSize: '0.7rem', py: 0.25 } }}
             component="a"
             href="/"

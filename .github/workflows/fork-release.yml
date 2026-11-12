@@ -1,11 +1,12 @@
-# Fork addition: builds this fork and publishes it as a GitHub release in the
-# layout Cosmos' own updater expects, so an install of this fork updates itself
-# from here instead of from the original project.
+# Fork addition: builds `production` and publishes it as a GitHub release in
+# the layout Cosmos' own updater expects, so an install of this fork updates
+# itself from here instead of from the original project. Only `production` is
+# ever released (see FORK.md).
 name: Fork release
 
 on:
   push:
-    branches: [custom]
+    branches: [production]
     # A release is installed by the server on its own, so do not cut one for
     # a push that only touches documentation.
     paths-ignore:
@@ -19,139 +20,65 @@ concurrency:
   group: fork-release
   cancel-in-progress: false
 
-env:
-  UPSTREAM_REPO: azukaar/cosmos-server
-
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       # The build runs third-party code (npm and Go dependencies). It gets no
-      # token: checkout does not leave one on disk, and only the two steps that
-      # talk to GitHub receive it. Actions are pinned to a commit.
+      # token: checkout does not leave one on disk, and only the step that
+      # publishes receives it. Actions are pinned to a commit.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0 # all tags, to number this build
           persist-credentials: false
 
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version-file: go.mod
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 22
-          cache: npm
-
-      # The updater installs a release only if its version is higher than the
-      # running one (semver). Fork builds therefore use
-      #   <upstream major>.<upstream minor>.<upstream patch * 1000 + build>
-      # e.g. 0.23.4001 is build 1 on top of upstream 0.23.4. That sorts above
-      # the upstream release it is based on and below the next upstream patch.
+      # A fork release is "<upstream version>-fork.<build>". The build number
+      # counts every fork release and never restarts; the updater orders fork
+      # releases by it alone (CompareVersions in src/update.go).
       - name: Work out the version
         id: version
         run: |
-          upstream=$(jq -r .version package.json)
-          base=${upstream%.*}
-          patch=${upstream##*.}
-          case "$patch" in
-            ''|*[!0-9]*) echo "::error::Cannot build on upstream version '$upstream' (not a stable x.y.z)"; exit 1 ;;
-          esac
-
-          build=0
-          while read -r tag; do
-            rest=${tag#"v$base.$patch"}
-            if [[ "$rest" =~ ^[0-9]{3}$ ]]; then
-              n=$((10#$rest))
-              if [ "$n" -gt "$build" ]; then build=$n; fi
-            fi
-          done < <(git tag --list "v$base.$patch*")
-          build=$((build + 1))
-          if [ "$build" -gt 999 ]; then
-            echo "::error::More than 999 fork builds on upstream $upstream"; exit 1
+          if [ "$GITHUB_REF" != "refs/heads/production" ]; then
+            echo "::error::Releases are built from production only, not from $GITHUB_REF"; exit 1
           fi
 
-          version="$base.$patch$(printf '%03d' "$build")"
+          released=$(git tag --points-at HEAD --list 'v*-fork.*' | head -n 1)
+          if [ -n "$released" ]; then
+            echo "::notice::This commit is already released as $released; nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          upstream=$(jq -r .version package.json)
+          if ! [[ "$upstream" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Cannot build on upstream version '$upstream' (not a stable x.y.z)"; exit 1
+          fi
+
+          build=3 # builds 1 to 3 were published as 0.23.4001 to 0.23.4003
+          previous=""
+          while read -r tag; do
+            n=${tag##*-fork.}
+            [[ "$n" =~ ^[0-9]{1,9}$ ]] || continue
+            n=$((10#$n))
+            if [ "$n" -gt "$build" ]; then build=$n; previous=$tag; fi
+          done < <(git tag --list 'v*-fork.*')
+          build=$((build + 1))
+
+          version="$upstream-fork.$build"
           echo "upstream=$upstream" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "build=$build" >> "$GITHUB_OUTPUT"
-          echo "Fork version $version (build $build on upstream $upstream)"
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+          echo "Fork version $version (previous release: ${previous:-none})"
 
-      # GeoLite2, Nebula and restic are not in the repository; upstream's CI
-      # downloads them (GeoLite2 needs a MaxMind key). Take the exact files
-      # upstream shipped for this version from its release.
-      - name: Fetch the bundled third-party files from the upstream release
-        env:
-          UPSTREAM: ${{ steps.version.outputs.upstream }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release download "v$UPSTREAM" --repo "$UPSTREAM_REPO" --dir upstream \
-            --pattern "cosmos-cloud-$UPSTREAM-amd64.zip" \
-            --pattern "cosmos-cloud-$UPSTREAM-arm64.zip"
-          unzip -q "upstream/cosmos-cloud-$UPSTREAM-amd64.zip" -d upstream/amd64
-          unzip -q "upstream/cosmos-cloud-$UPSTREAM-arm64.zip" -d upstream/arm64
-          amd="upstream/amd64/cosmos-cloud-$UPSTREAM"
-          arm="upstream/arm64/cosmos-cloud-$UPSTREAM-arm64"
-          cp "$amd/GeoLite2-Country.mmdb" "$amd/nebula" "$amd/nebula-cert" "$amd/restic" .
-          cp "$arm/nebula-arm" "$arm/nebula-arm-cert" .
-          cp "$arm/restic" restic-arm
-          rm -rf upstream
-
-      - name: Build the UI
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          # Version of this build only; package.json in git keeps upstream's.
-          npm pkg set version="$VERSION"
-          npm ci --ignore-scripts --no-audit --no-fund
-          npm run client-build
-
-      - name: Test the fork's additions
-        run: |
-          go test ./src/utils/ -run 'DeliverEmail|UsesImplicitTLS' -count=1
-          go test ./src/upnp/ ./src/configapi/ -count=1
-
-      - name: Build the server and the launcher
-        run: |
-          # Both binaries read updateRepo (src/update.go): point it at this fork.
-          export GOFLAGS="-ldflags=-X=main.updateRepo=$GITHUB_REPOSITORY"
-          bash build.sh
-          for f in cosmos cosmos-arm64 cosmos-launcher cosmos-launcher-arm64 static/index.html meta.json; do
-            test -s "build/$f" || { echo "::error::build/$f is missing"; exit 1; }
-          done
-          grep -aq "$GITHUB_REPOSITORY" build/cosmos || { echo "::error::update source was not set in the binary"; exit 1; }
-          grep -aq "$GITHUB_REPOSITORY" build/cosmos-launcher || { echo "::error::update source was not set in the launcher"; exit 1; }
-          cat build/meta.json
-
-      # The server installs a release by itself and cannot go back to a lower
-      # version, so never publish a build that has not started at least once.
-      - name: Start the build once before releasing it
-        run: |
-          cp -r build "$RUNNER_TEMP/smoke"
-          mkdir "$RUNNER_TEMP/smoke-config"
-          cd "$RUNNER_TEMP/smoke"
-          COSMOS_CONFIG_FOLDER="$RUNNER_TEMP/smoke-config/" COSMOS_HTTP_PORT=18080 COSMOS_HTTPS_PORT=18443 \
-            ./cosmos > "$RUNNER_TEMP/smoke.log" 2>&1 &
-          pid=$!
-
-          code() { curl -s -o /dev/null -m 5 -w '%{http_code}' "http://127.0.0.1:18080$1" || true; }
-          up=""
-          for _ in $(seq 1 90); do
-            if [ "$(code /cosmos-ui/)" = "200" ]; then up=1; break; fi
-            kill -0 "$pid" 2>/dev/null || break
-            sleep 1
-          done
-          ui=$(code /cosmos-ui/); api=$(code /cosmos/api/status); skin=$(code /cosmos-ui/skin/theme.css)
-          kill "$pid" 2>/dev/null || true
-
-          echo "ui=$ui api=$api skin=$skin"
-          if [ -z "$up" ] || [ "$ui" != "200" ] || [ "$api" != "200" ] || [ "$skin" != "200" ]; then
-            tail -n 60 "$RUNNER_TEMP/smoke.log"
-            echo "::error::The build did not start and serve the UI; not releasing it"
-            exit 1
-          fi
+      - uses: ./.github/actions/fork-build
+        if: steps.version.outputs.skip != 'true'
+        with:
+          version: ${{ steps.version.outputs.version }}
+          build: ${{ steps.version.outputs.build }}
 
       - name: Package like upstream
+        if: steps.version.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -174,15 +101,27 @@ jobs:
           ls -l cosmos-cloud-*.zip*
 
       - name: Publish the release
+        if: steps.version.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
           UPSTREAM: ${{ steps.version.outputs.upstream }}
           BUILD: ${{ steps.version.outputs.build }}
+          PREVIOUS: ${{ steps.version.outputs.previous }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          {
+            echo "Fork build $BUILD on top of upstream Cosmos $UPSTREAM (commit $GITHUB_SHA)."
+            if [ -n "$PREVIOUS" ]; then
+              echo
+              echo "Changes since ${PREVIOUS#v}:"
+              echo
+              git log --no-merges --format='- %s' "$PREVIOUS..HEAD" | head -n 40
+            fi
+          } > notes.md
           gh release create "v$VERSION" \
             "cosmos-cloud-$VERSION-amd64.zip" "cosmos-cloud-$VERSION-amd64.zip.md5" \
             "cosmos-cloud-$VERSION-arm64.zip" "cosmos-cloud-$VERSION-arm64.zip.md5" \
             --target "$GITHUB_SHA" \
             --title "$VERSION" \
-            --notes "Fork build $BUILD on top of upstream Cosmos $UPSTREAM (commit $GITHUB_SHA)."
+            --latest \
+            --notes-file notes.md

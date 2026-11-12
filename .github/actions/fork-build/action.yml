@@ -1,0 +1,139 @@
+# Fork addition: everything that must hold before a commit may be released:
+# the UI builds, the fork's tests pass, the server and launcher build, and the
+# built server starts and serves the UI. Used by the checks on `custom`, by the
+# upstream sync (on its merge candidate) and by the release itself.
+#
+# The build runs third-party code (npm and Go dependencies), so this action
+# takes no token and its callers check out without leaving one on disk.
+name: Build and verify the fork
+description: Build the UI, the server and the launcher, run the fork's tests and start the build once
+
+inputs:
+  version:
+    description: Fork version to stamp into the build (empty for a build that is not released)
+    required: false
+    default: ''
+  build:
+    description: Fork build number shown in the UI (empty for a build that is not released)
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      with:
+        go-version-file: go.mod
+
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with:
+        node-version: 22
+        cache: npm
+
+    # GeoLite2, Nebula and restic are not in the repository; upstream's CI
+    # downloads them (GeoLite2 needs a MaxMind key). Take the exact files
+    # upstream shipped for the version this commit is based on.
+    - name: Fetch the bundled third-party files from the upstream release
+      shell: bash
+      env:
+        UPSTREAM_REPO: azukaar/cosmos-server
+      run: |
+        upstream=$(jq -r .version package.json)
+        if ! [[ "$upstream" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::package.json has version '$upstream', not a stable upstream x.y.z"; exit 1
+        fi
+        base="https://github.com/$UPSTREAM_REPO/releases/download/v$upstream"
+        mkdir upstream
+        for arch in amd64 arm64; do
+          zip="cosmos-cloud-$upstream-$arch.zip"
+          curl -fsSL --retry 3 -o "upstream/$zip" "$base/$zip"
+          curl -fsSL --retry 3 -o "upstream/$zip.md5" "$base/$zip.md5"
+          want=$(awk 'NR==1{print $1}' "upstream/$zip.md5")
+          have=$(md5sum "upstream/$zip" | awk '{print $1}')
+          if [ -z "$want" ] || [ "$want" != "$have" ]; then
+            echo "::error::$zip does not match the checksum upstream published"; exit 1
+          fi
+          unzip -q "upstream/$zip" -d "upstream/$arch"
+        done
+        amd="upstream/amd64/cosmos-cloud-$upstream"
+        arm="upstream/arm64/cosmos-cloud-$upstream-arm64"
+        cp "$amd/GeoLite2-Country.mmdb" "$amd/nebula" "$amd/nebula-cert" "$amd/restic" .
+        cp "$arm/nebula-arm" "$arm/nebula-arm-cert" .
+        cp "$arm/restic" restic-arm
+        rm -rf upstream
+
+    # package.json keeps upstream's version: the UI compares it with the
+    # version an app from the market requires.
+    - name: Build the UI
+      shell: bash
+      env:
+        VITE_FORK_BUILD: ${{ inputs.build }}
+      run: |
+        npm ci --ignore-scripts --no-audit --no-fund
+        npm run client-build
+
+    - name: Test the fork's additions
+      shell: bash
+      run: |
+        go test ./src/utils/ -run 'DeliverEmail|UsesImplicitTLS' -count=1
+        go test ./src/upnp/ ./src/configapi/ -count=1
+        go test ./src/ -run 'CompareVersions|ForkBuild' -count=1
+
+    - name: Build the server and the launcher
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        # Both binaries read updateRepo (src/update.go): point it at this fork.
+        export GOFLAGS="-ldflags=-X=main.updateRepo=$GITHUB_REPOSITORY"
+        bash build.sh
+        for f in cosmos cosmos-arm64 cosmos-launcher cosmos-launcher-arm64 static/index.html meta.json; do
+          test -s "build/$f" || { echo "::error::build/$f is missing"; exit 1; }
+        done
+        grep -aq "$GITHUB_REPOSITORY" build/cosmos || { echo "::error::update source was not set in the binary"; exit 1; }
+        grep -aq "$GITHUB_REPOSITORY" build/cosmos-launcher || { echo "::error::update source was not set in the launcher"; exit 1; }
+        if [ -n "$VERSION" ]; then
+          # The server reads its version from meta.json and compares it with
+          # the release tags when it looks for an update.
+          upstream=$(jq -r .version build/meta.json)
+          jq --arg v "$VERSION" --arg u "$upstream" --arg c "$GITHUB_SHA" \
+            '.version = $v | .upstream = $u | .commit = $c' build/meta.json > build/meta.json.new
+          mv build/meta.json.new build/meta.json
+        fi
+        cat build/meta.json
+
+    # The server installs a release by itself, so nothing is released, and no
+    # upstream merge reaches production, without having started at least once.
+    - name: Start the build once
+      shell: bash
+      run: |
+        rm -rf "$RUNNER_TEMP/smoke" "$RUNNER_TEMP/smoke-config"
+        cp -r build "$RUNNER_TEMP/smoke"
+        mkdir "$RUNNER_TEMP/smoke-config"
+        cd "$RUNNER_TEMP/smoke"
+        COSMOS_CONFIG_FOLDER="$RUNNER_TEMP/smoke-config/" COSMOS_HTTP_PORT=18080 COSMOS_HTTPS_PORT=18443 \
+          ./cosmos > "$RUNNER_TEMP/smoke.log" 2>&1 &
+        pid=$!
+
+        code() { curl -s -o /dev/null -m 5 -w '%{http_code}' "http://127.0.0.1:18080$1" || true; }
+        up=""
+        for _ in $(seq 1 90); do
+          if [ "$(code /cosmos-ui/)" = "200" ]; then up=1; break; fi
+          kill -0 "$pid" 2>/dev/null || break
+          sleep 1
+        done
+        ui=$(code /cosmos-ui/); api=$(code /cosmos/api/status); skin=$(code /cosmos-ui/skin/theme.css)
+        kill "$pid" 2>/dev/null || true
+
+        echo "ui=$ui api=$api skin=$skin"
+        if [ -z "$up" ] || [ "$ui" != "200" ] || [ "$api" != "200" ] || [ "$skin" != "200" ]; then
+          tail -n 60 "$RUNNER_TEMP/smoke.log"
+          echo "::error::The build did not start and serve the UI"
+          exit 1
+        fi
+        version=$(jq -r .version meta.json)
+        if ! grep -qF "Starting Cosmos-Server version $version" "$RUNNER_TEMP/smoke.log"; then
+          tail -n 60 "$RUNNER_TEMP/smoke.log"
+          echo "::error::The build did not report version $version"
+          exit 1
+        fi

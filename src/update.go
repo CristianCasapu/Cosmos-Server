@@ -70,6 +70,47 @@ func parseMD5File(content string) string {
 // is compiled into the launcher too, which picks up the same value.
 var updateRepo = "CristianCasapu/Cosmos-Server"
 
+// Fork addition: fork releases are named "<upstream version>-fork.<build>",
+// e.g. 0.24.0-fork.7. The build number counts every fork release and never
+// restarts, so it alone orders two fork releases: a higher build is newer even
+// when it is based on an older upstream version (that is how a release is
+// rolled back). Anything else is compared as a plain semantic version.
+func forkBuild(version string) (int, bool) {
+    i := strings.LastIndex(version, "-fork.")
+    if i < 0 {
+        return 0, false
+    }
+    digits := version[i+len("-fork."):]
+    if digits == "" || len(digits) > 9 {
+        return 0, false
+    }
+    build := 0
+    for _, c := range digits {
+        if c < '0' || c > '9' {
+            return 0, false
+        }
+        build = build*10 + int(c-'0')
+    }
+    return build, true
+}
+
+// CompareVersions returns -1 when candidate is newer than current, 1 when it
+// is older and 0 when they are the same release.
+func CompareVersions(current string, candidate string) (int, error) {
+    currentBuild, currentIsFork := forkBuild(current)
+    candidateBuild, candidateIsFork := forkBuild(candidate)
+    if currentIsFork && candidateIsFork {
+        switch {
+        case currentBuild < candidateBuild:
+            return -1, nil
+        case currentBuild > candidateBuild:
+            return 1, nil
+        }
+        return 0, nil
+    }
+    return utils.CompareSemver(current, candidate)
+}
+
 func GetLatestVersion(includeBeta bool) (*VersionInfo, error) {
     // Fetch releases from GitHub API
 
@@ -105,13 +146,21 @@ func GetLatestVersion(includeBeta bool) (*VersionInfo, error) {
     }
 
     // Find latest release that matches criteria
+    // Fork addition: take the newest release by version instead of the first
+    // one listed, so the choice does not depend on the order GitHub returns.
     var latestRelease *Release
-    for _, release := range releases {
+    for i := range releases {
+        release := &releases[i]
         if !includeBeta && release.PreRelease {
             continue
         }
-        latestRelease = &release
-        break
+        if latestRelease == nil {
+            latestRelease = release
+            continue
+        }
+        if cmp, err := CompareVersions(latestRelease.TagName, release.TagName); err == nil && cmp == -1 {
+            latestRelease = release
+        }
     }
 
     if latestRelease == nil {

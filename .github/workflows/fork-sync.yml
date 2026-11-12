@@ -1,18 +1,29 @@
-# Fork addition: keeps the fork current with the original project. Once a day
-# it merges upstream's latest stable release into `custom` and makes sure the
-# head of `custom` has been released. If the merge cannot be made or pushed it
-# changes nothing and opens an issue.
+# Fork addition: keeps the fork current with the original project without
+# letting an upstream change reach the server unchecked. Once a day:
+#
+#   1. upstream's latest stable release is merged into a candidate on top of
+#      `production` (branch sync/<tag>);
+#   2. the candidate is built, tested and started once;
+#   3. only if that passes, `production` is moved to the candidate and
+#      released, and the merge is brought into `custom` as well.
+#
+# If the merge conflicts, cannot be pushed or fails its checks, production is
+# left alone and an issue is opened.
 name: Sync with upstream
 
 on:
   schedule:
-    - cron: '17 3 * * *'
+    # Late evening in Europe, so a release is ready before the server looks
+    # for updates during the night.
+    - cron: '17 21 * * *'
   workflow_dispatch:
+    inputs:
+      ignore_age:
+        description: Take the latest upstream release even inside the waiting period
+        type: boolean
+        default: false
 
-permissions:
-  contents: write
-  issues: write
-  actions: write
+permissions: {}
 
 concurrency:
   group: fork-sync
@@ -20,20 +31,32 @@ concurrency:
 
 env:
   UPSTREAM_REPO: azukaar/cosmos-server
-  GH_TOKEN: ${{ github.token }}
+  # An upstream release is taken only once it has been out this many days, so
+  # a release that upstream replaces within days never reaches production.
+  MIN_AGE_DAYS: 3
 
 jobs:
-  sync:
+  candidate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    outputs:
+      sha: ${{ steps.merge.outputs.sha }}
+      tag: ${{ steps.merge.outputs.tag }}
     steps:
       # Nothing from the repository is executed in this job, only git and gh,
       # so the checkout may keep its credentials for the push below.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: custom
+          ref: production
           fetch-depth: 0
 
-      - name: Merge the latest upstream release
+      - name: Merge the latest upstream release into a candidate
+        id: merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IGNORE_AGE: ${{ inputs.ignore_age }}
         run: |
           report() { # title, body: open an issue unless the same one is already open
             if [ -z "$(gh issue list --state open --search "\"$1\" in:title" --json number --jq '.[].number')" ]; then
@@ -44,12 +67,22 @@ jobs:
           # "latest" is the newest release that is neither a draft nor a
           # pre-release, so unstable upstream builds are never merged.
           latest=$(gh api "repos/$UPSTREAM_REPO/releases/latest" --jq .tag_name)
-          echo "Latest upstream release: $latest"
+          published=$(gh api "repos/$UPSTREAM_REPO/releases/latest" --jq .published_at)
+          if ! [[ "$latest" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Unexpected upstream release tag '$latest'"; exit 1
+          fi
+          echo "Latest upstream release: $latest, published $published"
 
           git fetch --no-tags "https://github.com/$UPSTREAM_REPO.git" "refs/tags/$latest:refs/tags/$latest"
 
           if git merge-base --is-ancestor "$latest" HEAD; then
-            echo "custom already contains $latest."
+            echo "production already contains $latest."
+            exit 0
+          fi
+
+          age=$(( ($(date +%s) - $(date -d "$published" +%s)) / 86400 ))
+          if [ "$IGNORE_AGE" != "true" ] && [ "$age" -lt "$MIN_AGE_DAYS" ]; then
+            echo "::notice::Upstream $latest is $age day(s) old; it is taken once it is $MIN_AGE_DAYS days old."
             exit 0
           fi
 
@@ -59,31 +92,126 @@ jobs:
           if ! git merge --no-edit "$latest"; then
             conflicts=$(git diff --name-only --diff-filter=U)
             git merge --abort
-            report "Upstream $latest does not merge cleanly into custom" \
-              "$(printf 'The daily sync could not merge upstream release %s into `custom`.\n\nConflicting files:\n\n```\n%s\n```\n\nMerge it by hand (`git merge %s` on `custom`), resolve the conflicts and push; the push starts a fork release.' "$latest" "$conflicts" "$latest")"
+            report "Upstream $latest does not merge cleanly into production" \
+              "$(printf 'The daily sync could not merge upstream release %s into `production`.\n\nConflicting files:\n\n```\n%s\n```\n\nMerge it by hand on `custom` (`git merge %s`), resolve the conflicts, and promote `custom` to `production` once its checks pass.' "$latest" "$conflicts" "$latest")"
             echo "::error::Merge of $latest conflicts in: $conflicts"
             exit 1
           fi
 
           # The workflow token may not push changes under .github/workflows, so
-          # a merge that brings some is rejected here and needs a manual push.
-          if ! git push origin HEAD:custom "refs/tags/$latest"; then
-            report "Upstream $latest was merged but could not be pushed to custom" \
-              "$(printf 'The daily sync merged upstream release %s cleanly but the push was rejected, most likely because the merge changes files under `.github/workflows`, which the workflow token may not push.\n\nRun `git merge %s` on `custom` yourself and push; the push starts a fork release.' "$latest" "$latest")"
+          # a merge that brings some is rejected here and has to be made by hand.
+          if ! git push --force origin "HEAD:refs/heads/sync/$latest"; then
+            report "Upstream $latest merges cleanly but could not be pushed" \
+              "$(printf 'The daily sync merged upstream release %s cleanly, but the push of the candidate was rejected, most likely because the merge changes files under `.github/workflows`, which the workflow token may not push.\n\nMerge it by hand on `custom` (`git merge %s`) and promote `custom` to `production` once its checks pass.' "$latest" "$latest")"
             echo "::error::Push of the merge of $latest was rejected"
             exit 1
           fi
 
-      # Pushes made with the workflow token do not trigger other workflows, so
-      # the release is started from here. This runs on every sync, not only
-      # after a merge, so a release that failed to start yesterday is retried.
-      - name: Release the head of custom if it has not been released
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "tag=$latest" >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: candidate
+    if: needs.candidate.outputs.sha != ''
+    permissions:
+      contents: read
+    uses: ./.github/workflows/fork-ci.yml
+    with:
+      ref: ${{ needs.candidate.outputs.sha }}
+
+  promote:
+    needs: [candidate, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ needs.candidate.outputs.sha }}
+      TAG: ${{ needs.candidate.outputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: production
+          fetch-depth: 0
+
+      - name: Move production to the checked candidate
         run: |
-          git fetch --tags origin
-          released=$(gh release view --json tagName --jq .tagName 2>/dev/null || true)
-          if [ -n "$released" ] && git diff --quiet "$released" HEAD -- . ':(exclude)*.md'; then
-            echo "The head of custom is already released as $released."
+          git fetch origin "refs/heads/sync/$TAG"
+          if [ "$(git rev-parse FETCH_HEAD)" != "$SHA" ]; then
+            echo "::error::sync/$TAG is not the commit that was checked"; exit 1
+          fi
+          # Not forced: if production moved meanwhile this fails and the sync
+          # starts over tomorrow.
+          git push origin "$SHA:refs/heads/production"
+          git push origin --delete "sync/$TAG"
+
+      - name: Bring the merge into custom
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin custom
+          git checkout -q --detach origin/custom
+          if git merge --no-edit "$SHA" && git push origin HEAD:custom; then
+            gh workflow run fork-ci.yml --ref custom
             exit 0
           fi
-          echo "Starting a fork release (last release: ${released:-none})."
-          gh workflow run fork-release.yml --ref custom
+          git merge --abort 2>/dev/null || true
+          title="custom is behind production (upstream $TAG)"
+          if [ -z "$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[].number')" ]; then
+            gh issue create --title "$title" \
+              --body "$(printf 'Upstream release %s is on `production`, but merging `production` into `custom` conflicted or could not be pushed. Run `git merge origin/production` on `custom` and push; `custom` cannot be promoted until it contains `production`.' "$TAG")"
+          fi
+          echo "::warning::custom could not be brought up to date with production"
+
+  rejected:
+    needs: [candidate, verify]
+    if: always() && needs.verify.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.candidate.outputs.tag }}
+    steps:
+      - name: Report the failed checks
+        run: |
+          title="Upstream $TAG fails the fork's checks"
+          if [ -z "$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[].number')" ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" \
+              --body "$(printf 'Upstream release %s merges cleanly into `production`, but the merge did not build, pass the tests or start: %s\n\n`production` was not changed. The merge is on branch `sync/%s`.' "$TAG" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" "$TAG")"
+          fi
+
+  # Pushes made with the workflow token do not start other workflows, so the
+  # release is started from here. This runs on every sync, not only after a
+  # merge, so a release that failed to start yesterday is retried.
+  release:
+    needs: [promote]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: production
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Release the head of production if it has not been released
+        run: |
+          last=$(git tag --list 'v*-fork.*' | awk -F'-fork.' '$2 ~ /^[0-9]+$/ {print $2, $0}' | sort -n | tail -n 1 | cut -d' ' -f2)
+          if [ -z "$last" ]; then
+            echo "No fork release yet; the first one is made by pushing to production."
+            exit 0
+          fi
+          if git diff --quiet "$last" HEAD -- . ':(exclude)*.md'; then
+            echo "The head of production is already released as $last."
+            exit 0
+          fi
+          echo "Starting a fork release (last release: $last)."
+          gh workflow run fork-release.yml --ref production

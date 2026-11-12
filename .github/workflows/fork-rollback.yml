@@ -1,0 +1,60 @@
+# Fork addition: returns `production` to an earlier fork release and releases
+# that state again under a new, higher build number, which the server then
+# installs like any other update. History is not rewritten: the rollback is a
+# new commit on production.
+name: Roll production back
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Fork release to return to, for example v0.24.0-fork.7
+        type: string
+        required: true
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: fork-sync
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      # Only git and gh run here; nothing from the repository is executed.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: production
+          fetch-depth: 0
+
+      - name: Restore the files of the earlier release
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-fork\.[0-9]+$ ]]; then
+            echo "::error::'$TAG' is not a fork release tag (vX.Y.Z-fork.N)"; exit 1
+          fi
+          if ! git rev-parse -q --verify "refs/tags/$TAG^{commit}" > /dev/null; then
+            echo "::error::There is no release $TAG"; exit 1
+          fi
+          if ! git merge-base --is-ancestor "$TAG" HEAD; then
+            echo "::error::$TAG is not an earlier state of production"; exit 1
+          fi
+
+          # Everything except the automation: the workflow token may not change
+          # workflows, and the release must be built by the current ones.
+          git restore --source="$TAG" --staged --worktree -- . ':(exclude).github'
+          if git diff --cached --quiet; then
+            echo "::notice::production already has the files of $TAG; nothing to do."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -m "Roll production back to ${TAG#v}"
+          git push origin HEAD:production
+          gh workflow run fork-release.yml --ref production

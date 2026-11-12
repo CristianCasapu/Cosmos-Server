@@ -142,7 +142,8 @@ func checkUpdatesAvailable() {
 		}
 
 		if updates != nil {
-			cp, errc := utils.CompareSemver(currentVersion, updates.Version)
+			// Fork addition: fork releases are ordered by their build number.
+			cp, errc := CompareVersions(currentVersion, updates.Version)
 		
 			if errc != nil {
 				utils.Error("checkVersion", errc)
