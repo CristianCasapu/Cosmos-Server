@@ -965,7 +965,7 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
                       <FilePickerButton onPick={(path) => {
                         if(path)
                           setContext({ ...context, [formElement.name]: path });
-                      }} size="150%" select="folder" />
+                      }} size="150%" select="folder" value={context[formElement.name] /* Fork addition: open there */} />
                       <TextField
                       style={{ width: '100%' }}
                       label={ service['cosmos-installer']?.translation?.[i18n?.resolvedLanguage]?.['form.'+formElement.name+'.label'] || service['cosmos-installer']?.translation?.[i18n?.resolvedLanguage.substr?.(0,2)]?.['form.'+formElement.name+'.label'] || formElement.label }

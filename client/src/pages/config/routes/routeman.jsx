@@ -280,7 +280,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                         <FilePickerButton onPick={(path) => {
                           if(path)
                             formik.setFieldValue('Target', path);
-                        }} size="150%" select="folder" />)}
+                        }} size="150%" select="folder" value={formik.values.Target /* Fork addition: open there */} />)}
 
                       <CosmosInputText
                         style={{  }}
