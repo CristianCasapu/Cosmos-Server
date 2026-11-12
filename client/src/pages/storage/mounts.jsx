@@ -23,6 +23,11 @@ import { useClientInfos } from "../../utils/hooks";
 import { PERM_RESOURCES } from "../../utils/permissions";
 import PermissionGuard from "../../components/permissionGuard";
 
+// Fork addition: data disks mounted outside /mnt are listed too. They were not
+// mounted through this page (which only mounts under /mnt), so they are shown
+// without the actions that would take them out of /etc/fstab.
+export const mountedHere = (path) => /^\/(mnt|var\/mnt)\//.test(path || '');
+
 export const StorageMounts = () => {
   const { t } = useTranslation();
   const { hasPermission } = useClientInfos();
@@ -85,13 +90,13 @@ export const StorageMounts = () => {
               <div style={{position: 'relative'}}>
                 <PermissionGuard permission={PERM_RESOURCES}>
                   <MenuButton>
-                    <MenuItem disabled={!r.device.startsWith('/dev/') || loading || containerized} onClick={() => setMountDialog({data: r, unmount: false})}>
+                    <MenuItem disabled={!r.device.startsWith('/dev/') || loading || containerized || !mountedHere(r.path)} onClick={() => setMountDialog({data: r, unmount: false})}>
                       <ListItemIcon>
                         <EditOutlined fontSize="small" />
                       </ListItemIcon>
                       <ListItemText >{t('global.edit')}</ListItemText>
                     </MenuItem>
-                    <MenuItem disabled={loading || containerized} onClick={() => setMountDialog({data: r, unmount: true})}>
+                    <MenuItem disabled={loading || containerized || !mountedHere(r.path)} onClick={() => setMountDialog({data: r, unmount: true})}>
                       <ListItemIcon>
                         <DeleteOutlined fontSize="small" />
                       </ListItemIcon>

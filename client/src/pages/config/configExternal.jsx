@@ -32,7 +32,7 @@ const ConfigExternal = ({ formik }) => {
             <FilePickerButton onPick={(path) => {
               if(path)
                 formik.setFieldValue('DefaultDataPath', path);
-            }} size="150%" select="folder" />
+            }} size="150%" select="folder" value={formik.values.DefaultDataPath /* Fork addition: open there */} />
             <CosmosInputText
               label={t('mgmt.config.docker.defaultDatapathInput.defaultDatapathLabel')}
               name="DefaultDataPath"

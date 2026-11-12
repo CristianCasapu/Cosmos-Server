@@ -229,7 +229,13 @@ function migrateHost(values) {
   return Promise.resolve({ "status": "OK" });
 }
 
+// Fork addition: the demo has no images to inspect
+function inspectImage(imageName) {
+  return Promise.reject(new Error('not available in the demo'));
+}
+
 export {
+  inspectImage,
   exportContainer,
   migrateHost,
   list,

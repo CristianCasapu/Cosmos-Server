@@ -530,8 +530,8 @@ func CreateService(serviceRequest DockerServiceCreateRequest, OnLog func(string)
 			for i, env := range containerConfig.Env {
 				if strings.HasPrefix(env, "TZ=") {
 					if strings.TrimPrefix(env, "TZ=") == "auto" {
-						if os.Getenv("TZ") != "" {
-							containerConfig.Env[i] = "TZ=" + os.Getenv("TZ")
+						if tz := utils.ContainerTimezone(); tz != "" { // Fork addition: the Timezone setting, TZ, then the host's zone
+							containerConfig.Env[i] = "TZ=" + tz
 						} else {
 							containerConfig.Env = append(containerConfig.Env[:i], containerConfig.Env[i+1:]...)
 						}

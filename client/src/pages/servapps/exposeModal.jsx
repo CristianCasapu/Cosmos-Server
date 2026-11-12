@@ -75,6 +75,7 @@ const ExposeModal = ({ openModal, setOpenModal, config, updateRoutes, container 
                       deleteRoute={() => {}}
                       noControls
                       lockTarget
+                      showErrors={submitErrors.length > 0 && submitErrors /* Fork addition */}
                     />
                 </div>
                 {/* Fork addition */}

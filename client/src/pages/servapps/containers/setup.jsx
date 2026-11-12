@@ -73,6 +73,7 @@ const DockerContainerSetup = ({
   refresh,
   newContainer,
   OnForceSecure,
+  afterImage, // Fork addition: shown under the image field (the image's defaults, in the new container form)
 }) => {
   const { t } = useTranslation();
   const [pullRequest, setPullRequest] = useState(null);
@@ -229,6 +230,7 @@ const DockerContainerSetup = ({
                             label={t('global.nameTitle')}
                             placeholder={t('global.nameTitle')}
                             formik={formik}
+                            required /* Fork addition: mandatory fields are marked */
                           />
                         )}
                         <CosmosInputText
@@ -236,7 +238,9 @@ const DockerContainerSetup = ({
                           label={t('mgmt.servApps.container.overview.imageTitle')}
                           placeholder={t('mgmt.servApps.container.overview.imageTitle')}
                           formik={formik}
+                          required
                         />
+                        {afterImage}
                         <CosmosSelect
                           name="restartPolicy"
                           label={t('mgmt.servapps.newContainer.restartPolicyInput.restartPolicyLabel')}

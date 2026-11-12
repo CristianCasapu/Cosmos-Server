@@ -289,13 +289,14 @@ export default function createStorageAPI(apiFetch: ApiFetch) {
     },
   };
 
-  const listDir = (storage: string, path: string): Promise<ApiResponse> => {
+  // Fork addition: noError, to try a folder without an error message when it cannot be listed
+  const listDir = (storage: string, path: string, noError = false): Promise<ApiResponse> => {
     return wrap(apiFetch(`/cosmos/api/list-dir?storage=${storage}&path=${path}`, {
       method: 'GET',
       headers: {
           'Content-Type': 'application/json'
       },
-    }))
+    }), noError)
   }
 
   const newFolder = (storage: string, path: string, folder: string): Promise<ApiResponse> => {

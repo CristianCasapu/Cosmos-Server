@@ -23,7 +23,7 @@ import {
   Select,
 
 } from '@mui/material';
-import { Field } from 'formik';
+import { Field, useFormikContext } from 'formik';
 import { DownOutlined, UpOutlined } from '@ant-design/icons';
 import { strengthColor, strengthIndicator } from '../../../utils/password-strength';
 import { useTranslation } from 'react-i18next';
@@ -54,11 +54,51 @@ export const getNestedValue = (values, path) => {
   }, values);
 };
 
-export const CosmosInputText = ({ name, style, value, errors, multiline, type, placeholder, onChange, label, formik, disabled, autoComplete, inputProps }) => {
+// Fork addition: the help text of a field, shown below it. Left out when an
+// error is shown in its place, and when it only repeats the label.
+const FieldHelp = ({ text, label, error }) => {
+  return (text && !error && text !== label) ? <FormHelperText>{text}</FormHelperText> : null;
+};
+
+// Fork addition: makes a form's validation errors show next to their fields
+// instead of only next to the button that found them. Rendered inside the
+// Formik form. `when` turns truthy (and changes) each time a button outside
+// the form, such as a dialog's Confirm, finds the form invalid: the listed
+// fields are then marked as touched. The first field in error is scrolled
+// into view then, and after each submit of the form itself.
+export const ShowFieldErrors = ({ when, fields }) => {
+  const formik = useFormikContext();
+  const anchor = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!when && !formik.submitCount) {
+      return;
+    }
+    if (when) {
+      const touched = { ...formik.touched };
+      fields.forEach((field) => { touched[field] = true; });
+      formik.setTouched(touched, false);
+    }
+    formik.validateForm().then((errors) => {
+      const first = fields.find((field) => errors && errors[field]);
+      const form = anchor.current && anchor.current.closest('form');
+      const el = first && form && form.querySelector('[id="' + first + '"], [name="' + first + '"]');
+      if (el && el.scrollIntoView) {
+        el.scrollIntoView({ block: 'center' });
+      }
+    });
+  }, [when, formik.submitCount]);
+
+  return <span ref={anchor} hidden />;
+};
+
+// Fork addition (in the helpers below): `required` marks the field as
+// mandatory with MUI's own asterisk after the label.
+export const CosmosInputText = ({ name, style, value, errors, multiline, type, placeholder, onChange, label, formik, disabled, autoComplete, inputProps, helperText, required }) => {
   disabled = disabled || React.useContext(FormReadOnlyContext);
   return <Grid item xs={12}>
     <Stack spacing={1} style={style}>
-      {label && <InputLabel htmlFor={name}>{label}</InputLabel>}
+      {label && <InputLabel htmlFor={name} required={required}>{label}</InputLabel>}
       <OutlinedInput
         id={name}
         disabled={disabled}
@@ -67,7 +107,7 @@ export const CosmosInputText = ({ name, style, value, errors, multiline, type, p
         name={name}
         multiline={multiline}
         autoComplete={autoComplete}
-        inputProps={inputProps}
+        inputProps={required ? { 'aria-required': true, ...inputProps } : inputProps}
         onBlur={(...ar) => {
           return formik && formik.handleBlur(...ar);
         }}
@@ -89,11 +129,12 @@ export const CosmosInputText = ({ name, style, value, errors, multiline, type, p
           {formik.errors[name]}
         </FormHelperText>
       )}
+      <FieldHelp text={helperText} label={label} error={errors || (formik && formik.touched[name] && formik.errors[name])} />
     </Stack>
   </Grid>
 }
 
-export const CosmosInputPassword = ({ name, noStrength, type, placeholder, autoComplete, onChange, label, formik }) => {
+export const CosmosInputPassword = ({ name, noStrength, type, placeholder, autoComplete, onChange, label, formik, helperText }) => {
   const { t } = useTranslation();
   const [level, setLevel] = React.useState();
   const [showPassword, setShowPassword] = React.useState(false);
@@ -151,6 +192,7 @@ export const CosmosInputPassword = ({ name, noStrength, type, placeholder, autoC
           {formik.errors[name]}
         </FormHelperText>
       )}
+      <FieldHelp text={helperText} label={label} error={formik.touched[name] && formik.errors[name]} />
 
       {!noStrength && <FormControl fullWidth sx={{ mt: 2 }}>
           <Grid container spacing={2} alignItems="center">
@@ -169,12 +211,12 @@ export const CosmosInputPassword = ({ name, noStrength, type, placeholder, autoC
 }
 
 
-export const CosmosSelect = ({ name, onChange, label, formik, disabled, options, style }) => {
+export const CosmosSelect = ({ name, onChange, label, formik, disabled, options, style, helperText, required }) => {
   disabled = disabled || React.useContext(FormReadOnlyContext);
   return (
     <Grid item xs={12}>
       <Stack spacing={1}>
-        <InputLabel htmlFor={name}>{label}</InputLabel>
+        <InputLabel htmlFor={name} required={required}>{label}</InputLabel>
         <FormControl variant="outlined" fullWidth error={getNestedValue(formik.touched, name) && Boolean(getNestedValue(formik.errors, name))} disabled={disabled} style={style}>
           <Select
             className="px-2 my-2"
@@ -198,6 +240,7 @@ export const CosmosSelect = ({ name, onChange, label, formik, disabled, options,
           {getNestedValue(formik.touched, name) && getNestedValue(formik.errors, name) && (
             <FormHelperText>{getNestedValue(formik.errors, name)}</FormHelperText>
           )}
+          <FieldHelp text={helperText} label={label} error={getNestedValue(formik.touched, name) && getNestedValue(formik.errors, name)} />
         </FormControl>
       </Stack>
     </Grid>

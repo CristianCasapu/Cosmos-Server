@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { CosmosContainerPicker } from '../../config/users/containerPicker';
 import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_RESOURCES } from '../../../utils/permissions';
+import { portHostIp, isHostIp } from './forkContainerFixes'; // Fork addition: the host address of a published port
 
 const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, OnChange, OnConnect, OnDisconnect }) => {
   const { t } = useTranslation();
@@ -74,13 +75,15 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
 
     return Object.keys(portsConfig).map((contPort) => {
       return portsConfig[contPort] ? portsConfig[contPort].map((hostPort) => {
-        let key = contPort + ":" + hostPort.HostPort + "/" + hostPort.protocol;
+        const hostIp = portHostIp(containerInfo, contPort, hostPort); // Fork addition
+        let key = contPort + ":" + hostIp + ":" + hostPort.HostPort + "/" + hostPort.protocol;
         if (portsBound.includes(key)) return null;
         portsBound.push(key);
         return {
           port: contPort.split('/')[0],
           protocol: contPort.split('/')[1],
           hostPort: hostPort.HostPort,
+          hostIp, // Fork addition
         };
       }) : {
         port: contPort.split('/')[0],
@@ -105,6 +108,10 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
         }}
         validate={(values) => {
           const errors = {};
+          // Fork addition: a mistyped address must not reach Docker
+          if (!newContainer && values.ports.some((port) => !isHostIp(port.hostIp))) {
+            errors.ports = t('mgmt.servApps.networks.hostIpInput.hostIpValidation', 'Enter an IPv4 or IPv6 address, or leave it empty for every address');
+          }
           OnChange && OnChange(values);
           return errors;
         }}
@@ -124,6 +131,7 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
               if(!realvalues.portBindings[key]) realvalues.portBindings[key] = [];
               
               realvalues.portBindings[`${port.port}/${port.protocol}`].push({
+                HostIp: port.hostIp || '', // Fork addition: without it a port bound to 127.0.0.1 became public
                 HostPort: port.hostPort,
               })
             }
@@ -182,7 +190,22 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                   <div>
                     {formik.values.ports.map((port, idx) => (
                       <Grid container key={idx}>
-                        <Grid item xs={4} style={{ padding }}>
+                        {/* Fork addition: the address the port is bound to (not sent by the new container form) */}
+                        {!newContainer && <Grid item xs={12} md={3} style={{ padding }}>
+                          <TextField
+                            fullWidth
+                            label={t('mgmt.servApps.networks.hostIpInput.hostIpLabel', 'Host IP (optional)')}
+                            value={port.hostIp || ''}
+                            error={!isHostIp(port.hostIp)}
+                            helperText={!isHostIp(port.hostIp) && t('mgmt.servApps.networks.hostIpInput.hostIpValidation', 'Enter an IPv4 or IPv6 address, or leave it empty for every address')}
+                            onChange={(e) => {
+                              const newports = [...formik.values.ports];
+                              newports[idx].hostIp = e.target.value.trim();
+                              formik.setFieldValue('ports', newports);
+                            }}
+                          />
+                        </Grid>}
+                        <Grid item xs={4} md={newContainer ? 4 : 3} style={{ padding }}>
                           <TextField
                             fullWidth
                             label="Host port"
@@ -194,7 +217,7 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                             }}
                           />
                         </Grid>
-                        <Grid item xs={4} style={{ padding }}>
+                        <Grid item xs={4} md={newContainer ? 4 : 3} style={{ padding }}>
                           <TextField
                             label={t('mgmt.servApps.networks.containerPortInput.containerPortLabel')}
                             fullWidth
@@ -206,7 +229,7 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                             }}
                           />
                         </Grid>
-                        <Grid item xs={3} style={{ padding }}>
+                        <Grid item xs={3} md={newContainer ? 3 : 2} style={{ padding }}>
                           <TextField
                             className="px-2 my-2"
                             variant="outlined"

@@ -6,7 +6,7 @@ import * as React from 'react';
 import { Chip, Grid, Stack, Typography } from '@mui/material';
 import { GlobalOutlined, HomeOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { getHostnameFromName } from '../utils/routes';
+import { getHostnameFromName, IsRouteSocketProxy } from '../utils/routes';
 
 // The app's name as a DNS label.
 export const hostLabel = (name) => (name || '')
@@ -25,18 +25,56 @@ export const configuredDomains = (config) => {
     .filter((zone) => zone && !zone.endsWith('.local'));
 };
 
+// The name an address is built from: the app's name, with the prefix and
+// suffix an installer route asks for (hostPrefix / hostSuffix), if any.
+export const addressName = (name, route) => ((route && route.hostPrefix) || '') + (name || '') + ((route && route.hostSuffix) || '');
+
 // The local address every app gets: a .local name when Cosmos publishes
 // them, otherwise upstream's default (the server's address with a free port).
-export const localAddress = (name, config) => {
-  const label = hostLabel(name);
+// `route` is only given by the installer, for its hostPrefix / hostSuffix.
+export const localAddress = (name, config, route) => {
+  const label = hostLabel(addressName(name, route));
   if (label && config && config.HTTPConfig && config.HTTPConfig.PublishMDNS) {
     return label + '.local';
   }
-  return getHostnameFromName(name, null, config);
+  return getHostnameFromName(name, route || null, config);
 };
 
 // The external address of an app under one of the configured domains.
 export const externalAddress = (name, domain) => hostLabel(name) + '.' + domain;
+
+// True for an installer route (lower-case keys) that gets a hostname: it is
+// reached by name, not by a port.
+export const installerRouteHasAddress = (route) => !!(route && route.useHost)
+  && !IsRouteSocketProxy({ Target: route.target || route.Target, Mode: route.mode || route.Mode });
+
+// The routes an installer is about to create for the service `name`, plus one
+// external copy (same target and settings) of each per attached domain.
+export const withExternalRoutes = (routes, name, domains) => {
+  if (!routes || !domains || domains.length === 0) {
+    return routes;
+  }
+  const taken = routes.map((route) => route.host);
+  const extras = [];
+  routes.filter(installerRouteHasAddress).forEach((route) => {
+    domains.forEach((domain) => {
+      let host = externalAddress(addressName(name, route), domain);
+      if (host === route.host) {
+        return; // already picked as the route's own address
+      }
+      if (taken.includes(host)) {
+        // two routes of one service: tell them apart by the route's name
+        host = externalAddress(addressName(name, route) + '-' + route.name, domain);
+      }
+      if (taken.includes(host)) {
+        return;
+      }
+      taken.push(host);
+      extras.push({ ...route, name: route.name + '-' + domain, host });
+    });
+  });
+  return [...routes, ...extras];
+};
 
 export const hostnameSuggestions = (name, config) => {
   const label = hostLabel(name);
@@ -57,7 +95,12 @@ export const hostnameSuggestions = (name, config) => {
   }
   configuredDomains(config).forEach((domain) => add(label + '.' + domain, false));
 
-  const fallback = getHostnameFromName(name, null, config);
+  let fallback = '';
+  try {
+    fallback = getHostnameFromName(name, null, config);
+  } catch (e) {
+    // the configuration is not loaded yet: no default to propose
+  }
   if (fallback && !fallback.includes(' ')) {
     const bare = fallback.split(':')[0];
     add(fallback, bare.endsWith('.local') || /^\d+\.\d+\.\d+\.\d+$/.test(bare));
@@ -65,7 +108,8 @@ export const hostnameSuggestions = (name, config) => {
   return suggestions;
 };
 
-const HostnameSuggestions = ({ name, value, config, onPick, disabled }) => {
+// `inline` renders the proposals without the grid cell and indent of the route form.
+const HostnameSuggestions = ({ name, value, config, onPick, disabled, inline }) => {
   const { t } = useTranslation();
   const suggestions = React.useMemo(() => hostnameSuggestions(name, config), [name, config]);
 
@@ -75,8 +119,11 @@ const HostnameSuggestions = ({ name, value, config, onPick, disabled }) => {
 
   const noDomain = configuredDomains(config).length === 0;
 
-  return <Grid item xs={12}>
-    <Stack spacing={0.75} style={{ paddingLeft: '20px' }}>
+  const Cell = inline ? React.Fragment : Grid;
+  const cellProps = inline ? {} : { item: true, xs: 12 };
+
+  return <Cell {...cellProps}>
+    <Stack spacing={0.75} style={inline ? undefined : { paddingLeft: '20px' }}>
       <Typography variant="caption" color="textSecondary">
         {t('mgmt.urls.edit.hostSuggestions.title', 'Suggested addresses (click to use one):')}
       </Typography>
@@ -103,7 +150,7 @@ const HostnameSuggestions = ({ name, value, config, onPick, disabled }) => {
           'To get addresses under your own domain, add the domain in Configuration > Domains.')}
       </Typography>}
     </Stack>
-  </Grid>;
+  </Cell>;
 };
 
 // DomainPicker attaches domains to an app that is getting its local address:
@@ -133,7 +180,7 @@ export const DomainPicker = ({ name, config, selected, onChange }) => {
           icon={<GlobalOutlined />}
           color={selected.includes(domain) ? 'primary' : 'default'}
           variant={selected.includes(domain) ? 'filled' : 'outlined'}
-          label={externalAddress(name, domain) || domain}
+          label={hostLabel(name) ? externalAddress(name, domain) : domain}
           onClick={() => toggle(domain)}
           sx={{ maxWidth: '100%' }}
         />

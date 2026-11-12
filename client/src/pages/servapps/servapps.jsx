@@ -290,7 +290,8 @@ const ServApps = ({stack}) => {
       </div>
       
       <Grid2 container spacing={{xs: 1, sm: 1, md: 2 }}>
-        {updatesAvailable && updatesAvailable.length && <Grid2 style={gridAnim} xs={12} item>
+        {/* Fork addition: updatesAvailable is a map of container names, ".length" was never set */}
+        {updatesAvailable && Object.keys(updatesAvailable).length > 0 && <Grid2 style={gridAnim} xs={12} item>
           <Item>
             <Alert severity="info">{t('mgmt.servapps.updatesAvailableFor')} {Object.keys(updatesAvailable).join(', ')}</Alert>
           </Item>
