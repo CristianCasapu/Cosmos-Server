@@ -191,6 +191,12 @@ type Config struct {
 	// Fork addition: when the nightly maintenance and the automatic update
 	// run, as "HH:MM" in the server's time zone. Empty means 02:00.
 	MaintenanceTime string `json:"MaintenanceTime,omitempty" validate:"omitempty,len=5"`
+	// Fork addition: the time zone (IANA name, such as Europe/Bucharest) given
+	// to new containers that ask for the server's with TZ=auto. Empty means
+	// the server's own zone. Checked when the settings are saved, not with a
+	// validate tag: a zone that stops loading must not keep the server from
+	// starting.
+	Timezone string `json:"Timezone,omitempty"`
 	OpenIDClients []OpenIDClient
 	MarketConfig MarketConfig
 	HomepageConfig HomepageConfig

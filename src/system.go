@@ -98,6 +98,7 @@ func StatusRoute(w http.ResponseWriter, req *http.Request) {
 				"LicenceNodeNumber": licenceNodeNumber,
 				"ConfigFolder": absoluteConfigPath,
 				"ConstellationName": utils.GetMainConfig().ConstellationConfig.ThisDeviceName,
+				"hostTimezone": utils.DetectedTimezoneFor(req), // Fork addition: shown next to the Timezone setting
 			},
 		})
 	} else {
