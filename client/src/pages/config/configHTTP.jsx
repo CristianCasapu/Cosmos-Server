@@ -56,7 +56,7 @@ const ConfigHTTP = ({ formik }) => {
                 name="AllowHTTPLocalIPAccess"
                 formik={formik}
               />
-              {formik.values.allowHTTPLocalIPAccess && <Alert severity="warning"><Trans i18nKey="mgmt.config.http.allowInsecureLocalAccessCheckbox.allowInsecureLocalAccessWarning" /></Alert>}
+              {formik.values.AllowHTTPLocalIPAccess /* Fork addition: was allowHTTPLocalIPAccess, so the warning never showed */ && <Alert severity="warning"><Trans i18nKey="mgmt.config.http.allowInsecureLocalAccessCheckbox.allowInsecureLocalAccessWarning" /></Alert>}
           </Grid>) : ""}
 
           <Grid item xs={12}>

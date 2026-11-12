@@ -54,7 +54,13 @@ export const getNestedValue = (values, path) => {
   }, values);
 };
 
-export const CosmosInputText = ({ name, style, value, errors, multiline, type, placeholder, onChange, label, formik, disabled, autoComplete, inputProps }) => {
+// Fork addition: the help text of a field, shown below it. Left out when an
+// error is shown in its place, and when it only repeats the label.
+const FieldHelp = ({ text, label, error }) => {
+  return (text && !error && text !== label) ? <FormHelperText>{text}</FormHelperText> : null;
+};
+
+export const CosmosInputText = ({ name, style, value, errors, multiline, type, placeholder, onChange, label, formik, disabled, autoComplete, inputProps, helperText }) => {
   disabled = disabled || React.useContext(FormReadOnlyContext);
   return <Grid item xs={12}>
     <Stack spacing={1} style={style}>
@@ -89,11 +95,12 @@ export const CosmosInputText = ({ name, style, value, errors, multiline, type, p
           {formik.errors[name]}
         </FormHelperText>
       )}
+      <FieldHelp text={helperText} label={label} error={errors || (formik && formik.touched[name] && formik.errors[name])} />
     </Stack>
   </Grid>
 }
 
-export const CosmosInputPassword = ({ name, noStrength, type, placeholder, autoComplete, onChange, label, formik }) => {
+export const CosmosInputPassword = ({ name, noStrength, type, placeholder, autoComplete, onChange, label, formik, helperText }) => {
   const { t } = useTranslation();
   const [level, setLevel] = React.useState();
   const [showPassword, setShowPassword] = React.useState(false);
@@ -151,6 +158,7 @@ export const CosmosInputPassword = ({ name, noStrength, type, placeholder, autoC
           {formik.errors[name]}
         </FormHelperText>
       )}
+      <FieldHelp text={helperText} label={label} error={formik.touched[name] && formik.errors[name]} />
 
       {!noStrength && <FormControl fullWidth sx={{ mt: 2 }}>
           <Grid container spacing={2} alignItems="center">
@@ -169,7 +177,7 @@ export const CosmosInputPassword = ({ name, noStrength, type, placeholder, autoC
 }
 
 
-export const CosmosSelect = ({ name, onChange, label, formik, disabled, options, style }) => {
+export const CosmosSelect = ({ name, onChange, label, formik, disabled, options, style, helperText }) => {
   disabled = disabled || React.useContext(FormReadOnlyContext);
   return (
     <Grid item xs={12}>
@@ -198,6 +206,7 @@ export const CosmosSelect = ({ name, onChange, label, formik, disabled, options,
           {getNestedValue(formik.touched, name) && getNestedValue(formik.errors, name) && (
             <FormHelperText>{getNestedValue(formik.errors, name)}</FormHelperText>
           )}
+          <FieldHelp text={helperText} label={label} error={getNestedValue(formik.touched, name) && getNestedValue(formik.errors, name)} />
         </FormControl>
       </Stack>
     </Grid>
