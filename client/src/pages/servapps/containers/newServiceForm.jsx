@@ -18,6 +18,7 @@ import VolumeContainerSetup from './volumes';
 import DockerTerminal from './terminal';
 import NewDockerService from './newService';
 import RouteManagement from '../../config/routes/routeman';
+import { localAddress } from '../../../components/hostnameSuggestions'; // Fork addition
 import { useTranslation } from 'react-i18next';
 
 const NewDockerServiceForm = () => {
@@ -204,7 +205,8 @@ const NewDockerServiceForm = () => {
                 Name: containerInfo.Name.replace('/', ''),
                 Description: t('mgmt.servApp.exposeDesc').replace('containerName',containerInfo.Name.replace('/', '')) + containerInfo.Name.replace('/', ''),
                 UseHost: true,
-                Host: getHostnameFromName(containerInfo.Name, null, config),
+                // Fork addition: every app gets a local address; a domain can be picked from the suggestions
+                Host: localAddress(containerInfo.Name, config),
                 UsePathPrefix: false,
                 PathPrefix: '',
                 CORSOrigin: '',
@@ -218,6 +220,7 @@ const NewDockerServiceForm = () => {
                 }
               }} 
               routeNames={[]}
+              config={config /* Fork addition: for the address suggestions */}
               setRouteConfig={(newRoute) => {
                 const newValues = {
                   ...containerInfo,
