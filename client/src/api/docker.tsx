@@ -397,7 +397,19 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
     }))
   }
 
+  // Fork addition: what an image already on the server declares (ports,
+  // volumes, environment). Fails when the image is not there; never pulls.
+  function inspectImage(imageName: string): Promise<any> {
+    return wrap(apiFetch('/cosmos/api/images?imageName=' + encodeURIComponent(imageName), {
+      method: 'GET',
+      headers: {
+          'Content-Type': 'application/json'
+      },
+    }), true)
+  }
+
   return {
+    inspectImage,
     list,
     get,
     newDB,

@@ -16,6 +16,7 @@ import * as API from '../api';
 import { current } from '@reduxjs/toolkit';
 import { json } from 'react-router';
 import { NewFolderButton } from './newFileModal';
+import FilePickerShortcuts, { startFolders } from './filePickerShortcuts'; // Fork addition
 
 function transformToTree(data) {
   const root = {
@@ -58,7 +59,8 @@ function transformToTree(data) {
   return root;
 }
 
-const FilePickerModal = ({ raw, open, cb, restic, OnClose, onPick, canCreate, _storage = '', _path = '', select='any' }) => {
+// Fork addition: _value, the path the field holds now; the picker opens at its folder
+const FilePickerModal = ({ raw, open, cb, restic, OnClose, onPick, canCreate, _storage = '', _path = '', select='any', _value = '' }) => {
   const { t } = useTranslation();
   const [selectedStorage, setSelectedStorage] = React.useState(_storage);
   const [selectedPath, setSelectedPath] = React.useState(_path);
@@ -66,11 +68,14 @@ const FilePickerModal = ({ raw, open, cb, restic, OnClose, onPick, canCreate, _s
   const [storages, setStorages] = React.useState([]);
   const [directoriesAsTree, setDirectoriesAsTree] = React.useState({});
   const [selectedFullPath, setSelectedFullPath] = React.useState('');
+  const [startFolder, setStartFolder] = React.useState(''); // Fork addition
 
   let explore = !onPick;
 
-  const updateFiles = (storage, path, force) => {
-    let resetStorage = storage != selectedStorage;
+  // Fork addition: `reset` makes this folder the top of the tree, `quiet` keeps a failure silent;
+  // a listing resolves to true
+  const updateFiles = (storage, path, force, reset, quiet) => {
+    let resetStorage = reset || storage != selectedStorage;
 
     // if already loaded, just update the tree
     if(!resetStorage && (!force && files[path])) {
@@ -78,7 +83,7 @@ const FilePickerModal = ({ raw, open, cb, restic, OnClose, onPick, canCreate, _s
       setSelectedPath(path);
       return;
     } else {
-      API.storage.listDir(storage, path).then(({data}) => {
+      return API.storage.listDir(storage, path, quiet).then(({data}) => {
         setFiles((current) => {
           if(resetStorage) {
             current = {
@@ -96,9 +101,13 @@ const FilePickerModal = ({ raw, open, cb, restic, OnClose, onPick, canCreate, _s
         setSelectedStorage(data.storage);
         setSelectedPath(data.path);
         setPath(data.storage, data.path || '/', data.fullpath || '/');
+        return true;
       });
     }
   }
+
+  // Fork addition: shows a folder of the local disk as the top of the tree
+  const goTo = (path, quiet) => updateFiles('local', encodeURIComponent(path), true, true, quiet).catch(() => false);
 
   function convertToTreeView(treeData) {
     let nodeCounter = 0;
@@ -120,6 +129,9 @@ const FilePickerModal = ({ raw, open, cb, restic, OnClose, onPick, canCreate, _s
   
     return (
       <TreeView
+        /* Fork addition: the top folder is shown open, also after jumping to another one */
+        key={treeData.id}
+        defaultExpanded={[treeData.id]}
         onNodeSelect={handleToggleNode}
         aria-label="file system navigator"
         defaultCollapseIcon={<FolderOpenOutlined />}
@@ -145,7 +157,8 @@ const FilePickerModal = ({ raw, open, cb, restic, OnClose, onPick, canCreate, _s
   }
 
   const handleToggleNode = (event, nodePath) => {
-    if (nodePath == "/") {
+    // Fork addition: the top of the tree can be any local folder, not only "/"
+    if (nodePath == "/" || (selectedStorage == "local" && nodePath === directoriesAsTree.id)) {
       updateFiles(selectedStorage, nodePath);
       setPath(selectedStorage, nodePath, nodePath);
       return;
@@ -176,7 +189,17 @@ const FilePickerModal = ({ raw, open, cb, restic, OnClose, onPick, canCreate, _s
   }
 
   React.useEffect(() => {
-    updateFiles(_storage, _path);
+    // Fork addition: start where the field's current value is, when that can be listed
+    (async () => {
+      const folders = (!_storage || _storage == 'local') && !_path ? startFolders(_value) : [];
+      for (const folder of folders) {
+        if (await goTo(folder, true)) {
+          setStartFolder(folder);
+          return;
+        }
+      }
+      updateFiles(_storage, _path);
+    })();
   }, []);
 
   return (
@@ -186,6 +209,12 @@ const FilePickerModal = ({ raw, open, cb, restic, OnClose, onPick, canCreate, _s
           <DialogContent>
             <DialogContentText>
               {(storages && files) ? <>
+              {/* Fork addition */}
+              {!explore && <FilePickerShortcuts
+                current={selectedStorage == 'local' ? directoriesAsTree.id : ''}
+                startFolder={startFolder}
+                onGo={(path) => goTo(path)}
+              />}
               <Stack direction="row" spacing={2}>
               {!explore && <div style={{background: 'rgba(0,0,0,0.1)'}}>
                 <Stack spacing={2} style={{padding: '10px'}}>
@@ -196,7 +225,7 @@ const FilePickerModal = ({ raw, open, cb, restic, OnClose, onPick, canCreate, _s
                       {storages.map((storage) => (
                         <ListItem key={storage.name} disablePadding >
                            <ListItemButton
-                            onClick={() => {updateFiles(storage.name, '');}}
+                            onClick={() => {updateFiles(storage.name, '', true, true /* Fork addition: back to the top of that storage */);}}
                             style={{background: selectedStorage === storage.name ? 'rgba(0,0,0,0.1)' : 'transparent' }}
                             >{storage.name}</ListItemButton>
                         </ListItem>
@@ -250,7 +279,8 @@ const FilePickerModal = ({ raw, open, cb, restic, OnClose, onPick, canCreate, _s
   );
 };
 
-const FilePickerButton = ({ disabled, raw, canCreate, restic, onPick, size = '100%', storage = '', path = '', select="any", tooltip }) => {
+// Fork addition: value, the path the field holds now
+const FilePickerButton = ({ disabled, raw, canCreate, restic, onPick, size = '100%', storage = '', path = '', select="any", tooltip, value }) => {
   const [open, setOpen] = React.useState(false);
   const { t } = useTranslation();
 
@@ -260,7 +290,7 @@ const FilePickerButton = ({ disabled, raw, canCreate, restic, onPick, size = '10
       <Tooltip title={tooltip || t('tooltip.browseFiles', 'Browse files')}><span style={{display: 'inline-flex'}}><IconButton onClick={() => setOpen(true)} disabled={disabled}>
         {onPick ? <><FolderAddFilled style={{fontSize: size}}/></> : <FolderViewOutlined style={{fontSize: size}}/>}
       </IconButton></span></Tooltip>
-      {open && <FilePickerModal canCreate={canCreate} restic={restic} raw={raw} select={select} open={open} onPick={onPick} OnClose={() => setOpen(false)} _storage={storage} _path={path} />}
+      {open && <FilePickerModal canCreate={canCreate} restic={restic} raw={raw} select={select} open={open} onPick={onPick} OnClose={() => setOpen(false)} _storage={storage} _path={path} _value={value} />}
     </>
   );
 }

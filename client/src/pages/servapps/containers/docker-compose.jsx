@@ -38,6 +38,8 @@ import { useTranslation } from 'react-i18next';
 import { FilePickerButton } from '../../../components/filePicker';
 import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_RESOURCES } from '../../../utils/permissions';
+// Fork addition: local address by default, external ones per attached domain
+import HostnameSuggestions, { DomainPicker, addressName, installerRouteHasAddress, localAddress, withExternalRoutes } from '../../../components/hostnameSuggestions';
 
 function checkIsOnline() {
   API.isOnline().then((res) => {
@@ -478,6 +480,8 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
   const [rootProtocol, setRootProtocol] = useState('https');
   const [envContent, setEnvContent] = useState('');
   const [detectedEnvVars, setDetectedEnvVars] = useState([]);
+  // Fork addition: domains attached to the app; each adds an external address per route
+  const [domains, setDomains] = useState([]);
 
   // Extract ${VAR} patterns from docker compose
   const extractEnvVars = (compose) => {
@@ -663,6 +667,10 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
                   let newRoute = Object.assign({}, route);
                   if (route.useHost === true) {
                     newRoute.host = getHostnameFromName(key + (routeId > 0 ? '-' + routeId : ''), newRoute, config);
+                    // Fork addition: a route reached by name gets the local address by default
+                    if (installerRouteHasAddress(newRoute)) {
+                      newRoute.host = localAddress(key + (routeId > 0 ? '-' + routeId : ''), config, newRoute);
+                    }
                   }
                   
                   if(!newHostnames[key]) newHostnames[key] = {};
@@ -728,6 +736,8 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
                     route.host = hostnames[key][route.name].host;
                   }
                 });
+                // Fork addition: one more route per attached domain, created by the same request
+                jsoned.services[key].routes = withExternalRoutes(jsoned.services[key].routes, key, domains);
               }
             }
 
@@ -786,7 +796,7 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
       setYmlError(e.message);
       return;
     }
-  }, [openModal, dockerCompose, serviceName, hostnames, overrides, installer, config, rootProtocol, envContent]);
+  }, [openModal, dockerCompose, serviceName, hostnames, overrides, installer, config, rootProtocol, envContent, domains]);
 
   const openModalFunc = () => {
     setOpenModal(true);
@@ -795,6 +805,7 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
     setYmlError(null);
     setOverrides({});
     setHostnames({});
+    setDomains([]); // Fork addition
     setContext({});
     setDockerCompose('');
     setInstaller(installerInit);
@@ -955,7 +966,7 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
                       <FilePickerButton onPick={(path) => {
                         if(path)
                           setContext({ ...context, [formElement.name]: path });
-                      }} size="150%" select="folder" />
+                      }} size="150%" select="folder" value={context[formElement.name] /* Fork addition: open there */} />
                       <TextField
                       style={{ width: '100%' }}
                       label={ service['cosmos-installer']?.translation?.[i18n?.resolvedLanguage]?.['form.'+formElement.name+'.label'] || service['cosmos-installer']?.translation?.[i18n?.resolvedLanguage.substr?.(0,2)]?.['form.'+formElement.name+'.label'] || formElement.label }
@@ -984,10 +995,33 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
                       hostnames[serviceIndex][hostname.name].host = e.target.value;
                       setHostnames({...hostnames});
                     }} />
+                    {/* Fork addition: addresses to pick from */}
+                    {installerRouteHasAddress(hostname) && <HostnameSuggestions
+                      inline
+                      name={addressName(serviceIndex, hostname)}
+                      value={hostname.host}
+                      config={config}
+                      onPick={(host) => {
+                        hostnames[serviceIndex][hostname.name].host = host;
+                        setHostnames({...hostnames});
+                      }}
+                    />}
                     <HostnameChecker hostname={hostname.host} />
                   </>
                 })
               })}
+
+              {/* Fork addition: attach domains; each adds an external route per hostname above */}
+              {(() => {
+                const named = Object.keys(hostnames).flatMap((serviceIndex) =>
+                  Object.values(hostnames[serviceIndex]).filter(installerRouteHasAddress).map((route) => addressName(serviceIndex, route)));
+                return named.length > 0 && <DomainPicker
+                  name={named.length === 1 ? named[0] : ''}
+                  config={config}
+                  selected={domains}
+                  onChange={setDomains}
+                />;
+              })()}
 
               {service && service.services && Object.values(service.services).map((value) => {
                 return <CosmosCollapse title={t('mgmt.servApps.newContainer.customize', {container_name: value.container_name})}>

@@ -64,6 +64,7 @@ const NewRouteCreate = ({ openNewModal, setOpenNewModal, config }) => {
                       deleteRoute={() => {}}
                       noControls
                       config={config}
+                      showErrors={submitErrors.length > 0 && submitErrors /* Fork addition: errors next to their fields */}
                     />
                 </div>
               </Stack>
