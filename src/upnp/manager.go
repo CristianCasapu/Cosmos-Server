@@ -34,20 +34,24 @@ type Mapping struct {
 // Status is the outcome of the last attempt to bring the router in line with
 // the configuration.
 type Status struct {
-	Enabled     bool      `json:"enabled"`
-	Gateway     string    `json:"gateway"`
-	GatewayIP   string    `json:"gatewayIP"`
-	LocalIP     string    `json:"localIP"`
-	ExternalIP  string    `json:"externalIP"`
-	Mappings    []Mapping `json:"mappings"`
-	Warning     string    `json:"warning,omitempty"`
-	Error       string    `json:"error,omitempty"`
+	Enabled    bool      `json:"enabled"`
+	Gateway    string    `json:"gateway"`
+	GatewayIP  string    `json:"gatewayIP"`
+	LocalIP    string    `json:"localIP"`
+	ExternalIP string    `json:"externalIP"`
+	Mappings   []Mapping `json:"mappings"`
+	Warning    string    `json:"warning,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	// Paused is set after a failed attempt: Cosmos does not try again by
+	// itself, only when asked to (or when the server or its settings change).
+	Paused      bool      `json:"paused,omitempty"`
 	LastRefresh time.Time `json:"lastRefresh"`
 }
 
 var (
 	runMu   sync.Mutex // one reconciliation at a time
 	applied []Mapping  // mappings this process created and still owns
+	paused  bool       // the last attempt failed: no automatic retry
 
 	statusMu sync.Mutex
 	status   = Status{Mappings: []Mapping{}}
@@ -65,7 +69,13 @@ func Apply() {
 			for range time.Tick(renewInterval) {
 				runMu.Lock()
 				idle := len(applied) == 0
+				stopped := paused
 				runMu.Unlock()
+				if stopped {
+					// A router that refused or did not answer is not asked again
+					// until an admin says so; what was forwarded expires by itself.
+					continue
+				}
 				if idle && !utils.GetMainConfig().HTTPConfig.UPnP.Enabled {
 					continue
 				}
@@ -155,6 +165,27 @@ func privateAddressNote(externalIP string) string {
 	return ""
 }
 
+// discoverGateway finds the router. A variable so tests never touch a real one.
+var discoverGateway = discover
+
+// notifyFailure tells the admins, once per failure, that the forwarding is
+// not in place. A variable so tests can replace it.
+var notifyFailure = func(st Status) {
+	reason := st.Error
+	for _, m := range st.Mappings {
+		if reason == "" && m.Error != "" {
+			reason = m.Error
+		}
+	}
+	utils.WriteNotification(utils.Notification{
+		Recipient: "admin",
+		Title:     "header.notification.title.upnpFailed",
+		Message:   "header.notification.message.upnpFailed",
+		Vars:      reason,
+		Level:     "error",
+	})
+}
+
 // reconcile removes forwards that are no longer wanted and creates or renews
 // the wanted ones. verbose logs successes too (periodic renewals stay quiet).
 func reconcile(verbose bool) Status {
@@ -168,7 +199,18 @@ func reconcile(verbose bool) Status {
 	if cfgErr != nil {
 		st.Error = cfgErr.Error()
 	}
+	wasPaused := paused
 	publish := func() Status {
+		failed := st.Error != ""
+		for _, m := range st.Mappings {
+			failed = failed || !m.Active
+		}
+		paused = st.Enabled && failed
+		st.Paused = paused
+		if paused && !wasPaused {
+			utils.Warn("UPnP: the router could not be set up; not trying again until asked to")
+			notifyFailure(st)
+		}
 		statusMu.Lock()
 		status = st
 		statusMu.Unlock()
@@ -179,7 +221,7 @@ func reconcile(verbose bool) Status {
 		return publish() // nothing to create and nothing of ours to remove
 	}
 
-	g, err := discover()
+	g, err := discoverGateway()
 	if err != nil {
 		st.Error = err.Error()
 		st.Mappings = append(st.Mappings, wanted...)
@@ -241,7 +283,13 @@ func reconcile(verbose bool) Status {
 // @Router /api/upnp [get]
 // @Router /api/upnp [post]
 func StatusRoute(w http.ResponseWriter, req *http.Request) {
-	if utils.CheckPermissions(w, req, utils.PERM_ADMIN) != nil {
+	// Reading the status is for anyone who may read the configuration (the
+	// settings page loads it); re-applying the forwarding is an admin action.
+	permission := utils.PERM_CONFIGURATION_READ
+	if req.Method != "GET" {
+		permission = utils.PERM_ADMIN
+	}
+	if utils.CheckPermissions(w, req, permission) != nil {
 		return
 	}
 

@@ -5,6 +5,8 @@ import * as API from '../../api';
 import { Alert, InputLabel, OutlinedInput, Stack, Typography } from '@mui/material';
 import { CheckCircleOutlined, CloseCircleOutlined, SendOutlined } from '@ant-design/icons';
 import { LoadingButton } from '@mui/lab';
+import PermissionGuard from '../../components/permissionGuard';
+import { PERM_ADMIN } from '../../utils/permissions';
 import { useTranslation } from 'react-i18next';
 
 const STEP_LABELS = {
@@ -69,16 +71,18 @@ const EmailTest = ({ formik }) => {
               }
             }}
           />
-          <LoadingButton
-            variant="outlined"
-            loading={loading}
-            disabled={!canTest}
-            startIcon={<SendOutlined />}
-            onClick={sendTest}
-            sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
-          >
-            {t('mgmt.config.email.test.button', 'Send test email')}
-          </LoadingButton>
+          <PermissionGuard permission={PERM_ADMIN}>
+            <LoadingButton
+              variant="outlined"
+              loading={loading}
+              disabled={!canTest}
+              startIcon={<SendOutlined />}
+              onClick={sendTest}
+              sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+            >
+              {t('mgmt.config.email.test.button', 'Send test email')}
+            </LoadingButton>
+          </PermissionGuard>
         </Stack>
         <Typography variant="caption" color="text.secondary">
           {t('mgmt.config.email.test.helperText',

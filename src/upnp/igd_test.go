@@ -1,6 +1,7 @@
 package upnp
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -276,5 +277,52 @@ func TestPrivateAddressNote(t *testing.T) {
 		if privateAddressNote(ip) != "" {
 			t.Errorf("%q should not be flagged", ip)
 		}
+	}
+}
+
+// A router that cannot be set up is reported once and not asked again until
+// someone asks for it.
+func TestFailurePausesAutomaticRetries(t *testing.T) {
+	attempts, notices := 0, 0
+	realDiscover, realNotify := discoverGateway, notifyFailure
+	discoverGateway = func() (*gateway, error) {
+		attempts++
+		return nil, errors.New("no UPnP router answered")
+	}
+	notifyFailure = func(Status) { notices++ }
+	defer func() {
+		discoverGateway, notifyFailure = realDiscover, realNotify
+		runMu.Lock()
+		paused, applied = false, nil
+		runMu.Unlock()
+		utils.LoadBaseMainConfig(utils.Config{})
+	}()
+
+	config := utils.Config{}
+	config.HTTPConfig.HTTPPort, config.HTTPConfig.HTTPSPort = "2052", "2053"
+	config.HTTPConfig.HTTPSCertificateMode = utils.HTTPSCertModeList["SELFSIGNED"]
+	config.HTTPConfig.UPnP.Enabled = true
+	utils.LoadBaseMainConfig(config)
+
+	st := reconcile(true)
+	if !st.Paused || st.Error == "" || attempts != 1 || notices != 1 {
+		t.Fatalf("first failure: paused=%v error=%q attempts=%d notices=%d", st.Paused, st.Error, attempts, notices)
+	}
+	if !GetStatus().Paused {
+		t.Error("the published status does not say that retries are paused")
+	}
+
+	// asked again by hand: tried again, but the admins are not told twice
+	st = reconcile(true)
+	if !st.Paused || attempts != 2 || notices != 1 {
+		t.Errorf("manual retry: paused=%v attempts=%d notices=%d", st.Paused, attempts, notices)
+	}
+
+	// switched off: nothing to do, nothing paused
+	config.HTTPConfig.UPnP.Enabled = false
+	utils.LoadBaseMainConfig(config)
+	st = reconcile(true)
+	if st.Paused || st.Error != "" || attempts != 2 {
+		t.Errorf("after switching off: paused=%v error=%q attempts=%d", st.Paused, st.Error, attempts)
 	}
 }

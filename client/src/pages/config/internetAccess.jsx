@@ -7,6 +7,9 @@ import MainCard from '../../components/MainCard';
 import { Alert, Chip, Stack, Typography } from '@mui/material';
 import { CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { LoadingButton } from '@mui/lab';
+import PermissionGuard from '../../components/permissionGuard';
+import { notify } from '../../utils/activity';
+import { PERM_ADMIN } from '../../utils/permissions';
 import { useTranslation } from 'react-i18next';
 import { CosmosCheckbox, CosmosInputText } from './users/formShortcuts';
 
@@ -30,7 +33,17 @@ const InternetAccess = ({ formik }) => {
     setLoading(true);
     setLoadError('');
     (retry ? API.config.upnpRetry() : API.config.upnpStatus())
-      .then((response) => setStatus(response.data))
+      .then((response) => {
+        setStatus(response.data);
+        // say how it went: a failure when the page opens, either outcome after "Check now"
+        const st = response.data || {};
+        const failure = st.error || ((st.mappings || []).find((m) => !m.active && m.error) || {}).error;
+        if (st.enabled && (failure || st.paused)) {
+          notify(t('mgmt.config.internet.status.retryFailed', 'Port forwarding failed: {{error}}', { error: failure || '' }), 'error');
+        } else if (retry && st.enabled) {
+          notify(t('mgmt.config.internet.status.retryOk', 'The router forwards the port.'), 'success');
+        }
+      })
       .catch((error) => setLoadError(error.message || String(error)))
       .finally(() => setLoading(false));
   };
@@ -105,15 +118,17 @@ const InternetAccess = ({ formik }) => {
             <Typography variant="subtitle1">
               {t('mgmt.config.internet.status.title', 'Router status')}
             </Typography>
-            <LoadingButton
-              size="small"
-              variant="outlined"
-              loading={loading}
-              startIcon={<ReloadOutlined />}
-              onClick={() => load(true)}
-            >
-              {t('mgmt.config.internet.status.retry', 'Check now')}
-            </LoadingButton>
+            <PermissionGuard permission={PERM_ADMIN}>
+              <LoadingButton
+                size="small"
+                variant="outlined"
+                loading={loading}
+                startIcon={<ReloadOutlined />}
+                onClick={() => load(true)}
+              >
+                {t('mgmt.config.internet.status.retry', 'Check now')}
+              </LoadingButton>
+            </PermissionGuard>
           </Stack>
 
           {loadError && <Alert severity="error">{loadError}</Alert>}
@@ -125,6 +140,10 @@ const InternetAccess = ({ formik }) => {
           )}
 
           {status && status.error && <Alert severity="error">{status.error}</Alert>}
+          {status && status.paused && <Alert severity="warning">
+            {t('mgmt.config.internet.status.paused',
+              'Cosmos has stopped trying. Check that UPnP is enabled on the router, then press "Check now"; or turn automatic port forwarding off.')}
+          </Alert>}
           {status && status.warning && <Alert severity="warning">{status.warning}</Alert>}
 
           {status && status.gatewayIP && (
