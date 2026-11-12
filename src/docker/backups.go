@@ -125,8 +125,8 @@ func GetContainersUsingPath(path string) ([]string, error) {
 			case "bind":
 				sourcePath = mount.Source
 			case "volume":
-				// For volumes, we need to check in /var/lib/docker/volumes
-				sourcePath = filepath.Join("/var/lib/docker/volumes", mount.Name, "_data")
+				// Fork addition: the folder Docker reports, not a guess under /var/lib/docker (fork_volume_path.go)
+				sourcePath = volumeHostPath(mount.Name, mount.Source)
 			default:
 				continue
 			}

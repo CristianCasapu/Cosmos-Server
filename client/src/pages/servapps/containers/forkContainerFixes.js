@@ -41,3 +41,14 @@ export const isHostIp = (value) => {
 
 // "source:target:ro" and "source:target:ro,z" are read-only binds.
 export const bindIsReadOnly = (mode) => (mode || '').split(',').includes('ro');
+
+// The folder of a mount's source on the host: a path as it is, a named volume where
+// Docker says it is. Docker's data root is not always /var/lib/docker (upstream issue
+// #478), which is only assumed for a volume Docker did not list.
+export const mountHostPath = (source, volumes) => {
+  if (!source) return null;
+  if (source.startsWith('/')) return source;
+  const volume = (volumes || []).find((v) => v && v.Name === source);
+  if (volume && volume.Mountpoint) return volume.Mountpoint;
+  return '/var/lib/docker/volumes/' + source + '/_data';
+};
