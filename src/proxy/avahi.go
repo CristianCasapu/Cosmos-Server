@@ -31,6 +31,7 @@ type Publisher struct {
 	mu              sync.Mutex
 	cnames          []string
 	published       bool
+	warnedRejected  bool // fork addition, see avahi_watch.go
 }
 
 func NewPublisher() (*Publisher, error) {
@@ -237,6 +238,8 @@ func stringSlicesEqual(a, b []string) bool {
 func PublishAllMDNSFromConfig() {
 	config := utils.GetMainConfig()
 	utils.Log("[mDNS] Publishing routes to mDNS")
+
+	startMDNSWatch() // fork addition: republish if Avahi loses the names
 
 	publisherMu.Lock()
 	defer publisherMu.Unlock()
