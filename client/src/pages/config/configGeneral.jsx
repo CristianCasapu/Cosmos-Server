@@ -161,17 +161,22 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
             <Alert severity="info">{t('mgmt.config.general.backupInfo2')}</Alert>
           </Grid>
           <Grid item xs={12}>
-            <Stack direction={"row"} spacing={2} alignItems="flex-end">
+            {/* Fork addition: the label sits above the row and the row is aligned at its top, so the
+                folder button stays level with the input whatever is shown under it (help text, error),
+                and the field no longer runs out of the card on a phone */}
+            <Stack spacing={1}>
+              <InputLabel htmlFor="BackupOutputDir">{t('mgmt.config.general.backupDirInput.backupDirLabel')}</InputLabel>
+              <Stack direction={"row"} spacing={2} alignItems="flex-start">
                 <FilePickerButton canCreate onPick={(path) => {
                   if(path)
                       formik.setFieldValue('BackupOutputDir', path);
                 }} size="150%" select="folder" />
-              <CosmosInputText
-                label={t('mgmt.config.general.backupDirInput.backupDirLabel')}
-                name="BackupOutputDir"
-                formik={formik}
-                helperText={t('mgmt.config.general.backupDirInput.backupDirHelperText')}
-              />
+                <CosmosInputText
+                  name="BackupOutputDir"
+                  formik={formik}
+                  helperText={t('mgmt.config.general.backupDirInput.backupDirHelperText')}
+                />
+              </Stack>
             </Stack>
           </Grid>
 
@@ -205,18 +210,21 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
           />
 
           <Grid item xs={12}>
-            <Stack direction={"row"} spacing={2} alignItems="flex-end">
+            {/* Fork addition: laid out like the row above */}
+            <Stack spacing={1}>
+              <InputLabel htmlFor="IncrBackupOutputDir">{t('mgmt.config.general.backupDirInput.incrBackupDirLabel')}</InputLabel>
+              <Stack direction={"row"} spacing={2} alignItems="flex-start">
                 {status && status.Licence && <FilePickerButton canCreate onPick={(path) => {
                   if(path)
                       formik.setFieldValue('IncrBackupOutputDir', path);
                 }} size="150%" select="folder" />}
-              <CosmosInputText
-                label={t('mgmt.config.general.backupDirInput.incrBackupDirLabel')}
-                name="IncrBackupOutputDir"
-                disabled={!status || !status.Licence}
-                formik={formik}
-                helperText={t('mgmt.config.general.backupDirInput.backupDirHelperText')}
-              />
+                <CosmosInputText
+                  name="IncrBackupOutputDir"
+                  disabled={!status || !status.Licence}
+                  formik={formik}
+                  helperText={t('mgmt.config.general.backupDirInput.backupDirHelperText')}
+                />
+              </Stack>
             </Stack>
           </Grid>
 
