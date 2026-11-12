@@ -22,6 +22,13 @@ import PrettyTabbedView from '../../components/tabbedView/tabbedView';
 import { useTranslation } from 'react-i18next';
 
 // Fork addition: an empty value or a port number between 1 and 65535.
+// Fork addition: a folder on the server, checked again (and created if missing) by the server on save.
+const hostDirectory = (t) => Yup.string().test(
+  'host-directory',
+  t('mgmt.config.pathValidation', 'Enter an absolute path such as /storage/backups, without ".." and without spaces at either end'),
+  (value) => !value || (/^\/[^\0\r\n]*$/.test(value) && !value.split('/').includes('..') && value.trim() === value),
+);
+
 const optionalPort = (t) => Yup.string().test(
   'port',
   t('mgmt.config.internet.upnp.portValidation', 'Enter a port between 1 and 65535, or leave empty'),
@@ -201,6 +208,8 @@ const ConfigManagement = () => {
         validationSchema={Yup.object().shape({
           Hostname: Yup.string().max(255).required(t('mgmt.config.http.hostnameInput.HostnameValidation')),
           LoggingLevel: Yup.string().max(255).required(t('mgmt.config.general.logLevelInput.logLevelValidation')),
+          BackupOutputDir: hostDirectory(t),
+          DefaultDataPath: hostDirectory(t),
           MaintenanceTime: Yup.string().matches(/^([01]\d|2[0-3]):[0-5]\d$/,
             t('mgmt.config.update.timeValidation', 'Enter a time as HH:MM, for example 02:00')),
           UPnP_ExternalHTTPSPort: optionalPort(t),

@@ -175,6 +175,13 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 			return 
 		}
 
+		// Fork addition: directories named in the settings must be usable; a missing backup folder is created.
+		if errD := prepareConfigDirectories(&request, utils.GetMainConfig()); errD != nil {
+			utils.Error("SettingsUpdate: "+errD.Error(), nil)
+			utils.HTTPError(w, errD.Error(), http.StatusBadRequest, "UC008")
+			return
+		}
+
 		// this PUT writes routes wholesale: validate before any write, including the op-log publish
 		for _, route := range request.HTTPConfig.ProxyConfig.Routes {
 			if msg := validateRoute(route); msg != "" {

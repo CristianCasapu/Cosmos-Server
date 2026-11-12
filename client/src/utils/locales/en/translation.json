@@ -356,6 +356,7 @@
 	"activity.volume.delete": "Delete volume {{name}}",
 	"activity.zone.delete": "Delete domain {{name}}",
 	"activity.zone.save": "Save domain {{name}}",
+	"mgmt.config.pathValidation": "Enter an absolute path such as /storage/backups, without \"..\" and without spaces at either end",
 	"mgmt.config.general.updateCheck.containerized": "Server updates are handled by the container image, only the containers were checked.",
 	"mgmt.config.general.updateCheck.updateFound": "Update {{version}} found, downloading it now. The server will restart to install it.",
 	"mgmt.config.general.updateCheck.upToDate": "You are running the latest version ({{version}}).",
