@@ -28,6 +28,19 @@ function restart() {
   });
 }
 
+function testEmail(emailConfig, recipient = '') {
+  return new Promise((resolve, reject) => {
+    resolve({
+      "status": "OK",
+      "data": {
+        "success": true,
+        "recipient": recipient || emailConfig.From,
+        "steps": [],
+      }
+    })
+  });
+}
+
 function canSendEmail() {
   return new Promise((resolve, reject) => {
     resolve({
@@ -108,6 +121,7 @@ export {
   deleteRoute,
   addRoute,
   canSendEmail,
+  testEmail,
   getDashboard,
   getBackup,
 };

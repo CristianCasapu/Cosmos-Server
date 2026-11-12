@@ -45,6 +45,17 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     });
   }
 
+  // Fork addition: try SMTP settings (saved or not) by sending a test email.
+  function testEmail(emailConfig, recipient = '') {
+    return wrap(apiFetch('/cosmos/api/config/test-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ EmailConfig: emailConfig, Recipient: recipient }),
+    }))
+  }
+
   async function rawUpdateRoute(routeName: string, operation: Operation, newRoute?: Route): Promise<ApiResponse> {
     const payload = {
       routeName,
@@ -167,6 +178,7 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     deleteRoute,
     addRoute,
     canSendEmail,
+    testEmail,
     getBackup,
     getDashboard,
     updateDNS,

@@ -1,11 +1,6 @@
 package utils
 
-import (
-	"crypto/tls"
-	"fmt"
-	"net/smtp"
-	"strings"
-)
+
 
 var Template = `From: %s
 To: %s
@@ -89,68 +84,7 @@ func IsNotifyLoginEmailEnabled() bool {
 func SendEmail(recipients []string, subject string, body string) error {
 	config := GetMainConfig()
 
-	hostPort := config.EmailConfig.Host + ":" + config.EmailConfig.Port
-	auth := smtp.PlainAuth("", config.EmailConfig.Username, config.EmailConfig.Password, config.EmailConfig.Host)
-
-	tlsConfig := &tls.Config{
-		InsecureSkipVerify: config.EmailConfig.AllowInsecureTLS,
-		ServerName:         config.EmailConfig.Host,
-	}
-
-	ServerURL := GetServerURL("")
-	LogoURL := ServerURL + "logo"
-
-	send := func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
-		c, err := smtp.Dial(addr)
-		if err != nil {
-			return err
-		}
-		defer c.Close()
-
-		if config.EmailConfig.UseTLS {
-			if err = c.StartTLS(tlsConfig); err != nil {
-				return err
-			}
-		}
-
-		if err = c.Auth(a); err != nil {
-			return err
-		}
-
-		if err = c.Mail(from); err != nil {
-			return err
-		}
-		for _, addr := range to {
-			if err = c.Rcpt(addr); err != nil {
-				return err
-			}
-		}
-
-		w, err := c.Data()
-		if err != nil {
-			return err
-		}
-		_, err = w.Write(msg)
-		if err != nil {
-			return err
-		}
-		err = w.Close()
-		if err != nil {
-			return err
-		}
-
-		return c.Quit()
-	}
-
-	msg := []byte(fmt.Sprintf(
-		Template,
-		config.EmailConfig.From,
-		strings.Join(recipients, ","),
-		subject,
-		LogoURL,
-		body,
-		ServerURL,
-	))
+	msg := BuildEmailMessage(config.EmailConfig.From, recipients, subject, body)
 
 	TriggerEvent(
 		"cosmos.email.send",
@@ -162,5 +96,7 @@ func SendEmail(recipients []string, subject string, body string) error {
 			"subject":    subject,
 		})
 
-	return send(hostPort, auth, config.EmailConfig.From, recipients, msg)
+	// Delivery lives in emails_deliver.go (timeouts, implicit TLS on 465).
+	_, err := DeliverEmail(config.EmailConfig, config.EmailConfig.From, recipients, msg)
+	return err
 }

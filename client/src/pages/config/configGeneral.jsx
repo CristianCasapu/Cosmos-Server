@@ -22,6 +22,7 @@ import { FilePickerButton } from '../../components/filePicker';
 import PermissionGuard from '../../components/permissionGuard';
 import { PERM_ADMIN, PERM_CREDENTIALS_READ } from '../../utils/permissions';
 import { useClientInfos } from '../../utils/hooks';
+import EmailTest from './emailTest';
 
 // License issuer's public key for signature verification
 const LICENSE_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
@@ -386,6 +387,8 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
               name="Email_NotifyLogin"
               formik={formik}
             />
+
+            <EmailTest formik={formik} />
           </>)}
         </Stack>
       </MainCard>

@@ -655,6 +655,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/force-server-update", ForceUpdateRoute)
 	srapiAdmin.HandleFunc("/api/config", configapi.ConfigRoute)
 	srapiAdmin.HandleFunc("/api/config/dns", configapi.ConfigApiDNS)
+	srapiAdmin.HandleFunc("/api/config/test-email", configapi.ConfigApiTestEmail)
 	srapiAdmin.HandleFunc("/api/_memory", MemStatusRoute)
 	srapiAdmin.HandleFunc("/api/restart", configapi.ConfigApiRestart)
 	
