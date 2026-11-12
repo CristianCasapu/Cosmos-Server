@@ -321,6 +321,20 @@ img[alt="Cosmos"][width="1100"] {
   opacity: 0.55;
 }
 
+/* ---------- forced mode vs the app's own media rules ---------------------- */
+
+/* client/src/index.css styles these by the system's prefers-color-scheme. When
+   the switch forces the other mode, repeat them for the mode actually shown. */
+:root[data-ct-mode="dark"] .dot { background-color: #eee; }
+:root[data-ct-mode="light"] .dot { background-color: #222; }
+
+:root[data-ct-mode="dark"] .glass-light { background: rgba(10, 10, 10, 0.35); border-color: rgba(255, 255, 255, 0.08); }
+:root[data-ct-mode="dark"] .glass-medium { background: rgba(10, 10, 10, 0.45); border-color: rgba(255, 255, 255, 0.1); }
+:root[data-ct-mode="dark"] .glass-heavy { background: rgba(10, 10, 10, 0.55); border-color: rgba(255, 255, 255, 0.12); }
+:root[data-ct-mode="light"] .glass-light { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.15); }
+:root[data-ct-mode="light"] .glass-medium { background: rgba(255, 255, 255, 0.18); border-color: rgba(255, 255, 255, 0.2); }
+:root[data-ct-mode="light"] .glass-heavy { background: rgba(255, 255, 255, 0.25); border-color: rgba(255, 255, 255, 0.25); }
+
 /* ---------- light/dark switch (added by ct-mode.js) ----------------------- */
 
 .ct-mode-toggle {

@@ -63,10 +63,12 @@ func parseMD5File(content string) string {
 	return ""
 }
 
-// Fork addition: the GitHub repository whose releases this build updates from.
-// Release builds set it with -ldflags "-X main.updateRepo=owner/name"; this
-// file is also compiled into the launcher, which picks up the same value.
-var updateRepo = "azukaar/cosmos-server"
+// Fork addition: the GitHub repository whose releases this build updates from
+// (upstream: azukaar/cosmos-server). The default is the fork itself, so that a
+// build made by hand never replaces itself with an upstream release; release
+// builds also set it with -ldflags "-X main.updateRepo=owner/name". This file
+// is compiled into the launcher too, which picks up the same value.
+var updateRepo = "CristianCasapu/Cosmos-Server"
 
 func GetLatestVersion(includeBeta bool) (*VersionInfo, error) {
     // Fetch releases from GitHub API

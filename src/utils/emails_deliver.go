@@ -15,9 +15,11 @@ import (
 
 const (
 	// A server that never answers (wrong port, or one expecting TLS from the
-	// first byte) must fail well inside the 45s HTTP request timeout.
-	emailConnectTimeout = 10 * time.Second
-	emailSessionTimeout = 30 * time.Second
+	// first byte) must fail well inside the 45s HTTP request timeout: the
+	// three stages below add up to 40s at worst.
+	emailConnectTimeout  = 5 * time.Second
+	emailGreetingTimeout = 10 * time.Second
+	emailSessionTimeout  = 25 * time.Second
 )
 
 // EmailStep is one stage of an SMTP delivery attempt.
@@ -66,7 +68,7 @@ func DeliverEmail(cfg EmailConfig, from string, to []string, msg []byte) ([]Emai
 
 	// The greeting gets the short deadline: a plain connection to a TLS-only
 	// port stays silent until one side gives up.
-	conn.SetDeadline(time.Now().Add(emailConnectTimeout))
+	conn.SetDeadline(time.Now().Add(emailGreetingTimeout))
 	c, err := smtp.NewClient(conn, cfg.Host)
 	if err != nil {
 		conn.Close()

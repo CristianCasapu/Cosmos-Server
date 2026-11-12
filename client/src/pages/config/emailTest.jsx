@@ -60,6 +60,14 @@ const EmailTest = ({ formik }) => {
             value={recipient}
             placeholder={values.Email_From || 'you@example.com'}
             onChange={(event) => setRecipient(event.target.value)}
+            onKeyDown={(event) => {
+              // This field lives inside the settings form: without this,
+              // Enter would save the whole form instead of sending the test.
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                if (canTest && !loading) sendTest();
+              }
+            }}
           />
           <LoadingButton
             variant="outlined"
