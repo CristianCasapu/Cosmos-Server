@@ -7,6 +7,7 @@ import {
   MenuItem,
   TextField,
   IconButton,
+  Tooltip, // Fork addition: Tooltip, for the icon-only buttons
   FormHelperText,
   useMediaQuery,
   useTheme,
@@ -301,7 +302,7 @@ const DockerContainerSetup = ({
                             />
                           </Grid>
                           <Grid item xs={1} style={{ padding }}>
-                            <IconButton
+                            <Tooltip title={t('global.delete', 'Delete')}><IconButton
                               fullWidth
                               variant="outlined"
                               color="error"
@@ -312,7 +313,7 @@ const DockerContainerSetup = ({
                               }}
                             >
                               <DeleteOutlined />
-                            </IconButton>
+                            </IconButton></Tooltip>
                           </Grid>
                         </Grid>
                       ))}
@@ -355,7 +356,7 @@ const DockerContainerSetup = ({
                             />
                           </Grid>
                           <Grid item xs={1} style={{ padding }}>
-                            <IconButton
+                            <Tooltip title={t('global.delete', 'Delete')}><IconButton
                               fullWidth
                               variant="outlined"
                               color="error"
@@ -366,7 +367,7 @@ const DockerContainerSetup = ({
                               }}
                             >
                               <DeleteOutlined />
-                            </IconButton>
+                            </IconButton></Tooltip>
                           </Grid>
                         </Grid>
                       ))}
@@ -408,7 +409,7 @@ const DockerContainerSetup = ({
                             />
                           </Grid>
                           <Grid item xs={1} style={{ padding }}>
-                            <IconButton
+                            <Tooltip title={t('global.delete', 'Delete')}><IconButton
                               fullWidth
                               variant="outlined"
                               color="error"
@@ -419,7 +420,7 @@ const DockerContainerSetup = ({
                               }}
                             >
                               <DeleteOutlined />
-                            </IconButton>
+                            </IconButton></Tooltip>
                           </Grid>
                         </Grid>
                       ))}

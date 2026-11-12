@@ -166,12 +166,13 @@ const RClonePage = ({coStatus, containerized}) => {
                 refresh();
               });
             }} /></PermissionGuard>
-            <PermissionGuard permission={PERM_CREDENTIALS_READ}><IconButton variant="outlined"
+            {/* Fork addition: tooltip on the icon-only button */}
+            <PermissionGuard permission={PERM_CREDENTIALS_READ}><Tooltip title={t('global.edit', 'Edit')}><IconButton variant="outlined"
              onClick={() => {
               setConfigModal(r);
             }}>
               <EditOutlined />
-            </IconButton></PermissionGuard>
+            </IconButton></Tooltip></PermissionGuard>
             <FilePickerButton storage={r.name} />
           </div>
         </>,

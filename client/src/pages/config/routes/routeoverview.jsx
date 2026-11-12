@@ -1,7 +1,7 @@
 import * as React from 'react';
 import MainCard from '../../../components/MainCard';
 import RestartModal from '../users/restart';
-import { Checkbox, Chip, Divider, FormControlLabel, Stack, useMediaQuery } from '@mui/material';
+import { Checkbox, Chip, Divider, FormControlLabel, Stack, Tooltip, useMediaQuery } from '@mui/material'; // Fork addition: Tooltip, for the icon-only buttons
 import HostChip from '../../../components/hostChip';
 import { RouteMode, RouteSecurity } from '../../../components/routeComponents';
 import { getFaviconURL } from '../../../utils/routes';
@@ -41,8 +41,8 @@ const RouteOverview = ({ routeConfig, refreshConfig, readOnly = false }) => {
     {routeConfig && <>
       <MainCard name={routeConfig.Name} title={<div>
         {routeConfig.Name} &nbsp;&nbsp;
-        {!readOnly && !confirmDelete && (<Chip label={<DeleteOutlined />} onClick={() => setConfirmDelete(true)}/>)}
-        {!readOnly && confirmDelete && (<Chip label={<CheckOutlined />} color="error" onClick={(event) => deleteRoute(event)}/>)}
+        {!readOnly && !confirmDelete && (<Tooltip title={t('global.delete', 'Delete')}><Chip label={<DeleteOutlined />} onClick={() => setConfirmDelete(true)}/></Tooltip>)}
+        {!readOnly && confirmDelete && (<Tooltip title={t('tooltip.confirmDelete', 'Click again to confirm')}><Chip label={<CheckOutlined />} color="error" onClick={(event) => deleteRoute(event)}/></Tooltip>)}
       </div>}>
         <Stack spacing={2} direction={isMobile ? 'column' : 'row'} alignItems={isMobile ? 'center' : 'flex-start'}>
           <Stack spacing={1} alignItems="center">

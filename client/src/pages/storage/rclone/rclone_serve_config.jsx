@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Stack, CircularProgress, IconButton } from '@mui/material';
+import { Stack, CircularProgress, IconButton, Tooltip } from '@mui/material'; // Fork addition: Tooltip, for the icon-only buttons
 import * as API from '../../../api';
 import PrettyTableView from '../../../components/tableView/prettyTableView';
 import { useTranslation } from 'react-i18next';
@@ -73,12 +73,12 @@ const RCloneServePage = ({containerized}) => {
                 })
               });
             }} /></PermissionGuard>
-            <PermissionGuard permission={PERM_RESOURCES}><IconButton variant="outlined"
+            <PermissionGuard permission={PERM_RESOURCES}><Tooltip title={t('global.edit', 'Edit')}><IconButton variant="outlined"
              onClick={() => {
               setConfigModal(r);
             }}>
               <EditOutlined />
-            </IconButton></PermissionGuard>
+            </IconButton></Tooltip></PermissionGuard>
           </div>
         </>,
       }

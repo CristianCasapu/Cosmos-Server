@@ -2,7 +2,8 @@ import PropTypes from 'prop-types';
 
 // material-ui
 import { useTheme } from '@mui/material/styles';
-import { AppBar, IconButton, Toolbar, useMediaQuery } from '@mui/material';
+import { AppBar, IconButton, Toolbar, useMediaQuery, Tooltip } from '@mui/material';
+import { useTranslation } from 'react-i18next';
 
 // project import
 import AppBarStyled from './AppBarStyled';
@@ -15,6 +16,7 @@ import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 
 const Header = ({ open, handleDrawerToggle }) => {
     const theme = useTheme();
+    const { t } = useTranslation(); // Fork addition: tooltip on the menu toggle
     const matchDownMD = useMediaQuery(theme.breakpoints.down('lg'));
 
     const iconBackColor = theme.palette.mode === 'dark' ? 'grey.700' : 'grey.100';
@@ -23,7 +25,7 @@ const Header = ({ open, handleDrawerToggle }) => {
     // common header
     const mainHeader = (
         <Toolbar>
-            <IconButton
+            <Tooltip title={open ? t('tooltip.closeMenu', 'Close menu') : t('tooltip.openMenu', 'Open menu')}><IconButton
                 disableRipple
                 aria-label="open drawer"
                 onClick={handleDrawerToggle}
@@ -32,7 +34,7 @@ const Header = ({ open, handleDrawerToggle }) => {
                 sx={{ color: 'text.primary', bgcolor: open ? iconBackColorOpen : iconBackColor, ml: { xs: 0, lg: -2 } }}
             >
                 {!open ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            </IconButton>
+            </IconButton></Tooltip>
             <HeaderContent />
         </Toolbar>
     );

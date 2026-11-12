@@ -28,7 +28,8 @@ const RestartMenu = () => {
     <RestartModal openModal={openResartModal} setOpenModal={setOpenRestartModal} />
     <RestartModal openModal={openRestartServerModal} setOpenModal={setOpenRestartModal} isHostMachine/>
 
-    <MenuButton size="medium" icon={<PoweroffOutlined />}>
+    {/* Fork addition: tooltip */}
+    <MenuButton size="medium" icon={<PoweroffOutlined />} tooltip={t('tooltip.restartMenu', 'Restart')}>
       <MenuItem disabled={status.containerized} onClick={() => setOpenRestartServerModal(true)}>
         <ListItemText>{t('global.restartServer')}</ListItemText>
       </MenuItem>

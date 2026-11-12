@@ -10,6 +10,7 @@ import {
     FormHelperText,
     Grid,
     IconButton,
+    Tooltip, // Fork addition: Tooltip, for the icon-only buttons
     InputAdornment,
     InputLabel,
     OutlinedInput,
@@ -159,7 +160,7 @@ const AuthLogin = () => {
                                         onChange={handleChange}
                                         endAdornment={
                                             <InputAdornment position="end">
-                                                <IconButton
+                                                <Tooltip title={showPassword ? t('tooltip.hidePassword', 'Hide password') : t('tooltip.showPassword', 'Show password')}><IconButton
                                                     aria-label="toggle password visibility"
                                                     onClick={handleClickShowPassword}
                                                     onMouseDown={handleMouseDownPassword}
@@ -167,7 +168,7 @@ const AuthLogin = () => {
                                                     size="large"
                                                 >
                                                     {showPassword ? <EyeOutlined /> : <EyeInvisibleOutlined />}
-                                                </IconButton>
+                                                </IconButton></Tooltip>
                                             </InputAdornment>
                                         }
                                         placeholder={t('auth.enterPwd')}

@@ -20,6 +20,7 @@ import {
   DialogContentText,
   DialogActions,
   IconButton,
+  Tooltip, // Fork addition: Tooltip, for the icon-only buttons
 
 } from '@mui/material';
 import { EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
@@ -168,13 +169,13 @@ const OpenIdList = () => {
               <div style={{overflowX: 'scroll', float: 'left', width: '100%', padding: '5px', background:'rgba(0,0,0,0.15)', whiteSpace: 'nowrap', wordBreak: 'keep-all', overflow: 'auto', fontStyle: 'italic'}}>
                 {newSecret}
               </div>
-              <IconButton size="large" style={{float: 'left'}} aria-label="copy" onClick={
+              <Tooltip title={t('global.copy', 'Copy')}><IconButton size="large" style={{float: 'left'}} aria-label="copy" onClick={
                   () => {
                       navigator.clipboard.writeText(newSecret);
                   }
               }>
                   <CopyOutlined  />
-              </IconButton>
+              </IconButton></Tooltip>
             </Stack>
           </DialogContentText>
         </DialogContent>

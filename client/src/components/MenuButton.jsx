@@ -10,7 +10,8 @@ import FileCopyIcon from '@mui/icons-material/FileCopy';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import { DashOutlined } from '@ant-design/icons';
-import { IconButton } from '@mui/material';
+import { IconButton, Tooltip } from '@mui/material';
+import { useTranslation } from 'react-i18next';
 
 const StyledMenu = styled((props) => (
   <Menu
@@ -53,7 +54,9 @@ const StyledMenu = styled((props) => (
   },
 }));
 
-export default function MenuButton({children, size='large', icon=<DashOutlined  />}) {
+// Fork addition: optional `tooltip` prop (default "More actions")
+export default function MenuButton({children, size='large', icon=<DashOutlined  />, tooltip}) {
+  const { t } = useTranslation();
   const [anchorEl, setAnchorEl] = React.useState(null);
   const open = Boolean(anchorEl);
   const handleClick = (event) => {
@@ -65,7 +68,7 @@ export default function MenuButton({children, size='large', icon=<DashOutlined  
 
   return (
     <div>
-      <IconButton
+      <Tooltip title={tooltip || t('tooltip.moreActions', 'More actions')}><IconButton
         id="demo-customized-button"
         aria-controls={open ? 'demo-customized-menu' : undefined}
         aria-haspopup="true"
@@ -78,7 +81,7 @@ export default function MenuButton({children, size='large', icon=<DashOutlined  
         }}
       >
         {icon}
-      </IconButton>
+      </IconButton></Tooltip>
       <StyledMenu
         id="demo-customized-menu"
         MenuListProps={{

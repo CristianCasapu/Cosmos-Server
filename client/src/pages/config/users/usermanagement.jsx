@@ -1,6 +1,6 @@
 // material-ui
 import * as React from 'react';
-import { Button, LinearProgress, Stack, Typography, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
+import { Button, LinearProgress, Stack, Typography, Select, MenuItem, FormControl, InputLabel, Tooltip } from '@mui/material'; // Fork addition: Tooltip, for the icon-only buttons
 import { WarningOutlined, PlusCircleOutlined, CopyOutlined, ExclamationCircleOutlined , SyncOutlined, UserOutlined, KeyOutlined, CheckCircleFilled } from '@ant-design/icons';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -110,13 +110,13 @@ const UserManagement = () => {
 
                     <div>
                     <div style={{float: 'left', width: '300px', padding: '5px', background:'rgba(0,0,0,0.15)', whiteSpace: 'nowrap', wordBreak: 'keep-all', overflow: 'auto', fontStyle: 'italic'}}>{toAction.sendLink}</div>
-                        <IconButton size="large" style={{float: 'left'}} aria-label="copy" onClick={
+                        <Tooltip title={t('global.copy', 'Copy')}><IconButton size="large" style={{float: 'left'}} aria-label="copy" onClick={
                             () => {
                                 navigator.clipboard.writeText(toAction.sendLink);
                             }
                         }>
                             <CopyOutlined  />
-                        </IconButton>
+                        </IconButton></Tooltip>
                     </div>
                 </DialogContentText>
             </DialogContent>

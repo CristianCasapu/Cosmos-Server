@@ -1,6 +1,6 @@
 // material-ui
 import * as React from 'react';
-import { Alert, Box, Button, Checkbox, CircularProgress, FormControl, FormHelperText, Grid, Icon, IconButton, InputLabel, List, ListItem, ListItemButton, MenuItem, NativeSelect, Select, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Checkbox, CircularProgress, FormControl, FormHelperText, Grid, Icon, IconButton, InputLabel, List, ListItem, ListItemButton, MenuItem, NativeSelect, Select, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import Dialog from '@mui/material/Dialog';
 import {TreeItem, TreeView} from '@mui/x-tree-view';
 import DialogActions from '@mui/material/DialogActions';
@@ -250,14 +250,16 @@ const FilePickerModal = ({ raw, open, cb, restic, OnClose, onPick, canCreate, _s
   );
 };
 
-const FilePickerButton = ({ disabled, raw, canCreate, restic, onPick, size = '100%', storage = '', path = '', select="any" }) => {
+const FilePickerButton = ({ disabled, raw, canCreate, restic, onPick, size = '100%', storage = '', path = '', select="any", tooltip }) => {
   const [open, setOpen] = React.useState(false);
+  const { t } = useTranslation();
 
   return (
     <>
-      <IconButton onClick={() => setOpen(true)} disabled={disabled}>
+      {/* Fork addition: tooltip; the span keeps it working while the button is disabled and takes the button's place in the layout */}
+      <Tooltip title={tooltip || t('tooltip.browseFiles', 'Browse files')}><span style={{display: 'inline-flex'}}><IconButton onClick={() => setOpen(true)} disabled={disabled}>
         {onPick ? <><FolderAddFilled style={{fontSize: size}}/></> : <FolderViewOutlined style={{fontSize: size}}/>}
-      </IconButton>
+      </IconButton></span></Tooltip>
       {open && <FilePickerModal canCreate={canCreate} restic={restic} raw={raw} select={select} open={open} onPick={onPick} OnClose={() => setOpen(false)} _storage={storage} _path={path} />}
     </>
   );

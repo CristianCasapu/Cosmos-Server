@@ -466,13 +466,14 @@ const ConfigZones = () => {
                 field: (z) => (
                   <PermissionGuard permission={PERM_CONFIGURATION}>
                     <Stack direction="row" spacing={1} justifyContent="flex-end">
-                      <IconButton size="small" onClick={() => setEditZone(z)}>
+                      {/* Fork addition: tooltips on the icon-only buttons */}
+                      <Tooltip title={t('global.edit', 'Edit')}><IconButton size="small" onClick={() => setEditZone(z)}>
                         <EditOutlined />
-                      </IconButton>
+                      </IconButton></Tooltip>
                       {!z.derived && (
-                        <IconButton size="small" color="error" onClick={() => setConfirmDelete(z.Zone)}>
+                        <Tooltip title={t('global.delete', 'Delete')}><IconButton size="small" color="error" onClick={() => setConfirmDelete(z.Zone)}>
                           <DeleteOutlined />
-                        </IconButton>
+                        </IconButton></Tooltip>
                       )}
                     </Stack>
                   </PermissionGuard>

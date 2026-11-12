@@ -1,4 +1,5 @@
 import type { ApiFetch } from './wrap';
+import { trackFetch } from '../utils/activity';
 
 export function createApiClient(baseUrl: string = '', token: string | null = null): {
   apiFetch: ApiFetch;
@@ -7,7 +8,8 @@ export function createApiClient(baseUrl: string = '', token: string | null = nul
   function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
     const headers: Record<string, string> = { ...(options.headers as Record<string, string>) };
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    return fetch(baseUrl + path, { ...options, headers });
+    // Fork addition: report the request, so the UI can say what is running and how it ended.
+    return trackFetch(baseUrl + path, options, fetch(baseUrl + path, { ...options, headers }));
   }
 
   function createWs(path: string): WebSocket {

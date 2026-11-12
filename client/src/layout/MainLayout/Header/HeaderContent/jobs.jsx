@@ -10,6 +10,7 @@ import {
     ClickAwayListener,
     Divider,
     IconButton,
+    Tooltip, // Fork addition: Tooltip, for the icon-only buttons
     List,
     ListItemButton,
     ListItemAvatar,
@@ -140,7 +141,7 @@ const Jobs = () => {
 
     return (
         <Box sx={{ flexShrink: 0, ml: 0.75 }}>
-            <IconButton
+            <Tooltip title={open ? '' : t('tooltip.jobs', 'Jobs')}><IconButton
                 disableRipple
                 color="secondary"
                 sx={{ color: 'text.primary', bgcolor: open ? iconBackColorOpen : iconBackColor }}
@@ -153,7 +154,7 @@ const Jobs = () => {
                 <Badge badgeContent={nbRunning} color="error">
                     <ClockCircleOutlined />
                 </Badge>
-            </IconButton>
+            </IconButton></Tooltip>
             <Popper
                 placement={matchesXs ? 'bottom' : 'bottom-end'}
                 open={open}
@@ -192,12 +193,12 @@ const Jobs = () => {
                                     border={false}
                                     content={false}
                                     secondary={
-                                        <><IconButton size="small" onClick={handleRefresh}>
+                                        <><Tooltip title={t('global.refresh', 'Refresh')}><IconButton size="small" onClick={handleRefresh}>
                                             <ReloadOutlined />
-                                        </IconButton>
-                                        <IconButton size="small" onClick={handleToggle}>
+                                        </IconButton></Tooltip>
+                                        <Tooltip title={t('global.close', 'Close')}><IconButton size="small" onClick={handleToggle}>
                                             <CloseOutlined />
-                                        </IconButton></>
+                                        </IconButton></Tooltip></>
                                     }
                                 >
                                     <List
@@ -240,20 +241,20 @@ const Jobs = () => {
                                             />
                                                 <ListItemSecondaryAction>
                                                     
-                                                {(job.Running) ? <PermissionGuard permission={PERM_RESOURCES}><IconButton disabled={!job.Cancellable} variant="outlined" color="error" onClick={() => {
+                                                {(job.Running) ? <PermissionGuard permission={PERM_RESOURCES}><Tooltip title={t('mgmt.servapps.actionBar.stop', 'Stop')}><span style={{display: 'inline-flex'}}><IconButton disabled={!job.Cancellable} variant="outlined" color="error" onClick={() => {
                                                     API.cron.stop(job.Scheduler, job.Name).then(() => {
                                                         refreshJobs();
                                                     });
                                                 }}>
                                                     <CloseSquareOutlined />
-                                                </IconButton></PermissionGuard> : ''}
-                                                {(!job.Running) ? <PermissionGuard permission={PERM_RESOURCES}><IconButton variant="outlined" color="primary" onClick={() => {
+                                                </IconButton></span></Tooltip></PermissionGuard> : ''}
+                                                {(!job.Running) ? <PermissionGuard permission={PERM_RESOURCES}><Tooltip title={t('mgmt.scheduler.list.action.run', 'Run')}><IconButton variant="outlined" color="primary" onClick={() => {
                                                     API.cron.run(job.Scheduler, job.Name).then(() => {
                                                         refreshJobs();
                                                     });
                                                 }}>
                                                     <PlaySquareOutlined />
-                                                </IconButton></PermissionGuard> : ''}
+                                                </IconButton></Tooltip></PermissionGuard> : ''}
                                                 </ListItemSecondaryAction>
                                             </ListItemButton>
                                             <ListItemButton

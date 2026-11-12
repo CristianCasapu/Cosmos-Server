@@ -152,11 +152,12 @@ export const CronManager = () => {
               {
                 title: "",
                 field: (r) => <>
-                  {r.Running ? <Tooltip title="Stop"><IconButton disabled={!r.Cancellable} onClick={() => {
+                  {/* Fork addition: translated title; the span lets the tooltip show while the button is disabled */}
+                  {r.Running ? <Tooltip title={t('mgmt.servapps.actionBar.stop', 'Stop')}><span style={{display: 'inline-flex'}}><IconButton disabled={!r.Cancellable} onClick={() => {
                     API.cron.stop(scheduler, r.Name).then(() => {
                       refresh();
                     });
-                  }}><StopOutlined /></IconButton></Tooltip>
+                  }}><StopOutlined /></IconButton></span></Tooltip>
                     : <Tooltip title={t('mgmt.scheduler.list.action.run')}><IconButton onClick={() => {
                       API.cron.run(scheduler, r.Name).then(() => {
                         refresh();

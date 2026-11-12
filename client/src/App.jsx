@@ -9,6 +9,8 @@ import {Alert, Box} from '@mui/material';
 import * as API from './api';
 
 import { setSnackit, snackit } from './api/wrap';
+import ActivityIndicator from './components/activityIndicator';
+import { notify } from './utils/activity';
 import { DisconnectOutlined } from '@ant-design/icons';
 
 // ==============================|| APP - THEME, ROUTER, LOCAL  ||============================== //
@@ -70,10 +72,10 @@ const App = () => {
         });
     }, []);
 
+    // Fork addition: errors reported by the API layer join the other messages
+    // at the bottom of the page (upstream: a separate bar at the top).
     setSnackit((message, severity='error') => {
-        setMessage(message);
-        setOpen(true);
-        setSeverity(severity);
+        notify(message, severity);
     })
 
     return statusLoaded ?
@@ -91,6 +93,7 @@ const App = () => {
             <ScrollTop>
                 <Routes />
             </ScrollTop>
+            <ActivityIndicator />
         </ThemeCustomization>
 
         : <div>

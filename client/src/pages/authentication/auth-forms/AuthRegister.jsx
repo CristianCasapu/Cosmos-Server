@@ -12,6 +12,7 @@ import {
     Grid,
     Link,
     IconButton,
+    Tooltip, // Fork addition: Tooltip, for the icon-only buttons
     InputAdornment,
     InputLabel,
     OutlinedInput,
@@ -143,7 +144,7 @@ const AuthRegister = ({nickname, isRegister, isInviteLink, regkey}) => {
                                         }}
                                         endAdornment={
                                             <InputAdornment position="end">
-                                                <IconButton
+                                                <Tooltip title={showPassword ? t('tooltip.hidePassword', 'Hide password') : t('tooltip.showPassword', 'Show password')}><IconButton
                                                     aria-label={t('auth.pwd.visibilityToggle.visibilityToggleLabel')}
                                                     onClick={handleClickShowPassword}
                                                     onMouseDown={handleMouseDownPassword}
@@ -151,7 +152,7 @@ const AuthRegister = ({nickname, isRegister, isInviteLink, regkey}) => {
                                                     size="large"
                                                 >
                                                     {showPassword ? <EyeOutlined /> : <EyeInvisibleOutlined />}
-                                                </IconButton>
+                                                </IconButton></Tooltip>
                                             </InputAdornment>
                                         }
                                         placeholder="********"

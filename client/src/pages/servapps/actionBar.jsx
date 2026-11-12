@@ -67,7 +67,7 @@ const GetActions = ({
 
   let actions = [
     {
-      t: t('mgmt.servapps.actionBar.update') + (isStack ? ', go the stack details to update' : ', Click to Update'),
+      t: t('mgmt.servapps.actionBar.update') + (isStack ? t('tooltip.servapps.updateInStack', ', go to the stack details to update') : t('tooltip.servapps.updateClick', ', Click to Update')),
       if: ['update_available'],
       es: <PermissionGuard permission={PERM_RESOURCES}><IconButton className="shinyButton" style={{cursor: 'not-allowed'}} color='primary' onClick={()=>{}} size={isMiniMobile ? 'medium' : 'large'}>
       <UpCircleOutlined />
@@ -157,7 +157,10 @@ const GetActions = ({
     {!isUpdating && actions.filter((action) => {
       return action.if.includes(state) || (updateAvailable && action.if.includes('update_available')) || (!updateAvailable && action.if.includes('update_not_available'));
     }).map((action) => {
-      return (!isStack || !action.hideStack) && <Tooltip title={action.t}>{isStack ? (action.es ? action.es : action.e) : action.e}</Tooltip>
+      // Fork addition: PermissionGuard hands back its child as-is, so a Tooltip around the guard never reaches the button.
+      // Put the Tooltip inside the guard instead (DeleteModal carries its own).
+      const el = isStack ? (action.es ? action.es : action.e) : action.e;
+      return (!isStack || !action.hideStack) && (el.type === PermissionGuard ? React.cloneElement(el, {}, <Tooltip title={action.t}>{el.props.children}</Tooltip>) : el)
     })}
 
     {isUpdating && <Stack sx={{

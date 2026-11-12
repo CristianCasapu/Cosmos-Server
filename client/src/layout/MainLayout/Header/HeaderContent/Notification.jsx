@@ -11,6 +11,7 @@ import {
     ClickAwayListener,
     Divider,
     IconButton,
+    Tooltip, // Fork addition: Tooltip, for the icon-only buttons
     List,
     ListItemButton,
     ListItemAvatar,
@@ -154,7 +155,7 @@ const Notification = () => {
 
     return (
         <Box sx={{ flexShrink: 0, ml: 0.75 }}>
-            <IconButton
+            <Tooltip title={open ? '' : t('header.notificationTitle', 'Notification')}><IconButton
                 disableRipple
                 color="secondary"
                 sx={{ color: 'text.primary', bgcolor: open ? iconBackColorOpen : iconBackColor }}
@@ -167,7 +168,7 @@ const Notification = () => {
                 <Badge badgeContent={nbUnread} color="error">
                     <BellOutlined />
                 </Badge>
-            </IconButton>
+            </IconButton></Tooltip>
             <Popper
                 placement={matchesXs ? 'bottom' : 'bottom-end'}
                 open={open}
@@ -206,9 +207,9 @@ const Notification = () => {
                                     border={false}
                                     content={false}
                                     secondary={
-                                        <IconButton size="small" onClick={handleToggle}>
+                                        <Tooltip title={t('global.close', 'Close')}><IconButton size="small" onClick={handleToggle}>
                                             <CloseOutlined />
-                                        </IconButton>
+                                        </IconButton></Tooltip>
                                     }
                                 >
                                     <List

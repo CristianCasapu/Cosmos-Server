@@ -340,7 +340,8 @@ export const ConstellationVPN = ({ freeVersion }) => {
                       chainOk ? t('mgmt.constellation.constStatusConnected') : t('mgmt.constellation.constStatusDegraded'),
                     ][ping]}
                   </Typography>
-                  <IconButton size="small" onClick={async () => {
+                  {/* Fork addition: tooltip on the icon-only button */}
+                  <Tooltip title={t('global.refresh', 'Refresh')}><IconButton size="small" onClick={async () => {
                     setPing(0);
                     if (isAdmin) {
                       API.constellation.natsStatus().then((res) => setNatsInfo(res.data)).catch(() => setNatsInfo(false));
@@ -348,7 +349,7 @@ export const ConstellationVPN = ({ freeVersion }) => {
                     setPing((await API.constellation.ping()).data ? 2 : 1);
                   }}>
                     <SyncOutlined style={{ fontSize: 14 }} />
-                  </IconButton>
+                  </IconButton></Tooltip>
                 </>}
               </Stack>
               {enableLoading
@@ -450,10 +451,11 @@ export const ConstellationVPN = ({ freeVersion }) => {
                         + (natsInfo.haMode ? ' (' + t('mgmt.constellation.nats.ha') + ')' : '')
                         + ' · ' + t('mgmt.constellation.nats.js') + ' ' + t('mgmt.constellation.nats.jsMode.' + natsInfo.jetstreamMode)}
                     </Typography>
-                    <IconButton size="small" sx={{ display: { xs: 'inline-flex', md: 'none' }, p: 0.25 }}
+                    {/* Fork addition: tooltip on the icon-only button */}
+                    <Tooltip title={natsExpanded ? t('tooltip.hideDetails', 'Hide details') : t('tooltip.showDetails', 'Show details')}><IconButton size="small" sx={{ display: { xs: 'inline-flex', md: 'none' }, p: 0.25 }}
                       onClick={() => setNatsExpanded(!natsExpanded)}>
                       {natsExpanded ? <UpOutlined style={{ fontSize: 10 }} /> : <DownOutlined style={{ fontSize: 10 }} />}
-                    </IconButton>
+                    </IconButton></Tooltip>
                   </Stack>
                   {!natsExpanded && (
                     <Stack direction="row" spacing={0.75} alignItems="center" onClick={() => setNatsExpanded(true)}
@@ -1007,10 +1009,11 @@ export const ConstellationVPN = ({ freeVersion }) => {
                 clickable: true,
                 field: (r) => {
                   return <>
+                    {/* Fork addition: tooltip on the icon-only button */}
                     <PermissionGuard permission={PERM_RESOURCES}>
-                      <IconButton onClick={() => setResyncDevice([r.nickname, r.deviceName])}>
+                      <Tooltip title={t('mgmt.constellation.resyncDevice', 'Resync Device')}><IconButton onClick={() => setResyncDevice([r.nickname, r.deviceName])}>
                         <SyncOutlined />
-                      </IconButton>
+                      </IconButton></Tooltip>
                     </PermissionGuard>
                     <PermissionGuard permission={PERM_RESOURCES}><DeleteButton onDelete={async () => {
                       await API.constellation.block(r.nickname, r.deviceName, true);

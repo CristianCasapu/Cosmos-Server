@@ -270,8 +270,9 @@ const DeleteModal = ({Ids, containers, refreshServApps, setIsUpdatingId, config}
         </Dialog>
      </>}
 
+     {/* Fork addition: tooltip inside the guard, where its ref reaches the button */}
      <PermissionGuard permission={PERM_RESOURCES}>
-       <IconButton onClick={() => {
+       <Tooltip title={t('global.delete', 'Delete')}><IconButton onClick={() => {
             setIsOpen(true);
             setIsDeleting(false);
             setFailed([]);
@@ -279,7 +280,7 @@ const DeleteModal = ({Ids, containers, refreshServApps, setIsUpdatingId, config}
             setIgnored([]);
         }} color="error" size='large'>
           <DeleteOutlined />
-        </IconButton>
+        </IconButton></Tooltip>
      </PermissionGuard>
   </>
 }

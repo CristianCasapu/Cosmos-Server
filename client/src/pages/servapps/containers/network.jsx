@@ -1,6 +1,6 @@
 import React from 'react';
 import { Formik } from 'formik';
-import { Button, Stack, Grid, MenuItem, TextField, IconButton, FormHelperText, CircularProgress, useTheme, Alert, useMediaQuery } from '@mui/material';
+import { Button, Stack, Grid, MenuItem, TextField, IconButton, FormHelperText, CircularProgress, useTheme, Alert, useMediaQuery, Tooltip } from '@mui/material'; // Fork addition: Tooltip, for the icon-only buttons
 import MainCard from '../../../components/MainCard';
 import { CosmosCheckbox, CosmosFormDivider, CosmosInputText, CosmosSelect }
   from '../../config/users/formShortcuts';
@@ -225,7 +225,7 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                           </TextField>
                         </Grid>
                         <Grid item xs={1} style={{ padding }}>
-                          <IconButton
+                          <Tooltip title={t('global.delete', 'Delete')}><IconButton
                             fullWidth
                             variant="outlined"
                             color="error"
@@ -236,11 +236,11 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                             }}
                           >
                             <DeleteOutlined />
-                          </IconButton>
+                          </IconButton></Tooltip>
                         </Grid>
                       </Grid>
                     ))}
-                    <PermissionGuard permission={PERM_RESOURCES}><IconButton
+                    <PermissionGuard permission={PERM_RESOURCES}><Tooltip title={t('global.addAction', 'Add')}><IconButton
                       fullWidth
                       variant="outlined"
                       color="primary"
@@ -256,7 +256,7 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                       }}
                     >
                       <PlusCircleOutlined />
-                    </IconButton></PermissionGuard>
+                    </IconButton></Tooltip></PermissionGuard>
                   </div>
                   <div>
                     <Stack direction="column" spacing={2}>

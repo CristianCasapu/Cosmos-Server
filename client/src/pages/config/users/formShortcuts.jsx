@@ -18,6 +18,7 @@ import {
   Box,
   FormControl,
   IconButton,
+  Tooltip, // Fork addition: Tooltip, for the icon-only buttons
   InputAdornment,
   Select,
 
@@ -131,7 +132,7 @@ export const CosmosInputPassword = ({ name, noStrength, type, placeholder, autoC
         placeholder="********"
         endAdornment={
             <InputAdornment position="end">
-                <IconButton
+                <Tooltip title={showPassword ? t('tooltip.hidePassword', 'Hide password') : t('tooltip.showPassword', 'Show password')}><IconButton
                     aria-label="toggle password visibility"
                     onClick={handleClickShowPassword}
                     onMouseDown={handleMouseDownPassword}
@@ -139,7 +140,7 @@ export const CosmosInputPassword = ({ name, noStrength, type, placeholder, autoC
                     size="large"
                 >
                     {showPassword ? <EyeOutlined /> : <EyeInvisibleOutlined />}
-                </IconButton>
+                </IconButton></Tooltip>
             </InputAdornment>
         }
         fullWidth
