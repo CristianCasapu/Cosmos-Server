@@ -17,7 +17,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/go-chi/chi/middleware"
+	// Fork addition: chi v4 is deprecated and unmaintained (GO-2026-4316 has
+	// no fix there); v5 has the same WrapResponseWriter.
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 func cW(w io.Writer, useColor bool, color string, s string, args ...interface{}) {
