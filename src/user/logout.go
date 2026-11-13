@@ -19,7 +19,10 @@ func UserLogout(w http.ResponseWriter, req *http.Request) {
 		utils.Debug("UserLogout: Logging out user")
 
 		recordLogout(req) // Fork addition: security record
-		revokePresentedToken(req) // Fork addition: the session ends on the server too, see fork_logout_revoke.go
+		// Fork addition: logging out ends every session of the account, on every device, see fork_session_life.go
+		if !endSessionsAtLogout(w, req) {
+			return
+		}
 		logOutUser(w, req);
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
