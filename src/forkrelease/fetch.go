@@ -38,7 +38,7 @@ const (
 
 	// ListTimeout bounds a small request, ZipTimeout the download of a zip.
 	ListTimeout = 45 * time.Second
-	ZipTimeout  = 20 * time.Minute
+	ZipTimeout  = 60 * time.Minute
 )
 
 var (
