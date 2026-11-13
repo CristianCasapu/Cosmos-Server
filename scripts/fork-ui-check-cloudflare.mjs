@@ -280,7 +280,7 @@ note('the zone at the start:', zoneBefore.map((r) => `${r.type} ${r.name}${r.pro
   await page.waitForTimeout(6000);
   const pageText = await page.locator('body').innerText();
   expect(/The record exists at Cloudflare/.test(pageText), `${name}: the container page shows the record's state among the reachability checks`);
-  expect(/Served through Cloudflare: Cosmos answers for this name to Cloudflare and to your local network only/.test(pageText), `${name}: the container page says the address is served through Cloudflare`);
+  expect(/Served through Cloudflare: Cosmos answers for this name to Cloudflare\'s network and to your local network only/.test(pageText), `${name}: the container page says the address is served through Cloudflare`);
   expect(await page.locator('[data-cloudflare-host="radarr.example.org"]').count() >= 1, `${name}: the container page has the switch`);
   await page.locator('[data-reach-panel]').scrollIntoViewIfNeeded();
   await shot(page, name, '11-container-page');

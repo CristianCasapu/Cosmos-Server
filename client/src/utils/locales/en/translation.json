@@ -2742,7 +2742,7 @@
 	"mgmt.shield.whitelist.deleteConfirm": "Remove {{ip}} from the whitelist?",
 	"mgmt.shield.whitelist.invalidIP": "Enter a valid IP address or CIDR range",
 	"mgmt.cloudflare.notes.media": "{{name}} looks like a media server. Cloudflare's terms do not allow serving video or large amounts of big files through its proxy on the Free, Pro and Business plans, and it may limit or switch off the proxy for a domain used that way. \"Directly\" is the usual choice for such an application.",
-	"mgmt.cloudflare.notes.guard": "Cosmos will answer for this address only to Cloudflare and to your local network. Whoever asks this server for it directly is refused, and the attempt is recorded.",
+	"mgmt.cloudflare.notes.guard": "Cosmos will answer for this address only to connections from Cloudflare's network and from your local network. Whoever asks this server for it directly is refused, and the attempt is recorded.",
 	"mgmt.cloudflare.notes.limits": "Limits of Cloudflare's proxy on the free plan: at most 100 MB per upload, an answer must begin within about two minutes, and long-lived connections (live updates, terminals) are cut from time to time.",
 	"mgmt.cloudflare.notes.bans": "A firewall ban on this server (Fail2ban) cannot cut off a visitor who comes through Cloudflare: the connection is Cloudflare's. Cosmos' own SmartShield still goes by the visitor's real address.",
 	"mgmt.cloudflare.notes.ssl": "At Cloudflare, the domain's SSL/TLS mode must be \"Full (strict)\" (SSL/TLS > Overview).",
@@ -2918,7 +2918,8 @@
 	"mgmt.reach.check.dns.throughShield": "The name leads to Cloudflare, which passes visitors on to this server.",
 	"mgmt.reach.check.dns.shieldNotYet": "The name still points straight at this server although it is set to go through Cloudflare: the change is on its way, or the proxy was switched off at Cloudflare. Visitors who get this answer are refused.",
 	"mgmt.reach.check.dns.behindCloudflare": "The name leads to Cloudflare's proxy, but here it is set to be served directly: Cosmos then takes Cloudflare's addresses for the visitors. Set it to \"through Cloudflare\" under Domains.",
-	"mgmt.reach.check.shield.on": "Served through Cloudflare: Cosmos answers for this name to Cloudflare and to your local network only.",
+	"mgmt.reach.check.shield.on": "Served through Cloudflare: Cosmos answers for this name to Cloudflare's network and to your local network only.",
 	"mgmt.reach.check.shield.port": "Set to go through Cloudflare, but visitors use port {{port}}, which Cloudflare does not pass on (it passes HTTPS on 443, 2053, 2083, 2087, 2096 and 8443).",
-	"mgmt.cloudflare.review.apexCookie": "Good to know before choosing the domain itself: a browser sends a login to every port of a name. Whatever answers https://{{zone}} without a port (another machine, if your router sends that port elsewhere) receives the panel's login cookie with each visit, and so does every name under {{zone}}. If those are not all yours alone, give the panel a name of its own instead ({{own}})."
+	"mgmt.cloudflare.review.apexCookie": "Good to know before choosing the domain itself: a browser sends a login to every port of a name. Whatever answers https://{{zone}} without a port (another machine, if your router sends that port elsewhere) receives the panel's login cookie with each visit, and so does every name under {{zone}}. If those are not all yours alone, give the panel a name of its own instead ({{own}}).",
+	"mgmt.cloudflare.ranges.limit": "What this does and does not do: it keeps out everyone who does not come through Cloudflare's network. That network is shared by all of Cloudflare's customers, so it is not proof that a request passed your own Cloudflare settings. Logins, two-factor codes and SmartShield apply to every request as before."
 }

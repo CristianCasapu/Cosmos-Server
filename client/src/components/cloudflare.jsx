@@ -114,7 +114,7 @@ const ShieldNotes = ({ image, name }) => {
     </Alert>}
     <Typography variant="body2">
       {t('mgmt.cloudflare.notes.guard',
-        'Cosmos will answer for this address only to Cloudflare and to your local network. Whoever asks this server for it directly is refused, and the attempt is recorded.')}
+        'Cosmos will answer for this address only to connections from Cloudflare\'s network and from your local network. Whoever asks this server for it directly is refused, and the attempt is recorded.')}
     </Typography>
     <Typography variant="body2">
       {t('mgmt.cloudflare.notes.limits',
@@ -349,6 +349,10 @@ export const CloudflareOverview = () => {
             ? t('mgmt.cloudflare.ranges.builtin', 'List in use: {{count}} ranges, the one built into Cosmos (Cloudflare\'s list of {{date}}).', { count: data.ranges.count, date: data.ranges.date })
             : t('mgmt.cloudflare.ranges.fetched', 'List in use: {{count}} ranges, fetched from Cloudflare on {{date}}.', { count: data.ranges.count, date: data.ranges.date })}
         </Typography>
+        {data.ranges.trusted && <Typography variant="caption" color="textSecondary" sx={{ overflowWrap: 'anywhere' }}>
+          {t('mgmt.cloudflare.ranges.limit',
+            'What this does and does not do: it keeps out everyone who does not come through Cloudflare\'s network. That network is shared by all of Cloudflare\'s customers, so it is not proof that a request passed your own Cloudflare settings. Logins, two-factor codes and SmartShield apply to every request as before.')}
+        </Typography>}
         {notice && <Alert severity={notice.severity} sx={{ overflowWrap: 'anywhere' }}>{notice.text}</Alert>}
         <PermissionGuard permission={PERM_CONFIGURATION}>
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">

@@ -118,7 +118,7 @@ export const CHECK_TEXT = {
   'forward.routerNotPublic': ['routerNotPublic', 'The router\'s own internet address is not a public one (provider NAT): nothing behind it can be reached from the internet.', 'internet'],
   'forward.upnpFailed': ['upnpFailed', 'Automatic forwarding of port {{port}} failed: {{error}}', 'internet'],
 
-  'shield.on': ['on', 'Served through Cloudflare: Cosmos answers for this name to Cloudflare and to your local network only.', null],
+  'shield.on': ['on', 'Served through Cloudflare: Cosmos answers for this name to Cloudflare\'s network and to your local network only.', null],
   'shield.port': ['port', 'Set to go through Cloudflare, but visitors use port {{port}}, which Cloudflare does not pass on (it passes HTTPS on 443, 2053, 2083, 2087, 2096 and 8443).', 'internet'],
 
   'cert.valid': ['valid', 'The certificate is valid until {{until}}.', null],
