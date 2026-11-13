@@ -24,6 +24,7 @@ import AllBackupsIndex from '../pages/backups';
 import SingleBackupIndex from '../pages/backups/single-backup-index';
 import SingleRepoIndex from '../pages/backups/single-repo-index';
 import { isDomain } from '../utils/indexs';
+import SecurityAuditPage from '../pages/securityAudit'; // Fork addition: the audit page
 
 // ==============================|| MAIN ROUTING ||============================== //
 
@@ -224,7 +225,9 @@ const MainRoutes = {
         {
             path: '/cosmos-ui/cron',
             element: <CronManager />
-        }].map(children => ({
+        },
+        { path: '/cosmos-ui/security-audit', element: <SecurityAuditPage /> }, // Fork addition: the audit page
+        ].map(children => ({
             ...children,
             element: PrivateRoute({ children: children.element })
         }))
