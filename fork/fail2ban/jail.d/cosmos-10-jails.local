@@ -1,0 +1,109 @@
+# Fail2ban jails of the Cosmos fork.
+#
+# Installed by fork/fail2ban/install.sh as /etc/fail2ban/jail.d/cosmos-10-jails.local
+# and replaced when that is run again: do not edit it here. Two files read
+# after this one change what it says:
+#   cosmos-50-host.local   written by the installer for this server
+#                          (addresses never banned, the log's path, sshd on/off)
+#   cosmos-90-panel.local  written by Cosmos when the thresholds or the
+#                          addresses never banned are changed in the panel
+# Your own changes belong in a file read later still, such as
+# /etc/fail2ban/jail.d/zz-mine.local.
+
+[DEFAULT]
+
+# Never banned, by any jail: this machine, and the networks at home. A file
+# read later replaces the whole list (the installer adds what it finds here).
+ignoreip = 127.0.0.0/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 fc00::/7 fe80::/10
+
+# The file Cosmos writes for Fail2ban (see filter.d/cosmos-*.conf).
+cosmos_security_log = /var/lib/cosmos/cosmos.security.log
+
+# How the fork's jails block: one table of their own (inet f2b-cosmos), one
+# chain on the prerouting hook, ahead of connection tracking and of Docker's
+# port forwarding. A banned address is dropped before the kernel decides
+# whether a packet is for the server itself (Cosmos, SSH, file sharing) or
+# for a container's published port: both are cut, every protocol, IPv4 and
+# IPv6. Docker never touches this table and Fail2ban never touches Docker's.
+cosmos_banaction = nftables[type=custom, table=f2b-cosmos, chain_hook=prerouting, chain_priority=-300, blocktype=drop]
+cosmos_chain = f2b-cosmos-prerouting
+
+
+# Guessing credentials: failed logins, wrong two-factor codes, wrong password
+# at the confirmation prompt, bad invitation or reset keys, API tokens that
+# do not exist.
+[cosmos-auth]
+enabled   = true
+filter    = cosmos-auth
+logpath   = %(cosmos_security_log)s
+backend   = polling
+usedns    = no
+maxretry  = 5
+findtime  = 3600
+bantime   = 14400
+banaction = %(cosmos_banaction)s
+chain     = %(cosmos_chain)s
+
+# Requests for paths only scanners ask for (/.env, /wp-login.php, ...).
+[cosmos-probe]
+enabled   = true
+filter    = cosmos-probe
+logpath   = %(cosmos_security_log)s
+backend   = polling
+usedns    = no
+maxretry  = 3
+findtime  = 3600
+bantime   = 86400
+banaction = %(cosmos_banaction)s
+chain     = %(cosmos_chain)s
+
+# Scans of the server's address (requests for host names it does not serve)
+# and bots refused by a URL's bot filter. A burst threshold: a person who
+# opens the server by its address produces a few of these.
+[cosmos-scan]
+enabled   = true
+filter    = cosmos-scan
+logpath   = %(cosmos_security_log)s
+backend   = polling
+usedns    = no
+maxretry  = 10
+findtime  = 600
+bantime   = 14400
+banaction = %(cosmos_banaction)s
+chain     = %(cosmos_chain)s
+
+# SmartShield's own verdicts: its third strike within a day (which is also
+# when it bans inside Cosmos) becomes a ban at the firewall.
+[cosmos-abuse]
+enabled   = true
+filter    = cosmos-abuse
+logpath   = %(cosmos_security_log)s
+backend   = polling
+usedns    = no
+maxretry  = 3
+findtime  = 86400
+bantime   = 14400
+banaction = %(cosmos_banaction)s
+chain     = %(cosmos_chain)s
+
+# The server's own SSH. Debian's filter; sshd logs to the journal.
+[sshd]
+enabled   = true
+backend   = systemd
+maxretry  = 5
+findtime  = 600
+bantime   = 3600
+banaction = %(cosmos_banaction)s
+chain     = %(cosmos_chain)s
+
+# Escalation: an address banned three times within a day, by any jail, is
+# banned for a week. Reads Fail2ban's own log.
+[recidive]
+enabled   = true
+logpath   = /var/log/fail2ban.log
+backend   = polling
+maxretry  = 3
+findtime  = 86400
+bantime   = 604800
+banaction = %(cosmos_banaction)s
+chain     = %(cosmos_chain)s
