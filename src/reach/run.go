@@ -81,7 +81,7 @@ type Response struct {
 // asking anyone new: the router's (UPnP), the one DynDNS advertises, or one
 // an admin had looked up.
 func publicAddress(st upnp.Status) (string, string) {
-	if st.Enabled {
+	if st.Enabled || len(st.Apps) > 0 {
 		if ip := net.ParseIP(st.ExternalIP); ip != nil && ip.To4() != nil && IsPublicIP(ip) {
 			return ip.To4().String(), "upnp"
 		}

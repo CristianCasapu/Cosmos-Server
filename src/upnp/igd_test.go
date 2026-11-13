@@ -1,31 +1,54 @@
 package upnp
 
 import (
+	"bytes"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
 // fakeRouter is an in-process UPnP IGD: a description document and a SOAP
-// control endpoint backed by a table of port forwards.
+// control endpoint backed by a table of port forwards. It behaves like
+// miniupnpd: a mapping asked for again by its own client is updated, one
+// asked for by another client is refused with 718.
 type fakeRouter struct {
+	mu            sync.Mutex
 	server        *httptest.Server
-	forwards      map[string]string // "TCP/8443" -> internal client
-	leases        map[string]string // "TCP/8443" -> requested lease
-	onlyPermanent bool              // refuse leased mappings, like some routers do
-	controlURL    string            // what the description advertises
+	table         map[string]*fakeForward // "TCP/8443"
+	onlyPermanent bool                    // refuse leased mappings, like some routers do
+	noLookup      bool                    // GetSpecificPortMappingEntry is not implemented
+	noList        bool                    // GetGenericPortMappingEntry is not implemented
+	sameForever   bool                    // answers every index with the first entry
+	// hidden: forwards made in the router's own pages, not shown to UPnP.
+	// The value is the error the router answers a request for that port
+	// with (718, 729), or 0: it says "done" and the manual forward wins.
+	hidden     map[string]int
+	refuse     map[string]int // other refusals by port key (606)
+	controlURL string         // what the description advertises
+	calls      []string       // "AddPortMapping TCP/8443"
+}
+
+type fakeForward struct {
+	client      string
+	port        string
+	description string
+	lease       string
 }
 
 func newFakeRouter(t *testing.T) *fakeRouter {
 	t.Helper()
-	r := &fakeRouter{forwards: map[string]string{}, leases: map[string]string{}, controlURL: "/ctl/ipconn"}
+	r := &fakeRouter{table: map[string]*fakeForward{}, hidden: map[string]int{}, refuse: map[string]int{}, controlURL: "/ctl/ipconn"}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/desc.xml", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, `<?xml version="1.0"?>
@@ -48,7 +71,62 @@ func newFakeRouter(t *testing.T) *fakeRouter {
 	return r
 }
 
+// put places a forward in the table as another client would have.
+func (r *fakeRouter) put(key string, client string, port int, description string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.table[key] = &fakeForward{client: client, port: strconv.Itoa(port), description: description, lease: "0"}
+}
+
+func (r *fakeRouter) get(key string) (fakeForward, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	f, ok := r.table[key]
+	if !ok {
+		return fakeForward{}, false
+	}
+	return *f, true
+}
+
+// reboot is what a power cut does to a router: every UPnP mapping is gone.
+func (r *fakeRouter) reboot() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.table = map[string]*fakeForward{}
+}
+
+// expire ends the lease of one mapping.
+func (r *fakeRouter) expire(key string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.table, key)
+}
+
+// count tells how often an action was asked for a port ("" for any port).
+func (r *fakeRouter) count(action string, key string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, call := range r.calls {
+		if call == action+" "+key || (key == "" && strings.HasPrefix(call, action+" ")) {
+			n++
+		}
+	}
+	return n
+}
+
+func (r *fakeRouter) keys() []string {
+	keys := make([]string, 0, len(r.table))
+	for key := range r.table {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 func (r *fakeRouter) control(w http.ResponseWriter, req *http.Request) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	body, _ := io.ReadAll(req.Body)
 	args := leafValues(body)
 	key := args["NewProtocol"] + "/" + args["NewExternalPort"]
@@ -59,31 +137,75 @@ func (r *fakeRouter) control(w http.ResponseWriter, req *http.Request) {
 	reply := func(inner string) {
 		fmt.Fprintf(w, `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><u:R xmlns:u="x">%s</u:R></s:Body></s:Envelope>`, inner)
 	}
+	describe := func(key string, f *fakeForward) string {
+		var text bytes.Buffer
+		xml.EscapeText(&text, []byte(f.description))
+		parts := strings.SplitN(key, "/", 2)
+		return "<NewRemoteHost></NewRemoteHost><NewExternalPort>" + parts[1] + "</NewExternalPort><NewProtocol>" + parts[0] + "</NewProtocol>" +
+			"<NewInternalPort>" + f.port + "</NewInternalPort><NewInternalClient>" + f.client + "</NewInternalClient><NewEnabled>1</NewEnabled>" +
+			"<NewPortMappingDescription>" + text.String() + "</NewPortMappingDescription><NewLeaseDuration>" + f.lease + "</NewLeaseDuration>"
+	}
 
 	action := strings.Trim(req.Header.Get("SOAPAction"), `"`)
-	switch action[strings.Index(action, "#")+1:] {
+	action = action[strings.Index(action, "#")+1:]
+	r.calls = append(r.calls, action+" "+key)
+	switch action {
 	case "GetExternalIPAddress":
 		reply("<NewExternalIPAddress>203.0.113.7</NewExternalIPAddress>")
 	case "GetSpecificPortMappingEntry":
-		if client, ok := r.forwards[key]; ok {
-			reply("<NewInternalPort>1</NewInternalPort><NewInternalClient>" + client + "</NewInternalClient>")
+		if r.noLookup {
+			fault(401, "Invalid Action")
+			return
+		}
+		if f, ok := r.table[key]; ok {
+			reply(describe(key, f))
 		} else {
 			fault(714, "NoSuchEntryInArray")
 		}
+	case "GetGenericPortMappingEntry":
+		if r.noList {
+			fault(401, "Invalid Action")
+			return
+		}
+		index, _ := strconv.Atoi(args["NewPortMappingIndex"])
+		keys := r.keys()
+		if r.sameForever && len(keys) > 0 {
+			index = 0
+		}
+		if index < 0 || index >= len(keys) {
+			fault(713, "SpecifiedArrayIndexInvalid")
+			return
+		}
+		reply(describe(keys[index], r.table[keys[index]]))
 	case "AddPortMapping":
+		if code, ok := r.refuse[key]; ok {
+			fault(code, "Refused")
+			return
+		}
+		if code, ok := r.hidden[key]; ok {
+			if code != 0 {
+				fault(code, "Conflict")
+			} else {
+				reply("") // "done", but the forward made by hand wins
+			}
+			return
+		}
 		if r.onlyPermanent && args["NewLeaseDuration"] != "0" {
 			fault(725, "OnlyPermanentLeasesSupported")
 			return
 		}
-		r.forwards[key] = args["NewInternalClient"]
-		r.leases[key] = args["NewLeaseDuration"]
+		if f, ok := r.table[key]; ok && f.client != args["NewInternalClient"] {
+			fault(718, "ConflictInMappingEntry")
+			return
+		}
+		r.table[key] = &fakeForward{client: args["NewInternalClient"], port: args["NewInternalPort"], description: args["NewPortMappingDescription"], lease: args["NewLeaseDuration"]}
 		reply("")
 	case "DeletePortMapping":
-		if _, ok := r.forwards[key]; !ok {
+		if _, ok := r.table[key]; !ok {
 			fault(714, "NoSuchEntryInArray")
 			return
 		}
-		delete(r.forwards, key)
+		delete(r.table, key)
 		reply("")
 	default:
 		fault(401, "Invalid Action")
@@ -92,13 +214,15 @@ func (r *fakeRouter) control(w http.ResponseWriter, req *http.Request) {
 
 var loopback = net.ParseIP("127.0.0.1")
 
+const serverIP = "192.168.1.50"
+
 func (r *fakeRouter) gateway(t *testing.T) *gateway {
 	t.Helper()
 	g, err := loadGateway(r.server.URL+"/desc.xml", loopback)
 	if err != nil {
 		t.Fatalf("loadGateway: %v", err)
 	}
-	g.localIP = net.ParseIP("192.168.1.50")
+	g.localIP = net.ParseIP(serverIP)
 	return g
 }
 
@@ -136,46 +260,123 @@ func TestOnlyTheGatewayIsTrusted(t *testing.T) {
 	}
 }
 
-func TestAddRenewAndRemoveMapping(t *testing.T) {
+func TestClaimRenewAndRelease(t *testing.T) {
 	r := newFakeRouter(t)
 	g := r.gateway(t)
 
 	for i := 0; i < 2; i++ { // the second call is a renewal of our own mapping
-		if err := g.addMapping("TCP", 8443, 2053, "Cosmos HTTPS", 3600); err != nil {
-			t.Fatalf("addMapping (call %d): %v", i+1, err)
+		if err := g.claim("TCP", 8443, 2053, "Cosmos HTTPS", 3600, i == 1); err != nil {
+			t.Fatalf("claim (call %d): %v", i+1, err)
 		}
 	}
-	if got := r.forwards["TCP/8443"]; got != "192.168.1.50" {
-		t.Fatalf("router forwards 8443 to %q", got)
-	}
-	if got := r.leases["TCP/8443"]; got != "3600" {
-		t.Errorf("lease = %q, want a leased (non-permanent) mapping", got)
+	got, _ := r.get("TCP/8443")
+	if got.client != serverIP || got.port != "2053" || got.lease != "3600" || got.description != "Cosmos HTTPS" {
+		t.Fatalf("router has %+v", got)
 	}
 
-	if err := g.removeMapping("TCP", 8443); err != nil {
-		t.Fatalf("removeMapping: %v", err)
+	if deleted, err := g.release("TCP", 8443, 2053, true); err != nil || !deleted {
+		t.Fatalf("release: %v, %v", deleted, err)
 	}
-	if _, still := r.forwards["TCP/8443"]; still {
-		t.Error("mapping still present after removeMapping")
+	if _, still := r.get("TCP/8443"); still {
+		t.Error("mapping still present after release")
 	}
-	if err := g.removeMapping("TCP", 8443); err != nil {
-		t.Errorf("removing a mapping that is already gone: %v", err)
+	if deleted, err := g.release("TCP", 8443, 2053, true); err != nil || deleted {
+		t.Errorf("releasing a mapping that is already gone: %v, %v", deleted, err)
 	}
 }
 
-func TestAnotherDevicesMappingIsLeftAlone(t *testing.T) {
+// What Cosmos did not create is never written over and never deleted: not
+// another device's mapping, and not one another program on this server made.
+func TestForeignMappingsAreLeftAlone(t *testing.T) {
 	r := newFakeRouter(t)
-	r.forwards["TCP/8443"] = "192.168.1.99"
 	g := r.gateway(t)
+	r.put("TCP/8443", "192.168.1.99", 443, "NAS")
+	r.put("TCP/6881", serverIP, 6881, "qBittorrent")
 
-	if err := g.addMapping("TCP", 8443, 2053, "Cosmos HTTPS", 3600); err == nil {
-		t.Error("took over a port that is forwarded to another device")
+	var conflict *conflictError
+	err := g.claim("TCP", 8443, 2053, "Cosmos HTTPS", 3600, false)
+	if !errors.As(err, &conflict) || conflict.Holder == nil || conflict.Holder.InternalClient != "192.168.1.99" || conflict.Holder.Description != "NAS" {
+		t.Errorf("another device's port: %v", err)
 	}
-	if err := g.removeMapping("TCP", 8443); err != nil {
-		t.Errorf("removeMapping: %v", err)
+	// same server, another program, another internal port: the router would
+	// update it without a word, so Cosmos must not ask
+	err = g.claim("TCP", 6881, 51413, "Cosmos app torrent", 3600, false)
+	if !errors.As(err, &conflict) || r.count("AddPortMapping", "TCP/6881") != 0 {
+		t.Errorf("another program's port on this server: %v, asked %d times", err, r.count("AddPortMapping", "TCP/6881"))
 	}
-	if got := r.forwards["TCP/8443"]; got != "192.168.1.99" {
-		t.Errorf("another device's mapping was changed: now %q", got)
+	for _, port := range []int{8443, 6881} {
+		if deleted, err := g.release("TCP", port, 2053, false); err != nil || deleted {
+			t.Errorf("release of a foreign mapping on %d: %v, %v", port, deleted, err)
+		}
+		if deleted, _ := g.release("TCP", port, 2053, true); deleted {
+			t.Errorf("deleted the foreign mapping on %d because the port was once Cosmos'", port)
+		}
+	}
+	if got, _ := r.get("TCP/8443"); got.client != "192.168.1.99" || got.port != "443" {
+		t.Errorf("another device's mapping was changed: %+v", got)
+	}
+	if got, _ := r.get("TCP/6881"); got.port != "6881" || got.description != "qBittorrent" {
+		t.Errorf("another program's mapping was changed: %+v", got)
+	}
+	if r.count("DeletePortMapping", "") != 0 {
+		t.Error("a delete was sent to the router")
+	}
+}
+
+func TestOwnOrEquivalentMappingsAreTakenOver(t *testing.T) {
+	r := newFakeRouter(t)
+	g := r.gateway(t)
+	// Cosmos' own from an earlier run, pointing at the host port the app had then
+	r.put("TCP/8096", serverIP, 8000, "Cosmos app jellyfin")
+	if err := g.claim("TCP", 8096, 8096, "Cosmos app jellyfin", 3600, false); err != nil {
+		t.Errorf("our own stale mapping: %v", err)
+	}
+	// already what is wanted, whoever wrote it
+	r.put("UDP/9000", serverIP, 9000, "")
+	if err := g.claim("UDP", 9000, 9000, "Cosmos app game", 3600, false); err != nil {
+		t.Errorf("a mapping that already leads to the wanted port: %v", err)
+	}
+	// only Cosmos' own are deleted
+	if deleted, _ := g.release("TCP", 8096, 8096, false); !deleted {
+		t.Error("our own mapping was not released")
+	}
+}
+
+// A forward made in the router's own pages is often invisible to UPnP: the
+// lookup says the port is free.
+func TestHiddenManualForwards(t *testing.T) {
+	r := newFakeRouter(t)
+	g := r.gateway(t)
+	var conflict *conflictError
+	for key, code := range map[string]int{"TCP/443": 718, "TCP/25": 729} {
+		r.hidden[key] = code
+		port, _ := strconv.Atoi(strings.TrimPrefix(key, "TCP/"))
+		if err := g.claim("TCP", port, 2053, "Cosmos HTTPS", 3600, false); !errors.As(err, &conflict) || conflict.Code != code {
+			t.Errorf("%s refused with %d: %v", key, code, err)
+		}
+	}
+	// the router says "done" and shows nothing: Cosmos cannot know better
+	r.hidden["TCP/81"] = 0
+	if err := g.claim("TCP", 81, 2052, "Cosmos HTTP", 3600, false); err != nil {
+		t.Errorf("accepted and not shown: %v", err)
+	}
+}
+
+func TestReadBackCatchesAMappingThatWentElsewhere(t *testing.T) {
+	r := newFakeRouter(t)
+	g := r.gateway(t)
+	// the router accepts, then shows the manual forward's target
+	r.hidden["TCP/8080"] = 0
+	original := r.server.Config.Handler
+	r.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		original.ServeHTTP(w, req)
+		if r.count("AddPortMapping", "TCP/8080") == 1 {
+			r.put("TCP/8080", "192.168.1.10", 80, "manual")
+		}
+	})
+	var conflict *conflictError
+	if err := g.claim("TCP", 8080, 2052, "Cosmos HTTP", 3600, false); !errors.As(err, &conflict) || conflict.Holder == nil {
+		t.Errorf("claim = %v, want a conflict naming the holder", err)
 	}
 }
 
@@ -184,11 +385,48 @@ func TestFallsBackToAPermanentLease(t *testing.T) {
 	r.onlyPermanent = true
 	g := r.gateway(t)
 
-	if err := g.addMapping("TCP", 8443, 2053, "Cosmos HTTPS", 3600); err != nil {
-		t.Fatalf("addMapping: %v", err)
+	if err := g.claim("TCP", 8443, 2053, "Cosmos HTTPS", 3600, false); err != nil {
+		t.Fatalf("claim: %v", err)
 	}
-	if got := r.leases["TCP/8443"]; got != "0" {
-		t.Errorf("lease = %q, want 0 after the router refused a leased mapping", got)
+	if got, _ := r.get("TCP/8443"); got.lease != "0" {
+		t.Errorf("lease = %q, want 0 after the router refused a leased mapping", got.lease)
+	}
+}
+
+func TestListIsBoundedAndCleaned(t *testing.T) {
+	r := newFakeRouter(t)
+	g := r.gateway(t)
+	r.put("UDP/5000", "192.168.1.20", 5000, "evil\r\nname <b>\u202e"+strings.Repeat("x", 200))
+	entries, listed, truncated := g.list()
+	if !listed || truncated || len(entries) != 1 {
+		t.Fatalf("list = %d entries, listed %v, truncated %v", len(entries), listed, truncated)
+	}
+	e := entries[0]
+	if e.Protocol != "UDP" || e.ExternalPort != 5000 || e.InternalClient != "192.168.1.20" || e.InternalPort != 5000 {
+		t.Errorf("entry = %+v", e)
+	}
+	if len([]rune(e.Description)) > maxRouterText || strings.ContainsAny(e.Description, "\r\n\u202e") || !strings.HasPrefix(e.Description, "evil  name <b>") {
+		t.Errorf("description not bounded and cleaned: %q", e.Description)
+	}
+
+	for port := 20000; port < 20000+maxListed+40; port++ {
+		r.put("TCP/"+strconv.Itoa(port), "192.168.1.20", port, "many")
+	}
+	entries, listed, truncated = g.list()
+	if !listed || !truncated || len(entries) != maxListed {
+		t.Errorf("a long table: %d entries, listed %v, truncated %v", len(entries), listed, truncated)
+	}
+
+	r.sameForever = true
+	before := r.count("GetGenericPortMappingEntry", "")
+	entries, _, truncated = g.list()
+	if len(entries) != 1 || !truncated || r.count("GetGenericPortMappingEntry", "")-before > 2 {
+		t.Errorf("a router that repeats itself: %d entries, truncated %v", len(entries), truncated)
+	}
+
+	r.sameForever, r.noList = false, true
+	if entries, listed, _ := g.list(); listed || len(entries) != 0 {
+		t.Errorf("a router without the listing: %d entries, listed %v", len(entries), listed)
 	}
 }
 
@@ -277,52 +515,5 @@ func TestPrivateAddressNote(t *testing.T) {
 		if privateAddressNote(ip) != "" {
 			t.Errorf("%q should not be flagged", ip)
 		}
-	}
-}
-
-// A router that cannot be set up is reported once and not asked again until
-// someone asks for it.
-func TestFailurePausesAutomaticRetries(t *testing.T) {
-	attempts, notices := 0, 0
-	realDiscover, realNotify := discoverGateway, notifyFailure
-	discoverGateway = func() (*gateway, error) {
-		attempts++
-		return nil, errors.New("no UPnP router answered")
-	}
-	notifyFailure = func(Status) { notices++ }
-	defer func() {
-		discoverGateway, notifyFailure = realDiscover, realNotify
-		runMu.Lock()
-		paused, applied = false, nil
-		runMu.Unlock()
-		utils.LoadBaseMainConfig(utils.Config{})
-	}()
-
-	config := utils.Config{}
-	config.HTTPConfig.HTTPPort, config.HTTPConfig.HTTPSPort = "2052", "2053"
-	config.HTTPConfig.HTTPSCertificateMode = utils.HTTPSCertModeList["SELFSIGNED"]
-	config.HTTPConfig.UPnP.Enabled = true
-	utils.LoadBaseMainConfig(config)
-
-	st := reconcile(true)
-	if !st.Paused || st.Error == "" || attempts != 1 || notices != 1 {
-		t.Fatalf("first failure: paused=%v error=%q attempts=%d notices=%d", st.Paused, st.Error, attempts, notices)
-	}
-	if !GetStatus().Paused {
-		t.Error("the published status does not say that retries are paused")
-	}
-
-	// asked again by hand: tried again, but the admins are not told twice
-	st = reconcile(true)
-	if !st.Paused || attempts != 2 || notices != 1 {
-		t.Errorf("manual retry: paused=%v attempts=%d notices=%d", st.Paused, attempts, notices)
-	}
-
-	// switched off: nothing to do, nothing paused
-	config.HTTPConfig.UPnP.Enabled = false
-	utils.LoadBaseMainConfig(config)
-	st = reconcile(true)
-	if st.Paused || st.Error != "" || attempts != 2 {
-		t.Errorf("after switching off: paused=%v error=%q attempts=%d", st.Paused, st.Error, attempts)
 	}
 }

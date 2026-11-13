@@ -27,7 +27,7 @@ func TestHighSeverityEventsAreCritical(t *testing.T) {
 	st := testSettings()
 	high := []string{
 		utils.SecMFALocked, utils.SecAccessGrantDenied, utils.SecShieldBanTemp, utils.SecShieldBanPerm,
-		utils.SecUserRoleChanged, utils.SecHostTerminal, utils.SecSnapshotRestore,
+		utils.SecUserRoleChanged, utils.SecHostTerminal, utils.SecSnapshotRestore, utils.SecUPnPPortOpened,
 	}
 	for _, kind := range high {
 		nt, tell := noticeFromEvent(eventOf(kind), st)

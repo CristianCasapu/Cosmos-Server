@@ -1030,7 +1030,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/config", configapi.ConfigRoute)
 	srapiAdmin.HandleFunc("/api/config/dns", configapi.ConfigApiDNS)
 	srapiAdmin.HandleFunc("/api/config/test-email", configapi.ConfigApiTestEmail)
-	srapiAdmin.HandleFunc("/api/upnp", upnp.StatusRoute)
+	registerUPnPRoutes(srapiAdmin) // Fork addition: router port forwarding, Cosmos' ports and the apps', see fork_upnp_apps.go
 	srapiAdmin.HandleFunc("/api/reachability", reach.StatusRoute) // Fork addition: can the apps be reached from the internet
 	srapiAdmin.HandleFunc("/api/snapshots", snapshots.StatusRoute) // fork addition: incremental snapshots
 	srapiAdmin.HandleFunc("/api/snapshots/run", snapshots.RunRoute) // fork addition

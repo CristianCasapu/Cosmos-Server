@@ -169,6 +169,11 @@ var catalogue = func() map[string]Kind {
 		audit(utils.SecFail2banUnban, SeverityMedium, "Fail2ban ban lifted", "An administrator lifted the ban of an address in Fail2ban. Target: the address. Details: jail, or all for every jail of the fork."),
 		audit(utils.SecFail2banSettings, SeverityMedium, "Fail2ban settings saved", "An administrator changed the thresholds of the Fail2ban jails or the addresses that are never banned."),
 
+		audit(utils.SecUPnPPortOpened, SeverityHigh, "Port opened on the router", "An administrator asked the router (UPnP) to forward a port a container publishes: the port is reachable from the internet directly, without Cosmos' login or SmartShield. Target: the container. Details: port is the container's port and protocol."),
+		audit(utils.SecUPnPPortClosed, SeverityMedium, "Port closed on the router", "An administrator withdrew a port from the router: a container's port, or one of Cosmos' own (Cosmos HTTPS, Cosmos HTTP). Target: the container. Details: port."),
+		audit(utils.SecUPnPMappingCreated, SeverityMedium, "Router forwards a port", "Cosmos created a port mapping on the router. No user: it follows an administrator's choice. Target: the container, or Cosmos HTTPS / Cosmos HTTP. Details: external and internal port, protocol, wanted when the external port asked for was taken."),
+		audit(utils.SecUPnPMappingRemoved, SeverityLow, "Router no longer forwards a port", "Cosmos removed one of its port mappings from the router. Details: external, protocol, reason: off (no longer asked for), stopped, gone or notPublished (the container), changed (its host port), moved (to another external port), lost (the router gave the port to something else), leftover (from an earlier run)."),
+
 		incident(utils.SecRecorderDropped, SeverityMedium, OutcomeFailed, "Events lost", "The record could not keep up (the database did not answer): Count events were not stored."),
 	}
 	byKind := make(map[string]Kind, len(kinds))

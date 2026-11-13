@@ -25,11 +25,17 @@ func TestLiveRouter(t *testing.T) {
 	}
 	t.Logf("external address is public: %v", privateAddressNote(ip) == "")
 
-	owner, err := g.mappingOwner("TCP", 2053)
+	existing, err := g.lookup("TCP", 2053)
 	if err != nil {
-		t.Fatalf("mappingOwner: %v", err)
+		t.Fatalf("lookup: %v", err)
 	}
-	t.Logf("TCP 2053 currently forwarded: %v", owner != "")
+	t.Logf("TCP 2053 currently forwarded: %v", existing != nil)
+
+	entries, listed, truncated := g.list()
+	t.Logf("the router lets its table be read: %v (%d entries, truncated %v)", listed, len(entries), truncated)
+	for _, e := range entries {
+		t.Logf("  %s %d -> port %d of %s, %q, lease %d s", e.Protocol, e.ExternalPort, e.InternalPort, map[bool]string{true: "this machine", false: "another device"}[e.InternalClient == g.localIP.String()], e.Description, e.Lease)
+	}
 }
 
 // TestLiveRouterMapping creates and removes a forward on the real router. It
@@ -46,27 +52,35 @@ func TestLiveRouterMapping(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}
-	if owner, err := g.mappingOwner("TCP", port); err != nil || owner != "" {
-		t.Fatalf("port %d is not free on the router (owner %q, err %v)", port, owner, err)
+	if existing, err := g.lookup("TCP", port); err != nil || existing != nil {
+		t.Fatalf("port %d is not free on the router (%+v, err %v)", port, existing, err)
 	}
 
-	if err := g.addMapping("TCP", port, port, "Cosmos UPnP self-test", 60); err != nil {
-		t.Fatalf("addMapping: %v", err)
+	const description = "Cosmos UPnP self-test"
+	if err := g.claim("TCP", port, port, description, 60, false); err != nil {
+		t.Fatalf("claim: %v", err)
 	}
-	defer g.removeMapping("TCP", port)
+	defer g.release("TCP", port, port, true)
 
-	owner, err := g.mappingOwner("TCP", port)
-	if err != nil || owner != g.localIP.String() {
-		t.Fatalf("after addMapping the router reports owner %q, err %v; want %s", owner, err, g.localIP)
+	existing, err := g.lookup("TCP", port)
+	if err != nil || existing == nil || existing.InternalClient != g.localIP.String() || existing.InternalPort != port {
+		t.Fatalf("after claim the router reports %+v, err %v; want this machine (%s), port %d", existing, err, g.localIP, port)
 	}
-	if err := g.addMapping("TCP", port, port, "Cosmos UPnP self-test", 60); err != nil {
+	t.Logf("the router keeps the description as written: %v (%q); lease reported: %d s", existing.Description == description, existing.Description, existing.Lease)
+	if err := g.claim("TCP", port, port, description, 60, true); err != nil {
 		t.Errorf("renewing our own mapping: %v", err)
 	}
-
-	if err := g.removeMapping("TCP", port); err != nil {
-		t.Fatalf("removeMapping: %v", err)
+	entries, listed, _ := g.list()
+	found := false
+	for _, e := range entries {
+		found = found || (e.Protocol == "TCP" && e.ExternalPort == port)
 	}
-	if owner, err := g.mappingOwner("TCP", port); err != nil || owner != "" {
-		t.Errorf("after removeMapping the router still reports owner %q, err %v", owner, err)
+	t.Logf("the table can be listed: %v; our mapping is in it: %v", listed, found)
+
+	if deleted, err := g.release("TCP", port, port, true); err != nil || !deleted {
+		t.Fatalf("release: %v, %v", deleted, err)
+	}
+	if existing, err := g.lookup("TCP", port); err != nil || existing != nil {
+		t.Errorf("after release the router still reports %+v, err %v", existing, err)
 	}
 }

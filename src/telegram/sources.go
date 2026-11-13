@@ -30,6 +30,7 @@ var securitySentences = map[string]string{
 	utils.SecUserRoleChanged:   "Role changed: the role of an account was changed.",
 	utils.SecHostTerminal:      "Host terminal opened: a terminal was opened on the server itself, as root.",
 	utils.SecSnapshotRestore:   "Snapshot restore started: a folder is being replaced by one of its snapshots.",
+	utils.SecUPnPPortOpened:    "Port opened on the router: an administrator asked the router to forward a port of an app. It is reachable from the internet directly, without Cosmos' login.",
 	utils.SecLoginFailed:       "Failed login: a login was refused.",
 	utils.SecSudoFailed:        "Wrong password at the confirmation prompt, from a session that is logged in.",
 	utils.SecMFAFailed:         "Wrong two-factor code, from a session that has the password.",

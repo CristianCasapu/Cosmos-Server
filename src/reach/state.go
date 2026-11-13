@@ -280,9 +280,25 @@ func Evaluate(route utils.ProxyRouteConfig, env Env) RouteResult {
 	if routePort != 0 {
 		port = routePort
 	}
+	// Fork addition (router port forwarding): a host that carries a port only
+	// answers requests for that port. With Cosmos' port forwarded on another
+	// external port, the host must carry the external one (or none).
+	var cosmosMapping *upnp.Mapping
+	for i := range env.UPnP.Mappings {
+		if env.UPnP.Mappings[i].InternalPort == cosmosPort && env.UPnP.Mappings[i].Active {
+			cosmosMapping = &env.UPnP.Mappings[i]
+		}
+	}
+	moved := cosmosMapping != nil && cosmosMapping.ExternalPort != cosmosPort
+	hostPortMismatch := moved && routePort == cosmosPort
+	if moved && routePort == cosmosMapping.ExternalPort {
+		ownPort, port = false, cosmosPort
+	}
 	externalPort := port
 	ports := map[string]string{"port": strconv.Itoa(port)}
 	switch {
+	case hostPortMismatch:
+		add("forward", CheckProblem, "hostPort", map[string]string{"port": strconv.Itoa(cosmosPort), "external": strconv.Itoa(cosmosMapping.ExternalPort)})
 	case ownPort:
 		add("forward", CheckUnknown, "ownPort", ports)
 	case onlyIPv6:
