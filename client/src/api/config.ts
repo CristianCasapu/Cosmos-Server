@@ -88,6 +88,40 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }))
   }
 
+  // Fork addition: the user audit panel (src/security/useraudit*.go). All GET,
+  // read only; the query is built by utils/auditFilters.js.
+  function securityAudit(query: string, cursor = 0, limit = 50, quiet = false) {
+    const params = new URLSearchParams(query || '');
+    if (cursor) params.set('cursor', String(cursor));
+    params.set('limit', String(limit));
+    return wrap(apiFetch('/cosmos/api/security/audit?' + params.toString(), {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }), quiet)
+  }
+
+  function securityUserSummary(user: string) {
+    return wrap(apiFetch('/cosmos/api/security/user-summary?' + new URLSearchParams({ user }).toString(), {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }))
+  }
+
+  function securityMyActivity(cursor = 0, limit = 20) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cursor) params.set('cursor', String(cursor));
+    return wrap(apiFetch('/cosmos/api/security/my-activity?' + params.toString(), {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }), true)
+  }
+
   function upnpRetry() {
     return wrap(apiFetch('/cosmos/api/upnp', {
       method: 'POST',
@@ -288,6 +322,9 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     upnpRetry,
     reachability,
     reachabilityCheck,
+    securityAudit, // Fork addition: user audit panel
+    securityUserSummary,
+    securityMyActivity,
     snapshotsStatus,
     snapshotsRun,
     snapshotsRestore,

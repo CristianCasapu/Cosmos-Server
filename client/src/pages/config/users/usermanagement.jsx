@@ -26,6 +26,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import dayjs from 'dayjs';
 import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_USERS } from '../../../utils/permissions';
+import UserActivityButton from '../../securityAudit/userActivityButton'; // Fork addition: the user's activity on the audit page
 import PrettyTabbedView from '../../../components/tabbedView/tabbedView';
 import proFeatures from '../../../pro';
 
@@ -332,7 +333,7 @@ const UserManagement = () => {
                             return <div style={{textAlign: 'center'}}><CircularProgress /></div>
                         }
 
-                        return <>{isRegistered ?
+                        return <>{/* Fork addition: Activity */}<UserActivityButton nickname={r.nickname} />&nbsp;&nbsp;{isRegistered ?
                             (<PermissionGuard permission={PERM_USERS}><Button variant="contained" color="primary" onClick={
                                 () => {
                                     setLoadingRow(r.nickname);

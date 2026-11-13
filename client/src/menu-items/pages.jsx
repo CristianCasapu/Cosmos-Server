@@ -1,6 +1,7 @@
 // assets
 import { ProfileOutlined, FolderOutlined, PicLeftOutlined, SettingOutlined, NodeExpandOutlined, AppstoreOutlined, ClockCircleOutlined, CloudServerOutlined} from '@ant-design/icons';
 import { PERM_RESOURCES_READ, PERM_USERS_READ, PERM_CONFIGURATION_READ } from '../utils/permissions';
+import securityAudit from './securityAudit'; // Fork addition: the audit page
 
 // icons
 const icons = {
@@ -79,7 +80,8 @@ const pages = {
             type: 'item',
             url: '/cosmos-ui/config-general',
             icon: icons.SettingOutlined,
-        }
+        },
+        securityAudit, // Fork addition: the audit page, last of the group
     ]
 };
 

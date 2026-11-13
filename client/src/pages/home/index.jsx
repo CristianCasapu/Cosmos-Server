@@ -17,6 +17,7 @@ import { PERM_ADMIN_READ } from "../../utils/permissions";
 import { FormaterForMetric, formatDate } from "../dashboard/components/utils";
 import MiniPlotComponent from "../dashboard/components/mini-plot";
 import Migrate014 from "./migrate014";
+import MyActivity from '../securityAudit/myActivity'; // Fork addition: recent activity on the own account
 import { Trans, useTranslation } from 'react-i18next';
 
 
@@ -495,6 +496,8 @@ const HomePage = () => {
                 </Grid2>
             )}
         </Grid2>
+
+        <Box sx={{ zIndex: 2, px: 1, pb: 2 }}><MyActivity /></Box>{/* Fork addition: recent activity on the own account */}
     </Stack>
 }
 
