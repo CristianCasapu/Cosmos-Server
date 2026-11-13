@@ -158,7 +158,7 @@ var catalogue = func() map[string]Kind {
 		audit(utils.SecContainerDeleted, SeverityMedium, "Container deleted", "A container was deleted. Target: the container."),
 		audit(utils.SecContainerCreated, SeverityMedium, "Containers created", "Containers, networks or volumes were created from a compose description."),
 		audit(utils.SecContainerEdited, SeverityLow, "Container edited", "The settings of a container were changed. Target: the container."),
-		audit(utils.SecContainerTerminal, SeverityMedium, "Container terminal opened", "A terminal was opened in a container. Target: the container. Details: mode is new (a shell) or attach."),
+		audit(utils.SecContainerTerminal, SeverityMedium, "Container terminal opened", "A terminal was opened in a container. Target: the container. Details: mode is new (a shell), attach (the container's own input and output) or attach_readonly."),
 		audit(utils.SecHostTerminal, SeverityHigh, "Host terminal opened", "A terminal was opened on the server itself, as root."),
 		audit(utils.SecServerUpdate, SeverityMedium, "Server update started", "An administrator asked for the server to be updated now."),
 		audit(utils.SecServerRestart, SeverityMedium, "Restart asked for", "An administrator restarted Cosmos or the machine. Details: scope is cosmos or host."),
