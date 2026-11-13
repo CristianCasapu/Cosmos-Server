@@ -95,7 +95,8 @@ const EditAlertModal = ({ open, onClose, onSave }) => {
               formik={formik}
               required
             />
-            <Stack direction="row" spacing={2} alignItems="center">
+            {/* Fork addition: one below the other on a phone; side by side the value field and the percent checkbox ran out of the dialog */}
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'stretch', sm: 'center' }}>
               <CosmosSelect
                 name="conditionOperator"
                 label={t('navigation.monitoring.alerts.conditionOperatorLabel')}
@@ -162,6 +163,7 @@ const EditAlertModal = ({ open, onClose, onSave }) => {
                   <Stack direction="row" spacing={2} key={index}>
                     <Box style={{
                       width: '100%',
+                      minWidth: 0, // Fork addition: a long action name pushed the delete button out of the dialog on a phone
                     }}>
                       <CosmosSelect
                         name={`actions.${index}.Type`}
