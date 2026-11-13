@@ -38,7 +38,8 @@ func quickLoggout(w http.ResponseWriter, req *http.Request, err error) (utils.Us
 // tokenValidForHost: a tunneled hop arrives with Host rewritten to the primary
 // domain, but the cookie was issued on the peer's TunneledHost alias
 func tokenValidForHost(req *http.Request, reqHostNoPort, forDomain string) bool {
-	if strings.HasSuffix(reqHostNoPort, forDomain) {
+	// Fork addition: the host itself or a name under it, see fork_session.go (upstream: any host ending with it)
+	if hostWithinDomain(reqHostNoPort, forDomain) {
 		return true
 	}
 	if req.Header.Get("x-cstln-auth") == "" {
@@ -90,6 +91,12 @@ func RefreshUserToken(w http.ResponseWriter, req *http.Request) ([]utils.Permiss
 
 	parts := strings.Split(tokenString, ".")
 
+	// Fork addition: a cookie without the three parts of a token is refused like any invalid one, see fork_session.go
+	if !tokenPartsOK(parts) {
+		_, e := quickLoggout(w, req, errors.New("malformed token"))
+		return nil, false, utils.User{}, e
+	}
+
 	errT := jwt.SigningMethodEdDSA.Verify(strings.Join(parts[0:2], "."), parts[2], ed25519Key)
 
 	if errT != nil {
@@ -113,6 +120,14 @@ func RefreshUserToken(w http.ResponseWriter, req *http.Request) ([]utils.Permiss
 		logOutUser(w, req)
 		redirectToReLogin(w, req)
 		return nil, false, utils.User{}, errors.New("Token not valid")
+	}
+
+	// Fork addition: a token that was logged out is not accepted again, see fork_logout_revoke.go
+	if tokenRevoked(tokenString) {
+		utils.Error("UserToken: token was logged out", nil)
+		logOutUser(w, req)
+		redirectToReLogin(w, req)
+		return nil, false, utils.User{}, errors.New("Token was logged out")
 	}
 
 	var (
@@ -176,7 +191,8 @@ func RefreshUserToken(w http.ResponseWriter, req *http.Request) ([]utils.Permiss
 	}
 
 	requestURL := req.URL.Path
-	isSettingMFA := strings.HasPrefix(requestURL, "/cosmos-ui/loginmfa") || strings.HasPrefix(requestURL, "/cosmos-ui/newmfa") || strings.HasPrefix(requestURL, "/api/mfa")
+	// Fork addition: no path is exempt from the second factor, see fork_session.go (upstream: three path prefixes)
+	isSettingMFA := secondFactorExempt(requestURL)
 
 	userInBase.MFAState = 0
 
@@ -286,6 +302,7 @@ func logOutUser(w http.ResponseWriter, req *http.Request) {
 		clientCookie.Domain = "." + reqHostNoPort
 	}
 
+	sameSiteLax(&cookie, &clientCookie) // Fork addition: see fork_session.go
 	http.SetCookie(w, &cookie)
 	http.SetCookie(w, &clientCookie)
 
@@ -395,6 +412,7 @@ func SendUserToken(w http.ResponseWriter, req *http.Request, user utils.User, mf
 		}
 	}
 
+	sameSiteLax(&cookie, &clientCookie) // Fork addition: see fork_session.go
 	http.SetCookie(w, &cookie)
 	http.SetCookie(w, &clientCookie)
 }

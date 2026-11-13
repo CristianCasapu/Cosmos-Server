@@ -29,6 +29,11 @@ func UserDelete(w http.ResponseWriter, req *http.Request) {
 		return
 	} 
 
+	// Fork addition: an administrator's own account is deleted by another administrator, see fork_accounts.go
+	if refuseOwnAdminAccount(w, req, nickname) {
+		return
+	}
+
 	if utils.FBL.AgentMode {
 		utils.Error("User: Agents cannot manage users. Use a manager server", nil)
 		utils.HTTPError(w, "User Creation Error: Agents cannot manage users. Use a manager server",

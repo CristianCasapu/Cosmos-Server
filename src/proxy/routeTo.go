@@ -114,6 +114,9 @@ func NewProxy(targetHost string, AcceptInsecureHTTPSTarget bool, DisableHeaderHa
 	}
 
 	proxy.Director = func(req *http.Request) {
+		// Fork addition: what the application is told about the visitor comes from this server, see fork_forwarded.go
+		forwardedHeaders(req, route)
+
 		// never leak a node API key to a backend; the tunnel director re-adds it for constellation hops
 		req.Header.Del("x-cstln-auth")
 

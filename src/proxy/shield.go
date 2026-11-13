@@ -5,7 +5,6 @@ import (
 	"math"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/azukaar/cosmos-server/src/constellation"
@@ -191,7 +190,8 @@ func GetClientID(r *http.Request, route utils.ProxyRouteConfig) string {
 	isConstTokenValid := isConstIP && constellation.CheckConstellationToken(r) == nil
 
 	if utils.IsTrustedProxy(remoteAddr) || isConstTokenValid {
-		if ip, _ := utils.SplitIP(strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0])); ip != "" {
+		// Fork addition: the last entry a trusted proxy wrote, see utils/fork_forwarded_for.go (upstream: the first entry)
+		if ip := utils.ForwardedClient(r, utils.IsTrustedProxy); ip != "" {
 			utils.Debug("SmartShield: Getting forwarded client ID " + ip)
 			return ip
 		}
@@ -249,7 +249,7 @@ func finishRequest(wrapper *SmartResponseWriterWrapper, route utils.ProxyRouteCo
 			"time":     wrapper.TimeEnded.Sub(wrapper.TimeStarted).Seconds(),
 			"bytes":    wrapper.Bytes,
 			"hostname": r.Host,
-			"url":      r.URL,
+			"url":      utils.RedactedURL(r.URL), // Fork addition: without secrets, see utils/fork_redact_url.go
 		})
 
 	go metrics.PushRequestMetrics(route, wrapper.Status, wrapper.TimeStarted, wrapper.Bytes)
@@ -335,7 +335,7 @@ func SmartShieldMiddleware(shieldID string, route utils.ProxyRouteConfig) func(h
 						"clientID": clientIP,
 						"identity": clientID,
 						"hostname": r.Host,
-						"url":      r.URL,
+						"url":      utils.RedactedURL(r.URL), // Fork addition: without secrets, see utils/fork_redact_url.go
 					})
 
 				utils.Log("SmartShield: User is blocked due to abuse: " + describeBan(lastBan))

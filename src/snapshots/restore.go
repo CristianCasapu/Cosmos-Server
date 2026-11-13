@@ -172,6 +172,9 @@ func planRestore(cfg utils.SnapshotsConfig, source string, id string) (restoreJo
 		return job, fmt.Errorf("%s is not a folder any more; move it away first", source)
 	case mountPoint(job.target):
 		return job, fmt.Errorf("%s is where a disk is mounted, so it cannot be moved aside and replaced; copy the files back by hand from %s", source, shown)
+	case mountBelow(job.target) != "":
+		// see mounts_below.go: the mount would move away with the folder
+		return job, fmt.Errorf("%s has a disk mounted inside it (%s), so it cannot be moved aside and replaced; copy the files back by hand from %s", source, mountBelow(job.target), shown)
 	}
 
 	if _, err := os.Lstat(job.staging); !errors.Is(err, os.ErrNotExist) {

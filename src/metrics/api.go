@@ -71,6 +71,11 @@ func API_ResetMetrics(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Fork addition: the method is looked at before anything is deleted, see fork_reset.go
+	if !resetMethodAllowed(w, req) {
+		return
+	}
+
 	lock <- true
 	dataBuffer = map[string]DataPush{}
 	lastInserted = map[string]int{}
@@ -87,6 +92,8 @@ func API_ResetMetrics(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "Database error ", http.StatusInternalServerError, "DB001")
 		return
 	}
+
+	recordReset(req) // Fork addition: the reset is the first event of the emptied history
 
 	if req.Method == "GET" {
 		json.NewEncoder(w).Encode(map[string]interface{}{

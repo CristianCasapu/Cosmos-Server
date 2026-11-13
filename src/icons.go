@@ -35,7 +35,8 @@ func httpGetWithTimeout(url string) (*http.Response, error) {
 		return nil, err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	// Fork addition: redirects only where an icon may come from, see fork_icons.go (upstream: http.DefaultClient)
+	resp, err := fetchForIcon(req, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -46,6 +47,7 @@ var IconCache = make(map[string]CachedImage)
 
 func sendImage(w http.ResponseWriter, image CachedImage) {
 		// Copy the response to the output
+		iconHeaders(w) // Fork addition: a picture and nothing more, see fork_icons.go
 		w.Header().Set("Content-Type", image.ContentType)
 		w.Header().Set("ETag", image.ETag)
 		w.Header().Set("Cache-Control", "max-age=86400")
@@ -227,7 +229,7 @@ func GetFavicon(w http.ResponseWriter, req *http.Request) {
 		icons = append(icons, defaultIcons...)
 	} else {
 		siteurl = respNew.Request.URL.String()
-		icons, err = favicon.Find(siteurl)
+		icons, err = findIcons(siteurl) // Fork addition: see fork_icons.go (upstream: favicon.Find)
 
 		if err != nil || len(icons) == 0 {
 			icons = append(icons, defaultIcons...)
@@ -295,6 +297,12 @@ func fetchAndCacheIcon(icon *favicon.Icon, baseSiteURL string, resultsChan chan<
 			iconURL = resolveIconURL(iconURL, u)
 	}
 
+	// Fork addition: an icon link is followed to the application's own host or to the internet only, see fork_icons.go
+	if target, err := url.Parse(iconURL); err != nil || !iconURLAllowed(target, u) {
+		utils.Debug("FaviconFetch - not fetched: " + iconURL)
+		return
+	}
+
 	utils.Debug("Favicon Trying to fetch " + iconURL)
 
 	// Fetch the favicon
@@ -311,15 +319,23 @@ func fetchAndCacheIcon(icon *favicon.Icon, baseSiteURL string, resultsChan chan<
 			return
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
+	// Fork addition: at most the size of an icon, see fork_icons.go (upstream: ioutil.ReadAll)
+	body, err := readIcon(resp.Body)
 	if err != nil {
 			utils.Debug("FaviconFetch - can't read " + err.Error())
 			return
 	}
 
+	// Fork addition: the type is what the bytes are, not what the application says, see fork_icons.go
+	contentType, isPicture := iconContentType(resp.Header.Get("Content-Type"), body)
+	if !isPicture {
+			utils.Debug("FaviconFetch - " + iconURL + " - not a picture")
+			return
+	}
+
 	// Prepare the cached image
 	cachedImage := CachedImage{
-			ContentType: resp.Header.Get("Content-Type"),
+			ContentType: contentType,
 			ETag:        resp.Header.Get("ETag"),
 			Body:        body,
 	}

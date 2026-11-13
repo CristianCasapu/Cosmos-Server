@@ -75,6 +75,10 @@ func UserEdit(w http.ResponseWriter, req *http.Request) {
 			if utils.CheckPermissions(w, req, utils.PERM_USERS) != nil {
 				return
 			}
+			// Fork addition: an administrator's own role is changed by another administrator, see fork_accounts.go
+			if *request.Role != utils.GetAuthContext(req).UserRole && refuseOwnAdminAccount(w, req, nickname) {
+				return
+			}
 			if !utils.CanGrant(req, utils.GetRolePermissions(*request.Role)) {
 				utils.RecordSecurity(req, utils.SecAccessGrantDenied, nickname, "what", "role") // Fork addition: security record
 				utils.Error("UserEdit: cannot assign a role with permissions the caller lacks", nil)

@@ -80,6 +80,7 @@ func InitLogs() {
 func RawLogMessage(level LogLevel, prefix, prefixColor, color, message string) {
 	ll := LoggingLevelLabels[GetMainConfig().LoggingLevel]
 	if ll <= level {
+		message = logSafe(message) // Fork addition: one message, one line, see fork_log_safe.go
 		logString := prefixColor + Bold + prefix + Reset + " " + color + message + Reset
 		
 		log.Println(logString)

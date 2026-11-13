@@ -24,6 +24,10 @@ func RunBackup() {
 	// Recursive file listing helper
 	var fileList []string
 	err := filepath.Walk(inputDir, func(path string, f os.FileInfo, err error) error {
+		// Fork addition: an entry that vanished while listing is left out, see fork_backup_file.go
+		if skipBackupEntry(f, err) {
+			return nil
+		}
 		if !f.IsDir() && filepath.Ext(f.Name()) != ".zip" {
 			relPath, err := filepath.Rel(inputDir, path)
 			if err != nil {
@@ -39,7 +43,8 @@ func RunBackup() {
 	}
 
 	// create a new zip file
-	zipfile, err := os.Create(outputDir + "/cosmos-backup" + ".temp.zip")
+	// Fork addition: for root alone and never through a link, see fork_backup_file.go (upstream: os.Create)
+	zipfile, err := createBackupFile(outputDir + "/cosmos-backup" + ".temp.zip")
 	if err != nil {
 		utils.MajorError("Backup: Error creating zip file", err)
 		return
