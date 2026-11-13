@@ -12,6 +12,7 @@ import RouteManagement from '../config/routes/routeman';
 import { ValidateRoute, getFaviconURL, sanitizeRoute, getContainersRoutes } from '../../utils/routes';
 import HostChip from '../../components/hostChip';
 import AppLinks, { AppDomains } from '../../components/appLinks'; // Fork addition
+import { ReachChip } from '../../components/reachability'; // Fork addition
 import { Link } from 'react-router-dom';
 import ExposeModal from './exposeModal';
 import GetActions from './actionBar';
@@ -387,6 +388,13 @@ const ServApps = ({stack}) => {
                     />
                   </PermissionGuard>
                 </Stack>
+                {/* Fork addition: can it be reached from the internet (every container of a stack counts) */}
+                <ReachChip
+                  config={config}
+                  routeNames={app.apps.flatMap((one) => getContainersRoutes(config, one.Names[0].replace('/', ''))).map((route) => route.Name)}
+                  ports={app.ports}
+                  hostNetwork={!!(app.networkSettings && app.networkSettings.Networks && app.networkSettings.Networks['host'])}
+                />
                 <Stack style={noOver} spacing={1} direction="row" alignItems="center" >
                   {/* Fork addition: local links first, each group under its icon */}
                   <AppLinks routes={getContainersRoutes(config, app.name.replace('/', ''))} />

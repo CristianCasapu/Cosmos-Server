@@ -104,6 +104,9 @@ const COMMANDS = [
   ['POST', /^\/api\/jobs\/delete$/, () => ['activity.job.delete', 'Delete the job']],
   [null, /^\/api\/cron/, byMethod({ POST: ['activity.cron.create', 'Create the scheduled job'], PUT: ['activity.cron.update', 'Save the scheduled job'], DELETE: ['activity.cron.delete', 'Delete the scheduled job'] })],
 
+  // internet reachability (src/reach): GET is a read and never followed
+  ['POST', /^\/api\/reachability$/, () => ['activity.reachability.check', 'Check internet reachability']],
+
   // incremental snapshots (src/snapshots); their status is read with GET, which is never followed
   ['POST', /^\/api\/snapshots\/run$/, () => ['activity.snapshots.run', 'Start the incremental backup']],
   ['POST', /^\/api\/snapshots\/restore$/, () => ['activity.snapshots.restore', 'Restore the snapshot']],

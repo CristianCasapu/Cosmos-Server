@@ -52,6 +52,18 @@ function upnpStatus() {
 
 const upnpRetry = upnpStatus;
 
+// Fork addition: the demo has no server to check from
+function reachability() {
+  return new Promise((resolve) => {
+    resolve({
+      "status": "OK",
+      "data": { "routes": [], "publicIPSource": "", "checkedAt": new Date().toISOString() }
+    })
+  });
+}
+
+const reachabilityCheck = reachability;
+
 function serverUpdateStatus() {
   return new Promise((resolve, reject) => {
     resolve({
@@ -186,6 +198,8 @@ export {
   testEmail,
   upnpStatus,
   upnpRetry,
+  reachability,
+  reachabilityCheck,
   serverUpdateStatus,
   checkServerUpdate,
   snapshotsStatus,

@@ -66,6 +66,28 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }))
   }
 
+  // Fork addition: can the apps be reached from the internet (src/reach). GET
+  // answers from the server's cache and stays quiet on errors (a reader
+  // without the permission simply gets no answer); POST checks again.
+  function reachability() {
+    return wrap(apiFetch('/cosmos/api/reachability', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }), true)
+  }
+
+  function reachabilityCheck(askPublicIP = false) {
+    return wrap(apiFetch('/cosmos/api/reachability', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ askPublicIP: !!askPublicIP }),
+    }))
+  }
+
   function upnpRetry() {
     return wrap(apiFetch('/cosmos/api/upnp', {
       method: 'POST',
@@ -264,6 +286,8 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     checkServerUpdate,
     upnpStatus,
     upnpRetry,
+    reachability,
+    reachabilityCheck,
     snapshotsStatus,
     snapshotsRun,
     snapshotsRestore,
