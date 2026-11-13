@@ -14,6 +14,14 @@ package utils
 // client. An entry that is not an address ends the reading: what stands to
 // its left cannot be relied on.
 //
+// Cloudflare (fork_cloudflare.go) is an edge, not a link of a chain the admin
+// runs: the entry it added is the visitor, whatever that address is. Reading
+// on to the left when that address is one of Cloudflare's own (a Worker's
+// request carries one) would end in text the visitor wrote. And Cloudflare's
+// addresses are shared by all its customers, so what such a peer reports is
+// believed only for a hostname the admin serves through Cloudflare: for any
+// other hostname a request from there is a request from that address.
+//
 // The header is only read at all when the peer of the connection is a
 // trusted proxy (the callers check that, as before).
 
@@ -31,16 +39,28 @@ func ForwardedClient(req *http.Request, trusted func(ip string) bool) string {
 		entries = append(entries, strings.Split(line, ",")...)
 	}
 
+	cf := GetMainConfig().HTTPConfig.Cloudflare
+	edge := func(ip string) bool { return cf.TrustRanges && IsCloudflareAddress(cf, ip) }
+	shielded := ShieldedIn(cf.Shielded, req.Host)
+
+	// the proxy that wrote the entry being read: first the peer itself
+	writer, _ := SplitIP(req.RemoteAddr)
+
 	client := ""
 	for i := len(entries) - 1; i >= 0; i-- {
+		if edge(writer) && !shielded {
+			// Cloudflare's address is all that is known of this request
+			break
+		}
 		ip, _ := SplitIP(strings.TrimSpace(entries[i]))
 		if ip == "" {
 			break
 		}
 		client = ip
-		if !trusted(ip) {
+		if edge(writer) || !trusted(ip) {
 			break
 		}
+		writer = ip
 	}
 	return client
 }

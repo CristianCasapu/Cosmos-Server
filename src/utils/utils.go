@@ -1008,6 +1008,10 @@ func getTrustedProxyRanges(url string) []string {
 }
 
 func IsTrustedProxy(ip string) bool {
+	// Fork addition: Cloudflare's own ranges while an application is served through its proxy, see fork_cloudflare.go
+	if TrustedCloudflarePeer(ip) {
+		return true
+	}
 	for _, trustedProxy := range GetMainConfig().HTTPConfig.TrustedProxies {
 		if strings.HasPrefix(trustedProxy, "http://") || strings.HasPrefix(trustedProxy, "https://") {
 			for _, r := range getTrustedProxyRanges(trustedProxy) {

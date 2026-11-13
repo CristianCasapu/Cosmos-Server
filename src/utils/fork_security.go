@@ -69,6 +69,8 @@ const (
 	SecAccessGrantDenied = "access.grant.denied"
 	SecAccessIPDenied    = "access.ip.denied"
 	SecAccessLocalDenied = "access.local.denied"
+	// Fork addition (Cloudflare): a hostname served through Cloudflare was asked for around it
+	SecAccessOriginDenied = "access.origin.denied"
 
 	// the shields
 	SecShieldBlocked     = "shield.blocked"
