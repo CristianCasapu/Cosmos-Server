@@ -391,6 +391,8 @@
 	"mgmt.openid.newMfa.tooManyWrongCodesValidation": "Too many wrong codes. Codes are refused for this account for up to 15 minutes; try again after that.",
 	"mgmt.servApps.networks.hostIpInput.hostIpLabel": "Host IP (optional)",
 	"mgmt.servApps.networks.hostIpInput.hostIpValidation": "Enter an IPv4 or IPv6 address, or leave it empty for every address",
+	"mgmt.storage.mount.noneWaiting": "No partition is waiting to be mounted: every partition with a file system is in use already. A new disk has to be formatted first (Storage > Disks).",
+	"mgmt.storage.mount.waiting": "Partitions that are not mounted (click to use one):",
 	"mgmt.servapps.volumes.appStopped": "The app is stopped.",
 	"mgmt.servapps.volumes.mounted": "Seen by the app as {{path}}",
 	"mgmt.servapps.volumes.mountedReadOnly": "Seen by the app as {{path}} (read only)",
