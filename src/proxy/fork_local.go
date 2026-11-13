@@ -33,8 +33,7 @@ func isLocalAddress(host string) bool {
 	if strings.HasSuffix(host, ".local") {
 		return true
 	}
-	ip := net.ParseIP(host)
-	return ip != nil && (ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast())
+	return isLocalIP(net.ParseIP(host)) // the ranges are in fork_shield_local.go, shared with the shield
 }
 
 var (

@@ -187,6 +187,10 @@ func (b *banStore) allowed(clientID string, shieldID string, now time.Time) bool
 
 	escalation := utils.ShieldBanReason{Limit: "escalation", Route: shieldID}
 	if nbTempBans >= 3 {
+		// Fork addition: an address of the local network is never banned for good, see fork_shield_local.go
+		if b.keepLocalBanTemporary(clientID, shieldID, escalation, now) {
+			return false
+		}
 		if utils.GetSmartShieldProfile().AllowPermanentBan {
 			b.issue(clientID, PERM, shieldID, escalation, now)
 			utils.Warn("SmartShield: " + clientID + " has been banned permanently")
