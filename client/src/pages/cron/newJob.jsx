@@ -19,6 +19,7 @@ import LogLine from "../../components/logLine";
 import { CosmosContainerPicker } from '../config/users/containerPicker';
 import * as yup from "yup";
 import { useTranslation } from 'react-i18next';
+import CronHelp, { cronFieldErrors } from '../../components/cronInput'; // Fork addition: the schedule in words, checked, with schedules to pick
 
 const NewJobDialog = ({job, OnClose, refresh}) => {
   const { t } = useTranslation();
@@ -34,6 +35,7 @@ const NewJobDialog = ({job, OnClose, refresh}) => {
       Container: isEdit ? job.Container : '',
     },
     validateOnChange: false,
+    validate: (values) => cronFieldErrors(values, ['Crontab']), // Fork addition: a schedule the server would not run is not saved
     validationSchema: yup.object({
     }),
     onSubmit: async (values, { setErrors, setStatus, setSubmitting }) => {
@@ -110,7 +112,8 @@ const NewJobDialog = ({job, OnClose, refresh}) => {
                     error={formik.touched.Crontab && Boolean(formik.errors.Crontab)}
                     helperText={formik.touched.Crontab && formik.errors.Crontab}
                   />
-                  <InputLabel>{crontabToText(formik.values.Crontab, t)}</InputLabel>
+                  {/* Fork addition: replaces the line that put the schedule in words */}
+                  <CronHelp formik={formik} name="Crontab" />
 
                   <TextField
                     fullWidth

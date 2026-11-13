@@ -15,6 +15,7 @@ import { crontabToText } from "../../utils/indexs";
 import { MountPickerEntry } from "./mountPickerEntry";
 import { json } from "react-router";
 import { Trans, useTranslation } from 'react-i18next';
+import CronHelp, { cronFieldErrors } from '../../components/cronInput'; // Fork addition: the schedule in words, checked, with schedules to pick
 
 const SnapRAIDDialogInternal = ({ refresh, open, setOpen, data = {}}) => {
   const { t } = useTranslation();
@@ -27,6 +28,7 @@ const SnapRAIDDialogInternal = ({ refresh, open, setOpen, data = {}}) => {
       scrubCronTab: data.ScrubCrontab || '0 0 4 */2 * *',
     },
     validateOnChange: false,
+    validate: (values) => cronFieldErrors(values, ['syncCronTab', 'scrubCronTab']), // Fork addition: a schedule the server would not run is not saved
     validationSchema: yup.object({
       name: yup.string().required(t('global.required')).min(3, t('mgmt.storage.snapraid.min3chars')).matches(/^[a-zA-Z0-9_ ]+$/, t('mgmt.storage.snapraid.notAlphanumeric')),
       parity: yup.array().min(1, t('mgmt.storage.snapraid.min1parity')),
@@ -155,9 +157,8 @@ const SnapRAIDDialogInternal = ({ refresh, open, setOpen, data = {}}) => {
                           error={formik.touched.syncCronTab && Boolean(formik.errors.syncCronTab)}
                           helperText={formik.touched.syncCronTab && formik.errors.syncCronTab}
                         />
-                        <FormLabel>
-                          {crontabToText(formik.values.syncCronTab, t)}
-                        </FormLabel>
+                        {/* Fork addition: replaces the line that put the schedule in words */}
+                        <CronHelp formik={formik} name="syncCronTab" />
                         <TextField
                           fullWidth
                           id="scrubCronTab"
@@ -168,9 +169,8 @@ const SnapRAIDDialogInternal = ({ refresh, open, setOpen, data = {}}) => {
                           error={formik.touched.scrubCronTab && Boolean(formik.errors.scrubCronTab)}
                           helperText={formik.touched.scrubCronTab && formik.errors.scrubCronTab}
                         />
-                        <FormLabel>
-                          {crontabToText(formik.values.scrubCronTab, t)}
-                        </FormLabel>
+                        {/* Fork addition: as above */}
+                        <CronHelp formik={formik} name="scrubCronTab" />
                       </Stack>
                     </Stack>
                   </DialogContentText>
