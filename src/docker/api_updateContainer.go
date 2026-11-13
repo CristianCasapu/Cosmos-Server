@@ -10,7 +10,6 @@ import (
 	"github.com/azukaar/cosmos-server/src/utils"
 	containerType "github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
-	"github.com/docker/go-units"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/gorilla/mux"
 )
@@ -76,6 +75,8 @@ func UpdateContainerRoute(w http.ResponseWriter, req *http.Request) {
 			utils.HTTPError(w, "Internal server error: "+err.Error(), http.StatusInternalServerError, "DS002")
 			return
 		}
+
+		limitsSent := readSentLimits(req) // Fork addition: which limits the request carries (fork_limits.go)
 
 		var form ContainerForm
 		err = json.NewDecoder(req.Body).Decode(&form)
@@ -154,23 +155,12 @@ func UpdateContainerRoute(w http.ResponseWriter, req *http.Request) {
 		}
 
 		// Resource constraints
-		if form.MemLimit != "" {
-			memLimit, err := units.RAMInBytes(form.MemLimit)
-			if err != nil {
-				utils.Error("UpdateContainer: Invalid mem_limit", err)
-				utils.HTTPError(w, "Invalid memory limit: "+err.Error(), http.StatusBadRequest, "DS003")
-				return
-			}
-			container.HostConfig.Resources.Memory = memLimit
-		} else {
-			container.HostConfig.Resources.Memory = 0
-			container.HostConfig.Resources.MemorySwap = 0
-		}
-
-		if form.CPUs > 0 {
-			container.HostConfig.Resources.NanoCPUs = int64(form.CPUs * 1e9)
-		} else {
-			container.HostConfig.Resources.NanoCPUs = 0
+		// Fork addition: only the limits the request carries are changed (fork_limits.go);
+		// upstream removed the limits whenever a request did not carry them.
+		if err := applyResourceLimits(&container.HostConfig.Resources, form, limitsSent); err != nil {
+			utils.Error("UpdateContainer: Invalid mem_limit", err)
+			utils.HTTPError(w, err.Error(), http.StatusBadRequest, "DS003")
+			return
 		}
 
 		// docker must not auto-restart a container Cosmos put to sleep
