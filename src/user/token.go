@@ -286,6 +286,7 @@ func logOutUser(w http.ResponseWriter, req *http.Request) {
 		clientCookie.Domain = "." + reqHostNoPort
 	}
 
+	sameSiteLax(&cookie, &clientCookie) // Fork addition: see fork_session.go
 	http.SetCookie(w, &cookie)
 	http.SetCookie(w, &clientCookie)
 
@@ -395,6 +396,7 @@ func SendUserToken(w http.ResponseWriter, req *http.Request, user utils.User, mf
 		}
 	}
 
+	sameSiteLax(&cookie, &clientCookie) // Fork addition: see fork_session.go
 	http.SetCookie(w, &cookie)
 	http.SetCookie(w, &clientCookie)
 }
