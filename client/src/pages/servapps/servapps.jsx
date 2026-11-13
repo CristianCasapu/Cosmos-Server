@@ -14,6 +14,7 @@ import HostChip from '../../components/hostChip';
 import AppLinks, { AppDomains } from '../../components/appLinks'; // Fork addition
 import { ReachChip } from '../../components/reachability'; // Fork addition
 import PortChips from '../../components/portChips'; // Fork addition
+import LocalAddressesForAll from '../../components/localAddressesForAll'; // Fork addition
 import { Link } from 'react-router-dom';
 import ExposeModal from './exposeModal';
 import GetActions from './actionBar';
@@ -299,6 +300,9 @@ const ServApps = ({stack}) => {
             <Alert severity="info">{t('mgmt.servapps.updatesAvailableFor')} {Object.keys(updatesAvailable).join(', ')}</Alert>
           </Item>
         </Grid2>}
+        {/* Fork addition: one action for the apps that have no URL at all */}
+        {!stack && <LocalAddressesForAll config={config} containers={servApps} selfName={selfName} refresh={refreshServApps}
+          wrap={(notice) => <Grid2 style={gridAnim} xs={12} item><Item>{notice}</Item></Grid2>} />}
         {servApps && Object.values(servAppsStacked)
           .filter(app => {
             if (search.length < 2) return true;
