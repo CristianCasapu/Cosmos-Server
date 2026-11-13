@@ -219,6 +219,8 @@ type Config struct {
 	Snapshots SnapshotsConfig `json:"Snapshots,omitempty"`
 	// Fork addition: notifications through Telegram, see src/telegram.
 	Telegram TelegramConfig `json:"Telegram,omitempty"`
+	// Fork addition: what the panel set for the Fail2ban jails, see src/fail2ban.
+	Fail2ban Fail2banConfig `json:"Fail2ban,omitempty"`
 	IncrBackupOutputDir string
 	DisableHostModeWarning bool
 	AdminWhitelistIPs []string

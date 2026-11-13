@@ -204,6 +204,11 @@ const MainRoutes = {
             element: <ProxyManagement />
         },
         {
+            // Fork addition: the Fail2ban tab of the URLs page
+            path: '/cosmos-ui/config-url/fail2ban',
+            element: <ProxyManagement />
+        },
+        {
             path: '/cosmos-ui/config-url/:routeName',
             element: <RouteConfigPage />,
         },

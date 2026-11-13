@@ -165,6 +165,10 @@ var catalogue = func() map[string]Kind {
 		audit(utils.SecSnapshotRestore, SeverityHigh, "Snapshot restore started", "A folder is being replaced by one of its snapshots. Details: snapshot."),
 		audit(utils.SecAPIChange, SeverityLow, "Change through the API", "A logged-in user sent a request that changes something and that has no kind of its own. Path and method say which."),
 
+		incident(utils.SecFail2banBan, SeverityMedium, OutcomeBlocked, "Banned by Fail2ban", "Fail2ban banned an address at the firewall: nothing from it reaches the server until the ban ends or is lifted. Details: jail is the jail that banned it."),
+		audit(utils.SecFail2banUnban, SeverityMedium, "Fail2ban ban lifted", "An administrator lifted the ban of an address in Fail2ban. Target: the address. Details: jail, or all for every jail of the fork."),
+		audit(utils.SecFail2banSettings, SeverityMedium, "Fail2ban settings saved", "An administrator changed the thresholds of the Fail2ban jails or the addresses that are never banned."),
+
 		incident(utils.SecRecorderDropped, SeverityMedium, OutcomeFailed, "Events lost", "The record could not keep up (the database did not answer): Count events were not stored."),
 	}
 	byKind := make(map[string]Kind, len(kinds))

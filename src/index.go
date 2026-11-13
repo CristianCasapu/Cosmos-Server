@@ -214,6 +214,7 @@ func main() {
 // @name Authorization
 func cosmos() {
 	startSecurityRecord() // Fork addition: the security record, see fork_security_hooks.go
+	startFail2ban() // Fork addition: records new Fail2ban bans, see fork_fail2ban.go
 	utils.PushShieldMetrics = metrics.PushShieldMetrics
 	utils.GetContainerIPByName = docker.GetContainerIPByName
 	utils.IsLocalDockerIP = docker.IsLocalDockerIP
