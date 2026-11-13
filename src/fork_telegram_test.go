@@ -34,7 +34,7 @@ var telegramHooks = []struct {
 	{"configapi/get.go", "maskTelegram(&config, canReadCredentials)"},
 	{"configapi/set.go", "keepTelegramSecrets(&request, config)"},
 	{"configapi/set.go", "announceTelegramChange(req, config, request)"},
-	{"docker/events.go", "noteContainerEvent((string)(msg.Action), msg.Actor.Attributes)"},
+	{"docker/events.go", "noteContainerEvent((string)(msg.Type), (string)(msg.Action), msg.Actor.Attributes)"},
 }
 
 func TestTelegramHooksAreInPlace(t *testing.T) {

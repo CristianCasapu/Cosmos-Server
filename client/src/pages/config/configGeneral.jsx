@@ -361,6 +361,7 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
           })()}
         </Grid>
       </MainCard>
+      {/* Fork addition: notifications through Telegram (src/telegram), a card of their own above the e-mail settings */}<Telegram formik={formik} config={config} />
 
       <MainCard title="Emails - SMTP">
         <Stack spacing={2}>
@@ -434,9 +435,6 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
           </>)}
         </Stack>
       </MainCard>
-
-      {/* Fork addition: notifications through Telegram (src/telegram), next to the other way Cosmos writes to its admin */}
-      <Telegram formik={formik} config={config} />
     </Stack>
   );
 };

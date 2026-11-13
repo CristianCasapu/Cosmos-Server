@@ -98,10 +98,11 @@ func TestDyingEventsReachTheNotice(t *testing.T) {
 	defer utils.SetForkNoticeHandler(nil)
 
 	for i := 0; i < 3; i++ {
-		noteContainerEvent("start", map[string]string{"name": "db"})
-		noteContainerEvent("die", map[string]string{"name": "db", "exitCode": "2"})
+		noteContainerEvent("container", "start", map[string]string{"name": "db"})
+		noteContainerEvent("network", "die", map[string]string{"name": "db", "exitCode": "2"}) // not a container
+		noteContainerEvent("container", "die", map[string]string{"name": "db", "exitCode": "2"})
 	}
-	noteContainerEvent("die", map[string]string{"exitCode": "2"}) // no name: nothing to say
+	noteContainerEvent("container", "die", map[string]string{"exitCode": "2"}) // no name: nothing to say
 	if len(got) != 1 || got[0].kind != utils.NoticeContainerDying || got[0].values["name"] != "db" || got[0].values["code"] != "2" || got[0].values["exits"] != "3" {
 		t.Fatalf("notices %+v", got)
 	}

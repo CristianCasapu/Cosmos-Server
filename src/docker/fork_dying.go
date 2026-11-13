@@ -36,9 +36,10 @@ var (
 	dyingContainers = map[string]*dyingContainer{}
 )
 
-// noteContainerEvent looks at one Docker event of a container.
-func noteContainerEvent(action string, attributes map[string]string) {
-	if action != "die" && action != "kill" {
+// noteContainerEvent looks at one Docker event: only the exits and the
+// kills of containers matter here.
+func noteContainerEvent(kind string, action string, attributes map[string]string) {
+	if kind != "container" || (action != "die" && action != "kill") {
 		return
 	}
 	name := attributes["name"]
