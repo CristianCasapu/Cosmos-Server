@@ -122,6 +122,9 @@ func removeKept(cfg utils.SnapshotsConfig, source string, name string) error {
 		return fmt.Errorf("%s is not a folder", shown)
 	case mountPoint(filepath.Join(parentDir, name)):
 		return fmt.Errorf("%s is where a disk is mounted, so it is not deleted", shown)
+	case mountBelow(filepath.Join(parentDir, name)) != "":
+		// see mounts_below.go: deleting the folder would empty that disk
+		return fmt.Errorf("%s has a disk mounted inside it (%s), so it is not deleted; unmount it or move it out first", shown, mountBelow(filepath.Join(parentDir, name)))
 	}
 	if err := parent.RemoveAll(name); err != nil {
 		return fmt.Errorf("%s could not be deleted completely (%s)", shown, reason(err))
