@@ -149,6 +149,39 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }))
   }
 
+  // Fork addition: Fail2ban on the server (src/fail2ban). GET = whether it is
+  // installed and running, the fork's jails, the banned addresses and the
+  // settings; unban lifts one ban (jail "" = every jail of the fork);
+  // settings writes the thresholds and the never-ban list.
+  function fail2banStatus() {
+    return wrap(apiFetch('/cosmos/api/fail2ban', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }))
+  }
+
+  function fail2banUnban(ip: string, jail: string) {
+    return wrap(apiFetch('/cosmos/api/fail2ban/unban', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ ip, jail }),
+    }))
+  }
+
+  function fail2banSettings(settings: { jails: Record<string, { maxRetry: number, findTime: number, banTime: number }>, ignoreIP: string[] }) {
+    return wrap(apiFetch('/cosmos/api/fail2ban/settings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(settings),
+    }))
+  }
+
   function snapshotsCleanup(source: string, name: string) {
     return wrap(apiFetch('/cosmos/api/snapshots/cleanup', {
       method: 'POST',
@@ -292,6 +325,9 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     snapshotsRun,
     snapshotsRestore,
     snapshotsCleanup,
+    fail2banStatus,
+    fail2banUnban,
+    fail2banSettings,
     getBackup,
     getDashboard,
     updateDNS,

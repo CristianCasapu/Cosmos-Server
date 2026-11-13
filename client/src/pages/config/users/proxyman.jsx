@@ -49,6 +49,7 @@ import PermissionGuard from '../../../components/permissionGuard';
 import PrettyTabbedView from '../../../components/tabbedView/tabbedView';
 import ShieldDashboard from './shieldDashboard';
 import ShieldWhitelist from './shieldWhitelist';
+import Fail2banPanel from '../../security/fail2ban'; // Fork addition: the Fail2ban panel
 
 const stickyButton = {
   position: 'fixed',
@@ -383,6 +384,7 @@ const ProxyManagement = () => {
       { title: t('mgmt.config.proxy.tabs.urls'), children: urlsTab, url: '/' },
       { title: t('mgmt.config.proxy.tabs.shield'), children: <ShieldDashboard />, url: '/shield' },
       { title: t('mgmt.config.proxy.tabs.whitelist'), children: <ShieldWhitelist />, url: '/whitelist' },
+      { title: t('fail2ban.title', 'Fail2ban'), children: <Fail2banPanel />, url: '/fail2ban' }, // Fork addition: mounted here until the Security dashboard has it
     ]}
   />;
 }

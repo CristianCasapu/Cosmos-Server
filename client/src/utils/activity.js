@@ -112,6 +112,10 @@ const COMMANDS = [
   ['POST', /^\/api\/snapshots\/restore$/, () => ['activity.snapshots.restore', 'Restore the snapshot']],
   ['POST', /^\/api\/snapshots\/cleanup$/, () => ['activity.snapshots.cleanup', 'Delete the folder kept by a restore']],
 
+  // Fail2ban (src/fail2ban); its status is read with GET, which is never followed
+  ['POST', /^\/api\/fail2ban\/unban$/, () => ['activity.fail2ban.unban', 'Lift the Fail2ban ban']],
+  ['POST', /^\/api\/fail2ban\/settings$/, () => ['activity.fail2ban.settings', 'Save the Fail2ban settings']],
+
   ['POST', /^\/api\/backups\/[^/]+\/restore$/, () => ['activity.backup.restore', 'Start the restore']],
   ['POST', /^\/api\/backups\/[^/]+\/unlock$/, () => ['activity.backup.unlock', 'Unlock the backup repository']],
   ['DELETE', /^\/api\/backups\/[^/]+\/[^/]+\/forget$/, () => ['activity.backup.forget', 'Delete the snapshot']],
