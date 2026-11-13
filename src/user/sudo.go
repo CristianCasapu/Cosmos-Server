@@ -77,11 +77,13 @@ func UserSudo(w http.ResponseWriter, req *http.Request) {
 		} else {
 			err2 := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
 			if err2 != nil {
+				utils.RecordSecurity(req, utils.SecSudoFailed, "") // Fork addition: security record
 				utils.Error("UserSudo: Encryption error", err2)
 				utils.HTTPError(w, "User Logging Error", http.StatusInternalServerError, "UL001")
 				return
 			}
 
+			utils.RecordSecurity(req, utils.SecSudoSuccess, "") // Fork addition: security record
 			SendUserToken(w, req, user, true, true)
 
 			json.NewEncoder(w).Encode(map[string]interface{}{

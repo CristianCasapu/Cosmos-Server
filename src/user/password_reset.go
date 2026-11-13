@@ -63,6 +63,7 @@ func ResetPassword(w http.ResponseWriter, req *http.Request) {
 		// Fork addition: one answer whether or not the account exists and the mail can be sent,
 		// a failure goes to the administrators (fork_mail_report.go). What follows is upstream's
 		// handling, kept for merges and no longer reached.
+		recordPasswordResetRequest(req, nickname, user, err) // Fork addition: security record
 		if answerPasswordReset(w, nickname, user, err) {
 			return
 		}

@@ -68,12 +68,14 @@ func UserCreate(w http.ResponseWriter, req *http.Request) {
 			role = utils.USER
 		}
 		if !utils.CanGrant(req, utils.GetRolePermissions(role)) {
+			utils.RecordSecurity(req, utils.SecAccessGrantDenied, nickname, "what", "role") // Fork addition: security record
 			utils.Error("UserCreation: cannot assign a role with permissions the caller lacks", nil)
 			utils.HTTPError(w, "Cannot assign a role with permissions you do not hold", http.StatusForbidden, "UC007")
 			return
 		}
 
 		utils.Debug("UserCreation: Creating user " + nickname)
+		utils.AuditSecurity(req, utils.SecUserCreated, nickname, "role", roleLabel(role)) // Fork addition: security record
 
 		// count users
 		count, errCount := utils.CountUsers()

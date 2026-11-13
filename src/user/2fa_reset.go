@@ -38,6 +38,7 @@ func Delete2FA(w http.ResponseWriter, req *http.Request) {
 	}
 
 	nickname := request.Nickname
+	utils.AuditSecurity(req, utils.SecUserMFAReset, nickname) // Fork addition: security record
 
 	userInBase, err := utils.GetUser(nickname)
 

@@ -46,6 +46,7 @@ func UserResendInviteLink(w http.ResponseWriter, req *http.Request) {
 		}
 
 		utils.Debug("Re-Sending an invite to " + nickname)
+		auditLink(req, nickname, request.FormType) // Fork addition: security record
 		
 		user, err := utils.GetUser(nickname)
 

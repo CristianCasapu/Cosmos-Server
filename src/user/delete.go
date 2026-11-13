@@ -39,6 +39,7 @@ func UserDelete(w http.ResponseWriter, req *http.Request) {
 	if(req.Method == "DELETE") {
 
 		utils.Debug("UserDeletion: Deleting user " + nickname)
+		auditUserDeletion(req, nickname) // Fork addition: security record
 
 		err := utils.DeleteUser(nickname)
 
