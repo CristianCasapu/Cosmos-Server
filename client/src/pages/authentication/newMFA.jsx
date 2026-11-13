@@ -68,7 +68,10 @@ const MFALoginForm = () => {
       }).catch((error) => {
         console.log(error)
         setStatus({ success: false });
-        setErrors({ submit: t('mgmt.openid.newMfa.wrongOtpValidation') });
+        // Fork addition: 2FA006 is the account locked after too many wrong codes, not one more wrong code
+        setErrors({ submit: error && error.code === '2FA006'
+          ? t('mgmt.openid.newMfa.tooManyWrongCodesValidation', 'Too many wrong codes. Codes are refused for this account for up to 15 minutes; try again after that.')
+          : t('mgmt.openid.newMfa.wrongOtpValidation') });
         setSubmitting(false);
       });
     },
