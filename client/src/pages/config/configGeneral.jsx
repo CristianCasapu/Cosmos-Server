@@ -25,6 +25,7 @@ import { useClientInfos } from '../../utils/hooks';
 import EmailTest from './emailTest';
 import ServerUpdate from '../../components/serverUpdate';
 import Snapshots from './snapshots'; // fork addition
+import Telegram from './telegram'; // fork addition
 import TimezoneInput from './timezoneInput'; // fork addition
 
 // License issuer's public key for signature verification
@@ -360,6 +361,7 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
           })()}
         </Grid>
       </MainCard>
+      {/* Fork addition: notifications through Telegram (src/telegram), a card of their own above the e-mail settings */}<Telegram formik={formik} config={config} />
 
       <MainCard title="Emails - SMTP">
         <Stack spacing={2}>

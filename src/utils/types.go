@@ -217,6 +217,8 @@ type Config struct {
 	BackupWeekday int `json:"BackupWeekday,omitempty" validate:"min=0,max=6"`
 	// Fork addition: incremental snapshots of folders, see src/snapshots.
 	Snapshots SnapshotsConfig `json:"Snapshots,omitempty"`
+	// Fork addition: notifications through Telegram, see src/telegram.
+	Telegram TelegramConfig `json:"Telegram,omitempty"`
 	IncrBackupOutputDir string
 	DisableHostModeWarning bool
 	AdminWhitelistIPs []string
@@ -373,6 +375,41 @@ type SnapshotsConfig struct {
 	KeepWeekly  int
 	KeepMonthly int
 	Excludes    []string
+}
+
+// TelegramConfig (fork addition) sets up the notifications sent through
+// Telegram by src/telegram. BotToken is a secret: it is never sent to a
+// client (configapi masks it as "***") and never logged. ChatID is a numeric
+// chat id ("123456789", "-1001234567890") or a public channel's "@name";
+// TopicID is the topic of a forum group, 0 for none. ServerName is the label
+// at the top of every message; empty means the Hostname setting.
+//
+// Categories switches kinds of messages on or off by name ("security",
+// "logins", "system", "storage", "apps", "other"); a name that is missing
+// has its default, see telegram.Categories. MinSeverity is the lowest
+// severity of the security record that is sent: "high" (also when empty),
+// "medium" or "low". HideDetails leaves addresses and names out of the
+// messages. QuietFrom and QuietTo ("HH:MM", server time; both empty for
+// none) are the hours in which messages arrive without sound; critical ones
+// still ring unless QuietSilenceCritical is set. MaxPerMinute caps the
+// messages that are not critical (0 means 6).
+//
+// Every zero value is the default. The values are checked by
+// telegram.ValidateConfig when the settings are saved; there are no validate
+// tags, for the reasons given at SnapshotsConfig.
+type TelegramConfig struct {
+	Enabled              bool
+	BotToken             string
+	ChatID               string
+	TopicID              int
+	ServerName           string
+	Categories           map[string]bool `json:"Categories,omitempty"`
+	MinSeverity          string
+	HideDetails          bool
+	QuietFrom            string
+	QuietTo              string
+	QuietSilenceCritical bool
+	MaxPerMinute         int
 }
 
 const (

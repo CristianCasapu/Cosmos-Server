@@ -40,6 +40,7 @@ const optionalPort = (t) => Yup.string().test(
 
 import ConfigGeneral from './configGeneral';
 import { snapshotsInitialValues, snapshotsToConfig, snapshotsValidation } from './snapshots'; // fork addition
+import { telegramInitialValues, telegramToConfig, telegramValidation } from './telegram'; // fork addition
 import ConfigHTTP from './configHTTP';
 import ConfigHTTPS from './configHTTPS';
 import ConfigExternal from './configExternal';
@@ -213,6 +214,7 @@ const ConfigManagement = () => {
           BackupTime: config.BackupTime || '00:00',
           BackupWeekday: String(config.BackupWeekday || 0), // text: the select treats the number 0 as empty
           ...snapshotsInitialValues(config), // fork addition: Snapshots_*, the incremental backup
+          ...telegramInitialValues(config), // fork addition: Telegram_*, the notifications; never the token
           IncrBackupOutputDir: config.Backup && config.Backup.Backups && config.Backup.Backups["Cosmos Internal Backup"] ? config.Backup.Backups["Cosmos Internal Backup"].Repository : "",
 
           AdminWhitelistIPs: config.AdminWhitelistIPs && config.AdminWhitelistIPs.join(', '),
@@ -242,6 +244,7 @@ const ConfigManagement = () => {
           UPnP_ExternalHTTPSPort: optionalPort(t),
           UPnP_ExternalHTTPPort: optionalPort(t),
           ...snapshotsValidation(t), // fork addition
+          ...telegramValidation(t, config), // fork addition
         })}
 
         onSubmit={async (values, { setSubmitting }) => {
@@ -277,6 +280,7 @@ const ConfigManagement = () => {
             BackupTime: values.BackupTime,
             BackupWeekday: Number(values.BackupWeekday) || 0,
             Snapshots: snapshotsToConfig(values), // fork addition
+            Telegram: telegramToConfig(values, config), // fork addition: a token left empty keeps the stored one
             AdminConstellationOnly: values.AdminConstellationOnly,
             AdminWhitelistIPs: (values.AdminWhitelistIPs && values.AdminWhitelistIPs != "") ?
               values.AdminWhitelistIPs.split(',').map((x) => x.trim()) : [],

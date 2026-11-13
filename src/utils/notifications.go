@@ -126,6 +126,7 @@ func MarkAsRead(w http.ResponseWriter, req *http.Request) {
 }
 
 func WriteNotification(notification Notification) {
+	forwardNotification(notification) // Fork addition: sent on to Telegram once, see fork_notify.go
 	notification.Date = time.Now()
 	notification.Read = false
 

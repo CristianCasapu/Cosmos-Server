@@ -555,6 +555,7 @@ func SaveConfigTofile(config Config) {
 
 func RestartServer(code int) {
 	Log("Restarting server...")
+	ForkNotice(NoticeExitRestart) // Fork addition: the next start can say it follows a restart, see fork_notify.go
 	PlanRestart()
 	WaitForAllJobs()
 	if StopAllRCloneProcess != nil {
