@@ -26,6 +26,12 @@ upstream 0.23.4 unless noted and may have moved.
    work means weakening that cookie setting for local addresses; left as it
    is until the owner decides (HTTPS on the local address works).
 
+5. **Security record: settings for its limits and retention** (today
+   constants: 180 days, 20 000 rows per kind, 5 000 for the kinds a stranger
+   can produce); container actions that upstream does over GET (`secure`,
+   `auto-update`, `lazy`) leave no audit entry; streamed operations are
+   recorded as accepted, not by their final outcome.
+
 ## Usability gaps found in the code
 
 | # | Gap | Where |

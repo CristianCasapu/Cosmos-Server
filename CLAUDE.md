@@ -83,11 +83,11 @@ repository mounted at `/src` (Go from `go.mod`'s version, Node 22).
 cp src/update.go src/launcher/update.go
 CGO_ENABLED=0 go build -o /tmp/cosmos src/*.go
 CGO_ENABLED=0 go build -o /tmp/cosmos-launcher ./src/launcher/launcher.go ./src/launcher/update.go
-go test ./src/utils/ -run 'DeliverEmail|UsesImplicitTLS|WriteFileAtomic|SaveConfigTofile|Timezone|SerialWebsocket' -count=1
-go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ -count=1
+go test ./src/utils/ -run 'DeliverEmail|UsesImplicitTLS|WriteFileAtomic|SaveConfigTofile|Timezone|SerialWebsocket|Security' -count=1
+go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ -count=1
 go test ./src/ -skip TestEveryRouteIsDocumented -count=1
 go test ./src/docker/ -count=1
-go test ./src/proxy/ -run 'IsLocalAddress|IsLocalVisitor|LocalNetworkOnly' -count=1
+go test ./src/proxy/ -run 'IsLocalAddress|IsLocalVisitor|LocalNetworkOnly|Security' -count=1
 
 # The checks on GitHub do not run as root: run the tests as another user before
 # pushing (`docker run --user 1000:1000 -e HOME=/tmp -e GOCACHE=/tmp/gocache`,
