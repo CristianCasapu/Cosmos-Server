@@ -41,11 +41,11 @@ upstream 0.23.4 unless noted and may have moved.
 
 Confirmed by reading only, on 0.23.4; re-check on 0.24.0 before fixing. (The certificate wipe on save, the two-factor limit and reset, and the HTTP port's 404 are fixed; see `FORK.md`.)
 
-- **SmartShield can ban a LAN device permanently**, including from the Cosmos UI (`src/proxy/shield.go`; 0.24.0 rewrote the shield and added a whitelist: re-check).
-- **Editing a container removes it before creating the new one**, with no way back if creation fails; memory and CPU limits are reset by any partial update (fix in `aseracorp/unstable` commit `7f7bdca7`).
-- **If Let's Encrypt fails the server starts on plain HTTP only**, although it announces a self-signed fallback.
 - 30 minutes after any network disconnect Cosmos prunes all unused images (unless `SkipPruneImages`), which also removes this fork's build images.
-- Host terminal: concurrent websocket writes can crash the process; route Setup/Security tabs can save stale config; setup wizard loses the admin email (upstream PR #606, one line); invite and reset mails report "sent" on failure.
+- **Let's Encrypt, leftover corners** (the plain-HTTP start is gone on 0.24.0, the self-signed certificate serves when an order fails): if no self-signed certificate can be generated and none is stored, the server still starts on HTTP only; a stored certificate that does not parse ends the process; an order through a DNS provider gives a notice without a reason.
+- **SmartShield and the local network** (re-checked on 0.24.0, nothing changed): a private address is treated like any other; three temporary bans in seven days give a permanent one (in memory: a restart clears it). A logged-in admin is never banned, but a device whose address is banned and whose session has expired cannot log in until the ban ends. Options, the owner's to choose: add the LAN range to the Shield whitelist (a setting), never make a ban permanent for local addresses, or switch permanent bans off.
+- **A container edit interrupted by a stop of Cosmos** leaves the old container stopped as `<name>-cosmos-old-<id>`; nothing offers to put it back or removes it at the next start. A failed network reconnection during an edit is only logged.
+- Route Setup/Security tabs can save stale config.
 
 ## From other forks and open upstream pull requests
 

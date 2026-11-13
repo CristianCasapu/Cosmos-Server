@@ -83,11 +83,20 @@ repository mounted at `/src` (Go from `go.mod`'s version, Node 22).
 cp src/update.go src/launcher/update.go
 CGO_ENABLED=0 go build -o /tmp/cosmos src/*.go
 CGO_ENABLED=0 go build -o /tmp/cosmos-launcher ./src/launcher/launcher.go ./src/launcher/update.go
-go test ./src/utils/ -run 'DeliverEmail|UsesImplicitTLS|WriteFileAtomic|SaveConfigTofile|Timezone' -count=1
+go test ./src/utils/ -run 'DeliverEmail|UsesImplicitTLS|WriteFileAtomic|SaveConfigTofile|Timezone|SerialWebsocket' -count=1
 go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ -count=1
 go test ./src/ -skip TestEveryRouteIsDocumented -count=1
-go test ./src/docker/ -run 'StopTimeout|ContainerGone|VolumeHostPath' -count=1
+go test ./src/docker/ -count=1
 go test ./src/proxy/ -run 'IsLocalAddress|IsLocalVisitor|LocalNetworkOnly' -count=1
+
+# The checks on GitHub do not run as root: run the tests as another user before
+# pushing (`docker run --user 1000:1000 -e HOME=/tmp -e GOCACHE=/tmp/gocache`,
+# the repository and the module cache mounted read-only). A test that relies
+# on root's rights passes here and fails there.
+#
+# The container edit against a real Docker, never the server's: start
+# docker:27-dind on a network of its own and run
+#   COSMOS_FORK_LIVE_DOCKER=1 DOCKER_HOST=tcp://<dind>:2375 go test ./src/docker/ -run SafeEditLive -count=1
 
 # UI (output in ./static, which is git-ignored)
 npm ci --ignore-scripts --no-audit --no-fund
