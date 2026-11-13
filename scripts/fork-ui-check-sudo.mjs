@@ -47,7 +47,7 @@ const run = async (type, name, viewport) => {
   const notes = page.locator('input[name=BackupOutputDir]');
   const target = (await notes.count()) ? notes : field;
   const before = await target.inputValue();
-  await target.fill((await notes.count()) ? '/tmp/' + typed : '04:20');
+  await target.fill((await notes.count()) ? '/tmp/' + typed + '-' + name : '04:20'); // differs from what is stored, so a reload would show
   const entered = await target.inputValue();
   const loadsBefore = loads;
 

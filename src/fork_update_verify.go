@@ -99,7 +99,10 @@ func reportLauncherRefusal() {
 	if err != nil {
 		return
 	}
-	if reason := forkrelease.TakeLauncherRefusal(filepath.Dir(execPath)); reason != "" {
+	folder := filepath.Dir(execPath)
+	// cleanUpUpdateFiles (upstream) removed the zip just before; its signature file goes with it
+	forkrelease.ClearStaged(folder)
+	if reason := forkrelease.TakeLauncherRefusal(folder); reason != "" {
 		reportRejectedUpdate("", reason, "launcher")
 	}
 }

@@ -165,6 +165,9 @@ func TestARefusalByTheLauncherIsReportedAtStart(t *testing.T) {
 		t.Skip("cannot write next to the test binary: ", err)
 	}
 	defer os.Remove(note)
+	leftover := filepath.Join(filepath.Dir(execPath), forkrelease.StagedSignature)
+	os.WriteFile(leftover, []byte("signature of an update that was installed"), 0600)
+	defer os.Remove(leftover)
 
 	reportLauncherRefusal()
 	reportLauncherRefusal() // the note is gone: nothing more
@@ -178,6 +181,9 @@ func TestARefusalByTheLauncherIsReportedAtStart(t *testing.T) {
 	}
 	if _, err := os.Stat(note); !errors.Is(err, os.ErrNotExist) {
 		t.Error("the launcher's note is still there")
+	}
+	if _, err := os.Stat(leftover); !errors.Is(err, os.ErrNotExist) {
+		t.Error("the signature file of the last update is left behind")
 	}
 }
 

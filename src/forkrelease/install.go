@@ -289,6 +289,14 @@ func TakeLauncherRefusal(folder string) string {
 	return reason
 }
 
+// ClearStaged removes what staging leaves next to the binaries besides the
+// zip: the signature file and an unfinished download. The server calls it at
+// start, when the launcher has done its work and the zip itself is gone.
+func ClearStaged(folder string) {
+	os.Remove(filepath.Join(folder, StagedSignature))
+	os.Remove(filepath.Join(folder, stagedPart))
+}
+
 // SafeText keeps a message printable on one line: it ends up in logs and in
 // a notification.
 func SafeText(text string) string {
