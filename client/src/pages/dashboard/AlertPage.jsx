@@ -234,8 +234,9 @@ const AlertPage = () => {
   // once a second.
   function refresh(retries = 0) {
     let again = false;
-    const retry = () => {
-      if (retries > 0 && !again) {
+    const retry = (error) => {
+      // only when the server did not answer at all: an error it answered with has been shown
+      if (retries > 0 && !again && !(error && error.status)) {
         again = true;
         setTimeout(() => refresh(retries - 1), 1000);
       }
