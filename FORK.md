@@ -70,6 +70,8 @@ and nothing here alters any paid feature or licensing mechanism.
 | Snapshots refuse to restore or delete a folder with a disk mounted inside it | `src/snapshots/mounts_below.go` (+ test); modified: `src/snapshots/restore.go`, `kept.go` |
 | The self-signed certificate lists IP addresses as addresses (valid for the server's IP once the device trusts Cosmos' authority); an application's sign-in ends on a local path | `src/utils/fork_certificate_names.go`, `src/authorizationserver/fork_redirect.go` (+ tests); modified: `src/utils/certificates.go`, `src/httpServer.go`, `src/authorizationserver/oauth2.go` |
 | SmartShield never bans an address of the local network permanently (another 72-hour ban instead) | `src/proxy/fork_shield_local.go` (+ test); modified: `src/proxy/shield_bans.go`, `fork_local.go` |
+| Dependencies brought up to date for security (Go 1.27.4, x/net, x/crypto, grpc, compression and rclone backend libraries, docker 26.1.5; UI: dompurify, react-router 6.30, js-yaml, prismjs, lodash) | `go.mod`, `go.sum`, `package.json`, `package-lock.json` |
+| Request logger on chi/v5, session cookies checked with golang-jwt v4 | modified: `src/utils/logger.go`, `src/user/token.go`; tests `src/utils/fork_logger_test.go`, `src/user/fork_token_jwt_test.go` |
 | The version shown in the menu includes the fork build | modified: `client/src/layout/MainLayout/Drawer/index.jsx` |
 | The Support menu links to this fork | modified: `client/src/menu-items/support.jsx`, `client/src/utils/locales/en/translation.json` |
 | Checks, release, upstream sync and rollback automation | `.github/actions/fork-build/`, `.github/workflows/fork-ci.yml`, `fork-release.yml`, `fork-sync.yml`, `fork-rollback.yml`, `scripts/fork-promote.sh` |
@@ -110,6 +112,15 @@ If the merge conflicts, cannot be pushed (the workflow token may not push
 changes under `.github/workflows`) or fails the checks, `production` stays as
 it is and an issue is opened; merge the release on `custom` by hand and
 promote it.
+
+### Dependency files in an upstream merge
+
+The fork carries newer versions of some dependencies than upstream. When a
+merge conflicts in these files: `go.mod` and `package.json`: take the higher
+version of each entry; `go.sum`: keep both sides, then `go mod tidy`;
+`package-lock.json`: take upstream's file, then
+`npm install --package-lock-only` with the merged `package.json`. Afterwards
+run `govulncheck ./...` and `npm audit` to see that nothing went back.
 
 ### Going back
 

@@ -62,6 +62,18 @@ filter only ever blocks an empty User-Agent. Links to apps open without
 `noopener`. A refused cross-site request is logged but not yet written to the
 security record.
 
+## Dependencies: left for later (2026-11-13)
+
+- Docker client library v26 is out of support; v28 needs changes in ten
+  upstream files and v29 moves to another module: wait for upstream.
+- react-router 7, vite 6 or later (build tool, end of life on 4), MUI 9,
+  React 19: large migrations of upstream's frontend, not started.
+- The bundled `nebula` 1.8.2 and `restic` 0.17.3 are old builds with known
+  advisories, taken from upstream's release zip and checked by MD5 only:
+  download current ones from their own releases with a pinned SHA-256
+  (check Constellation's and existing repositories' compatibility first).
+- GitHub Actions are pinned by commit but to old majors (Node 20 runtime).
+
 ## Usability gaps found in the code
 
 | # | Gap | Where |
