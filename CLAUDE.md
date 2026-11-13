@@ -98,6 +98,9 @@ go test ./src/proxy/ -run 'IsLocalAddress|IsLocalVisitor|LocalNetworkOnly' -coun
 # docker:27-dind on a network of its own and run
 #   COSMOS_FORK_LIVE_DOCKER=1 DOCKER_HOST=tcp://<dind>:2375 go test ./src/docker/ -run SafeEditLive -count=1
 
+# the frontend's pure logic (quote the glob)
+node --test "client/src/utils/*.test.mjs"
+
 # UI (output in ./static, which is git-ignored)
 npm ci --ignore-scripts --no-audit --no-fund
 npx vite build --base=/cosmos-ui/
@@ -130,7 +133,7 @@ containers inside it, and start the test instance with
 makes it exit and expect to be restarted. The test containers show up in the
 production panel's ServApps list while they exist; the owner has clicked on
 them before, which recreates them and wipes their state, so keep the run short
-and say what they are. `scripts/fork-ui-check-apps.mjs` covers these pages.
+and say what they are. `scripts/fork-ui-check-apps.mjs` covers these pages, `scripts/fork-ui-check-forms.mjs` the port, schedule, volume and mount forms (its header lists the dummy containers it expects).
 
 `scripts/fork-ui-check.mjs` logs in, confirms the password (`/api/sudo`: most
 admin actions need it), visits the main pages in three engines and at phone
