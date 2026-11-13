@@ -463,6 +463,10 @@ func plainHTTPHandler(router http.Handler) http.Handler {
 			router.ServeHTTP(w, r)
 			return
 		}
+		// Fork addition: a hostname served over HTTPS is sent there instead of a 404, see fork_plain_http.go
+		if redirectPlainHTTPToHTTPS(w, r) {
+			return
+		}
 		http.NotFound(w, r)
 	})
 }

@@ -58,6 +58,9 @@ func New2FA(w http.ResponseWriter, req *http.Request) {
 		if utils.CheckPermissions(w, req, utils.PERM_LOGIN) != nil {
 			return
 		}
+		// Fork addition: a verified secret is never replaced by this GET, see fork_mfa_keep.go
+		refuseVerified2FAReplacement(w, nickname)
+		return
 	}
 
 	err = utils.UpdateUser(nickname, toSet)

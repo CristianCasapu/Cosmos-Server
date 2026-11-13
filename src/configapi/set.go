@@ -228,6 +228,8 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 		}
 		// the server's own certificates are never sent to the client either
 		request.HTTPConfig.LocalCerts = config.HTTPConfig.LocalCerts
+		// Fork addition: nor are the CA and the self-signed certificate, whose keys were saved back empty, see fork_certificates.go
+		keepServerCertificates(&request, config)
 		request.NewInstall = config.NewInstall
 
 		// restore API token as we cannot edit it here

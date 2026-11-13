@@ -388,6 +388,7 @@
 	"activity.zone.delete": "Delete domain {{name}}",
 	"activity.zone.save": "Save domain {{name}}",
 	"mgmt.config.pathValidation": "Enter an absolute path such as /storage/backups, without \"..\" and without spaces at either end",
+	"mgmt.openid.newMfa.tooManyWrongCodesValidation": "Too many wrong codes. Codes are refused for this account for up to 15 minutes; try again after that.",
 	"mgmt.servApps.networks.hostIpInput.hostIpLabel": "Host IP (optional)",
 	"mgmt.servApps.networks.hostIpInput.hostIpValidation": "Enter an IPv4 or IPv6 address, or leave it empty for every address",
 	"mgmt.config.backupSchedule.12h": "Every twelve hours",

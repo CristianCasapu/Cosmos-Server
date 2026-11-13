@@ -53,9 +53,15 @@ func Check2FA(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Fork addition: wrong codes are limited per account, see fork_mfa_limit.go
+	if mfaAttemptRefused(w, nickname) {
+		return
+	}
+
 	valid := totp.Validate(request.Token, userInBase.MFAKey)
 
 	if valid {
+		mfaAttempts.succeeded(nickname) // Fork addition
 		utils.Log("2FA: User " + nickname + " has valid token")
 
 		if(!userInBase.Was2FAVerified) {
