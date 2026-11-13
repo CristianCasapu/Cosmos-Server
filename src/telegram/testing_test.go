@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +15,14 @@ import (
 
 	"github.com/azukaar/cosmos-server/src/utils"
 )
+
+// TestMain makes sure no test of this package can reach the real Telegram:
+// the client for direct sends points at a port nothing listens on until a
+// test points it at its fake.
+func TestMain(m *testing.M) {
+	directClient = &apiClient{base: "https://127.0.0.1:1", http: newHTTPClient(nil)}
+	os.Exit(m.Run())
+}
 
 // A token with the shape of a real one. It belongs to no bot.
 const testToken = "123456789:AAFakeFakeFakeFakeFakeFakeFakeFake0"

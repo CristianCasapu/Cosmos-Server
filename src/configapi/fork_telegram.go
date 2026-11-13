@@ -43,7 +43,8 @@ func keepTelegramSecrets(request *utils.Config, stored utils.Config) error {
 }
 
 // announceTelegramChange tells the chat that received the notifications so
-// far when a save takes them away from it.
-func announceTelegramChange(req *http.Request, before utils.Config, after utils.Config) {
+// far when a save takes them away from it. A variable so the tests of this
+// package never send anything.
+var announceTelegramChange = func(req *http.Request, before utils.Config, after utils.Config) {
 	telegram.AnnounceSettingsChange(before, after, utils.GetAuthContext(req).Nickname, utils.GetClientIP(req))
 }

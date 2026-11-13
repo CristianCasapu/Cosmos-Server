@@ -135,18 +135,19 @@ type notifier struct {
 	// logf writes a line to the server's log.
 	logf func(line string)
 
-	mu          sync.Mutex
-	buckets     map[string]*bucket
-	minute      []time.Time // when the last messages under the cap were accepted
-	normal      []*item
-	critical    []*item
-	digest      map[string]int
-	digestOther int
-	digestTop   priority
-	digestSince time.Time
-	digestLast  time.Time
-	lastDigest  time.Time
-	lastRequest time.Time
+	mu              sync.Mutex
+	buckets         map[string]*bucket // budgets of normal and low messages, by key
+	criticalBuckets map[string]*bucket // budgets of critical messages, by key
+	minute          []time.Time        // when the last messages under the cap were accepted
+	normal          []*item
+	critical        []*item
+	digest          map[string]int
+	digestOther     int
+	digestTop       priority
+	digestSince     time.Time
+	digestLast      time.Time
+	lastDigest      time.Time
+	lastRequest     time.Time
 
 	pausedUntil time.Time
 	pausedFor   string // the fingerprint of the settings that were refused
@@ -161,17 +162,18 @@ type notifier struct {
 
 func newNotifier(client *apiClient, getSettings func() settings) *notifier {
 	return &notifier{
-		limits:   defaultLimits(),
-		client:   client,
-		settings: getSettings,
-		now:      time.Now,
-		raise:    func(string) {},
-		logf:     func(string) {},
-		buckets:  map[string]*bucket{},
-		digest:   map[string]int{},
-		wake:     make(chan struct{}, 1),
-		stop:     make(chan struct{}),
-		done:     make(chan struct{}),
+		limits:          defaultLimits(),
+		client:          client,
+		settings:        getSettings,
+		now:             time.Now,
+		raise:           func(string) {},
+		logf:            func(string) {},
+		buckets:         map[string]*bucket{},
+		criticalBuckets: map[string]*bucket{},
+		digest:          map[string]int{},
+		wake:            make(chan struct{}, 1),
+		stop:            make(chan struct{}),
+		done:            make(chan struct{}),
 	}
 }
 
@@ -257,30 +259,28 @@ func (n *notifier) pausedLocked(st settings, now time.Time) bool {
 	return true
 }
 
-// takeLocked takes one message out of the budget of a key.
+// takeLocked takes one message out of the budget of a key. Critical
+// messages have budgets of their own, kept apart: however many kinds of
+// normal messages there are, they cannot crowd a critical kind out.
 func (n *notifier) takeLocked(key string, p priority, now time.Time) bool {
-	burst, refill := n.limits.normalBurst, n.limits.normalRefill
+	buckets, burst, refill := n.buckets, n.limits.normalBurst, n.limits.normalRefill
 	if p == priorityCritical {
-		burst, refill = n.limits.criticalBurst, n.limits.criticalRefill
-		key = "!" + key
+		buckets, burst, refill = n.criticalBuckets, n.limits.criticalBurst, n.limits.criticalRefill
 	}
 
-	b, known := n.buckets[key]
+	b, known := buckets[key]
 	if !known {
-		if len(n.buckets) >= n.limits.maxKeys {
-			n.pruneLocked(now)
+		if len(buckets) >= n.limits.maxKeys {
+			pruneBuckets(buckets, burst, refill, now)
 		}
-		if len(n.buckets) >= n.limits.maxKeys {
+		if len(buckets) >= n.limits.maxKeys {
 			// more keys than there can be: they share one budget
-			key = "\x00overflow"
-			if p == priorityCritical {
-				key = "!" + key
-			}
-			b, known = n.buckets[key]
+			key = overflowKey
+			b, known = buckets[key]
 		}
 		if !known {
 			b = &bucket{tokens: float64(burst), updated: now}
-			n.buckets[key] = b
+			buckets[key] = b
 		}
 	}
 
@@ -298,15 +298,14 @@ func (n *notifier) takeLocked(key string, p priority, now time.Time) bool {
 	return true
 }
 
-// pruneLocked forgets the budgets that are full again.
-func (n *notifier) pruneLocked(now time.Time) {
-	for key, b := range n.buckets {
-		refill, burst := n.limits.normalRefill, n.limits.normalBurst
-		if len(key) > 0 && key[0] == '!' {
-			refill, burst = n.limits.criticalRefill, n.limits.criticalBurst
-		}
-		if b.tokens+float64(now.Sub(b.updated))/float64(refill) >= float64(burst) {
-			delete(n.buckets, key)
+// overflowKey is the budget shared by the keys there is no room for.
+const overflowKey = "\x00overflow"
+
+// pruneBuckets forgets the budgets that are full again.
+func pruneBuckets(buckets map[string]*bucket, burst int, refill time.Duration, now time.Time) {
+	for key, b := range buckets {
+		if key != overflowKey && b.tokens+float64(now.Sub(b.updated))/float64(refill) >= float64(burst) {
+			delete(buckets, key)
 		}
 	}
 }
