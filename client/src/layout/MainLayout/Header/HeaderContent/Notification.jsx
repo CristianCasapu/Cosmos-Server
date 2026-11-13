@@ -61,7 +61,7 @@ const Notification = () => {
     const refreshNotifications = () => {
         API.users.getNotifs(from).then((res) => {
             setNotifications(() => res.data);
-        });
+        }).catch(() => {}); // Fork addition: a poll that fails (the server restarts after a save) is tried again by the next one
     };
 
     const setAsRead = () => {
