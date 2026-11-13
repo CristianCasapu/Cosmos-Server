@@ -116,13 +116,15 @@ if [ "$WITH_COSMOS" = 1 ] && [ ! -d "$(dirname -- "$LOG")" ]; then
 fi
 
 # nftables.service loads /etc/nftables.conf, which starts with "flush
-# ruleset": every start or reload of it would remove Fail2ban's bans (and
-# Docker's rules) from the kernel.
+# ruleset", and runs "nft flush ruleset" when it stops: every start, reload
+# or stop of it would remove Fail2ban's bans (and Docker's rules) from the
+# kernel. Rules of your own belong in a table of their own, loaded by a unit
+# of their own, not in that service.
 if command -v systemctl >/dev/null 2>&1 && [ "$(systemctl is-enabled nftables.service 2>/dev/null || true)" = enabled ]; then
 	if [ "$ACCEPT_NFTABLES_SERVICE" = 1 ]; then
 		warn "nftables.service is enabled: when it starts or reloads it empties the packet filter, bans included, until Fail2ban is restarted"
 	else
-		die "nftables.service is enabled: its 'flush ruleset' would remove the bans. Disable it, or run again with --accept-nftables-service"
+		die "nftables.service is enabled: whenever it starts, reloads or stops it empties the whole packet filter ('flush ruleset'), the bans and Docker's rules included. Disable it, or run again with --accept-nftables-service"
 	fi
 fi
 
@@ -224,6 +226,39 @@ if [ -n "$SESSION" ]; then
 			;;
 		*) ;; # not an address: nothing to protect
 	esac
+fi
+
+# Settings saved in Cosmos' panel are read after this script's files and
+# replace the list for the fork's jails: if they are there and do not hold
+# this session's address, saying "it is added" would not be true.
+PANEL_FILE="$ETC/jail.d/cosmos-90-panel.local"
+PANEL_NOTE=""
+if [ -n "$SESSION" ] && [ -f "$PANEL_FILE" ]; then
+	status=0
+	py '
+import ipaddress, sys
+try:
+    address = ipaddress.ip_address(sys.argv[1])
+except ValueError:
+    sys.exit(0)
+if getattr(address, "ipv4_mapped", None):
+    address = address.ipv4_mapped
+lists = [line.split("=", 1)[1].split() for line in open(sys.argv[2]) if line.startswith("ignoreip")]
+for entries in lists:
+    covered = False
+    for entry in entries:
+        try:
+            network = ipaddress.ip_network(entry, strict=False)
+        except ValueError:
+            continue
+        if network.version == address.version and address in network:
+            covered = True
+    if not covered:
+        sys.exit(1)
+' "$SESSION" "$PANEL_FILE" || status=$?
+	if [ "$status" = 1 ]; then
+		PANEL_NOTE="the settings saved in Cosmos' panel ($PANEL_FILE) replace this list for the fork's jails and do NOT hold your SSH session's address ($SESSION): add it in the panel (Addresses that are never banned), or it can be banned"
+	fi
 fi
 
 # one canonical list, no duplicates, order kept
@@ -345,6 +380,7 @@ say ""
 say "  never banned"
 for network in $IGNORE; do say "    $network"; done
 [ -z "$SESSION_NOTE" ] || say "    ($SESSION_NOTE)"
+[ -z "$PANEL_NOTE" ] || warn "$PANEL_NOTE"
 say "    (and this machine's own addresses)"
 say ""
 if [ "$HAVE_SYSTEMD" = 1 ]; then
