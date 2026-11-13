@@ -27,6 +27,7 @@ import ServerUpdate from '../../components/serverUpdate';
 import Snapshots from './snapshots'; // fork addition
 import Telegram from './telegram'; // fork addition
 import TimezoneInput from './timezoneInput'; // fork addition
+import { PaidOnly, HidePaidSwitch } from '../../components/paidVisibility'; // Fork addition
 
 // License issuer's public key for signature verification
 const LICENSE_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
@@ -210,6 +211,7 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
             formik={formik}
           />
 
+          <PaidOnly>{/* Fork addition: the incremental backup needs a licence */}
           <Grid item xs={12}>
             {/* Fork addition: laid out like the row above */}
             <Stack spacing={1}>
@@ -228,6 +230,7 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
               </Stack>
             </Stack>
           </Grid>
+          </PaidOnly>
 
           {isAdmin && canReadCredentials && internalBackupPassword && (
             <Grid item xs={12}>
@@ -280,6 +283,7 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
               formik.setFieldValue("ServerToken", "");
             }}
           />
+          <HidePaidSwitch formik={formik} />{/* Fork addition */}
           {(() => {
             const isMasked = formik.values.Licence && /^\*+$/.test(formik.values.Licence);
             const licenseResult = React.useMemo(() => {

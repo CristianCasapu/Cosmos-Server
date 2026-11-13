@@ -221,6 +221,10 @@ type Config struct {
 	Telegram TelegramConfig `json:"Telegram,omitempty"`
 	// Fork addition: what the panel set for the Fail2ban jails, see src/fail2ban.
 	Fail2ban Fail2banConfig `json:"Fail2ban,omitempty"`
+	// Fork addition: show the panel's features that need a licence when there is
+	// none. Stored inverted so that a configuration without it hides them (the
+	// fork's default). Presentation only: read by the UI through /api/status.
+	ShowPaidFeatures bool `json:"ShowPaidFeatures,omitempty"`
 	IncrBackupOutputDir string
 	DisableHostModeWarning bool
 	AdminWhitelistIPs []string

@@ -46,6 +46,7 @@ import ConfigHTTPS from './configHTTPS';
 import ConfigExternal from './configExternal';
 import ConfigAppearance from './configAppearance';
 import ConfigAPITokens from './configAPITokens';
+import { refreshPaidVisibility } from '../../components/paidVisibility'; // Fork addition
 
 const SaveButton = ({ formik, saveLabel }) => {
   return (
@@ -163,6 +164,7 @@ const ConfigManagement = () => {
           BetaUpdates: config.BetaUpdates,
           MaintenanceTime: config.MaintenanceTime || '02:00', // fork addition
           Timezone: config.Timezone || '', // fork addition
+          HidePaidFeatures: !config.ShowPaidFeatures, // Fork addition: stored inverted
 
           Licence: config.Licence,
           ServerToken: config.ServerToken,
@@ -272,6 +274,7 @@ const ConfigManagement = () => {
             BetaUpdates: values.BetaUpdates,
             MaintenanceTime: values.MaintenanceTime, // fork addition
             Timezone: (values.Timezone || '').trim(), // fork addition
+            ShowPaidFeatures: !values.HidePaidFeatures, // Fork addition
             BlockedCountries: values.GeoBlocking,
             CountryBlacklistIsWhitelist: values.CountryBlacklistIsWhitelist,
             MonitoringDisabled: !values.MonitoringEnabled,
@@ -354,6 +357,7 @@ const ConfigManagement = () => {
 
           return API.config.set(toSave).then(() => {
             refresh(15); // fork addition: the server may be restarting its listener
+            refreshPaidVisibility(); // Fork addition: the menu follows the switch and the licence
             setSaveLabel(t('global.savedConfirmation'));
             setTimeout(() => {
               setSaveLabel(t('global.saveAction'));

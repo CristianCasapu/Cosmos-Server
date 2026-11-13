@@ -32,6 +32,7 @@ import dayjs from "dayjs";
 import { useTranslation } from "react-i18next";
 import EventExplorerStandalone from "../dashboard/eventsExplorerStandalone";
 import { ConfirmModalDirect } from "../../components/confirmModal";
+import { PaidOnly } from '../../components/paidVisibility'; // Fork addition
 
 const CreateTokenDialog = ({ open, onClose, onCreated, t }) => {
   const formik = useFormik({
@@ -103,11 +104,13 @@ const CreateTokenDialog = ({ open, onClose, onCreated, t }) => {
                 onChange={formik.handleChange}
                 helperText={t('mgmt.config.apiTokens.ipWhitelistHelper')}
               />
+              <PaidOnly keep={formik.initialValues.restrictToConstellation}>{/* Fork addition: needs Constellation, hence a licence */}
               <CosmosCheckbox
                 formik={formik}
                 name="restrictToConstellation"
                 label={t('mgmt.config.apiTokens.restrictToConstellation')}
               />
+              </PaidOnly>
               <TextField
                 fullWidth
                 select

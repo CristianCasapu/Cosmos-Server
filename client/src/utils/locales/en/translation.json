@@ -264,6 +264,7 @@
 	"menu-items.support.docsTitle": "Documentation",
 	"menu-items.support.github": "Github",
 	"menu-items.support.fork": "This fork on GitHub",
+	"menu-items.support.purchasePremium": "Purchase premium",
 	"mgmt.config.apiTokens.copyWarning": "Copy this token now. It will not be shown again.",
 	"mgmt.config.apiTokens.createTitle": "Create API Token",
 	"mgmt.config.apiTokens.deleteConfirm": "Are you sure you want to delete the token \"{{name}}\"?",
@@ -3298,5 +3299,8 @@
 	"securityAudit.summary.sinceNote": "The record keeps 180 days; nothing before its first entry is known.",
 	"securityAudit.summary.lastActions": "Last actions",
 	"securityAudit.summary.noActions": "Nothing in the record",
-	"securityAudit.summary.floodNote": "Failed attempts that come too fast from one address are summed up without the name tried, so these counts can be lower than the real number. Times are those of this browser."
+	"securityAudit.summary.floodNote": "Failed attempts that come too fast from one address are summed up without the name tried, so these counts can be lower than the real number. Times are those of this browser.",
+	"fork.paid.note": "This feature needs a licence.",
+	"fork.paid.switchLabel": "Hide features that need a licence",
+	"fork.paid.switchHelp": "Without a valid licence, menu entries, pages, fields and offers for paid features are not shown. With a licence nothing is hidden."
 }

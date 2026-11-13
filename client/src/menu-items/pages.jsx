@@ -30,6 +30,7 @@ const pages = {
             id: 'backups',
             title: 'menu-items.management.backups',
             type: 'item',
+            paid: true, // Fork addition: needs a licence (components/paidVisibility.jsx)
             url: '/cosmos-ui/backups',
             icon: CloudServerOutlined,
             permission: PERM_RESOURCES_READ
