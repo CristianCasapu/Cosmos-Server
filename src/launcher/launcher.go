@@ -13,6 +13,7 @@ import (
 	"strings"
 	// "os/exec"
 
+	"github.com/azukaar/cosmos-server/src/forkrelease" // Fork addition
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
@@ -149,6 +150,14 @@ func main() {
 	// if there's no updates
 	if _, err := os.Stat(dlPath); err != nil {
 		fmt.Println("No updates to install, starting Cosmos...")
+		return
+	}
+
+	// Fork addition: nothing is unpacked that is not signed with a release
+	// key of this fork; the launcher checks by itself, whatever the server
+	// checked before. See src/forkrelease/install.go.
+	if !forkrelease.LauncherAccepts(currentFolder, runtime.GOARCH) {
+		fmt.Println("Starting Cosmos without installing the update...")
 		return
 	}
 

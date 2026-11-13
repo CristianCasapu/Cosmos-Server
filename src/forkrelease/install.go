@@ -68,7 +68,7 @@ func (s Stager) Stage(tag string) error {
 	}
 	currentBuild, ok := Build(s.Current)
 	if !ok {
-		return fmt.Errorf("the running version %q is not a release of this fork, so what is newer cannot be told", safeText(s.Current))
+		return fmt.Errorf("the running version %q is not a release of this fork, so what is newer cannot be told", SafeText(s.Current))
 	}
 	if build <= currentBuild {
 		return ErrNotNewer
@@ -78,6 +78,9 @@ func (s Stager) Stage(tag string) error {
 	}
 	if _, err := os.Lstat(filepath.Join(s.Folder, pendingLauncher)); err == nil {
 		return ErrLauncherPending
+	}
+	if len(s.trustedKeys()) == 0 {
+		return ErrNoReleaseKey // nothing could be verified: do not even ask
 	}
 
 	zip := filepath.Join(s.Folder, StagedZip)
@@ -222,7 +225,7 @@ func checkStaged(keys []ed25519.PublicKey, folder string, arch string) (Manifest
 	}
 	installedBuild, ok := Build(installed)
 	if !ok {
-		return Manifest{}, fmt.Errorf("the installed version %q is not a release of this fork, so what is newer cannot be told", safeText(installed))
+		return Manifest{}, fmt.Errorf("the installed version %q is not a release of this fork, so what is newer cannot be told", SafeText(installed))
 	}
 	if build, _ := Build(manifest.Version); build < installedBuild {
 		return Manifest{}, ErrNotNewer
@@ -256,13 +259,13 @@ func launcherAccepts(keys []ed25519.PublicKey, folder string, arch string, out i
 		fmt.Fprintln(out, "Update "+manifest.Version+" is signed with a release key of this fork.")
 		return true
 	}
-	reason := safeText(err.Error())
+	reason := SafeText(err.Error())
 	fmt.Fprintln(out, "[ERROR] Update refused and NOT installed: "+reason)
 	os.Remove(filepath.Join(folder, StagedZip))
 	os.Remove(filepath.Join(folder, StagedSignature))
 	os.Remove(filepath.Join(folder, stagedPart))
 	if err := writeNew(filepath.Join(folder, rejectedReport), []byte(reason+"\n")); err != nil {
-		fmt.Fprintln(out, "[ERROR] The refusal could not be noted for the server: "+safeText(pathless(err).Error()))
+		fmt.Fprintln(out, "[ERROR] The refusal could not be noted for the server: "+SafeText(pathless(err).Error()))
 	}
 	return false
 }
@@ -279,16 +282,16 @@ func TakeLauncherRefusal(folder string) string {
 		return ""
 	}
 	os.Remove(path)
-	reason := safeText(strings.TrimSpace(string(data)))
+	reason := SafeText(strings.TrimSpace(string(data)))
 	if reason == "" {
 		reason = "no reason was noted"
 	}
 	return reason
 }
 
-// safeText keeps a message printable on one line: it ends up in logs and in
+// SafeText keeps a message printable on one line: it ends up in logs and in
 // a notification.
-func safeText(text string) string {
+func SafeText(text string) string {
 	clean := make([]rune, 0, len(text))
 	for _, r := range text {
 		if r < 0x20 || r == 0x7f || r > 0x7e {

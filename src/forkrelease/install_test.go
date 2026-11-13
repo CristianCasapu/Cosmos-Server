@@ -190,7 +190,7 @@ func TestStageARelease(t *testing.T) {
 			} else if c.want != nil && !errors.Is(err, c.want) {
 				t.Errorf("%s: refused for %v, want %v", c.name, err, c.want)
 			}
-			early := c.pending || errors.Is(c.want, ErrNotNewer) || errors.Is(c.want, ErrNotForkRelease) || isEarlyRefusal(c.name)
+			early := c.pending || errors.Is(c.want, ErrNotNewer) || errors.Is(c.want, ErrNotForkRelease) || errors.Is(c.want, ErrNoReleaseKey) || isEarlyRefusal(c.name)
 			switch {
 			case early && (string(zipContent) != "stale" || len(*asked) != 0):
 				// refused by its name or the state of the install: nothing is asked for, nothing touched

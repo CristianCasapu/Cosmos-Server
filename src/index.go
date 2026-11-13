@@ -315,6 +315,7 @@ func cosmos() {
 	go CRON()
 
 	cleanUpUpdateFiles()
+	reportLauncherRefusal() // Fork addition: an update the launcher refused at this start, see fork_update_verify.go
 
 	docker.ExportDocker()
 

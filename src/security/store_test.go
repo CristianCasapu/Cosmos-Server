@@ -93,6 +93,9 @@ func TestOnlyTheseIncidentsAreHigh(t *testing.T) {
 		utils.SecAccessGrantDenied: true,
 		utils.SecShieldBanTemp:     true,
 		utils.SecShieldBanPerm:     true,
+		// made by the server itself (the nightly update, an administrator's
+		// "update now", the launcher at start), never by a request
+		utils.SecServerUpdateRejected: true,
 	}
 	for kind, described := range catalogue {
 		if described.Class == ClassIncident && described.severity == SeverityHigh && !want[kind] {

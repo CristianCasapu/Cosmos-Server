@@ -189,7 +189,19 @@ func (f fetcher) download(path string, rawURL string, limit int64, total time.Du
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-// Get fetches a small document from GitHub: at most limit bytes, a 200 only.
-func Get(rawURL string, limit int64) ([]byte, error) {
+// GetFeed is the hook of GetLatestVersion (src/update.go, compiled into the
+// server and the launcher): the list of releases, or a checksum file named
+// in it. The fork's own feed is on GitHub and is fetched under the rules
+// above. The feed of upstream's paid edition is not the fork's to pin: it is
+// read exactly as upstream reads it.
+func GetFeed(rawURL string, upstreamFeed bool, limit int64) ([]byte, error) {
+	if upstreamFeed {
+		resp, err := http.Get(rawURL)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		return io.ReadAll(resp.Body)
+	}
 	return fetcher{}.get(rawURL, limit, ListTimeout)
 }
