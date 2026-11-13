@@ -7,6 +7,7 @@ import * as yup from "yup";
 import { useTranslation } from 'react-i18next';
 
 import * as API from '../../api';
+import MountDeviceSuggestions from '../../components/mountDeviceSuggestions'; // Fork addition: partitions to pick from
 
 const MountDialogInternal = ({ unmount, refresh, open, setOpen, data }) => {
   const { t } = useTranslation();
@@ -86,6 +87,8 @@ const MountDialogInternal = ({ unmount, refresh, open, setOpen, data }) => {
                           error={formik.touched.device && Boolean(formik.errors.device)}
                           helperText={formik.touched.device && formik.errors.device}
                         />
+                        {/* Fork addition: for a new mount, the partitions that are not mounted yet */}
+                        {!data && <MountDeviceSuggestions formik={formik} />}
                         <TextField
                           fullWidth
                           id="path"

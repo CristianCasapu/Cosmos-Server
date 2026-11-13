@@ -18,6 +18,7 @@ import MenuButton from "../../components/MenuButton";
 import diskIcon from '../../assets/images/icons/disk.svg';
 import ResponsiveButton from "../../components/responseiveButton";
 import { useTranslation } from 'react-i18next';
+import { cronInWords } from '../../components/cronInput'; // Fork addition
 import VMWarning from "./vmWarning";
 import { useClientInfos } from "../../utils/hooks";
 import { PERM_RESOURCES } from "../../utils/permissions";
@@ -182,7 +183,8 @@ export const Parity = () => {
           {
             title: t('mgmt.storage.syncScrubIntervalTitle'),
             screenMin: 'sm',
-            field: (r) => <div>Sync: {crontabToText(r.SyncCrontab, t)}<br/>Scrub: {crontabToText(r.ScrubCrontab, t)}</div>
+            // Fork addition: the same words as in the form (was crontabToText)
+            field: (r) => <div>Sync: {cronInWords(r.SyncCrontab, t)}<br/>Scrub: {cronInWords(r.ScrubCrontab, t)}</div>
           },
           {
             title: t('global.statusTitle'),

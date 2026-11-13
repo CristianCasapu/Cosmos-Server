@@ -20,6 +20,7 @@ import NewDockerService from './newService';
 import RouteManagement from '../../config/routes/routeman';
 import { localAddress } from '../../../components/hostnameSuggestions'; // Fork addition
 import ImageDefaults from './imageDefaults'; // Fork addition
+import { usePortSources, ComposePortConflicts } from '../../../components/portConflicts'; // Fork addition: host ports that are already taken
 import { useTranslation } from 'react-i18next';
 
 const NewDockerServiceForm = () => {
@@ -29,6 +30,9 @@ const NewDockerServiceForm = () => {
   const [config, setConfig] = React.useState(null);
   // Fork addition: the image name once its field has been left; its defaults are then offered
   const [imageToInspect, setImageToInspect] = React.useState('');
+  // Fork addition: who holds which host port, and whether a row of the Network step cannot work
+  const portSources = usePortSources();
+  const [portsBlocked, setPortsBlocked] = React.useState(false);
   const [containerInfo, setContainerInfo] = React.useState({
     Name: '',
     Names: [],
@@ -118,7 +122,7 @@ const NewDockerServiceForm = () => {
       variant="contained"
       fullWidth
       endIcon={<ArrowRightOutlined />}
-      disabled={(currentTab === 4) || containerInfo.Name === '' || containerInfo.Config.Image === ''}
+      disabled={(currentTab === 4) || containerInfo.Name === '' || containerInfo.Config.Image === '' || (currentTab === 2 && portsBlocked) /* Fork addition */}
       onClick={() => {
         setCurrentTab(currentTab + 1);
         setMaxTab(Math.max(currentTab + 1, maxTab));
@@ -246,7 +250,7 @@ const NewDockerServiceForm = () => {
         {
           title: t('global.network'),
           disabled: maxTab < 1,
-          children: <Stack spacing={2}><NetworkContainerSetup newContainer containerInfo={containerInfo} OnChange={(values) => {
+          children: <Stack spacing={2}><NetworkContainerSetup newContainer containerInfo={containerInfo} portSources={portSources} onPortsBlocked={setPortsBlocked} /* Fork addition: both */ OnChange={(values) => {
             const newValues = {
               ...containerInfo,
               Config: {
@@ -299,7 +303,7 @@ const NewDockerServiceForm = () => {
         },
         {
           title: t('menu-items.management.storage'),
-          disabled: maxTab < 1,
+          disabled: maxTab < 1 || portsBlocked, // Fork addition: not past a host port that cannot work
           children: <Stack spacing={2}><VolumeContainerSetup newContainer containerInfo={containerInfo} OnChange={(values) => {
             const newValues = {
               ...containerInfo,
@@ -319,8 +323,8 @@ const NewDockerServiceForm = () => {
         },
         {
           title: t('mgmt.servApp.newContainer.reviewStartButton'),
-          disabled: maxTab < 1,
-          children: <Stack style={{ width: '100%', margin: 'auto', maxWidth: '1000px' }} spacing={2}><NewDockerService service={service} />{nav()}</Stack>
+          disabled: maxTab < 1 || portsBlocked, // Fork addition
+          children: <Stack style={{ width: '100%', margin: 'auto', maxWidth: '1000px' }} spacing={2}><ComposePortConflicts service={service} sources={portSources} />{/* Fork addition */}<NewDockerService service={service} />{nav()}</Stack>
         }
       ]} />}
 

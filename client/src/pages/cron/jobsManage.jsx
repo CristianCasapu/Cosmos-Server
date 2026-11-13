@@ -18,6 +18,7 @@ import MenuButton from "../../components/MenuButton";
 import JobLogsDialog from "./jobLogs";
 import NewJobDialog from "./newJob";
 import { useTranslation } from 'react-i18next';
+import { cronInWords } from '../../components/cronInput'; // Fork addition
 import dayjs from 'dayjs';
 import { useClientInfos } from "../../utils/hooks";
 import { PERM_RESOURCES } from "../../utils/permissions";
@@ -135,7 +136,7 @@ export const CronManager = () => {
               },
               {
                 title: t('mgmt.scheduler.list.scheduleTitle'),
-                field: (r) => crontabToText(r.Crontab, t),
+                field: (r) => cronInWords(r.Crontab, t), // Fork addition: the same words as in the form (was crontabToText)
               },
               {
                 title: t('global.statusTitle'),
