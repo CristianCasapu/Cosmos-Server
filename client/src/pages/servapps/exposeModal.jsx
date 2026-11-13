@@ -6,19 +6,7 @@ import { ValidateRoute, getFaviconURL, sanitizeRoute, getContainersRoutes, getHo
 import * as API from '../../api';
 import { DomainPicker, externalAddress, localAddress } from '../../components/hostnameSuggestions';
 import { useTranslation } from 'react-i18next';
-
-// Fork addition: resolves once the server answers again after a change that made it reload.
-const serverBack = async () => {
-  for (let i = 0; i < 40; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 750));
-    try {
-      await fetch('/cosmos/api/status', { credentials: 'same-origin' });
-      return;
-    } catch (e) {
-      // still reloading
-    }
-  }
-};
+import { serverBack } from '../../utils/appLinks'; // Fork addition
 
 const ExposeModal = ({ openModal, setOpenModal, config, updateRoutes, container }) => {
   const { t } = useTranslation();
