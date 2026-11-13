@@ -60,6 +60,13 @@ func ResetPassword(w http.ResponseWriter, req *http.Request) {
 			err = utils.ErrNotFound
 		}
 
+		// Fork addition: one answer whether or not the account exists and the mail can be sent,
+		// a failure goes to the administrators (fork_mail_report.go). What follows is upstream's
+		// handling, kept for merges and no longer reached.
+		if answerPasswordReset(w, nickname, user, err) {
+			return
+		}
+
 		if err != nil {
 			utils.Error("PasswordReset: Error while finding user", err)
 			utils.HTTPError(w, "User Send Invite Error", http.StatusInternalServerError, "PR001")

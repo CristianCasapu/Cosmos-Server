@@ -1,6 +1,6 @@
 // material-ui
 import * as React from 'react';
-import { Button, LinearProgress, Stack, Typography, Select, MenuItem, FormControl, InputLabel, Tooltip } from '@mui/material'; // Fork addition: Tooltip, for the icon-only buttons
+import { Alert, Button, LinearProgress, Stack, Typography, Select, MenuItem, FormControl, InputLabel, Tooltip } from '@mui/material'; // Fork addition: Tooltip, for the icon-only buttons; Alert, for a mail that was not sent
 import { WarningOutlined, PlusCircleOutlined, CopyOutlined, ExclamationCircleOutlined , SyncOutlined, UserOutlined, KeyOutlined, CheckCircleFilled } from '@ant-design/icons';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -98,6 +98,10 @@ const UserManagement = () => {
                         paddingBottom: '15px',
                         maxWidth: '350px',
                     }}>
+                        {/* Fork addition: the server says when the mail could not be sent, and why */}
+                        {toAction.emailError ? <Alert severity="warning" sx={{ mb: 2 }}>
+                            {t('mgmt.usermgmt.inviteUser.emailFailed', 'The email could not be sent: {{reason}}', { reason: toAction.emailError })}
+                        </Alert> : ''}
                         {toAction.emailWasSent ?
                             <div>
                                 <strong>{t('mgmt.usermgmt.inviteUser.emailSentConfirmation')}</strong> {t('mgmt.usermgmt.inviteUser.emailSentwithLink')} {toAction.formAction}. {t('mgmt.usermgmt.inviteUser.emailSentAltShareLink')}
