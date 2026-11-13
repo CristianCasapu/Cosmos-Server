@@ -309,6 +309,7 @@ func cosmos() {
 	rand.Seed(time.Now().UnixNano())
 	
 	LoadConfig()
+	startTelegram() // Fork addition: notifications through Telegram, see fork_telegram.go
 
 	utils.CheckHostNetwork()
 	

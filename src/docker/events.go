@@ -49,6 +49,10 @@ func DockerListenEvents() error {
 						)
 					}
 
+					if msg.Type == "container" {
+						noteContainerEvent((string)(msg.Action), msg.Actor.Attributes) // Fork addition: a container that keeps stopping is reported, see fork_dying.go
+					}
+
 					if msg.Type == "container" && msg.Action == "start" && !lazySuppress {
 						onDockerStarted(msg.Actor.ID)
 					}

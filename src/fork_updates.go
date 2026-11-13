@@ -77,6 +77,7 @@ func refreshServerUpdateStatus() ServerUpdateStatus {
 	updateStatusMu.Unlock()
 
 	utils.NewVersionAvailable = status.UpdateAvailable
+	announceServerUpdate(status) // told once per version through Telegram, see fork_telegram.go
 	return withUpdateSettings(status)
 }
 
