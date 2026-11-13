@@ -226,14 +226,26 @@ const AlertPage = () => {
   const [openModal, setOpenModal] = React.useState(false);
   const [metrics, setMetrics] = React.useState({});
 
-  function refresh() {
+  // Fork addition: `retries`. Saving makes the server restart its listener, which refuses the
+  // reload that follows a change; the list then kept showing the alerts from before the change,
+  // with its checkboxes and delete buttons disabled. After a change the reload is tried again,
+  // once a second.
+  function refresh(retries = 0) {
+    let again = false;
+    const retry = () => {
+      if (retries > 0 && !again) {
+        again = true;
+        setTimeout(() => refresh(retries - 1), 1000);
+      }
+    };
+
     API.config.get().then((res) => {
       setConfig(res.data);
       setIsLoading(false);
-    });
+    }).catch(retry);
     API.metrics.list().then((res) => {
       setMetrics(res.data);
-    });
+    }).catch(retry);
   }
 
   React.useEffect(() => {
@@ -254,7 +266,7 @@ const AlertPage = () => {
     };
 
     API.config.set(toSave).then(() => {
-      refresh();
+      refresh(15); // fork addition: the server may be restarting its listener
     });
   }
 
@@ -269,7 +281,7 @@ const AlertPage = () => {
     delete toSave.MonitoringAlerts[name];
 
     API.config.set(toSave).then(() => {
-      refresh();
+      refresh(15); // fork addition: the server may be restarting its listener
     });
   }
   
@@ -301,7 +313,7 @@ const AlertPage = () => {
     };
 
     API.config.set(toSave).then(() => {
-      refresh();
+      refresh(15); // fork addition: the server may be restarting its listener
     });
   }
   
@@ -392,7 +404,7 @@ const AlertPage = () => {
     };
 
     API.config.set(toSave).then(() => {
-      refresh();
+      refresh(15); // fork addition: the server may be restarting its listener
     });
   }
 
