@@ -399,7 +399,7 @@ func TestEmailTestBoundsItsInput(t *testing.T) {
 	good := `"EmailConfig":{"Host":"` + host + `","Port":"` + port + `","From":"cosmos@example.com"}`
 
 	for name, body := range map[string]string{
-		"too large":             `{` + good + `,"Recipient":"` + strings.Repeat("a", 20000) + `@example.com"}`,
+		"too large":             `{` + good + `,"Recipient":"admin@example.com","Padding":"` + strings.Repeat("a", 20000) + `"}`,
 		"two recipients":        `{` + good + `,"Recipient":"a@example.com, b@example.com"}`,
 		"recipient with a line": `{` + good + `,"Recipient":"a@example.com\r\nRCPT TO:<b@example.com>"}`,
 		"not an address":        `{` + good + `,"Recipient":"nobody"}`,

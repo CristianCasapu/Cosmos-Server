@@ -481,6 +481,36 @@ func TestWhatAServerCanBe(t *testing.T) {
 	}
 }
 
+func TestAServerCannotMakeACheckReadWithoutEnd(t *testing.T) {
+	flood := startFake(t, "flood", nil)
+	d, _ := testDetector(&fakeResolver{}, map[string]*fakeServer{"587": flood}, nil)
+	d.ProbeTimeout = 5 * time.Second
+
+	started := time.Now()
+	got := d.probe(context.Background(), "smtp.example.org", netip.MustParseAddr("203.0.113.70"), 587, "starttls")
+	if got.check != CheckNotSMTP {
+		t.Errorf("check = %q", got.check)
+	}
+	// the check gives up after its allowance, long before its time is over
+	if took := time.Since(started); took > 2*time.Second {
+		t.Errorf("the check listened for %v", took)
+	}
+
+	conn := &cappedConn{Conn: nopConn{}, left: 10}
+	buffer := make([]byte, 64)
+	if n, err := conn.Read(buffer); n != 10 || err != nil {
+		t.Errorf("first read: %d %v", n, err)
+	}
+	if n, err := conn.Read(buffer); n != 0 || err == nil {
+		t.Errorf("read beyond the allowance: %d %v", n, err)
+	}
+}
+
+// nopConn answers every read in full.
+type nopConn struct{ net.Conn }
+
+func (nopConn) Read(p []byte) (int, error) { return len(p), nil }
+
 func TestDetectionSendsNothingButTheGreeting(t *testing.T) {
 	cert, roots := newCert(t, time.Now().Add(time.Hour), "smtp.example.org", "mail.example.org")
 	implicit, upgraded, relay := startFake(t, "tls", &cert), startFake(t, "starttls", &cert), startFake(t, "plain", nil)
@@ -560,6 +590,18 @@ func TestTimeAndCountBounds(t *testing.T) {
 	}
 	if len(result.Candidates) > d.MaxCandidates {
 		t.Errorf("%d candidates", len(result.Candidates))
+	}
+
+	// the budget ends a detection whose single checks would take longer
+	d, _ = testDetector(resolver, map[string]*fakeServer{"25": silent, "465": silent, "587": silent}, nil)
+	d.Budget, d.ProbeTimeout = 400*time.Millisecond, 5*time.Second
+	started = time.Now()
+	result = d.Detect(context.Background(), "example.org")
+	if took := time.Since(started); took > 1200*time.Millisecond {
+		t.Errorf("detection took %v with a budget of %v", took, d.Budget)
+	}
+	if result.Complete {
+		t.Error("a detection that ran out of time says it is complete")
 	}
 
 	// a resolver that never answers costs LookupTimeout per question, and the count is bounded

@@ -83,6 +83,7 @@ func TestRouteBoundsItsInput(t *testing.T) {
 	resolver, _ := offline(t)
 	for name, body := range map[string]string{
 		"too large":      `{"address":"me@example.org","pad":"` + strings.Repeat("x", 2000) + `"}`,
+		"padded":         `{"address":"me@example.org"}` + strings.Repeat(" ", 2000),
 		"large address":  `{"address":"` + strings.Repeat("a", 990) + `@example.org"}`,
 		"not JSON":       `address=me@example.org`,
 		"empty":          ``,

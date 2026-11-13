@@ -165,6 +165,7 @@ type fakeServer struct {
 	mu   sync.Mutex
 	got  []string // every line received, also inside TLS
 	conn int
+	sent int // bytes the "flood" server managed to send
 }
 
 func (s *fakeServer) heard() []string {
@@ -223,13 +224,16 @@ func (s *fakeServer) serve(conn net.Conn, mode string, config *tls.Config) {
 		io.Copy(io.Discard, conn)
 		return
 	case "flood":
+		// a greeting without end, for as long as the client listens
 		line := []byte("220-" + strings.Repeat("x", 500) + "\r\n")
-		for i := 0; i < 4000; i++ {
+		for {
 			if _, err := conn.Write(line); err != nil {
 				return
 			}
+			s.mu.Lock()
+			s.sent += len(line)
+			s.mu.Unlock()
 		}
-		return
 	case "tls":
 		secure := tls.Server(conn, config)
 		if secure.Handshake() != nil {
