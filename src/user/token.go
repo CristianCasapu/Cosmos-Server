@@ -122,6 +122,14 @@ func RefreshUserToken(w http.ResponseWriter, req *http.Request) ([]utils.Permiss
 		return nil, false, utils.User{}, errors.New("Token not valid")
 	}
 
+	// Fork addition: a token that was logged out is not accepted again, see fork_logout_revoke.go
+	if tokenRevoked(tokenString) {
+		utils.Error("UserToken: token was logged out", nil)
+		logOutUser(w, req)
+		redirectToReLogin(w, req)
+		return nil, false, utils.User{}, errors.New("Token was logged out")
+	}
+
 	var (
 		nickname      string
 		passwordCycle int
