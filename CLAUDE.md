@@ -83,11 +83,11 @@ repository mounted at `/src` (Go from `go.mod`'s version, Node 22).
 cp src/update.go src/launcher/update.go
 CGO_ENABLED=0 go build -o /tmp/cosmos src/*.go
 CGO_ENABLED=0 go build -o /tmp/cosmos-launcher ./src/launcher/launcher.go ./src/launcher/update.go
-go test ./src/utils/ -run 'DeliverEmail|UsesImplicitTLS|WriteFileAtomic|SaveConfigTofile|Timezone|SerialWebsocket|Security' -count=1
+go test ./src/utils/ ./src/authorizationserver/ -count=1
 go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ -count=1
 go test ./src/ -skip TestEveryRouteIsDocumented -count=1
 go test ./src/docker/ -count=1
-go test ./src/proxy/ -run 'IsLocalAddress|IsLocalVisitor|LocalNetworkOnly|Security' -count=1
+go test ./src/proxy/ -count=1
 
 # The checks on GitHub do not run as root: run the tests as another user before
 # pushing (`docker run --user 1000:1000 -e HOME=/tmp -e GOCACHE=/tmp/gocache`,
@@ -134,6 +134,8 @@ makes it exit and expect to be restarted. The test containers show up in the
 production panel's ServApps list while they exist; the owner has clicked on
 them before, which recreates them and wipes their state, so keep the run short
 and say what they are. `scripts/fork-ui-check-apps.mjs` covers these pages, `scripts/fork-ui-check-forms.mjs` the port, schedule, volume and mount forms (its header lists the dummy containers it expects).
+
+WebKit does not keep the session cookie on a test hostname without a dot: give the test instance a dotted name for WebKit runs. An address under `/cosmos/api/` opened directly in a browser answers 403 (`HTTP009`, the same-origin check): scripts use `fetch` from a panel page, or a client without browser headers.
 
 `scripts/fork-ui-check.mjs` logs in, confirms the password (`/api/sudo`: most
 admin actions need it), visits the main pages in three engines and at phone

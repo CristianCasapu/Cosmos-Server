@@ -32,6 +32,36 @@ upstream 0.23.4 unless noted and may have moved.
    `auto-update`, `lazy`) leave no audit entry; streamed operations are
    recorded as accepted, not by their final outcome.
 
+## Security audit of 2026-11-13: decisions open and findings not fixed
+
+The findings, with where and how, are kept outside this public repository
+(the owner has them). Decisions that are the owner's:
+
+1. Signed releases: updates install automatically and only GitHub's TLS and a
+   checksum from the same release stand before root. An Ed25519 signature
+   checked by server and launcher; needs a key the owner generates.
+2. Upstream releases reach `production` after three days without a look: an
+   approval step (one click per release).
+3. The release workflow as two jobs: a build without write rights, a publish.
+4. Password confirmation (sudo) renews itself while a tab is open: a fixed
+   two hours instead.
+5. "Log out everywhere" and a maximum session age.
+6. Labels that come from an image (`cosmos-force-network-mode` and the like)
+   are obeyed: ignore them unless set by the admin.
+7. Routes that act on GET: POST only, with the UI changed to match.
+8. A name for the panel instead of the bare IP address (cookies on an IP are
+   shared with every HTTPS service on another port of that address).
+9. A script policy (CSP) for the panel.
+10. Upstream writes one event row per proxied request: stop or sample.
+
+Not fixed, latent today (they need a limited API token or a custom role, and
+none exists): permission checks on invitations and two-factor resets by a
+users-only role, on configuration writes by a limited token. Until fixed,
+treat any token with "Configuration" or "Users" as an admin token. The bot
+filter only ever blocks an empty User-Agent. Links to apps open without
+`noopener`. A refused cross-site request is logged but not yet written to the
+security record.
+
 ## Usability gaps found in the code
 
 | # | Gap | Where |
