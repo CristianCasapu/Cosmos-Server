@@ -268,7 +268,8 @@ func issueLocalCerts(hosts []string, force bool) {
 		utils.Log("Getting a Let's Encrypt certificate for " + zone + ": " + strings.Join(wanted, ", "))
 		pub, priv := utils.DoLetsEncrypt(wanted, nil)
 		if pub == "" || priv == "" {
-			utils.MajorError("Couldn't get the TLS certificate of "+zone+". Keeping the previous one if any, the self-signed one otherwise", nil)
+			// Fork addition: the notice says why (fork_letsencrypt_reason.go), upstream passed no reason
+			utils.MajorError("Couldn't get the TLS certificate of "+zone+". Keeping the previous one if any, the self-signed one otherwise", letsEncryptFailure(utils.LetsEncryptErrors))
 			continue
 		}
 

@@ -101,7 +101,8 @@ const ForgotPassword = () => {
                     )}
                 </Formik>}
                 {isSuccess && <div>
-                    <Typography variant="h6">{t('auth.forgotPassword.checkEmail')}</Typography>
+                    <Typography variant="h6">{/* Fork addition: the server gives the same answer whether or not the account exists */}
+                    {t('auth.forgotPassword.checkEmailIfMatch', 'If this nickname and email belong to an account, a link to reset the password has been sent to it. If it does not arrive within a few minutes, check your spam folder or ask your administrator.')}</Typography>
                     <br/><br/>
                     <Button
                         disableElevation

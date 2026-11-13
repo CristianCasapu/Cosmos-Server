@@ -53,9 +53,10 @@ func HostTerminalRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer ws.Close()
+	out := utils.NewSerialWebsocket(ws) // Fork addition: one writer at a time, see utils/fork_ws_writer.go
 
 	ws.SetReadDeadline(time.Now().Add(timeoutDuration))
-	ws.SetWriteDeadline(time.Now().Add(timeoutDuration))
+	out.SetWriteDeadline(time.Now().Add(timeoutDuration)) // Fork addition: through the serialised writer
 	
 	var c *exec.Cmd
 	if route == "rclone-config" {
@@ -166,10 +167,11 @@ func HostTerminalRoute(w http.ResponseWriter, r *http.Request) {
 							}
 							return
 					}
-					ws.SetWriteDeadline(time.Now().Add(timeoutDuration))
+					out.SetWriteDeadline(time.Now().Add(timeoutDuration)) // Fork addition: through the serialised writer
 					ws.SetReadDeadline(time.Now().Add(timeoutDuration))
 					utils.Debug("Writing to websocket: " + string(buf[:n]))
-					if err := ws.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
+					// Fork addition: through the serialised writer
+					if err := out.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
 							utils.Error("Failed to write to websocket: ", err)
 							return
 					}
@@ -188,11 +190,11 @@ func HostTerminalRoute(w http.ResponseWriter, r *http.Request) {
 
 			utils.Debug("Received message: " + string(message))
 
-			ws.SetWriteDeadline(time.Now().Add(timeoutDuration))
+			out.SetWriteDeadline(time.Now().Add(timeoutDuration)) // Fork addition: through the serialised writer
 			ws.SetReadDeadline(time.Now().Add(timeoutDuration))
 
 			if string(message) == "_PING_" {
-					ws.WriteMessage(websocket.TextMessage, []byte("_PONG_"))
+					out.WriteMessage(websocket.TextMessage, []byte("_PONG_")) // Fork addition: through the serialised writer
 			} else {
 					_, err := ptmx.Write(message)
 					if err != nil {

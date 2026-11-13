@@ -73,6 +73,7 @@ func UserResendInviteLink(w http.ResponseWriter, req *http.Request) {
 			}
 
 			emailWasSent := false
+			emailError := "" // Fork addition: why the mail was not sent (fork_mail_report.go)
 
 			if utils.IsEmailEnabled() && user.Email != "" {
 				utils.Debug("Sending an email to " + user.Email)
@@ -89,7 +90,7 @@ func UserResendInviteLink(w http.ResponseWriter, req *http.Request) {
 				if errEm != nil {
 					utils.Error("UserInvite: Error while sending email", errEm)
 				}
-				emailWasSent = true
+				emailWasSent, emailError = mailOutcome(errEm) // Fork addition: upstream said "sent" whatever happened
 			}
 
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -98,6 +99,7 @@ func UserResendInviteLink(w http.ResponseWriter, req *http.Request) {
 					"registerKey": RegisterKey,
 					"registerKeyExp": RegisterKeyExp,
 					"emailWasSent": emailWasSent,
+					"emailError": emailError, // Fork addition
 				},
 			})
 		}
