@@ -65,8 +65,8 @@ func UserLogin(w http.ResponseWriter, req *http.Request) {
 			utils.HTTPError(w, "User Logging Error", http.StatusInternalServerError, "UL001")
 			return
 		} else if user.Password == "" {
-			utils.Error("UserLogin: User not registered", nil)
-			utils.HTTPError(w, "User not registered", http.StatusInternalServerError, "UL002")
+			// Fork addition: answered like an unknown account, see fork_accounts.go (upstream: "User not registered", UL002)
+			answerPendingLikeUnknown(w)
 			return
 		} else {
 			err2 := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
