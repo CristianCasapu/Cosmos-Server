@@ -468,6 +468,7 @@ func plainHTTPHandler(router http.Handler) http.Handler {
 		if redirectPlainHTTPToHTTPS(w, r) {
 			return
 		}
+		recordNotFound(r) // Fork addition: security record (probe paths, unknown hostnames)
 		http.NotFound(w, r)
 	})
 }
@@ -610,12 +611,14 @@ func tokenMiddleware(next http.Handler) http.Handler {
 			}
 
 			if matchedToken == nil {
+				utils.RecordSecurity(r, utils.SecTokenInvalid, "") // Fork addition: security record
 				utils.Error("API Token: Invalid token presented", nil)
 				utils.HTTPError(w, "Invalid API token", http.StatusUnauthorized, "AT001")
 				return
 			}
 
 			if !matchedToken.ExpiresAt.IsZero() && time.Now().After(matchedToken.ExpiresAt) {
+				utils.RecordSecurity(r, utils.SecTokenExpired, matchedName) // Fork addition: security record
 				utils.Error("API Token: Token expired: "+matchedName, nil)
 				utils.TriggerEvent(
 					"cosmos.api.token.expired",
@@ -635,6 +638,7 @@ func tokenMiddleware(next http.Handler) http.Handler {
 			remoteAddr, _, _ := net.SplitHostPort(r.RemoteAddr)
 
 			if !utils.CheckIPAccess(clientIP, remoteAddr, matchedToken.RestrictToConstellation, matchedToken.IPWhitelist) {
+				utils.RecordSecurity(r, utils.SecTokenIPDenied, matchedName) // Fork addition: security record
 				utils.Error("API Token: IP not allowed for token " + matchedName, nil)
 				utils.TriggerEvent(
 					"cosmos.api.token.ip_blocked",
@@ -685,6 +689,7 @@ func tokenMiddleware(next http.Handler) http.Handler {
 		permissions, isSudoed, u, err := user.RefreshUserToken(w, r)
 
 		if err != nil {
+			utils.RecordSecuritySessionError(r, err) // Fork addition: security record
 			return
 		}
 
@@ -757,12 +762,18 @@ func SecureAPI(userRouter *mux.Router, public bool, publicCors bool, strict bool
 	userRouter.Use(httprate.Limit(500, 1*time.Minute, 
 		httprate.WithKeyFuncs(httprate.KeyByIP),
     	httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
+			utils.RecordSecurity(r, utils.SecShieldRateLimited, "") // Fork addition: security record
 			utils.Error("Too many requests. Throttling", nil)
 			utils.HTTPError(w, "Too many requests", 
 				http.StatusTooManyRequests, "HTTP003")
 			return 
 		}),
 	))
+
+	// Fork addition: security record, the outcome of audited requests (innermost, after the token check)
+	if !public {
+		userRouter.Use(securityAudit)
+	}
 }
 
 func CertificateIsExpiredSoon(validUntil time.Time) bool {
@@ -952,6 +963,7 @@ func InitServer() *mux.Router {
 		}
 		
 		utils.Warn("[NotFound] No route matched: Host=" + r.Host + " Path=" + r.URL.Path + " Method=" + r.Method)
+		recordNotFound(r) // Fork addition: security record (probe paths, unknown hostnames)
 
 		http.NotFound(w, r)
 	})
@@ -1171,6 +1183,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/constellation/registries/{name}", constellation.RegistryIdRoute)
 
 	srapiAdmin.HandleFunc("/api/events", metrics.API_ListEvents)
+	registerSecurityRoutes(srapiAdmin) // Fork addition: the security record, read only
 
 	srapiAdmin.HandleFunc("/api/shield/bans", proxy.API_ShieldBans)
 	srapiAdmin.HandleFunc("/api/shield/unban", proxy.API_ShieldUnban)
