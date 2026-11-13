@@ -183,7 +183,8 @@ func RefreshUserToken(w http.ResponseWriter, req *http.Request) ([]utils.Permiss
 	}
 
 	requestURL := req.URL.Path
-	isSettingMFA := strings.HasPrefix(requestURL, "/cosmos-ui/loginmfa") || strings.HasPrefix(requestURL, "/cosmos-ui/newmfa") || strings.HasPrefix(requestURL, "/api/mfa")
+	// Fork addition: no path is exempt from the second factor, see fork_session.go (upstream: three path prefixes)
+	isSettingMFA := secondFactorExempt(requestURL)
 
 	userInBase.MFAState = 0
 

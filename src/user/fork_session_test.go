@@ -138,3 +138,48 @@ func TestHostWithinDomain(t *testing.T) {
 		}
 	}
 }
+
+// A session that gave the password but not the code of the second factor is
+// not complete for any address, whatever it starts with: the same check
+// guards the applications behind routes.
+func TestNoPathIsExemptFromTheSecondFactor(t *testing.T) {
+	mfaTestSetup(t)
+	mfaTestUser(t, "alice", true) // a verified second factor
+
+	config := utils.GetBaseMainConfig()
+	config.HTTPConfig.Hostname = "cosmos.example.com"
+	config.HTTPConfig.HTTPSCertificateMode = "SELFSIGNED"
+	utils.LoadBaseMainConfig(config)
+
+	alice, err := utils.GetUser("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	login := httptest.NewRequest("POST", "https://cosmos.example.com/cosmos/api/login", nil)
+	login.Host = "cosmos.example.com"
+	w := httptest.NewRecorder()
+	SendUserToken(w, login, alice, false, false) // password only
+	var session *http.Cookie
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "jwttoken" {
+			session = cookie
+		}
+	}
+	if session == nil {
+		t.Fatal("no session cookie")
+	}
+
+	for _, path := range []string{"/", "/api/mfa", "/api/mfa/../admin", "/api/mfa-settings", "/cosmos-ui/loginmfa", "/cosmos-ui/newmfa/x", "/cosmos/api/mfa", "/admin"} {
+		req := httptest.NewRequest("GET", "https://cosmos.example.com/", nil)
+		req.URL.Path = path
+		req.Host = "cosmos.example.com"
+		req.AddCookie(session)
+		_, _, u, err := RefreshUserToken(httptest.NewRecorder(), req)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		if u.MFAState != 1 {
+			t.Errorf("%s: a session without its second factor counts as complete (state %d)", path, u.MFAState)
+		}
+	}
+}

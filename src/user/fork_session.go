@@ -15,10 +15,23 @@ package user
 //     good for app.example.com, not for a name that merely ends with the same
 //     letters.
 
+//   - No path is exempt from the second factor. Upstream treated a session
+//     that had given the password only as complete for every address starting
+//     with /cosmos-ui/loginmfa, /cosmos-ui/newmfa or /api/mfa. Cosmos' own
+//     pages and API never needed that (the pages are public, the API route is
+//     /cosmos/api/mfa and has its own rule), but the same check guards the
+//     applications behind routes, whose addresses can start like that.
+
 import (
 	"net/http"
 	"strings"
 )
+
+// secondFactorExempt is the hook of RefreshUserToken: whether a session
+// without its second factor counts as complete for a path. Never.
+func secondFactorExempt(path string) bool {
+	return false
+}
 
 // sameSiteLax is the hook of SendUserToken and logOutUser, called on the
 // cookies just before they are written.
