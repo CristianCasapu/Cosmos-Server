@@ -10,7 +10,7 @@ require (
 	github.com/creack/pty v1.1.23
 	github.com/dell/csi-baremetal v1.5.0
 	github.com/docker/cli v26.0.0+incompatible
-	github.com/docker/docker v26.0.0+incompatible
+	github.com/docker/docker v26.1.5+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/docker/go-units v0.5.0
 	github.com/foomo/tlsconfig v0.0.0-20180418120404-b67861b076c9
