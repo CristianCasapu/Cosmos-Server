@@ -378,5 +378,5 @@ func detectCallbackEndpoint(w http.ResponseWriter, req *http.Request) {
 
 	// redirect to user page 
 	// TODO: redirect to RIGHT PAGE
-	http.Redirect(w, req, path, http.StatusFound)
+	http.Redirect(w, req, localPath(path), http.StatusFound) // Fork addition: a path of this address only, see fork_redirect.go
 }
