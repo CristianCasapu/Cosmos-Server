@@ -168,6 +168,7 @@ func GenerateRSAWebCertificates(domains []string) (string, string, error) {
 		BasicConstraintsValid: true,
 		IsCA:                  false,
 		DNSNames:             domains,
+		IPAddresses:          CertificateIPs(domains), // Fork addition: addresses are listed as addresses too, see fork_certificate_names.go
 		SubjectKeyId:         []byte{1, 2, 3, 4, 6},
 		AuthorityKeyId:       ca.Certificate.SubjectKeyId,
 	}

@@ -836,6 +836,7 @@ func InitServer() *mux.Router {
 	selfSignedNeedsRefresh := baseMainConfig.HTTPConfig.ForceHTTPSCertificateRenewal ||
 			(selfTLSCert == "" || selfTLSKey == "") ||
 			utils.HasAnyNewItem(domains, baseMainConfig.HTTPConfig.SelfTLSKeyHostsCached) ||
+			utils.CertificateLacksIP(selfTLSCert, domains) || // Fork addition: made before addresses were listed as addresses, see utils/fork_certificate_names.go
 			!CertificateIsExpiredSoon(baseMainConfig.HTTPConfig.SelfTLSValidUntil)
 	
 	// Always ensure we have a valid self-signed certificate
