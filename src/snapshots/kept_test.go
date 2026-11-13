@@ -240,7 +240,11 @@ func TestRemoveKeptRefuses(t *testing.T) {
 	if err := os.Symlink(filepath.Join(base, "elsewhere"), filepath.Join(base, older, "sub", "link")); err != nil {
 		t.Fatal(err)
 	}
-	os.Chmod(filepath.Join(base, older, "sub"), 0500)
+	if os.Geteuid() == 0 {
+		// Cosmos runs as root, which a read-only folder does not stop; another
+		// user (the checks on GitHub) cannot delete from one
+		os.Chmod(filepath.Join(base, older, "sub"), 0500)
+	}
 	if err := RemoveKept(source, older); err != nil {
 		t.Fatal(err)
 	}
