@@ -23,19 +23,20 @@ import (
 // securitySentences are the titles of the events a phone is most likely to
 // show. The other kinds use the label of the catalogue.
 var securitySentences = map[string]string{
-	utils.SecMFALocked:         "Two-factor check locked: too many wrong codes. Whoever tried has the password of the account.",
-	utils.SecAccessGrantDenied: "Refused to grant a permission: someone tried to hand out a permission they do not hold themselves.",
-	utils.SecShieldBanTemp:     "Temporary ban: SmartShield banned a client after three strikes.",
-	utils.SecShieldBanPerm:     "Permanent ban: SmartShield banned a client until it is unbanned.",
-	utils.SecUserRoleChanged:   "Role changed: the role of an account was changed.",
-	utils.SecHostTerminal:      "Host terminal opened: a terminal was opened on the server itself, as root.",
-	utils.SecSnapshotRestore:   "Snapshot restore started: a folder is being replaced by one of its snapshots.",
-	utils.SecLoginFailed:       "Failed login: a login was refused.",
-	utils.SecSudoFailed:        "Wrong password at the confirmation prompt, from a session that is logged in.",
-	utils.SecMFAFailed:         "Wrong two-factor code, from a session that has the password.",
-	utils.SecSessionForged:     "Forged session: a session cookie this server did not sign was presented.",
-	utils.SecScanProbe:         "Probe: a path that scanners look for was requested.",
-	utils.SecRecorderDropped:   "The security record could not keep up: events were lost.",
+	utils.SecMFALocked:            "Two-factor check locked: too many wrong codes. Whoever tried has the password of the account.",
+	utils.SecAccessGrantDenied:    "Refused to grant a permission: someone tried to hand out a permission they do not hold themselves.",
+	utils.SecShieldBanTemp:        "Temporary ban: SmartShield banned a client after three strikes.",
+	utils.SecShieldBanPerm:        "Permanent ban: SmartShield banned a client until it is unbanned.",
+	utils.SecUserRoleChanged:      "Role changed: the role of an account was changed.",
+	utils.SecHostTerminal:         "Host terminal opened: a terminal was opened on the server itself, as root.",
+	utils.SecSnapshotRestore:      "Snapshot restore started: a folder is being replaced by one of its snapshots.",
+	utils.SecServerUpdateRejected: "Update refused: a release was not installed because it could not be verified as signed by this fork. The server stays on its version.",
+	utils.SecLoginFailed:          "Failed login: a login was refused.",
+	utils.SecSudoFailed:           "Wrong password at the confirmation prompt, from a session that is logged in.",
+	utils.SecMFAFailed:            "Wrong two-factor code, from a session that has the password.",
+	utils.SecSessionForged:        "Forged session: a session cookie this server did not sign was presented.",
+	utils.SecScanProbe:            "Probe: a path that scanners look for was requested.",
+	utils.SecRecorderDropped:      "The security record could not keep up: events were lost.",
 }
 
 // detailLabels are the details of an event that are shown, in this order,

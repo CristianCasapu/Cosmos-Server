@@ -178,6 +178,13 @@ export const KIND_TEXT = {
     todo: 'Nothing to do. Lift the ban only if the address is one of yours.',
     link: 'shield',
   },
+  'server.update.rejected': {
+    label: 'Update refused',
+    what: 'A release was not installed because it could not be verified as signed by this fork. The server stays on the version it runs.',
+    stopped: 'yes',
+    todo: 'Check that the newest release on GitHub is one you published. If it is, publish it again; if it is not, change the password of the GitHub account.',
+    link: null,
+  },
   'firewall.ban': {
     label: 'Banned by Fail2ban',
     what: 'Fail2ban banned an address at the firewall: nothing from it reaches the server until the ban ends.',

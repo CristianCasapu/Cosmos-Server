@@ -141,6 +141,7 @@ const SENTENCES = {
     pick: (e) => (e.target ? 'version' : ''),
     variants: { version: '{{actor}} started a server update to {{target}}' },
   },
+  'server.update.rejected': { text: 'an update was refused: the release could not be verified' },
   'server.restart': {
     text: '{{actor}} restarted Cosmos', ip: true,
     pick: (e) => (detail(e, 'scope') === 'host' ? 'host' : ''),
