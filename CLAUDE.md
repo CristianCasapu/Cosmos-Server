@@ -83,10 +83,11 @@ repository mounted at `/src` (Go from `go.mod`'s version, Node 22).
 cp src/update.go src/launcher/update.go
 CGO_ENABLED=0 go build -o /tmp/cosmos src/*.go
 CGO_ENABLED=0 go build -o /tmp/cosmos-launcher ./src/launcher/launcher.go ./src/launcher/update.go
-go test ./src/utils/ -run 'DeliverEmail|UsesImplicitTLS' -count=1
-go test ./src/upnp/ ./src/configapi/ -count=1
-go test ./src/ -run 'CompareVersions|ForkBuild|MaintenanceTime|MaintenanceDue|ServerUpdateRoute' -count=1
-go test ./src/docker/ -run 'StopTimeout|ContainerGone' -count=1
+go test ./src/utils/ -run 'DeliverEmail|UsesImplicitTLS|WriteFileAtomic|SaveConfigTofile|Timezone' -count=1
+go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ -count=1
+go test ./src/ -skip TestEveryRouteIsDocumented -count=1
+go test ./src/docker/ -run 'StopTimeout|ContainerGone|VolumeHostPath' -count=1
+go test ./src/proxy/ -run 'IsLocalAddress|IsLocalVisitor|LocalNetworkOnly' -count=1
 
 # UI (output in ./static, which is git-ignored)
 npm ci --ignore-scripts --no-audit --no-fund
