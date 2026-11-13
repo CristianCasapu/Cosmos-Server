@@ -74,6 +74,23 @@ security record.
   (check Constellation's and existing repositories' compatibility first).
 - GitHub Actions are pinned by commit but to old majors (Node 20 runtime).
 
+## Security features: left for later (2026-11-13)
+
+- Dashboard: thresholds of the status line are constants; "Under attack" does
+  not say whether the attacking addresses are already blocked; a refused
+  cross-site request is logged but not in the record.
+- Audit: where "Recent activity on your account" lives (home page for now);
+  the 2000-line export cap; the own-activity view hides why a login failed.
+- Telegram: a "find my chat ID" button; the bell for "update available" and
+  "container keeps stopping"; SMART warnings (nothing raises them); alerts
+  are sorted by name, not metric; no proxy setting.
+- Fail2ban: enabling single jails or banning by hand from the panel; bans of
+  an IPv6 /64; SmartShield's whitelist as never-ban list; events for bans
+  that expire; its never-ban list holds the LAN's IPv6 prefix as it was at
+  install time (the host guard refreshes its own copy every ten minutes).
+- Upstream asks `/api/me` about 47 times per page load, which eats into the
+  500-requests-a-minute limit.
+
 ## Usability gaps found in the code
 
 | # | Gap | Where |
