@@ -89,7 +89,7 @@ func UserLogin(w http.ResponseWriter, req *http.Request) {
 			}
 
 			recordLogin(req, user) // Fork addition: security record
-			SendUserToken(w, req, user, false, false)
+			SendUserToken(w, NewSession(req), user, false, false) // Fork addition: a login starts a session, see fork_session_life.go
 
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"status": "OK",

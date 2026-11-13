@@ -1,7 +1,8 @@
 # Fork addition: returns `production` to an earlier fork release and releases
 # that state again under a new, higher build number, which the server then
 # installs like any other update. History is not rewritten: the rollback is a
-# new commit on production.
+# new commit on production. Nothing is built here: the release is built and
+# signed by fork-release.yml, like every release.
 name: Roll production back
 
 on:
@@ -16,8 +17,11 @@ permissions:
   contents: write
   actions: write
 
+# Its own group: a sync that waits for the owner's approval must not hold a
+# rollback back. The two cannot overwrite each other: neither pushes with
+# force, so whichever comes second fails instead.
 concurrency:
-  group: fork-sync
+  group: fork-rollback
   cancel-in-progress: false
 
 jobs:
@@ -43,6 +47,17 @@ jobs:
           fi
           if ! git merge-base --is-ancestor "$TAG" HEAD; then
             echo "::error::$TAG is not an earlier state of production"; exit 1
+          fi
+
+          # The server installs only releases signed with a key it holds
+          # (src/forkrelease/keys.go). Going back to files with other keys,
+          # or from before signing, would publish a release that removes or
+          # changes that check on the server: not from here.
+          if ! git cat-file -e "$TAG:src/forkrelease/keys.go" 2>/dev/null; then
+            echo "::error::$TAG is from before signed releases: going back to it would take the signature check off the server. Revert the changes you want gone on custom instead and promote."; exit 1
+          fi
+          if ! git diff --quiet "$TAG" HEAD -- src/forkrelease/keys.go; then
+            echo "::error::$TAG holds other release keys than production does now: a server that installed it could not verify the releases that follow. Revert the changes you want gone on custom instead and promote."; exit 1
           fi
 
           # Everything except the automation: the workflow token may not change

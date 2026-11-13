@@ -1,11 +1,13 @@
 import React from 'react';
 import { useCookies } from 'react-cookie';
 import { SUDO_PERMISSIONS } from './permissions';
+import { useSudoClock } from './sudoPromptHooks'; // Fork addition
 
 const isDemo = import.meta.env.MODE === 'demo';
 
 function useClientInfos() {
   const [cookies] = useCookies(['client-infos']);
+  useSudoClock(cookies['client-infos']); // Fork addition: drawn again at the moment the password confirmation ends, see sudoPrompt.js
 
   if(isDemo) return {
     nickname: "Demo",

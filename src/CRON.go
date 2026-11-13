@@ -181,7 +181,8 @@ func applyServerUpdate(updates *VersionInfo, useBeta bool) error {
 	dlPath := currentFolder + "/cosmos-update.zip"
 	betaFile := currentFolder + "/.BETA"
 
-	if err := utils.DownloadFileToLocation(dlPath, url); err != nil {
+	// Fork addition: only a release signed with the fork's key is placed for the launcher, fetched from the fork's own repository, see fork_update_verify.go (upstream: utils.DownloadFileToLocation(dlPath, url))
+	if err := stageVerifiedUpdate(dlPath, updates); err != nil {
 		return err
 	}
 

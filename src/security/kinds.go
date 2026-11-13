@@ -161,6 +161,7 @@ var catalogue = func() map[string]Kind {
 		audit(utils.SecContainerTerminal, SeverityMedium, "Container terminal opened", "A terminal was opened in a container. Target: the container. Details: mode is new (a shell), attach (the container's own input and output) or attach_readonly."),
 		audit(utils.SecHostTerminal, SeverityHigh, "Host terminal opened", "A terminal was opened on the server itself, as root."),
 		audit(utils.SecServerUpdate, SeverityMedium, "Server update started", "An administrator asked for the server to be updated now."),
+		incident(utils.SecServerUpdateRejected, SeverityHigh, OutcomeBlocked, "Server update refused", "A release was not installed because it could not be verified: no signature of the fork's release key, a file that does not match the signed checksum, a download from somewhere else than GitHub, or an older release. The server keeps running its version. Target: the release. Details: reason; by is server (before the download was placed) or launcher (before unpacking)."),
 		audit(utils.SecServerRestart, SeverityMedium, "Restart asked for", "An administrator restarted Cosmos or the machine. Details: scope is cosmos or host."),
 		audit(utils.SecSnapshotRestore, SeverityHigh, "Snapshot restore started", "A folder is being replaced by one of its snapshots. Details: snapshot."),
 		audit(utils.SecAPIChange, SeverityLow, "Change through the API", "A logged-in user sent a request that changes something and that has no kind of its own. Path and method say which."),
