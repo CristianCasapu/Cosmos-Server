@@ -954,7 +954,10 @@ func GetClientIP(req *http.Request) string {
 	remoteAddr, _ := SplitIP(req.RemoteAddr)
 
 	if req.Header.Get("x-forwarded-for") != "" && IsTrustedProxy(remoteAddr) {
-		remoteAddr, _ = SplitIP(strings.TrimSpace(strings.Split(req.Header.Get("X-Forwarded-For"), ",")[0]))
+		// Fork addition: the last entry a trusted proxy wrote, see fork_forwarded_for.go (upstream: the first entry)
+		if client := ForwardedClient(req, IsTrustedProxy); client != "" {
+			remoteAddr = client
+		}
 	}
 	return remoteAddr
 }

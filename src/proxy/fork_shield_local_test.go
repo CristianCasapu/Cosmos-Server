@@ -132,3 +132,25 @@ func TestIsLocalClientMatchesLocalLinks(t *testing.T) {
 		}
 	}
 }
+
+// Behind a trusted proxy the address is the one the proxy saw, not one the
+// visitor wrote in front of it: a visitor from the internet stays a visitor
+// from the internet for the shield.
+func TestShieldAddressBehindATrustedProxyIsTheOneTheProxySaw(t *testing.T) {
+	resetShieldState(t)
+	config := utils.GetBaseMainConfig()
+	config.HTTPConfig.TrustedProxies = []string{"10.0.0.2"}
+	utils.LoadBaseMainConfig(config)
+
+	req := httptest.NewRequest("POST", "https://cosmos.example.com/cosmos/api/login", nil)
+	req.RemoteAddr = "10.0.0.2:5000"
+	req.Header.Set("X-Forwarded-For", "192.168.1.5, 86.120.1.1")
+
+	client := GetShieldIdentity(req, GetClientID(req, utils.ProxyRouteConfig{}))
+	if client != "86.120.1.1" {
+		t.Fatalf("the shield identity is %q, expected the address the proxy saw", client)
+	}
+	if isLocalClient(client) {
+		t.Fatalf("%s counts as local", client)
+	}
+}

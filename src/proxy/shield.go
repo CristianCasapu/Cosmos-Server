@@ -5,7 +5,6 @@ import (
 	"math"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/azukaar/cosmos-server/src/constellation"
@@ -191,7 +190,8 @@ func GetClientID(r *http.Request, route utils.ProxyRouteConfig) string {
 	isConstTokenValid := isConstIP && constellation.CheckConstellationToken(r) == nil
 
 	if utils.IsTrustedProxy(remoteAddr) || isConstTokenValid {
-		if ip, _ := utils.SplitIP(strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0])); ip != "" {
+		// Fork addition: the last entry a trusted proxy wrote, see utils/fork_forwarded_for.go (upstream: the first entry)
+		if ip := utils.ForwardedClient(r, utils.IsTrustedProxy); ip != "" {
 			utils.Debug("SmartShield: Getting forwarded client ID " + ip)
 			return ip
 		}
