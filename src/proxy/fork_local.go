@@ -101,6 +101,7 @@ func localNetworkOnly(next http.Handler) http.Handler {
 			visitor = utils.GetClientIP(req)
 		}
 		if !isLocalVisitor(visitor, serverNetworks()) {
+			utils.RecordSecurity(req, utils.SecAccessLocalDenied, "") // security record
 			utils.Warn("Local address " + req.Host + " was requested from outside the local network (" + visitor + "): refused")
 			http.Error(w, "This address is available on the local network only.", http.StatusForbidden)
 			return

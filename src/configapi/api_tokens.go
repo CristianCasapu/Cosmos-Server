@@ -172,11 +172,13 @@ func createAPIToken(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if !utils.CanGrant(req, permissions) {
+		utils.RecordSecurity(req, utils.SecAccessGrantDenied, request.Name, "what", "token") // Fork addition: security record
 		utils.HTTPError(w, "Cannot create a token with permissions you do not hold", http.StatusForbidden, "AT016")
 		return
 	}
 
 	owner := utils.GetAuthContext(req).Nickname
+	utils.AuditSecurity(req, utils.SecTokenCreated, request.Name) // Fork addition: security record
 
 	rawToken, tokenConfig, err := GenerateAPIToken(request.Name, request.Description, owner, permissions)
 	if err != nil {
@@ -274,6 +276,7 @@ func deleteAPIToken(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "Token name is required", http.StatusBadRequest, "AT021")
 		return
 	}
+	utils.AuditSecurity(req, utils.SecTokenDeleted, request.Name) // Fork addition: security record
 
 	utils.ConfigLock.Lock()
 
@@ -343,6 +346,7 @@ func updateAPIToken(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "Token name is required", http.StatusBadRequest, "AT030")
 		return
 	}
+	utils.AuditSecurity(req, utils.SecTokenUpdated, name) // Fork addition: security record
 
 	var request UpdateAPITokenRequest
 	if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
@@ -368,6 +372,7 @@ func updateAPIToken(w http.ResponseWriter, req *http.Request) {
 	}
 	if request.Permissions != nil {
 		if !utils.CanGrant(req, request.Permissions) {
+			utils.RecordSecurity(req, utils.SecAccessGrantDenied, name, "what", "token") // Fork addition: security record
 			utils.ConfigLock.Unlock()
 			utils.HTTPError(w, "Cannot grant a token permissions you do not hold", http.StatusForbidden, "AT034")
 			return

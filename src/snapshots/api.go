@@ -191,6 +191,7 @@ func RestoreRoute(w http.ResponseWriter, req *http.Request) {
 	}
 
 	utils.Log("API: Restore a snapshot")
+	utils.AuditSecurity(req, utils.SecSnapshotRestore, request.Source, "snapshot", request.Snapshot) // security record
 	// Source must be a configured folder and Snapshot the name of a snapshot:
 	// StartRestore accepts nothing else, and no path is built from anything else.
 	err := StartRestore(request.Source, request.Snapshot)

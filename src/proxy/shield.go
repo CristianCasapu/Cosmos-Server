@@ -321,6 +321,7 @@ func SmartShieldMiddleware(shieldID string, route utils.ProxyRouteConfig) func(h
 				lastBan := GetLastBan(clientID)
 				go metrics.PushShieldMetrics("smart-shield")
 				utils.IncrementIPAbuseCounter(clientIP)
+				utils.RecordSecurity(r, utils.SecShieldBlocked, "", "route", route.Name) // Fork addition: security record
 
 				utils.TriggerEvent(
 					"cosmos.proxy.shield.abuse."+route.Name,

@@ -64,6 +64,7 @@ func tokenMiddleware(route utils.ProxyRouteConfig) func(next http.Handler) http.
 			permissions, isSudoed, u, err := user.RefreshUserToken(w, r)
 
 			if err != nil {
+				utils.RecordSecuritySessionError(r, err) // Fork addition: security record
 				return
 			}
 

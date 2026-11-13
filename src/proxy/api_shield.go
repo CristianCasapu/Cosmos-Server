@@ -62,6 +62,7 @@ func API_ShieldUnban(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	utils.AuditSecurity(req, utils.SecShieldUnban, body.ClientID) // Fork addition: security record
 	removed := globalShieldState.unban(body.ClientID)
 
 	utils.TriggerEvent(

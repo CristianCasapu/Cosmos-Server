@@ -30,6 +30,7 @@ func BotDetectionMiddleware(next http.Handler) http.Handler {
 		userAgent := r.UserAgent()
 		
 		if userAgent == "" {
+			recordBotBlock(r) // Fork addition: security record
 			go metrics.PushShieldMetrics("bots")
 			http.Error(w, "Access denied: Bots are not allowed.", http.StatusForbidden)
 			return
@@ -37,6 +38,7 @@ func BotDetectionMiddleware(next http.Handler) http.Handler {
 
 		for _, botUserAgent := range botUserAgents {
 			if userAgent == botUserAgent {
+				recordBotBlock(r) // Fork addition: security record
 			go metrics.PushShieldMetrics("bots")
 				http.Error(w, "Access denied: Bots are not allowed.", http.StatusForbidden)
 				return
