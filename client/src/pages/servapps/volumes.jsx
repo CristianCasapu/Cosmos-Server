@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 import dayjs from 'dayjs';
 import PermissionGuard from '../../components/permissionGuard';
 import { PERM_RESOURCES } from '../../utils/permissions';
+import { useVolumeContainers, VolumeLocation, VolumeUsers } from '../../components/volumeUsage'; // Fork addition: where a volume is and which apps use it
 
 const VolumeManagementList = () => {
     const { t } = useTranslation();
@@ -26,9 +27,11 @@ const VolumeManagementList = () => {
     const [tryDelete, setTryDelete] = useState(null);
     const theme = useTheme();
     const isDark = theme.palette.mode === 'dark';
+    const [containers, reloadContainers] = useVolumeContainers(); // Fork addition
 
     function refresh() {
         setIsLoading(true);
+        reloadContainers(); // Fork addition
         API.docker.volumeList()
         .then(data => {
             setRows(data.data.Volumes);
@@ -62,9 +65,17 @@ const VolumeManagementList = () => {
                             title: t('mgmt.servapps.volumes.volumeName'),
                             field: (r) =>  <Stack direction='column'>
                             <div style={{display:'inline-block', textDecoration: 'inherit', fontSize:'125%', color: isDark ? theme.palette.primary.light : theme.palette.primary.dark}}>{r.Name}</div><br/>
-                            <div style={{display:'inline-block', textDecoration: 'inherit', fontSize: '90%', opacity: '90%'}}>{r.Mountpoint}</div>
+                            <div style={{display:'inline-block', textDecoration: 'inherit', fontSize: '90%', opacity: '90%'}}><VolumeLocation volume={r} />{/* Fork addition: was the bare r.Mountpoint */}</div>
+                            <VolumeUsers narrow volume={r} containers={containers} />{/* Fork addition: on screens without the "Used by" column */}
                           </Stack>,
                             search: (r) => r.Name,
+                        },
+                        {
+                            // Fork addition
+                            title: t('mgmt.servapps.volumes.usedBy', 'Used by'),
+                            screenMin: 'md',
+                            clickable: true,
+                            field: (r) => <VolumeUsers volume={r} containers={containers} />,
                         },
                         {
                             title: t('global.driver'),
