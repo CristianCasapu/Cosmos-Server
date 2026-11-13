@@ -595,7 +595,7 @@ func tokenMiddleware(next http.Handler) http.Handler {
 		// Support token via Authorization header or query param (for WebSocket)
 		authHeader := r.Header.Get("Authorization")
 		if !strings.HasPrefix(authHeader, "Bearer cosmos_") {
-			if qToken := r.URL.Query().Get("token"); strings.HasPrefix(qToken, "cosmos_") {
+			if qToken := tokenFromQuery(r); qToken != "" { // Fork addition: in the address of a websocket only, see fork_api_inputs.go
 				authHeader = "Bearer " + qToken
 			}
 		}
@@ -1267,6 +1267,7 @@ func InitServer() *mux.Router {
 
 	// Fork addition: the API answers the panel's own pages, not other sites, see fork_same_origin.go
 	requireSameOrigin(srapi, srapiStrict, srapiAdmin)
+	limitRequestBodies(maxSignInBody, srapiStrict) // Fork addition: the sign-in routes read a bounded body, see fork_api_inputs.go
 	
 	srapi.Use(proxy.CleanPathMiddleware)
 	srapiStrict.Use(proxy.CleanPathMiddleware)

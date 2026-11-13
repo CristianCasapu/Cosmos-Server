@@ -51,7 +51,8 @@ func TestAPIRefusesRequestsOfOtherSites(t *testing.T) {
 		{"curl or a script", "GET", "/cosmos/api/restart", nil, true},
 		{"script posting", "POST", "/cosmos/api/docker-service", map[string]string{"Content-Type": "application/json"}, true},
 		{"API token in the header, whatever the site", "POST", "/cosmos/api/docker-service", map[string]string{"Authorization": "Bearer cosmos_abc", "Sec-Fetch-Site": "cross-site", "Origin": "https://dashboard.example.net"}, true},
-		{"API token in the query (websocket)", "GET", "/cosmos/api/terminal/bash?token=cosmos_abc", map[string]string{"Origin": "https://dashboard.example.net"}, true},
+		{"API token in the query of a websocket", "GET", "/cosmos/api/terminal/bash?token=cosmos_abc", map[string]string{"Origin": "https://dashboard.example.net", "Upgrade": "websocket", "Connection": "Upgrade"}, true},
+		{"API token in the query of anything else counts for nothing", "GET", "/cosmos/api/restart?token=cosmos_abc", map[string]string{"Sec-Fetch-Site": "cross-site"}, false},
 
 		// the sign-in callback of an application arrives from the panel's hostname
 		{"application sign-in callback", "GET", "/cosmos/oauth2/detect-callback?code=x&state=y", map[string]string{"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate"}, true},

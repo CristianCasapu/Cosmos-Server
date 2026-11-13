@@ -102,7 +102,7 @@ func presentsAPIToken(r *http.Request) bool {
 	if strings.HasPrefix(r.Header.Get("Authorization"), "Bearer "+utils.APITokenPrefix) {
 		return true
 	}
-	return strings.HasPrefix(r.URL.Query().Get("token"), utils.APITokenPrefix)
+	return tokenFromQuery(r) != ""
 }
 
 // originNamesHost reports whether an Origin header names the host the request
