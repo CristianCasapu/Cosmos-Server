@@ -424,7 +424,8 @@ const AlertPage = () => {
   return <div style={{ maxWidth: "1200px", margin: "auto" }}>
     {openModal && <EditAlertModal open={openModal} onClose={() => setOpenModal(false)} onSave={saveAlert} />}
 
-    <Stack direction="row" spacing={2} style={{marginBottom: '15px'}}>
+    {/* Fork addition: useFlexGap flexWrap, the buttons go to a second line on a phone instead of being squeezed */}
+    <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap" style={{marginBottom: '15px'}}>
       <Button variant="contained" color="primary" startIcon={<SyncOutlined />} onClick={() => {
           refresh();
       }}>{t('global.refresh')}</Button>

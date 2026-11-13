@@ -113,7 +113,8 @@ const ConfigManagement = () => {
   const wrapTab = (formik, content) => (
     <div style={{ maxWidth: "1000px", margin: "auto" }}>
       <Stack spacing={3}>
-        <Stack direction="row" spacing={2}>
+        {/* Fork addition: useFlexGap flexWrap. On a phone the three buttons were squeezed into one line, their text broken and the icons pushed out of them */}
+        <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
           <Button variant="contained" color="primary" startIcon={<SyncOutlined />} onClick={() => {
               refresh();
           }}>{t('mgmt.config.header.refreshButton.refreshLabel')}</Button>
