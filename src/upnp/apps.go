@@ -433,9 +433,25 @@ func readRequest(w http.ResponseWriter, req *http.Request, into any) bool {
 // forReader takes out what only administrators may see: the other devices'
 // mappings carry addresses of the local network.
 func forReader(st Status, req *http.Request) Status {
-	if !utils.HasPermission(req, utils.PERM_ADMIN_READ) {
-		st.Foreign = []Foreign{}
+	if utils.HasPermission(req, utils.PERM_ADMIN_READ) {
+		return st
 	}
+	st.Foreign = []Foreign{}
+	// who holds a port Cosmos wanted is an address of the local network too
+	hide := func(list []Mapping) []Mapping {
+		out := make([]Mapping, len(list))
+		for i, m := range list {
+			if m.Holder != "" || m.Code == "conflict" {
+				m.Holder = ""
+				if m.Error != "" {
+					m.Error = fmt.Sprintf("external port %d is already in use on the router", m.WantedPort)
+				}
+			}
+			out[i] = m
+		}
+		return out
+	}
+	st.Mappings, st.Apps = hide(st.Mappings), hide(st.Apps)
 	return st
 }
 

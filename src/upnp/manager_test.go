@@ -708,6 +708,22 @@ func TestAppPortRouteOpensAndCloses(t *testing.T) {
 		t.Errorf("a reader: %d %v", code, answer)
 	}
 
+	// nor who holds a port Cosmos wanted
+	w.router.put("TCP/2053", "192.168.1.99", 443, "NAS")
+	w.config(func(c *utils.Config) { c.HTTPConfig.UPnP.Enabled = true })
+	reconcile(true)
+	_, answer = call(t, StatusRoute, "GET", nil, reader)
+	if text := fmt.Sprint(answer["data"]); strings.Contains(text, "192.168.1.99") || strings.Contains(text, "NAS") || !strings.Contains(text, "already in use on the router") {
+		t.Errorf("a reader is told addresses of the local network: %s", text)
+	}
+	if _, answer = call(t, StatusRoute, "GET", nil, admin); !strings.Contains(fmt.Sprint(answer["data"]), "192.168.1.99:443 (NAS)") {
+		t.Errorf("an admin is not told who holds the port: %v", answer["data"])
+	}
+	w.config(func(c *utils.Config) { c.HTTPConfig.UPnP.Enabled = false })
+	w.router.expire("TCP/2053")
+	reconcile(true)
+	w.kinds()
+
 	// closing needs no confirmation, and works for a container that is gone
 	w.containers = nil
 	code, answer = call(t, AppPortRoute, "POST", appPortRequest{Container: "jellyfin", Port: 8096, Protocol: "TCP"}, admin)

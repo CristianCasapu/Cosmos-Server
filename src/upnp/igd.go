@@ -335,7 +335,7 @@ func (g *gateway) soap(action string, args ...soapArg) (map[string]string, error
 
 	if resp.StatusCode != http.StatusOK {
 		if code, err := strconv.Atoi(values["errorCode"]); err == nil {
-			return nil, &soapError{Code: code, Description: values["errorDescription"]}
+			return nil, &soapError{Code: code, Description: cleanText(values["errorDescription"], maxRouterText)}
 		}
 		return nil, fmt.Errorf("router returned HTTP %d for %s", resp.StatusCode, action)
 	}
