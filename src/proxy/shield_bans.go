@@ -142,6 +142,7 @@ func (b *banStore) issue(clientID string, banType int, shieldID string, reason u
 		Node:     node,
 	}
 	b.add(ban)
+	recordShieldBan(ban) // Fork addition: security record
 	go func(copy UserBan) {
 		if err := constellation.PublishShieldBan(copy); err != nil {
 			utils.Debug("SmartShield: could not replicate ban: " + err.Error())

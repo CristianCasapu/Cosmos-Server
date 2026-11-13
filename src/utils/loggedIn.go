@@ -133,6 +133,7 @@ func CheckPermissions(w http.ResponseWriter, req *http.Request, permission Permi
 		}
 		// Check token has the specific permission
 		if !apiTokenHasPermission(ctx.APIToken, permission) {
+			RecordSecurity(req, SecAccessDenied, "", "permission", PermissionLabel(permission)) // Fork addition: security record
 			Error("CheckPermissions: API token lacks permission: "+PermissionLabel(permission), nil)
 			HTTPError(w, fmt.Sprintf("API token missing permission: %s", PermissionLabel(permission)), http.StatusForbidden, "AT003")
 			return errors.New("API token lacks permission")
@@ -151,6 +152,7 @@ func CheckPermissions(w http.ResponseWriter, req *http.Request, permission Permi
 
 	// Step 2: Check permission is in user's permission set
 	if !containsPermission(ctx.Permissions, permission) {
+		RecordSecurity(req, SecAccessDenied, "", "permission", PermissionLabel(permission)) // Fork addition: security record
 		Error("CheckPermissions: User lacks permission: "+PermissionLabel(permission), nil)
 		HTTPError(w, fmt.Sprintf("Missing permission: %s", PermissionLabel(permission)),
 			http.StatusUnauthorized, "HTTP005")

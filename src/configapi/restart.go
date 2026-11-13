@@ -26,6 +26,7 @@ func ConfigApiRestart(w http.ResponseWriter, req *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status": "OK",
 		})
+		utils.RecordSecurityNow(req, utils.SecServerRestart, "", "scope", "cosmos") // Fork addition: security record, written before the process ends
 		utils.RestartServer(0)
 	} else {
 		utils.Error("Restart: Method not allowed" + req.Method, nil)

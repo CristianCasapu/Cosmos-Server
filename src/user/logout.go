@@ -18,6 +18,7 @@ func UserLogout(w http.ResponseWriter, req *http.Request) {
 	if(req.Method == "GET") {
 		utils.Debug("UserLogout: Logging out user")
 
+		recordLogout(req) // Fork addition: security record
 		logOutUser(w, req);
 
 		json.NewEncoder(w).Encode(map[string]interface{}{

@@ -55,6 +55,7 @@ func Check2FA(w http.ResponseWriter, req *http.Request) {
 
 	// Fork addition: wrong codes are limited per account, see fork_mfa_limit.go
 	if mfaAttemptRefused(w, nickname) {
+		utils.RecordSecurity(req, utils.SecMFAFailed, "", "reason", "locked") // Fork addition: security record
 		return
 	}
 
@@ -78,12 +79,14 @@ func Check2FA(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 
+		utils.RecordSecurity(req, utils.SecMFASuccess, "") // Fork addition: security record
 		SendUserToken(w, req, userInBase, true, false)
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status": "OK",
 		})
 	} else {
+		recordMFAFailure(req, nickname) // Fork addition: security record
 		utils.Error("2FA: User " + nickname + " has invalid token", nil)
 		utils.HTTPError(w, "2FA Error", http.StatusInternalServerError, "2FA005")
 		return

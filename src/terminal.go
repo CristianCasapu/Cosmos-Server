@@ -45,6 +45,7 @@ func HostTerminalRoute(w http.ResponseWriter, r *http.Request) {
 
 	vars := mux.Vars(r)
 	route := vars["route"]
+	utils.RecordSecurity(r, utils.SecHostTerminal, "", "command", route) // Fork addition: security record
 
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {

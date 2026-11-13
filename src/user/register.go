@@ -70,6 +70,7 @@ func UserRegister(w http.ResponseWriter, req *http.Request) {
 		}
 
 		if errors.Is(err3, utils.ErrNotFound) {
+			utils.RecordSecurity(req, utils.SecRegisterFailed, utils.SecurityAttemptedName(nickname), "reason", "bad_key") // Fork addition: security record
 			utils.Error("UserRegister: User not found", err3)
 			utils.HTTPError(w, "User Register Error", http.StatusInternalServerError, "UR001")
 			return
@@ -78,6 +79,7 @@ func UserRegister(w http.ResponseWriter, req *http.Request) {
 			utils.HTTPError(w, "User Register Error", http.StatusInternalServerError, "UR001")
 			return
 		} else if user.RegisterKeyExp.Before(time.Now()) {
+			utils.RecordSecurity(req, utils.SecRegisterFailed, nickname, "reason", "expired") // Fork addition: security record
 			utils.Error("UserRegister: Link expired", nil)
 			utils.HTTPError(w, "User Register Error", http.StatusInternalServerError, "UR001")
 			return
@@ -108,6 +110,7 @@ func UserRegister(w http.ResponseWriter, req *http.Request) {
 				utils.HTTPError(w, "User Register Error", http.StatusInternalServerError, "UR001")
 				return
 			}
+			recordRegistration(req, nickname, user.Password != "") // Fork addition: security record
 		}
 		
 		utils.TriggerEvent(

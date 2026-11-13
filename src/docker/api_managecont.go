@@ -62,6 +62,7 @@ func ManageContainerRoute(w http.ResponseWriter, req *http.Request) {
 		imagename := container.Config.Image
 
 		utils.Log("API: " + action + " " + containerName)
+		auditContainerAction(req, containerName, action) // Fork addition: security record
 
 		// switch action
 		switch action {

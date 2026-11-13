@@ -42,6 +42,7 @@ func UserLogin(w http.ResponseWriter, req *http.Request) {
 		var request LoginRequestJSON
 		err1 := json.NewDecoder(req.Body).Decode(&request)
 		if err1 != nil {
+			recordLoginFailure(req, "", "bad_request") // Fork addition: security record
 			utils.Error("UserLogin: Invalid User Request", err1)
 			utils.HTTPError(w, "User Login Error", http.StatusInternalServerError, "UL001")
 			return
@@ -56,6 +57,7 @@ func UserLogin(w http.ResponseWriter, req *http.Request) {
 
 		if errors.Is(err3, utils.ErrNotFound) {
 			bcrypt.CompareHashAndPassword([]byte("$2a$14$4nzsVwEnR3.jEbMTME7kqeCo4gMgR/Tuk7ivNExvXjr73nKvLgHka"), []byte("dummyPassword"))
+			recordLoginFailure(req, nickname, "unknown_user") // Fork addition: security record
 			utils.Error("UserLogin: User not found", err3)
 			utils.HTTPError(w, "User Logging Error", http.StatusInternalServerError, "UL001")
 			return
@@ -65,12 +67,14 @@ func UserLogin(w http.ResponseWriter, req *http.Request) {
 			utils.HTTPError(w, "User Logging Error", http.StatusInternalServerError, "UL001")
 			return
 		} else if user.Password == "" {
+			recordLoginFailure(req, nickname, "not_registered") // Fork addition: security record
 			utils.Error("UserLogin: User not registered", nil)
 			utils.HTTPError(w, "User not registered", http.StatusInternalServerError, "UL002")
 			return
 		} else {
 			err2 := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
 			if err2 != nil {
+				recordLoginFailure(req, nickname, "wrong_password") // Fork addition: security record
 				utils.Error("UserLogin: Encryption error", err2)
 				utils.HTTPError(w, "User Logging Error", http.StatusInternalServerError, "UL001")
 				return
@@ -84,6 +88,7 @@ func UserLogin(w http.ResponseWriter, req *http.Request) {
 				}
 			}
 
+			recordLogin(req, user) // Fork addition: security record
 			SendUserToken(w, req, user, false, false)
 
 			json.NewEncoder(w).Encode(map[string]interface{}{

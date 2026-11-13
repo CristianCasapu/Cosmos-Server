@@ -54,6 +54,8 @@ func ConfigApiPatch(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	auditRoutePatch(req, updateReq) // Fork addition: security record
+
 	config := utils.ReadConfigFromFile()
 	routes := config.HTTPConfig.ProxyConfig.Routes
 	routeIndex := -1

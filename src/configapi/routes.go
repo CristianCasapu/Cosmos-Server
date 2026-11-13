@@ -143,6 +143,7 @@ func createRoute(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "Route name is required", http.StatusBadRequest, "RT003")
 		return
 	}
+	utils.AuditSecurity(req, utils.SecRouteCreated, newRoute.Name) // Fork addition: security record
 
 	if !newRoute.UseHost && !newRoute.UsePathPrefix {
 		utils.HTTPError(w, "Route must have at least one of UseHost or UsePathPrefix enabled, otherwise it will catch all requests", http.StatusBadRequest, "RT008")
@@ -212,6 +213,7 @@ func updateRoute(w http.ResponseWriter, req *http.Request) {
 	}
 
 	name := mux.Vars(req)["name"]
+	utils.AuditSecurity(req, utils.SecRouteUpdated, name) // Fork addition: security record
 
 	var updatedRoute utils.ProxyRouteConfig
 	err := json.NewDecoder(req.Body).Decode(&updatedRoute)
@@ -340,6 +342,7 @@ func deleteRoute(w http.ResponseWriter, req *http.Request) {
 	}
 
 	name := mux.Vars(req)["name"]
+	utils.AuditSecurity(req, utils.SecRouteDeleted, name) // Fork addition: security record
 
 	utils.ConfigLock.Lock()
 

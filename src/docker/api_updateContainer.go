@@ -53,6 +53,7 @@ func UpdateContainerRoute(w http.ResponseWriter, req *http.Request) {
 	utils.Log("UpdateContainer" + "Updating container")
 
 	if req.Method == "POST" {
+		utils.AuditSecurity(req, utils.SecContainerEdited, mux.Vars(req)["containerId"]) // Fork addition: security record
 		errD := Connect()
 		if errD != nil {
 			utils.Error("UpdateContainer", errD)

@@ -244,6 +244,7 @@ func CreateServiceRoute(w http.ResponseWriter, req *http.Request) {
 	if utils.CheckPermissions(w, req, utils.PERM_RESOURCES) != nil {
 		return
 	}
+	utils.AuditSecurity(req, utils.SecContainerCreated, "") // Fork addition: security record
 
 	errD := Connect()
 	if errD != nil {

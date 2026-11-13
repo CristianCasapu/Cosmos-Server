@@ -299,6 +299,7 @@ func ForceUpdateRoute(w http.ResponseWriter, req *http.Request) {
 		})
 
 		if check.UpdateAvailable {
+			utils.RecordSecurityNow(req, utils.SecServerUpdate, check.LatestVersion) // Fork addition: security record, written before the process ends
 			// let the response reach the client before the download and restart
 			go func() {
 				time.Sleep(2 * time.Second)
@@ -339,6 +340,7 @@ func restartHostMachineRoute(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
+		utils.RecordSecurityNow(req, utils.SecServerRestart, "", "scope", "host") // Fork addition: security record, written before the machine goes down
 		utils.PlanRestart()
 		utils.WaitForAllJobs()
 

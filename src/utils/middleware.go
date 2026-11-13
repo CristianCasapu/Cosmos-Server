@@ -292,6 +292,7 @@ func BlockByCountryMiddleware(blockedCountries []string, CountryBlacklistIsWhite
 						if blocked {
 							PushShieldMetrics("geo")
 							IncrementIPAbuseCounter(ip)
+							RecordSecurity(r, SecShieldGeo, "", "country", countryCode) // Fork addition: security record
 
 							TriggerEvent(
 								"cosmos.proxy.shield.geo",
@@ -316,6 +317,7 @@ func BlockByCountryMiddleware(blockedCountries []string, CountryBlacklistIsWhite
 						if config.ServerCountry != countryCode && countryCode == blockedCountry {
 							PushShieldMetrics("geo")
 							IncrementIPAbuseCounter(ip)
+							RecordSecurity(r, SecShieldGeo, "", "country", countryCode) // Fork addition: security record
 	
 							TriggerEvent(
 								"cosmos.proxy.shield.geo",
@@ -420,6 +422,7 @@ func EnsureHostname(next http.Handler) http.Handler {
 		
 		if !isOk {
 			PushShieldMetrics("hostname")
+			RecordSecurity(r, SecShieldHostname, "") // Fork addition: security record
 			Error("Invalid Hostname " + r.Host + " for request. Expecting one of " + fmt.Sprintf("%v", hostnames), nil)
 			w.WriteHeader(http.StatusBadRequest)
 			http.Error(w, "Bad Request: Invalid hostname. Use your domain instead of your IP to access your server. Check logs if more details are needed.", http.StatusBadRequest)
@@ -486,6 +489,7 @@ func EnsureHostnameCosmosAPI(next http.Handler) http.Handler {
 
 		if og != reqHostNoPort {
 			PushShieldMetrics("hostname")
+			RecordSecurity(r, SecShieldHostname, "") // Fork addition: security record
 			Error("Invalid Hostname " + r.Host + " for API request to " + r.URL.Path, nil)
 			w.WriteHeader(http.StatusBadRequest)
 			http.Error(w, "Bad Request: Invalid hostname. Use your domain instead of your IP to access your server. Check logs if more details are needed.", http.StatusBadRequest)
@@ -610,6 +614,7 @@ func Restrictions(RestrictToConstellation bool, WhitelistInboundIPs []string) fu
 
 		if !CheckRouteIPAccess(ip, remoteAddr, RestrictToConstellation, WhitelistInboundIPs) {
 			PushShieldMetrics("ip-whitelists")
+			RecordSecurity(r, SecAccessIPDenied, "") // Fork addition: security record
 
 			TriggerEvent(
 				"cosmos.proxy.shield.whitelist",

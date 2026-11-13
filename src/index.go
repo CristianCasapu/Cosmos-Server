@@ -213,6 +213,7 @@ func main() {
 // @in header
 // @name Authorization
 func cosmos() {
+	startSecurityRecord() // Fork addition: the security record, see fork_security_hooks.go
 	utils.PushShieldMetrics = metrics.PushShieldMetrics
 	utils.GetContainerIPByName = docker.GetContainerIPByName
 	utils.IsLocalDockerIP = docker.IsLocalDockerIP

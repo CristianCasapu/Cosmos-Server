@@ -237,6 +237,7 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 
 		if !sameRoles(request.Roles, config.Roles) {
 			if err := utils.ValidateRolesChange(req, utils.GetRoles(), request.Roles); err != nil {
+				utils.RecordSecurity(req, utils.SecAccessGrantDenied, "", "what", "roles") // Fork addition: security record
 				utils.Error("SettingsUpdate: "+err.Error(), nil)
 				utils.HTTPError(w, err.Error(), http.StatusForbidden, "UC006")
 				return
@@ -317,6 +318,7 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 			request.HTTPConfig.ProxyConfig.Routes, config.HTTPConfig.ProxyConfig.Routes)
 		utils.SetBaseMainConfig(request)
 		utils.ConfigLock.Unlock()
+		auditSettings(req, config, request) // Fork addition: security record, the names of the sections that changed
 
 		// Storage shares carry their own route; derive the ProxyConfig.Routes copies server-side.
 		storage.ReconcileShareRoutes()

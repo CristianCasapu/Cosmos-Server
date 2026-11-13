@@ -98,6 +98,8 @@ func TerminalRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	recordTerminal(r, containerID, action, readOnly) // Fork addition: security record
+
 	if action == "new" {
 		execConfig := types.ExecConfig{
 			Tty:    true,

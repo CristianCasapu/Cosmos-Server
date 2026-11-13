@@ -72,6 +72,7 @@ func New2FA(w http.ResponseWriter, req *http.Request) {
 	}
 
 	utils.Log("2FA: User " + nickname + " updated")
+	utils.RecordSecurity(req, utils.SecMFASetup, "") // Fork addition: security record
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status": "OK",
