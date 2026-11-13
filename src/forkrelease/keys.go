@@ -26,7 +26,7 @@ import (
 const noReleaseKey = "NO-RELEASE-KEY"
 
 var releaseKeys = [2]string{
-	noReleaseKey, // slot 1
+	"QVrTra1JlY3fIR0my7jn2pGur7oEGMiqz5v3b/adxU0=", // slot 1, made 2026-11-13
 	noReleaseKey, // slot 2
 }
 
