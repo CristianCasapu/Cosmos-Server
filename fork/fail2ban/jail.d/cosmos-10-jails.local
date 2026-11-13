@@ -86,10 +86,15 @@ bantime   = 14400
 banaction = %(cosmos_banaction)s
 chain     = %(cosmos_chain)s
 
-# The server's own SSH. Debian's filter; sshd logs to the journal.
+# The server's own SSH. Debian's filter; sshd logs to the journal. Since
+# OpenSSH 9.8 the failed logins are logged by a helper named sshd-session:
+# Debian's jail file finds them by the service they belong to (ssh.service);
+# the helper's own name is added here so that they are also found when sshd
+# is started in another way (socket activation, a container).
 [sshd]
 enabled   = true
 backend   = systemd
+journalmatch = _SYSTEMD_UNIT=ssh.service + _COMM=sshd + _COMM=sshd-session
 maxretry  = 5
 findtime  = 600
 bantime   = 3600
