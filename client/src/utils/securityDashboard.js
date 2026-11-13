@@ -34,9 +34,9 @@ export const groupDescription = (id) => {
 // Fixed places the advice can point to. Nothing from an event ever becomes
 // a link.
 export const LINKS = {
-  users: '/cosmos-ui/config-users',
-  shield: '/cosmos-ui/config-url/shield',
-  urls: '/cosmos-ui/config-url',
+  users: { url: '/cosmos-ui/config-users', label: ['security.link.users', 'Open the users'] },
+  shield: { url: '/cosmos-ui/config-url/shield', label: ['security.link.shield', 'Open SmartShield'] },
+  urls: { url: '/cosmos-ui/config-url', label: ['security.link.urls', 'Open the URLs'] },
 };
 
 // stopped: 'yes' Cosmos refused or blocked it; 'no' it was let through (not
@@ -476,6 +476,7 @@ export const allTexts = () => {
   for (const [key, text] of Object.values(STOPPED_TEXT)) pairs[key] = text;
   for (const [key, text] of Object.values(PERIOD_TEXT)) pairs[key] = text;
   for (const [key, text] of Object.values(BAN_TEXT)) pairs[key] = text;
+  for (const link of Object.values(LINKS)) pairs[link.label[0]] = link.label[1];
   for (const p of PERIODS) {
     pairs['security.change.same.' + p] = SAME[p];
     pairs['security.change.new.' + p] = NEW[p];

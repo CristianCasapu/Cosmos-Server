@@ -68,7 +68,8 @@ test('kindText: the page\'s sentence, or the server\'s words for a kind it does 
   const known = kindText('scan.probe');
   assert.equal(known.label[0], 'security.kind.scan.probe.label');
   assert.equal(known.stopped, 'yes');
-  assert.equal(kindText('shield.strike').link, '/cosmos-ui/config-url/shield');
+  assert.equal(kindText('shield.strike').link.url, '/cosmos-ui/config-url/shield');
+  assert.equal(kindText('shield.strike').link.label[0], 'security.link.shield');
   const unknown = kindText('new.kind', [{ kind: 'new.kind', label: 'New thing', description: 'Something new.' }]);
   assert.deepEqual(unknown.label, ['security.kind.unknown.label', 'New thing']);
   assert.equal(unknown.todo, null);
@@ -226,4 +227,22 @@ test('banOf: blocked now or not', () => {
   assert.equal(banOf(bans, '192.0.2.1').until, null);
   assert.equal(banOf(null, '1.2.3.4'), null);
   assert.equal(banOf(bans, ''), null);
+});
+
+test('every text the page passes to t() is in the English translation file, with the same text', async () => {
+  const { readdirSync } = await import('node:fs');
+  const en = JSON.parse(readFileSync(new URL('./locales/en/translation.json', import.meta.url), 'utf8'));
+  const dir = new URL('../pages/security/', import.meta.url);
+  let found = 0;
+  for (const file of readdirSync(dir)) {
+    const src = readFileSync(new URL(file, dir), 'utf8');
+    for (const m of src.matchAll(/t\('(security\.[\w.]+)', '((?:[^'\\]|\\.)*)'/g)) {
+      found++;
+      assert.equal(en[m[1]], m[2].replace(/\\'/g, "'"), file + ': ' + m[1]);
+    }
+  }
+  assert.ok(found > 40, 'found the texts of the page');
+  // the menu
+  assert.equal(en['menu-items.security'], 'Security');
+  assert.equal(en['menu-items.security.dashboard'], 'Security');
 });

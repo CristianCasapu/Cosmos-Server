@@ -172,9 +172,13 @@ const SecurityDashboard = () => {
       </Grid>
 
       {overview && <>
-        {COUNTER_GROUPS.map((id) => <Grid item key={id} xs={6} sm={4} md>
-          <Counter id={id} overview={overview} period={period} />
-        </Grid>)}
+        <Grid item xs={12}>
+          <Grid container spacing={2}>
+            {COUNTER_GROUPS.map((id) => <Grid item key={id} xs={6} sm={4} md>
+              <Counter id={id} overview={overview} period={period} />
+            </Grid>)}
+          </Grid>
+        </Grid>
 
         <Grid item xs={12}>
           <Timeline overview={overview} />

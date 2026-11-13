@@ -73,8 +73,8 @@ const Details = ({ row, catalogue, onClose }) => {
             <span>{t(...text.what)}</span>
             {stopped && <span><strong>{t(...stopped)}.</strong></span>}
             {text.todo && <span>{t(...text.todo)}</span>}
-            {text.link && <span><Button component={Link} to={text.link} size="small" variant="outlined">
-              {t('security.details.open', 'Open the settings')}
+            {text.link && <span><Button component={Link} to={text.link.url} size="small" variant="outlined">
+              {t(...text.link.label)}
             </Button></span>}
           </Stack>
         </Alert>
@@ -116,8 +116,8 @@ const RowCard = ({ row, catalogue, onOpen }) => {
         {stopped && <Chip size="small" variant="outlined" color={text.stopped === 'yes' ? 'success' : 'warning'} label={t(...stopped)} />}
       </Box>
       <div>
-        {row.events.length > 1 && row.first !== row.last
-          ? dayjs(row.first).format('L LTS') + ' – ' + dayjs(row.last).format('LTS')
+        {row.events.length > 1 && dayjs(row.first).format('L LTS') !== dayjs(row.last).format('L LTS')
+          ? dayjs(row.first).format('L LTS') + ' – ' + dayjs(row.last).format(dayjs(row.first).isSame(row.last, 'day') ? 'LTS' : 'L LTS')
           : dayjs(row.last).format('L LTS')}
         {' · '}{dayjs(row.last).fromNow()}
       </div>
@@ -207,11 +207,11 @@ const Incidents = forwardRef(({ catalogue, from }, ref) => {
       {t('security.list.help', 'Newest first, in the period chosen above. Repeats from the same address are folded into one row; click a row for everything that was recorded.')}
     </Typography>
     <Stack direction={narrow ? 'column' : 'row'} spacing={2} sx={{ mb: 2 }} useFlexGap flexWrap="wrap">
-      <TextField select size="small" label={t('security.list.group', 'What')} value={group} onChange={(e) => setGroup(e.target.value)} sx={{ minWidth: 180 }}>
+      <TextField select size="small" label={t('security.list.group', 'What')} SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }} value={group} onChange={(e) => setGroup(e.target.value)} sx={{ minWidth: 180 }}>
         <MenuItem value="">{t('security.list.allGroups', 'Everything')}</MenuItem>
         {GROUP_ORDER.map((id) => <MenuItem key={id} value={id}>{t(...groupLabel(id))}</MenuItem>)}
       </TextField>
-      <TextField select size="small" label={t('security.list.severity', 'Severity')} value={severity} onChange={(e) => setSeverity(e.target.value)} sx={{ minWidth: 160 }}>
+      <TextField select size="small" label={t('security.list.severity', 'Severity')} SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }} value={severity} onChange={(e) => setSeverity(e.target.value)} sx={{ minWidth: 160 }}>
         <MenuItem value="">{t('security.list.anySeverity', 'Any')}</MenuItem>
         <MenuItem value="medium">{t('security.list.mediumUp', 'Medium and high')}</MenuItem>
         <MenuItem value="high">{t('security.list.highOnly', 'High only')}</MenuItem>

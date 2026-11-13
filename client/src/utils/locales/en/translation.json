@@ -2776,7 +2776,6 @@
 	"security.counter.fromOne": "from one address",
 	"security.details.event": "Event {{n}} of {{total}}",
 	"security.details.more": "{{count}} more like these are in the list.",
-	"security.details.open": "Open the settings",
 	"security.failed": "The security record cannot be read just now. On a new installation it starts after the first restart of Cosmos. The page tries again every minute.",
 	"security.field.actor": "Signed-in user",
 	"security.field.count": "Events",
@@ -2916,5 +2915,8 @@
 	"security.stopped.yes": "Stopped",
 	"security.timeline.empty": "No incidents in this period.",
 	"security.timeline.title": "Incidents over time",
-	"security.zone": "Times in {{zone}}"
+	"security.zone": "Times in {{zone}}",
+	"security.link.shield": "Open SmartShield",
+	"security.link.urls": "Open the URLs",
+	"security.link.users": "Open the users"
 }

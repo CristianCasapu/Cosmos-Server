@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import dayjs from 'dayjs';
-import { Box, Button, Chip, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Button, Chip, Stack, Tooltip, Typography, useMediaQuery } from '@mui/material';
 import { DeleteOutlined, FilterOutlined } from '@ant-design/icons';
 
 import * as API from '../../api';
@@ -23,6 +23,8 @@ const Text = ({ value, max }) => {
 const Addresses = ({ overview, bans, bansKnown, catalogue, onShowAddress, onUnbanned }) => {
   const { t } = useTranslation();
   const [confirmUnban, setConfirmUnban] = useState(null);
+  // below sm the "Now" column is hidden: the block shows under the address
+  const narrow = useMediaQuery((theme) => theme.breakpoints.down('sm'));
   const top = (overview && overview.top) || [];
 
   const where = (a) => {
@@ -73,15 +75,18 @@ const Addresses = ({ overview, bans, bansKnown, catalogue, onShowAddress, onUnba
             title: t('security.addresses.address', 'Address'),
             search: (a) => a.ip,
             field: (a) => <Stack spacing={0.25}>
-              <strong style={{ overflowWrap: 'anywhere' }}><Text value={a.ip} max={40} /></strong>
+              <strong style={{ overflowWrap: 'break-word' }}><Text value={a.ip} max={40} /></strong>
               <Typography variant="caption" color="textSecondary">{where(a)}</Typography>
+              {narrow && <Typography variant="body2" sx={{ overflowWrap: 'break-word' }}>{did(a)}</Typography>}
+              {narrow && bansKnown && banOf(bans, a.ip) && <Box>{blocked(a)}</Box>}
             </Stack>,
           },
           {
             title: t('security.addresses.did', 'What it did'),
+            screenMin: 'sm',
             search: (a) => did(a),
             field: (a) => <Stack spacing={0.25}>
-              <span style={{ overflowWrap: 'anywhere' }}>{did(a)}</span>
+              <span style={{ overflowWrap: 'break-word' }}>{did(a)}</span>
               <Typography variant="caption" color="textSecondary">
                 {t('security.addresses.total', '{{count}} in all', { count: a.total })}
               </Typography>
@@ -101,18 +106,27 @@ const Addresses = ({ overview, bans, bansKnown, catalogue, onShowAddress, onUnba
             title: '',
             clickable: true,
             style: { textAlign: 'right' },
-            field: (a) => <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'flex-end' }}>
-              <Tooltip title={t('security.addresses.showIncidents', 'Show the incidents of this address')}>
-                <Button size="small" variant="outlined" startIcon={<FilterOutlined />} onClick={() => onShowAddress(a.ip)}>
-                  {t('security.addresses.show', 'Incidents')}
-                </Button>
-              </Tooltip>
-              {bansKnown && banOf(bans, a.ip) && <PermissionGuard permission={PERM_CONFIGURATION}>
-                <Button size="small" variant="outlined" color="error" startIcon={<DeleteOutlined />} onClick={() => setConfirmUnban(a.ip)}>
-                  {banOf(bans, a.ip).status === 'strike' ? t('mgmt.shield.bans.unstrike') : t('mgmt.shield.bans.unban')}
-                </Button>
-              </PermissionGuard>}
-            </Box>,
+            field: (a) => {
+              const ban = bansKnown ? banOf(bans, a.ip) : null;
+              const unbanLabel = ban && (ban.status === 'strike' ? t('mgmt.shield.bans.unstrike') : t('mgmt.shield.bans.unban'));
+              // on a phone the buttons are icons, their words in the tooltip
+              const compact = narrow ? { minWidth: 0, px: 1, '& .MuiButton-startIcon': { m: 0 } } : {};
+              return <Box sx={{ display: 'flex', flexDirection: narrow ? 'column' : 'row', flexWrap: 'wrap', gap: 1, justifyContent: 'flex-end', alignItems: 'flex-end' }}>
+                <Tooltip title={t('security.addresses.showIncidents', 'Show the incidents of this address')}>
+                  <Button size="small" variant="outlined" sx={compact} startIcon={<FilterOutlined />} onClick={() => onShowAddress(a.ip)}
+                    aria-label={narrow ? t('security.addresses.showIncidents', 'Show the incidents of this address') : undefined}>
+                    {!narrow && t('security.addresses.show', 'Incidents')}
+                  </Button>
+                </Tooltip>
+                {ban && <PermissionGuard permission={PERM_CONFIGURATION}>
+                  <Tooltip title={unbanLabel}>
+                    <Button size="small" variant="outlined" color="error" sx={compact} startIcon={<DeleteOutlined />} onClick={() => setConfirmUnban(a.ip)} aria-label={narrow ? unbanLabel : undefined}>
+                      {!narrow && unbanLabel}
+                    </Button>
+                  </Tooltip>
+                </PermissionGuard>}
+              </Box>;
+            },
           },
         ]}
       />
