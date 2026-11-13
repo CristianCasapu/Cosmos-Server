@@ -84,7 +84,21 @@ export const CHECK_TEXT = {
   'access.login': ['login', 'Open to the internet; visitors log in to Cosmos first.', null],
   'access.open': ['open', 'Open to everyone who reaches the address.', null],
 
+  'record.exists': ['exists', 'The record exists at Cloudflare.', null],
+  'record.pending': ['pending', 'The record is being written at Cloudflare: this takes up to a minute.', null],
+  'record.foreign': ['foreign', 'A record for this name exists at Cloudflare that Cosmos did not create: Cosmos leaves it as it is.', 'domains'],
+  'record.error_invalid_token': ['errorInvalidToken', 'Cloudflare does not accept the stored API token (wrong, expired or deleted): the record cannot be written. Paste a current token.', 'domains'],
+  'record.error_malformed_token': ['errorMalformedToken', 'What is stored for this domain is not an API token: the record cannot be written.', 'domains'],
+  'record.error_forbidden': ['errorForbidden', 'The API token may not change this domain\'s records at Cloudflare. It needs Zone > Zone > Read and Zone > DNS > Edit.', 'domains'],
+  'record.error_not_found': ['errorNotFound', 'The API token does not see this domain at Cloudflare: the record cannot be written.', 'domains'],
+  'record.error_rate_limited': ['errorRateLimited', 'Cloudflare asked Cosmos to slow down: the record is written a little later.', null],
+  'record.error_unreachable': ['errorUnreachable', 'Cloudflare could not be reached from this server: the record is written once it can.', null],
+  'record.error_other': ['errorOther', 'The record could not be written at Cloudflare. Configuration > Domains shows the reason.', 'domains'],
+
   'dns.pointsHere': ['pointsHere', 'The name points to this server.', null],
+  'dns.throughShield': ['throughShield', 'The name leads to Cloudflare, which passes visitors on to this server.', null],
+  'dns.shieldNotYet': ['shieldNotYet', 'The name still points straight at this server although it is set to go through Cloudflare: the change is on its way, or the proxy was switched off at Cloudflare. Visitors who get this answer are refused.', 'domains'],
+  'dns.behindCloudflare': ['behindCloudflare', 'The name leads to Cloudflare\'s proxy, but here it is set to be served directly: Cosmos then takes Cloudflare\'s addresses for the visitors. Set it to "through Cloudflare" under Domains.', 'domains'],
   'dns.noRecord': ['noRecord', 'The name does not exist in DNS. Create the record at your DNS provider, or let Cosmos manage the domain\'s records.', 'domains'],
   'dns.lookupFailed': ['lookupFailed', 'The name could not be looked up just now.', null],
   'dns.localAnswer': ['localAnswer', 'Here the name resolves to a local address, probably a local DNS entry (router, Pi-hole): what the internet gets cannot be seen from here.', null],
@@ -103,6 +117,9 @@ export const CHECK_TEXT = {
   'forward.ipv6Firewall': ['ipv6Firewall', 'Reached over IPv6: nothing to forward, but the router\'s IPv6 firewall must let port {{port}} in, and Cosmos cannot see it.', null],
   'forward.routerNotPublic': ['routerNotPublic', 'The router\'s own internet address is not a public one (provider NAT): nothing behind it can be reached from the internet.', 'internet'],
   'forward.upnpFailed': ['upnpFailed', 'Automatic forwarding of port {{port}} failed: {{error}}', 'internet'],
+
+  'shield.on': ['on', 'Served through Cloudflare: Cosmos answers for this name to Cloudflare and to your local network only.', null],
+  'shield.port': ['port', 'Set to go through Cloudflare, but visitors use port {{port}}, which Cloudflare does not pass on (it passes HTTPS on 443, 2053, 2083, 2087, 2096 and 8443).', 'internet'],
 
   'cert.valid': ['valid', 'The certificate is valid until {{until}}.', null],
   'cert.selfSigned': ['selfSigned', 'The certificate is not one browsers trust: visitors get a warning. Use Let\'s Encrypt for the domain.', 'domains'],

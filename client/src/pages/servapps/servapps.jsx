@@ -371,7 +371,7 @@ const ServApps = ({stack}) => {
                     {t('menu-items.management.urls')}
                   </Typography>
                   {/* Fork addition: attach or detach a domain */}
-                  <AppDomains config={config} containerName={app.name.replace('/', '')} refresh={refreshServApps} size="small" style={{ marginLeft: 'auto' }} />
+                  <AppDomains config={config} containerName={app.name.replace('/', '')} refresh={refreshServApps} size="small" style={{ marginLeft: 'auto' }} image={app.apps.map((one) => one.Image).join(' ')} />
                   <PermissionGuard permission={PERM_RESOURCES}>
                     <Chip
                       label={t('mgmt.servApps.newChip.newLabel')}

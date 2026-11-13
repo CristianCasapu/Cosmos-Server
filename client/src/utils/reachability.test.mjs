@@ -61,6 +61,8 @@ test('every check the server can return has a sentence', () => {
   const codes = [...go.matchAll(/add\("(\w+)", Check\w+, (?:"(\w+)"|problem)/g)].filter((m) => m[2]).map((m) => m[1] + '.' + m[2]);
   // codes passed through: answer.Skipped and the certificate problems
   codes.push('dns.badName', 'dns.tooMany', 'cert.selfSigned', 'cert.wrongName', 'cert.expired', 'cert.none');
+  // the reasons a record could not be written at Cloudflare
+  codes.push(...['invalid_token', 'malformed_token', 'forbidden', 'not_found', 'rate_limited', 'unreachable', 'other'].map((reason) => 'record.error_' + reason));
   assert.ok(codes.length > 25, 'found the codes in state.go');
   for (const code of codes) {
     assert.ok(CHECK_TEXT[code], 'no sentence for ' + code);

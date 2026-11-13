@@ -52,6 +52,7 @@ const IGNORED = [
   /^\/api\/(metrics|events|notifications|list-dir|dns-check|_logs|_memory)\b/,
   /^\/api\/jobs\/(get|running)\b/,
   /^\/api\/(config\/test-email|upnp|server-update|force-server-update)\b/,
+  /^\/api\/cloudflare\/(check|preview)\b/, // Fork addition: the guided set-up shows these answers itself
   /^\/api\/servapps\/[^/]+\/(logs|terminal|export|check-update)\b/,
   /^\/api\/constellation\/(ping|devices\/[^/]+\/ping)\b/,
   /^\/rclone\/(config\/(dump|listremotes)|operations\/about|vfs\/stats|core\/stats)\b/,
@@ -106,6 +107,12 @@ const COMMANDS = [
 
   // internet reachability (src/reach): GET is a read and never followed
   ['POST', /^\/api\/reachability$/, () => ['activity.reachability.check', 'Check internet reachability']],
+
+  // Cloudflare (src/cloudflare): the status is read with GET, which is never followed
+  ['POST', /^\/api\/cloudflare\/shield$/, () => ['activity.cloudflare.shield', 'Change how the address is served']],
+  ['POST', /^\/api\/cloudflare\/panel$/, () => ['activity.cloudflare.panel', 'Set the panel\'s address']],
+  ['POST', /^\/api\/cloudflare\/takeover$/, () => ['activity.cloudflare.takeover', 'Let Cosmos replace the existing record']],
+  ['POST', /^\/api\/cloudflare\/ranges$/, () => ['activity.cloudflare.ranges', 'Update Cloudflare\'s addresses']],
 
   // incremental snapshots (src/snapshots); their status is read with GET, which is never followed
   ['POST', /^\/api\/snapshots\/run$/, () => ['activity.snapshots.run', 'Start the incremental backup']],

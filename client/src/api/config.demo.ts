@@ -64,6 +64,19 @@ function reachability() {
 
 const reachabilityCheck = reachability;
 
+// Fork addition: the demo has no Cloudflare to talk to
+const cloudflareNone = () => Promise.resolve({ ok: false, status: 0, data: null, reason: 'no_answer', detail: '', message: '' });
+const cloudflareStatus = () => Promise.resolve({
+  ok: true, status: 200, reason: '', detail: '', message: '',
+  data: { zones: [], hosts: [], publicPort: 443, portOK: true, allowedPorts: [443], ranges: { trusted: false, builtin: true, date: '', count: 0 } },
+});
+const cloudflareCheck = cloudflareNone;
+const cloudflarePreview = cloudflareNone;
+const cloudflareTakeOver = cloudflareNone;
+const cloudflareShield = cloudflareNone;
+const cloudflarePanel = cloudflareNone;
+const cloudflareRanges = cloudflareNone;
+
 function serverUpdateStatus() {
   return new Promise((resolve, reject) => {
     resolve({
@@ -200,6 +213,13 @@ export {
   upnpRetry,
   reachability,
   reachabilityCheck,
+  cloudflareStatus,
+  cloudflareCheck,
+  cloudflarePreview,
+  cloudflareTakeOver,
+  cloudflareShield,
+  cloudflarePanel,
+  cloudflareRanges,
   serverUpdateStatus,
   checkServerUpdate,
   snapshotsStatus,
