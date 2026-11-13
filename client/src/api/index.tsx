@@ -21,6 +21,7 @@ import createFunctionsAPI from './functions';
 import createCIAPI from './ci';
 import createShieldAPI from './shield';
 import createStateAPI from './state';
+import createSecurityAPI from './security'; // Fork addition: security dashboard
 
 import * as authDemo from './authentication.demo';
 import * as usersDemo from './users.demo';
@@ -79,6 +80,7 @@ export function createClient({ baseUrl, token }) {
     ci: createCIAPI(apiFetch),
     shield: createShieldAPI(apiFetch),
     state: createStateAPI(apiFetch),
+    security: createSecurityAPI(apiFetch), // Fork addition: security dashboard
 
     getStatus: () => {
       return wrap(apiFetch('/cosmos/api/status', {
@@ -434,6 +436,7 @@ let functions = createFunctionsAPI(defaultFetch);
 let ci = createCIAPI(defaultFetch);
 let shield = createShieldAPI(defaultFetch);
 let state = createStateAPI(defaultFetch);
+let security = createSecurityAPI(defaultFetch); // Fork addition: security dashboard
 
 if(isDemo) {
   auth = authDemo;
@@ -496,4 +499,5 @@ export {
   ci,
   shield,
   state,
+  security, // Fork addition: security dashboard
 };
