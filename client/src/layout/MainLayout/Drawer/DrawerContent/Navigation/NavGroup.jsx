@@ -7,6 +7,7 @@ import { Box, List, Typography } from '@mui/material';
 
 // project import
 import NavItem from './NavItem';
+import { useClientInfos } from '../../../../../utils/hooks'; // Fork addition: hide empty groups
 
 // ==============================|| NAVIGATION - LIST GROUP ||============================== //
 
@@ -14,6 +15,7 @@ const NavGroup = ({ item }) => {
     const { t } = useTranslation();
     const menu = useSelector((state) => state.menu);
     const { drawerOpen } = menu;
+    const { hasPermission } = useClientInfos();
 
     const navCollapse = item.children?.map((menuItem) => {
         switch (menuItem.type) {
@@ -33,6 +35,9 @@ const NavGroup = ({ item }) => {
                 );
         }
     });
+
+    // Fork addition: a group whose items are all hidden by permission shows no heading
+    if (item.children?.length && item.children.every((c) => c.permission !== undefined && !hasPermission(c.permission))) return null;
 
     return (
         <List
