@@ -1186,6 +1186,7 @@ func InitServer() *mux.Router {
 
 	srapiAdmin.HandleFunc("/api/events", metrics.API_ListEvents)
 	registerSecurityRoutes(srapiAdmin) // Fork addition: the security record, read only
+	registerFail2banRoutes(srapiAdmin) // Fork addition: Fail2ban status, unban and settings, see fork_fail2ban.go
 
 	srapiAdmin.HandleFunc("/api/shield/bans", proxy.API_ShieldBans)
 	srapiAdmin.HandleFunc("/api/shield/unban", proxy.API_ShieldUnban)

@@ -98,6 +98,11 @@ const (
 	SecSnapshotRestore   = "snapshot.restore.started"
 	SecAPIChange         = "api.change"
 
+	// Fail2ban (src/fail2ban). A kind is lower-case letters and dots, hence "firewall".
+	SecFail2banBan      = "firewall.ban"
+	SecFail2banUnban    = "firewall.unban"
+	SecFail2banSettings = "firewall.settings.saved"
+
 	// the record about itself
 	SecRecorderDropped = "recorder.dropped"
 )

@@ -1,0 +1,40 @@
+# Written by Cosmos when the Fail2ban settings are saved in its panel.
+# Do not edit: it is replaced on the next save. It is read after
+# cosmos-10-jails.local and cosmos-50-host.local, so what it says wins.
+# Delete it and run "fail2ban-client reload" to go back to those files.
+
+[cosmos-auth]
+maxretry = 5
+findtime = 3600
+bantime = 14400
+ignoreip = 127.0.0.0/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+
+[cosmos-probe]
+maxretry = 3
+findtime = 3600
+bantime = 86400
+ignoreip = 127.0.0.0/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+
+[cosmos-scan]
+maxretry = 10
+findtime = 600
+bantime = 14400
+ignoreip = 127.0.0.0/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+
+[cosmos-abuse]
+maxretry = 3
+findtime = 86400
+bantime = 14400
+ignoreip = 127.0.0.0/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+
+[sshd]
+maxretry = 5
+findtime = 600
+bantime = 3600
+ignoreip = 127.0.0.0/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+
+[recidive]
+maxretry = 3
+findtime = 86400
+bantime = 604800
+ignoreip = 127.0.0.0/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16

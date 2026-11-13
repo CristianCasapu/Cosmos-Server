@@ -217,6 +217,8 @@ type Config struct {
 	BackupWeekday int `json:"BackupWeekday,omitempty" validate:"min=0,max=6"`
 	// Fork addition: incremental snapshots of folders, see src/snapshots.
 	Snapshots SnapshotsConfig `json:"Snapshots,omitempty"`
+	// Fork addition: what the panel set for the Fail2ban jails, see src/fail2ban.
+	Fail2ban Fail2banConfig `json:"Fail2ban,omitempty"`
 	IncrBackupOutputDir string
 	DisableHostModeWarning bool
 	AdminWhitelistIPs []string

@@ -1,0 +1,2 @@
+2026-11-13 14:02:58,426 fail2ban                [847]: ERROR   NOK: ('nope',)
+Sorry but the jail 'nope' does not exist
