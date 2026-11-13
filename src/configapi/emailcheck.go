@@ -5,10 +5,14 @@ package configapi
 import (
 	"encoding/json"
 	"net/http"
+	"net/mail"
 	"strings"
 
 	"github.com/azukaar/cosmos-server/src/utils"
 )
+
+// the largest body the test route reads: a handful of short settings
+const maxTestEmailBody = 16 << 10
 
 type testEmailRequest struct {
 	EmailConfig utils.EmailConfig
@@ -40,6 +44,7 @@ func ConfigApiTestEmail(w http.ResponseWriter, req *http.Request) {
 	}
 
 	var request testEmailRequest
+	req.Body = http.MaxBytesReader(w, req.Body, maxTestEmailBody)
 	if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
 		utils.Error("TestEmail: Invalid request", err)
 		utils.HTTPError(w, "Invalid request", http.StatusBadRequest, "TE001")
@@ -58,10 +63,8 @@ func ConfigApiTestEmail(w http.ResponseWriter, req *http.Request) {
 	} else if cfg.Password == "***" {
 		// Reuse the saved password only for the very connection it was saved
 		// for: another host or port, or a weaker TLS setting, would hand it over.
-		sameConnection := cfg.Host == saved.Host && cfg.Port == saved.Port &&
-			cfg.Username == saved.Username && cfg.UseTLS == saved.UseTLS &&
-			(!cfg.AllowInsecureTLS || saved.AllowInsecureTLS)
-		if !sameConnection {
+		// The same rule guards the save, see fork_email.go.
+		if !sameEmailConnection(cfg, saved) {
 			utils.HTTPError(w, "Enter the SMTP password to test changed connection settings", http.StatusBadRequest, "TE003")
 			return
 		}
@@ -70,14 +73,30 @@ func ConfigApiTestEmail(w http.ResponseWriter, req *http.Request) {
 
 	// Values are used as they would be saved: a test must not pass on input
 	// that real delivery would then fail on.
-	if strings.TrimSpace(cfg.Host) == "" || strings.TrimSpace(cfg.Port) == "" || strings.TrimSpace(cfg.From) == "" {
+	cfg.Host, cfg.Port, cfg.From, cfg.Username = strings.TrimSpace(cfg.Host), strings.TrimSpace(cfg.Port), strings.TrimSpace(cfg.From), strings.TrimSpace(cfg.Username)
+	if cfg.Host == "" || cfg.Port == "" || cfg.From == "" {
 		utils.HTTPError(w, "SMTP host, port and sender are required", http.StatusBadRequest, "TE002")
 		return
 	}
+	// the checks of the save: a test must not pass on what a save refuses
+	if !masked {
+		checked := cfg
+		checked.Enabled = true
+		if err := validateEmailConfig(checked); err != nil {
+			utils.HTTPError(w, err.Error(), http.StatusBadRequest, "TE002")
+			return
+		}
+	}
 
+	// the test goes to one address; empty means the sender's own
 	recipient := strings.TrimSpace(request.Recipient)
 	if recipient == "" {
-		recipient = cfg.From
+		recipient, _ = utils.EmailSender(cfg.From)
+	} else if parsed, err := mail.ParseAddress(recipient); err != nil || len(recipient) > 320 {
+		utils.HTTPError(w, "Enter one email address to send the test to", http.StatusBadRequest, "TE004")
+		return
+	} else {
+		recipient = parsed.Address
 	}
 
 	steps, err := utils.SendTestEmail(cfg, recipient)

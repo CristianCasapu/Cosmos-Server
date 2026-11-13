@@ -67,6 +67,9 @@ func ConfigApiGet(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 
+		// Fork addition: the stored SMTP password goes to no browser, see fork_email.go
+		maskEmailPassword(&config)
+
 		if !isAdmin {
 			// filter admin only routes
 			filteredRoutes := make([]utils.ProxyRouteConfig, 0)
