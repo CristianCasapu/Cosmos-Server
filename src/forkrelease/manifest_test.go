@@ -241,3 +241,42 @@ func TestReleaseKeyIsCompiledIn(t *testing.T) {
 		}
 	}
 }
+
+// The release workflow signs with OpenSSL (`pkeyutl -sign -rawin`), the
+// server verifies with Go. testdata holds two signature files made by the
+// workflow's own steps (OpenSSL 3.0, throwaway keys of which only the public
+// halves are kept): one signed with one key, one signed with two.
+func TestSignatureFilesMadeByTheReleaseWorkflowVerify(t *testing.T) {
+	read := func(name string) []byte {
+		data, err := os.ReadFile("testdata/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	key := func(name string) ed25519.PublicKey {
+		keys, err := decodeKeys([]string{string(read(name))})
+		if err != nil || len(keys) != 1 {
+			t.Fatalf("%s: %v", name, err)
+		}
+		return keys[0]
+	}
+	first, second := key("openssl-one-key.pub"), key("openssl-second-key.pub")
+	stranger, _ := testKey(t)
+
+	manifest, err := verifyWith([]ed25519.PublicKey{first}, read("openssl-one-key.sig"))
+	if err != nil || manifest.Version != "0.24.0-fork.10" || len(manifest.Files) != 2 {
+		t.Fatalf("a file signed by the workflow with one key: %+v %v", manifest, err)
+	}
+	for name, keys := range map[string][]ed25519.PublicKey{"the first key": {first}, "the second key": {second}, "both": {first, second}} {
+		if manifest, err := verifyWith(keys, read("openssl-two-keys.sig")); err != nil || manifest.Version != "0.24.0-fork.11" {
+			t.Errorf("a file signed by the workflow with two keys, checked with %s: %v", name, err)
+		}
+	}
+	if _, err := verifyWith([]ed25519.PublicKey{second}, read("openssl-one-key.sig")); !errors.Is(err, ErrBadSignature) {
+		t.Errorf("checked with a key that did not sign: %v", err)
+	}
+	if _, err := verifyWith([]ed25519.PublicKey{stranger}, read("openssl-two-keys.sig")); !errors.Is(err, ErrBadSignature) {
+		t.Errorf("checked with a stranger's key: %v", err)
+	}
+}

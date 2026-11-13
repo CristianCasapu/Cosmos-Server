@@ -180,3 +180,64 @@ func TestARefusalByTheLauncherIsReportedAtStart(t *testing.T) {
 		t.Error("the launcher's note is still there")
 	}
 }
+
+// The server that installs the first signed release is the last one without
+// the check (0.24.0-fork.9). Its updater, like this one's GetLatestVersion,
+// takes as "the zip" the last asset whose name contains the architecture,
+// does not end in .md5 and does not contain "terraform". Whatever order
+// GitHub lists the assets in, that must be the zip and never the signature
+// file: otherwise that server would download the signature as its update,
+// fail the launcher's MD5 check every night and stay where it is for ever.
+func TestTheUpdaterBeforeSigningStillFindsTheZip(t *testing.T) {
+	version := "0.24.0-fork.10"
+	names := []string{
+		forkrelease.ZipName(version, "amd64"), forkrelease.ZipName(version, "amd64") + ".md5",
+		forkrelease.ZipName(version, "arm64"), forkrelease.ZipName(version, "arm64") + ".md5",
+		forkrelease.SignatureName(version),
+	}
+	pick := func(order []string, arch string) (zip string, md5 string) {
+		for _, asset := range order {
+			name := strings.ToLower(asset)
+			if strings.Contains(name, arch) && !strings.HasSuffix(name, ".md5") && !strings.Contains(name, "terraform") {
+				zip = asset
+			}
+			if strings.HasSuffix(name, ".md5") && strings.Contains(name, arch) && !strings.Contains(name, "terraform") {
+				md5 = asset
+			}
+		}
+		return
+	}
+	var permute func(prefix []string, rest []string)
+	orders := 0
+	permute = func(prefix []string, rest []string) {
+		if len(rest) == 0 {
+			orders++
+			for _, arch := range []string{"amd64", "arm64"} {
+				zip, md5 := pick(prefix, arch)
+				if zip != forkrelease.ZipName(version, arch) || md5 != zip+".md5" {
+					t.Fatalf("assets listed as %v: the updater takes %q and %q for %s", prefix, zip, md5, arch)
+				}
+			}
+			return
+		}
+		for i := range rest {
+			next := append(append([]string{}, rest[:i]...), rest[i+1:]...)
+			permute(append(append([]string{}, prefix...), rest[i]), next)
+		}
+	}
+	permute(nil, names)
+	if orders != 120 {
+		t.Fatalf("%d orders tried", orders)
+	}
+
+	// and the rule this test repeats is still the one in update.go
+	update := readSource(t, "update.go")
+	for _, rule := range []string{
+		`strings.Contains(name, "amd64") && !strings.HasSuffix(name, ".md5") && !strings.Contains(name, "terraform")`,
+		`strings.Contains(name, "arm64") && !strings.HasSuffix(name, ".md5") && !strings.Contains(name, "terraform")`,
+	} {
+		if !strings.Contains(update, rule) {
+			t.Errorf("update.go no longer picks the zip by %s: look at this test again", rule)
+		}
+	}
+}
