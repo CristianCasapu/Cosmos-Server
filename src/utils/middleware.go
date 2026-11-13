@@ -462,13 +462,8 @@ func EnsureHostnameCosmosAPI(next http.Handler) http.Handler {
 		og := GetMainConfig().HTTPConfig.Hostname
 		ni := GetMainConfig().NewInstall
 
-		isLogin := !strings.HasPrefix(r.URL.Path, "/cosmos/api") ||
-						   strings.HasPrefix(r.URL.Path, "/cosmos/api/login") ||
-						   strings.HasPrefix(r.URL.Path, "/cosmos/api/status") ||
-							 strings.HasPrefix(r.URL.Path, "/cosmos/api/password-reset") ||
-							 strings.HasPrefix(r.URL.Path, "/cosmos/api/mfa") ||
-							 strings.HasPrefix(r.URL.Path, "/cosmos/api/can-send-email") ||
-							 strings.HasPrefix(r.URL.Path, "/cosmos/api/me")
+		// Fork addition: an exact list, see fork_hostname_paths.go (upstream: by prefix, and everything outside /cosmos/api)
+		isLogin := cosmosPathOnAnyHostname(r.URL.Path, r.Method)
 
 		if ni || og == "0.0.0.0" || isLogin {
 			next.ServeHTTP(w, r)
