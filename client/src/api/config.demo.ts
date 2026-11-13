@@ -78,6 +78,10 @@ function snapshotsRestore(source, snapshot) {
   return snapshotsStatus();
 }
 
+function snapshotsCleanup(source, name) {
+  return snapshotsStatus();
+}
+
 function canSendEmail() {
   return new Promise((resolve, reject) => {
     resolve({
@@ -187,6 +191,7 @@ export {
   snapshotsStatus,
   snapshotsRun,
   snapshotsRestore,
+  snapshotsCleanup,
   getDashboard,
   getBackup,
 };

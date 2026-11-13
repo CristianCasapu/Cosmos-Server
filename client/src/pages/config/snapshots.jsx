@@ -1,8 +1,9 @@
 // Fork addition: "Incremental backup" card of the general settings. It sets up
 // the dated, hard-linked snapshots made by src/snapshots on the server, lists
-// the snapshots there are and can put one back in place of its folder. The
-// settings live in the page's form (see the three helpers below, used by
-// index.jsx); the list and the two buttons talk to /api/snapshots.
+// the snapshots there are, can put one back in place of its folder and can
+// delete a folder that a restore kept. The settings live in the page's form
+// (see the three helpers below, used by index.jsx); the list and the buttons
+// talk to /api/snapshots.
 import * as React from 'react';
 import * as Yup from 'yup';
 import * as API from '../../api';
@@ -19,7 +20,7 @@ import {
   Typography,
 } from '@mui/material';
 import { LoadingButton } from '@mui/lab';
-import { FolderOutlined, PlayCircleOutlined, PlusOutlined, RollbackOutlined } from '@ant-design/icons';
+import { DeleteOutlined, FolderOutlined, PlayCircleOutlined, PlusOutlined, RollbackOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { CosmosCheckbox, CosmosInputText, CosmosSelect } from './users/formShortcuts';
 import { FilePickerButton } from '../../components/filePicker';
@@ -32,6 +33,14 @@ import { simplifyNumber } from '../dashboard/components/utils';
 const DEFAULT_KEEP = { Recent: 8, Daily: 7, Weekly: 4, Monthly: 6 };
 const SHOWN_AT_FIRST = 5;
 const POLL_EVERY = 3000;
+const MAX_EXCLUDES = 100;
+const MAX_EXCLUDE_LENGTH = 200;
+
+// The exclusions, typed one per line, as the list that is saved: in the plain
+// form the server stores (no trailing slash), each one once.
+const excludeLines = (text) => [...new Set(String(text || '').split(/\r?\n/)
+  .map((line) => line.trim().replace(/\/+$/, ''))
+  .filter(Boolean))];
 
 // What the form starts from. A keep count of 0 in the configuration means
 // "the default", which the form shows as the number it stands for.
@@ -48,6 +57,7 @@ export const snapshotsInitialValues = (config) => {
     Snapshots_KeepDaily: saved.KeepDaily || DEFAULT_KEEP.Daily,
     Snapshots_KeepWeekly: saved.KeepWeekly || DEFAULT_KEEP.Weekly,
     Snapshots_KeepMonthly: saved.KeepMonthly || DEFAULT_KEEP.Monthly,
+    Snapshots_Excludes: Array.isArray(saved.Excludes) ? saved.Excludes.join('\n') : '',
   };
 };
 
@@ -73,6 +83,7 @@ export const snapshotsToConfig = (values) => ({
   KeepDaily: Number(values.Snapshots_KeepDaily) || 0,
   KeepWeekly: Number(values.Snapshots_KeepWeekly) || 0,
   KeepMonthly: Number(values.Snapshots_KeepMonthly) || 0,
+  Excludes: excludeLines(values.Snapshots_Excludes),
 });
 
 const isHostDirectory = (value) =>
@@ -104,6 +115,16 @@ export const snapshotsValidation = (t) => {
     Snapshots_KeepDaily: keep,
     Snapshots_KeepWeekly: keep,
     Snapshots_KeepMonthly: keep,
+    Snapshots_Excludes: Yup.string().test(
+      'excludes',
+      t('mgmt.config.snapshots.excludesValidation',
+        'At most 100 patterns, each at most 200 characters, one per line. A pattern must not start with "/", go up with "..", or contain "**".'),
+      (value) => {
+        const lines = String(value || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        return excludeLines(value).length <= MAX_EXCLUDES && lines.every((line) =>
+          [...line].length <= MAX_EXCLUDE_LENGTH && !line.startsWith('/') && !line.includes('**') && !line.split('/').includes('..'));
+      },
+    ),
   };
 };
 
@@ -121,15 +142,24 @@ const shownDate = (value) => {
 
 const baseName = (path) => String(path || '').split('/').filter(Boolean).pop() || '';
 
+// When a restore kept a folder: the date the server read from its name, else
+// the time as the name has it.
+const keptDate = (kept) => (new Date(kept.date).getFullYear() > 1970 && shownDate(kept.date))
+  || String(kept.name || '').split('.before-restore-').pop();
+// The folder a restore kept, as a path: it lies next to the folder restored.
+const keptPath = (source, kept) => String(source.path || '').replace(/\/[^/]*\/?$/, '') + '/' + kept.name;
+
 const Snapshots = ({ formik, config }) => {
   const { t } = useTranslation();
   const [status, setStatus] = React.useState(null);
   const [loadError, setLoadError] = React.useState('');
   const [starting, setStarting] = React.useState(false);
   const [confirm, setConfirm] = React.useState(null); // { source, snapshot } waiting for a yes
+  const [confirmDelete, setConfirmDelete] = React.useState(null); // { source, kept } waiting for a yes
+  const [deleting, setDeleting] = React.useState(''); // the kept folder being deleted
   const [expanded, setExpanded] = React.useState({}); // folders whose whole list is shown
   const [outcome, setOutcome] = React.useState(null); // how the restore started from here ended
-  const followed = React.useRef(''); // what this page saw running: 'snapshot' or 'restore'
+  const followed = React.useRef(''); // what this page saw running: 'snapshot', 'restore' or 'cleanup'
   const alive = React.useRef(true);
 
   const values = formik.values;
@@ -157,7 +187,7 @@ const Snapshots = ({ formik, config }) => {
     setStatus(data);
     setLoadError('');
     if (data.running) {
-      followed.current = data.action === 'restore' ? 'restore' : 'snapshot';
+      followed.current = ['restore', 'cleanup'].includes(data.action) ? data.action : 'snapshot';
     } else if (followed.current) {
       report(data);
     }
@@ -216,6 +246,16 @@ const Snapshots = ({ formik, config }) => {
     API.config.snapshotsRestore(source.path, snapshot.id)
       .then((response) => accept(response.data))
       .catch(() => { load(); });
+  };
+
+  // answers when the folder is gone; the command's own message tells how it went
+  const removeKept = () => {
+    const { source, kept } = confirmDelete;
+    setDeleting(kept.name);
+    API.config.snapshotsCleanup(source.path, kept.name)
+      .then((response) => accept(response.data))
+      .catch(() => { load(); })
+      .finally(() => { if (alive.current) setDeleting(''); });
   };
 
   const sourcesError = (formik.touched.Snapshots_Sources || formik.submitCount > 0) && typeof formik.errors.Snapshots_Sources === 'string'
@@ -305,6 +345,16 @@ const Snapshots = ({ formik, config }) => {
             </>)}
           </Stack>
         </Grid>
+
+        {/* what is left out */}
+        <CosmosInputText
+          label={t('mgmt.config.snapshots.excludesLabel', 'Files and folders to leave out (one pattern per line)')}
+          name="Snapshots_Excludes"
+          multiline
+          formik={formik}
+          helperText={t('mgmt.config.snapshots.excludesHelp',
+            'For example *.tmp, cache or transcodes. A pattern without "/" applies to the name of a file or folder at any depth; one with "/" applies to the path below each folder backed up, for example downloads/incomplete. A folder that is left out is skipped with all it holds. "*" and "?" stay within one name; "**" is not supported.')}
+        />
 
         {/* when */}
         <CosmosSelect
@@ -396,11 +446,13 @@ const Snapshots = ({ formik, config }) => {
 
             {running && (
               <Alert severity="info" icon={<CircularProgress size={18} color="inherit" />} sx={{ overflowWrap: 'anywhere' }}>
-                {status.action === 'restore'
-                  ? t('mgmt.config.snapshots.status.restoring', 'Restoring {{folder}}…', { folder: status.current || '' })
-                  : t('mgmt.config.snapshots.status.running', 'Backing up {{folder}}…', { folder: status.current || '' })}
-                {' '}
-                {t('mgmt.config.snapshots.status.filesDone', '{{files}} files so far.', { files: Number(status.filesDone || 0).toLocaleString() })}
+                {status.action === 'cleanup'
+                  ? t('mgmt.config.snapshots.status.cleaning', 'Deleting a folder that a restore of {{folder}} kept…', { folder: status.current || '' })
+                  : status.action === 'restore'
+                    ? t('mgmt.config.snapshots.status.restoring', 'Restoring {{folder}}…', { folder: status.current || '' })
+                    : t('mgmt.config.snapshots.status.running', 'Backing up {{folder}}…', { folder: status.current || '' })}
+                {status.action !== 'cleanup' && ' '}
+                {status.action !== 'cleanup' && t('mgmt.config.snapshots.status.filesDone', '{{files}} files so far.', { files: Number(status.filesDone || 0).toLocaleString() })}
               </Alert>
             )}
 
@@ -479,6 +531,27 @@ const Snapshots = ({ formik, config }) => {
                       </Button>
                     </Stack>
                   )}
+                  {/* what restores kept next to the folder: never deleted without being asked */}
+                  {(source.beforeRestore || []).map((kept) => (
+                    <Stack key={kept.name} direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+                      <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere', flexGrow: 1, flexBasis: 0, minWidth: '12em' }}>
+                        {t('mgmt.config.snapshots.kept.row', 'Kept by the restore of {{date}}: {{path}}', { date: keptDate(kept), path: keptPath(source, kept) })}
+                      </Typography>
+                      <PermissionGuard permission={PERM_ADMIN}>
+                        <LoadingButton
+                          size="small"
+                          variant="outlined"
+                          color="error"
+                          loading={deleting === kept.name}
+                          disabled={running || Boolean(deleting)}
+                          startIcon={<DeleteOutlined />}
+                          onClick={() => setConfirmDelete({ source, kept })}
+                        >
+                          {t('global.delete')}
+                        </LoadingButton>
+                      </PermissionGuard>
+                    </Stack>
+                  ))}
                 </Stack>
               );
             })}
@@ -497,6 +570,13 @@ const Snapshots = ({ formik, config }) => {
             content={t('mgmt.config.snapshots.restore.confirm',
               'Put {{folder}} back to how it was on {{date}}? The folder as it is now is not deleted: it is kept next to it as {{name}}.before-restore-…, which takes as much room again. Stop the apps that use this folder first, and start them again afterwards.',
               { folder: confirm.source.path, date: shownDate(confirm.snapshot.finished) || confirm.snapshot.id, name: baseName(confirm.source.path) })}
+          />}
+          {confirmDelete && <ConfirmModalDirect
+            callback={removeKept}
+            onClose={() => setConfirmDelete(null)}
+            content={t('mgmt.config.snapshots.kept.confirm',
+              'Delete {{path}}? It is {{folder}} as it was before the restore of {{date}}, with everything in it. This cannot be undone.',
+              { path: keptPath(confirmDelete.source, confirmDelete.kept), folder: confirmDelete.source.path, date: keptDate(confirmDelete.kept) })}
           />}
         </Grid>
       </Grid>

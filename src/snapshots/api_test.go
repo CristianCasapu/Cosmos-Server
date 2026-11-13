@@ -64,6 +64,7 @@ func TestRoutesNeedASessionAndTheRightMethod(t *testing.T) {
 		{"/api/snapshots", StatusRoute, "GET"},
 		{"/api/snapshots/run", RunRoute, "POST"},
 		{"/api/snapshots/restore", RestoreRoute, "POST"},
+		{"/api/snapshots/cleanup", CleanupRoute, "POST"},
 	}
 	for _, route := range routes {
 		// nobody: refused whatever the method, before anything is read or done
@@ -83,7 +84,7 @@ func TestRoutesNeedASessionAndTheRightMethod(t *testing.T) {
 		}
 	}
 
-	// starting a run or a restore takes an admin who confirmed their password
+	// starting a run, a restore or a cleanup takes an admin who confirmed their password
 	for _, route := range routes[1:] {
 		for _, who := range []string{"reader", "admin"} {
 			if rec := call(route.handler, apiRequest("POST", route.path, who, `{}`)); rec.Code != http.StatusUnauthorized {

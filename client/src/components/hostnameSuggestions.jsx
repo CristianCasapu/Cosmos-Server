@@ -7,6 +7,7 @@ import { Chip, Grid, Stack, Typography } from '@mui/material';
 import { GlobalOutlined, HomeOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { getHostnameFromName, IsRouteSocketProxy } from '../utils/routes';
+import { isLocalHost } from '../utils/appLinks';
 
 // The app's name as a DNS label.
 export const hostLabel = (name) => (name || '')
@@ -102,8 +103,7 @@ export const hostnameSuggestions = (name, config) => {
     // the configuration is not loaded yet: no default to propose
   }
   if (fallback && !fallback.includes(' ')) {
-    const bare = fallback.split(':')[0];
-    add(fallback, bare.endsWith('.local') || /^\d+\.\d+\.\d+\.\d+$/.test(bare));
+    add(fallback, isLocalHost(fallback));
   }
   return suggestions;
 };
@@ -153,6 +153,20 @@ const HostnameSuggestions = ({ name, value, config, onPick, disabled, inline }) 
   </Cell>;
 };
 
+// One line on what the router has to do while Cosmos does not ask it to.
+export const PortForwardHint = ({ config }) => {
+  const { t } = useTranslation();
+  const http = (config && config.HTTPConfig) || {};
+  if (http.UPnP && http.UPnP.Enabled) {
+    return null;
+  }
+  return <Typography variant="caption" color="textSecondary">
+    {t('mgmt.urls.external.forwardByHand',
+      'Automatic port forwarding is off: forward port {{port}} (HTTPS) to this server on your router by hand, or switch it on under Configuration > HTTP > Internet access.',
+      { port: http.HTTPSPort || '443' })}
+  </Typography>;
+};
+
 // DomainPicker attaches domains to an app that is getting its local address:
 // each selected domain adds an external address. None is selected by default.
 export const DomainPicker = ({ name, config, selected, onChange }) => {
@@ -192,6 +206,7 @@ export const DomainPicker = ({ name, config, selected, onChange }) => {
         : t('mgmt.urls.external.selected',
           'One more address is created per selected domain. For it to work from outside, the name must point to this server in DNS and the router must forward the port (Configuration > HTTP > Internet access).')}
     </Typography>
+    {selected.length > 0 && <PortForwardHint config={config} />}
   </Stack>;
 };
 

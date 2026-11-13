@@ -17,6 +17,8 @@ type sourceView struct {
 	Slug      string     `json:"slug"`
 	Snapshots []Snapshot `json:"snapshots"` // newest first
 	LastError string     `json:"lastError"` // why the last run did not go cleanly, if so
+	// the folders restores kept next to this one, newest first; see kept.go
+	BeforeRestore []KeptFolder `json:"beforeRestore"`
 }
 
 // statusView is what GET /api/snapshots answers.
@@ -24,7 +26,7 @@ type statusView struct {
 	Enabled     bool           `json:"enabled"`
 	Destination string         `json:"destination"`
 	Running     bool           `json:"running"`
-	Action      string         `json:"action,omitempty"` // "snapshot" or "restore", while running
+	Action      string         `json:"action,omitempty"` // "snapshot", "restore" or "cleanup", while running
 	Current     string         `json:"current"`          // the folder being worked on
 	FilesDone   int64          `json:"filesDone"`
 	StartedAt   *time.Time     `json:"startedAt"`
@@ -75,9 +77,12 @@ func view() statusView {
 	}
 
 	for _, source := range cfg.Sources {
-		sv := sourceView{Path: source, Slug: Slug(source), Snapshots: []Snapshot{}}
+		sv := sourceView{Path: source, Slug: Slug(source), Snapshots: []Snapshot{}, BeforeRestore: []KeptFolder{}}
 		if usable && cfg.Destination != "" {
 			sv.Snapshots = List(cfg.Destination, source)
+		}
+		if usable {
+			sv.BeforeRestore = listKept(source)
 		}
 		if result, ok := st.LastResults[source]; ok {
 			sv.LastError = sentence(result.Error)
@@ -195,6 +200,64 @@ func RestoreRoute(w http.ResponseWriter, req *http.Request) {
 		return
 	case err != nil:
 		utils.HTTPError(w, sentence(err.Error()), http.StatusBadRequest, "SN003")
+		return
+	}
+
+	json.NewEncoder(w).Encode(utils.APIResponse{
+		Status: "OK",
+		Data:   view(),
+	})
+}
+
+// cleanupRequest names a folder that a restore kept: the folder that was
+// restored and the name of the kept one, both as GET /api/snapshots lists
+// them.
+type cleanupRequest struct {
+	Source string
+	Name   string
+}
+
+// CleanupRoute godoc
+// @Summary Incremental backup: delete a folder that a restore kept
+// @Description Deletes one "<folder>.before-restore-<time>" folder, which a restore left next to the folder it replaced. Answers when the folder is gone.
+// @Tags snapshots
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request body cleanupRequest true "The folder that was restored and the name of the kept folder"
+// @Success 200 {object} utils.APIResponse
+// @Failure 400 {object} utils.HTTPErrorResult
+// @Failure 401 {object} utils.HTTPErrorResult
+// @Failure 403 {object} utils.HTTPErrorResult
+// @Failure 405 {object} utils.HTTPErrorResult
+// @Failure 409 {object} utils.HTTPErrorResult
+// @Router /api/snapshots/cleanup [post]
+func CleanupRoute(w http.ResponseWriter, req *http.Request) {
+	if utils.CheckPermissions(w, req, utils.PERM_ADMIN) != nil {
+		return
+	}
+	if req.Method != "POST" {
+		utils.HTTPError(w, "Method not allowed", http.StatusMethodNotAllowed, "HTTP001")
+		return
+	}
+
+	var request cleanupRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, req.Body, 16<<10)).Decode(&request); err != nil {
+		utils.HTTPError(w, "The request could not be read", http.StatusBadRequest, "SN002")
+		return
+	}
+
+	utils.Log("API: Delete a folder kept by a restore")
+	// Source must be a configured folder and Name the name a restore gives the
+	// folder it keeps: RemoveKept accepts nothing else, and the only path it
+	// builds is that name inside the folder that contains Source.
+	err := RemoveKept(request.Source, request.Name)
+	switch {
+	case errors.Is(err, ErrBusy):
+		utils.HTTPError(w, sentence(err.Error()), http.StatusConflict, "SN001")
+		return
+	case err != nil:
+		utils.HTTPError(w, sentence(err.Error()), http.StatusBadRequest, "SN004")
 		return
 	}
 

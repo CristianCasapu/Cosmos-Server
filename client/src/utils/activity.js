@@ -107,6 +107,7 @@ const COMMANDS = [
   // incremental snapshots (src/snapshots); their status is read with GET, which is never followed
   ['POST', /^\/api\/snapshots\/run$/, () => ['activity.snapshots.run', 'Start the incremental backup']],
   ['POST', /^\/api\/snapshots\/restore$/, () => ['activity.snapshots.restore', 'Restore the snapshot']],
+  ['POST', /^\/api\/snapshots\/cleanup$/, () => ['activity.snapshots.cleanup', 'Delete the folder kept by a restore']],
 
   ['POST', /^\/api\/backups\/[^/]+\/restore$/, () => ['activity.backup.restore', 'Start the restore']],
   ['POST', /^\/api\/backups\/[^/]+\/unlock$/, () => ['activity.backup.unlock', 'Unlock the backup repository']],

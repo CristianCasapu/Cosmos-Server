@@ -4,6 +4,7 @@ import MainCard from '../../../components/MainCard';
 import { ContainerOutlined, DashboardOutlined, DesktopOutlined, InfoCircleOutlined, NodeExpandOutlined, PlayCircleOutlined, PlusCircleOutlined, SafetyCertificateOutlined, SettingOutlined } from '@ant-design/icons';
 import { getFaviconURL, getContainersRoutes } from '../../../utils/routes';
 import HostChip from '../../../components/hostChip';
+import AppLinks, { AppDomains } from '../../../components/appLinks'; // Fork addition
 import ExposeModal from '../exposeModal';
 import * as API from '../../../api';
 import GetActions from '../actionBar';
@@ -223,10 +224,8 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
             )}
             <strong><NodeExpandOutlined /> URLs</strong>
             <div>
-              {routes.map((route) => {
-                return <HostChip route={route} settings style={{margin: '5px'}}/>
-              })}
-              <br />
+              {/* Fork addition: local links first, each group on its own line */}
+              <AppLinks routes={routes} chipStyle={{margin: '5px'}} rows />
               <PermissionGuard permission={PERM_RESOURCES}>
                 <Chip
                   label={t('mgmt.servApps.newChip.newLabel')}
@@ -241,6 +240,8 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
                   }}
                 />
               </PermissionGuard>
+              {/* Fork addition: attach or detach a domain */}
+              <AppDomains config={config} containerName={Name.replace('/', '')} refresh={refreshAll} style={{ margin: '5px' }} />
             </div>
             <strong><DashboardOutlined /> {t('menu-items.navigation.monitoringTitle')}</strong>
               <div style={{ width: '96%' }}>

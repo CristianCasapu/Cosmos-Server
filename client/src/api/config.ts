@@ -97,7 +97,8 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
 
   // Fork addition: incremental snapshots (src/snapshots). GET = settings in
   // use, snapshots and what is running; run and restore start in the
-  // background and are followed through the status.
+  // background and are followed through the status; cleanup deletes one
+  // folder that a restore kept and answers when it is gone.
   function snapshotsStatus() {
     return wrap(apiFetch('/cosmos/api/snapshots', {
       method: 'GET',
@@ -123,6 +124,16 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ Source: source, Snapshot: snapshot }),
+    }))
+  }
+
+  function snapshotsCleanup(source: string, name: string) {
+    return wrap(apiFetch('/cosmos/api/snapshots/cleanup', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ Source: source, Name: name }),
     }))
   }
 
@@ -256,6 +267,7 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     snapshotsStatus,
     snapshotsRun,
     snapshotsRestore,
+    snapshotsCleanup,
     getBackup,
     getDashboard,
     updateDNS,

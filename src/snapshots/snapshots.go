@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -99,7 +100,7 @@ type RestoreResult struct {
 // Status is what is running now and how the last run went.
 type Status struct {
 	Running     bool                    `json:"running"`
-	Action      string                  `json:"action,omitempty"` // "snapshot" or "restore"
+	Action      string                  `json:"action,omitempty"` // "snapshot", "restore" or "cleanup"
 	Current     string                  `json:"current"`
 	FilesDone   int64                   `json:"filesDone"`
 	StartedAt   *time.Time              `json:"startedAt,omitempty"`
@@ -361,6 +362,33 @@ func reason(err error) string {
 	return err.Error()
 }
 
+// isEmpty tells whether a folder holds nothing at all.
+func isEmpty(dir *os.Root) bool {
+	list, err := dir.Open(".")
+	if err != nil {
+		return false
+	}
+	defer list.Close()
+	entries, err := list.ReadDir(1)
+	return len(entries) == 0 && err == io.EOF
+}
+
+// previousFiles is how many files a finished snapshot holds: what its record
+// says or, without a record, how many entries it has at its top.
+func previousFiles(snapshotDir string) int64 {
+	if meta, ok := readMeta(snapshotDir); ok {
+		return meta.Files
+	}
+	entries, _ := os.ReadDir(snapshotDir)
+	count := int64(0)
+	for _, entry := range entries {
+		if entry.Name() != metaName {
+			count++
+		}
+	}
+	return count
+}
+
 // snapshotSource makes one snapshot of source and applies the retention. It
 // returns the name of the new snapshot and its record. err is set when no
 // snapshot could be made; files that could not be read are counted in the
@@ -419,6 +447,20 @@ func snapshotSource(cfg utils.SnapshotsConfig, source string, now time.Time) (id
 	previousID := ""
 	if list := listSnapshots(dir); len(list) > 0 {
 		previousID = list[0].ID
+	}
+
+	// A folder that held files and now holds nothing at all is most likely a
+	// disk that is not mounted. A snapshot of it would record that everything
+	// was deleted, and the retention would then let the good snapshots age
+	// out: neither is done. A folder that was empty before may stay empty.
+	if previousID != "" && isEmpty(top) {
+		if had := previousFiles(filepath.Join(dir, previousID)); had > 0 {
+			files := "files"
+			if had == 1 {
+				files = "file"
+			}
+			return "", meta, fmt.Errorf("the folder is empty; the previous snapshot had %d %s — is the disk mounted?", had, files)
+		}
 	}
 
 	// The name is the time of the run, and always later than the newest
@@ -480,6 +522,7 @@ func snapshotSource(cfg utils.SnapshotsConfig, source string, now time.Time) (id
 		workName: workName,
 		skipPath: destReal,
 		skipInfo: destInfo,
+		excludes: cfg.Excludes,
 	}
 	w.dir(top, work, previous, "")
 	if w.fatal != nil {

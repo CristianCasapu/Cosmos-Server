@@ -11,6 +11,7 @@ import * as API from '../../api';
 import RouteManagement from '../config/routes/routeman';
 import { ValidateRoute, getFaviconURL, sanitizeRoute, getContainersRoutes } from '../../utils/routes';
 import HostChip from '../../components/hostChip';
+import AppLinks, { AppDomains } from '../../components/appLinks'; // Fork addition
 import { Link } from 'react-router-dom';
 import ExposeModal from './exposeModal';
 import GetActions from './actionBar';
@@ -368,6 +369,8 @@ const ServApps = ({stack}) => {
                   <Typography variant="h6" color="text.secondary">
                     {t('menu-items.management.urls')}
                   </Typography>
+                  {/* Fork addition: attach or detach a domain */}
+                  <AppDomains config={config} containerName={app.name.replace('/', '')} refresh={refreshServApps} size="small" style={{ marginLeft: 'auto' }} />
                   <PermissionGuard permission={PERM_RESOURCES}>
                     <Chip
                       label={t('mgmt.servApps.newChip.newLabel')}
@@ -385,9 +388,8 @@ const ServApps = ({stack}) => {
                   </PermissionGuard>
                 </Stack>
                 <Stack style={noOver} spacing={1} direction="row" alignItems="center" >
-                  {getContainersRoutes(config, app.name.replace('/', '')).map((route) => {
-                    return <HostChip route={route} settings/>
-                  })}
+                  {/* Fork addition: local links first, each group under its icon */}
+                  <AppLinks routes={getContainersRoutes(config, app.name.replace('/', ''))} />
                   {app.networkSettings && app.networkSettings.Networks && app.networkSettings.Networks['host'] &&
                     <Chip style={{ fontSize: '80%' }} label="Host Network" color="warning" variant='outlined' />
                   }

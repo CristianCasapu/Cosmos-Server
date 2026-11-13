@@ -353,7 +353,9 @@ type UPnPConfig struct {
 // (0 = Sunday) is the day of a weekly run. KeepRecent is how many of the
 // newest snapshots stay whatever their date (0 means 8); the other Keep
 // counts say how many days, weeks and months keep their newest snapshot (0
-// means 7, 4 and 6).
+// means 7, 4 and 6). Excludes are glob patterns (path.Match; "*" stays
+// within one name) of files and folders that are left out: each is compared
+// with the path below the source and with the name alone.
 //
 // The values are checked by snapshots.ValidateConfig when the settings are
 // saved and before every run. There are no validate tags on purpose: a tag
@@ -370,6 +372,7 @@ type SnapshotsConfig struct {
 	KeepDaily   int
 	KeepWeekly  int
 	KeepMonthly int
+	Excludes    []string
 }
 
 const (
