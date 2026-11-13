@@ -25,12 +25,12 @@ import (
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
-const maskedSecret = "***"
+const emailSecretMask = "***"
 
 // maskEmailPassword is the hook of ConfigApiGet.
 func maskEmailPassword(config *utils.Config) {
 	if config.EmailConfig.Password != "" {
-		config.EmailConfig.Password = maskedSecret
+		config.EmailConfig.Password = emailSecretMask
 	}
 }
 
@@ -44,14 +44,14 @@ func sameEmailConnection(cfg, saved utils.EmailConfig) bool {
 		(!cfg.AllowInsecureTLS || saved.AllowInsecureTLS)
 }
 
-func hasControl(text string) bool {
+func emailHasControl(text string) bool {
 	return strings.IndexFunc(text, unicode.IsControl) >= 0
 }
 
 // validateEmailConfig checks settings that are about to be used or saved.
 func validateEmailConfig(cfg utils.EmailConfig) error {
 	for _, value := range []string{cfg.Host, cfg.Port, cfg.Username, cfg.Password, cfg.From} {
-		if hasControl(value) {
+		if emailHasControl(value) {
 			return errors.New("The email settings must not contain line breaks or control characters")
 		}
 	}
@@ -84,13 +84,13 @@ func checkEmailSettings(request *utils.Config, saved utils.Config) error {
 
 	// what the request means, with the masks resolved
 	meant := next
-	if meant.Host == maskedSecret {
+	if meant.Host == emailSecretMask {
 		meant.Host = old.Host
 	}
-	if meant.Username == maskedSecret {
+	if meant.Username == emailSecretMask {
 		meant.Username = old.Username
 	}
-	keepsPassword := next.Password == maskedSecret
+	keepsPassword := next.Password == emailSecretMask
 	if keepsPassword {
 		meant.Password = old.Password
 	}
@@ -104,7 +104,7 @@ func checkEmailSettings(request *utils.Config, saved utils.Config) error {
 
 	// trimmed as they will be used; a mask stays a mask for upstream's restore
 	trim := func(field *string, meantField *string) {
-		if *field != maskedSecret {
+		if *field != emailSecretMask {
 			*field = strings.TrimSpace(*field)
 			*meantField = *field
 		}

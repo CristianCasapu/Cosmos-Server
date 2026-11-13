@@ -272,7 +272,7 @@ if (engines.includes('chromium')) {
     await ctx.request.post(base + '/cosmos/api/login', { data: { nickname: 'admin', password: 'Test-Passw0rd!x' } });
     await openSettings(view);
     const hiddenText = await cardText(view);
-    expect('no address, server or password field is shown', /shown and changed after you confirm your password/.test(hiddenText)
+    expect('no address, server or password field is shown', /shown and changed with admin privileges/.test(hiddenText)
       && await view.locator('#Email_Address, #Email_Password, #Email_Host').count() === 0 && !/fakemail/.test(hiddenText), hiddenText);
     await shot(view, 'chromium-13-unconfirmed');
     await plain.close();

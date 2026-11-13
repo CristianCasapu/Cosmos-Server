@@ -344,7 +344,7 @@
 	"mgmt.config.email.enc.on465": "Port 465 is always encrypted from the start (TLS).",
 	"mgmt.config.email.enc.onDesc": "The connection is encrypted before the password or a mail is sent. The server must offer STARTTLS.",
 	"mgmt.config.email.enc.starttls": "Encrypted (STARTTLS)",
-	"mgmt.config.email.hidden": "The mail settings are shown and changed after you confirm your password: use the padlock at the top of the page.",
+	"mgmt.config.email.hidden": "The mail settings are shown and changed with admin privileges: enable them with the button on the top right.",
 	"mgmt.config.email.hints.title": "{{name}}: what to know",
 	"mgmt.config.email.host.help": "The name providers list as \"SMTP server\" or \"outgoing mail server\", for example smtp.example.com.",
 	"mgmt.config.email.host.label": "Server",

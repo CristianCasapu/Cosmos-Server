@@ -149,7 +149,7 @@ const EmailSettings = ({ formik, config }) => {
       {intro}
       {enable}
       <Alert severity="info">
-        {t('mgmt.config.email.hidden', 'The mail settings are shown and changed after you confirm your password: use the padlock at the top of the page.')}
+        {t('mgmt.config.email.hidden', 'The mail settings are shown and changed with admin privileges: enable them with the button on the top right.')}
       </Alert>
     </>;
   }

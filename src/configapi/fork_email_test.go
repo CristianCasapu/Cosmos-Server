@@ -42,7 +42,7 @@ func savedMail() utils.EmailConfig {
 	}
 }
 
-func readSettings(t *testing.T, as func(*http.Request) *http.Request) (utils.Config, string) {
+func readEmailSettings(t *testing.T, as func(*http.Request) *http.Request) (utils.Config, string) {
 	t.Helper()
 	w := httptest.NewRecorder()
 	ConfigApiGet(w, as(httptest.NewRequest("GET", "https://cosmos.example.com/cosmos/api/config", nil)))
@@ -58,9 +58,9 @@ func readSettings(t *testing.T, as func(*http.Request) *http.Request) (utils.Con
 	return got.Data, w.Body.String()
 }
 
-// saveSettings sends the settings back the way the page does and, after a
+// saveEmailSettings sends the settings back the way the page does and, after a
 // save that was accepted, waits for the restart that follows it.
-func saveSettings(t *testing.T, restarted chan struct{}, config utils.Config) *httptest.ResponseRecorder {
+func saveEmailSettings(t *testing.T, restarted chan struct{}, config utils.Config) *httptest.ResponseRecorder {
 	t.Helper()
 	body, err := json.Marshal(config)
 	if err != nil {
@@ -82,7 +82,7 @@ func TestMailPasswordIsNeverSentToTheBrowser(t *testing.T) {
 	emailTestServer(t, savedMail())
 
 	// an administrator who confirmed the password may read credentials: still no SMTP password
-	config, raw := readSettings(t, asAdmin)
+	config, raw := readEmailSettings(t, asAdmin)
 	if strings.Contains(raw, storedMailPassword) {
 		t.Fatal("the stored SMTP password was sent to an administrator's browser")
 	}
@@ -91,7 +91,7 @@ func TestMailPasswordIsNeverSentToTheBrowser(t *testing.T) {
 	}
 
 	// without the password confirmed: host and user name masked too, as before
-	config, raw = readSettings(t, asAdminWithoutPassword)
+	config, raw = readEmailSettings(t, asAdminWithoutPassword)
 	if strings.Contains(raw, storedMailPassword) || config.EmailConfig.Password != "***" || config.EmailConfig.Host != "***" || config.EmailConfig.Username != "***" {
 		t.Errorf("unconfirmed administrator sees %+v", config.EmailConfig)
 	}
@@ -100,7 +100,7 @@ func TestMailPasswordIsNeverSentToTheBrowser(t *testing.T) {
 	mail := savedMail()
 	mail.Password = ""
 	emailTestServer(t, mail)
-	if config, _ = readSettings(t, asAdmin); config.EmailConfig.Password != "" {
+	if config, _ = readEmailSettings(t, asAdmin); config.EmailConfig.Password != "" {
 		t.Errorf("an empty password is shown as %q", config.EmailConfig.Password)
 	}
 }
@@ -108,10 +108,10 @@ func TestMailPasswordIsNeverSentToTheBrowser(t *testing.T) {
 func TestSaveKeepsTheStoredPasswordForTheSameConnection(t *testing.T) {
 	restarted := emailTestServer(t, savedMail())
 
-	config, _ := readSettings(t, asAdmin)
+	config, _ := readEmailSettings(t, asAdmin)
 	config.EmailConfig.From = "Cosmos at home <cosmos@example.com>"
 	config.EmailConfig.NotifyLogin = true
-	if w := saveSettings(t, restarted, config); w.Code != http.StatusOK {
+	if w := saveEmailSettings(t, restarted, config); w.Code != http.StatusOK {
 		t.Fatalf("save: %d %s", w.Code, w.Body.String())
 	}
 	saved := utils.ReadConfigFromFile().EmailConfig
@@ -123,9 +123,9 @@ func TestSaveKeepsTheStoredPasswordForTheSameConnection(t *testing.T) {
 	mail := savedMail()
 	mail.AllowInsecureTLS = true
 	restarted = emailTestServer(t, mail)
-	config, _ = readSettings(t, asAdmin)
+	config, _ = readEmailSettings(t, asAdmin)
 	config.EmailConfig.AllowInsecureTLS = false
-	if w := saveSettings(t, restarted, config); w.Code != http.StatusOK {
+	if w := saveEmailSettings(t, restarted, config); w.Code != http.StatusOK {
 		t.Fatalf("save: %d %s", w.Code, w.Body.String())
 	}
 	if saved := utils.ReadConfigFromFile().EmailConfig; saved.Password != storedMailPassword || saved.AllowInsecureTLS {
@@ -145,10 +145,10 @@ func TestSaveNeedsThePasswordAgainForAnotherConnection(t *testing.T) {
 	for name, change := range changes {
 		t.Run(name, func(t *testing.T) {
 			restarted := emailTestServer(t, savedMail())
-			config, _ := readSettings(t, asAdmin)
+			config, _ := readEmailSettings(t, asAdmin)
 			change(&config.EmailConfig)
 
-			w := saveSettings(t, restarted, config)
+			w := saveEmailSettings(t, restarted, config)
 			if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "UC011") || !strings.Contains(w.Body.String(), "enter the mail password again") {
 				t.Fatalf("save: %d %s", w.Code, w.Body.String())
 			}
@@ -158,7 +158,7 @@ func TestSaveNeedsThePasswordAgainForAnotherConnection(t *testing.T) {
 
 			// with the password typed, the same change is saved
 			config.EmailConfig.Password = "typed-again"
-			if w := saveSettings(t, restarted, config); w.Code != http.StatusOK {
+			if w := saveEmailSettings(t, restarted, config); w.Code != http.StatusOK {
 				t.Fatalf("save with the password: %d %s", w.Code, w.Body.String())
 			}
 			if saved := utils.ReadConfigFromFile().EmailConfig; saved.Password != "typed-again" {
@@ -171,9 +171,9 @@ func TestSaveNeedsThePasswordAgainForAnotherConnection(t *testing.T) {
 	mail := savedMail()
 	mail.Password, mail.Username = "", ""
 	restarted := emailTestServer(t, mail)
-	config, _ := readSettings(t, asAdmin)
+	config, _ := readEmailSettings(t, asAdmin)
 	config.EmailConfig.Host, config.EmailConfig.Password = "relay.example.net", "***"
-	if w := saveSettings(t, restarted, config); w.Code != http.StatusOK {
+	if w := saveEmailSettings(t, restarted, config); w.Code != http.StatusOK {
 		t.Fatalf("save: %d %s", w.Code, w.Body.String())
 	}
 	if saved := utils.ReadConfigFromFile().EmailConfig; saved.Password != "" || saved.Host != "relay.example.net" {
@@ -199,10 +199,10 @@ func TestSaveChecksEmailSettingsThatChanged(t *testing.T) {
 	for name, change := range refused {
 		t.Run(name, func(t *testing.T) {
 			restarted := emailTestServer(t, savedMail())
-			config, _ := readSettings(t, asAdmin)
+			config, _ := readEmailSettings(t, asAdmin)
 			config.EmailConfig.Password = "typed" // so that only the value under test decides
 			change(&config.EmailConfig)
-			if w := saveSettings(t, restarted, config); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "UC011") {
+			if w := saveEmailSettings(t, restarted, config); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "UC011") {
 				t.Fatalf("save: %d %s", w.Code, w.Body.String())
 			}
 			if saved := utils.ReadConfigFromFile().EmailConfig; saved != savedMail() {
@@ -213,10 +213,10 @@ func TestSaveChecksEmailSettingsThatChanged(t *testing.T) {
 
 	// spaces around a value are removed, not refused
 	restarted := emailTestServer(t, savedMail())
-	config, _ := readSettings(t, asAdmin)
+	config, _ := readEmailSettings(t, asAdmin)
 	config.EmailConfig = utils.EmailConfig{Enabled: true, Host: " mail.example.net ", Port: " 465 ", Username: " me@example.net ",
 		Password: " kept as typed ", From: " Me <me@example.net> ", UseTLS: true}
-	if w := saveSettings(t, restarted, config); w.Code != http.StatusOK {
+	if w := saveEmailSettings(t, restarted, config); w.Code != http.StatusOK {
 		t.Fatalf("save: %d %s", w.Code, w.Body.String())
 	}
 	want := utils.EmailConfig{Enabled: true, Host: "mail.example.net", Port: "465", Username: "me@example.net",
@@ -227,9 +227,9 @@ func TestSaveChecksEmailSettingsThatChanged(t *testing.T) {
 
 	// switched off: half-filled settings may wait
 	restarted = emailTestServer(t, utils.EmailConfig{})
-	config, _ = readSettings(t, asAdmin)
+	config, _ = readEmailSettings(t, asAdmin)
 	config.EmailConfig = utils.EmailConfig{Host: "smtp.example.com", From: "later"}
-	if w := saveSettings(t, restarted, config); w.Code != http.StatusOK {
+	if w := saveEmailSettings(t, restarted, config); w.Code != http.StatusOK {
 		t.Fatalf("save of settings that are switched off: %d %s", w.Code, w.Body.String())
 	}
 }
@@ -238,9 +238,9 @@ func TestOlderEmailSettingsStillSaveUnchanged(t *testing.T) {
 	// what an older version accepted: saved long ago, must not block other settings now
 	odd := utils.EmailConfig{Enabled: true, Host: "smtp.example.com ", Port: "", Username: "me", Password: "pw", From: "Cosmos"}
 	restarted := emailTestServer(t, odd)
-	config, _ := readSettings(t, asAdmin)
+	config, _ := readEmailSettings(t, asAdmin)
 	config.LoggingLevel = "DEBUG"
-	if w := saveSettings(t, restarted, config); w.Code != http.StatusOK {
+	if w := saveEmailSettings(t, restarted, config); w.Code != http.StatusOK {
 		t.Fatalf("save: %d %s", w.Code, w.Body.String())
 	}
 	if saved := utils.ReadConfigFromFile(); saved.EmailConfig != odd || saved.LoggingLevel != "DEBUG" {
