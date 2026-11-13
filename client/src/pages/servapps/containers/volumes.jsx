@@ -25,6 +25,7 @@ import BackupDialog from "../../backups/backupDialog";
 import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_RESOURCES } from '../../../utils/permissions';
 import { bindIsReadOnly, mountHostPath } from './forkContainerFixes'; // Fork addition: read-only mounts, real volume folders
+import { PaidOnly } from '../../../components/paidVisibility'; // Fork addition
 
 const VolumeContainerSetup = ({
   noCard,
@@ -326,7 +327,7 @@ const VolumeContainerSetup = ({
                                   >
                                     {t('global.unmount')}
                                   </Button></PermissionGuard>
-                                  {!newContainer && containerInfo.Name && (r.Target ? <BackupDialog preName={`${containerInfo.Name.replace("/", "").replace("/", "-")}-${r.Target.replace("/", "").replaceAll("/", "_")}`} preSource={formatSource(r.Source)} refresh={() => setTimeout(refreshAll, 1500)} /> : null)}
+                                  {!newContainer && containerInfo.Name && (r.Target ? <PaidOnly>{/* Fork addition: needs a licence */}<BackupDialog preName={`${containerInfo.Name.replace("/", "").replace("/", "-")}-${r.Target.replace("/", "").replaceAll("/", "_")}`} preSource={formatSource(r.Source)} refresh={() => setTimeout(refreshAll, 1500)} /></PaidOnly> : null)}
                                   </Stack>
                                 );
                               },
@@ -384,11 +385,11 @@ const VolumeContainerSetup = ({
           margin: "",
           position: "relative",
       }}>
-        {containerInfo && containerInfo.HostConfig && containerInfo.HostConfig.Mounts && <MainCard title={t('mgmt.backup.backups')}>
+        {containerInfo && containerInfo.HostConfig && containerInfo.HostConfig.Mounts && <PaidOnly>{/* Fork addition: needs a licence */}<MainCard title={t('mgmt.backup.backups')}>
           <Backups pathFilters={
             containerInfo.HostConfig.Mounts.map((r) => formatSource(r.Source)).filter(Boolean)
           } />
-        </MainCard>}
+        </MainCard></PaidOnly>}
       </div>}
     </Stack>
   );

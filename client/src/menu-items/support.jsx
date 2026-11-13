@@ -1,5 +1,6 @@
 // assets
-import { GithubOutlined, QuestionOutlined, BugOutlined, ForkOutlined } from '@ant-design/icons';
+import { GithubOutlined, QuestionOutlined, BugOutlined, ForkOutlined, ShoppingCartOutlined } from '@ant-design/icons';
+import { PURCHASE_URL } from '../utils/paidVisibility'; // Fork addition
 import DiscordOutlined from '../assets/images/icons/discord.svg'
 import DiscordOutlinedWhite from '../assets/images/icons/discord_white.svg'
 import { useTheme } from '@mui/material/styles';
@@ -64,6 +65,19 @@ const support = {
             icon: BugOutlined,
             external: true,
             target: true
+        },
+        // Fork addition: the one pointer to buying a licence, shown only without
+        // one (components/paidVisibility.jsx); opens the original project's
+        // checkout in a new tab (noopener noreferrer, see NavItem).
+        {
+            id: 'purchase-premium',
+            title: 'menu-items.support.purchasePremium',
+            type: 'item',
+            url: PURCHASE_URL,
+            icon: ShoppingCartOutlined,
+            external: true,
+            target: true,
+            forkPurchase: true
         }
     ]
 };

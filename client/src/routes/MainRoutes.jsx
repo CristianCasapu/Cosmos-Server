@@ -15,6 +15,7 @@ import MarketPage from '../pages/market/listing';
 import ConstellationIndex  from '../pages/constellation';
 import proFeatures from '../pro';
 import { ProRoute } from '../components/proPage';
+import { PaidRoute } from '../components/paidVisibility'; // Fork addition
 import StorageIndex from '../pages/storage';
 import DashboardDefault from '../pages/dashboard';
 import { CronManager } from '../pages/cron/jobsManage';
@@ -51,19 +52,19 @@ const MainRoutes = {
         },
         {
             path: '/cosmos-ui/backups',
-            element: <AllBackupsIndex />
+            element: <PaidRoute><AllBackupsIndex /></PaidRoute> // Fork addition: needs a licence
         },
         {
             path: '/cosmos-ui/backups/:backupName/',
-            element: <SingleBackupIndex />
+            element: <PaidRoute><SingleBackupIndex /></PaidRoute> // Fork addition: needs a licence
         },
         {
             path: '/cosmos-ui/backups/repo/:backupName/',
-            element: <SingleRepoIndex />
+            element: <PaidRoute><SingleRepoIndex /></PaidRoute> // Fork addition: needs a licence
         },
         {
             path: '/cosmos-ui/backups/:backupName/:subpath',
-            element: <SingleBackupIndex />
+            element: <PaidRoute><SingleBackupIndex /></PaidRoute> // Fork addition: needs a licence
         },
         {
             path: '/cosmos-ui/storage',

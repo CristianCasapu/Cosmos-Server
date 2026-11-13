@@ -28,6 +28,7 @@ import { FilePickerButton } from '../../../components/filePicker';
 import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_CONFIGURATION } from '../../../utils/permissions';
 import proFeatures from '../../../pro';
+import { PaidOnly } from '../../../components/paidVisibility'; // Fork addition
 
 const Hide = ({ children, h }) => {
   return h ? <div style={{ display: 'none' }}>
@@ -402,11 +403,13 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                     formik={formik}
                   />
                   
+                  <PaidOnly keep={formik.initialValues.RestrictToConstellation}>{/* Fork addition: needs Constellation, hence a licence */}
                   <CosmosCheckbox
                     name="RestrictToConstellation"
                     label={t('mgmt.urls.edit.basicSecurity.restrictToConstellationCheckbox.restrictToConstellationLabel')}
                     formik={formik}
                   />
+                  </PaidOnly>
 
                   {(formik.values.Tunnel || tunnels.length > 0) && (<>
                     <CosmosSelect

@@ -5,6 +5,7 @@ import { Box, Typography } from '@mui/material';
 import NavGroup from './NavGroup';
 import menuItem from '../../../../../menu-items';
 import { useIsPro } from '../../../../../utils/pro';
+import { useForkMenu } from '../../../../../components/paidVisibility'; // Fork addition
 
 // ==============================|| DRAWER CONTENT - NAVIGATION ||============================== //
 
@@ -12,7 +13,7 @@ const Navigation = () => {
     // Renames entries Pro overrides via `titlePro`; the group shape is set in menu-items/index.jsx.
     const isPro = useIsPro() === true;
 
-    const navGroups = menuItem.items
+    const navGroups = useForkMenu(menuItem.items) // Fork addition: hides entries that need a licence
         .map((item) => ({
             ...item,
             children: (item.children || []).map((child) =>

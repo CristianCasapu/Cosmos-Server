@@ -16,6 +16,7 @@ const constellation = {
             id: 'constellation',
             title: 'menu-items.constellation.network',
             type: 'item',
+            paid: true, // Fork addition: needs a licence (components/paidVisibility.jsx)
             url: '/cosmos-ui/constellation',
             icon: () => <DarkModeSwitch
                 light={<img height="28px" width="28px" style={{marginLeft: "-6px"}} src={ConstellationIcon} />}
@@ -26,6 +27,7 @@ const constellation = {
             id: 'deployments',
             title: 'menu-items.constellation.deployments',
             type: 'item',
+            paid: true, // Fork addition: needs a licence (components/paidVisibility.jsx)
             url: '/cosmos-ui/deployments',
             icon: DeploymentUnitOutlined,
             permission: PERM_RESOURCES_READ,
@@ -34,6 +36,7 @@ const constellation = {
             id: 'databases',
             title: 'menu-items.constellation.databases',
             type: 'item',
+            paid: true, // Fork addition: needs a licence (components/paidVisibility.jsx)
             url: '/cosmos-ui/databases',
             icon: DatabaseOutlined,
             permission: PERM_RESOURCES_READ,
@@ -42,6 +45,7 @@ const constellation = {
             id: 'object-storage',
             title: 'menu-items.constellation.objectStorage',
             type: 'item',
+            paid: true, // Fork addition: needs a licence (components/paidVisibility.jsx)
             url: '/cosmos-ui/object-storage',
             icon: InboxOutlined,
             permission: PERM_RESOURCES_READ,
@@ -50,6 +54,7 @@ const constellation = {
             id: 'registries',
             title: 'menu-items.constellation.registries',
             type: 'item',
+            paid: true, // Fork addition: needs a licence (components/paidVisibility.jsx)
             url: '/cosmos-ui/registries',
             icon: CodeSandboxOutlined,
             permission: PERM_RESOURCES_READ,
@@ -58,6 +63,7 @@ const constellation = {
             id: 'functions',
             title: 'menu-items.constellation.functions',
             type: 'item',
+            paid: true, // Fork addition: needs a licence (components/paidVisibility.jsx)
             url: '/cosmos-ui/functions',
             icon: FunctionOutlined,
             permission: PERM_RESOURCES_READ,
@@ -66,6 +72,7 @@ const constellation = {
             id: 'ci',
             title: 'menu-items.constellation.ci',
             type: 'item',
+            paid: true, // Fork addition: needs a licence (components/paidVisibility.jsx)
             url: '/cosmos-ui/ci',
             icon: BuildOutlined,
             permission: PERM_RESOURCES_READ,

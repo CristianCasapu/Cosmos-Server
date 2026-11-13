@@ -217,6 +217,10 @@ type Config struct {
 	BackupWeekday int `json:"BackupWeekday,omitempty" validate:"min=0,max=6"`
 	// Fork addition: incremental snapshots of folders, see src/snapshots.
 	Snapshots SnapshotsConfig `json:"Snapshots,omitempty"`
+	// Fork addition: show the panel's features that need a licence when there is
+	// none. Stored inverted so that a configuration without it hides them (the
+	// fork's default). Presentation only: read by the UI through /api/status.
+	ShowPaidFeatures bool `json:"ShowPaidFeatures,omitempty"`
 	IncrBackupOutputDir string
 	DisableHostModeWarning bool
 	AdminWhitelistIPs []string
