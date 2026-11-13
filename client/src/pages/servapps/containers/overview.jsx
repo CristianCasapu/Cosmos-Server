@@ -5,6 +5,9 @@ import { ContainerOutlined, DashboardOutlined, DesktopOutlined, InfoCircleOutlin
 import { getFaviconURL, getContainersRoutes } from '../../../utils/routes';
 import HostChip from '../../../components/hostChip';
 import AppLinks, { AppDomains } from '../../../components/appLinks'; // Fork addition
+import { ReachPanel } from '../../../components/reachability'; // Fork addition
+import { portsFromInspect } from '../../../utils/reachability'; // Fork addition
+import { GlobalOutlined } from '@ant-design/icons'; // Fork addition
 import ExposeModal from '../exposeModal';
 import * as API from '../../../api';
 import GetActions from '../actionBar';
@@ -243,6 +246,14 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
               {/* Fork addition: attach or detach a domain */}
               <AppDomains config={config} containerName={Name.replace('/', '')} refresh={refreshAll} style={{ margin: '5px' }} />
             </div>
+            {/* Fork addition: can it be reached from the internet, and what was checked */}
+            <strong><GlobalOutlined /> {t('mgmt.reach.title', 'Internet')}</strong>
+            <ReachPanel
+              config={config}
+              routeNames={routes.map((route) => route.Name)}
+              ports={portsFromInspect(NetworkSettings.Ports)}
+              hostNetwork={!!(containerInfo.HostConfig && containerInfo.HostConfig.NetworkMode === 'host')}
+            />
             <strong><DashboardOutlined /> {t('menu-items.navigation.monitoringTitle')}</strong>
               <div style={{ width: '96%' }}>
                 <MiniPlotComponent agglo metrics={[
