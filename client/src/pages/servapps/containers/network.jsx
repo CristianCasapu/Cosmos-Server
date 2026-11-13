@@ -16,9 +16,13 @@ import { CosmosContainerPicker } from '../../config/users/containerPicker';
 import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_RESOURCES } from '../../../utils/permissions';
 import { portHostIp, isHostIp } from './forkContainerFixes'; // Fork addition: the host address of a published port
+import { usePortHolders, hasBlockingPortConflict, PortConflictHint, PortConflictReport, EDIT_FORM } from '../../../components/portConflicts'; // Fork addition: host ports that are already taken
 
-const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, OnChange, OnConnect, OnDisconnect }) => {
+const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, OnChange, OnConnect, OnDisconnect, portSources, onPortsBlocked }) => {
   const { t } = useTranslation();
+  // Fork addition: who holds which host port (this container's own ports do not count)
+  const portHolders = usePortHolders(newContainer ? '' : containerInfo.Name, portSources);
+  const portRules = newContainer ? undefined : EDIT_FORM;
   const [networks, setNetworks] = React.useState([]);
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
@@ -111,6 +115,10 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
           // Fork addition: a mistyped address must not reach Docker
           if (!newContainer && values.ports.some((port) => !isHostIp(port.hostIp))) {
             errors.ports = t('mgmt.servApps.networks.hostIpInput.hostIpValidation', 'Enter an IPv4 or IPv6 address, or leave it empty for every address');
+          }
+          // Fork addition: a host port that is taken is said under its row; nothing is sent meanwhile
+          if (!newContainer && hasBlockingPortConflict(values.ports, portHolders, portRules)) {
+            errors.ports = t('mgmt.servApps.ports.blocked', 'A host port in the list cannot be used. See the note under it.');
           }
           OnChange && OnChange(values);
           return errors;
@@ -261,8 +269,12 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                             <DeleteOutlined />
                           </IconButton></Tooltip>
                         </Grid>
+                        {/* Fork addition: says when the host port is already taken, and by whom */}
+                        <PortConflictHint ports={formik.values.ports} index={idx} holders={portHolders} options={portRules} style={{ padding, paddingTop: 0 }} />
                       </Grid>
                     ))}
+                    {/* Fork addition: lets the new container form hold its "Next" while a host port cannot work */}
+                    <PortConflictReport ports={formik.values.ports} holders={portHolders} options={portRules} onBlocked={onPortsBlocked} />
                     <PermissionGuard permission={PERM_RESOURCES}><Tooltip title={t('global.addAction', 'Add')}><IconButton
                       fullWidth
                       variant="outlined"
@@ -291,7 +303,7 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                       {!newContainer && <PermissionGuard permission={PERM_RESOURCES}><LoadingButton
                         fullWidth
                         disableElevation
-                        disabled={formik.errors.submit}
+                        disabled={formik.errors.submit || hasBlockingPortConflict(formik.values.ports, portHolders, portRules) /* Fork addition */}
                         loading={formik.isSubmitting}
                         size="large"
                         type="submit"

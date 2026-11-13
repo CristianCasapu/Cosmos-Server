@@ -38,6 +38,7 @@ import { useTranslation } from 'react-i18next';
 import { FilePickerButton } from '../../../components/filePicker';
 import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_RESOURCES } from '../../../utils/permissions';
+import { ComposePortConflicts } from '../../../components/portConflicts'; // Fork addition
 // Fork addition: local address by default, external ones per attached domain
 import HostnameSuggestions, { DomainPicker, addressName, installerRouteHasAddress, localAddress, withExternalRoutes } from '../../../components/hostnameSuggestions';
 
@@ -1101,6 +1102,8 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
           </Stack>}
 
           {step === 1 && <Stack spacing={2}>
+            {/* Fork addition: host ports of the definition that are already taken */}
+            <ComposePortConflicts service={service} />
             <NewDockerService service={service} refresh={refresh} />
           </Stack>}
         </DialogContentText>
