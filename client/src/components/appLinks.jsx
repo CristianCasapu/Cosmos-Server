@@ -26,6 +26,8 @@ import { PERM_RESOURCES } from '../utils/permissions';
 import { IsRouteSocketProxy, ValidateRoute, getContainersRoutes } from '../utils/routes';
 import { PortForwardHint, configuredDomains, externalAddress, hostLabel } from './hostnameSuggestions';
 import { baseIsUnderDomain, baseRoute, domainRoutes, groupAppRoutes, routeHost, serverBack } from '../utils/appLinks';
+import { AddressShield, loadCloudflare, useCloudflare } from './cloudflare';
+import { hostEntry } from '../utils/cloudflare';
 
 // The chips of an app's routes, local links first. In a row of chips each
 // group starts with its icon; with `rows` each group gets a line of its own,
@@ -86,8 +88,9 @@ const domainRows = (config, containerName) => {
 
 // The "Domains" chip and its dialog. Offered only when the app has a route
 // to copy and a domain is configured. `refresh` reloads the configuration.
-export const AppDomains = ({ config, containerName, refresh, size, style }) => {
+export const AppDomains = ({ config, containerName, refresh, size, style, image }) => {
   const { t } = useTranslation();
+  const cloudflare = useCloudflare(); // the record and the switch of each attached address
   const [checked, setChecked] = React.useState(null); // { domain: bool } while the dialog is open
   const [saving, setSaving] = React.useState(false);
   const [errors, setErrors] = React.useState([]);
@@ -146,7 +149,11 @@ export const AppDomains = ({ config, containerName, refresh, size, style }) => {
     }
     setSaving(false);
     if (done) {
-      setChecked(null);
+      // stay open when an address was added: its record and its switch show next
+      if (copies.length === 0) {
+        setChecked(null);
+      }
+      loadCloudflare(true);
     }
     refresh && refresh();
   };
@@ -174,24 +181,30 @@ export const AppDomains = ({ config, containerName, refresh, size, style }) => {
               'Each ticked domain gives the app one more address, reachable from the internet: a copy of its URL {{name}}, with the same target and settings. Unticking a domain deletes that address.',
               { name: base.Name })}
           </Typography>
-          {rows.map((row) => (
-            <FormControlLabel
-              key={row.domain}
-              control={<Checkbox
-                checked={Boolean(checked[row.domain])}
-                disabled={saving || row.own}
-                onChange={(event) => setChecked({ ...checked, [row.domain]: event.target.checked })}
-              />}
-              label={<Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
-                <GlobalOutlined /> {row.host}
-              </Typography>}
-            />
-          ))}
+          {rows.map((row) => {
+            // an attached address under a Cloudflare domain: its record's state and its switch
+            const entries = row.attached ? row.host.split(', ').map((host) => hostEntry(cloudflare.data, host)).filter(Boolean) : [];
+            return <Stack key={row.domain} spacing={0.5} sx={{ minWidth: 0 }}>
+              <FormControlLabel
+                control={<Checkbox
+                  checked={Boolean(checked[row.domain])}
+                  disabled={saving || row.own}
+                  onChange={(event) => setChecked({ ...checked, [row.domain]: event.target.checked })}
+                />}
+                label={<Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
+                  <GlobalOutlined /> {row.host}
+                </Typography>}
+              />
+              {checked[row.domain] && entries.map((entry) => <div key={entry.host} style={{ paddingLeft: 30, minWidth: 0 }}>
+                <AddressShield host={entry} status={cloudflare.data} image={image} name={containerName} dense />
+              </div>)}
+            </Stack>;
+          })}
           {rows.some((row) => row.own) && <Typography variant="caption" color="textSecondary">
             {t('mgmt.urls.domains.own',
               'A domain that cannot be unticked is the address of the URL itself: change or delete that URL from its settings.')}
           </Typography>}
-          {rows.some((row) => checked[row.domain]) && <PortForwardHint config={config} />}
+          {rows.some((row) => checked[row.domain]) && <PortForwardHint config={config} port={cloudflare.data && cloudflare.data.publicPort} />}
           {errors.length > 0 && <Alert severity="error" sx={{ overflowWrap: 'anywhere' }}>
             {errors.map((problem, index) => <div key={index}>{problem}</div>)}
           </Alert>}

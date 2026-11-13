@@ -47,6 +47,9 @@ func ConfigApiGet(w http.ResponseWriter, req *http.Request) {
 			config.HTTPConfig.DNSZones[i].TLSKey = ""
 		}
 
+		// Fork addition: a Cloudflare API token is never sent back, to anyone (utils/fork_cloudflare.go)
+		config.HTTPConfig.DNSZones = utils.MaskCloudflareSecrets(config.HTTPConfig.DNSZones)
+
 		if !canReadCredentials {
 			config.EmailConfig.Password = "***"
 			config.EmailConfig.Username = "***"

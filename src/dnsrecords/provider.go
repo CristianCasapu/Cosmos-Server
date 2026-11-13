@@ -162,6 +162,7 @@ func New(zone utils.DNSZoneConfig) (ZoneProvider, error) {
 	if err != nil {
 		return ZoneProvider{}, err
 	}
+	provider = ForkWrapProvider(zone, provider) // Fork addition: Cloudflare's proxy flag, see fork_hooks.go
 
 	ttl := DefaultTTL
 	if a.minTTL > ttl {

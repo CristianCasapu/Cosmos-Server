@@ -255,6 +255,9 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 
+		// Fork addition: a Cloudflare token comes back as the mask, and what the Cloudflare routes keep is theirs alone, see fork_cloudflare.go
+		keepCloudflareState(&request, config)
+
 		// the private key of a provided certificate is never sent to the client either
 		for i, zone := range request.HTTPConfig.DNSZones {
 			if zone.TLSKey != "" {

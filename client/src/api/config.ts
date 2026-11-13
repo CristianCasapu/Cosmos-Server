@@ -131,6 +131,44 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }))
   }
 
+  // Fork addition: the guided Cloudflare integration (src/cloudflare). These
+  // calls never throw: the screens show Cloudflare's refusals themselves, in
+  // plain words, so the answer comes back as { ok, data, reason, detail,
+  // message } whatever the status was.
+  function cloudflareCall(path: string, method: string, body?: any) {
+    return apiFetch('/cosmos/api/cloudflare' + path, {
+      method,
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }).then(async (response) => {
+      let answer: any = {};
+      try {
+        answer = JSON.parse(await response.text());
+      } catch (e) {
+        answer = {};
+      }
+      return {
+        ok: response.status === 200 && answer.status === 'OK',
+        status: response.status,
+        data: answer.data || null,
+        reason: answer.reason || '',
+        detail: answer.detail || '',
+        message: answer.message || '',
+      };
+    }).catch(() => ({ ok: false, status: 0, data: null, reason: 'no_answer', detail: '', message: '' }));
+  }
+
+  const cloudflareStatus = () => cloudflareCall('', 'GET');
+  const cloudflareCheck = (token: string, zone = '') => cloudflareCall('/check', 'POST', { token, zone });
+  const cloudflarePreview = (token: string, zone: string, panel = '', takeOver: string[] = []) =>
+    cloudflareCall('/preview', 'POST', { token, zone, panel, takeOver });
+  const cloudflareTakeOver = (names: string[], zone = '') => cloudflareCall('/takeover', 'POST', { names, zone });
+  const cloudflareShield = (hostname: string, shielded: boolean) => cloudflareCall('/shield', 'POST', { hostname, shielded });
+  const cloudflarePanel = (hostname: string) => cloudflareCall('/panel', 'POST', { hostname });
+  const cloudflareRanges = (action: string) => cloudflareCall('/ranges', 'POST', { action });
+
   // Fork addition: is there a newer server release? GET = last known answer,
   // POST = ask again. Neither installs anything.
   function serverUpdateStatus() {
@@ -380,6 +418,13 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     securityAudit, // Fork addition: user audit panel
     securityUserSummary,
     securityMyActivity,
+    cloudflareStatus,
+    cloudflareCheck,
+    cloudflarePreview,
+    cloudflareTakeOver,
+    cloudflareShield,
+    cloudflarePanel,
+    cloudflareRanges,
     snapshotsStatus,
     snapshotsRun,
     snapshotsRestore,

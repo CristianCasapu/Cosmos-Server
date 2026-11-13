@@ -27,6 +27,8 @@ import PermissionGuard from "../../components/permissionGuard";
 import dayjs from "dayjs";
 import { useTranslation } from "react-i18next";
 import { ConfirmModalDirect } from "../../components/confirmModal";
+import CloudflareOverview, { CloudflareConnect, loadCloudflare, useCloudflare } from "../../components/cloudflare"; // Fork addition
+import { CloudOutlined } from "@ant-design/icons"; // Fork addition
 
 // one line saying which certificate serves a hostname, reused by the route and hostname views
 export const HostCertificateLine = ({ cert }) => {
@@ -306,6 +308,9 @@ const ConfigZones = () => {
   const [zones, setZones] = useState(null);
   const [editZone, setEditZone] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  // Fork addition: the guided set-up for a domain at Cloudflare
+  const [connectCloudflare, setConnectCloudflare] = useState(false);
+  const cloudflare = useCloudflare();
 
   const refresh = async () => {
     try {
@@ -383,10 +388,29 @@ const ConfigZones = () => {
 
         <Alert severity="info">{t('mgmt.config.zones.info')}</Alert>
 
-        <Stack direction="row" spacing={2}>
+        {/* Fork addition: the guided set-up; upstream's form stays as the door for everything else */}
+        {connectCloudflare && (
+          <CloudflareConnect
+            zones={zones || []}
+            hostname={(cloudflare.data && cloudflare.data.hostname) || window.location.hostname}
+            httpsPort={cloudflare.data && cloudflare.data.publicPort}
+            onManual={() => { setConnectCloudflare(false); setEditZone({}); }}
+            onClose={(changed) => {
+              setConnectCloudflare(false);
+              if (changed) { refresh(); loadCloudflare(true); }
+            }}
+          />
+        )}
+
+        <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
           <PermissionGuard permission={PERM_CONFIGURATION}>
-            <ResponsiveButton variant="contained" startIcon={<PlusOutlined />} onClick={() => setEditZone({})}>
-              {t('mgmt.config.zones.newZone')}
+            <ResponsiveButton variant="contained" startIcon={<CloudOutlined />} onClick={() => setConnectCloudflare(true)}>
+              {t('mgmt.cloudflare.connect.button', 'Connect Cloudflare')}
+            </ResponsiveButton>
+          </PermissionGuard>
+          <PermissionGuard permission={PERM_CONFIGURATION}>
+            <ResponsiveButton variant={/* Fork addition: the guided set-up is the main door */ "outlined"} startIcon={<PlusOutlined />} onClick={() => setEditZone({})}>
+              {t('mgmt.cloudflare.connect.byHand', 'Add a domain by hand')}
             </ResponsiveButton>
           </PermissionGuard>
           <ResponsiveButton variant="outlined" startIcon={<ReloadOutlined />} onClick={refresh}>
@@ -487,4 +511,10 @@ const ConfigZones = () => {
   );
 };
 
-export default ConfigZones;
+// Fork addition: the domains, and below them what is connected to Cloudflare
+const ConfigZonesWithCloudflare = () => <Stack spacing={3}>
+  <ConfigZones />
+  <CloudflareOverview />
+</Stack>;
+
+export default ConfigZonesWithCloudflare;

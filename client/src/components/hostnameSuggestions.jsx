@@ -154,7 +154,9 @@ const HostnameSuggestions = ({ name, value, config, onPick, disabled, inline }) 
 };
 
 // One line on what the router has to do while Cosmos does not ask it to.
-export const PortForwardHint = ({ config }) => {
+// `port` is the HTTPS port in use when the caller knows it (the environment
+// can set another one than the settings hold).
+export const PortForwardHint = ({ config, port }) => {
   const { t } = useTranslation();
   const http = (config && config.HTTPConfig) || {};
   if (http.UPnP && http.UPnP.Enabled) {
@@ -163,7 +165,7 @@ export const PortForwardHint = ({ config }) => {
   return <Typography variant="caption" color="textSecondary">
     {t('mgmt.urls.external.forwardByHand',
       'Automatic port forwarding is off: forward port {{port}} (HTTPS) to this server on your router by hand, or switch it on under Configuration > HTTP > Internet access.',
-      { port: http.HTTPSPort || '443' })}
+      { port: port || http.HTTPSPort || '443' })}
   </Typography>;
 };
 

@@ -329,6 +329,7 @@ func Reconcile(zones []utils.DNSZoneConfig, index int, desired Desired) {
 
 	// from here on only the records of the domain exist
 	actual := scopeRecords(state.actual, providerZone, zones, index)
+	desired, actual = ForkFilterDesired(zone, providerZone, desired, actual) // Fork addition: names this pass leaves alone, see fork_hooks.go
 
 	if warmingUp {
 		desired = additiveOnly(desired, providerZone, actual)
@@ -397,6 +398,8 @@ func Reconcile(zones []utils.DNSZoneConfig, index int, desired Desired) {
 	state.attempted = ""
 	state.status = ZoneStatus{Supported: true, LastSync: time.Now(), Records: desired}
 	stateLock.Unlock()
+
+	ForkAfterReconcile(zone, providerZone, desired, !changes.Empty()) // Fork addition: see fork_hooks.go
 }
 
 // ResetWriter forgets everything learned as the writer: the next pass starts a

@@ -976,6 +976,8 @@ func InitServer() *mux.Router {
 
 	router.Use(utils.Logger)
 
+	router.Use(proxy.CloudflareOriginGuard) // Fork addition: a hostname served through Cloudflare answers Cloudflare (and the local network) only, see proxy/fork_cloudflare.go
+
 	if config.BlockedCountries != nil && len(config.BlockedCountries) > 0 {
 		router.Use(utils.BlockByCountryMiddleware(config.BlockedCountries, config.CountryBlacklistIsWhitelist))
 	}
@@ -1032,6 +1034,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/config/test-email", configapi.ConfigApiTestEmail)
 	srapiAdmin.HandleFunc("/api/upnp", upnp.StatusRoute)
 	srapiAdmin.HandleFunc("/api/reachability", reach.StatusRoute) // Fork addition: can the apps be reached from the internet
+	registerCloudflareRoutes(srapiAdmin) // Fork addition: the guided Cloudflare integration, see fork_cloudflare.go
 	srapiAdmin.HandleFunc("/api/snapshots", snapshots.StatusRoute) // fork addition: incremental snapshots
 	srapiAdmin.HandleFunc("/api/snapshots/run", snapshots.RunRoute) // fork addition
 	srapiAdmin.HandleFunc("/api/snapshots/restore", snapshots.RestoreRoute) // fork addition

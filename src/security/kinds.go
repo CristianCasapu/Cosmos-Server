@@ -138,6 +138,7 @@ var catalogue = func() map[string]Kind {
 		incident(utils.SecAccessGrantDenied, SeverityHigh, OutcomeDenied, "Refused to grant a permission", "Someone who may manage users, roles or tokens tried to hand out a permission they do not hold themselves."),
 		incident(utils.SecAccessIPDenied, SeverityMedium, OutcomeDenied, "Address not allowed", "A request was refused by an address restriction (the admin whitelist or a URL's own)."),
 		incident(utils.SecAccessLocalDenied, SeverityLow, OutcomeDenied, "Local address asked from outside", "An address that is served on the local network only was requested from outside it."),
+		incident(utils.SecAccessOriginDenied, SeverityLow, OutcomeDenied, "Asked around Cloudflare", "An address that is served through Cloudflare's proxy was requested from an address that is neither Cloudflare's nor on the local network."),
 
 		incident(utils.SecShieldBlocked, SeverityMedium, OutcomeBlocked, "Blocked by SmartShield", "A request was refused because its sender is over a SmartShield budget or banned. Details: route."),
 		incident(utils.SecShieldStrike, SeverityMedium, OutcomeBlocked, "SmartShield strike", "A client went over a SmartShield budget and is blocked for an hour. Details: limit, route."),

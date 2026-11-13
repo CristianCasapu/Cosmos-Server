@@ -6,6 +6,7 @@ import { getFaviconURL, getContainersRoutes } from '../../../utils/routes';
 import HostChip from '../../../components/hostChip';
 import AppLinks, { AppDomains } from '../../../components/appLinks'; // Fork addition
 import { ReachPanel } from '../../../components/reachability'; // Fork addition
+import { AppShields } from '../../../components/cloudflare'; // Fork addition
 import { portsFromInspect } from '../../../utils/reachability'; // Fork addition
 import { GlobalOutlined } from '@ant-design/icons'; // Fork addition
 import ExposeModal from '../exposeModal';
@@ -244,7 +245,11 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
                 />
               </PermissionGuard>
               {/* Fork addition: attach or detach a domain */}
-              <AppDomains config={config} containerName={Name.replace('/', '')} refresh={refreshAll} style={{ margin: '5px' }} />
+              <AppDomains config={config} containerName={Name.replace('/', '')} refresh={refreshAll} style={{ margin: '5px' }} image={Image} />
+            </div>
+            {/* Fork addition: the addresses under a Cloudflare domain, each with its record and its switch */}
+            <div style={{ margin: '5px', maxWidth: '100%' }}>
+              <AppShields hosts={routes.filter((route) => route.UseHost).map((route) => route.Host)} image={Image} name={Name.replace('/', '')} title dense />
             </div>
             {/* Fork addition: can it be reached from the internet, and what was checked */}
             <strong><GlobalOutlined /> {t('mgmt.reach.title', 'Internet')}</strong>

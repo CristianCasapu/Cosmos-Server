@@ -44,6 +44,10 @@ var guardedHeaders = map[string]bool{
 	"x-forwarded-ssl":    true,
 	"x-real-ip":          true,
 	"forwarded":          true,
+	// what Cloudflare tells an origin about the visitor, see fork_cloudflare.go
+	"cf-connecting-ip":   true,
+	"cf-connecting-ipv6": true,
+	"true-client-ip":     true,
 }
 
 // forwardedHeaders is the hook of the proxy's director, called before it sets
@@ -71,6 +75,7 @@ func forwardedHeaders(req *http.Request, route utils.ProxyRouteConfig) {
 	} else {
 		req.Header.Del("X-Real-IP")
 	}
+	cloudflareVisitorHeaders(req, peer, client) // Cloudflare's own headers about the visitor, see fork_cloudflare.go
 }
 
 // keepConnectionTokens leaves in Connection only what a connection needs.

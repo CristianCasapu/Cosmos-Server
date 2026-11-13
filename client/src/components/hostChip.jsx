@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { getOrigin, getFullOrigin } from "../utils/routes";
 import { useTheme } from '@mui/material/styles';
 import StatusDot from "./statusDot";
+import { routeLink } from "../utils/appLinks"; // Fork addition: links carry the port
 
 const isDemo = import.meta.env.MODE === 'demo';
 
@@ -12,7 +13,7 @@ const probeRoute = async (route) => {
   // demo routes are fake hostnames: a real probe would mark them all offline
   if (isDemo) return 'online';
 
-  const origin = getFullOrigin(route);
+  const origin = routeLink(route, window.location); // Fork addition: with the port Cosmos is on (upstream: getFullOrigin, without it)
   try {
     const res = await fetch(origin + (origin.includes('?') ? '&' : '?') + '__cosmos_probe=1', {
       method: 'HEAD',
@@ -60,10 +61,8 @@ const HostChip = ({route, settings, style, ellipsis}) => {
       ...(ellipsis ? { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '250px' } : {})
     }}
     onClick={() => {
-      if(route.UseHost)
-        window.open(window.location.origin.split("://")[0] + "://" + route.Host + route.PathPrefix, '_blank');
-      else
-        window.open(window.location.origin + route.PathPrefix, '_blank');
+      // Fork addition: with the port Cosmos is on (upstream left it out for a URL with a host of its own)
+      window.open(routeLink(route, window.location), '_blank');
     }}
     onDelete={settings ? () => {
       window.open('/cosmos-ui/config-url/'+route.Name, '_blank');

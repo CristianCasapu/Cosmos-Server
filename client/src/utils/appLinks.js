@@ -76,3 +76,24 @@ export const domainRoutes = (routes, base, domain, labels) => (routes || []).fil
   return (route.Name === base.Name + '-' + domain && host.endsWith('.' + domain))
     || (labels || []).some((label) => label && host === label + '.' + domain);
 });
+
+// The address a route's chip opens. Upstream opened "https://<host>" for a
+// route with a host of its own, without a port: wrong whenever Cosmos is not
+// on the standard port, and on a server that shares its public address with
+// another machine it opens that machine. A host without a port of its own
+// gets the port the panel is being used on, unless that is the standard one
+// of the scheme. `location` is window.location.
+export const routeLink = (route, location) => {
+  const loc = location || {};
+  const scheme = String(loc.protocol || 'https:').replace(/:$/, '');
+  const path = (route && route.UsePathPrefix && route.PathPrefix) || '';
+  if (!route || !route.UseHost || !route.Host) {
+    return String(loc.origin || '') + path;
+  }
+  let host = String(route.Host).trim();
+  const standard = scheme === 'http' ? '80' : '443';
+  if (!/:\d+$/.test(host) && loc.port && String(loc.port) !== standard) {
+    host += ':' + loc.port;
+  }
+  return scheme + '://' + host + path;
+};
