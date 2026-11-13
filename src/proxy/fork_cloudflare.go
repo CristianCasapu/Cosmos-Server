@@ -45,3 +45,21 @@ func CloudflareOriginGuard(next http.Handler) http.Handler {
 		next.ServeHTTP(w, req)
 	})
 }
+
+// cloudflareVisitorHeaders is called before a request is passed on to an
+// application (fork_forwarded.go). The headers in which Cloudflare names the
+// visitor are only left in place when this server itself believed them: the
+// request came from Cloudflare for a hostname served through it. In every
+// other case the visitor wrote them, and an application that reads them
+// (many do, once told it is "behind Cloudflare") would take the visitor's
+// word. peer is the peer of the connection, client the visitor's address as
+// this server worked it out.
+func cloudflareVisitorHeaders(req *http.Request, peer string, client string) {
+	if client != "" && client != peer && utils.TrustedCloudflarePeer(peer) && utils.IsShieldedHost(req.Host) {
+		req.Header.Set("CF-Connecting-IP", client)
+		return
+	}
+	req.Header.Del("CF-Connecting-IP")
+	req.Header.Del("CF-Connecting-IPv6")
+	req.Header.Del("True-Client-IP")
+}

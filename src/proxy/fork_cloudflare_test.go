@@ -116,3 +116,55 @@ func TestShieldedHostnamesAnswerCloudflareAndTheLocalNetworkOnly(t *testing.T) {
 		t.Errorf("with a broken range list: status %d", recorder.Code)
 	}
 }
+
+// What an application is told about the visitor comes from this server: the
+// headers Cloudflare uses for it are passed on only when they were believed.
+func TestApplicationsGetCloudflareVisitorHeadersOnlyWhenBelieved(t *testing.T) {
+	previous := utils.GetBaseMainConfig()
+	config := utils.Config{}
+	config.HTTPConfig.Cloudflare.Shielded = []string{"radarr.example.org"}
+	config.HTTPConfig.Cloudflare.TrustRanges = true
+	utils.LoadBaseMainConfig(config)
+	t.Cleanup(func() { utils.LoadBaseMainConfig(previous) })
+
+	route := utils.ProxyRouteConfig{Name: "radarr"}
+	cases := []struct {
+		name     string
+		host     string
+		peer     string
+		claimed  string
+		wantCF   string
+		wantReal string
+	}{
+		{"through Cloudflare, shielded name", "radarr.example.org:2053", "173.245.48.9:40000", "86.120.1.1", "86.120.1.1", "86.120.1.1"},
+		{"a direct visitor forging them, shielded name", "radarr.example.org", "198.51.100.66:50000", "86.120.1.1", "", "198.51.100.66"},
+		{"a direct visitor forging them, direct name", "jellyfin.example.org", "198.51.100.66:50000", "192.168.1.5", "", "198.51.100.66"},
+		{"from Cloudflare's addresses for a direct name", "jellyfin.example.org", "173.245.48.9:40000", "86.120.1.1", "", "173.245.48.9"},
+		{"through Cloudflare, a local address claimed", "radarr.example.org", "173.245.48.9:40000", "192.168.1.5", "", "173.245.48.9"},
+		{"a device at home", "radarr.example.org", "192.168.1.23:51000", "86.120.1.1", "", "192.168.1.23"},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest("GET", "https://"+c.host+"/", nil)
+		req.Host = c.host
+		req.RemoteAddr = c.peer
+		req.Header.Set("X-Forwarded-For", c.claimed)
+		req.Header.Set("CF-Connecting-IP", c.claimed)
+		req.Header.Set("CF-Connecting-IPv6", "2001:db8::1")
+		req.Header.Set("True-Client-IP", c.claimed)
+		req.Header.Set("Cf_Connecting_Ip", c.claimed)
+		forwardedHeaders(req, route)
+
+		if got := req.Header.Get("CF-Connecting-IP"); got != c.wantCF {
+			t.Errorf("%s: the application gets CF-Connecting-IP %q, want %q", c.name, got, c.wantCF)
+		}
+		if got := req.Header.Get("X-Real-IP"); got != c.wantReal {
+			t.Errorf("%s: the application gets X-Real-IP %q, want %q", c.name, got, c.wantReal)
+		}
+		if c.wantCF == "" && (req.Header.Get("True-Client-IP") != "" || req.Header.Get("CF-Connecting-IPv6") != "") {
+			t.Errorf("%s: headers the visitor wrote were passed on: %v", c.name, req.Header)
+		}
+		if _, there := req.Header["Cf_connecting_ip"]; there || req.Header.Get("Cf_Connecting_Ip") != "" {
+			t.Errorf("%s: the underscore spelling was passed on", c.name)
+		}
+	}
+}
