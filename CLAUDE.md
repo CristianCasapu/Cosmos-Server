@@ -84,7 +84,7 @@ cp src/update.go src/launcher/update.go
 CGO_ENABLED=0 go build -o /tmp/cosmos src/*.go
 CGO_ENABLED=0 go build -o /tmp/cosmos-launcher ./src/launcher/launcher.go ./src/launcher/update.go
 go test ./src/utils/ ./src/authorizationserver/ -count=1
-go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ ./src/telegram/ ./src/fail2ban/ -count=1
+go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ ./src/telegram/ ./src/fail2ban/ ./src/forkrelease/ -count=1
 go test ./src/ -skip TestEveryRouteIsDocumented -count=1
 go test ./src/docker/ -count=1
 go test ./src/proxy/ -count=1
@@ -138,6 +138,8 @@ and say what they are. `scripts/fork-ui-check-apps.mjs` covers these pages, `scr
 WebKit does not keep the session cookie on a test hostname without a dot: give the test instance a dotted name for WebKit runs. An address under `/cosmos/api/` opened directly in a browser answers 403 (`HTTP009`, the same-origin check): scripts use `fetch` from a panel page, or a client without browser headers.
 
 `scripts/fork-ui-check-telegram.mjs` (with `scripts/fork-fake-telegram.go` standing in for Telegram on an internal test network) and `scripts/fork-ui-check-fail2ban.mjs` (needs a Debian container with Fail2ban installed by `fork/fail2ban/install.sh`) cover those two cards; nothing is ever sent to the real Telegram and the installer is never run on the host by a test.
+
+`scripts/fork-ui-check-sudo.mjs` checks that the password prompt comes back mid-work without losing a form.
 
 `scripts/fork-ui-check.mjs` logs in, confirms the password (`/api/sudo`: most
 admin actions need it), visits the main pages in three engines and at phone

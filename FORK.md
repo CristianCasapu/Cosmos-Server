@@ -60,7 +60,7 @@ and nothing here alters any paid feature or licensing mechanism.
 | Security record: every security-relevant event (logins and failures, two-factor, sessions, permissions refused, API tokens, shield strikes and bans, scans, account, settings, URL and container changes, terminals, updates) is kept with who, from where, what and outcome, in a table of the fork's own (`fork_security_events`), bounded against floods (limits per kind and address, summary rows, retention per kind). Readable by administrators through `GET /cosmos/api/security/events`, `/counts`, `/top-ips`, `/kinds`; other code can subscribe to events | `src/security/` (+ tests), `src/utils/fork_security.go`, `src/fork_security_hooks.go`, `fork_security.go` in `src/user`, `src/configapi`, `src/docker`, `src/proxy` (+ tests); one-line hooks in `src/httpServer.go`, `index.go`, `system.go`, `terminal.go`, `src/utils/loggedIn.go`, `middleware.go`, and in the login, account, settings, route, container, shield and snapshot handlers |
 | `cosmos.security.log` in the configuration folder: one fixed line per incident with a client address (time, kind, address, severity, count; nothing from the request), mode 0600, rotated at 5 MB, made for Fail2ban | `src/security/logfile.go` (+ test) |
 | The API answers the panel's own pages and clients only (Fetch Metadata / Origin; a request another site, another application or the address bar started gets 403 `HTTP009`), only on the server's own port, and on an application's hostname only the sign-in calls | `src/fork_same_origin.go`, `src/utils/fork_hostname_paths.go` (+ tests); modified: `src/httpServer.go`, `src/utils/middleware.go` |
-| Sessions: SameSite=Lax, a malformed cookie is refused like any invalid one, a token is bound to its hostname, no path is exempt from the second factor, logout ends the session on the server | `src/user/fork_session.go`, `fork_logout_revoke.go` (+ tests); modified: `src/user/token.go`, `logout.go` |
+| Sessions: SameSite=Lax, a malformed cookie is refused like any invalid one, a token is bound to its hostname, no path is exempt from the second factor; logging out ends every session of the account on every device (also after an administrator's reset link), a session lasts at most 30 days from its login, and the password confirmation lasts a fixed two hours and is never renewed; when it ends in the middle of work the prompt comes back without losing what was typed | `src/user/fork_session.go`, `fork_session_life.go` (+ tests), `src/fork_session_paths_test.go`, `client/src/utils/sudoPrompt.js` (+ test), `sudoPromptHooks.js`, `scripts/fork-ui-check-sudo.mjs`; modified: `src/user/token.go`, `logout.go`, `login.go`, `sudo.go`, `resend.go`, `src/authorizationserver/oauth2.go`, `client/src/utils/hooks.js`, `client/src/components/permissionGuard.jsx`, `client/src/layout/MainLayout/Header/HeaderContent/sudoModal.jsx` |
 | Accounts: a pending account answers like an unknown one at login; an administrator cannot delete or demote the own account | `src/user/fork_accounts.go` (+ test); modified: `src/user/login.go`, `delete.go`, `edit.go` |
 | Icons of applications are passed on as pictures only; the icon search stays off the local network | `src/fork_icons.go` (+ test); modified: `src/icons.go` |
 | Proxy: applications get the visitor's address and the proxy's headers from the server, not from the visitor; behind a trusted proxy the client address is the proxy's own entry | `src/proxy/fork_forwarded.go`, `src/utils/fork_forwarded_for.go` (+ tests); modified: `src/proxy/routeTo.go`, `shield.go`, `src/utils/utils.go` |
@@ -77,6 +77,7 @@ and nothing here alters any paid feature or licensing mechanism.
 | Notifications through Telegram: the high-severity events of the security record, what Cosmos raises for its administrators (forwarded once), server updates, Cosmos starting again, a container that keeps stopping. Six kinds to switch, minimum severity, quiet hours, a cap per minute with summaries, critical messages with a budget of their own, "include addresses and names", a test message with Telegram's answer in words, delivery status. The token is masked for every reader and kept out of logs and errors; messages are plain text with every outside value inside a code entity; a chat that loses the notifications is told | `src/telegram/` (+ tests), `src/fork_telegram.go`, `src/utils/fork_notify.go`, `src/configapi/fork_telegram.go`, `src/docker/fork_dying.go` (+ tests), `client/src/pages/config/telegram.jsx`, `client/src/utils/telegramSettings.js` (+ test), `scripts/fork-ui-check-telegram.mjs`, `scripts/fork-fake-telegram.go`; modified: `src/utils/types.go` (`Config.Telegram`), `src/utils/notifications.go`, `utils.go`, `src/index.go`, `src/httpServer.go`, `src/CRON.go`, `src/fork_updates.go`, `src/configapi/get.go`, `set.go`, `src/docker/events.go`, `client/src/pages/config/configGeneral.jsx`, `index.jsx` |
 | Fail2ban: filters, jails and an installer the owner runs on the server (`fork/fail2ban/install.sh`, `uninstall.sh`; never run by Cosmos): jails for failed sign-ins, probes, scans, SmartShield abuse, sshd and repeat offenders, bans enforced in an nftables table of their own ahead of Docker's forwarding, local networks never banned. Cosmos shows the state, the banned addresses with "Unban", the jails, and writes the thresholds and the never-ban list the admin sets (fixed commands, validated numbers and networks only); bans and unbans go into the security record (`firewall.*`) | `fork/fail2ban/`, `src/fail2ban/` (+ tests), `src/fork_fail2ban.go`, `client/src/pages/security/fail2ban.jsx`, `fail2banSection.jsx`, `client/src/utils/fail2ban.js` (+ test), `scripts/fork-ui-check-fail2ban.mjs`; routes `GET /cosmos/api/fail2ban` (admin read), `POST /cosmos/api/fail2ban/unban`, `/settings` (admin); modified: `src/httpServer.go`, `src/index.go`, `src/utils/types.go` (`Config.Fail2ban`), `src/utils/fork_security.go`, `src/security/kinds.go`, `groups.go` |
 | Permanent mounts made from the panel cannot stop the boot: the `/etc/fstab` entry names the file system by UUID when it has one and carries `nofail` with a ten-second wait (upstream wrote the device path without it); merged folders get `nofail` too. The device, folder, owner and options of a mount, merge or unmount request are checked on the server before they reach a command or the file (one field each, the folder below `/mnt`) | `src/storage/fork_mount_safety.go` (+ test); modified: `src/storage/mounts.go`, `mergerFS.go` |
+| Signed releases: a release is installed only when its signature file (`cosmos-cloud-<version>.sig`: version, file names and SHA-256 of each zip, signed with Ed25519) verifies under a key compiled into the server and the launcher; the server checks before it places the download, the launcher again before it unpacks; downloads come only from the fork's repository on GitHub's hosts, bounded and timed; a refused update leaves the server on its version with a log line, a security record entry and a notification | `src/forkrelease/` (+ tests), `src/fork_update_verify.go` (+ test), `scripts/fork-signing-key.sh`; modified: `src/CRON.go`, `update.go`, `index.go`, `src/launcher/launcher.go`, `src/security/kinds.go`, `src/utils/fork_security.go` |
 | The version shown in the menu includes the fork build | modified: `client/src/layout/MainLayout/Drawer/index.jsx` |
 | The Support menu links to this fork | modified: `client/src/menu-items/support.jsx`, `client/src/utils/locales/en/translation.json` |
 | Checks, release, upstream sync and rollback automation | `.github/actions/fork-build/`, `.github/workflows/fork-ci.yml`, `fork-release.yml`, `fork-sync.yml`, `fork-rollback.yml`, `scripts/fork-promote.sh` |
@@ -102,21 +103,40 @@ fork build appended.
    `custom`. It refuses unless the checks passed for exactly that commit and
    `custom` already contains everything on `production`.
 3. A push to `production` builds and publishes a release (`fork-release.yml`;
-   pushes that only change Markdown are skipped). The same checks run again on
-   the release build, so nothing is published that has not started once.
-4. The server looks for a newer release during the night and installs it.
+   pushes that only change Markdown are skipped), in two jobs: `build` has a
+   read-only token and no secret and runs the same checks again; `publish`
+   runs no code of the repository's dependencies, signs the zips with the
+   release key and refuses to publish what this build or the previous
+   release could not verify.
+4. The server looks for a newer release during the night, checks its
+   signature and installs it.
+
+### Release keys
+
+The public keys are in `src/forkrelease/keys.go` (two slots); the private
+halves are secrets of the GitHub environment `release`, which only the
+branch `production` may use. `scripts/fork-signing-key.sh` makes a key pair,
+stores the private half as the secret and prints the line for `keys.go`:
+that file changes in no other way. A new key must ship in one release (in
+the free slot) before it signs alone; the old one is removed a release
+later. If no trusted key can sign any more, one release is installed by
+hand: stop Cosmos, unpack the zip over `/opt/cosmos` keeping `start.sh`,
+start it. A release placed by hand for the launcher needs its signature
+file next to it (`cosmos-update.zip` and `cosmos-update.sig`).
 
 ### Upstream releases
 
 Once a day `fork-sync.yml` takes upstream's latest stable release, once it has
 been out for three days (`MIN_AGE_DAYS`; "Run workflow" with `ignore_age`
 skips the wait). It merges the release on top of `production` as a candidate
-branch `sync/<tag>` and runs the checks on it. If they pass, `production`
-moves to the candidate, is released, and the merge is brought into `custom`.
-If the merge conflicts, cannot be pushed (the workflow token may not push
-changes under `.github/workflows`) or fails the checks, `production` stays as
-it is and an issue is opened; merge the release on `custom` by hand and
-promote it.
+branch `sync/<tag>`, runs the checks on it, writes what changes to the run's
+summary and to an issue, and then waits for the owner's approval in the
+GitHub environment `upstream-approval` (Actions > the waiting run > "Review
+deployments"). Only after that click `production` moves to the candidate, is
+released, and the merge is brought into `custom`. If the merge conflicts,
+cannot be pushed (the workflow token may not push changes under
+`.github/workflows`) or fails the checks, `production` stays as it is and an
+issue is opened; merge the release on `custom` by hand and promote it.
 
 ### Dependency files in an upstream merge
 
@@ -134,7 +154,7 @@ release tag such as `v0.24.0-fork.7`) puts the files of that release back on
 `production` as a new commit and releases it under the next build number,
 which the server installs like any update. Going back across an upstream
 version is at your own risk: settings already migrated by the newer version
-are not migrated back. Afterwards `custom` must merge `production` (which
+are not migrated back. A rollback cannot go to a release from before signing or with other release keys (the workflow refuses). Afterwards `custom` must merge `production` (which
 undoes the change there too) before it can be promoted again.
 
 ### Good to know

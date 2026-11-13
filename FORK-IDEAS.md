@@ -37,15 +37,15 @@ upstream 0.23.4 unless noted and may have moved.
 The findings, with where and how, are kept outside this public repository
 (the owner has them). Decisions that are the owner's:
 
-1. Signed releases: updates install automatically and only GitHub's TLS and a
-   checksum from the same release stand before root. An Ed25519 signature
-   checked by server and launcher; needs a key the owner generates.
-2. Upstream releases reach `production` after three days without a look: an
-   approval step (one click per release).
-3. The release workflow as two jobs: a build without write rights, a publish.
-4. Password confirmation (sudo) renews itself while a tab is open: a fixed
-   two hours instead.
-5. "Log out everywhere" and a maximum session age.
+1. to 5. Done: signed releases, approval of upstream releases, the release
+   workflow in two jobs, the two-hour password confirmation, logout that
+   ends every session with a 30-day maximum (see `FORK.md`). Left from
+   these: a spare release key in slot 2 with an offline copy (without one,
+   losing the secret means one release installed by hand); a ruleset on
+   `production` and two-factor on the GitHub account, since signing does not
+   protect against someone who can push to `production`; repeating a
+   refused command by itself after the password; "skip this upstream
+   release for good".
 6. Labels that come from an image (`cosmos-force-network-mode` and the like)
    are obeyed: ignore them unless set by the admin.
 7. Routes that act on GET: POST only, with the UI changed to match.
