@@ -215,10 +215,23 @@ type ApexState struct {
 const maxUntouched = 300
 
 // knownAddress is this server's public IPv4 as far as Cosmos knows it without
-// asking anyone: what DynDNS advertises, else what the router reports.
+// asking anyone: what DynDNS advertises (or is set to advertise), else what
+// the router reports.
 var knownAddress = func() string {
 	if address := dnsrecords.CurrentAddress(); address != "" {
 		return address
+	}
+	// nothing is advertised before a domain's records are managed: what the
+	// settings say will be
+	setting := strings.TrimSpace(utils.GetMainConfig().HTTPConfig.AdvertisedAddress)
+	if ip := net.ParseIP(setting); ip != nil && ip.To4() != nil {
+		return ip.To4().String()
+	}
+	if name, isInterface := strings.CutPrefix(setting, "iface:"); isInterface {
+		if address, err := dnsrecords.InterfaceAddress(name); err == nil {
+			return address
+		}
+		return ""
 	}
 	if st := upnp.GetStatus(); st.Enabled {
 		if ip := net.ParseIP(st.ExternalIP); ip != nil && ip.To4() != nil {
@@ -226,6 +239,16 @@ var knownAddress = func() string {
 		}
 	}
 	return ""
+}
+
+// previewAddress is the address a preview compares the records with: the
+// known one, else the one Cloudflare's API host sees this server coming from
+// (asked on the admin's action only, and only of that host).
+var previewAddress = func(ctx context.Context) string {
+	if address := knownAddress(); address != "" {
+		return address
+	}
+	return SeenAddress(ctx)
 }
 
 // placeholder for the address in a plan while it is not known: only the
@@ -444,7 +467,7 @@ func MakePreview(ctx context.Context, token string, zoneName string, panelHost s
 	hosts, panel := servedUnder(config, zoneName, panelHost)
 	allowed := append(append([]string{}, config.HTTPConfig.Cloudflare.TakeOver...), takeOver...)
 
-	preview := buildPreview(zoneName, hosts, panel, records, knownAddress(), allowed, dnsrecords.OwnerID())
+	preview := buildPreview(zoneName, hosts, panel, records, previewAddress(ctx), allowed, dnsrecords.OwnerID())
 	preview.Truncated = truncated
 	preview.CanEdit = client.CanEdit(ctx, zone.ID)
 	if mode, err := client.SSLMode(ctx, zone.ID); err == nil {

@@ -214,3 +214,37 @@ func TestPreviewRouteChecksItsInput(t *testing.T) {
 		t.Errorf("preview with an unknown token: %d %v", code, answer)
 	}
 }
+
+// Before a domain is connected Cosmos may not know its public address: the
+// preview then asks Cloudflare's API host how it sees this server, so that it
+// can tell that the domain's own record already points here.
+func TestPreviewLearnsTheAddressFromCloudflareWhenItIsNotKnown(t *testing.T) {
+	env := setup(t, func(config *utils.Config) {
+		config.HTTPConfig.DNSZones = nil
+		config.HTTPConfig.AdvertisedAddress = ""
+	})
+	knownAddress = func() string { return "" }
+	for _, record := range env.fake.Records("example.org") {
+		if record.Name == "example.org" && record.Type == "A" {
+			env.fake.SetContent("example.org", record.ID, testAddress)
+		}
+	}
+
+	env.fake.SetSeenAs(testAddress)
+	preview, err := MakePreview(context.Background(), goodToken, "example.org", "example.org", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Address != testAddress || !preview.Apex.PointsHere || !preview.Apex.Proxied {
+		t.Errorf("address %q, apex %+v", preview.Address, preview.Apex)
+	}
+
+	// an answer that is no public IPv4 address is not used
+	for _, seen := range []string{"", "192.168.1.10", "2001:db8::1", "not an address", "127.0.0.1"} {
+		env.fake.SetSeenAs(seen)
+		preview, err := MakePreview(context.Background(), goodToken, "example.org", "example.org", nil)
+		if err != nil || preview.Address != "" || preview.Apex.PointsHere {
+			t.Errorf("seen as %q: address %q, apex %+v, %v", seen, preview.Address, preview.Apex, err)
+		}
+	}
+}

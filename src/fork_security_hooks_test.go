@@ -112,6 +112,7 @@ var securityHooks = []struct {
 	{"proxy/botblock.go", "recordBotBlock(r)", 2},
 	{"proxy/routerGen.go", "utils.RecordSecuritySessionError(r, err)", 1},
 	{"proxy/fork_local.go", "utils.RecordSecurity(req, utils.SecAccessLocalDenied", 1},
+	{"proxy/fork_cloudflare.go", "utils.RecordSecurity(req, utils.SecAccessOriginDenied", 1},
 	{"snapshots/api.go", "utils.AuditSecurity(req, utils.SecSnapshotRestore", 1},
 }
 

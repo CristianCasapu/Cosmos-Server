@@ -411,3 +411,43 @@ func PublishedRanges(ctx context.Context) (v4 []string, v6 []string, err error) 
 	}
 	return result.V4, result.V6, nil
 }
+
+// the page every name behind Cloudflare has, which tells a caller the
+// address it is seen with
+const tracePath = "/cdn-cgi/trace"
+
+// SeenAddress asks Cloudflare's API host which address this server reaches it
+// from: the server's public IPv4 when the connection went over IPv4. It needs
+// no token and sends nothing. "" when the answer is no public IPv4 address.
+func SeenAddress(ctx context.Context) string {
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimSuffix(apiBase, "/client/v4")+tracePath, nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		value, found := strings.CutPrefix(strings.TrimSpace(line), "ip=")
+		if !found {
+			continue
+		}
+		ip := net.ParseIP(value)
+		if ip == nil || ip.To4() == nil || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
+			return ""
+		}
+		return ip.To4().String()
+	}
+	return ""
+}

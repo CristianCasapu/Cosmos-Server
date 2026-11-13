@@ -257,7 +257,8 @@ func Evaluate(route utils.ProxyRouteConfig, env Env) RouteResult {
 			default:
 				reason = "other"
 			}
-			add("record", CheckProblem, "error_"+reason, nil)
+			code := "error_" + reason
+			add("record", CheckProblem, code, nil)
 		default:
 			add("record", CheckUnknown, "pending", nil)
 		}

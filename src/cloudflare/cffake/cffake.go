@@ -71,6 +71,8 @@ type Server struct {
 	// RangesV4/V6 are what GET /ips returns
 	rangesV4 []string
 	rangesV6 []string
+	// seenAs is the address /cdn-cgi/trace reports for the caller
+	seenAs string
 }
 
 // New returns an empty stand-in with Cloudflare's real ranges.
@@ -157,6 +159,13 @@ func (s *Server) SetRanges(v4 []string, v6 []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.rangesV4, s.rangesV6 = v4, v6
+}
+
+// SetSeenAs sets the address the caller is told it comes from.
+func (s *Server) SetSeenAs(address string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seenAs = address
 }
 
 // SetDown switches the broken-gateway mode.
@@ -307,6 +316,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	path := req.URL.Path
+	if path == "/cdn-cgi/trace" && req.Method == "GET" {
+		// what every name behind Cloudflare answers: the address the caller is seen with
+		io.WriteString(w, "fl=000f000\nh=api.cloudflare.com\nip="+s.seenAs+"\nts=1700000000.000\nvisit_scheme=https\n")
+		return
+	}
 	if path == "/client/v4/ips" && req.Method == "GET" {
 		ok(w, map[string]interface{}{"ipv4_cidrs": s.rangesV4, "ipv6_cidrs": s.rangesV6, "etag": "fake"}, nil)
 		return

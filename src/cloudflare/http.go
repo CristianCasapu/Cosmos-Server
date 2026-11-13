@@ -394,7 +394,11 @@ func ShieldRoute(w http.ResponseWriter, req *http.Request) {
 		served := servedHostnames(*config)
 		list := prune(cf.Shielded, served)
 		if body.Shielded {
-			if problem = shieldProblem(*config, host, knownAddress()); problem != "" {
+			// the ports in use, which the environment may set over the file's
+			effective := *config
+			running := utils.GetMainConfig().HTTPConfig
+			effective.HTTPConfig.HTTPPort, effective.HTTPConfig.HTTPSPort = running.HTTPPort, running.HTTPSPort
+			if problem = shieldProblem(effective, host, knownAddress()); problem != "" {
 				return errors.New("this address cannot be served through Cloudflare: " + problem)
 			}
 			list = addName(list, host)
@@ -615,6 +619,8 @@ type Status struct {
 	Ranges       RangesState `json:"ranges"`
 	// Address: where the records point, for admins only
 	Address string `json:"address,omitempty"`
+	// Hostname is the panel's own address now
+	Hostname string `json:"hostname"`
 }
 
 // GetStatus gathers what the screens show. Nothing is asked of Cloudflare.
@@ -629,6 +635,7 @@ func GetStatus(withAddresses bool) Status {
 		PublicPort:   utils.PublicHTTPSPort(config.HTTPConfig),
 		AllowedPorts: utils.CloudflareHTTPSPorts,
 		Ranges:       rangesStatus(cf, withAddresses),
+		Hostname:     utils.CloudflareHostname(config.HTTPConfig.Hostname),
 	}
 	status.PortOK = utils.IsCloudflareHTTPSPort(status.PublicPort)
 	if withAddresses {
