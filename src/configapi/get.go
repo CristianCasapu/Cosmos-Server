@@ -76,6 +76,9 @@ func ConfigApiGet(w http.ResponseWriter, req *http.Request) {
 				}
 			}
 			config.HTTPConfig.ProxyConfig.Routes = filteredRoutes
+
+			// Fork addition: an account that may not read the configuration gets it without its sensitive parts, see fork_config_view.go
+			redactForNonAdmin(&config)
 		}
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
