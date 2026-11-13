@@ -141,6 +141,8 @@ WebKit does not keep the session cookie on a test hostname without a dot: give t
 
 `scripts/fork-ui-check-sudo.mjs` checks that the password prompt comes back mid-work without losing a form.
 
+A browser check that loads full pages one after another has to pace itself (about one page every 8 seconds from one address): each page load asks `/api/me` some 46 times and the instance allows 500 API requests a minute; beyond that pages come up empty.
+
 `scripts/fork-ui-check.mjs` logs in, confirms the password (`/api/sudo`: most
 admin actions need it), visits the main pages in three engines and at phone
 width, and reports script errors. Look at the screenshots it writes. Errors
