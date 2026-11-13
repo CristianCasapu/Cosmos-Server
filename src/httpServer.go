@@ -1263,6 +1263,9 @@ func InitServer() *mux.Router {
 	}
 
 	srapiAdmin.Use(utils.Restrictions(config.AdminConstellationOnly, config.AdminWhitelistIPs))
+
+	// Fork addition: the API answers the panel's own pages, not other sites, see fork_same_origin.go
+	requireSameOrigin(srapi, srapiStrict, srapiAdmin)
 	
 	srapi.Use(proxy.CleanPathMiddleware)
 	srapiStrict.Use(proxy.CleanPathMiddleware)
