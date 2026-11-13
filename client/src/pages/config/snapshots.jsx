@@ -279,17 +279,23 @@ const Snapshots = ({ formik, config }) => {
 
         {/* where the snapshots go */}
         <Grid item xs={12}>
-          <Stack direction={"row"} spacing={2} alignItems="flex-end">
-            <FilePickerButton canCreate onPick={(path) => {
-              if (path)
-                formik.setFieldValue('Snapshots_Destination', path);
-            }} size="150%" select="folder" />
-            <CosmosInputText
-              label={t('mgmt.config.snapshots.destinationLabel', 'Destination: the folder the snapshots are stored in')}
-              name="Snapshots_Destination"
-              placeholder="/storage/snapshots"
-              formik={formik}
-            />
+          {/* the label above the row and the row aligned at its top: the folder button stays level
+              with the input when an error is shown under it, and the field fits a phone */}
+          <Stack spacing={1}>
+            <InputLabel htmlFor="Snapshots_Destination">
+              {t('mgmt.config.snapshots.destinationLabel', 'Destination: the folder the snapshots are stored in')}
+            </InputLabel>
+            <Stack direction={"row"} spacing={2} alignItems="flex-start">
+              <FilePickerButton canCreate onPick={(path) => {
+                if (path)
+                  formik.setFieldValue('Snapshots_Destination', path);
+              }} size="150%" select="folder" />
+              <CosmosInputText
+                name="Snapshots_Destination"
+                placeholder="/storage/snapshots"
+                formik={formik}
+              />
+            </Stack>
           </Stack>
           <FormHelperText>
             {t('mgmt.config.snapshots.destinationHelp',

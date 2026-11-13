@@ -84,15 +84,27 @@ const ConfigManagement = () => {
   const isAdmin = hasPermission(PERM_CONFIGURATION);
   const canViewAdmin = hasPermission(PERM_ADMIN_READ);
 
-  function refresh() {
+  // Fork addition: `retries`. Saving makes the server restart its listener, which refuses the
+  // reload that follows the save; the page then kept showing the settings from before the save
+  // (and an uncaught error). After a save the reload is tried again, once a second.
+  function refresh(retries = 0) {
+    let again = false;
+    const retry = (error) => {
+      // only when the server did not answer at all: an error it answered with has been shown
+      if (retries > 0 && !again && !(error && error.status)) {
+        again = true;
+        setTimeout(() => refresh(retries - 1), 1000);
+      }
+    };
+
     API.config.get().then((res) => {
       setConfig(res.data);
       setServerCertificate(res.serverCertificate || "");
-    });
+    }).catch(retry);
 
     API.getStatus().then((res) => {
       setStatus(res.data);
-    });
+    }).catch(retry);
   }
 
   React.useEffect(() => {
@@ -102,7 +114,8 @@ const ConfigManagement = () => {
   const wrapTab = (formik, content) => (
     <div style={{ maxWidth: "1000px", margin: "auto" }}>
       <Stack spacing={3}>
-        <Stack direction="row" spacing={2}>
+        {/* Fork addition: useFlexGap flexWrap. On a phone the three buttons were squeezed into one line, their text broken and the icons pushed out of them */}
+        <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
           <Button variant="contained" color="primary" startIcon={<SyncOutlined />} onClick={() => {
               refresh();
           }}>{t('mgmt.config.header.refreshButton.refreshLabel')}</Button>
@@ -336,7 +349,7 @@ const ConfigManagement = () => {
           }
 
           return API.config.set(toSave).then(() => {
-            refresh();
+            refresh(15); // fork addition: the server may be restarting its listener
             setSaveLabel(t('global.savedConfirmation'));
             setTimeout(() => {
               setSaveLabel(t('global.saveAction'));

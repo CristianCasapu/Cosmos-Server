@@ -156,7 +156,11 @@ export function CosmosContainerPicker({formik, nameOnly, lockTarget, TargetConta
       }
       
       if (targetResult.container !== 'null') {
-        postContainerChange(res.data.find((container) => container.Names[0] === targetResult.container) || targetResult.containerObject)
+        // Fork addition: a new URL names no container yet; without the check this threw (uncaught) each time its form opened
+        const current = res.data.find((container) => container.Names[0] === targetResult.container) || targetResult.containerObject;
+        if (current) {
+          postContainerChange(current);
+        }
       }
     })();
 

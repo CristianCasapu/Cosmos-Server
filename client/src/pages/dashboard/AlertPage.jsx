@@ -95,7 +95,8 @@ const EditAlertModal = ({ open, onClose, onSave }) => {
               formik={formik}
               required
             />
-            <Stack direction="row" spacing={2} alignItems="center">
+            {/* Fork addition: one below the other on a phone; side by side the value field and the percent checkbox ran out of the dialog */}
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'stretch', sm: 'center' }}>
               <CosmosSelect
                 name="conditionOperator"
                 label={t('navigation.monitoring.alerts.conditionOperatorLabel')}
@@ -162,6 +163,7 @@ const EditAlertModal = ({ open, onClose, onSave }) => {
                   <Stack direction="row" spacing={2} key={index}>
                     <Box style={{
                       width: '100%',
+                      minWidth: 0, // Fork addition: a long action name pushed the delete button out of the dialog on a phone
                     }}>
                       <CosmosSelect
                         name={`actions.${index}.Type`}
@@ -226,14 +228,27 @@ const AlertPage = () => {
   const [openModal, setOpenModal] = React.useState(false);
   const [metrics, setMetrics] = React.useState({});
 
-  function refresh() {
+  // Fork addition: `retries`. Saving makes the server restart its listener, which refuses the
+  // reload that follows a change; the list then kept showing the alerts from before the change,
+  // with its checkboxes and delete buttons disabled. After a change the reload is tried again,
+  // once a second.
+  function refresh(retries = 0) {
+    let again = false;
+    const retry = (error) => {
+      // only when the server did not answer at all: an error it answered with has been shown
+      if (retries > 0 && !again && !(error && error.status)) {
+        again = true;
+        setTimeout(() => refresh(retries - 1), 1000);
+      }
+    };
+
     API.config.get().then((res) => {
       setConfig(res.data);
       setIsLoading(false);
-    });
+    }).catch(retry);
     API.metrics.list().then((res) => {
       setMetrics(res.data);
-    });
+    }).catch(retry);
   }
 
   React.useEffect(() => {
@@ -254,7 +269,7 @@ const AlertPage = () => {
     };
 
     API.config.set(toSave).then(() => {
-      refresh();
+      refresh(15); // fork addition: the server may be restarting its listener
     });
   }
 
@@ -269,7 +284,7 @@ const AlertPage = () => {
     delete toSave.MonitoringAlerts[name];
 
     API.config.set(toSave).then(() => {
-      refresh();
+      refresh(15); // fork addition: the server may be restarting its listener
     });
   }
   
@@ -301,7 +316,7 @@ const AlertPage = () => {
     };
 
     API.config.set(toSave).then(() => {
-      refresh();
+      refresh(15); // fork addition: the server may be restarting its listener
     });
   }
   
@@ -392,7 +407,7 @@ const AlertPage = () => {
     };
 
     API.config.set(toSave).then(() => {
-      refresh();
+      refresh(15); // fork addition: the server may be restarting its listener
     });
   }
 
@@ -412,7 +427,8 @@ const AlertPage = () => {
   return <div style={{ maxWidth: "1200px", margin: "auto" }}>
     {openModal && <EditAlertModal open={openModal} onClose={() => setOpenModal(false)} onSave={saveAlert} />}
 
-    <Stack direction="row" spacing={2} style={{marginBottom: '15px'}}>
+    {/* Fork addition: useFlexGap flexWrap, the buttons go to a second line on a phone instead of being squeezed */}
+    <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap" style={{marginBottom: '15px'}}>
       <Button variant="contained" color="primary" startIcon={<SyncOutlined />} onClick={() => {
           refresh();
       }}>{t('global.refresh')}</Button>
