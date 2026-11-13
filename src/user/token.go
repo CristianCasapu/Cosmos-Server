@@ -90,6 +90,12 @@ func RefreshUserToken(w http.ResponseWriter, req *http.Request) ([]utils.Permiss
 
 	parts := strings.Split(tokenString, ".")
 
+	// Fork addition: a cookie without the three parts of a token is refused like any invalid one, see fork_session.go
+	if !tokenPartsOK(parts) {
+		_, e := quickLoggout(w, req, errors.New("malformed token"))
+		return nil, false, utils.User{}, e
+	}
+
 	errT := jwt.SigningMethodEdDSA.Verify(strings.Join(parts[0:2], "."), parts[2], ed25519Key)
 
 	if errT != nil {

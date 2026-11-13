@@ -3,6 +3,7 @@ package user
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/azukaar/cosmos-server/src/utils"
@@ -70,5 +71,31 @@ func TestSessionCookiesAreSameSiteLax(t *testing.T) {
 		if cookie.SameSite != http.SameSiteLaxMode {
 			t.Errorf("logout clears %s without SameSite=Lax", cookie.Name)
 		}
+	}
+}
+
+func TestMalformedSessionCookieIsRefused(t *testing.T) {
+	sessionTestSetup(t, "cosmos.example.com")
+
+	for _, value := range []string{"a", "a.b", "a.b.c.d", ".", "..", "a..c", "eyJhbGciOiJFZERTQSJ9"} {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("cookie %q ended the request in a panic: %v", value, r)
+				}
+			}()
+			u, err, w := refreshWith("cosmos.example.com", &http.Cookie{Name: "jwttoken", Value: value})
+			if err == nil || u.Nickname != "" {
+				t.Errorf("cookie %q was not refused (user %q, err %v)", value, u.Nickname, err)
+			}
+			if w.Code != http.StatusTemporaryRedirect || !strings.HasPrefix(w.Header().Get("Location"), "/cosmos-ui/login") {
+				t.Errorf("cookie %q: expected the redirect to the login page, got %d %q", value, w.Code, w.Header().Get("Location"))
+			}
+		}()
+	}
+
+	// no cookie at all is simply "not logged in", as before
+	if u, err, _ := refreshWith("cosmos.example.com", nil); err != nil || u.Nickname != "" {
+		t.Errorf("no cookie: user %q, err %v", u.Nickname, err)
 	}
 }
