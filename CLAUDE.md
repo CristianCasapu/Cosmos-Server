@@ -84,7 +84,7 @@ cp src/update.go src/launcher/update.go
 CGO_ENABLED=0 go build -o /tmp/cosmos src/*.go
 CGO_ENABLED=0 go build -o /tmp/cosmos-launcher ./src/launcher/launcher.go ./src/launcher/update.go
 go test ./src/utils/ -run 'DeliverEmail|UsesImplicitTLS|WriteFileAtomic|SaveConfigTofile|Timezone|SerialWebsocket' -count=1
-go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ -count=1
+go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ -count=1
 go test ./src/ -skip TestEveryRouteIsDocumented -count=1
 go test ./src/docker/ -count=1
 go test ./src/proxy/ -run 'IsLocalAddress|IsLocalVisitor|LocalNetworkOnly' -count=1

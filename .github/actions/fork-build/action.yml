@@ -77,7 +77,7 @@ runs:
       run: |
         node --test "client/src/utils/*.test.mjs"
         go test ./src/utils/ -run 'DeliverEmail|UsesImplicitTLS' -count=1
-        go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ -count=1
+        go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ -count=1
         go test ./src/utils/ -run 'WriteFileAtomic|SaveConfigTofile|Timezone|SerialWebsocket' -count=1
         go test ./src/ -run 'CompareVersions|ForkBuild|MaintenanceTime|MaintenanceDue|ServerUpdateRoute|BackupScheduled|BackupDue|PlainHTTP' -count=1
         go test ./src/docker/ -count=1

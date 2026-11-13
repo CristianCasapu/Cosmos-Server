@@ -10,10 +10,13 @@ upstream 0.23.4 unless noted and may have moved.
 1. **Forms that fill themselves in.** Done for the ServApps "New URL" dialog,
    the new-container form and the market installer (see `FORK.md`). Still to
    go through the same way: the route editor, mounts, cron jobs and alerts.
-2. **App links: done** (a local address always, an external one per attached
-   domain, grouped on the cards, attached or detached later through
-   "Domains"). Left: the hint about the router port only knows whether UPnP
-   is switched on, not whether the port is really reachable from outside.
+2. **App links and reachability: done** (a local address always, an external
+   one per attached domain, grouped on the cards, "Domains", and a chip that
+   says whether the app can be reached from the internet). Left, the owner's
+   to decide: looking the public address up automatically (a setting, off by
+   default) instead of on a click; a real test from outside, which needs a
+   machine outside the network (a small echo service on a VPS of the owner's
+   rather than a public service).
 3. **Incremental backups: done** as the fork's own snapshots module, with an
    exclude list, the guard against an unmounted (empty) source and removal of
    `.before-restore-*` folders. Ideas left: optional stop/start of the apps
