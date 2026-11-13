@@ -100,6 +100,57 @@ func TestAPIRefusesRequestsOfOtherSites(t *testing.T) {
 	}
 }
 
+// A route that gives an application its own port is served by this server too:
+// the API must not answer there, where the application's pages are at home.
+func TestAPIDoesNotAnswerOnThePortOfAnApplication(t *testing.T) {
+	prev := routePortOf
+	routePortOf = func(r *http.Request) (string, bool) {
+		if strings.HasSuffix(r.Host, ":7200") {
+			return "7200", true
+		}
+		return "", false
+	}
+	t.Cleanup(func() { routePortOf = prev })
+
+	try := func(host string, target string, headers map[string]string) (int, int) {
+		reached := 0
+		router := sameOriginTestRouter(&reached)
+		req := httptest.NewRequest("GET", "https://"+host+target, nil)
+		req.Host = host
+		for name, value := range headers {
+			req.Header.Set(name, value)
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec.Code, reached
+	}
+
+	sameOrigin := map[string]string{"Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors"}
+
+	// a page of the application calls the API on its own origin
+	if code, reached := try("172.16.0.14:7200", "/cosmos/api/restart", sameOrigin); code != http.StatusForbidden || reached != 0 {
+		t.Errorf("the API answered on the port of an application: %d (handler reached %d times)", code, reached)
+	}
+	if code, reached := try("172.16.0.14:7200", "/cosmos/rclone/config/create", sameOrigin); code != http.StatusForbidden || reached != 0 {
+		t.Errorf("the rclone API answered on the port of an application: %d (handler reached %d times)", code, reached)
+	}
+	// neither a script nor a token changes where the API lives
+	if code, reached := try("172.16.0.14:7200", "/cosmos/api/restart", nil); code != http.StatusForbidden || reached != 0 {
+		t.Errorf("a request without browser headers was answered on the port of an application: %d", code)
+	}
+	if code, reached := try("172.16.0.14:7200", "/cosmos/api/restart", map[string]string{"Authorization": "Bearer cosmos_abc"}); code != http.StatusForbidden || reached != 0 {
+		t.Errorf("a request with a token was answered on the port of an application: %d", code)
+	}
+	// the sign-in of the application ends on its own address
+	if code, reached := try("172.16.0.14:7200", "/cosmos/oauth2/detect-callback?code=x&state=y", map[string]string{"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "navigate"}); code != http.StatusOK || reached != 1 {
+		t.Errorf("the sign-in callback of an application on its port: %d (handler reached %d times)", code, reached)
+	}
+	// the server's own port is unchanged
+	if code, reached := try("172.16.0.14:2053", "/cosmos/api/restart", sameOrigin); code != http.StatusOK || reached != 1 {
+		t.Errorf("the API on the server's own port: %d (handler reached %d times)", code, reached)
+	}
+}
+
 func TestOriginNamesHost(t *testing.T) {
 	match := [][2]string{
 		{"https://cosmos.example.com", "cosmos.example.com"},

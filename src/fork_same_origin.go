@@ -22,8 +22,15 @@ package main
 //   - a request that presents an API token passes as before: a browser never
 //     adds one by itself.
 //
+// The API also has one address only: the server's own port. A route that
+// gives an application a port of its own (":7200") is served by this same
+// server, and the API used to answer there as well, on the application's
+// origin. A request that came in on the port of a route is refused, token or
+// not.
+//
 // Left alone: /cosmos/oauth2/..., the last step of the sign-in of an
-// application, which arrives from the panel's hostname on purpose.
+// application, which arrives from the panel's hostname on purpose and on the
+// application's own address.
 //
 // Nothing here replaces a permission check; it runs in front of them.
 
@@ -33,9 +40,14 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/azukaar/cosmos-server/src/proxy"
 	"github.com/azukaar/cosmos-server/src/utils"
 	"github.com/gorilla/mux"
 )
+
+// routePortOf tells on which route port a request came in, if any (a
+// variable so that the tests can stand in for the port listeners)
+var routePortOf = proxy.HandoffPort
 
 // requireSameOrigin is the hook of InitServer: it puts the check in front of
 // the API routers.
@@ -60,6 +72,9 @@ func sameOriginOnly(next http.Handler) http.Handler {
 func foreignRequest(r *http.Request) string {
 	if strings.HasPrefix(r.URL.Path, "/cosmos/oauth2/") {
 		return ""
+	}
+	if port, onRoutePort := routePortOf(r); onRoutePort {
+		return "asked on port " + printable(port, 8) + ", which belongs to an application"
 	}
 	if presentsAPIToken(r) {
 		return ""
