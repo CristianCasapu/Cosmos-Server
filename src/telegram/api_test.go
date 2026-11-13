@@ -154,6 +154,30 @@ func TestTheTestMessage(t *testing.T) {
 	mustNotContain(t, "the answer", rec.Body.String(), testToken)
 	mustNotContain(t, "the answer", rec.Body.String(), "4242")
 
+	// a test with other settings than the saved ones says nothing about deliveries
+	paused := newHarness(t, fake, true)
+	paused.notifier.settings = currentSettings
+	previous := std.Swap(paused.notifier)
+	defer std.Store(previous)
+	paused.failed(&sendError{Reason: ReasonWrongToken, Message: "refused"}, currentSettings(), true)
+	if status := paused.Status(); status.PausedUntil == nil || status.LastError == "" || status.LastSent != nil {
+		t.Fatalf("status before the test: %+v", status)
+	}
+	useFake(t, fake)
+	call(TestRoute, apiRequest("POST", "/api/telegram/test", "sudo", testBody(utils.TelegramConfig{ChatID: "4242"})))
+	if status := paused.Status(); status.PausedUntil == nil || status.LastSent != nil {
+		t.Errorf("a test to another chat changed the status of deliveries: %+v", status)
+	}
+	// one with the saved settings that works ends the pause and is the last message sent
+	useFake(t, fake)
+	call(TestRoute, apiRequest("POST", "/api/telegram/test", "sudo", testBody(utils.TelegramConfig{BotToken: "***", ChatID: testChat})))
+	if status := paused.Status(); status.PausedUntil != nil || status.LastError != "" || status.LastSent == nil {
+		t.Errorf("a test with the saved settings that worked left the status at: %+v", status)
+	}
+	fake.mu.Lock()
+	fake.requests = fake.requests[:1]
+	fake.mu.Unlock()
+
 	// a masked token and a masked chat are the saved ones; a typed token is used as typed
 	useFake(t, fake)
 	rec = call(TestRoute, apiRequest("POST", "/api/telegram/test", "sudo", testBody(utils.TelegramConfig{BotToken: "***", ChatID: "***"})))

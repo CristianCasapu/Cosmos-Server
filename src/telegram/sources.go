@@ -4,6 +4,7 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/azukaar/cosmos-server/src/security"
 	"github.com/azukaar/cosmos-server/src/utils"
@@ -249,6 +250,14 @@ const (
 	MessageDeliveryFailed = "header.notification.message.telegramFailed"
 )
 
+// The names of the alerts that exist without the administrator writing
+// them: "Disk Full Notification" for "/" (upstream) and "Disk Full
+// Notification (<disk>)" for each data disk (metrics/fork_disk_alerts.go),
+// and upstream's two alerts on what containers use.
+const diskAlertPrefix = "Disk Full Notification"
+
+var appAlertNames = map[string]bool{"Anti Crypto-Miner": true, "Anti Memory Leak": true}
+
 // serverErrors sorts the "Server Error" notifications (utils.MajorError) by
 // how their text starts. The first match wins; what matches nothing is the
 // catch-all.
@@ -324,15 +333,17 @@ func noticeFromNotification(n utils.Notification, config utils.Config) (notice, 
 	case titleAlertTriggered:
 		nt := notice{category: CategorySystem, key: "alert:other", label: "Monitoring alert", priority: priorityNormal,
 			title: "A monitoring alert was triggered.", details: withVars("Alert ", "")}
-		if alert, found := config.MonitoringAlerts[vars]; found {
-			switch {
-			case strings.HasPrefix(alert.TrackingMetric, "cosmos.system.disk"):
-				nt.category, nt.key, nt.label = CategoryStorage, "alert:disk", "Disk alert"
-				nt.title = "A disk alert was triggered: a disk is nearly full."
-			case strings.HasPrefix(alert.TrackingMetric, "cosmos.system.docker"):
-				nt.category, nt.key, nt.label = CategoryApps, "alert:apps", "App alert"
-				nt.title = "A monitoring alert about an app was triggered."
-			}
+		// The notification carries the alert's name only. The alerts
+		// themselves are in a map that the monitoring changes in place
+		// while it runs, so it is not read here: the alerts Cosmos and
+		// this fork create are told by their names, any other is "system".
+		switch {
+		case strings.HasPrefix(vars, diskAlertPrefix):
+			nt.category, nt.key, nt.label = CategoryStorage, "alert:disk", "Disk alert"
+			nt.title = "A disk alert was triggered: a disk is nearly full."
+		case appAlertNames[vars]:
+			nt.category, nt.key, nt.label = CategoryApps, "alert:apps", "App alert"
+			nt.title = "A monitoring alert about an app was triggered."
 		}
 		if n.Level == "info" {
 			nt.priority = priorityLow
@@ -379,17 +390,20 @@ func isTranslationKey(text string) bool {
 
 const hiddenSecret = "[hidden]"
 
-// hideSecrets cuts the secrets of the configuration out of a free text
-// (the text of an error can quote what it failed with), and anything that
-// has the shape of a bot token.
-func hideSecrets(text string, config utils.Config) string {
-	secrets := []string{
-		config.Telegram.BotToken,
-		config.EmailConfig.Password,
-		config.Database.PostgresPassword,
-		config.ServerToken,
-		config.Licence,
-	}
+// knownSecrets are the secrets of the configuration that live in its maps
+// and lists (DNS provider credentials, backup passwords, OpenID client
+// secrets). Other parts of the server change those maps in place while it
+// runs, so they are never read from the configuration in use: the list is
+// made by RememberSecrets, at moments when nothing else can be changing
+// the configuration it is given.
+var knownSecrets atomic.Pointer[[]string]
+
+// RememberSecrets notes the secrets of a configuration, to cut them out of
+// texts that are forwarded later. It must be given a configuration that no
+// other goroutine is changing: the one just loaded when the server starts,
+// or the one of a save before it is put to use.
+func RememberSecrets(config utils.Config) {
+	secrets := []string{}
 	for _, value := range config.HTTPConfig.DNSChallengeConfig {
 		secrets = append(secrets, value)
 	}
@@ -404,10 +418,42 @@ func hideSecrets(text string, config utils.Config) string {
 	for _, client := range config.OpenIDClients {
 		secrets = append(secrets, client.Secret)
 	}
+	kept := secrets[:0]
 	for _, secret := range secrets {
-		// short values are not secrets worth the name, and cutting them
-		// out would shred ordinary words
-		if len(secret) >= 8 && secret != MaskedValue {
+		if worthHiding(secret) {
+			kept = append(kept, secret)
+		}
+	}
+	if len(kept) > maxKnownSecrets {
+		kept = kept[:maxKnownSecrets]
+	}
+	knownSecrets.Store(&kept)
+}
+
+const maxKnownSecrets = 256
+
+// worthHiding: short values are not secrets worth the name, and cutting
+// them out of every text would shred ordinary words.
+func worthHiding(secret string) bool {
+	return len(secret) >= 8 && secret != MaskedValue
+}
+
+// hideSecrets cuts the secrets of the configuration out of a free text
+// (the text of an error can quote what it failed with), and anything that
+// has the shape of a bot token.
+func hideSecrets(text string, config utils.Config) string {
+	secrets := []string{
+		config.Telegram.BotToken,
+		config.EmailConfig.Password,
+		config.Database.PostgresPassword,
+		config.ServerToken,
+		config.Licence,
+	}
+	if remembered := knownSecrets.Load(); remembered != nil {
+		secrets = append(secrets, *remembered...)
+	}
+	for _, secret := range secrets {
+		if worthHiding(secret) {
 			text = strings.ReplaceAll(text, secret, hiddenSecret)
 		}
 	}

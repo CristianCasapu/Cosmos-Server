@@ -250,11 +250,6 @@ func TestALoginFromANewAddress(t *testing.T) {
 
 func TestNotificationsBecomeMessagesOfTheRightCategory(t *testing.T) {
 	config := testConfig()
-	config.MonitoringAlerts = map[string]utils.Alert{
-		"Disk Full Notification (storage)": {Name: "Disk Full Notification (storage)", TrackingMetric: "cosmos.system.disk._storage"},
-		"Anti Crypto-Miner":                {Name: "Anti Crypto-Miner", TrackingMetric: "cosmos.system.docker.cpu.*"},
-		"CPU":                              {Name: "CPU", TrackingMetric: "cosmos.system.cpu.0"},
-	}
 	st := settingsOf(config)
 
 	cases := []struct {
@@ -278,6 +273,7 @@ func TestNotificationsBecomeMessagesOfTheRightCategory(t *testing.T) {
 		{utils.Notification{Title: titleContainerUpdate, Vars: "jellyfin", Level: "info"}, CategoryApps, priorityLow, []string{"A container was updated", "Container jellyfin"}},
 		{utils.Notification{Title: titleAlertTriggered, Vars: "Disk Full Notification (storage)", Level: "warn"}, CategoryStorage, priorityNormal, []string{"a disk is nearly full", "Alert Disk Full Notification (storage)"}},
 		{utils.Notification{Title: titleAlertTriggered, Vars: "Anti Crypto-Miner", Level: "warn"}, CategoryApps, priorityNormal, []string{"about an app"}},
+		{utils.Notification{Title: titleAlertTriggered, Vars: "Disk Full Notification", Level: "warn"}, CategoryStorage, priorityNormal, []string{"a disk is nearly full"}},
 		{utils.Notification{Title: titleAlertTriggered, Vars: "CPU", Level: "warn"}, CategorySystem, priorityNormal, []string{"A monitoring alert was triggered."}},
 		{utils.Notification{Title: titleAlertTriggered, Vars: "An alert that was deleted", Level: "info"}, CategorySystem, priorityLow, []string{"Alert An alert that was deleted"}},
 		{utils.Notification{Title: "header.notification.title.somethingNew", Message: "header.notification.message.somethingNew", Vars: "the variable part", Level: "error"}, CategoryOther, priorityNormal,
@@ -340,6 +336,8 @@ func TestSecretsAreCutOutOfForwardedText(t *testing.T) {
 	config.HTTPConfig.DNSZones = []utils.DNSZoneConfig{{Zone: "example.org", DNSChallengeConfig: map[string]string{"KEY": "zone-credential-def"}}}
 	config.Backup.Backups = map[string]utils.SingleBackupConfig{"b": {Password: "backup-password-ghi"}}
 	config.OpenIDClients = []utils.OpenIDClient{{ID: "c", Secret: "openid-secret-jkl"}}
+	RememberSecrets(config)
+	defer RememberSecrets(utils.Config{})
 
 	secrets := []string{testToken, "smtp-password-123", "postgres-password-456", "server-token-789", "dns-credential-abc", "zone-credential-def", "backup-password-ghi", "openid-secret-jkl",
 		"555555555:CCsomeOtherBotsTokenInAnErrorText0000"}

@@ -290,7 +290,7 @@ func answerError(status int, retryAfterHeader string, answer apiAnswer, token st
 
 	case status >= 500:
 		return &sendError{Reason: ReasonTelegramError, Retryable: true,
-			Message: "Telegram has a problem at the moment (status " + strconv.Itoa(status) + "). The message is tried again."}
+			Message: "Telegram has a problem at the moment (status " + strconv.Itoa(status) + "). That usually passes by itself."}
 	}
 
 	message := "Telegram refused the message (status " + strconv.Itoa(status) + ")"

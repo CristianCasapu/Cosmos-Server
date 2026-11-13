@@ -141,9 +141,10 @@ func TestRoute(w http.ResponseWriter, req *http.Request) {
 	} else {
 		result.Message = "Telegram accepted the test message."
 		utils.Log("Telegram: test message sent")
-		// the saved settings were just shown to work: stop holding back
+		// the saved settings were just shown to work: the status says so,
+		// and nothing is held back any longer
 		if n := std.Load(); n != nil && st.fingerprint == currentSettings().fingerprint {
-			n.resume()
+			n.delivered()
 		}
 	}
 	json.NewEncoder(w).Encode(utils.APIResponse{Status: "OK", Data: result})

@@ -28,6 +28,9 @@ func currentSettings() settings {
 // switched off everything it connects does nothing.
 func Start(version string) {
 	startOnce.Do(func() {
+		// the configuration was just loaded and nothing else runs yet
+		RememberSecrets(utils.GetMainConfig())
+
 		n := newNotifier(newAPIClient(), currentSettings)
 		n.raise = raiseInPanel
 		n.logf = utils.Warn

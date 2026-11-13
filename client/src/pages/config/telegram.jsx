@@ -258,11 +258,11 @@ const Telegram = ({ formik, config }) => {
           formik={formik}
           disabled={!values.Telegram_Cat_security}
           options={[
-            ['high', t('mgmt.config.telegram.severity.high', 'High: only what a stranger cannot cause (recommended)')],
-            ['medium', t('mgmt.config.telegram.severity.medium', 'Medium: also failed logins, probes, strikes, changes of settings and accounts')],
-            ['low', t('mgmt.config.telegram.severity.low', 'Low: nearly everything in the record')],
+            ['high', t('mgmt.config.telegram.severity.high', 'High (recommended)')],
+            ['medium', t('mgmt.config.telegram.severity.medium', 'Medium')],
+            ['low', t('mgmt.config.telegram.severity.low', 'Low')],
           ]}
-          helperText={t('mgmt.config.telegram.severity.help', 'High-severity events are critical: they are never held back by the limit below and still ring during the quiet hours. With medium or low, expect a message for the background noise of the internet; many of one kind are summed up in one message.')}
+          helperText={t('mgmt.config.telegram.severity.help', 'High: only what a stranger cannot cause; these events are critical, are never held back by the limit below and still ring during the quiet hours. Medium: also failed logins, probes, strikes and changes of settings and accounts. Low: nearly everything in the record. With medium or low, expect messages for the background noise of the internet; many of one kind are summed up in one message.')}
         />
 
         <CosmosCheckbox

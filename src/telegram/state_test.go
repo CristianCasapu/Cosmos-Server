@@ -85,6 +85,19 @@ func TestARestartLoopGivesOneMessage(t *testing.T) {
 		t.Errorf("360 starts in two hours said %q, want %q", said, want)
 	}
 
+	// restarts that were asked for are no loop, however quickly they follow each other
+	var asked *runState
+	at := now
+	for i := 0; i < 8; i++ {
+		nt, next := startNotice(asked, "v", at)
+		if nt != nil && nt.key != "cosmos.started" {
+			t.Fatalf("restart %d asked for from the panel said %q", i, nt.key)
+		}
+		next.Running, next.Exit = false, exitRestart
+		asked = &next
+		at = at.Add(30 * time.Second)
+	}
+
 	// once it is calm again, a start is an ordinary start
 	now = now.Add(2 * time.Hour)
 	if nt, _ := startNotice(state, "v", now); nt == nil || nt.key != "cosmos.crashed" {

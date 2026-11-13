@@ -36,6 +36,9 @@ func keepTelegramSecrets(request *utils.Config, stored utils.Config) error {
 	if request.Telegram.ChatID == telegram.MaskedValue {
 		request.Telegram.ChatID = stored.Telegram.ChatID
 	}
+	// the request is still this handler's alone: the moment to note the
+	// secrets that forwarded texts must not carry
+	telegram.RememberSecrets(*request)
 	if sameSetting(request.Telegram, stored.Telegram) {
 		return nil
 	}

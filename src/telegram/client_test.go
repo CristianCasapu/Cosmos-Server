@@ -100,7 +100,7 @@ func TestAnswersBecomeReasonsInPlainWords(t *testing.T) {
 		{"too long", refusal(400, "Bad Request: message is too long"), ReasonBadMessage, false, false, "form of the message"},
 		{"flood", fakeAnswer{status: 429, body: `{"ok":false,"error_code":429,"description":"Too Many Requests: retry after 7","parameters":{"retry_after":7}}`}, ReasonRateLimited, false, true, "7 seconds"},
 		{"flood, header only", fakeAnswer{status: 429, body: `nonsense`, header: map[string]string{"Retry-After": "9"}}, ReasonRateLimited, false, true, "9 seconds"},
-		{"Telegram down", refusal(502, "Bad Gateway"), ReasonTelegramError, false, true, "tried again"},
+		{"Telegram down", refusal(502, "Bad Gateway"), ReasonTelegramError, false, true, "status 502"},
 		{"not JSON, server error", fakeAnswer{status: 503, body: "<html>busy</html>"}, ReasonTelegramError, false, true, "status 503"},
 		{"something new", refusal(400, "Bad Request: SOMETHING_NEW"), ReasonRefused, false, false, "SOMETHING_NEW"},
 		{"forbidden, new wording", refusal(403, "Forbidden: a reason nobody has seen"), ReasonRefused, true, false, "status 403"},

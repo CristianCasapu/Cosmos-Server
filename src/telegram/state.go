@@ -117,7 +117,10 @@ func startNotice(previous *runState, version string, now time.Time) (*notice, ru
 	nt := &notice{category: CategorySystem, key: "cosmos.started", label: "Cosmos started", priority: priorityNormal, at: now}
 	running := func(c *composer) { c.fixed("Running version ").value(version, maxValue).fixed(".") }
 
-	if recent >= loopStarts {
+	// a restart that was asked for (from the panel, by a change of
+	// settings, by an update) is not part of a loop, however many there are
+	planned := previous.Exit == exitRestart || previous.Exit == exitUpdate
+	if recent >= loopStarts && !planned {
 		// one message for the whole episode, not one per start
 		if now.Sub(previous.LoopTold) < loopQuiet && !previous.LoopTold.After(now) {
 			return nil, next

@@ -610,11 +610,11 @@ func (n *notifier) failed(failure *sendError, st settings, pause bool) {
 	}
 }
 
-// resume lifts a pause: the settings were just shown to work.
-func (n *notifier) resume() {
-	n.mu.Lock()
-	n.pausedUntil, n.pausedFor = time.Time{}, ""
-	n.mu.Unlock()
+// delivered records a message that was sent outside the queue with the
+// settings in use (the test message): they were just shown to work, so a
+// pause is lifted and the last problem is over.
+func (n *notifier) delivered() {
+	n.succeeded()
 	n.signal()
 }
 
