@@ -318,16 +318,25 @@ func TestATakenPortGivesAStableAlternative(t *testing.T) {
 		t.Errorf("foreign = %+v", st.Foreign)
 	}
 
+	// a renewal still says who has the wanted port
+	w.minutes(21)
+	if m := app(GetStatus(), "jellyfin 8096/tcp"); m.ExternalPort != 8099 || !strings.Contains(m.Holder, "Media box") {
+		t.Errorf("after a renewal, the holder of the wanted port: %+v", m)
+	}
 	// the wanted port becomes free: the address that was handed out stays
 	w.router.expire("TCP/8096")
 	w.minutes(21)
-	if m := app(GetStatus(), "jellyfin 8096/tcp"); m.ExternalPort != 8099 || !m.Active {
+	if m := app(GetStatus(), "jellyfin 8096/tcp"); m.ExternalPort != 8099 || !m.Active || m.Holder != "" || m.Code != "moved" {
 		t.Errorf("after a renewal: %+v", m)
 	}
-	// Cosmos restarts
+	// Cosmos restarts: the mapping is found as it was, nothing new is opened
+	w.kinds()
 	w.restart()
 	if m := app(reconcile(true), "jellyfin 8096/tcp"); m.ExternalPort != 8099 || !m.Active {
 		t.Errorf("after a restart: %+v", m)
+	}
+	if kinds := w.kinds(); len(kinds) != 0 {
+		t.Errorf("a restart of Cosmos recorded: %v", kinds)
 	}
 	// the router reboots and loses everything
 	w.router.reboot()
@@ -701,9 +710,13 @@ func TestAppPortRouteOpensAndCloses(t *testing.T) {
 
 	// closing needs no confirmation, and works for a container that is gone
 	w.containers = nil
-	code, _ = call(t, AppPortRoute, "POST", appPortRequest{Container: "jellyfin", Port: 8096, Protocol: "TCP"}, admin)
+	code, answer = call(t, AppPortRoute, "POST", appPortRequest{Container: "jellyfin", Port: 8096, Protocol: "TCP"}, admin)
 	if code != http.StatusOK || len(loadChoices()) != 0 {
 		t.Errorf("close: %d, %d choices", code, len(loadChoices()))
+	}
+	// what was just closed is not shown as someone else's port
+	if foreign := answer["data"].(map[string]any)["foreign"].([]any); len(foreign) != 1 || foreign[0].(map[string]any)["externalPort"] != float64(1900) {
+		t.Errorf("after closing, the other ports listed: %v", foreign)
 	}
 	if _, still := w.router.get("TCP/8096"); still {
 		t.Error("the port stayed open on the router")
@@ -766,6 +779,9 @@ func TestAppPortRouteRefuses(t *testing.T) {
 	}
 	if len(loadChoices()) != 0 || w.discovered != 0 {
 		t.Errorf("a refused request left a choice or reached the router: %+v", loadChoices())
+	}
+	if kinds := w.kinds(); len(kinds) != 0 {
+		t.Errorf("a refused request is in the record as an opened port: %v", kinds)
 	}
 
 	// at most maxAppPorts

@@ -483,7 +483,6 @@ func AppPortRoute(w http.ResponseWriter, req *http.Request) {
 	cfg := utils.GetMainConfig().HTTPConfig
 
 	if request.Enabled {
-		utils.AuditSecurity(req, utils.SecUPnPPortOpened, request.Container, "port", portText) // security record
 		containers, err := listContainers()
 		if err != nil {
 			utils.HTTPError(w, "Docker did not answer: the container's ports could not be checked", http.StatusConflict, "UPNP009")
@@ -493,6 +492,9 @@ func AppPortRoute(w http.ResponseWriter, req *http.Request) {
 			utils.HTTPError(w, refused.message, refused.status, refused.code)
 			return
 		}
+		// security record: what was asked for and allowed (a refused request
+		// is in the record as a failed change through the API)
+		utils.AuditSecurity(req, utils.SecUPnPPortOpened, request.Container, "port", portText)
 		now := clock()
 		updateUPnPConfig(func(config *utils.UPnPConfig) {
 			choice := utils.UPnPAppPort{

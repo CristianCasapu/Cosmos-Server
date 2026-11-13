@@ -564,6 +564,13 @@ func isOurDescription(description string) bool {
 // (known: created by this process; or by its description) pointing at an
 // older internal port. Anything else is a *conflictError.
 func (g *gateway) claim(protocol string, externalPort, internalPort int, description string, lease int, known bool) error {
+	_, err := g.claimOrRenew(protocol, externalPort, internalPort, description, lease, known)
+	return err
+}
+
+// claimOrRenew is claim, and says whether the forward was there already
+// (then nothing new was opened: it was renewed).
+func (g *gateway) claimOrRenew(protocol string, externalPort, internalPort int, description string, lease int, known bool) (renewed bool, err error) {
 	local := g.localIP.String()
 	// Not every router implements the lookup; a failure there is not fatal,
 	// the router still rejects another device's port on its own.
@@ -572,31 +579,32 @@ func (g *gateway) claim(protocol string, externalPort, internalPort int, descrip
 		here := existing.InternalClient == local
 		switch {
 		case here && existing.InternalPort == internalPort:
+			renewed = true
 		case here && (known || isOurDescription(existing.Description)):
 		default:
-			return &conflictError{Port: externalPort, Holder: existing}
+			return false, &conflictError{Port: externalPort, Holder: existing}
 		}
 	}
 
-	err := g.add(protocol, externalPort, internalPort, description, lease)
+	err = g.add(protocol, externalPort, internalPort, description, lease)
 	if isSOAPError(err, errConflictInMapping) {
-		return &conflictError{Port: externalPort, Code: errConflictInMapping}
+		return false, &conflictError{Port: externalPort, Code: errConflictInMapping}
 	}
 	if isSOAPError(err, errConflictWithOthers) {
-		return &conflictError{Port: externalPort, Code: errConflictWithOthers}
+		return false, &conflictError{Port: externalPort, Code: errConflictWithOthers}
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// A router that says "done" and then shows the port going elsewhere did
 	// not do it (a forward made by hand that wins over UPnP's).
 	if lookupErr == nil && existing == nil {
 		if now, err := g.lookup(protocol, externalPort); err == nil && now != nil && (now.InternalClient != local || now.InternalPort != internalPort) {
-			return &conflictError{Port: externalPort, Holder: now}
+			return false, &conflictError{Port: externalPort, Holder: now}
 		}
 	}
-	return nil
+	return renewed, nil
 }
 
 // release deletes the forward of externalPort when it is Cosmos' own: it

@@ -478,7 +478,7 @@
 	"mgmt.router.install.title": "Open a port on the router as well? (optional)",
 	"mgmt.router.install.text": "The app publishes these ports on the server. Each can also be opened on your router (UPnP), so it is reached from the internet directly. Nothing is opened unless you tick it. A web interface needs none: the app's URL goes through Cosmos.",
 	"mgmt.router.install.port": "Port {{port}} ({{protocol}}) of {{name}}",
-	"mgmt.router.install.pending": "Opened on the router once the app is created: {{count}} port(s). It will be reachable from the internet directly, without Cosmos' login.",
+	"mgmt.router.install.pending": "What is ticked is opened on the router once the app is created, and is then reachable from the internet directly, without Cosmos' login.",
 	"mgmt.router.install.opened": "Port {{port}} of {{name}}: the router forwards port {{external}}.",
 	"mgmt.router.install.failed": "Port {{port}} of {{name}} was not opened: {{error}}",
 	"mgmt.router.overview.title": "Ports open on the router",

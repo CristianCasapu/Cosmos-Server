@@ -32,7 +32,8 @@ import { CheckCircleOutlined, CloseCircleOutlined, CopyOutlined, GlobalOutlined,
 import { useTranslation } from 'react-i18next';
 import * as API from '../api';
 import PermissionGuard from './permissionGuard';
-import { PERM_ADMIN } from '../utils/permissions';
+import { PERM_ADMIN, PERM_CONFIGURATION_READ } from '../utils/permissions';
+import { useClientInfos } from '../utils/hooks';
 import { notify } from '../utils/activity';
 import { getContainersRoutes } from '../utils/routes';
 import {
@@ -67,13 +68,19 @@ export const setRouterStatus = (status) => {
 
 export const useRouterStatus = () => {
   const [state, setState] = React.useState({ ...store });
+  // only who may read the settings is answered: nobody else asks (a refused
+  // request would be noted as an incident each time)
+  const allowed = useClientInfos().hasPermission(PERM_CONFIGURATION_READ);
   React.useEffect(() => {
+    if (!allowed) {
+      return undefined;
+    }
     listeners.add(setState);
     load(false);
     setState({ ...store });
     return () => { listeners.delete(setState); };
-  }, []);
-  return state.status;
+  }, [allowed]);
+  return allowed ? state.status : null;
 };
 
 // The ports Cosmos is reached on, as mapped or configured (null: unknown).
@@ -423,7 +430,7 @@ export const InstallRouterPorts = ({ service, definition, done }) => {
         />;
       })}
       {count > 0 && !done && <Alert severity="warning">
-        {t('mgmt.router.install.pending', 'Opened on the router once the app is created: {{count}} port(s). It will be reachable from the internet directly, without Cosmos\' login.', { count })}
+        {t('mgmt.router.install.pending', 'What is ticked is opened on the router once the app is created, and is then reachable from the internet directly, without Cosmos\' login.')}
       </Alert>}
       {results && results.map((result) => {
         const key = portKey(result.body.container, result.body.port, result.body.protocol);
@@ -510,7 +517,7 @@ export const MappingsOverview = ({ status, onStatus, formik }) => {
             {m.active
               ? t('mgmt.router.overview.forwarded', '{{protocol}} port {{external}} on the router goes to port {{internal}} here', { protocol: m.protocol, external: m.externalPort, internal: m.internalPort })
               : own
-                ? (m.error || t('mgmt.config.internet.status.notForwarded', 'not forwarded'))
+                ? ((!m.holder && m.error) || t('mgmt.config.internet.status.notForwarded', 'not forwarded'))
                 : say(mappingSentence(m))}
             {m.active && m.since ? ' · ' + t('mgmt.router.overview.since', 'since {{time}}', { time: sinceText(m.since) }) : ''}
           </Typography>

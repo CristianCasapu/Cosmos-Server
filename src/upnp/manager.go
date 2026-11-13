@@ -477,10 +477,13 @@ func run(p plan, manual bool) Status {
 	for _, w := range p.wants {
 		wantByKey[w.key] = w
 	}
+	// what this pass took off the router: the table read above still has it
+	gone := map[string]bool{}
 	withdraw := func(key string, reason string) {
 		h := held[key]
 		_, err := g.release(h.Protocol, h.ExternalPort, h.InternalPort, true)
 		delete(held, key)
+		gone[portKey(h.Protocol, h.ExternalPort)] = err == nil
 		outcome := "ok"
 		if err != nil {
 			outcome = "failed"
@@ -572,12 +575,12 @@ func run(p plan, manual bool) Status {
 		candidates := candidatePorts(w, p.reserved, used, h, isHeld)
 		var conflicts []*conflictError
 		var refusal error
-		got := 0
+		got, renewed := 0, false
 		for _, port := range candidates {
 			known := isHeld && h.ExternalPort == port
-			err := g.claim(m.Protocol, port, m.InternalPort, w.description, leaseSeconds, known)
+			was, err := g.claimOrRenew(m.Protocol, port, m.InternalPort, w.description, leaseSeconds, known)
 			if err == nil {
-				got = port
+				got, renewed = port, was
 				break
 			}
 			var conflict *conflictError
@@ -591,6 +594,13 @@ func run(p plan, manual bool) Status {
 			for _, conflict := range conflicts {
 				if conflict.Port == port && conflict.Holder != nil {
 					return describeHolder(conflict.Holder)
+				}
+			}
+			// a renewal does not ask for the wanted port again: who has it is
+			// in the router's table
+			for i := range entries {
+				if entries[i].Protocol == m.Protocol && entries[i].ExternalPort == port && !(entries[i].InternalClient == local && entries[i].InternalPort == m.InternalPort) {
+					return describeHolder(&entries[i])
 				}
 			}
 			return ""
@@ -645,7 +655,8 @@ func run(p plan, manual bool) Status {
 		} else {
 			if isHeld {
 				// moved to another external port: the old one is given back
-				g.release(h.Protocol, h.ExternalPort, h.InternalPort, true)
+				_, err := g.release(h.Protocol, h.ExternalPort, h.InternalPort, true)
+				gone[portKey(h.Protocol, h.ExternalPort)] = err == nil
 				recordMapping(utils.SecUPnPMappingRemoved, h.Target, "external", strconv.Itoa(h.ExternalPort), "protocol", strings.ToLower(h.Protocol), "reason", "moved")
 			}
 			target := "Cosmos " + m.Name
@@ -656,7 +667,11 @@ func run(p plan, manual bool) Status {
 			if got != m.WantedPort {
 				wantedNote = strconv.Itoa(m.WantedPort)
 			}
-			recordMapping(utils.SecUPnPMappingCreated, target, "external", strconv.Itoa(got), "internal", strconv.Itoa(m.InternalPort), "protocol", strings.ToLower(m.Protocol), "wanted", wantedNote)
+			if !renewed {
+				// (found on the router as it should be, after a restart of
+				// Cosmos, it is not a port that was opened just now)
+				recordMapping(utils.SecUPnPMappingCreated, target, "external", strconv.Itoa(got), "internal", strconv.Itoa(m.InternalPort), "protocol", strings.ToLower(m.Protocol), "wanted", wantedNote)
+			}
 			utils.Log(fmt.Sprintf("UPnP: router forwards port %d (%s) to %s:%d (%s)", got, m.Protocol, local, m.InternalPort, m.Name))
 			h = heldMapping{Target: target}
 		}
@@ -679,7 +694,7 @@ func run(p plan, manual bool) Status {
 		heldPorts[portKey(h.Protocol, h.ExternalPort)] = true
 	}
 	for _, e := range entries {
-		if heldPorts[portKey(e.Protocol, e.ExternalPort)] {
+		if heldPorts[portKey(e.Protocol, e.ExternalPort)] || gone[portKey(e.Protocol, e.ExternalPort)] {
 			continue
 		}
 		if e.InternalClient == local && isOurDescription(e.Description) {
