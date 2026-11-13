@@ -76,7 +76,31 @@ type Env struct {
 	HTTPOnly func(host string) bool // the host is served over plain HTTP
 	DNS      func(host string) DNSAnswer
 	Cert     func(host string) CertResult
+	// Fork addition (Cloudflare): what is known about a hostname's record at
+	// Cloudflare and whether the admin serves it through Cloudflare's proxy,
+	// and whether an address is one of Cloudflare's. Both may be nil.
+	Cloudflare   func(host string) CloudflareInfo
+	IsCloudflare func(ip net.IP) bool
 }
+
+// CloudflareInfo is what the Cloudflare integration knows about a hostname.
+type CloudflareInfo struct {
+	// Shielded: the admin serves the hostname through Cloudflare's proxy
+	Shielded bool
+	// Managed: Cosmos manages the hostname's record at Cloudflare
+	Managed bool
+	// RecordState: ok, pending, conflict, protected or error; RecordReason
+	// the kind of an error
+	RecordState  string
+	RecordReason string
+}
+
+// Filled in by the main package (fork_cloudflare.go): reach does not import
+// the Cloudflare integration.
+var (
+	Cloudflare          func(host string) CloudflareInfo
+	IsCloudflareAddress func(ip net.IP) bool
+)
 
 // splitHost separates "name:port"; port is 0 without one.
 func splitHost(host string) (string, int) {
@@ -213,6 +237,32 @@ func Evaluate(route utils.ProxyRouteConfig, env Env) RouteResult {
 		add("access", CheckOK, "open", nil)
 	}
 
+	// --- the record at Cloudflare, when Cosmos manages it
+	cf := CloudflareInfo{}
+	if env.Cloudflare != nil && net.ParseIP(name) == nil {
+		cf = env.Cloudflare(name)
+	}
+	if cf.Managed {
+		switch cf.RecordState {
+		case "ok":
+			add("record", CheckOK, "exists", nil)
+		case "conflict", "protected":
+			// a record Cosmos did not create and leaves alone: whether it
+			// points here is what the next check says
+			add("record", CheckNote, "foreign", nil)
+		case "error":
+			reason := cf.RecordReason
+			switch reason {
+			case "invalid_token", "malformed_token", "forbidden", "not_found", "rate_limited", "unreachable":
+			default:
+				reason = "other"
+			}
+			add("record", CheckProblem, "error_"+reason, nil)
+		default:
+			add("record", CheckUnknown, "pending", nil)
+		}
+	}
+
 	// --- does the name point at this server?
 	onlyIPv6 := false
 	if ip := net.ParseIP(name); ip != nil {
@@ -245,6 +295,11 @@ func Evaluate(route utils.ProxyRouteConfig, env Env) RouteResult {
 				matchV6 = ip
 			}
 		}
+		// answered by Cloudflare's proxy: every public address is one of its own
+		viaCloudflare := len(public) > 0 && env.IsCloudflare != nil
+		for _, ip := range public {
+			viaCloudflare = viaCloudflare && env.IsCloudflare(ip)
+		}
 		switch {
 		case answer.Skipped != "":
 			add("dns", CheckUnknown, answer.Skipped, nil)
@@ -252,6 +307,14 @@ func Evaluate(route utils.ProxyRouteConfig, env Env) RouteResult {
 			add("dns", CheckUnknown, "lookupFailed", nil)
 		case answer.NotFound || len(answer.Addresses) == 0:
 			add("dns", CheckProblem, "noRecord", map[string]string{"name": name})
+		case cf.Shielded && viaCloudflare:
+			add("dns", CheckOK, "throughShield", nil)
+		case cf.Shielded && (matchV4 != nil || matchV6 != nil):
+			// the switch was just flipped, or the record was changed at
+			// Cloudflare: visitors who get this answer are refused
+			add("dns", CheckUnknown, "shieldNotYet", nil)
+		case viaCloudflare:
+			add("dns", CheckUnknown, "behindCloudflare", nil)
 		case matchV4 != nil:
 			add("dns", CheckOK, "pointsHere", map[string]string{"address": matchV4.String()})
 		case matchV6 != nil:
@@ -310,6 +373,15 @@ func Evaluate(route utils.ProxyRouteConfig, env Env) RouteResult {
 				reason = env.UPnP.Error
 			}
 			add("forward", CheckProblem, "upnpFailed", map[string]string{"port": strconv.Itoa(port), "error": reason})
+		}
+	}
+
+	// --- through Cloudflare's proxy: only on a port it proxies
+	if cf.Shielded {
+		if utils.IsCloudflareHTTPSPort(externalPort) && !ownPort {
+			add("shield", CheckNote, "on", nil)
+		} else {
+			add("shield", CheckProblem, "port", map[string]string{"port": strconv.Itoa(externalPort)})
 		}
 	}
 

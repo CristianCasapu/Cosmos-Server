@@ -217,11 +217,13 @@ func Run(opts Options) Response {
 	st := upnpStatus()
 	resp.PublicIP, resp.PublicIPSource = publicAddress(st)
 	env := Env{
-		HTTP:     config.HTTPConfig,
-		PublicIP: resp.PublicIP,
-		OwnIPs:   ownAddresses(),
-		UPnP:     st,
-		HTTPOnly: func(host string) bool { return utils.HostIsHTTPOnly(config, host) },
+		HTTP:         config.HTTPConfig,
+		PublicIP:     resp.PublicIP,
+		OwnIPs:       ownAddresses(),
+		UPnP:         st,
+		HTTPOnly:     func(host string) bool { return utils.HostIsHTTPOnly(config, host) },
+		Cloudflare:   Cloudflare,          // Fork addition (Cloudflare): the record and the shield of a hostname
+		IsCloudflare: IsCloudflareAddress, // nil when the integration is not wired in
 		DNS: func(host string) DNSAnswer {
 			if entry, ok := fresh[host]; ok {
 				return entry.answer

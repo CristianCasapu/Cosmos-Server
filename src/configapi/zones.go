@@ -115,6 +115,8 @@ func ZonesApiList(w http.ResponseWriter, req *http.Request) {
 		if !canReadCredentials {
 			zone.DNSChallengeConfig = map[string]string{}
 		}
+		// Fork addition: nor does a Cloudflare API token (utils/fork_cloudflare.go)
+		zone.DNSChallengeConfig = utils.MaskCloudflareSecretMap(zone.DNSChallengeConfig)
 		// the private key of a provided certificate never leaves the server
 		zone.TLSKey = ""
 
@@ -219,6 +221,7 @@ func ZonesApiSet(w http.ResponseWriter, req *http.Request) {
 			if !utils.HasPermission(req, utils.PERM_CREDENTIALS_READ) && existing.DNSChallengeProvider == zone.DNSChallengeProvider {
 				zone.DNSChallengeConfig = existing.DNSChallengeConfig
 			}
+			utils.RestoreCloudflareSecretMap(zone.DNSChallengeConfig, existing.DNSChallengeConfig) // Fork addition: a token sent back as the mask keeps its value
 			// the key is never sent back to a client: an empty one keeps the current certificate
 			if zone.HTTPSCertificateMode == utils.HTTPSCertModeList["PROVIDED"] && zone.TLSKey == "" && existing.TLSKey != "" {
 				zone.TLSKey = existing.TLSKey
@@ -231,6 +234,7 @@ func ZonesApiSet(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 	if !replaced {
+		utils.RestoreCloudflareSecretMap(zone.DNSChallengeConfig, nil) // Fork addition: the mask itself is never stored
 		zones = append(zones, zone)
 	}
 	if zone.HTTPSCertificateMode == utils.HTTPSCertModeList["PROVIDED"] {
