@@ -44,7 +44,7 @@ const MyActivity = () => {
         <AccordionSummary expandIcon={<DownOutlined />} aria-controls="my-activity-content" id="my-activity-header">
             <Typography variant="h6">{t('securityAudit.mine.title', 'Recent activity on your account')}</Typography>
         </AccordionSummary>
-        <AccordionDetails id="my-activity-content">
+        <AccordionDetails>
             <Stack spacing={1}>
                 <Typography variant="caption" color="textSecondary">
                     {t('securityAudit.mine.intro', 'Your logins and what was done to your account. If you see a login or a change you did not make, change your password and tell your administrator. Times are in {{zone}}.', { zone: zoneName() })}

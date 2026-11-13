@@ -154,6 +154,7 @@ const SecurityAuditPage = () => {
                     <Grid item xs={12} sm={6} md={4}>
                         {canReadUsers
                             ? <TextField select fullWidth size="small" label={t('securityAudit.filter.user', 'User')} value={filters.user}
+                                SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}
                                 onChange={(e) => setFilters({ user: e.target.value })}>
                                 <MenuItem value="">{t('securityAudit.filter.allUsers', 'All users')}</MenuItem>
                                 {userOptions.map((u) => <MenuItem key={u} value={u} sx={{ overflowWrap: 'anywhere', whiteSpace: 'normal' }}>{u}</MenuItem>)}
