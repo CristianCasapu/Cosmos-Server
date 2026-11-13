@@ -99,3 +99,42 @@ func TestMalformedSessionCookieIsRefused(t *testing.T) {
 		t.Errorf("no cookie: user %q, err %v", u.Nickname, err)
 	}
 }
+
+func TestSessionTokenIsBoundToItsHostname(t *testing.T) {
+	cookies := sessionTestSetup(t, "example.com")
+	var session *http.Cookie
+	for _, cookie := range cookies {
+		if cookie.Name == "jwttoken" {
+			session = cookie
+		}
+	}
+	if session == nil {
+		t.Fatal("no session cookie")
+	}
+
+	for _, host := range []string{"example.com", "example.com:2053", "app.example.com", "APP.Example.com"} {
+		if u, err, _ := refreshWith(host, session); err != nil || u.Nickname != "alice" {
+			t.Errorf("the token should be accepted on %s (user %q, err %v)", host, u.Nickname, err)
+		}
+	}
+	for _, host := range []string{"evilexample.com", "notexample.com:2053", "example.org", "com"} {
+		if u, err, _ := refreshWith(host, session); err == nil || u.Nickname != "" {
+			t.Errorf("the token must not be accepted on %s (user %q, err %v)", host, u.Nickname, err)
+		}
+	}
+}
+
+func TestHostWithinDomain(t *testing.T) {
+	yes := [][2]string{{"example.com", "example.com"}, {"a.example.com", "example.com"}, {"a.b.example.com", "example.com"}, {"172.16.0.14", "172.16.0.14"}, {"", ""}}
+	for _, c := range yes {
+		if !hostWithinDomain(c[0], c[1]) {
+			t.Errorf("%q should be within %q", c[0], c[1])
+		}
+	}
+	no := [][2]string{{"evilexample.com", "example.com"}, {"example.com", "a.example.com"}, {"example.com", ""}, {"1172.16.0.14", "172.16.0.14"}, {"example.com.evil.net", "example.com"}}
+	for _, c := range no {
+		if hostWithinDomain(c[0], c[1]) {
+			t.Errorf("%q must not be within %q", c[0], c[1])
+		}
+	}
+}

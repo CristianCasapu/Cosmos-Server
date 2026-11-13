@@ -38,7 +38,8 @@ func quickLoggout(w http.ResponseWriter, req *http.Request, err error) (utils.Us
 // tokenValidForHost: a tunneled hop arrives with Host rewritten to the primary
 // domain, but the cookie was issued on the peer's TunneledHost alias
 func tokenValidForHost(req *http.Request, reqHostNoPort, forDomain string) bool {
-	if strings.HasSuffix(reqHostNoPort, forDomain) {
+	// Fork addition: the host itself or a name under it, see fork_session.go (upstream: any host ending with it)
+	if hostWithinDomain(reqHostNoPort, forDomain) {
 		return true
 	}
 	if req.Header.Get("x-cstln-auth") == "" {
