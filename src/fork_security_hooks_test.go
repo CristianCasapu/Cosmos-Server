@@ -283,7 +283,7 @@ func TestSecurityRoutesAreRegisteredAndProtected(t *testing.T) {
 	api := router.PathPrefix("/cosmos").Subrouter()
 	registerSecurityRoutes(api)
 
-	for _, path := range []string{"/cosmos/api/security/events", "/cosmos/api/security/counts", "/cosmos/api/security/top-ips", "/cosmos/api/security/kinds"} {
+	for _, path := range []string{"/cosmos/api/security/events", "/cosmos/api/security/counts", "/cosmos/api/security/top-ips", "/cosmos/api/security/kinds", "/cosmos/api/security/overview", "/cosmos/api/security/incidents"} {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, httptest.NewRequest("GET", "http://cosmos.example"+path, nil))
 		if w.Code != http.StatusUnauthorized {
