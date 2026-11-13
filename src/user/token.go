@@ -4,7 +4,9 @@ import (
 	"net"
 	"net/http"
 	"github.com/azukaar/cosmos-server/src/utils"
-	"github.com/golang-jwt/jwt"
+	// Fork addition: v3 is unmaintained (GO-2025-3553 has no fix there); v4 is
+	// its drop-in successor with the fix.
+	jwt "github.com/golang-jwt/jwt/v4"
 	"errors"
 	"strconv"
 	"strings"
