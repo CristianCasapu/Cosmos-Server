@@ -137,7 +137,7 @@ func (l *DefaultLogFormatter) NewLogEntry(r *http.Request) LogEntry {
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	cW(entry.buf, useColor, nCyan, "%s://%s%s %s ", scheme, r.Host, r.RequestURI, r.Proto)
+	cW(entry.buf, useColor, nCyan, "%s://%s%s %s ", scheme, r.Host, RedactedRequestURI(r.RequestURI), r.Proto) // Fork addition: without secrets, see fork_redact_url.go
 
 	entry.buf.WriteString("from ")
 	entry.buf.WriteString(r.RemoteAddr)

@@ -302,7 +302,7 @@ func BlockByCountryMiddleware(blockedCountries []string, CountryBlacklistIsWhite
 								"clientID": ip,
 								"country": countryCode,
 								"hostname": r.Host,
-								"url": r.URL.String(),
+								"url": RedactedURL(r.URL).String(), // Fork addition: without secrets, see fork_redact_url.go
 							})
 
 							http.Error(w, "Access denied", http.StatusForbidden)
@@ -326,7 +326,7 @@ func BlockByCountryMiddleware(blockedCountries []string, CountryBlacklistIsWhite
 								"clientID": ip,
 								"country": countryCode,
 								"hostname": r.Host,
-								"url": r.URL.String(),
+								"url": RedactedURL(r.URL).String(), // Fork addition: without secrets, see fork_redact_url.go
 							})
 
 							http.Error(w, "Access denied", http.StatusForbidden)
@@ -363,7 +363,7 @@ func BlockPostWithoutReferer(next http.Handler) http.Handler {
 						map[string]interface{}{
 						"clientID": ip,
 						"hostname": r.Host,
-						"url": r.URL.String(),
+						"url": RedactedURL(r.URL).String(), // Fork addition: without secrets, see fork_redact_url.go
 					})
 
 					IncrementIPAbuseCounter(ip)
@@ -434,7 +434,7 @@ func EnsureHostname(next http.Handler) http.Handler {
 					map[string]interface{}{
 					"clientID": ip,
 					"hostname": r.Host,
-					"url": r.URL.String(),
+					"url": RedactedURL(r.URL).String(), // Fork addition: without secrets, see fork_redact_url.go
 				})
 				IncrementIPAbuseCounter(ip)
 			}
@@ -495,7 +495,7 @@ func EnsureHostnameCosmosAPI(next http.Handler) http.Handler {
 					map[string]interface{}{
 					"clientID": ip,
 					"hostname": r.Host,
-					"url": r.URL.String(),
+					"url": RedactedURL(r.URL).String(), // Fork addition: without secrets, see fork_redact_url.go
 				})
 				IncrementIPAbuseCounter(ip)
 			}
@@ -614,7 +614,7 @@ func Restrictions(RestrictToConstellation bool, WhitelistInboundIPs []string) fu
 				map[string]interface{}{
 				"clientID": ip,
 				"hostname": r.Host,
-				"url": r.URL.String(),
+				"url": RedactedURL(r.URL).String(), // Fork addition: without secrets, see fork_redact_url.go
 			})
 
 			IncrementIPAbuseCounter(ip)

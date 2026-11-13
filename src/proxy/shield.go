@@ -249,7 +249,7 @@ func finishRequest(wrapper *SmartResponseWriterWrapper, route utils.ProxyRouteCo
 			"time":     wrapper.TimeEnded.Sub(wrapper.TimeStarted).Seconds(),
 			"bytes":    wrapper.Bytes,
 			"hostname": r.Host,
-			"url":      r.URL,
+			"url":      utils.RedactedURL(r.URL), // Fork addition: without secrets, see utils/fork_redact_url.go
 		})
 
 	go metrics.PushRequestMetrics(route, wrapper.Status, wrapper.TimeStarted, wrapper.Bytes)
@@ -334,7 +334,7 @@ func SmartShieldMiddleware(shieldID string, route utils.ProxyRouteConfig) func(h
 						"clientID": clientIP,
 						"identity": clientID,
 						"hostname": r.Host,
-						"url":      r.URL,
+						"url":      utils.RedactedURL(r.URL), // Fork addition: without secrets, see utils/fork_redact_url.go
 					})
 
 				utils.Log("SmartShield: User is blocked due to abuse: " + describeBan(lastBan))
