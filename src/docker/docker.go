@@ -3,7 +3,6 @@ package docker
 import (
 	"context"
 	"errors"
-	"time"
 	"bufio"
 	"os"
 	"os/user"
@@ -149,6 +148,7 @@ func EditContainer(oldContainerID string, newConfig types.ContainerJSON, noLock 
 
 	newName := newConfig.Name
 	oldContainer := newConfig
+	var aside *asideContainer // Fork addition: the old container, kept until the new one runs (fork_safe_edit.go)
 
 	if(oldContainerID != "") {
 		utils.Log("EditContainer - inspecting previous container " + oldContainerID)
@@ -229,27 +229,12 @@ func EditContainer(oldContainerID string, newConfig types.ContainerJSON, noLock 
 		// if no name, use the same one, that will force Docker to create a hostname if not set
 		newName = oldContainer.Name
 
-		// stop and remove container
-		stopError := DockerClient.ContainerStop(DockerContext, oldContainerID, container.StopOptions{})
-		if stopError != nil {
-			return "", stopError
-		}
-
-		removeError := DockerClient.ContainerRemove(DockerContext, oldContainerID, container.RemoveOptions{})
-		if removeError != nil {
-			return "", removeError
-		}
-
-		// wait for container to be destroyed
-		//
-		for {
-			_, err := DockerClient.ContainerInspect(DockerContext, oldContainerID)
-			if err != nil {
-				break
-			} else {
-				utils.Log("EditContainer - Waiting for container to be destroyed")
-				time.Sleep(1 * time.Second)
-			}
+		// Fork addition: the old container is stopped and renamed, and removed only once
+		// its replacement runs (fork_safe_edit.go). Upstream stopped and removed it here.
+		var asideError error
+		aside, asideError = setContainerAside(oldContainer)
+		if asideError != nil {
+			return "", asideError
 		}
 
 		utils.Log("EditContainer - Container stopped " + oldContainerID)
@@ -329,6 +314,11 @@ func EditContainer(oldContainerID string, newConfig types.ContainerJSON, noLock 
 
 		utils.Log("EditContainer - Failed to edit, attempting to revert changes")
 
+		// Fork addition: put the old container itself back instead of creating it again
+		if aside != nil {
+			return aside.revert(createResponse.ID, createError, runError)
+		}
+
 		if(createError == nil) {
 			utils.Log("EditContainer - Killing new broken container")
 			// attempt kill
@@ -369,6 +359,7 @@ func EditContainer(oldContainerID string, newConfig types.ContainerJSON, noLock 
 	utils.Debug("Unlocking EDIT Container")
 
 	if oldContainerID != "" {
+		aside.drop() // Fork addition: the new container runs, the old one can go
 		RecreateDepedencies(oldContainerID, newName)
 	}
 

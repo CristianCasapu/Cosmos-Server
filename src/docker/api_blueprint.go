@@ -140,6 +140,8 @@ type DockerServiceCreateRollback struct {
 	Name string `json:"name"`
 	// was: container old settings
 	Was doctype.ContainerJSON `json:"was"`
+	// Fork addition: the container itself, kept aside until the service is up (fork_safe_edit.go)
+	aside *asideContainer
 }
 
 func Rollback(actions []DockerServiceCreateRollback , OnLog func(string)) {
@@ -174,6 +176,12 @@ func Rollback(actions []DockerServiceCreateRollback , OnLog func(string)) {
 					OnLog(fmt.Sprintf("Rolled back container %s\n", action.Name))
 				}	
 			} else if action.Action == "restore" {
+				// Fork addition: a container that was set aside is put back itself, not created again
+				if action.aside != nil {
+					rollbackPutBack(action, OnLog)
+					continue
+				}
+
 				utils.Log(fmt.Sprintf("Restoring container %s...", action.Name))
 
 				// Edit Container
@@ -826,18 +834,10 @@ func CreateService(serviceRequest DockerServiceCreateRequest, OnLog func(string)
 			// stop the container 
 			utils.Log("CreateService: Stopping container: " + container.Name)
 			OnLog("Stopping container: " + container.Name + "\n")
-			err = DockerClient.ContainerStop(DockerContext, container.Name, conttype.StopOptions{})
-			if err != nil {
-				utils.Error("CreateService: Rolling back changes because of -- Container", err)
-				OnLog(utils.DoErr("%s", "Rolling back changes because of -- Container creation error: "+err.Error()))
-				Rollback(rollbackActions, OnLog)
-				return err
-			}
-
-			// remove the container
-			utils.Log("CreateService: Removing container: " + container.Name)
-			OnLog("Removing container: " + container.Name + "\n")
-			err = DockerClient.ContainerRemove(DockerContext, container.Name, conttype.RemoveOptions{})
+			// Fork addition: the existing container is stopped and renamed, and removed only once
+			// the service is up (fork_safe_edit.go). Upstream stopped and removed it here.
+			var aside *asideContainer
+			aside, err = setContainerAside(existingContainer)
 			if err != nil {
 				utils.Error("CreateService: Rolling back changes because of -- Container", err)
 				OnLog(utils.DoErr("%s", "Rolling back changes because of -- Container creation error: "+err.Error()))
@@ -886,6 +886,7 @@ func CreateService(serviceRequest DockerServiceCreateRequest, OnLog func(string)
 				Action: "restore",
 				Type:   "container",
 				Was: oldConfig,
+				aside: aside, // Fork addition
 			})
 		}
 		_, err = DockerClient.ContainerCreate(DockerContext, containerConfig, hostConfig, networkingConfig, nil, container.Name)
@@ -1053,6 +1054,8 @@ func CreateService(serviceRequest DockerServiceCreateRequest, OnLog func(string)
 		
 	}
 	
+	dropAsides(rollbackActions) // Fork addition: the service is up, the containers it replaced can go
+
 	// Save the route configs: owner-stamped routes go through the owner merge, plain routes upsert by name.
 	var routesChanged bool
 	configRoutes, routesChanged = MergeComposeRoutes(configRoutes, serviceRequest, OnLog)

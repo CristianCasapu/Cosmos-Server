@@ -116,7 +116,8 @@ func ManageContainerRoute(w http.ResponseWriter, req *http.Request) {
 
 			if err != nil {
 				utils.Error("Container Update - EditContainer", err)
-				utils.HTTPError(w, "[OPERATION FAILED] Cannot recreate container", http.StatusBadRequest, "DS004")
+				// Fork addition: say why, the reason was only written to the server's log
+				utils.HTTPError(w, "[OPERATION FAILED] Cannot recreate container: " + err.Error(), http.StatusBadRequest, "DS004")
 				return
 			}
 
