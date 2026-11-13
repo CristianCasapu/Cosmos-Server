@@ -205,7 +205,8 @@ func TestTheTestRouteChecksAndBoundsItsInput(t *testing.T) {
 		"a token that is none": testBody(utils.TelegramConfig{BotToken: testToken + "/../getUpdates", ChatID: testChat}),
 		"no chat at all":       testBody(utils.TelegramConfig{}),
 		"a name of two lines":  testBody(utils.TelegramConfig{ChatID: testChat, ServerName: "a\nb"}),
-		"far too much":         `{"Telegram":{"ChatID":"1","ServerName":"` + strings.Repeat("x", maxTestBody) + `"}}`,
+		// a request that would be a fine one if all of it were read
+		"far too much": `{"Telegram":{"ChatID":"` + testChat + `"}` + strings.Repeat(" ", maxTestBody) + `}`,
 	}
 	for name, body := range bad {
 		rec := call(TestRoute, apiRequest("POST", "/api/telegram/test", "sudo", body))

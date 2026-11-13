@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -245,6 +246,12 @@ func TestTheClientUsesNoProxyAndVerifiesCertificates(t *testing.T) {
 
 func TestAnOversizedAnswerIsNotRead(t *testing.T) {
 	fake := newFakeTelegram(t)
+	// an answer that only says "accepted" after more than is ever read
+	fake.always(fakeAnswer{status: 200, body: strings.Repeat(" ", maxAnswerBytes+16) + answerOK.body})
+	if failure := fake.client().send(context.Background(), testSettings(), "text", nil, false); failure == nil {
+		t.Fatal("an answer was read past the bound")
+	}
+
 	huge := `{"ok":false,"error_code":400,"description":"` + strings.Repeat("x", 2<<20) + `"}`
 	fake.always(fakeAnswer{status: 400, body: huge})
 	failure := fake.client().send(context.Background(), testSettings(), "text", nil, false)
@@ -299,6 +306,8 @@ func TestScrubRemovesTheTokenInEverySpelling(t *testing.T) {
 		`token=` + testToken,
 		`path /bot123456789%3AAAFakeFakeFakeFakeFakeFakeFakeFake0/sendMessage`,
 		`another bot's 987654321:BBanotherTokenThatIsNotOursAtAll0000 here`,
+		// spelled as a query value, outside any path: only knowing the token finds it
+		`redirected to /login?next=` + url.QueryEscape(testToken),
 		"line one\nline two " + testToken,
 	}
 	for _, text := range texts {
