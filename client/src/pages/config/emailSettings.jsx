@@ -55,6 +55,7 @@ const EmailSettings = ({ formik, config }) => {
   const [otherOpen, setOtherOpen] = React.useState(false);
   const [marks, setMarks] = React.useState({}); // what proposals put into the form, see utils/proposals.js
   const [found, setFound] = React.useState(null); // { state: looking | done | failed, domain, result, error }
+  const [showOthers, setShowOthers] = React.useState(false);
 
   // what an answer that arrives later has to work with
   const live = React.useRef({});
@@ -271,7 +272,9 @@ const EmailSettings = ({ formik, config }) => {
         source={tr(sourceText(candidate, result, providers))}
         status={tr(checkText(candidate).text)}
         inUse={inUse}
-        inUseText={t('mgmt.config.email.proposal.inUse', 'These settings are in the form. Nothing is saved yet.')}
+        inUseText={emailSettingsUnsaved(values, saved)
+          ? t('mgmt.config.email.proposal.inUse', 'These settings are in the form. Nothing is saved yet.')
+          : t('mgmt.config.email.proposal.inUseSaved', 'These are the settings in the form, and they are saved.')}
         heldText={t('mgmt.config.email.proposal.held', 'The form holds other settings (saved earlier, or entered by you). They were left as they are.')}
         useLabel={t('mgmt.config.email.proposal.use', 'Use these settings')}
         onUse={() => { setOtherOpen(false); propose(candidateToValues(candidate, sender.address, providers), true); }}
@@ -283,24 +286,38 @@ const EmailSettings = ({ formik, config }) => {
 
       {result && !unusable && !candidate && <Alert severity="warning">{tr(nothingFoundText(result))}</Alert>}
 
-      {result && !unusable && others.length > 0 && <Stack spacing={0.75}>
-        <Typography variant="body2" color="text.secondary">
-          {t('mgmt.config.email.proposal.others', 'Also possible:')}
-        </Typography>
-        {others.map((other) => <Stack key={other.host + ':' + other.port} direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
-          <Typography variant="body2" sx={{ overflowWrap: 'anywhere', minWidth: 0 }}>
-            {candidateLine(other)}
-            {' · '}{tr(sourceText(other, result, providers))}
-            {other.check !== 'ok' || (other.cert && other.cert !== 'ok') ? ' · ' + tr(checkText(other).text) : ''}
-          </Typography>
-          {other.check !== 'local' && !candidateInUse(other, values) && <Button
-            size="small"
-            onClick={() => { setOtherOpen(false); propose(candidateToValues(other, sender.address, providers), true); }}
-          >
-            {t('mgmt.config.email.proposal.useOther', 'Use')}
-          </Button>}
-        </Stack>)}
-      </Stack>}
+      {/* the other candidates, out of the way until asked for */}
+      {result && !unusable && others.length > 0 && <div>
+        <Button
+          size="small"
+          aria-expanded={showOthers}
+          aria-controls="Email_Others"
+          endIcon={showOthers ? <UpOutlined /> : <DownOutlined />}
+          onClick={() => setShowOthers(!showOthers)}
+        >
+          {t('mgmt.config.email.proposal.others', 'Other possibilities ({{number}})', { number: others.length })}
+        </Button>
+        <Collapse in={showOthers} id="Email_Others" unmountOnExit>
+          <Stack spacing={1} sx={{ pt: 1 }}>
+            {others.map((other) => <Stack key={other.host + ':' + other.port} direction="row" spacing={1.5} alignItems="center" justifyContent="space-between">
+              <Stack sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                <Typography variant="body2">{candidateLine(other)}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {tr(sourceText(other, result, providers))}{' · '}{tr(checkText(other).short)}
+                </Typography>
+              </Stack>
+              {other.check !== 'local' && !candidateInUse(other, values) && <Button
+                size="small"
+                variant="outlined"
+                sx={{ flexShrink: 0 }}
+                onClick={() => { setOtherOpen(false); propose(candidateToValues(other, sender.address, providers), true); }}
+              >
+                {t('mgmt.config.email.proposal.useOther', 'Use')}
+              </Button>}
+            </Stack>)}
+          </Stack>
+        </Collapse>
+      </div>}
 
       {/* 3. what the form holds now, and the door to every field */}
       <Stack spacing={0.5}>

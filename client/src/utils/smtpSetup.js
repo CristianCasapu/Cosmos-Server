@@ -322,36 +322,37 @@ export const sourceText = (candidate, result, providers) => {
 const passwordSignIn = (candidate) => !candidate.auth || candidate.auth.length === 0
   || candidate.auth.includes('PLAIN') || candidate.auth.includes('LOGIN');
 
-// What the check of a candidate found, in words, with a severity for its mark.
+// What the check of a candidate found: a sentence, a few words for a list,
+// and a severity for its mark.
 export const checkText = (candidate) => {
   const vars = { port: candidate.port, host: candidate.host };
   switch (candidate.check) {
     case 'ok':
       if (candidate.cert === 'untrusted') {
-        return { severity: 'warning', text: ['mgmt.config.email.check.certUntrusted', 'It answered on port {{port}} just now, but its certificate cannot be verified (self-signed, or from an authority this server does not know).', vars] };
+        return { severity: 'warning', text: ['mgmt.config.email.check.certUntrusted', 'It answered on port {{port}} just now, but its certificate cannot be verified (self-signed, or from an authority this server does not know).', vars], short: ['mgmt.config.email.check.short.certUntrusted', 'answered, certificate cannot be verified'] };
       }
       if (candidate.cert === 'name') {
-        return { severity: 'warning', text: ['mgmt.config.email.check.certName', 'It answered on port {{port}} just now, but its certificate was issued for another name.', vars] };
+        return { severity: 'warning', text: ['mgmt.config.email.check.certName', 'It answered on port {{port}} just now, but its certificate was issued for another name.', vars], short: ['mgmt.config.email.check.short.certName', 'answered, certificate for another name'] };
       }
       if (candidate.cert === 'expired') {
-        return { severity: 'warning', text: ['mgmt.config.email.check.certExpired', 'It answered on port {{port}} just now, but its certificate is out of date.', vars] };
+        return { severity: 'warning', text: ['mgmt.config.email.check.certExpired', 'It answered on port {{port}} just now, but its certificate is out of date.', vars], short: ['mgmt.config.email.check.short.certExpired', 'answered, certificate out of date'] };
       }
       if (!passwordSignIn(candidate)) {
-        return { severity: 'warning', text: ['mgmt.config.email.check.noPassword', 'It answered on port {{port}} just now, but offers no sign-in with a password.', vars] };
+        return { severity: 'warning', text: ['mgmt.config.email.check.noPassword', 'It answered on port {{port}} just now, but offers no sign-in with a password.', vars], short: ['mgmt.config.email.check.short.noPassword', 'answered, no sign-in with a password'] };
       }
-      return { severity: 'success', text: ['mgmt.config.email.check.ok', 'It answered on port {{port}} just now, with a certificate that was verified.', vars] };
+      return { severity: 'success', text: ['mgmt.config.email.check.ok', 'It answered on port {{port}} just now, with a certificate that was verified.', vars], short: ['mgmt.config.email.check.short.ok', 'answered, certificate verified'] };
     case 'no-answer':
-      return { severity: 'warning', text: ['mgmt.config.email.check.noAnswer', 'It did not answer on port {{port}} from this server just now: the port may be blocked on the way, or this server has no connection to the internet.', vars] };
+      return { severity: 'warning', text: ['mgmt.config.email.check.noAnswer', 'It did not answer on port {{port}} from this server just now: the port may be blocked on the way, or this server has no connection to the internet.', vars], short: ['mgmt.config.email.check.short.noAnswer', 'no answer from here'] };
     case 'not-smtp':
-      return { severity: 'warning', text: ['mgmt.config.email.check.notSmtp', 'Something answered on port {{port}} that is not a mail server.', vars] };
+      return { severity: 'warning', text: ['mgmt.config.email.check.notSmtp', 'Something answered on port {{port}} that is not a mail server.', vars], short: ['mgmt.config.email.check.short.notSmtp', 'not a mail server'] };
     case 'no-starttls':
-      return { severity: 'warning', text: ['mgmt.config.email.check.noStartTLS', 'It answered on port {{port}}, but offers no encryption there.', vars] };
+      return { severity: 'warning', text: ['mgmt.config.email.check.noStartTLS', 'It answered on port {{port}}, but offers no encryption there.', vars], short: ['mgmt.config.email.check.short.noStartTLS', 'answered, no encryption offered'] };
     case 'tls-failed':
-      return { severity: 'warning', text: ['mgmt.config.email.check.tlsFailed', 'It answered on port {{port}}, but the encryption could not be set up.', vars] };
+      return { severity: 'warning', text: ['mgmt.config.email.check.tlsFailed', 'It answered on port {{port}}, but the encryption could not be set up.', vars], short: ['mgmt.config.email.check.short.tlsFailed', 'answered, encryption failed'] };
     case 'local':
-      return { severity: 'info', text: ['mgmt.config.email.check.local', 'This name points to this server itself or to an address that is never contacted automatically. If that is what you want, enter it under custom settings.', vars] };
+      return { severity: 'info', text: ['mgmt.config.email.check.local', 'This name points to this server itself or to an address that is never contacted automatically. If that is what you want, enter it under custom settings.', vars], short: ['mgmt.config.email.check.short.local', 'points to this server itself: not checked'] };
     default:
-      return { severity: 'info', text: ['mgmt.config.email.check.notChecked', 'Not checked (an unusual port, or time ran out).', vars] };
+      return { severity: 'info', text: ['mgmt.config.email.check.notChecked', 'Not checked (an unusual port, or time ran out).', vars], short: ['mgmt.config.email.check.short.notChecked', 'not checked'] };
   }
 };
 

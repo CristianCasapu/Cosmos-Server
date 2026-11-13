@@ -18,7 +18,8 @@ const SecretInput = ({ id, label, value, stored, onChange, helperText, error, di
   const { t } = useTranslation();
   const [show, setShow] = React.useState(false);
   const [removing, setRemoving] = React.useState(false);
-  const keeps = stored && value === SECRET_MASK;
+  // the mask always means "the stored one", also in the moment between a save and the settings being read again
+  const keeps = value === SECRET_MASK;
 
   return <FormField
     id={id}
@@ -55,7 +56,8 @@ const SecretInput = ({ id, label, value, stored, onChange, helperText, error, di
       </InputAdornment>
     }
   >
-    {keeps && !disabled && <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+    {/* an error says what to do with the field: the reassurance would contradict it */}
+    {keeps && !disabled && !error && <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
       <Typography variant="caption" color="text.secondary">
         {t('forms.secret.kept', 'One is saved on the server and is not shown here. Leave the field empty to keep it.')}
       </Typography>

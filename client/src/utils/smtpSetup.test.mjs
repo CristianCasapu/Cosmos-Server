@@ -225,6 +225,8 @@ test('which candidate is proposed, and how it is described', () => {
   assert.equal(checkText({ check: 'ok', cert: 'ok', port: 587, auth: ['LOGIN', 'XOAUTH2'] }).severity, 'success');
   assert.match(checkText({ check: 'no-answer', port: 465 }).text[1], /blocked/);
   assert.match(checkText({ check: 'local', port: 587 }).text[1], /custom settings/);
+  assert.equal(checkText({ check: 'ok', cert: 'untrusted', port: 465 }).short[1], 'answered, certificate cannot be verified');
+  assert.equal(checkText({ check: 'no-answer', port: 465 }).short[1], 'no answer from here');
 
   assert.match(nothingFoundText({ domain: 'gmial.example', mx: 'none' })[1], /typing mistake/);
   assert.match(nothingFoundText({ domain: 'example.org', mx: 'found' })[1], /custom settings/);
@@ -277,9 +279,9 @@ test('every text of the form is in the English translation file, word for word',
   const gmail = providerById(providers, 'gmail');
   const result = { domain: 'example.org' };
   for (const source of ['provider', 'mx-provider', 'srv', 'mx-host', 'guess']) pairs.push(sourceText({ source, provider: 'gmail' }, result, providers));
-  for (const check of ['ok', 'no-answer', 'not-smtp', 'no-starttls', 'tls-failed', 'local', 'not-checked']) pairs.push(checkText({ check, cert: 'ok', port: 1 }).text);
-  for (const cert of ['untrusted', 'name', 'expired']) pairs.push(checkText({ check: 'ok', cert, port: 1 }).text);
-  pairs.push(checkText({ check: 'ok', cert: 'ok', port: 1, auth: ['XOAUTH2'] }).text);
+  for (const check of ['ok', 'no-answer', 'not-smtp', 'no-starttls', 'tls-failed', 'local', 'not-checked']) pairs.push(checkText({ check, cert: 'ok', port: 1 }).text, checkText({ check, cert: 'ok', port: 1 }).short);
+  for (const cert of ['untrusted', 'name', 'expired']) pairs.push(checkText({ check: 'ok', cert, port: 1 }).text, checkText({ check: 'ok', cert, port: 1 }).short);
+  pairs.push(checkText({ check: 'ok', cert: 'ok', port: 1, auth: ['XOAUTH2'] }).text, checkText({ check: 'ok', cert: 'ok', port: 1, auth: ['XOAUTH2'] }).short);
   pairs.push(nothingFoundText({ mx: 'none' }), nothingFoundText({}));
   for (const [p, tls] of [['465', true], ['587', true], ['25', false]]) pairs.push(connectionInWords(p, tls));
   const problems = fieldProblems({ Email_Enabled: true, Email_Host: 'a b', Email_Port: 'x', Email_From: 'x y' });
