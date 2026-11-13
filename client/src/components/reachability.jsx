@@ -22,6 +22,8 @@ import { PERM_ADMIN_READ } from '../utils/permissions';
 import {
   EXPOSED, checkAddresses, checkSentence, firstCheck, portsText, routesStamp, safeURL, summarize,
 } from '../utils/reachability';
+import { RouterPortLine, useRouterStatus } from './routerPorts'; // ports the router forwards (src/upnp)
+import { appMappingsOf } from '../utils/routerPorts';
 
 // --- one answer for the whole page
 let store = { data: null, at: 0, loading: false, failed: false, stamp: null };
@@ -63,7 +65,7 @@ const useReach = (config) => {
   return state;
 };
 
-const DOT = { verified: 'success', unverified: 'warning', problem: 'error', ports: 'orange' };
+const DOT = { verified: 'success', unverified: 'warning', problem: 'error', forwarded: 'warning', ports: 'orange' };
 
 const useTexts = () => {
   const { t } = useTranslation();
@@ -75,6 +77,7 @@ const useTexts = () => {
     verified: t('mgmt.reach.label.verified', 'Internet: checked'),
     unverified: t('mgmt.reach.label.unverified', 'Internet: not verified'),
     problem: t('mgmt.reach.label.problem', 'Internet: problem'),
+    forwarded: t('mgmt.reach.label.forwarded', 'Internet: port forwarded'),
     ports: t('mgmt.reach.label.ports', 'Internet: if forwarded'),
     limited: t('mgmt.reach.label.limited', 'Internet: restricted'),
   })[state] || t('mgmt.reach.label.no', 'Internet: no');
@@ -96,6 +99,10 @@ const useTexts = () => {
         return t('mgmt.reach.tip.problem', 'Has the internet address {{host}}, but: {{reason}}',
           { host: route.host, reason: check ? sentence(check, route.route) : '' });
       }
+      case 'forwarded':
+        return t('mgmt.reach.tip.forwarded',
+          'No internet address through Cosmos, but your router forwards port {{ports}} to this app (opened by Cosmos over UPnP). It reaches the app directly, without Cosmos\' login. Nobody tested it from outside.',
+          { ports: summary.forwarded.map((mapping) => mapping.externalPort + (mapping.protocol === 'UDP' ? '/udp' : '')).join(', ') });
       case 'ports':
         return summary.hostNetwork && !portsText(summary.ports)
           ? t('mgmt.reach.tip.hostNetwork',
@@ -116,16 +123,19 @@ const useTexts = () => {
   return { t, sentence, label, explain };
 };
 
-const summaryOf = (state, routeNames, ports, hostNetwork) => (state.data
-  ? summarize({ routeNames, results: state.data.routes, ports, hostNetwork })
+const summaryOf = (state, routeNames, ports, hostNetwork, mappings) => (state.data
+  ? summarize({ routeNames, results: state.data.routes, ports, hostNetwork, mappings })
   : null);
 
 // The chip of a card. Shows nothing until the server answered, or when the
 // visitor may not read the answer.
-export const ReachChip = ({ config, routeNames, ports, hostNetwork, style }) => {
+// containerNames: the containers the card stands for, to find the ports the
+// router forwards for them.
+export const ReachChip = ({ config, routeNames, ports, hostNetwork, style, containerNames }) => {
   const state = useReach(config);
   const { label, explain } = useTexts();
-  const summary = summaryOf(state, routeNames, ports, hostNetwork);
+  const router = useRouterStatus();
+  const summary = summaryOf(state, routeNames, ports, hostNetwork, appMappingsOf(router, containerNames));
   if (!summary) {
     return null;
   }
@@ -157,11 +167,13 @@ const CheckIcon = ({ status }) => {
 };
 
 // The "Internet" part of a container's page.
-export const ReachPanel = ({ config, routeNames, ports, hostNetwork }) => {
+export const ReachPanel = ({ config, routeNames, ports, hostNetwork, containerName }) => {
   const state = useReach(config);
   const { t, sentence, label, explain } = useTexts();
   const [notice, setNotice] = React.useState(null);
-  const summary = summaryOf(state, routeNames, ports, hostNetwork);
+  const router = useRouterStatus();
+  const containerNames = containerName ? [containerName] : [];
+  const summary = summaryOf(state, routeNames, ports, hostNetwork, appMappingsOf(router, containerNames));
 
   if (!summary) {
     return state.failed ? null : <Typography variant="caption" color="textSecondary" component="div" style={{ margin: '5px' }}>
@@ -191,7 +203,7 @@ export const ReachPanel = ({ config, routeNames, ports, hostNetwork }) => {
   }[data.publicIPSource];
 
   return <Stack spacing={1.5} style={{ margin: '5px', maxWidth: '100%' }} data-reach-panel>
-    <div><ReachChip config={config} routeNames={routeNames} ports={ports} hostNetwork={hostNetwork} /></div>
+    <div><ReachChip config={config} routeNames={routeNames} ports={ports} hostNetwork={hostNetwork} containerNames={containerNames} /></div>
     {/* the routes below say it check by check; the sentence is for the rest */}
     {!summary.route && <Typography variant="body2">{explain(summary)}</Typography>}
 
@@ -220,16 +232,21 @@ export const ReachPanel = ({ config, routeNames, ports, hostNetwork }) => {
       </Stack>;
     })}
 
-    {summary.ports.map((port) => <Stack key={port.port + port.type} direction="row" spacing={1} alignItems="flex-start">
-      <QuestionCircleOutlined style={{ marginTop: 3, flexShrink: 0 }} />
-      <Typography variant="body2" style={{ overflowWrap: 'anywhere', minWidth: 0 }}>
-        {port.scope === 'server'
-          ? t('mgmt.reach.port.server', 'Port {{port}} is published for this server only ({{ip}}): not reachable from other devices.', { port: port.port, ip: port.ip })
-          : port.scope === 'address'
-            ? t('mgmt.reach.port.address', 'Port {{port}} is published on the address {{ip}} only. From the internet only if your router forwards it; Cosmos cannot tell.', { port: port.port, ip: port.ip })
-            : t('mgmt.reach.port.all', 'Port {{port}} ({{type}}) is published on the server: reachable from the local network; from the internet only if your router forwards it, which Cosmos cannot tell.', { port: port.port, type: port.type.toUpperCase() })}
-      </Typography>
-    </Stack>)}
+    {summary.ports.map((port) => {
+      const words = port.scope === 'server'
+        ? t('mgmt.reach.port.server', 'Port {{port}} is published for this server only ({{ip}}): not reachable from other devices.', { port: port.port, ip: port.ip })
+        : port.scope === 'address'
+          ? t('mgmt.reach.port.address', 'Port {{port}} is published on the address {{ip}} only. From the internet only if your router forwards it; Cosmos cannot tell.', { port: port.port, ip: port.ip })
+          : t('mgmt.reach.port.all', 'Port {{port}} ({{type}}) is published on the server: reachable from the local network; from the internet only if your router forwards it, which Cosmos cannot tell.', { port: port.port, type: port.type.toUpperCase() });
+      // a port the router could forward gets the switch that asks it to (routerPorts.jsx)
+      if (containerName && port.scope !== 'server') {
+        return <RouterPortLine key={port.port + port.type} config={config} containerName={containerName} port={port} fallback={words} />;
+      }
+      return <Stack key={port.port + port.type} direction="row" spacing={1} alignItems="flex-start">
+        <QuestionCircleOutlined style={{ marginTop: 3, flexShrink: 0 }} />
+        <Typography variant="body2" style={{ overflowWrap: 'anywhere', minWidth: 0 }}>{words}</Typography>
+      </Stack>;
+    })}
     {summary.hostNetwork && <Stack direction="row" spacing={1} alignItems="flex-start">
       <QuestionCircleOutlined style={{ marginTop: 3, flexShrink: 0 }} />
       <Typography variant="body2">

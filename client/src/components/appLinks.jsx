@@ -26,6 +26,8 @@ import { PERM_RESOURCES } from '../utils/permissions';
 import { IsRouteSocketProxy, ValidateRoute, getContainersRoutes } from '../utils/routes';
 import { PortForwardHint, configuredDomains, externalAddress, hostLabel } from './hostnameSuggestions';
 import { baseIsUnderDomain, baseRoute, domainRoutes, groupAppRoutes, routeHost, serverBack } from '../utils/appLinks';
+import { useCosmosPorts } from './routerPorts';
+import { shownAddress } from '../utils/routerPorts';
 
 // The chips of an app's routes, local links first. In a row of chips each
 // group starts with its icon; with `rows` each group gets a line of its own,
@@ -91,6 +93,7 @@ export const AppDomains = ({ config, containerName, refresh, size, style }) => {
   const [checked, setChecked] = React.useState(null); // { domain: bool } while the dialog is open
   const [saving, setSaving] = React.useState(false);
   const [errors, setErrors] = React.useState([]);
+  const ports = useCosmosPorts(config); // the external port the addresses are reached on
 
   const { base, rows } = domainRows(config, containerName);
   if (!base || rows.length === 0) {
@@ -183,7 +186,7 @@ export const AppDomains = ({ config, containerName, refresh, size, style }) => {
                 onChange={(event) => setChecked({ ...checked, [row.domain]: event.target.checked })}
               />}
               label={<Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
-                <GlobalOutlined /> {row.host}
+                <GlobalOutlined /> {row.host.split(', ').map((host) => shownAddress(host, ports)).join(', ')}
               </Typography>}
             />
           ))}

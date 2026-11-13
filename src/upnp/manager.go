@@ -528,6 +528,11 @@ func run(p plan, manual bool) Status {
 	for _, w := range p.wants {
 		// what an app holds stays its own while it is renewed
 		if h, ok := held[w.key]; ok && w.choice != -1 {
+			if used[portKey(h.Protocol, h.ExternalPort)] {
+				// Cosmos' own port is now wanted there: the app moves
+				withdraw(w.key, "changed")
+				continue
+			}
 			used[portKey(h.Protocol, h.ExternalPort)] = true
 		}
 	}

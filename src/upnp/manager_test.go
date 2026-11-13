@@ -565,6 +565,20 @@ func TestCosmosOwnPortsAndLeftovers(t *testing.T) {
 		t.Errorf("Cosmos' HTTPS mapping: %+v", got)
 	}
 
+	// Cosmos' own port is moved onto a port an app holds: the app gives way, for good
+	w.config(func(c *utils.Config) { c.HTTPConfig.UPnP.ExternalHTTPSPort = "8444" })
+	st = reconcile(true)
+	if https, m := own(st, "HTTPS"), app(st, "proxy 443/tcp"); !https.Active || https.ExternalPort != 8444 || !m.Active || m.ExternalPort != 8443 {
+		t.Errorf("after Cosmos took the app's port: HTTPS %+v, app %+v", https, m)
+	}
+	w.minutes(21)
+	if got, _ := w.router.get("TCP/8444"); got.port != "2053" || got.description != "Cosmos HTTPS" {
+		t.Errorf("after a renewal port 8444 is %+v", got)
+	}
+	w.config(func(c *utils.Config) { c.HTTPConfig.UPnP.ExternalHTTPSPort = "8443" })
+	w.choices()
+	reconcile(true)
+
 	// as configured, when nothing is mapped
 	w.restart()
 	statusMu.Lock()

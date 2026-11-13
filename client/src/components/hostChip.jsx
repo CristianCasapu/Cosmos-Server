@@ -5,14 +5,16 @@ import { useTranslation } from "react-i18next";
 import { getOrigin, getFullOrigin } from "../utils/routes";
 import { useTheme } from '@mui/material/styles';
 import StatusDot from "./statusDot";
+import { useCosmosPorts } from "./routerPorts"; // Fork addition
+import { routeAddress } from "../utils/routerPorts"; // Fork addition
 
 const isDemo = import.meta.env.MODE === 'demo';
 
-const probeRoute = async (route) => {
+const probeRoute = async (route, address) => {
   // demo routes are fake hostnames: a real probe would mark them all offline
   if (isDemo) return 'online';
 
-  const origin = getFullOrigin(route);
+  const origin = address || getFullOrigin(route); // Fork addition: the address with its port
   try {
     const res = await fetch(origin + (origin.includes('?') ? '&' : '?') + '__cosmos_probe=1', {
       method: 'HEAD',
@@ -37,11 +39,14 @@ const HostChip = ({route, settings, style, ellipsis}) => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
   const [status, setStatus] = useState(null);
-  const url = getOrigin(route)
+  // Fork addition: a host is stored without a port; the link needs the port Cosmos is
+  // reached on (its own for a local address, the router's external one otherwise)
+  const address = routeAddress(route, useCosmosPorts(null), window.location.origin);
+  const url = route.UseHost ? address.label : getOrigin(route)
 
   useEffect(() => {
     let cancelled = false;
-    probeRoute(route).then((s) => { if (!cancelled) setStatus(s); });
+    probeRoute(route, route.UseHost ? address.href : '').then((s) => { if (!cancelled) setStatus(s); });
     return () => { cancelled = true; };
   }, [url]);
 
@@ -61,7 +66,7 @@ const HostChip = ({route, settings, style, ellipsis}) => {
     }}
     onClick={() => {
       if(route.UseHost)
-        window.open(window.location.origin.split("://")[0] + "://" + route.Host + route.PathPrefix, '_blank');
+        window.open(address.href, '_blank'); // Fork addition: with the port
       else
         window.open(window.location.origin + route.PathPrefix, '_blank');
     }}

@@ -4,14 +4,16 @@
 import * as React from 'react';
 import * as API from '../../api';
 import MainCard from '../../components/MainCard';
-import { Alert, Chip, Stack, Typography } from '@mui/material';
-import { CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Alert, Stack, Typography } from '@mui/material';
+import { ReloadOutlined } from '@ant-design/icons';
 import { LoadingButton } from '@mui/lab';
 import PermissionGuard from '../../components/permissionGuard';
 import { notify } from '../../utils/activity';
 import { PERM_ADMIN } from '../../utils/permissions';
 import { useTranslation } from 'react-i18next';
 import { CosmosCheckbox, CosmosInputText } from './users/formShortcuts';
+import { MappingsOverview, setRouterStatus } from '../../components/routerPorts';
+import { hostWithPort, overviewRows } from '../../utils/routerPorts';
 
 // A name a browser on the internet can resolve: not an IP address, not a
 // single-label host.
@@ -35,12 +37,14 @@ const InternetAccess = ({ formik }) => {
     (retry ? API.config.upnpRetry() : API.config.upnpStatus())
       .then((response) => {
         setStatus(response.data);
+        setRouterStatus(response.data); // the other screens of the page show the same answer
         // say how it went: a failure when the page opens, either outcome after "Check now"
         const st = response.data || {};
-        const failure = st.error || ((st.mappings || []).find((m) => !m.active && m.error) || {}).error;
-        if (st.enabled && (failure || st.paused)) {
+        const rows = overviewRows(st);
+        const failure = st.error || (rows.find((m) => m.state === 'failed' && m.error) || {}).error;
+        if (failure || st.paused) {
           notify(t('mgmt.config.internet.status.retryFailed', 'Port forwarding failed: {{error}}', { error: failure || '' }), 'error');
-        } else if (retry && st.enabled) {
+        } else if (retry && rows.some((m) => m.active)) {
           notify(t('mgmt.config.internet.status.retryOk', 'The router forwards the port.'), 'success');
         }
       })
@@ -112,6 +116,15 @@ const InternetAccess = ({ formik }) => {
           )}
         </>)}
 
+        <CosmosInputText
+          label={t('mgmt.config.internet.reserved.label', 'External ports Cosmos never asks the router for')}
+          name="UPnP_ReservedPorts"
+          placeholder={((status && status.reserved && status.reserved.length && !values.UPnP_ReservedPorts) ? status.reserved : [25, 80, 110, 143, 443, 465, 587, 993, 995]).join(', ')}
+          helperText={t('mgmt.config.internet.reserved.help',
+            'Empty: the list shown (web and mail). A port forwarded in the router\'s own pages to another device is often invisible to Cosmos: list such ports here, and Cosmos never asks for them, neither for itself nor for an app. "none" for no port.')}
+          formik={formik}
+        />
+
         {/* 3. what the router is doing now (saved settings, not the form) */}
         <Stack spacing={1}>
           <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
@@ -133,7 +146,7 @@ const InternetAccess = ({ formik }) => {
 
           {loadError && <Alert severity="error">{loadError}</Alert>}
 
-          {status && !status.enabled && !(status.mappings || []).length && (
+          {status && !status.enabled && !overviewRows(status).length && (
             <Typography variant="body2" color="text.secondary">
               {t('mgmt.config.internet.status.off', 'Automatic port forwarding is off.')}
             </Typography>
@@ -155,28 +168,13 @@ const InternetAccess = ({ formik }) => {
             </Typography>
           )}
 
-          {status && (status.mappings || []).map((m) => (
-            <Stack key={m.name} direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-              <Chip
-                size="small"
-                color={m.active ? 'success' : 'error'}
-                icon={m.active ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
-                label={m.name}
-              />
-              <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
-                {m.active
-                  ? t('mgmt.config.internet.status.forwarded', 'port {{external}} on the router goes to port {{internal}} here',
-                    { external: m.externalPort, internal: m.internalPort })
-                  : (m.error || t('mgmt.config.internet.status.notForwarded', 'not forwarded'))}
-              </Typography>
-            </Stack>
-          ))}
+          <MappingsOverview status={status} onStatus={setStatus} formik={formik} />
 
           {status && httpsMapping && httpsMapping.active && hasDomain && (
             <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
               {t('mgmt.config.internet.status.reachable',
-                'Once {{hostname}} points to {{ip}} in DNS, Cosmos is reachable at https://{{hostname}}:{{port}}',
-                { hostname, ip: status.externalIP || '…', port: publicPort })}
+                'Once {{hostname}} points to {{ip}} in DNS, Cosmos is reachable at https://{{address}}',
+                { hostname, ip: status.externalIP || '…', address: hostWithPort(hostname, publicPort, 'https') })}
             </Typography>
           )}
 

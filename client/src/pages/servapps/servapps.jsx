@@ -13,6 +13,7 @@ import { ValidateRoute, getFaviconURL, sanitizeRoute, getContainersRoutes } from
 import HostChip from '../../components/hostChip';
 import AppLinks, { AppDomains } from '../../components/appLinks'; // Fork addition
 import { ReachChip } from '../../components/reachability'; // Fork addition
+import { RouterPortLinks } from '../../components/routerPorts'; // Fork addition
 import { Link } from 'react-router-dom';
 import ExposeModal from './exposeModal';
 import GetActions from './actionBar';
@@ -394,10 +395,13 @@ const ServApps = ({stack}) => {
                   routeNames={app.apps.flatMap((one) => getContainersRoutes(config, one.Names[0].replace('/', ''))).map((route) => route.Name)}
                   ports={app.ports}
                   hostNetwork={!!(app.networkSettings && app.networkSettings.Networks && app.networkSettings.Networks['host'])}
+                  containerNames={app.apps.map((one) => one.Names[0].replace('/', ''))}
                 />
                 <Stack style={noOver} spacing={1} direction="row" alignItems="center" >
                   {/* Fork addition: local links first, each group under its icon */}
                   <AppLinks routes={getContainersRoutes(config, app.name.replace('/', ''))} />
+                  {/* Fork addition: the ports the router forwards for the app, as external addresses */}
+                  <RouterPortLinks config={config} containerNames={app.apps.map((one) => one.Names[0].replace('/', ''))} />
                   {app.networkSettings && app.networkSettings.Networks && app.networkSettings.Networks['host'] &&
                     <Chip style={{ fontSize: '80%' }} label="Host Network" color="warning" variant='outlined' />
                   }

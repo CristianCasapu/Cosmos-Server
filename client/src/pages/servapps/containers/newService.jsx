@@ -21,6 +21,7 @@ import { LoadingButton } from '@mui/lab';
 import LogLine from '../../../components/logLine';
 import Highlighter from '../../../components/third-party/Highlighter';
 import { useTranslation } from 'react-i18next';
+import { InstallRouterPorts } from '../../../components/routerPorts'; // Fork addition
 
 import Editor from 'react-simple-code-editor';
 import { highlight, languages } from 'prismjs/components/prism-core';
@@ -97,6 +98,8 @@ const NewDockerService = ({service, refresh, edit}) => {
   return   <div style={{ maxWidth: '1000px', width: '100%', margin: '', position: 'relative' }}>
     <MainCard title={edit ? t('mgmt.servapps.container.compose.editServiceTitle') : t('mgmt.servapps.container.compose.createServiceButton')}>
     <Stack spacing={1}>
+      {/* Fork addition: optionally open published ports on the router once the app exists (off by default) */}
+      {!edit && <InstallRouterPorts service={service} definition={dockerCompose} done={isDone} />}
       {!isDone && <LoadingButton 
         onClick={create}
         variant="contained"

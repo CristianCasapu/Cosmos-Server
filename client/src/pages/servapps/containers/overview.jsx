@@ -6,6 +6,7 @@ import { getFaviconURL, getContainersRoutes } from '../../../utils/routes';
 import HostChip from '../../../components/hostChip';
 import AppLinks, { AppDomains } from '../../../components/appLinks'; // Fork addition
 import { ReachPanel } from '../../../components/reachability'; // Fork addition
+import { RouterPortLinks } from '../../../components/routerPorts'; // Fork addition
 import { portsFromInspect } from '../../../utils/reachability'; // Fork addition
 import { GlobalOutlined } from '@ant-design/icons'; // Fork addition
 import ExposeModal from '../exposeModal';
@@ -229,6 +230,8 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
             <div>
               {/* Fork addition: local links first, each group on its own line */}
               <AppLinks routes={routes} chipStyle={{margin: '5px'}} rows />
+              {/* Fork addition: the ports the router forwards for the app, as external addresses */}
+              <RouterPortLinks config={config} containerNames={[Name.replace('/', '')]} chipStyle={{margin: '5px'}} rows />
               <PermissionGuard permission={PERM_RESOURCES}>
                 <Chip
                   label={t('mgmt.servApps.newChip.newLabel')}
@@ -253,6 +256,7 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
               routeNames={routes.map((route) => route.Name)}
               ports={portsFromInspect(NetworkSettings.Ports)}
               hostNetwork={!!(containerInfo.HostConfig && containerInfo.HostConfig.NetworkMode === 'host')}
+              containerName={Name.replace('/', '')}
             />
             <strong><DashboardOutlined /> {t('menu-items.navigation.monitoringTitle')}</strong>
               <div style={{ width: '96%' }}>
