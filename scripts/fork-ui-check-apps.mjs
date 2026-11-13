@@ -2,14 +2,17 @@
 // (ServApps action bar, "New URL" dialog, progress line) and for the backup
 // settings. The test instance must be connected to a Docker of its own (see
 // CLAUDE.md, "Checking the UI in a browser").
+// BASE=http://<container>:<port> points it at an instance with another name;
+// IMAGE names an image that is present in the test daemon (for the new container form).
 import { chromium } from 'playwright';
-const base = 'http://cosmos-smoke:18080';
+const base = process.env.BASE || 'http://cosmos-smoke:18080';
+const image = process.env.IMAGE || 'nginx:alpine';
 const note = (...a) => console.log(...a);
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1366, height: 900 } });
 const page = await ctx.newPage();
 const errors = [];
-page.on('pageerror', (e) => errors.push(e.message.slice(0, 200)));
+page.on('pageerror', (e) => errors.push(page.url().replace(base, '') + ': ' + e.message.slice(0, 200)));
 const J = { headers: { 'Content-Type': 'application/json' } };
 await ctx.request.post(base + '/cosmos/api/login', { data: { nickname: 'admin', password: 'Test-Passw0rd!x' } });
 await ctx.request.post(base + '/cosmos/api/sudo', { data: { password: 'Test-Passw0rd!x' } });
@@ -98,5 +101,44 @@ note('server accepts:', (await page.locator('[role=status]').allInnerTexts()).jo
 await page.waitForTimeout(5000);
 config = (await (await ctx.request.get(base + '/cosmos/api/config')).json()).data;
 note('stored: dir', config.BackupOutputDir, '| frequency', config.BackupFrequency, '| time', config.BackupTime);
+
+// --- ServApps > Start ServApp: the new container form, step by step, at desktop and phone width
+for (const [name, viewport] of [['desktop', { width: 1366, height: 900 }], ['phone', { width: 390, height: 844 }]]) {
+  await page.setViewportSize(viewport);
+  await page.goto(base + '/cosmos-ui/servapps/new-service', { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(3500);
+  const next = async () => { await page.getByRole('button', { name: /Next/ }).first().click(); await page.waitForTimeout(1200); await page.evaluate(() => window.scrollTo(0, 0)); };
+  const shot = (step) => page.screenshot({ path: `shots/new-container-${name}-${step}.png` });
+  // the mandatory fields carry an asterisk and say so when left empty
+  note(name, 'labels:', (await page.locator('label').allInnerTexts()).slice(0, 2).map((l) => l.replace(/\s+/g, ' ')).join(' | '));
+  await page.locator('#name').click(); await page.locator('#image').click(); await page.locator('#user').click();
+  await page.waitForTimeout(400);
+  note(name, 'left empty:', (await page.locator('.MuiFormHelperText-root.Mui-error').allInnerTexts()).join(' | ') || 'NO MESSAGE', '| Next enabled:', await page.getByRole('button', { name: /Next/ }).first().isEnabled());
+  await page.locator('#name').fill('check-' + name);
+  await page.locator('#image').fill(image); await page.locator('#user').click();
+  await page.waitForTimeout(1500);
+  // an image that is on the server: its defaults are offered, and adding them changes nothing typed before
+  const offer = page.getByRole('button', { name: /Use the image's defaults/ });
+  note(name, 'defaults offered:', (await page.locator('.MuiAlert-root', { has: offer }).innerText().catch(() => 'NO OFFER')).replace(/\n+/g, ' / ').slice(0, 300));
+  await shot('docker');
+  if (await offer.count()) {
+    await offer.click(); await page.waitForTimeout(600);
+    note(name, 'after adding them: name', await page.locator('#name').inputValue(), '| image', await page.locator('#image').inputValue(), '| variables', await page.locator('input[name^="envVars."]').count() / 2);
+  }
+  await next();
+  await page.locator('input[type=checkbox]').first().check();
+  await page.waitForTimeout(1500);
+  const proposals = page.locator('form .MuiChip-clickable');
+  note(name, 'URL step: host', await page.locator('input[name=Host]').inputValue().catch(() => '?'), '| target', await page.locator('input[name=Target]').inputValue().catch(() => '?'), '| proposals:', (await proposals.allInnerTexts()).join(' , ') || 'NONE');
+  await page.locator('input[name=Host]').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await shot('url');
+  await page.locator('input[name=Host]').fill(''); await page.locator('input[name=Host]').blur(); await page.waitForTimeout(500);
+  note(name, 'URL step, host emptied:', (await page.locator('.MuiFormHelperText-root.Mui-error').allInnerTexts()).join(' | ') || 'NO MESSAGE');
+  await proposals.first().click().catch(() => {}); await page.waitForTimeout(700);
+  await next(); await shot('network');
+  await next(); await shot('storage');
+  await next(); await page.waitForTimeout(800); await shot('review');
+  note(name, 'review reached:', await page.getByRole('button', { name: /Create/ }).count() > 0, '| overflow sideways:', await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1));
+}
 note('page errors:', [...new Set(errors)].join(' ; ') || 'none');
 await browser.close();

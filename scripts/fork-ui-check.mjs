@@ -2,8 +2,9 @@
 // a throwaway Cosmos instance, exercises the fork's additions and takes
 // screenshots. How to bring the instance up is in CLAUDE.md ("Checking the UI
 // in a browser"). Adjust the expectations below to what is being changed.
+// BASE=http://<container>:<port> points it at an instance with another name.
 import { chromium, firefox, webkit } from 'playwright';
-const base = 'http://cosmos-smoke:18080';
+const base = process.env.BASE || 'http://cosmos-smoke:18080';
 const errors = [];
 const note = (...a) => console.log(...a);
 
@@ -34,7 +35,7 @@ const visit = async (page, name, path, shot) => {
   await visit(page, 'chromium', '/cosmos-ui/', 'home');
   await visit(page, 'chromium', '/cosmos-ui/servapps', 'servapps');
   let text = await visit(page, 'chromium', '/cosmos-ui/config-general', 'config');
-  note('update block present:', /Running version: 0\.23\.4002/.test(text), '| maintenance time field:', await page.locator('input[name=MaintenanceTime]').count(), 'value', await page.locator('input[name=MaintenanceTime]').inputValue().catch(() => '?'));
+  note('update block present:', (text.match(/Running version: \S+/) || ['NO'])[0], '| maintenance time field:', await page.locator('input[name=MaintenanceTime]').count(), 'value', await page.locator('input[name=MaintenanceTime]').inputValue().catch(() => '?'));
 
   await page.getByRole('button', { name: 'Check for update now' }).click();
   await page.waitForTimeout(5000);
@@ -43,12 +44,15 @@ const visit = async (page, name, path, shot) => {
   note('update now enabled:', await page.getByRole('button', { name: /download Update now/ }).isEnabled());
   await page.getByRole('button', { name: 'Check for update now' }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'shots/chromium-update-block.png' });
-  await page.getByRole('button', { name: /download Update now/ }).click();
-  await page.waitForTimeout(800);
-  await page.screenshot({ path: 'shots/chromium-update-confirm.png' });
-  note('confirm dialog:', (await page.locator('[role=dialog]').innerText().catch(() => 'none')).replace(/\n/g, ' | ').slice(0, 260));
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(500);
+  // the button is disabled while there is nothing newer to install
+  if (await page.getByRole('button', { name: /download Update now/ }).isEnabled()) {
+    await page.getByRole('button', { name: /download Update now/ }).click();
+    await page.waitForTimeout(800);
+    await page.screenshot({ path: 'shots/chromium-update-confirm.png' });
+    note('confirm dialog:', (await page.locator('[role=dialog]').innerText().catch(() => 'none')).replace(/\n/g, ' | ').slice(0, 260));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+  }
 
   // tooltip on an icon-only header button
   const headerButtons = page.locator('header button');
@@ -103,6 +107,91 @@ for (const [type, name, viewport] of [[chromium, 'phone', { width: 390, height: 
   const text = await visit(page, name, '/cosmos-ui/config-general', 'config');
   note(name, 'update block:', /Running version/.test(text), '| horizontal overflow:', await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1));
   await visit(page, name, '/cosmos-ui/servapps', 'servapps');
+  await browser.close();
+}
+
+// --- the settings forms at desktop and phone width: the rows "folder button + field", what the
+// page shows after a save (the server restarts its listener then), the Storage tabs, the alerts
+for (const [name, type, viewport] of [
+  ['settings-desktop', chromium, { width: 1366, height: 900 }], ['settings-phone', chromium, { width: 390, height: 844 }],
+  ['settings-firefox', firefox, { width: 1366, height: 900 }], ['settings-webkit-phone', webkit, { width: 390, height: 844 }],
+]) {
+  const { browser, page } = await open(type, name, viewport);
+  const phone = viewport.width < 900;
+  // the tabs of Storage and Monitoring have no address of their own: a list of tabs, or a select on a phone
+  // (`shown` is the tab the select shows now: it tells that select from the others on the page)
+  const tab = async (shown, index) => {
+    if (phone) {
+      await page.locator('.MuiSelect-select', { hasText: new RegExp('^' + shown + '$') }).first().click();
+      await page.waitForTimeout(300);
+      const item = page.locator('[role=listbox] li').nth(index);
+      shown = (await item.innerText()).trim();
+      await item.click();
+    } else await page.locator('[role=tab]').nth(index).click();
+    await page.waitForTimeout(3000);
+    return shown;
+  };
+  const overflows = () => page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+
+  await visit(page, name, '/cosmos-ui/config-general', 'config');
+  // button and input must start at the same height, and the input must end inside its card,
+  // with the help text under the field and with a validation error under it
+  const row = (id) => page.evaluate((id) => {
+    const input = document.getElementById(id).closest('.MuiOutlinedInput-root');
+    let parent = input, button = null;
+    while (parent && !(button = parent.querySelector('button'))) parent = parent.parentElement;
+    const box = input.getBoundingClientRect(), b = button.getBoundingClientRect();
+    const card = input.closest('.MuiPaper-root').getBoundingClientRect();
+    return `button ${Math.round(b.top - box.top)} px from the input's top, input ${box.right <= card.right ? 'inside' : 'OUTSIDE'} its card`;
+  }, id);
+  for (const [id, wrong] of [['BackupOutputDir', 'relative/path'], ['Snapshots_Destination', 'relative/path']]) {
+    const field = page.locator('#' + id);
+    const before = await field.inputValue();
+    note(name, id, '| as loaded:', await row(id));
+    await field.fill(wrong); await field.blur(); await page.waitForTimeout(500);
+    note(name, id, '| with an error under it:', await row(id));
+    await field.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await page.screenshot({ path: `shots/${name}-${id}.png` });
+    await field.fill(before); await field.blur(); await page.waitForTimeout(300);
+  }
+  // a save: the page must end up on what was saved, not on a refused reload
+  const keep = page.locator('#Snapshots_KeepRecent');
+  const kept = await keep.inputValue();
+  await keep.fill(kept === '9' ? '8' : '9');
+  await page.getByRole('button', { name: /^Save$/ }).first().click();
+  await page.waitForTimeout(9000);
+  note(name, 'after a save, "settings were changed" still shown:', /The settings above were changed/.test(await page.locator('body').innerText()), '(expected: false)');
+  await keep.fill(kept);
+  await page.getByRole('button', { name: /^Save$/ }).first().click();
+  await page.waitForTimeout(9000);
+  note(name, 'general settings overflow sideways:', await overflows());
+
+  // Storage: every tab renders something (the list of disks itself needs real disks)
+  await visit(page, name, '/cosmos-ui/storage', 'storage');
+  for (let i = 1, shown = 'Disks'; i < 7; i++) {
+    shown = await tab(shown, i);
+    const panel = page.locator('[role=tabpanel]:not([hidden])');
+    note(name, 'storage tab', i, 'rendered', (await panel.innerText()).length, 'chars | overflow:', await overflows());
+    await page.screenshot({ path: `shots/${name}-storage-${i}.png` });
+  }
+
+  // Monitoring > Alerts: the list, the editor of the first alert, a save
+  await visit(page, name, '/cosmos-ui/monitoring', 'monitoring');
+  await page.waitForTimeout(3000);
+  await tab('Resources', 3);
+  const rows = page.locator('[role=tabpanel]:not([hidden]) tbody tr');
+  note(name, 'alerts listed:', await rows.count());
+  await page.screenshot({ path: `shots/${name}-alerts.png` });
+  if (await rows.count()) {
+    await rows.first().locator('td').nth(1).click();
+    await page.waitForTimeout(1500);
+    const dialog = page.locator('[role=dialog]');
+    await page.screenshot({ path: `shots/${name}-alert-editor.png` });
+    note(name, 'alert editor scrolls sideways:', await dialog.locator('.MuiDialogContent-root').evaluate((el) => el.scrollWidth > el.clientWidth + 1), '(expected: false)');
+    await dialog.getByRole('button', { name: /^Save$/ }).click();
+    await page.waitForTimeout(9000);
+    note(name, 'after saving the alert: dialog closed', (await page.locator('[role=dialog]').count()) === 0, '| list usable again:', await rows.first().locator('input[type=checkbox]').isEnabled().catch(() => false));
+  }
   await browser.close();
 }
 
