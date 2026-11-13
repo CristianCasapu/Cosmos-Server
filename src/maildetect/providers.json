@@ -1,0 +1,326 @@
+{
+  "comment": "Fork addition: mail providers the email settings form knows. Read by the server (src/maildetect, embedded) and by the UI (client/src/utils/smtpProviders.js). domains: mailbox domains. mx: endings of MX host names (a domain hosted there). hosts: endings of SMTP host names (hints for a server typed by hand). servers: in order of preference; security is tls (encrypted from the start), starttls or none. user: address (the email address), ask (credentials of their own) or fixed (userValue). notes: see NOTE_TEXTS in client/src/utils/smtpSetup.js. url: where the password is created, shown as text.",
+  "providers": [
+    {
+      "id": "gmail", "name": "Gmail",
+      "domains": ["gmail.com", "googlemail.com"],
+      "hosts": ["smtp.gmail.com", "smtp.googlemail.com"],
+      "servers": [
+        {"host": "smtp.gmail.com", "port": 465, "security": "tls"},
+        {"host": "smtp.gmail.com", "port": 587, "security": "starttls"}
+      ],
+      "user": "address", "notes": ["appPassword"], "url": "https://myaccount.google.com/apppasswords"
+    },
+    {
+      "id": "google-workspace", "name": "Google Workspace",
+      "mx": ["google.com", "googlemail.com"],
+      "servers": [
+        {"host": "smtp.gmail.com", "port": 465, "security": "tls"},
+        {"host": "smtp.gmail.com", "port": 587, "security": "starttls"}
+      ],
+      "user": "address", "notes": ["appPassword"], "url": "https://myaccount.google.com/apppasswords"
+    },
+    {
+      "id": "outlook", "name": "Outlook.com",
+      "domains": ["outlook.com", "hotmail.com", "live.com", "msn.com", "hotmail.co.uk", "hotmail.fr", "hotmail.de", "hotmail.it", "hotmail.es", "live.co.uk", "live.fr", "live.de", "live.it", "live.nl", "outlook.fr", "outlook.de", "outlook.it", "outlook.es"],
+      "mx": ["olc.protection.outlook.com"],
+      "hosts": ["smtp-mail.outlook.com"],
+      "servers": [{"host": "smtp-mail.outlook.com", "port": 587, "security": "starttls"}],
+      "user": "address", "notes": ["oauthOnly"]
+    },
+    {
+      "id": "microsoft365", "name": "Microsoft 365",
+      "mx": ["mail.protection.outlook.com", "mx.microsoft"],
+      "hosts": ["smtp.office365.com"],
+      "servers": [{"host": "smtp.office365.com", "port": 587, "security": "starttls"}],
+      "user": "address", "notes": ["smtpAuthOff"], "url": "https://admin.microsoft.com"
+    },
+    {
+      "id": "icloud", "name": "iCloud Mail",
+      "domains": ["icloud.com", "me.com", "mac.com"],
+      "mx": ["mail.icloud.com"],
+      "hosts": ["smtp.mail.me.com"],
+      "servers": [{"host": "smtp.mail.me.com", "port": 587, "security": "starttls"}],
+      "user": "address", "notes": ["appPassword"], "url": "https://account.apple.com"
+    },
+    {
+      "id": "yahoo", "name": "Yahoo Mail",
+      "domains": ["yahoo.com", "ymail.com", "rocketmail.com", "yahoo.co.uk", "yahoo.fr", "yahoo.de", "yahoo.it", "yahoo.es", "yahoo.ca", "yahoo.com.au", "yahoo.com.br", "yahoo.co.in"],
+      "hosts": ["smtp.mail.yahoo.com"],
+      "servers": [
+        {"host": "smtp.mail.yahoo.com", "port": 465, "security": "tls"},
+        {"host": "smtp.mail.yahoo.com", "port": 587, "security": "starttls"}
+      ],
+      "user": "address", "notes": ["appPassword"], "url": "https://login.yahoo.com/account/security"
+    },
+    {
+      "id": "aol", "name": "AOL Mail",
+      "domains": ["aol.com"],
+      "hosts": ["smtp.aol.com"],
+      "servers": [
+        {"host": "smtp.aol.com", "port": 465, "security": "tls"},
+        {"host": "smtp.aol.com", "port": 587, "security": "starttls"}
+      ],
+      "user": "address", "notes": ["appPassword"], "url": "https://login.aol.com/account/security"
+    },
+    {
+      "id": "fastmail", "name": "Fastmail",
+      "domains": ["fastmail.com", "fastmail.fm"],
+      "mx": ["messagingengine.com"],
+      "hosts": ["smtp.fastmail.com"],
+      "servers": [
+        {"host": "smtp.fastmail.com", "port": 465, "security": "tls"},
+        {"host": "smtp.fastmail.com", "port": 587, "security": "starttls"}
+      ],
+      "user": "address", "notes": ["appPassword"], "url": "https://app.fastmail.com/settings/security"
+    },
+    {
+      "id": "zoho", "name": "Zoho Mail",
+      "domains": ["zohomail.com", "zoho.com"],
+      "hosts": ["smtp.zoho.com", "smtp.zoho.eu", "smtp.zoho.in"],
+      "servers": [
+        {"host": "smtp.zoho.com", "port": 465, "security": "tls"},
+        {"host": "smtp.zoho.com", "port": 587, "security": "starttls"}
+      ],
+      "user": "address", "notes": ["appPassword", "serverVaries"], "url": "https://accounts.zoho.com"
+    },
+    {
+      "id": "zoho-org", "name": "Zoho Mail",
+      "mx": ["zoho.com", "zoho.eu", "zoho.in", "zoho.com.au"],
+      "hosts": ["smtppro.zoho.com", "smtppro.zoho.eu", "smtppro.zoho.in"],
+      "servers": [
+        {"host": "smtppro.zoho.com", "port": 465, "security": "tls"},
+        {"host": "smtppro.zoho.com", "port": 587, "security": "starttls"}
+      ],
+      "user": "address", "notes": ["appPassword", "serverVaries"], "url": "https://accounts.zoho.com"
+    },
+    {
+      "id": "proton", "name": "Proton Mail",
+      "domains": ["proton.me", "protonmail.com", "protonmail.ch", "pm.me"],
+      "mx": ["protonmail.ch"],
+      "hosts": ["smtp.protonmail.ch"],
+      "servers": [{"host": "smtp.protonmail.ch", "port": 587, "security": "starttls"}],
+      "user": "address", "notes": ["bridge"]
+    },
+    {
+      "id": "gmx", "name": "GMX",
+      "domains": ["gmx.net", "gmx.de", "gmx.at", "gmx.ch"],
+      "hosts": ["mail.gmx.net"],
+      "servers": [
+        {"host": "mail.gmx.net", "port": 587, "security": "starttls"},
+        {"host": "mail.gmx.net", "port": 465, "security": "tls"}
+      ],
+      "user": "address", "notes": ["enableAccess"]
+    },
+    {
+      "id": "gmx-com", "name": "GMX",
+      "domains": ["gmx.com", "gmx.us", "gmx.co.uk", "gmx.fr", "gmx.es"],
+      "hosts": ["mail.gmx.com"],
+      "servers": [
+        {"host": "mail.gmx.com", "port": 587, "security": "starttls"},
+        {"host": "mail.gmx.com", "port": 465, "security": "tls"}
+      ],
+      "user": "address", "notes": ["enableAccess"]
+    },
+    {
+      "id": "webde", "name": "WEB.DE",
+      "domains": ["web.de"],
+      "hosts": ["smtp.web.de"],
+      "servers": [{"host": "smtp.web.de", "port": 587, "security": "starttls"}],
+      "user": "address", "notes": ["enableAccess"]
+    },
+    {
+      "id": "mailcom", "name": "mail.com",
+      "domains": ["mail.com", "email.com", "usa.com"],
+      "hosts": ["smtp.mail.com"],
+      "servers": [{"host": "smtp.mail.com", "port": 587, "security": "starttls"}],
+      "user": "address", "notes": ["enableAccess"]
+    },
+    {
+      "id": "posteo", "name": "Posteo",
+      "domains": ["posteo.de", "posteo.net"],
+      "mx": ["posteo.de"],
+      "hosts": ["posteo.de"],
+      "servers": [
+        {"host": "posteo.de", "port": 465, "security": "tls"},
+        {"host": "posteo.de", "port": 587, "security": "starttls"}
+      ],
+      "user": "address", "notes": []
+    },
+    {
+      "id": "mailboxorg", "name": "mailbox.org",
+      "domains": ["mailbox.org"],
+      "mx": ["mailbox.org"],
+      "hosts": ["smtp.mailbox.org"],
+      "servers": [
+        {"host": "smtp.mailbox.org", "port": 465, "security": "tls"},
+        {"host": "smtp.mailbox.org", "port": 587, "security": "starttls"}
+      ],
+      "user": "address", "notes": []
+    },
+    {
+      "id": "yandex", "name": "Yandex Mail",
+      "domains": ["yandex.com", "yandex.ru", "ya.ru"],
+      "mx": ["yandex.net", "yandex.ru"],
+      "hosts": ["smtp.yandex.com", "smtp.yandex.ru"],
+      "servers": [{"host": "smtp.yandex.com", "port": 465, "security": "tls"}],
+      "user": "address", "notes": ["appPassword"], "url": "https://id.yandex.com/security/app-passwords"
+    },
+    {
+      "id": "infomaniak", "name": "Infomaniak",
+      "mx": ["infomaniak.ch", "infomaniak.com"],
+      "hosts": ["mail.infomaniak.com"],
+      "servers": [
+        {"host": "mail.infomaniak.com", "port": 465, "security": "tls"},
+        {"host": "mail.infomaniak.com", "port": 587, "security": "starttls"}
+      ],
+      "user": "address", "notes": []
+    },
+    {
+      "id": "ovh", "name": "OVHcloud",
+      "mx": ["mail.ovh.net"],
+      "hosts": ["ssl0.ovh.net", "smtp.mail.ovh.net"],
+      "servers": [
+        {"host": "ssl0.ovh.net", "port": 465, "security": "tls"},
+        {"host": "ssl0.ovh.net", "port": 587, "security": "starttls"}
+      ],
+      "user": "address", "notes": ["serverVaries"]
+    },
+    {
+      "id": "gandi", "name": "Gandi",
+      "mx": ["mail.gandi.net"],
+      "hosts": ["mail.gandi.net"],
+      "servers": [
+        {"host": "mail.gandi.net", "port": 465, "security": "tls"},
+        {"host": "mail.gandi.net", "port": 587, "security": "starttls"}
+      ],
+      "user": "address", "notes": []
+    },
+    {
+      "id": "ionos", "name": "IONOS",
+      "mx": ["ionos.com", "ionos.de", "ionos.co.uk", "ionos.fr", "ionos.es", "ionos.it", "kundenserver.de"],
+      "hosts": ["smtp.ionos.com", "smtp.ionos.de", "smtp.ionos.co.uk", "smtp.ionos.fr", "smtp.ionos.es", "smtp.ionos.it"],
+      "servers": [
+        {"host": "smtp.ionos.com", "port": 465, "security": "tls"},
+        {"host": "smtp.ionos.com", "port": 587, "security": "starttls"}
+      ],
+      "user": "address", "notes": ["serverVaries"]
+    },
+    {
+      "id": "privateemail", "name": "Namecheap Private Email",
+      "mx": ["privateemail.com"],
+      "hosts": ["mail.privateemail.com"],
+      "servers": [
+        {"host": "mail.privateemail.com", "port": 465, "security": "tls"},
+        {"host": "mail.privateemail.com", "port": 587, "security": "starttls"}
+      ],
+      "user": "address", "notes": []
+    },
+    {
+      "id": "titan", "name": "Titan Email",
+      "mx": ["titan.email"],
+      "hosts": ["smtp.titan.email"],
+      "servers": [
+        {"host": "smtp.titan.email", "port": 465, "security": "tls"},
+        {"host": "smtp.titan.email", "port": 587, "security": "starttls"}
+      ],
+      "user": "address", "notes": []
+    },
+    {
+      "id": "migadu", "name": "Migadu",
+      "mx": ["migadu.com"],
+      "hosts": ["smtp.migadu.com"],
+      "servers": [
+        {"host": "smtp.migadu.com", "port": 465, "security": "tls"},
+        {"host": "smtp.migadu.com", "port": 587, "security": "starttls"}
+      ],
+      "user": "address", "notes": []
+    },
+    {
+      "id": "hostinger", "name": "Hostinger",
+      "mx": ["hostinger.com"],
+      "hosts": ["smtp.hostinger.com"],
+      "servers": [
+        {"host": "smtp.hostinger.com", "port": 465, "security": "tls"},
+        {"host": "smtp.hostinger.com", "port": 587, "security": "starttls"}
+      ],
+      "user": "address", "notes": []
+    },
+    {
+      "id": "rackspace", "name": "Rackspace Email",
+      "mx": ["emailsrvr.com"],
+      "hosts": ["secure.emailsrvr.com"],
+      "servers": [
+        {"host": "secure.emailsrvr.com", "port": 465, "security": "tls"},
+        {"host": "secure.emailsrvr.com", "port": 587, "security": "starttls"}
+      ],
+      "user": "address", "notes": []
+    },
+    {
+      "id": "sendgrid", "name": "SendGrid", "relay": true,
+      "hosts": ["smtp.sendgrid.net"],
+      "servers": [
+        {"host": "smtp.sendgrid.net", "port": 587, "security": "starttls"},
+        {"host": "smtp.sendgrid.net", "port": 465, "security": "tls"}
+      ],
+      "user": "fixed", "userValue": "apikey", "notes": ["fixedUser", "verifiedSender"], "url": "https://app.sendgrid.com/settings/api_keys"
+    },
+    {
+      "id": "brevo", "name": "Brevo", "relay": true,
+      "hosts": ["smtp-relay.brevo.com", "smtp-relay.sendinblue.com"],
+      "servers": [{"host": "smtp-relay.brevo.com", "port": 587, "security": "starttls"}],
+      "user": "ask", "notes": ["relayCredentials", "verifiedSender"], "url": "https://app.brevo.com/settings/keys/smtp"
+    },
+    {
+      "id": "mailgun", "name": "Mailgun", "relay": true,
+      "hosts": ["smtp.mailgun.org", "smtp.eu.mailgun.org"],
+      "servers": [
+        {"host": "smtp.mailgun.org", "port": 587, "security": "starttls"},
+        {"host": "smtp.mailgun.org", "port": 465, "security": "tls"}
+      ],
+      "user": "ask", "notes": ["relayCredentials", "serverVaries", "verifiedSender"], "url": "https://app.mailgun.com"
+    },
+    {
+      "id": "ses", "name": "Amazon SES", "relay": true,
+      "hosts": ["amazonaws.com"],
+      "servers": [
+        {"host": "email-smtp.us-east-1.amazonaws.com", "port": 587, "security": "starttls"},
+        {"host": "email-smtp.us-east-1.amazonaws.com", "port": 465, "security": "tls"}
+      ],
+      "user": "ask", "notes": ["relayCredentials", "regionInHost", "verifiedSender"], "url": "https://console.aws.amazon.com/ses"
+    },
+    {
+      "id": "postmark", "name": "Postmark", "relay": true,
+      "hosts": ["smtp.postmarkapp.com"],
+      "servers": [{"host": "smtp.postmarkapp.com", "port": 587, "security": "starttls"}],
+      "user": "ask", "notes": ["relayCredentials", "verifiedSender"], "url": "https://account.postmarkapp.com"
+    },
+    {
+      "id": "mailjet", "name": "Mailjet", "relay": true,
+      "hosts": ["in-v3.mailjet.com"],
+      "servers": [
+        {"host": "in-v3.mailjet.com", "port": 587, "security": "starttls"},
+        {"host": "in-v3.mailjet.com", "port": 465, "security": "tls"}
+      ],
+      "user": "ask", "notes": ["relayCredentials", "verifiedSender"], "url": "https://app.mailjet.com/account/apikeys"
+    },
+    {
+      "id": "smtp2go", "name": "SMTP2GO", "relay": true,
+      "hosts": ["mail.smtp2go.com"],
+      "servers": [
+        {"host": "mail.smtp2go.com", "port": 587, "security": "starttls"},
+        {"host": "mail.smtp2go.com", "port": 465, "security": "tls"}
+      ],
+      "user": "ask", "notes": ["relayCredentials", "verifiedSender"], "url": "https://app.smtp2go.com"
+    },
+    {
+      "id": "resend", "name": "Resend", "relay": true,
+      "hosts": ["smtp.resend.com"],
+      "servers": [
+        {"host": "smtp.resend.com", "port": 465, "security": "tls"},
+        {"host": "smtp.resend.com", "port": 587, "security": "starttls"}
+      ],
+      "user": "fixed", "userValue": "resend", "notes": ["fixedUser", "verifiedSender"], "url": "https://resend.com/api-keys"
+    }
+  ]
+}
