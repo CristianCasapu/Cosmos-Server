@@ -15,7 +15,7 @@ require (
 	github.com/docker/go-units v0.5.0
 	github.com/foomo/tlsconfig v0.0.0-20180418120404-b67861b076c9
 	github.com/go-acme/lego/v5 v5.3.1
-	github.com/go-chi/chi v4.0.2+incompatible
+	github.com/go-chi/chi/v5 v5.3.0
 	github.com/go-chi/httprate v0.7.1
 	github.com/go-co-op/gocron/v2 v2.2.4
 	github.com/go-playground/validator/v10 v10.30.3
@@ -187,7 +187,6 @@ require (
 	github.com/go-acme/jdcloud-sdk-go v1.64.0 // indirect
 	github.com/go-acme/tencentclouddnspod v1.3.24 // indirect
 	github.com/go-acme/tencentedgdeone v1.3.38 // indirect
-	github.com/go-chi/chi/v5 v5.3.0 // indirect
 	github.com/go-darwin/apfs v0.0.0-20211011131704-f84b94dbf348 // indirect
 	github.com/go-errors/errors v1.0.1 // indirect
 	github.com/go-git/go-billy/v5 v5.6.2 // indirect
