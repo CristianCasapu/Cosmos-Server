@@ -98,9 +98,8 @@ security record.
 | 1 | No choice of where an app's data goes at install (config vs bulk data, per disk); named volumes land in Docker's root | install wizard, `DefaultDataPath` only |
 | 3 | No system-health overview (certificate expiry, failed jobs, stopped containers, full disks); the container-updates banner never shows (`.length` on a map) | `servapps.jsx:296` |
 | 10 | "Provided" certificate mode and certificate status | check again on 0.24.0, the Domains tab changed this |
-| 12 | A permanent mount is written to `/etc/fstab` by device path (`/dev/sdb1`, not a UUID) and without `nofail`: a missing or renamed disk can stop the boot. The server does not check that the mount point is under `/mnt` (only the form does) | `src/storage/mounts.go` |
 
-(2 data disks, 4 time zone, 5 port conflicts, 6 image defaults, 7 help texts, 8 maintenance time, 9 schedules, 11 file picker shortcuts, 13 volume usage, 14 volume paths and 15 alerts are done; see `FORK.md`.)
+(2 data disks, 4 time zone, 5 port conflicts, 6 image defaults, 7 help texts, 8 maintenance time, 9 schedules, 12 mounts, 11 file picker shortcuts, 13 volume usage, 14 volume paths and 15 alerts are done; see `FORK.md`.)
 
 Limits of the port check (5): ports of stopped containers are not known, Cosmos' own ports are read from the saved settings (not from `COSMOS_HTTP_PORT`/`COSMOS_HTTPS_PORT`), host-network containers are not covered.
 
