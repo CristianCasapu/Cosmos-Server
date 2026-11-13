@@ -268,7 +268,7 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 		// Fork addition: a masked SMTP password is kept for the connection it was saved for only, and changed email settings are checked, see fork_email.go
 		if errE := checkEmailSettings(&request, config); errE != nil {
 			utils.Error("SettingsUpdate: "+errE.Error(), nil)
-			utils.HTTPError(w, errE.Error(), http.StatusBadRequest, "UC010")
+			utils.HTTPError(w, errE.Error(), http.StatusBadRequest, "UC011")
 			return
 		}
 

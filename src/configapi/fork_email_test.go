@@ -149,7 +149,7 @@ func TestSaveNeedsThePasswordAgainForAnotherConnection(t *testing.T) {
 			change(&config.EmailConfig)
 
 			w := saveSettings(t, restarted, config)
-			if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "UC010") || !strings.Contains(w.Body.String(), "enter the mail password again") {
+			if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "UC011") || !strings.Contains(w.Body.String(), "enter the mail password again") {
 				t.Fatalf("save: %d %s", w.Code, w.Body.String())
 			}
 			if saved := utils.ReadConfigFromFile().EmailConfig; saved != savedMail() {
@@ -202,7 +202,7 @@ func TestSaveChecksEmailSettingsThatChanged(t *testing.T) {
 			config, _ := readSettings(t, asAdmin)
 			config.EmailConfig.Password = "typed" // so that only the value under test decides
 			change(&config.EmailConfig)
-			if w := saveSettings(t, restarted, config); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "UC010") {
+			if w := saveSettings(t, restarted, config); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "UC011") {
 				t.Fatalf("save: %d %s", w.Code, w.Body.String())
 			}
 			if saved := utils.ReadConfigFromFile().EmailConfig; saved != savedMail() {

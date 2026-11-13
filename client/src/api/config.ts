@@ -56,6 +56,19 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }))
   }
 
+  // Fork addition: proposals for the SMTP settings of a mail domain (src/maildetect).
+  // Only the domain is sent: the mailbox name stays in the browser. The form
+  // shows the outcome itself, so the error is not announced a second time.
+  function detectEmail(domain) {
+    return wrap(apiFetch('/cosmos/api/config/email-detect', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ address: domain }),
+    }), true)
+  }
+
   // Fork addition: UPnP port forwarding status; retry re-applies the saved settings now.
   function upnpStatus() {
     return wrap(apiFetch('/cosmos/api/upnp', {
@@ -282,6 +295,7 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     addRoute,
     canSendEmail,
     testEmail,
+    detectEmail,
     serverUpdateStatus,
     checkServerUpdate,
     upnpStatus,

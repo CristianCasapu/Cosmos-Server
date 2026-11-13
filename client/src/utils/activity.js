@@ -49,6 +49,7 @@ const whenChanging = (label) => (m, method) => (isRead(method) ? null : label(m)
 // as POST, and actions whose result the page shows by itself.
 const IGNORED = [
   /^\/api\/(login|logout|sudo|mfa|register|password-reset|me|status|newInstall|setup-join)\b/,
+  /^\/api\/config\/email-detect\b/, // a lookup for the email form, which shows what was found itself
   /^\/api\/(metrics|events|notifications|list-dir|dns-check|_logs|_memory)\b/,
   /^\/api\/jobs\/(get|running)\b/,
   /^\/api\/(config\/test-email|upnp|server-update|force-server-update)\b/,

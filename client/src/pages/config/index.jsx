@@ -244,7 +244,7 @@ const ConfigManagement = () => {
           ...snapshotsValidation(t), // fork addition
         })}
 
-        onSubmit={async (values, { setSubmitting }) => {
+        onSubmit={async (values, { setSubmitting, setFieldValue }) => {
           setSubmitting(true);
 
           if(!values.IncrBackupOutputDir && config.Backup.Backups && config.Backup.Backups["Cosmos Internal Backup"]) {
@@ -349,6 +349,7 @@ const ConfigManagement = () => {
           }
 
           return API.config.set(toSave).then(() => {
+            if (values.Email_Password) setFieldValue('Email_Password', '***'); // Fork addition: a mail password that was saved is from now on the stored one (emailSettings.jsx)
             refresh(15); // fork addition: the server may be restarting its listener
             setSaveLabel(t('global.savedConfirmation'));
             setTimeout(() => {
