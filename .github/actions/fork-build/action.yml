@@ -78,7 +78,7 @@ runs:
         node --test "client/src/utils/*.test.mjs"
         go test ./src/utils/ ./src/authorizationserver/ -count=1
         go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ -count=1
-        go test ./src/ -run 'CompareVersions|ForkBuild|MaintenanceTime|MaintenanceDue|ServerUpdateRoute|BackupScheduled|BackupDue|PlainHTTP' -count=1
+        go test ./src/ -skip TestEveryRouteIsDocumented -count=1
         go test ./src/docker/ -count=1
         go test ./src/proxy/ -count=1 # the live Avahi test in it skips without AVAHI_LIVE=1
 
