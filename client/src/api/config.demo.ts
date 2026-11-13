@@ -94,6 +94,25 @@ function snapshotsCleanup(source, name) {
   return snapshotsStatus();
 }
 
+// Fork addition: the demo has no Telegram.
+function telegramStatus() {
+  return new Promise((resolve, reject) => {
+    resolve({
+      "status": "OK",
+      "data": { "enabled": false, "ready": false, "lastSent": null, "lastError": "", "waiting": 0, "held": 0, "pausedUntil": null, "sent": 0 }
+    })
+  });
+}
+
+function telegramTest(telegramConfig) {
+  return new Promise((resolve, reject) => {
+    resolve({
+      "status": "OK",
+      "data": { "success": false, "reason": "demo", "message": "The demo sends nothing." }
+    })
+  });
+}
+
 function canSendEmail() {
   return new Promise((resolve, reject) => {
     resolve({
@@ -206,6 +225,8 @@ export {
   snapshotsRun,
   snapshotsRestore,
   snapshotsCleanup,
+  telegramStatus,
+  telegramTest,
   getDashboard,
   getBackup,
 };

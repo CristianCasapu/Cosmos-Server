@@ -25,6 +25,7 @@ import { useClientInfos } from '../../utils/hooks';
 import EmailTest from './emailTest';
 import ServerUpdate from '../../components/serverUpdate';
 import Snapshots from './snapshots'; // fork addition
+import Telegram from './telegram'; // fork addition
 import TimezoneInput from './timezoneInput'; // fork addition
 
 // License issuer's public key for signature verification
@@ -433,6 +434,9 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
           </>)}
         </Stack>
       </MainCard>
+
+      {/* Fork addition: notifications through Telegram (src/telegram), next to the other way Cosmos writes to its admin */}
+      <Telegram formik={formik} config={config} />
     </Stack>
   );
 };

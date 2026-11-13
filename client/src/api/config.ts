@@ -149,6 +149,28 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }))
   }
 
+  // Fork addition: notifications through Telegram (src/telegram). GET = how
+  // deliveries go (no settings in it); the test sends one message with the
+  // settings given, saved or not, and answers with Telegram's verdict in words.
+  function telegramStatus() {
+    return wrap(apiFetch('/cosmos/api/telegram', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }))
+  }
+
+  function telegramTest(telegramConfig) {
+    return wrap(apiFetch('/cosmos/api/telegram/test', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ Telegram: telegramConfig }),
+    }))
+  }
+
   function snapshotsCleanup(source: string, name: string) {
     return wrap(apiFetch('/cosmos/api/snapshots/cleanup', {
       method: 'POST',
@@ -292,6 +314,8 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     snapshotsRun,
     snapshotsRestore,
     snapshotsCleanup,
+    telegramStatus,
+    telegramTest,
     getBackup,
     getDashboard,
     updateDNS,
