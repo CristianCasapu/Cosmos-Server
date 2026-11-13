@@ -4,6 +4,7 @@
 // here; only requests that change something are followed, and the request
 // itself is never altered or delayed.
 import i18n from 'i18next';
+import { watchForRefusal } from './sudoPrompt';
 
 // Translated when the translations are loaded, the English text otherwise.
 const tr = (key, text, vars) => {
@@ -292,6 +293,8 @@ const follow = async (call, response) => {
 // trackFetch is called by the API client with every request it sends. It
 // returns the same promise it was given.
 export const trackFetch = (url, options, promise) => {
+  // a command refused because the password confirmation has ended asks for it again (sudoPrompt.js)
+  watchForRefusal(options, promise);
   try {
     const method = String((options && options.method) || 'GET').toUpperCase();
     const label = describe(url, method);
