@@ -7,6 +7,8 @@ import * as API from '../../api';
 import { DomainPicker, externalAddress, localAddress } from '../../components/hostnameSuggestions';
 import { useTranslation } from 'react-i18next';
 import { serverBack } from '../../utils/appLinks'; // Fork addition
+import { keepOnBackdrop } from '../../components/formChoices'; // Fork addition
+import { newAppRoute } from '../../utils/routeGuide'; // Fork addition
 
 const ExposeModal = ({ openModal, setOpenModal, config, updateRoutes, container }) => {
   const { t } = useTranslation();
@@ -22,37 +24,21 @@ const ExposeModal = ({ openModal, setOpenModal, config, updateRoutes, container 
     return container && container.Labels["cosmos-force-network-secured"] === "true";
   }
   
-  return <Dialog open={openModal} onClose={() => setOpenModal(false)}>
-    <DialogTitle>{t('mgmt.servApp.container.urls.exposeTitle')}</DialogTitle>
+  // Fork addition: a click beside the form does not close it; fullWidth, so it does not change size with its content
+  return <Dialog open={openModal} onClose={keepOnBackdrop(() => setOpenModal(false))} fullWidth maxWidth="sm">
+    {/* Fork addition: the title names the app; upstream's "Expose ServApp ... to the internet" was wrong for a local address */}
+    <DialogTitle sx={{ overflowWrap: 'anywhere' }}>{openModal
+      ? t('mgmt.urls.guide.exposeTitle', 'An address for {{name}}', { name: containerName.replace('/', '') })
+      : t('mgmt.servApp.container.urls.exposeTitle')}</DialogTitle>
         {openModal && <>
         <DialogContent>
             <DialogContentText>
               <Stack spacing={2}>
                 <div>
-                  {t('mgmt.servApp.container.urls.exposeText')}
-                </div>
-                <div>
                     <RouteManagement TargetContainer={openModal} 
-                      routeConfig={{
-                        Target: "http://"+containerName.replace('/', '') + ":",
-                        Mode: "SERVAPP",
-                        Name: containerName.replace('/', ''),
-                        Description: "Expose " + containerName.replace('/', '') + " to the internet",
-                        UseHost: true,
-                        // Fork addition: every app gets a local address; domains are attached below
-                        Host: localAddress(containerName, config),
-                        UsePathPrefix: false,
-                        PathPrefix: '',
-                        CORSOrigin: '',
-                        StripPathPrefix: false,
-                        AuthEnabled: false,
-                        Timeout: 14400000,
-                        ThrottlePerMinute: 10000,
-                        BlockCommonBots: true,
-                        SmartShield: {
-                          Enabled: true,
-                        }
-                      }} 
+                      routeConfig={/* Fork addition: built where the "address for every app" action builds its URLs
+                        (utils/routeGuide.js), so that both create the same thing; the port is proposed by the form */
+                        newAppRoute({ name: containerName.replace('/', ''), host: localAddress(containerName, config), port: '' })}
                       config={config}
                       routeNames={config.HTTPConfig.ProxyConfig.Routes.map((r) => r.Name)}
                       setRouteConfig={(_newRoute) => {
@@ -64,15 +50,14 @@ const ExposeModal = ({ openModal, setOpenModal, config, updateRoutes, container 
                       noControls
                       lockTarget
                       showErrors={submitErrors.length > 0 && submitErrors /* Fork addition */}
+                      addressExtra={/* Fork addition: the domains, right under the address */ <DomainPicker
+                        name={(newRoute && newRoute.Name) || containerName}
+                        config={config}
+                        selected={domains}
+                        onChange={setDomains}
+                      />}
                     />
                 </div>
-                {/* Fork addition */}
-                <DomainPicker
-                  name={(newRoute && newRoute.Name) || containerName}
-                  config={config}
-                  selected={domains}
-                  onChange={setDomains}
-                />
               </Stack>
             </DialogContentText>
         </DialogContent>

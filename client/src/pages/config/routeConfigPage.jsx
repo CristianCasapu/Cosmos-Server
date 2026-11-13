@@ -12,6 +12,7 @@ import EventExplorerStandalone from "../dashboard/eventsExplorerStandalone";
 import { useTranslation } from 'react-i18next';
 import { managedRouteOwner } from "../../utils/routes";
 import { ManagedByChip } from "../../components/routeComponents";
+import { serverBack } from "../../utils/appLinks"; // Fork addition
 
 const RouteConfigPage = () => {
   const { t } = useTranslation();
@@ -43,6 +44,11 @@ const RouteConfigPage = () => {
   useEffect(() => {
     refreshConfig();
   }, []);
+
+  // Fork addition: after a tab saved, read the URL again once the server answers. The Setup and
+  // Security tabs each save the whole URL as it was when the page loaded, plus their own fields:
+  // without this, saving on one tab took back what the other had just saved.
+  const afterSave = () => serverBack().then(refreshConfig);
 
   return <div>
     <h2>
@@ -82,6 +88,7 @@ const RouteConfigPage = () => {
             routeConfig={currentRoute}
             routeNames={config.HTTPConfig.ProxyConfig.Routes.map((r) => r.Name)}
             config={config}
+            onSaved={afterSave}
           />
         },
         {
@@ -90,6 +97,7 @@ const RouteConfigPage = () => {
             routeConfig={currentRoute}
             config={config}
             readOnly={!!owner}
+            onSaved={afterSave}
           />
         },
         {

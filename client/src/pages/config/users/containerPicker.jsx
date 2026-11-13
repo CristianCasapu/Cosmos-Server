@@ -129,7 +129,9 @@ export function CosmosContainerPicker({formik, nameOnly, lockTarget, TargetConta
   }
 
   React.useEffect(() => {
-    if(lockTarget) {
+    // Fork addition: a port that is already chosen (in the simple view of the URL form) is kept;
+    // upstream proposed the port afresh each time this picker appeared
+    if(lockTarget && !targetResult.port) {
       targetResult.container = TargetContainer.Names[0]
       targetResult.containerObject = TargetContainer
       targetResult.port = ''

@@ -12,6 +12,7 @@ import RouteManagement from '../../config/routes/routeman';
 import { ValidateRoute, getFaviconURL, sanitizeRoute } from '../../../utils/routes';
 import HostChip from '../../../components/hostChip';
 import { useTranslation } from 'react-i18next';
+import { keepOnBackdrop } from '../../../components/formChoices'; // Fork addition
 
 
 const NewRouteCreate = ({ openNewModal, setOpenNewModal, config }) => {
@@ -28,7 +29,8 @@ const NewRouteCreate = ({ openNewModal, setOpenNewModal, config }) => {
   const routes = config.HTTPConfig.ProxyConfig.Routes || [];
 
   return <>
-  <Dialog open={openNewModal} onClose={() => setOpenNewModal(false)}>
+  {/* Fork addition: a click beside the form does not close it */}
+  <Dialog open={openNewModal} onClose={keepOnBackdrop(() => setOpenNewModal(false))} fullWidth maxWidth="sm">
     <DialogTitle>{t('mgmt.urls.edit.newUrlTitle')}</DialogTitle>
         {openNewModal && <>
         <DialogContent>
