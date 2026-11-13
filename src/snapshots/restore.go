@@ -248,7 +248,7 @@ func (job restoreJob) run(now time.Time) RestoreResult {
 	if _, err := parent.Lstat(name); err == nil {
 		stamp := now
 		for tries := 0; ; tries++ {
-			keptAs = ".before-restore-" + stamp.Format(idLayout)
+			keptAs = keptMark + stamp.Format(idLayout)
 			if _, err := parent.Lstat(name + keptAs); errors.Is(err, os.ErrNotExist) {
 				break
 			}

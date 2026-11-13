@@ -1015,6 +1015,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/snapshots", snapshots.StatusRoute) // fork addition: incremental snapshots
 	srapiAdmin.HandleFunc("/api/snapshots/run", snapshots.RunRoute) // fork addition
 	srapiAdmin.HandleFunc("/api/snapshots/restore", snapshots.RestoreRoute) // fork addition
+	srapiAdmin.HandleFunc("/api/snapshots/cleanup", snapshots.CleanupRoute) // fork addition
 	srapiAdmin.HandleFunc("/api/zones/{zone}", configapi.ZonesIdRoute)
 	srapiAdmin.HandleFunc("/api/zones", configapi.ZonesRoute)
 	srapiAdmin.HandleFunc("/api/zones-addresses", configapi.ZonesApiAddresses)

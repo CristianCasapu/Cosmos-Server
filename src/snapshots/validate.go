@@ -3,9 +3,11 @@ package snapshots
 import (
 	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/azukaar/cosmos-server/src/utils"
 )
@@ -15,6 +17,9 @@ const (
 	maxPathLength = 1024
 	maxSlugLength = 200 // a folder name can be 255 bytes long; ".partial" must fit too
 	maxKeep       = 365
+
+	maxExcludes      = 100
+	maxExcludeLength = 200
 )
 
 // cleanDirectory checks that value can name a folder of the host and returns
@@ -44,6 +49,44 @@ func cleanDirectory(label string, value string) (string, error) {
 		return "", fmt.Errorf("%s: choose a folder, not the root of the disk", label)
 	}
 	return clean, nil
+}
+
+// cleanExclude checks one exclusion and returns it in its plain form (no
+// trailing slash). An exclusion is a glob pattern as path.Match reads it,
+// compared with the path of a file or folder below the folder that is backed
+// up and with its name alone; it is never made part of a path.
+func cleanExclude(label string, value string) (string, error) {
+	if utf8.RuneCountInString(value) > maxExcludeLength {
+		return "", fmt.Errorf("%s: an exclusion can be at most %d characters long", label, maxExcludeLength)
+	}
+	shown := strconv.Quote(value)
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f {
+			return "", fmt.Errorf("%s: the exclusion %s contains characters that are not allowed", label, shown)
+		}
+	}
+	if strings.TrimSpace(value) != value {
+		return "", fmt.Errorf("%s: the exclusion %s starts or ends with a space", label, shown)
+	}
+	if strings.HasPrefix(value, "/") {
+		return "", fmt.Errorf("%s: the exclusion %s must not start with \"/\": it is compared with the path below each folder, for example cache/*.tmp", label, shown)
+	}
+	pattern := strings.TrimRight(value, "/")
+	if pattern == "" {
+		return "", fmt.Errorf("%s: one of the exclusions is empty", label)
+	}
+	for _, part := range strings.Split(pattern, "/") {
+		if part == ".." {
+			return "", fmt.Errorf("%s: the exclusion %s must not contain \"..\"", label, shown)
+		}
+	}
+	if strings.Contains(pattern, "**") {
+		return "", fmt.Errorf("%s: the exclusion %s uses \"**\", which is not supported; a pattern without \"/\" already applies at any depth", label, shown)
+	}
+	if _, err := path.Match(pattern, ""); err != nil {
+		return "", fmt.Errorf("%s: the exclusion %s is not a valid pattern", label, shown)
+	}
+	return pattern, nil
 }
 
 // inside tells whether dir lies inside parent (and is not parent itself).
@@ -133,6 +176,25 @@ func ValidateConfig(cfg *utils.SnapshotsConfig) error {
 		sources = append(sources, source)
 	}
 
+	if len(cfg.Excludes) > maxExcludes {
+		return fmt.Errorf("%s: at most %d exclusions can be set", label, maxExcludes)
+	}
+	// a new list, as for the folders; a pattern listed twice is kept once
+	excludes := make([]string, 0, len(cfg.Excludes))
+	for _, value := range cfg.Excludes {
+		pattern, err := cleanExclude(label, value)
+		if err != nil {
+			return err
+		}
+		known := false
+		for _, other := range excludes {
+			known = known || other == pattern
+		}
+		if !known {
+			excludes = append(excludes, pattern)
+		}
+	}
+
 	if cfg.Time != "" {
 		if _, _, ok := parseTime(cfg.Time); !ok {
 			return fmt.Errorf("%s: enter the time as HH:MM, for example 03:00", label)
@@ -163,5 +225,6 @@ func ValidateConfig(cfg *utils.SnapshotsConfig) error {
 
 	cfg.Destination = destination
 	cfg.Sources = sources
+	cfg.Excludes = excludes
 	return nil
 }

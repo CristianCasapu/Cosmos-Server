@@ -6,6 +6,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -34,6 +35,7 @@ type walker struct {
 	skipPath string      // a folder that is never entered: the destination, when it lies inside the source
 	skipInfo os.FileInfo // the same folder, recognised under any name
 	strict   bool        // a problem with the source is fatal too
+	excludes []string    // patterns of what is left out (see excluded); none for a restore
 
 	files       int64
 	bytesCopied int64
@@ -83,6 +85,23 @@ func (w *walker) stop(rel string, err error) {
 	w.fatal = fmt.Errorf("cannot write %s (%s)", filepath.Join(w.dstRoot, rel), reason(err))
 }
 
+// excluded tells whether an entry is left out of the snapshots: one of the
+// patterns (path.Match: "*" and "?" stay within one name) matches its path
+// below the top, or its name alone. A folder that is left out is not
+// entered, so nothing below it is copied either.
+func excluded(patterns []string, rel string, name string) bool {
+	rel = filepath.ToSlash(rel)
+	for _, pattern := range patterns {
+		if ok, _ := path.Match(pattern, rel); ok {
+			return true
+		}
+		if ok, _ := path.Match(pattern, name); ok {
+			return true
+		}
+	}
+	return false
+}
+
 func (w *walker) isSkipped(path string, info os.FileInfo) bool {
 	if w.skipPath == "" {
 		return false
@@ -116,6 +135,11 @@ func (w *walker) dir(src *os.Root, dst *os.Root, prev *os.Root, rel string) {
 		}
 		name := entry.Name()
 		relPath := filepath.Join(rel, name)
+
+		// left out on purpose: not copied, and not a problem
+		if excluded(w.excludes, relPath, name) {
+			continue
+		}
 
 		// the snapshot's own record lives under this name
 		if rel == "" && name == metaName {
