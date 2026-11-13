@@ -178,6 +178,13 @@ export const KIND_TEXT = {
     todo: 'Nothing to do. Lift the ban only if the address is one of yours.',
     link: 'shield',
   },
+  'firewall.ban': {
+    label: 'Banned by Fail2ban',
+    what: 'Fail2ban banned an address at the firewall: nothing from it reaches the server until the ban ends.',
+    stopped: 'yes',
+    todo: 'Nothing to do. If it is one of your own devices, lift the ban in the Fail2ban section of this page.',
+    link: null,
+  },
   'shield.geo.blocked': {
     label: 'Blocked by country',
     what: 'A request came from a country your settings block.',

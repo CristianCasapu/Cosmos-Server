@@ -21,7 +21,7 @@ const GroupOther = "other"
 var groups = []Group{
 	{"login", []string{utils.SecLoginFailed, utils.SecMFAFailed, utils.SecSudoFailed, utils.SecRegisterFailed, utils.SecTokenInvalid, utils.SecSessionForged}},
 	{"lockout", []string{utils.SecMFALocked, utils.SecShieldStrike, utils.SecShieldRateLimited}},
-	{"ban", []string{utils.SecShieldBanTemp, utils.SecShieldBanPerm}},
+	{"ban", []string{utils.SecShieldBanTemp, utils.SecShieldBanPerm, utils.SecFail2banBan}},
 	{"scan", []string{utils.SecScanProbe, utils.SecShieldHostname, utils.SecShieldBot, utils.SecShieldGeo}},
 	{"access", []string{utils.SecAccessDenied, utils.SecAccessGrantDenied, utils.SecAccessIPDenied, utils.SecAccessLocalDenied, utils.SecTokenIPDenied}},
 	{GroupOther, []string{utils.SecShieldBlocked, utils.SecSessionRejected, utils.SecResetRequested, utils.SecResetRejected, utils.SecTokenExpired, utils.SecRecorderDropped}},

@@ -1,11 +1,11 @@
-// Fork addition: the place of the Fail2ban status on the security dashboard.
+// Fork addition: the Fail2ban status on the security dashboard.
 //
-// The Fail2ban integration (a separate piece of work) replaces this
-// component with its own: same file, same default export, no props needed
-// (it may take `period`, the dashboard's period: '24h', '7d' or '30d').
-// It is mounted in pages/security/index.jsx between "Addresses" and
-// "Incidents", inside a full-width Grid item. Until then it renders
-// nothing, so the dashboard shows no empty box.
-const Fail2banSection = () => null;
+// Mounted in pages/security/index.jsx between "Addresses" and "Incidents",
+// inside a full-width Grid item. The panel itself (state in plain words, the
+// banned addresses with "Unban", the jails and their settings) is
+// pages/security/fail2ban.jsx; it needs nothing from the dashboard.
+import Fail2banPanel from './fail2ban';
+
+const Fail2banSection = () => <Fail2banPanel />;
 
 export default Fail2banSection;

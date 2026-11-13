@@ -1,7 +1,8 @@
 // Fork addition: the "Security" menu group. The security dashboard is its
-// first item; the user audit panel is to join it later.
+// first item, the user audit panel its second.
 import { SafetyCertificateOutlined } from '@ant-design/icons';
 import { PERM_ADMIN_READ } from '../utils/permissions';
+import securityAudit from './securityAudit';
 
 const security = {
     id: 'group-security',
@@ -17,6 +18,7 @@ const security = {
             breadcrumbs: false,
             permission: PERM_ADMIN_READ
         },
+        securityAudit,
     ],
 };
 

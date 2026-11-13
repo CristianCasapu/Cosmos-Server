@@ -11,7 +11,7 @@ import { EXPORT_MAX_ROWS, auditCsv, csvCell, exportFileName } from './auditCsv.j
 // entry per constant, a Go test makes sure of it).
 function serverKinds() {
   const go = readFileSync(new URL('../../../src/utils/fork_security.go', import.meta.url), 'utf8');
-  const kinds = [...go.matchAll(/^\s*Sec[A-Za-z]+\s*=\s*"([a-z.]+)"/gm)].map((m) => m[1]);
+  const kinds = [...go.matchAll(/^\s*Sec[A-Za-z0-9]+\s*=\s*"([a-z.]+)"/gm)].map((m) => m[1]);
   assert.ok(kinds.length >= 50, 'found only ' + kinds.length + ' kinds in fork_security.go');
   return kinds;
 }
@@ -28,7 +28,7 @@ test('every kind the server records has a sentence', () => {
 // is in a filter group
 const STRANGERS_ONLY = ['auth.session.forged', 'auth.session.rejected', 'auth.reset.rejected', 'token.invalid', 'token.expired',
   'token.ip.denied', 'shield.blocked', 'shield.strike', 'shield.ban.temporary', 'shield.ban.permanent', 'shield.geo.blocked',
-  'shield.bot.blocked', 'shield.hostname.unknown', 'shield.ratelimited', 'scan.probe', 'recorder.dropped'];
+  'shield.bot.blocked', 'shield.hostname.unknown', 'shield.ratelimited', 'scan.probe', 'recorder.dropped', 'firewall.ban'];
 
 test('every kind of the trail is in a filter group', () => {
   const ungrouped = serverKinds().filter((kind) => !STRANGERS_ONLY.includes(kind) && !KIND_GROUPS.some((g) => kindInGroup(kind, g)));

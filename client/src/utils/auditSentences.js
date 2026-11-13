@@ -92,6 +92,9 @@ const SENTENCES = {
   'shield.ban.temporary': { text: 'SmartShield banned a client for a while', ip: true },
   'shield.ban.permanent': { text: 'SmartShield banned a client until it is unbanned', ip: true },
   'shield.unban': { text: '{{actor}} unbanned {{target}}', ip: true },
+  'firewall.ban': { text: 'Fail2ban banned a client at the firewall' },
+  'firewall.unban': { text: '{{actor}} lifted the Fail2ban ban of {{target}}', ip: true },
+  'firewall.settings.saved': { text: '{{actor}} changed the Fail2ban settings', ip: true },
   'shield.geo.blocked': { text: 'a request was blocked by the country filter', ip: true },
   'shield.bot.blocked': { text: 'a bot was blocked', ip: true },
   'shield.hostname.unknown': { text: 'a request named a hostname this server does not serve', ip: true },
@@ -256,7 +259,7 @@ function defaultOutcome(kind) {
   if (FAILED_KINDS.includes(kind)) return 'failed';
   if (DENIED_KINDS.includes(kind)) return 'denied';
   if (kind.startsWith('shield.') && kind !== 'shield.unban') return 'blocked';
-  if (kind === 'scan.probe' || kind === 'auth.mfa.locked') return 'blocked';
+  if (kind === 'scan.probe' || kind === 'auth.mfa.locked' || kind === 'firewall.ban') return 'blocked';
   return 'ok';
 }
 
@@ -274,7 +277,7 @@ export const KIND_GROUPS = [
   { id: 'tokens', label: 'API tokens', kinds: ['token.*'] },
   { id: 'settings', label: 'Settings and URLs', kinds: ['config.*', 'route.*'] },
   { id: 'containers', label: 'Containers and terminals', kinds: ['container.*', 'host.*', 'snapshot.*'] },
-  { id: 'server', label: 'Server and SmartShield', kinds: ['server.*', 'shield.unban'] },
+  { id: 'server', label: 'Server and SmartShield', kinds: ['server.*', 'shield.unban', 'firewall.unban', 'firewall.settings.saved'] },
   { id: 'refused', label: 'Permissions refused', kinds: ['access.*'] },
   { id: 'other', label: 'Other changes', kinds: ['api.change'] },
 ];
