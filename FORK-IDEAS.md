@@ -11,14 +11,19 @@ upstream 0.23.4 unless noted and may have moved.
    Setup tab (simple view), the new-container form and the market installer
    (addresses), users, scheduled jobs, the email settings, the Cloudflare
    set-up (see `FORK.md`; the principles are kept with the owner's plans).
-   Still to go through the same way, in this order: the HTTP settings
-   (ports and the admin whitelist need a check before saving; the
-   geo-blocking default no longer holds the admin's own country), the URL
-   Security tab (one "protection" choice in
-   place of six numbers), the container wizard (it silently drops User, the
-   limits, the network mode and "use as VPN"), storage (`mkfs` reports success
-   when it failed), the alerts editor, the Domains dialog by hand, API
-   tokens, OpenID.
+   Also done: the HTTP settings, the URL Security tab, formatting a disk,
+   the alerts editor and API tokens. Still to go through the same way:
+   OpenID clients, the storage mount, merge and SnapRAID dialogs, the
+   container wizard (it silently drops User, the limits, the network mode
+   and "use as VPN"), the Domains dialog by hand. Left from the last round:
+   the admin's country for the geo-blocking warning comes from the browser,
+   not from the address the server sees; trusted proxies are a validated
+   text field, not a list; `api-docs/` does not know the new route, the
+   format request's `confirm` field or the codes UC030 to UC035. The owner's
+   to change if wanted: a save that would lock the admin out is refused with
+   no override; a format request without the typed name is refused (outside
+   scripts formatting through the API stop working); the Strict level's 500
+   requests a minute.
 2. **App links and reachability: done** (a local address always, an external
    one per attached domain, grouped on the cards, "Domains", and a chip that
    says whether the app can be reached from the internet). Left, the owner's
