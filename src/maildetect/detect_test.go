@@ -656,3 +656,30 @@ func TestRanking(t *testing.T) {
 		t.Error("the limit is not applied")
 	}
 }
+
+// lateContext is a context whose deadline has passed but which is not marked
+// as done yet: what a detection sees when its last connection times out an
+// instant before the context's own timer runs.
+type lateContext struct {
+	context.Context
+	deadline time.Time
+}
+
+func (c lateContext) Deadline() (time.Time, bool) { return c.deadline, true }
+
+func TestRanOutAsksTheClockToo(t *testing.T) {
+	if !ranOut(lateContext{context.Background(), time.Now().Add(-time.Millisecond)}) {
+		t.Error("a detection whose deadline has passed is not seen as out of time")
+	}
+	if ranOut(lateContext{context.Background(), time.Now().Add(time.Hour)}) {
+		t.Error("a detection with time left is seen as out of time")
+	}
+	if ranOut(context.Background()) {
+		t.Error("a detection without a deadline is seen as out of time")
+	}
+	done, cancel := context.WithCancel(context.Background())
+	cancel()
+	if !ranOut(done) {
+		t.Error("a cancelled detection is not seen as out of time")
+	}
+}
