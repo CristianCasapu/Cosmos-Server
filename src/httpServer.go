@@ -271,7 +271,8 @@ func issueLocalCerts(hosts []string, force bool) {
 		pub, priv := utils.DoLetsEncrypt(wanted, nil)
 		if pub == "" || priv == "" {
 			// Fork addition: the notice says why (fork_letsencrypt_reason.go), upstream passed no reason
-			utils.MajorError("Couldn't get the TLS certificate of "+zone+". Keeping the previous one if any, the self-signed one otherwise", letsEncryptFailure(utils.LetsEncryptErrors))
+			// and once per certificate, reason and day (fork_certificates.go): upstream called utils.MajorError
+			forkCertificateFailed(utils.ForkLocalCertKey(zone), "Couldn't get the TLS certificate of "+zone+". Keeping the previous one if any, the self-signed one otherwise", letsEncryptFailure(utils.LetsEncryptErrors))
 			continue
 		}
 
@@ -283,7 +284,7 @@ func issueLocalCerts(hosts []string, force bool) {
 			TLSCert:    pub,
 			TLSKey:     priv,
 			Hosts:      wanted,
-			ValidUntil: time.Now().AddDate(0, 0, 90),
+			ValidUntil: utils.ForkCertExpiry(pub), // Fork addition: the certificate's own end (upstream: 90 days from now)
 		}
 		utils.SetBaseMainConfig(baseMainConfig)
 		utils.Log("Saved the Let's Encrypt certificate of " + zone)
@@ -406,7 +407,8 @@ func issueZoneCerts(force bool) {
 		pub, priv := utils.DoLetsEncrypt(wanted, &zone)
 		if pub == "" || priv == "" {
 			lastZoneIssueFailure[name] = time.Now()
-			utils.MajorError("Zones: couldn't get the TLS certificate of "+name+". Keeping the previous certificate if any", nil)
+			// Fork addition: with the reason, once per certificate, reason and day (fork_certificates.go): upstream called utils.MajorError with nil
+			forkCertificateFailed(utils.ForkZoneCertKey(name), "Zones: couldn't get the TLS certificate of "+name+". Keeping the previous certificate if any", letsEncryptFailure(utils.LetsEncryptErrors))
 			continue
 		}
 		delete(lastZoneIssueFailure, name)
@@ -416,7 +418,7 @@ func issueZoneCerts(force bool) {
 			TLSCert:    pub,
 			TLSKey:     priv,
 			Hosts:      wanted,
-			ValidUntil: time.Now().AddDate(0, 0, 90),
+			ValidUntil: utils.ForkCertExpiry(pub), // Fork addition: the certificate's own end (upstream: 90 days from now)
 			IssuedBy:   config.ConstellationConfig.ThisDeviceName,
 		}
 
@@ -938,7 +940,7 @@ func InitServer() *mux.Router {
 			tlsKey = selfTLSKey
 	}
 
-	issueZoneCerts(forceRenewal)
+	forkIssueZoneCerts(forceRenewal) // Fork addition: in the background, the server answers meanwhile (fork_certificates.go); upstream: issueZoneCerts(forceRenewal)
 	loadZoneCertStore()
 
 	// hostnames or zones may have moved with this restart
@@ -1037,6 +1039,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/upnp", upnp.StatusRoute)
 	srapiAdmin.HandleFunc("/api/reachability", reach.StatusRoute) // Fork addition: can the apps be reached from the internet
 	registerCloudflareRoutes(srapiAdmin) // Fork addition: the guided Cloudflare integration, see fork_cloudflare.go
+	registerCertificateRoutes(srapiAdmin) // Fork addition: certificates: status, renew now, other domains, see fork_certificates.go
 	srapiAdmin.HandleFunc("/api/snapshots", snapshots.StatusRoute) // fork addition: incremental snapshots
 	srapiAdmin.HandleFunc("/api/snapshots/run", snapshots.RunRoute) // fork addition
 	srapiAdmin.HandleFunc("/api/snapshots/restore", snapshots.RestoreRoute) // fork addition

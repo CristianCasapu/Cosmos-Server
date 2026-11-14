@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/azukaar/cosmos-server/src/certs" // Fork addition
 	"github.com/azukaar/cosmos-server/src/constellation"
 	"github.com/azukaar/cosmos-server/src/dnsrecords"
 	"github.com/azukaar/cosmos-server/src/utils"
@@ -196,8 +197,13 @@ func ZonesApiSet(w http.ResponseWriter, req *http.Request) {
 		zone.TLSCert = ""
 		zone.TLSKey = ""
 	}
+	// Fork addition: the variables are ones the provider knows, and a challenge answered in another domain names a domain that can (src/certs)
+	if problem := certs.ValidateZone(&zone, utils.GetMainConfig().HTTPConfig.DNSZones); problem != "" {
+		utils.HTTPError(w, problem, http.StatusBadRequest, "ZN010")
+		return
+	}
 	if zone.DNSChallengeProvider == "" {
-		if zone.UseWildcardCertificate {
+		if zone.UseWildcardCertificate && !utils.ForkDelegated(zone) { // Fork addition: a delegated challenge is a DNS challenge too
 			utils.HTTPError(w, "A wildcard certificate needs a DNS provider", http.StatusBadRequest, "ZN005")
 			return
 		}

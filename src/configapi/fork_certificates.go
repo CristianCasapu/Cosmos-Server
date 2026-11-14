@@ -28,4 +28,7 @@ func keepServerCertificates(request *utils.Config, stored utils.Config) {
 	request.HTTPConfig.SelfTLSKey = stored.HTTPConfig.SelfTLSKey
 	request.HTTPConfig.SelfTLSKeyHostsCached = stored.HTTPConfig.SelfTLSKeyHostsCached
 	request.HTTPConfig.SelfTLSValidUntil = stored.HTTPConfig.SelfTLSValidUntil
+	// What the certificate orders may use is changed through the routes of
+	// src/certs only (POST /api/certificates/settings), which check it.
+	request.HTTPConfig.Certificates = stored.HTTPConfig.Certificates
 }

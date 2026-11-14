@@ -35,6 +35,11 @@ type DNSZoneConfig struct {
 	// DynDNS setup, needs a DNSChallengeProvider
 	ManageRecords  bool
 	WildcardRecord bool
+
+	// Fork addition: the DNS challenge of this domain is answered in another
+	// domain of this server (its name), through a CNAME the admin created at
+	// this domain's own DNS provider. See src/certs/delegation.go.
+	ChallengeVia string `json:"ChallengeVia,omitempty"`
 }
 
 // ResolvedZone is a zone as the server sees it: explicit or derived, with the
@@ -338,7 +343,7 @@ func appendUnique(list []string, s string) []string {
 // zone issuer. That takes a DNS provider: without one the hosts of the zone
 // stay in the node-local HTTP-01 certificate, like a derived zone.
 func IssuesZoneCert(zone DNSZoneConfig) bool {
-	return zone.DNSChallengeProvider != "" &&
+	return (zone.DNSChallengeProvider != "" || ForkDelegated(zone)) && // Fork addition: or its challenge is answered in another domain
 		zone.HTTPSCertificateMode == HTTPSCertModeList["LETSENCRYPT"]
 }
 
@@ -407,7 +412,12 @@ func ZoneCertsToIssue(config Config, force bool) map[string][]string {
 			continue
 		}
 		cert, ok := config.HTTPConfig.ZoneCerts[zone.Zone]
-		if ok && !force && ZoneCertCovers(cert, wanted) && time.Now().Add(45*24*time.Hour).Before(cert.ValidUntil) {
+		// Fork addition: due by the certificate's own lifetime (upstream: 45 days before the end), see fork_certs.go
+		if ok && !force && ZoneCertCovers(cert, wanted) && !forkCertDue(ForkZoneCertKey(zone.Zone), cert) {
+			continue
+		}
+		// Fork addition: not while an earlier failure or the bounds on orders say to wait
+		if !forkMayOrder(ForkZoneCertKey(zone.Zone), wanted, force) {
 			continue
 		}
 		toIssue[zone.Zone] = wanted
@@ -468,9 +478,18 @@ func LocalCertGroups(config Config, hosts []string) map[string][]string {
 func LocalCertsToIssue(config Config, hosts []string, force bool) map[string][]string {
 	toIssue := map[string][]string{}
 	http := config.HTTPConfig
+	// Fork addition: no order that cannot succeed (the CA only checks on ports 80 and 443), see fork_certs.go
+	if forkNoHTTPChallenge(config) {
+		return toIssue
+	}
 	for zone, wanted := range LocalCertGroups(config, hosts) {
+		// Fork addition: not while an earlier failure or the bounds on orders say to wait
+		if !forkMayOrder(ForkLocalCertKey(zone), wanted, force) {
+			continue
+		}
 		if !force {
-			if cert, ok := http.LocalCerts[zone]; ok && certServes(cert.Hosts, cert.ValidUntil, wanted) {
+			// Fork addition: due by the certificate's own lifetime (upstream: certServes, 45 days before the end)
+			if cert, ok := http.LocalCerts[zone]; ok && forkLocalCertServes(ForkLocalCertKey(zone), cert, wanted) {
 				continue
 			}
 			if http.TLSCert != "" && certServes(http.TLSKeyHostsCached, http.TLSValidUntil, wanted) {

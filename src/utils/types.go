@@ -341,6 +341,7 @@ type HTTPConfig struct {
 	TrustedProxies []string
 	UPnP UPnPConfig // fork addition, see src/upnp
 	Cloudflare ForkCloudflareConfig `json:"Cloudflare,omitzero"` // Fork addition: Cloudflare's proxy per hostname, see fork_cloudflare.go
+	Certificates ForkCertificatesConfig `json:"Certificates,omitzero"` // Fork addition: what the certificate orders may use, see fork_certs.go
 } 
 
 // UPnPConfig (fork addition) asks the router to forward Cosmos' own ports.
