@@ -82,6 +82,13 @@ func TestPlainUserGetsTheConfigurationWithoutItsSensitiveParts(t *testing.T) {
 	for name, as := range map[string]func(*http.Request) *http.Request{"an admin": asAdmin, "an admin who has not confirmed the password": asAdminWithoutPassword} {
 		full := get(as)
 		for _, secret := range secrets {
+			// the OpenID secrets' hashes go to no reader since fork_openid.go
+			if secret == "BCRYPT-OF-THE-SECRET" {
+				if strings.Contains(full, secret) {
+					t.Errorf("%s gets the OpenID client's secret hash", name)
+				}
+				continue
+			}
 			if !strings.Contains(full, secret) {
 				t.Errorf("%s no longer gets %q", name, secret)
 			}

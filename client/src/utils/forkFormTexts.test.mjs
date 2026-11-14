@@ -25,6 +25,7 @@ const files = [
   ['../pages/config/forkTokenForm.jsx', ['mgmt.config.apiTokens.fork.']],
   ['../pages/dashboard/forkAlertGuide.jsx', ['mgmt.monitoring.alerts.fork.']],
   ['../pages/openid/forkOpenidForm.jsx', ['mgmt.openId.fork.']],
+  ['../pages/config/forkZoneMode.jsx', ['mgmt.config.zones.fork.']],
 ];
 
 // Pure modules return their texts as ['key', 'English', variables]: [file, prefixes]
@@ -35,6 +36,7 @@ const arrayFiles = [
   ['./tokenForm.js', ['mgmt.config.apiTokens.fork.']],
   ['./alertForm.js', ['mgmt.monitoring.alerts.fork.']],
   ['./openidForm.js', ['mgmt.openId.fork.']],
+  ['./zoneMode.js', ['mgmt.config.zones.fork.']],
 ];
 
 // t('key', 'English text' …) and tr('key', 'English text' …), the text in single quotes

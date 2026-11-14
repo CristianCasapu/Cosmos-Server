@@ -417,6 +417,8 @@ type httpCheckAnswer struct {
 		Passes  bool             `json:"passes"`
 		Entries []httpCheckEntry `json:"entries"`
 	} `json:"whitelist"`
+	// the proposals for trusted proxies and the country, see fork_http_proxies.go
+	Seen httpCheckExtras `json:"seen"`
 }
 
 func httpCheck(req *http.Request, body httpCheckRequest, config utils.Config) httpCheckAnswer {
@@ -447,6 +449,7 @@ func httpCheck(req *http.Request, body httpCheckRequest, config utils.Config) ht
 		answer.Whitelist.Entries = append(answer.Whitelist.Entries, httpCheckEntry{Value: entry, Valid: validAddressEntry(entry)})
 	}
 	answer.Whitelist.Passes = wouldLetThrough(client, remote, body.ConstellationOnly, whitelist)
+	answer.Seen = httpCheckExtrasFor(req, config)
 	return answer
 }
 
