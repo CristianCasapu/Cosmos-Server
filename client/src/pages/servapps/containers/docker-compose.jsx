@@ -28,7 +28,7 @@ import yaml from 'js-yaml';
 import { CosmosCollapse, CosmosFormDivider, CosmosInputPassword, CosmosInputText, CosmosSelect } from '../../config/users/formShortcuts';
 import VolumeContainerSetup from './volumes';
 import DockerContainerSetup from './setup';
-import whiskers from 'whiskers';
+import whiskers from '../../../utils/whiskersSafe'; // Fork addition: the same templates, read without being turned into code (the panel's script policy), see utils/whiskersSafe.js
 import {version} from '../../../../../package.json';
 import cmp from 'semver-compare';
 import { HostnameChecker, getHostnameFromName } from '../../../utils/routes';
