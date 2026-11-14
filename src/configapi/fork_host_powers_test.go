@@ -98,10 +98,10 @@ var hostPowerChanges = map[string]func(c *utils.Config){
 		b.Source = "/"
 		c.Backup.Backups["photos"] = b
 	},
-	"the backup folder":    func(c *utils.Config) { c.BackupOutputDir = "/srv/elsewhere" },
-	"remote storage":       func(c *utils.Config) { c.RemoteStorage.Shares[0].Source = "/" },
-	"incremental backups":  func(c *utils.Config) { c.Snapshots.Sources = []string{"/srv/music"} },
-	"a folder URL's folder": func(c *utils.Config) { c.HTTPConfig.ProxyConfig.Routes[0].Target = "/" },
+	"the backup folder":        func(c *utils.Config) { c.BackupOutputDir = "/srv/elsewhere" },
+	"remote storage":           func(c *utils.Config) { c.RemoteStorage.Shares[0].Source = "/" },
+	"incremental backups":      func(c *utils.Config) { c.Snapshots.Sources = []string{"/srv/music"} },
+	"a folder URL's folder":    func(c *utils.Config) { c.HTTPConfig.ProxyConfig.Routes[0].Target = "/" },
 	"a folder URL made public": func(c *utils.Config) { c.HTTPConfig.ProxyConfig.Routes[0].Host = "other.example.com" },
 	"a URL turned into a folder URL": func(c *utils.Config) {
 		c.HTTPConfig.ProxyConfig.Routes[1].Mode = "SPA"
