@@ -26,6 +26,12 @@
 #   KEEP=1 sh scripts/fork-acme-pebble.sh     # leave everything running to look at
 #   sh scripts/fork-acme-pebble.sh clean      # remove what a KEEP=1 run left
 #
+#   CHECK=home sh scripts/fork-acme-pebble.sh # only the names for use at home (two minutes):
+#                                             # switched on, served with the wildcard name,
+#                                             # refused to a visitor routed in from a public
+#                                             # range (a second --internal network and a router
+#                                             # container, ALPINE_IMAGE), switched off
+#
 # PREFIX names the containers, the network and the scratch folder (default
 # cosmos-acme); SCRATCH is where the build goes (default /tmp/$PREFIX);
 # GO_MOD_CACHE and GO_BUILD_CACHE may point at caches to reuse. It takes
@@ -40,9 +46,11 @@ PEBBLE_IMAGE="${PEBBLE_IMAGE:-ghcr.io/letsencrypt/pebble:latest}"
 NET="$PREFIX-net"
 SUBNET="${SUBNET:-172.31.57}"
 
+ALPINE_IMAGE="${ALPINE_IMAGE:-alpine:3.20}"
+
 clean() {
-	docker rm -f -v "$PREFIX-app" "$PREFIX-pebble" "$PREFIX-fake" "$PREFIX-check" "$PREFIX-build" >/dev/null 2>&1 || true
-	docker network rm "$NET" >/dev/null 2>&1 || true
+	docker rm -f -v "$PREFIX-app" "$PREFIX-pebble" "$PREFIX-fake" "$PREFIX-check" "$PREFIX-build" "$PREFIX-router" "$PREFIX-foreign" >/dev/null 2>&1 || true
+	docker network rm "$NET" "$PREFIX-out" >/dev/null 2>&1 || true
 	# the containers ran as root: their files are removed from a container too
 	if [ -d "$SCRATCH" ]; then
 		docker run --rm -v "$SCRATCH:/scratch" "$GO_IMAGE" sh -c 'rm -rf /scratch/config /scratch/shared /scratch/bin' >/dev/null 2>&1 || true
@@ -141,7 +149,24 @@ docker run -d --name "$PREFIX-app" --network "$NET" --ip "$SUBNET.10" --dns "$SU
 	"$GO_IMAGE" sh -c 'while true; do set -a; . /shared/app.env; set +a; /work/cosmos; sleep 1; done' >/dev/null
 
 result=0
-check run || result=$?
+if [ "${CHECK:-run}" = "home" ]; then
+	check home-on || result=$?
+	echo "== a visitor from outside the local network"
+	# a network with a public range, routed to the test server through a
+	# container: its visitors are neither private nor on a network the
+	# server is attached to
+	docker network create --internal --subnet 198.51.100.0/24 "$PREFIX-out" >/dev/null
+	docker run -d --name "$PREFIX-router" --network "$NET" --ip "$SUBNET.4" --sysctl net.ipv4.ip_forward=1 "$ALPINE_IMAGE" sleep 900 >/dev/null
+	docker network connect --ip 198.51.100.4 "$PREFIX-out" "$PREFIX-router"
+	# the way back, set inside the test server's own network namespace
+	docker run --rm --network "container:$PREFIX-app" --cap-add NET_ADMIN "$ALPINE_IMAGE" ip route add 198.51.100.0/24 via "$SUBNET.4"
+	docker run --rm --name "$PREFIX-foreign" --network "$PREFIX-out" --ip 198.51.100.20 --cap-add NET_ADMIN \
+		-v "$SCRATCH/bin:/work:ro" -e SERVER="$SUBNET.10" "$ALPINE_IMAGE" \
+		sh -c "ip route add $SUBNET.0/24 via 198.51.100.4 && /work/acme-check foreign" || result=$?
+	check home-off || result=$?
+else
+	check run || result=$?
+fi
 
 echo "== what is on disk and in the log"
 problems=0
