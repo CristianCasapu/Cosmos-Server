@@ -10,6 +10,7 @@ import Grid2 from "@mui/material/Unstable_Grid2/Grid2";
 import { getFaviconURL, IsRouteSocketProxy } from "../../utils/routes";
 import { Link } from "react-router-dom";
 import { getFullOrigin } from "../../utils/routes";
+import { homeTiles } from "../../utils/homeTiles"; // Fork addition
 import { DashboardIcon } from "../../utils/servapp-icon";
 import Chart from 'react-apexcharts';
 import { useClientInfos } from "../../utils/hooks";
@@ -453,22 +454,19 @@ const HomePage = () => {
 
         {/* Apps */}
         <Grid2 container spacing={2} style={{ zIndex: 2 }}>
-            {config && routes.map((route, index) => {
+            {/* Fork addition: one tile per app, opening the address that fits where the panel is used from (utils/homeTiles.js); upstream: one per URL */}
+            {config && homeTiles(routes, window.location, (route) => route.HideFromDashboard || (route.Mode == "SERVAPP" && !route.ContainerRunning) || IsRouteSocketProxy(route)).map(({ route, name, link }, index) => {
                 let skip = false;
-                const isSocketProxy = IsRouteSocketProxy(route);
-
-                if (route.HideFromDashboard || (route.Mode == "SERVAPP" && !route.ContainerRunning) || isSocketProxy)
-                    skip = true;
 
                 return !skip && coStatus && (coStatus.homepage.Expanded ?
 
                 <Grid2 item xs={12} sm={6} md={4} lg={3} xl={3} xxl={3} key={route.Name}>
                     <Box className='app app-hover' style={{ padding: 25, borderRadius: 10, ...appColor, ...appBorder }}>
-                        <Link to={getFullOrigin(route)} target="_blank" style={{ textDecoration: 'none', ...appColor }}>
+                        <Link to={link} target="_blank" style={{ textDecoration: 'none', ...appColor }}>
                             <Stack direction="row" spacing={2} alignItems="center" style={{ overflow: 'hidden' }}>
                                 <DashboardIcon route={route} containerIcon={route.ContainerIcon} className="loading-image" width="70px" />
                                 <div style={{ minWidth: 0, overflow: 'hidden' }}>
-                                    <h3 style={blockStyle}>{route.Name}</h3>
+                                    <h3 style={blockStyle}>{name}</h3>
                                     <p style={blockStyle}>{route.Description}</p>
                                     <p style={{ ...blockStyle, fontSize: '90%', paddingTop: '3px', opacity: '0.45' }}>{route.Target}</p>
                                 </div>
@@ -479,11 +477,11 @@ const HomePage = () => {
                 :
                 <Grid2 item xs={6} sm={4} md={3} lg={2} xl={2} xxl={2} key={route.Name}>
                     <Box className='app app-hover' style={{ padding: 25, borderRadius: 10, ...appColor, ...appBorder }}>
-                        <Link to={getFullOrigin(route)} target="_blank" style={{ textDecoration: 'none', ...appColor }}>
+                        <Link to={link} target="_blank" style={{ textDecoration: 'none', ...appColor }}>
                             <Stack direction="column" spacing={2} alignItems="center" style={{ overflow: 'hidden', width: '100%' }}>
                                 <DashboardIcon route={route} containerIcon={route.ContainerIcon} className="loading-image" width="70px" />
                                 <div style={{ minWidth: 0, overflow: 'hidden', maxWidth: '100%' }}>
-                                    <h3 style={blockStyle}>{route.Name}</h3>
+                                    <h3 style={blockStyle}>{name}</h3>
                                 </div>
                             </Stack>
                         </Link>
