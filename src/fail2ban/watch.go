@@ -96,6 +96,8 @@ func Start() {
 			var known map[banKey]bool
 			for {
 				known = look(known)
+				// and the never-ban list follows what is served through Cloudflare
+				SyncCloudflare()
 				time.Sleep(watchEvery)
 			}
 		}()
