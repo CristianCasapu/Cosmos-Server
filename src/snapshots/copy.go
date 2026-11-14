@@ -67,9 +67,10 @@ func openTree(dir string, info os.FileInfo) (*os.Root, error) {
 // may put something different in its place.
 var betweenLookAndOpen func(rel string)
 
-// fail records a problem with something in the source.
+// fail records a problem with something in the source. rel is shown through
+// shownName: the names come from the folder that is read.
 func (w *walker) fail(rel string, err error) {
-	message := rel + ": " + reason(err)
+	message := shownName(rel) + ": " + reason(err)
 	if w.strict {
 		w.fatal = errors.New(message)
 		return
@@ -82,7 +83,7 @@ func (w *walker) fail(rel string, err error) {
 
 // stop records that the target cannot be written, which ends the walk.
 func (w *walker) stop(rel string, err error) {
-	w.fatal = fmt.Errorf("cannot write %s (%s)", filepath.Join(w.dstRoot, rel), reason(err))
+	w.fatal = fmt.Errorf("cannot write %s (%s)", shownName(filepath.Join(w.dstRoot, rel)), reason(err))
 }
 
 // excluded tells whether an entry is left out of the snapshots: one of the
