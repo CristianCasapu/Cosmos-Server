@@ -213,17 +213,25 @@ func (job restoreJob) run(now time.Time) RestoreResult {
 	name := filepath.Base(job.target)
 	staging := filepath.Base(job.staging)
 
-	// created here, and only removed again if it was
+	// created here, and only removed again while it is still the folder that
+	// was created: whatever else has taken its name since is left alone
 	if err := parent.Mkdir(staging, 0700); err != nil {
 		return failed(fmt.Sprintf("cannot create a folder next to %s (%s)", job.source, reason(err)))
 	}
-	undo := func() { parent.RemoveAll(staging) }
 	copyTo, err := parent.OpenRoot(staging)
 	if err != nil {
-		undo()
-		return failed(fmt.Sprintf("cannot create a folder next to %s (%s)", job.source, reason(err)))
+		// without a handle on it, it cannot be told from something put in its place
+		return failed(fmt.Sprintf("cannot create a folder next to %s (%s); %s.restoring-%s was left as it is", job.source, reason(err), job.source, job.id))
 	}
 	defer copyTo.Close()
+	// undo removes the copy and returns what the admin must be told on top
+	undo := func() string {
+		if !stillThere(parent, staging, copyTo) {
+			return fmt.Sprintf(". %s.restoring-%s is no longer the folder this restore created, so it was left as it is; check it and remove it by hand", job.source, job.id)
+		}
+		parent.RemoveAll(staging)
+		return ""
+	}
 
 	w := &walker{srcRoot: job.snapshot, dstRoot: job.staging, strict: true}
 	if !stillThere(parent, staging, copyTo) {
@@ -241,8 +249,8 @@ func (job restoreJob) run(now time.Time) RestoreResult {
 		w.fatal = errReplaced
 	}
 	if w.fatal != nil {
-		undo()
-		return failed("the snapshot could not be copied back, nothing was changed: " + w.fatal.Error())
+		note := undo()
+		return failed("the snapshot could not be copied back, nothing was changed: " + w.fatal.Error() + note)
 	}
 	result.Files = w.files
 	syncDisks()
@@ -256,14 +264,12 @@ func (job restoreJob) run(now time.Time) RestoreResult {
 				break
 			}
 			if tries > 600 {
-				undo()
-				return failed("no free name was found to keep the current folder under, nothing was changed")
+				return failed("no free name was found to keep the current folder under, nothing was changed" + undo())
 			}
 			stamp = stamp.Add(time.Second)
 		}
 		if err := parent.Rename(name, name+keptAs); err != nil {
-			undo()
-			return failed(fmt.Sprintf("the current folder could not be moved aside, nothing was changed (%s)", reason(err)))
+			return failed(fmt.Sprintf("the current folder could not be moved aside, nothing was changed (%s)", reason(err)) + undo())
 		}
 	}
 
@@ -275,8 +281,7 @@ func (job restoreJob) run(now time.Time) RestoreResult {
 				return failed(fmt.Sprintf("%s. The current folder is now %s and the restored copy is %s.restoring-%s", message, job.source+keptAs, job.source, job.id))
 			}
 		}
-		undo()
-		return failed(message + ", nothing was changed")
+		return failed(message + ", nothing was changed" + undo())
 	}
 
 	if keptAs != "" {
