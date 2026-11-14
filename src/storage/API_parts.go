@@ -4,9 +4,8 @@ import (
 	"net/http"
 	"encoding/json"
 	"fmt"
-	"bufio"
 	"sync"
-	"os/exec"
+	"strings"
 
 	"github.com/azukaar/cosmos-server/src/utils"
 )
@@ -15,26 +14,17 @@ type FormatDiskJSON struct {
 	Disk string `json:"disk" validate:"required"`
 	Format string `json:"format" validate:"required"`
 	Password string `json:"password" validate:"required"`
+	Confirm string `json:"confirm"` // Fork addition: the device's name as the administrator typed it, see fork_format.go
 }
 
 func isDiskOrPartition(path string) (string, error) {
-	cmd := exec.Command("lsblk", "-no", "TYPE", path)
-	stdout, err := cmd.StdoutPipe()
+	// Fork addition: waited for (upstream read one line and left lsblk unreaped), see fork_format.go
+	out, err := runStorageCommand("lsblk", "-dno", "TYPE", path)
 	if err != nil {
-			return "", err
+		return "", commandFailure("Reading the type of "+path, "lsblk", out, err)
 	}
-
-	if err := cmd.Start(); err != nil {
-			return "", err
-	}
-
-	scanner := bufio.NewScanner(stdout)
-	if scanner.Scan() {
-			return scanner.Text(), nil
-	}
-	
-	if err := scanner.Err(); err != nil {
-			return "", err
+	if fields := strings.Fields(out); len(fields) > 0 {
+		return fields[0], nil
 	}
 
 	return "", fmt.Errorf("no output from lsblk")
@@ -96,82 +86,10 @@ func FormatDiskRoute(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		out, err := FormatDisk(request.Disk, request.Format)
-		if err != nil {
-			utils.Error("FormatDiskRoute: Error formatting disk", err)
-			fmt.Fprintf(w, "%s", utils.DoErr("%s", "[OPERATION FAILED] Error formatting disk: " + err.Error()))
-			http.Error(w, "Error formatting disk", http.StatusInternalServerError)
-			return
-		}
-
-		scanner := bufio.NewScanner(out)
-		for scanner.Scan() {
-			utils.Log(scanner.Text())
-			fmt.Fprintf(w, "%s", scanner.Text() + "\n")
-			flusher.Flush()
-		}
-
-		// Check if the disk is a partition
-		diskType, err := isDiskOrPartition(request.Disk)
-		utils.Debug("Checking if " + request.Disk + " is a partition: " + diskType)
-
-		if(diskType == "disk") {
-			utils.Log("FormatDiskRoute - formatted disk " + request.Disk + " creating GPT table and partition")
-			fmt.Fprintf(w, "Creating GPT table and partition...\n")
-
-			out, err = CreateGPTTable(request.Disk)
-			if err != nil {
-				utils.Error("FormatDiskRoute: Error creating GPT table", err)
-				fmt.Fprintf(w, "%s", utils.DoErr("%s", "[OPERATION FAILED] Error creating GPT table: " + err.Error()))
-				http.Error(w, "Error creating GPT table", http.StatusInternalServerError)
-				return
-			}
-			fmt.Fprintf(w, "GPT table created!\n")
-			fmt.Fprintf(w, "Creating partition...\n")
-	
-			scanner = bufio.NewScanner(out)
-			for scanner.Scan() {
-				utils.Log(scanner.Text())
-				fmt.Fprintf(w, "%s", scanner.Text() + "\n")
-				flusher.Flush()
-			}
-			
-			out, err = CreateSinglePartition(request.Disk)
-			if err != nil {
-				utils.Error("FormatDiskRoute: Error creating partition", err)
-				fmt.Fprintf(w, "%s", utils.DoErr("%s", "[OPERATION FAILED] Error creating partition: " + err.Error()))
-				http.Error(w, "Error creating partition", http.StatusInternalServerError)
-				return
-			}
-			fmt.Fprintf(w, "Partition created!\n")
-			fmt.Fprintf(w, "Formatting partition...\n")
-	
-			scanner = bufio.NewScanner(out)
-			for scanner.Scan() {
-				utils.Log(scanner.Text())
-				fmt.Fprintf(w, "%s", scanner.Text() + "\n")
-				flusher.Flush()
-			}
-	
-			out, err = FormatDisk(request.Disk + "1", request.Format)
-			if err != nil {
-				utils.Error("FormatDiskRoute: Error formatting partition", err)
-				fmt.Fprintf(w, "%s", utils.DoErr("%s", "[OPERATION FAILED] Error formatting partition: " + err.Error()))
-				http.Error(w, "Error formatting partition", http.StatusInternalServerError)
-				return
-			}
-	
-			scanner = bufio.NewScanner(out)
-			for scanner.Scan() {
-				utils.Log(scanner.Text())
-				fmt.Fprintf(w, "%s", scanner.Text() + "\n")
-				flusher.Flush()
-			}
-		}
-
-		utils.Log("FormatDiskRoute - formatted disk " + request.Disk + " with format " + request.Format)
-		fmt.Fprintf(w, "%s", utils.DoSuccess("[OPERATION SUCCEEDED]"))
-		flusher.Flush()
+		// Fork addition: the request checked (device, file system, the typed name), the
+		// disk refused when in use, a whole disk partitioned then formatted, and every
+		// step's exit status reported: upstream reported success whatever mkfs did, see fork_format.go
+		forkFormatStream(w, flusher.Flush, request.Disk, request.Format, request.Confirm)
 		return
 	} else {
 		utils.Error("FormatDiskRoute: Method not allowed " + req.Method, nil)

@@ -16,6 +16,7 @@ import { IsRouteSocketProxy } from '../../../utils/routes';
 import { useTranslation } from 'react-i18next';
 import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_CONFIGURATION } from '../../../utils/permissions';
+import ForkRouteProtection from './forkRouteProtection'; // Fork addition
 
 // Fork addition: onSaved, called after a save, so that the page reads the URL again
 const RouteSecurity = ({ routeConfig, config, readOnly = false, onSaved }) => {
@@ -116,6 +117,8 @@ const RouteSecurity = ({ routeConfig, config, readOnly = false, onSaved }) => {
                       />
                     </>}
 
+                    {/* Fork addition: one "protection" choice in front of the numbers below, which stay behind "Adjust the values myself", see forkRouteProtection.jsx */}
+                    <ForkRouteProtection formik={formik} socket={!isNotSocketProxy}>
                     <CosmosFormDivider title={t('mgmt.urls.edit.basicSecurity.smartShield.smartShieldTitle')} />
 
                     <CosmosCheckbox
@@ -235,6 +238,7 @@ const RouteSecurity = ({ routeConfig, config, readOnly = false, onSaved }) => {
                       formik={formik}
                     />
                   </>}
+                    </ForkRouteProtection>
                 </Grid>
               </MainCard>
               {!readOnly && <MainCard ><PermissionGuard permission={PERM_CONFIGURATION}><Button

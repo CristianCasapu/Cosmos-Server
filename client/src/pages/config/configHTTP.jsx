@@ -20,13 +20,16 @@ import { PaidOnly } from '../../components/paidVisibility'; // Fork addition
 import { ownCountries, safeDefaultBlocked } from '../../utils/geoDefaults'; // Fork addition
 import { PanelReach } from '../../components/reachability'; // Fork addition
 import { LocalNamesSettings } from '../../components/localNames'; // Fork addition
+import { useHttpCheck, ForkHttpBeforeSave, ForkHostnameHint, ForkHttpPorts, ForkAdminWhitelist, ForkGeoOwnCountry } from './forkHttpSettings'; // Fork addition
 
 const ConfigHTTP = ({ formik }) => {
   const [geoLeftOut, setGeoLeftOut] = React.useState(null); // Fork addition: what the default country list left out
   const { t } = useTranslation();
+  const check = useHttpCheck(formik); // Fork addition: the ports and the admin whitelist as the server sees them, see forkHttpSettings.jsx
 
   return (
     <Stack spacing={3}>
+      <ForkHttpBeforeSave formik={formik} check={check} />{/* Fork addition: what saving this tab will do */}
       <MainCard title="HTTP">
         <Grid container spacing={3}>
           <Grid item xs={12}>
@@ -48,6 +51,7 @@ const ConfigHTTP = ({ formik }) => {
                   {formik.errors.Hostname}
                 </FormHelperText>
               )}
+              <ForkHostnameHint formik={formik} />{/* Fork addition: what to enter, and the name this page is open on */}
               <PanelReach />{/* Fork addition: the saved address as the internet sees it, see components/reachability.jsx */}
             </Stack>
           </Grid>
@@ -65,49 +69,9 @@ const ConfigHTTP = ({ formik }) => {
               {formik.values.AllowHTTPLocalIPAccess /* Fork addition: was allowHTTPLocalIPAccess, so the warning never showed */ && <Alert severity="warning"><Trans i18nKey="mgmt.config.http.allowInsecureLocalAccessCheckbox.allowInsecureLocalAccessWarning" /></Alert>}
           </Grid>) : ""}
 
-          <Grid item xs={12}>
-            <Stack spacing={1}>
-              <InputLabel htmlFor="HTTPPort-login">HTTP Port (Default: 80)</InputLabel>
-              <OutlinedInput
-                id="HTTPPort-login"
-                type="text"
-                value={formik.values.HTTPPort}
-                name="HTTPPort"
-                onBlur={formik.handleBlur}
-                onChange={formik.handleChange}
-                placeholder="HTTPPort"
-                fullWidth
-                error={Boolean(formik.touched.HTTPPort && formik.errors.HTTPPort)}
-              />
-              {formik.touched.HTTPPort && formik.errors.HTTPPort && (
-                <FormHelperText error id="standard-weight-helper-text-HTTPPort-login">
-                  {formik.errors.HTTPPort}
-                </FormHelperText>
-              )}
-            </Stack>
-          </Grid>
+          {/* Fork addition: the two ports as one choice, checked against this server (forkHttpSettings.jsx); upstream had two free text fields */}
+          <ForkHttpPorts formik={formik} check={check} />
 
-          <Grid item xs={12}>
-            <Stack spacing={1}>
-              <InputLabel htmlFor="HTTPSPort-login">HTTPS Port (Default: 443)</InputLabel>
-              <OutlinedInput
-                id="HTTPSPort-login"
-                type="text"
-                value={formik.values.HTTPSPort}
-                name="HTTPSPort"
-                onBlur={formik.handleBlur}
-                onChange={formik.handleChange}
-                placeholder="HTTPSPort"
-                fullWidth
-                error={Boolean(formik.touched.HTTPSPort && formik.errors.HTTPSPort)}
-              />
-              {formik.touched.HTTPSPort && formik.errors.HTTPSPort && (
-                <FormHelperText error id="standard-weight-helper-text-HTTPSPort-login">
-                  {formik.errors.HTTPSPort}
-                </FormHelperText>
-              )}
-            </Stack>
-          </Grid>
           <Grid item xs={12}>
             <Alert severity="info">
               {t('mgmt.config.http.allowSearchIndexCheckbox')}<br />
@@ -159,6 +123,7 @@ const ConfigHTTP = ({ formik }) => {
           </Grid>
 
           <CountrySelect name="GeoBlocking" label={t('mgmt.config.security.geoBlockSelection', { blockAllow: formik.values.CountryBlacklistIsWhitelist ? t('mgmt.config.security.geoBlockSelection.varAllow') : t('mgmt.config.security.geoBlockSelection.varBlock') })} formik={formik} />
+          <ForkGeoOwnCountry formik={formik} />{/* Fork addition: the country the admin is in, refused by the list */}
 
           <Grid item xs={12}>
             <Button onClick={() => {
@@ -186,12 +151,8 @@ const ConfigHTTP = ({ formik }) => {
             <Alert severity="info">{t('mgmt.config.security.adminRestrictions.adminRestrictionsInfo')}</Alert>
           </Grid>
 
-          <CosmosInputText
-            label={t('mgmt.config.security.adminRestrictions.adminWhitelistInput.adminWhitelistLabel')}
-            name="AdminWhitelistIPs"
-            formik={formik}
-            helperText={t('mgmt.config.security.adminRestrictions.adminWhitelistInput.adminWhitelistHelperText')}
-          />
+          {/* Fork addition: a list with the address in use proposed and a lock-out said before saving (forkHttpSettings.jsx); upstream had a free text field */}
+          <ForkAdminWhitelist formik={formik} check={check} />
 
           <PaidOnly keep={formik.initialValues.AdminConstellationOnly}>{/* Fork addition: needs Constellation, hence a licence */}
           <CosmosCheckbox

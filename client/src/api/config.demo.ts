@@ -41,6 +41,19 @@ function testEmail(emailConfig, recipient = '') {
   });
 }
 
+// Fork addition: the HTTP settings check, as a demo server would answer it
+function httpCheck(values) {
+  return Promise.resolve({
+    "status": "OK",
+    "data": {
+      "you": { "address": "192.168.1.5", "local": true, "throughProxy": false },
+      "server": { "addresses": [{ "ip": "192.168.1.10", "network": "192.168.1.0/24" }], "inDocker": false },
+      "ports": [{ "port": Number(values.httpPort) || 0, "state": "cosmos" }, { "port": Number(values.httpsPort) || 0, "state": "cosmos" }],
+      "whitelist": { "passes": true, "entries": [] },
+    }
+  });
+}
+
 // Fork addition: what the server would propose for a mail domain
 function detectEmail(domain) {
   return new Promise((resolve, reject) => {
@@ -270,6 +283,7 @@ export {
   canSendEmail,
   testEmail,
   detectEmail,
+  httpCheck, // Fork addition
   upnpStatus,
   upnpAppPort,
   upnpClose,

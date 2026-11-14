@@ -156,6 +156,12 @@ func createAPIToken(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Fork addition: the IP restriction, the description, the expiry and the permissions are checked, see fork_api_tokens.go
+	if err := checkCreateToken(&request); err != nil {
+		utils.HTTPError(w, err.Error(), http.StatusBadRequest, "AT017")
+		return
+	}
+
 	// Build permissions array
 	var permissions []utils.Permission
 	if len(request.Permissions) > 0 {
@@ -352,6 +358,11 @@ func updateAPIToken(w http.ResponseWriter, req *http.Request) {
 	if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
 		utils.Error("UpdateAPIToken: Invalid request", err)
 		utils.HTTPError(w, "Invalid request", http.StatusBadRequest, "AT031")
+		return
+	}
+	// Fork addition: as on creation, see fork_api_tokens.go
+	if err := checkUpdateToken(&request); err != nil {
+		utils.HTTPError(w, err.Error(), http.StatusBadRequest, "AT035")
 		return
 	}
 
