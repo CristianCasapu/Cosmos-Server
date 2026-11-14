@@ -15,11 +15,36 @@ import (
 // where, and what containers publish.
 func fakeHTTPHost(t *testing.T, busy map[int]error, containers map[int]string) {
 	t.Helper()
-	oldProbe, oldPublished, oldSee := listenProbe, publishedPorts, cannotSeeHostPorts
+	oldProbe, oldPublished, oldSee, oldRunning := listenProbe, publishedPorts, cannotSeeHostPorts, runningHTTPConfig
 	listenProbe = func(port int) error { return busy[port] }
 	publishedPorts = func() (map[int]string, error) { return containers, nil }
 	cannotSeeHostPorts = func() bool { return false }
-	t.Cleanup(func() { listenProbe, publishedPorts, cannotSeeHostPorts = oldProbe, oldPublished, oldSee })
+	runningHTTPConfig = func() utils.HTTPConfig { return utils.HTTPConfig{} }
+	t.Cleanup(func() {
+		listenProbe, publishedPorts, cannotSeeHostPorts, runningHTTPConfig = oldProbe, oldPublished, oldSee, oldRunning
+	})
+}
+
+// Cosmos started with COSMOS_HTTP_PORT / COSMOS_HTTPS_PORT listens on other
+// ports than the stored settings name: writing those ports into the settings
+// is not "another program", and the form's check says Cosmos holds them.
+func TestHTTPSettingsPortsFromTheEnvironment(t *testing.T) {
+	fakeHTTPHost(t, map[int]error{18080: syscall.EADDRINUSE, 18443: syscall.EADDRINUSE, 8081: syscall.EADDRINUSE}, nil)
+	runningHTTPConfig = func() utils.HTTPConfig { return utils.HTTPConfig{HTTPPort: "18080", HTTPSPort: "18443"} }
+	stored := storedHTTP()
+	request := stored
+	request.HTTPConfig.HTTPPort, request.HTTPConfig.HTTPSPort = "18080", "18443"
+	if p := checkHTTPSettings(requestFrom("192.168.1.5"), &request, stored); p != nil {
+		t.Fatalf("the ports Cosmos runs on refused: %+v", p)
+	}
+	request.HTTPConfig.HTTPPort = "8081"
+	if p := checkHTTPSettings(requestFrom("192.168.1.5"), &request, stored); p == nil || p.Code != "UC032" {
+		t.Fatalf("another program's port accepted: %+v", p)
+	}
+	answer := httpCheck(requestFrom("192.168.1.5"), httpCheckRequest{HTTPPort: "18080", HTTPSPort: "18443"}, stored)
+	if answer.Ports[0].State != portCosmos || answer.Ports[1].State != portCosmos {
+		t.Errorf("check: %+v", answer.Ports)
+	}
 }
 
 func requestFrom(client string) *http.Request {
