@@ -1,7 +1,22 @@
-# Fork addition: builds `production` and publishes it as a GitHub release in
-# the layout Cosmos' own updater expects, so an install of this fork updates
-# itself from here instead of from the original project. Only `production` is
-# ever released (see FORK.md).
+# Fork addition: builds `production` and publishes it as a signed GitHub
+# release in the layout Cosmos' own updater expects, so an install of this fork
+# updates itself from here instead of from the original project. Only
+# `production` is ever released (see FORK.md).
+#
+# Two jobs, so that the code of the dependencies never runs where the write
+# token or the signing key are:
+#
+#   build    runs npm and Go (third-party code). It may read the repository
+#            and nothing else: no write token, no secret. It hands the zips
+#            over as a workflow artifact.
+#   publish  runs nothing from the repository or its dependencies: it takes
+#            the artifact, signs it and creates the release. The signing key
+#            is a secret of the environment `release`, which only runs on
+#            `production` may use, and reaches one step only.
+#
+# The server installs a release only if cosmos-cloud-<version>.sig verifies
+# under a key in src/forkrelease/keys.go, so the publish job refuses to
+# publish what the installed servers could not verify.
 name: Fork release
 
 on:
@@ -13,20 +28,27 @@ on:
       - '**.md'
   workflow_dispatch:
 
-permissions:
-  contents: write
+permissions: {}
 
 concurrency:
   group: fork-release
   cancel-in-progress: false
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      skip: ${{ steps.version.outputs.skip }}
+      version: ${{ steps.version.outputs.version }}
+      upstream: ${{ steps.version.outputs.upstream }}
+      build: ${{ steps.version.outputs.build }}
+      previous: ${{ steps.version.outputs.previous }}
     steps:
-      # The build runs third-party code (npm and Go dependencies). It gets no
-      # token: checkout does not leave one on disk, and only the step that
-      # publishes receives it. Actions are pinned to a commit.
+      # The build runs third-party code (npm and Go dependencies). This job's
+      # token can only read, and checkout does not leave it on disk. Actions
+      # are pinned to a commit.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0 # all tags, to number this build
@@ -71,16 +93,30 @@ jobs:
           echo "previous=$previous" >> "$GITHUB_OUTPUT"
           echo "Fork version $version (previous release: ${previous:-none})"
 
+      # A server that installed a release without a release key in it could
+      # never verify, and so never install, another one. Refuse before the
+      # long build; the build itself checks again (`release: true`).
+      - name: Refuse to release without a release key
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          if ! grep -qE '^[[:space:]]*"[A-Za-z0-9+/]{43}=",' src/forkrelease/keys.go; then
+            echo "::error::src/forkrelease/keys.go holds no release key. Run scripts/fork-signing-key.sh and paste the line it prints."; exit 1
+          fi
+
       - uses: ./.github/actions/fork-build
         if: steps.version.outputs.skip != 'true'
         with:
           version: ${{ steps.version.outputs.version }}
           build: ${{ steps.version.outputs.build }}
+          release: 'true'
 
       - name: Package like upstream
         if: steps.version.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          UPSTREAM: ${{ steps.version.outputs.upstream }}
+          BUILD: ${{ steps.version.outputs.build }}
+          PREVIOUS: ${{ steps.version.outputs.previous }}
         run: |
           pkg="cosmos-cloud-$VERSION"
 
@@ -94,21 +130,10 @@ jobs:
           mv "$pkg-arm64/cosmos-launcher-arm64" "$pkg-arm64/cosmos-launcher"
           mv "$pkg-arm64/restic-arm" "$pkg-arm64/restic"
 
-          zip -qr "$pkg-amd64.zip" "$pkg"
-          zip -qr "$pkg-arm64.zip" "$pkg-arm64"
-          md5sum "$pkg-amd64.zip" > "$pkg-amd64.zip.md5"
-          md5sum "$pkg-arm64.zip" > "$pkg-arm64.zip.md5"
-          ls -l cosmos-cloud-*.zip*
-
-      - name: Publish the release
-        if: steps.version.outputs.skip != 'true'
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          UPSTREAM: ${{ steps.version.outputs.upstream }}
-          BUILD: ${{ steps.version.outputs.build }}
-          PREVIOUS: ${{ steps.version.outputs.previous }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
+          mkdir release
+          zip -qr "release/$pkg-amd64.zip" "$pkg"
+          zip -qr "release/$pkg-arm64.zip" "$pkg-arm64"
+          (cd release && md5sum "$pkg-amd64.zip" > "$pkg-amd64.zip.md5" && md5sum "$pkg-arm64.zip" > "$pkg-arm64.zip.md5")
           {
             echo "Fork build $BUILD on top of upstream Cosmos $UPSTREAM (commit $GITHUB_SHA)."
             if [ -n "$PREVIOUS" ]; then
@@ -117,10 +142,202 @@ jobs:
               echo
               git log --no-merges --format='- %s' "$PREVIOUS..HEAD" | head -n 40
             fi
-          } > notes.md
-          gh release create "v$VERSION" \
+          } > release/notes.md
+          ls -l release
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: steps.version.outputs.skip != 'true'
+        with:
+          name: release
+          path: release/
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+  publish:
+    needs: build
+    if: needs.build.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    # Holds the signing key; GitHub lets only runs on `production` use it.
+    environment: release
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      PREVIOUS: ${{ needs.build.outputs.previous }}
+    steps:
+      # No checkout: nothing of the repository is on this machine, only the
+      # files the build handed over. They are treated as data.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release
+          path: release
+
+      - name: Check what the build handed over
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/production" ]; then
+            echo "::error::Releases are published from production only, not from $GITHUB_REF"; exit 1
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-fork\.[1-9][0-9]{0,8}$ ]]; then
+            echo "::error::'$VERSION' is not a fork version"; exit 1
+          fi
+          if [ -n "$PREVIOUS" ] && ! [[ "$PREVIOUS" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-fork\.[1-9][0-9]{0,8}$ ]]; then
+            echo "::error::'$PREVIOUS' is not a fork release tag"; exit 1
+          fi
+          cd release
+          expected=$(printf '%s\n' "cosmos-cloud-$VERSION-amd64.zip" "cosmos-cloud-$VERSION-amd64.zip.md5" \
+            "cosmos-cloud-$VERSION-arm64.zip" "cosmos-cloud-$VERSION-arm64.zip.md5" notes.md | sort)
+          found=$(find . -mindepth 1 -printf '%P\n' | sort)
+          if [ "$found" != "$expected" ]; then
+            echo "::error::The build handed over other files than a release has"; printf '%s\n' "$found"; exit 1
+          fi
+          for f in $expected; do
+            if [ ! -f "$f" ] || [ -L "$f" ]; then echo "::error::$f is not a plain file"; exit 1; fi
+          done
+          for arch in amd64 arm64; do
+            zip="cosmos-cloud-$VERSION-$arch.zip"
+            if [ "$(stat -c %s "$zip")" -gt 1073741824 ]; then
+              echo "::error::$zip is larger than the updater accepts (1 GiB)"; exit 1
+            fi
+            if [ "$(awk 'NR==1{print $1}' "$zip.md5")" != "$(md5sum "$zip" | awk '{print $1}')" ]; then
+              echo "::error::$zip does not match its .md5"; exit 1
+            fi
+          done
+
+      # What is signed: the version, and for each zip its name and SHA-256.
+      # The name of the signature file carries no architecture on purpose:
+      # the updater of the releases before signing takes any asset with
+      # "amd64" or "arm64" in its name that is not an .md5 as the zip.
+      - name: Write what is to be signed
+        run: |
+          set -euo pipefail
+          {
+            echo "cosmos-fork-release-v1"
+            echo "version $VERSION"
+            for arch in amd64 arm64; do
+              zip="cosmos-cloud-$VERSION-$arch.zip"
+              echo "sha256 $(sha256sum "release/$zip" | awk '{print $1}') $zip"
+            done
+          } > manifest
+          cat manifest
+
+      # The only step that sees the signing key(s). Nothing here prints them:
+      # no tracing, and openssl reads the key from a file in a private folder
+      # that is removed when the step ends, however it ends.
+      - name: Sign
+        env:
+          FORK_RELEASE_SIGNING_KEY_1: ${{ secrets.FORK_RELEASE_SIGNING_KEY_1 }}
+          FORK_RELEASE_SIGNING_KEY_2: ${{ secrets.FORK_RELEASE_SIGNING_KEY_2 }}
+        run: |
+          set -euo pipefail
+          if [ -z "$FORK_RELEASE_SIGNING_KEY_1" ] && [ -z "$FORK_RELEASE_SIGNING_KEY_2" ]; then
+            echo "::error::No signing key: the environment \"release\" has neither FORK_RELEASE_SIGNING_KEY_1 nor FORK_RELEASE_SIGNING_KEY_2. Nothing is published unsigned. See scripts/fork-signing-key.sh."
+            exit 1
+          fi
+          umask 077
+          keys=$(mktemp -d "$RUNNER_TEMP/signing.XXXXXXXX")
+          trap 'rm -rf "$keys"' EXIT
+          cp manifest "release/cosmos-cloud-$VERSION.sig"
+          chmod 644 "release/cosmos-cloud-$VERSION.sig"
+          signed=0
+          for slot in 1 2; do
+            name="FORK_RELEASE_SIGNING_KEY_$slot"
+            if [ -z "${!name}" ]; then continue; fi
+            printf '%s\n' "${!name}" > "$keys/key.pem"
+            if ! openssl pkeyutl -sign -inkey "$keys/key.pem" -rawin -in manifest -out "$keys/signature" 2>/dev/null; then
+              echo "::error::The secret $name is not a usable Ed25519 private key"; exit 1
+            fi
+            rm -f "$keys/key.pem"
+            echo "signature $(base64 -w0 "$keys/signature")" >> "release/cosmos-cloud-$VERSION.sig"
+            signed=$((signed + 1))
+          done
+          echo "Signed with $signed key(s)."
+
+      # Would a server accept it? The signature must verify under a public
+      # key of this very build, and under one of the previous release: that is
+      # the key the servers that are about to install this release hold. A
+      # release that fails here would be refused by every server, and one
+      # built with the wrong public key would lock them out of all later ones.
+      - name: Verify the signature as the servers will
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sig="release/cosmos-cloud-$VERSION.sig"
+          if [ "$(stat -c %s "$sig")" -gt 4096 ]; then
+            echo "::error::The signature file is larger than the updater accepts"; exit 1
+          fi
+          if ! grep -v '^signature ' "$sig" | cmp -s - manifest; then
+            echo "::error::The signature file does not start with what was signed"; exit 1
+          fi
+
+          # keys_of <commit or tag>: the public keys in its keys.go, one per
+          # line. Returns 2 when that commit has no keys.go (a release from
+          # before signing); any other failure ends the job.
+          keys_of() {
+            local source
+            if ! source=$(gh api -H "Accept: application/vnd.github.raw" "repos/$GITHUB_REPOSITORY/contents/src/forkrelease/keys.go?ref=$1" 2> api-error); then
+              if grep -q 'HTTP 404' api-error; then return 2; fi
+              echo "::error::Could not read src/forkrelease/keys.go of $1" >&2
+              exit 1
+            fi
+            printf '%s\n' "$source" | grep -oE '^[[:space:]]*"[A-Za-z0-9+/]{43}=",' | grep -oE '[A-Za-z0-9+/]{43}=' || true
+          }
+          # verifies_under <public key, base64 of its 32 bytes>
+          verifies_under() {
+            local n=0 line
+            { printf '\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00'; printf '%s' "$1" | base64 -d; } > public.der
+            openssl pkey -pubin -inform DER -in public.der -out public.pem 2>/dev/null || return 1
+            while read -r line; do
+              n=$((n + 1))
+              printf '%s' "${line#signature }" | base64 -d > "signature.$n"
+              if openssl pkeyutl -verify -pubin -inkey public.pem -rawin -in manifest -sigfile "signature.$n" > /dev/null 2>&1; then
+                return 0
+              fi
+            done < <(grep '^signature ' "$sig")
+            return 1
+          }
+          # accepted_by <commit or tag>: 0 verifies, 1 does not, 2 no keys there
+          accepted_by() {
+            local keys key code=0
+            keys=$(keys_of "$1") || code=$?
+            if [ "$code" -ne 0 ]; then return "$code"; fi
+            if [ -z "$keys" ]; then return 2; fi
+            for key in $keys; do
+              if verifies_under "$key"; then return 0; fi
+            done
+            return 1
+          }
+
+          code=0; accepted_by "$GITHUB_SHA" || code=$?
+          if [ "$code" -ne 0 ]; then
+            echo "::error::The signature does not verify under a release key in src/forkrelease/keys.go of this commit: the signing secret and keys.go do not belong together. Nothing is published."
+            exit 1
+          fi
+          echo "Verifies under a release key of this build."
+          if [ -n "$PREVIOUS" ]; then
+            code=0; accepted_by "$PREVIOUS" || code=$?
+            if [ "$code" -eq 2 ]; then
+              echo "::notice::$PREVIOUS is from before signed releases: its updater installs this release without a signature check."
+            elif [ "$code" -ne 0 ]; then
+              echo "::error::Servers running $PREVIOUS could not verify this release: it is signed with none of the keys $PREVIOUS trusts. A new key has to be in keys.go for one release before it signs alone. Nothing is published."
+              exit 1
+            else
+              echo "Verifies under a release key of the previous release $PREVIOUS."
+            fi
+          fi
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd release
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" \
             "cosmos-cloud-$VERSION-amd64.zip" "cosmos-cloud-$VERSION-amd64.zip.md5" \
             "cosmos-cloud-$VERSION-arm64.zip" "cosmos-cloud-$VERSION-arm64.zip.md5" \
+            "cosmos-cloud-$VERSION.sig" \
             --target "$GITHUB_SHA" \
             --title "$VERSION" \
             --latest \

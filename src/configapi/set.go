@@ -285,6 +285,13 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 			request.ServerToken = config.ServerToken
 		}
 
+		// Fork addition: a masked Telegram token is the stored one; changed Telegram settings are checked, see fork_telegram.go
+		if errG := keepTelegramSecrets(&request, config); errG != nil {
+			utils.Error("SettingsUpdate: "+errG.Error(), nil)
+			utils.HTTPError(w, errG.Error(), http.StatusBadRequest, "UC010")
+			return
+		}
+
 		// restore backup passwords. Users without PERM_CREDENTIALS_READ can never
 		// set a password — always restore from existing config. Otherwise only
 		// restore when the value is missing or masked, so the settings UI
@@ -319,6 +326,7 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 		utils.SetBaseMainConfig(request)
 		utils.ConfigLock.Unlock()
 		auditSettings(req, config, request) // Fork addition: security record, the names of the sections that changed
+		announceTelegramChange(req, config, request) // Fork addition: the chat that is losing the notifications is told, see fork_telegram.go
 
 		// Storage shares carry their own route; derive the ProxyConfig.Routes copies server-side.
 		storage.ReconcileShareRoutes()

@@ -181,7 +181,8 @@ func applyServerUpdate(updates *VersionInfo, useBeta bool) error {
 	dlPath := currentFolder + "/cosmos-update.zip"
 	betaFile := currentFolder + "/.BETA"
 
-	if err := utils.DownloadFileToLocation(dlPath, url); err != nil {
+	// Fork addition: only a release signed with the fork's key is placed for the launcher, fetched from the fork's own repository, see fork_update_verify.go (upstream: utils.DownloadFileToLocation(dlPath, url))
+	if err := stageVerifiedUpdate(dlPath, updates); err != nil {
 		return err
 	}
 
@@ -201,6 +202,7 @@ func applyServerUpdate(updates *VersionInfo, useBeta bool) error {
 	cron.WaitForAllJobs() // wait for all jobs to finish
 
 	utils.Log("Update downloaded, restarting server")
+	utils.ForkNotice(utils.NoticeExitUpdate, "version", updates.Version) // Fork addition: the next start can say whether the update was installed
 	storage.StopAllRCloneProcess(true)
 	utils.RevertHostDNS()
 	os.Exit(0)
@@ -233,6 +235,7 @@ func checkUpdatesAvailable() {
 
 	if err := applyServerUpdate(updates, useBeta); err != nil {
 		utils.Error("checkUpdatesAvailable", err)
+		utils.ForkNotice(utils.NoticeUpdateFailed, "version", check.LatestVersion, "reason", err.Error()) // Fork addition: told through Telegram
 	}
 }
 

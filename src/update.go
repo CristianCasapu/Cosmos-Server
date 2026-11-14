@@ -3,14 +3,13 @@ package main
 import (
     "encoding/json"
     "fmt"
-    "io"
     "os"
-    "net/http"
     "path/filepath"
     "bufio"
     "strings"
     "syscall"
 
+    "github.com/azukaar/cosmos-server/src/forkrelease" // Fork addition
     "github.com/azukaar/cosmos-server/src/utils"
 )
 
@@ -119,15 +118,10 @@ func GetLatestVersion(includeBeta bool) (*VersionInfo, error) {
         updateURL = "https://api.cosmos-cloud.io/proupdates"
     }
 
-    resp, err := http.Get(updateURL)
+    // Fork addition: the fork's release list is read from GitHub only, with time and size limits, see forkrelease/fetch.go (upstream: http.Get and io.ReadAll)
+    body, err := forkrelease.GetFeed(updateURL, utils.IsPro(), forkrelease.MaxReleaseList)
     if err != nil {
         return nil, fmt.Errorf("failed to fetch releases: %v", err)
-    }
-    defer resp.Body.Close()
-
-    body, err := io.ReadAll(resp.Body)
-    if err != nil {
-        return nil, fmt.Errorf("failed to read response body: %v", err)
     }
 
     var releases []Release
@@ -187,12 +181,8 @@ func GetLatestVersion(includeBeta bool) (*VersionInfo, error) {
         // Match MD5 files
         if strings.HasSuffix(name, ".md5") {
             // Fetch MD5 content
-            md5Resp, err := http.Get(asset.DownloadURL)
-            if err != nil {
-                continue
-            }
-            md5Content, err := io.ReadAll(md5Resp.Body)
-            md5Resp.Body.Close()
+            // Fork addition: as above (upstream: http.Get and io.ReadAll)
+            md5Content, err := forkrelease.GetFeed(asset.DownloadURL, utils.IsPro(), forkrelease.MaxChecksumFile)
             if err != nil {
                 continue
             }

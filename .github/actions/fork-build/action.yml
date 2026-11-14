@@ -17,6 +17,10 @@ inputs:
     description: Fork build number shown in the UI (empty for a build that is not released)
     required: false
     default: ''
+  release:
+    description: "'true' for a build that will be released: it must carry a release key (src/forkrelease/keys.go)"
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -74,10 +78,15 @@ runs:
 
     - name: Test the fork's additions
       shell: bash
+      env:
+        # A release without a release key in it could never be updated again:
+        # with this set, the test of the key slots fails when both are empty.
+        FORK_REQUIRE_RELEASE_KEY: ${{ inputs.release == 'true' && '1' || '' }}
       run: |
         node --test "client/src/utils/*.test.mjs"
+        go test ./src/forkrelease/ -count=1
         go test ./src/utils/ ./src/authorizationserver/ -count=1
-        go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ -count=1
+        go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ ./src/telegram/ ./src/fail2ban/ -count=1
         go test ./src/ -skip TestEveryRouteIsDocumented -count=1
         go test ./src/docker/ -count=1
         go test ./src/proxy/ -count=1 # the live Avahi test in it skips without AVAHI_LIVE=1
@@ -86,6 +95,7 @@ runs:
       shell: bash
       env:
         VERSION: ${{ inputs.version }}
+        RELEASE: ${{ inputs.release }}
       run: |
         # Both binaries read updateRepo (src/update.go): point it at this fork.
         export GOFLAGS="-ldflags=-X=main.updateRepo=$GITHUB_REPOSITORY"
@@ -95,6 +105,17 @@ runs:
         done
         grep -aq "$GITHUB_REPOSITORY" build/cosmos || { echo "::error::update source was not set in the binary"; exit 1; }
         grep -aq "$GITHUB_REPOSITORY" build/cosmos-launcher || { echo "::error::update source was not set in the launcher"; exit 1; }
+        if [ "$RELEASE" = "true" ]; then
+          # The server and the launcher each verify a release by themselves:
+          # every release key of keys.go must be in every binary.
+          keys=$(grep -oE '^[[:space:]]*"[A-Za-z0-9+/]{43}=",' src/forkrelease/keys.go | grep -oE '[A-Za-z0-9+/]{43}=' || true)
+          if [ -z "$keys" ]; then echo "::error::src/forkrelease/keys.go holds no release key"; exit 1; fi
+          for key in $keys; do
+            for f in cosmos cosmos-arm64 cosmos-launcher cosmos-launcher-arm64; do
+              grep -aqF "$key" "build/$f" || { echo "::error::build/$f does not carry a release key of keys.go"; exit 1; }
+            done
+          done
+        fi
         if [ -n "$VERSION" ]; then
           # The server reads its version from meta.json and compares it with
           # the release tags when it looks for an update.

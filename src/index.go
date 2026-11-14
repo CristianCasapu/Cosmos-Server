@@ -214,6 +214,7 @@ func main() {
 // @name Authorization
 func cosmos() {
 	startSecurityRecord() // Fork addition: the security record, see fork_security_hooks.go
+	startFail2ban() // Fork addition: records new Fail2ban bans, see fork_fail2ban.go
 	utils.PushShieldMetrics = metrics.PushShieldMetrics
 	utils.GetContainerIPByName = docker.GetContainerIPByName
 	utils.IsLocalDockerIP = docker.IsLocalDockerIP
@@ -309,12 +310,14 @@ func cosmos() {
 	rand.Seed(time.Now().UnixNano())
 	
 	LoadConfig()
+	startTelegram() // Fork addition: notifications through Telegram, see fork_telegram.go
 
 	utils.CheckHostNetwork()
 	
 	go CRON()
 
 	cleanUpUpdateFiles()
+	reportLauncherRefusal() // Fork addition: an update the launcher refused at this start, see fork_update_verify.go
 
 	docker.ExportDocker()
 

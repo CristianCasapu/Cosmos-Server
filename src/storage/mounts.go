@@ -79,6 +79,11 @@ func ListMounts() ([]MountPoint, error) {
 
 // Mount mounts a filesystem located at 'path' to 'mountpoint'.
 func Mount(path, mountpoint string, permanent bool, netDisk bool, chown string) error {
+	// Fork addition: the request is checked before anything is created, run or written (fork_mount_safety.go)
+	if err := checkMountRequest(path, mountpoint, chown, netDisk); err != nil {
+		return err
+	}
+
 	utils.Log("[STORAGE] Mounting " + path + " to " + mountpoint)
 
 	// Check if mountpoint exists
@@ -133,7 +138,8 @@ func Mount(path, mountpoint string, permanent bool, netDisk bool, chown string) 
 		if netDisk {
 			fstabEntry = fmt.Sprintf("\n%s %s nfs defaults,nofail,_netdev 0 0\n", path, mountpoint)
 		} else {
-			fstabEntry = fmt.Sprintf("\n%s %s auto defaults 0 0\n", path, mountpoint)
+			// Fork addition: by UUID and with nofail, see fork_mount_safety.go (upstream: "<device> <mountpoint> auto defaults 0 0")
+			fstabEntry = localFstabEntry(path, mountpoint)
 		}
 
 		// Append to /etc/fstab
@@ -156,6 +162,11 @@ func Mount(path, mountpoint string, permanent bool, netDisk bool, chown string) 
 
 // Unmount unmounts the filesystem at 'mountpoint'.
 func Unmount(mountpoint string, permanent bool) error {
+	// Fork addition: the folder is checked before it reaches a command or /etc/fstab (fork_mount_safety.go)
+	if err := checkMountPoint(mountpoint); err != nil {
+		return err
+	}
+
 	utils.Log("[STORAGE] Unmounting " + mountpoint)
 
 	// Execute the umount command

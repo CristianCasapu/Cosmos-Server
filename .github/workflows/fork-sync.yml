@@ -4,11 +4,18 @@
 #   1. upstream's latest stable release is merged into a candidate on top of
 #      `production` (branch sync/<tag>);
 #   2. the candidate is built, tested and started once;
-#   3. only if that passes, `production` is moved to the candidate and
-#      released, and the merge is brought into `custom` as well.
+#   3. only if that passes, the owner is asked: the run waits (job "promote",
+#      environment `upstream-approval`, which has a required reviewer), with
+#      what the upstream release changes written to the run's summary and to
+#      an issue;
+#   4. once approved, `production` is moved to the candidate and released, and
+#      the merge is brought into `custom` as well.
 #
 # If the merge conflicts, cannot be pushed or fails its checks, production is
-# left alone and an issue is opened.
+# left alone and an issue is opened. Nothing here can give the approval: the
+# workflow's token is not a reviewer and cannot change the environment. A
+# request that is neither approved nor rejected is dropped by GitHub after 30
+# days; a rejected one is asked again at the next daily run.
 name: Sync with upstream
 
 on:
@@ -119,9 +126,84 @@ jobs:
     with:
       ref: ${{ needs.candidate.outputs.sha }}
 
-  promote:
+  # Prepares the owner's decision. Runs git and gh only; what it reads from
+  # the candidate (file names) is treated as text.
+  review:
     needs: [candidate, verify]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ needs.candidate.outputs.sha }}
+      TAG: ${{ needs.candidate.outputs.tag }}
+      APPROVAL_ENVIRONMENT: upstream-approval
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: production
+          fetch-depth: 0
+          persist-credentials: false
+
+      # GitHub creates an environment that a job names and that does not
+      # exist, without any rule: the promote job would then run unasked. So
+      # the rule is looked at first, and without it nothing is promoted.
+      - name: Require the approval rule
+        run: |
+          reviewers=$(gh api "repos/$GITHUB_REPOSITORY/environments/$APPROVAL_ENVIRONMENT" \
+            --jq '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length' 2>/dev/null || echo 0)
+          if ! [[ "$reviewers" =~ ^[1-9][0-9]*$ ]]; then
+            title="The approval step for upstream releases is not set up"
+            if [ -z "$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[].number')" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" \
+                --body "$(printf 'Upstream release %s passed the checks, but the environment `%s` does not exist or has no required reviewer, so nobody could be asked and nothing was promoted.\n\nCreate it under Settings > Environments (required reviewer: the owner; deployment branch: `custom`), then run "Sync with upstream" again.' "$TAG" "$APPROVAL_ENVIRONMENT")"
+            fi
+            echo "::error::The environment $APPROVAL_ENVIRONMENT has no required reviewer: nothing is promoted without the owner's approval."
+            exit 1
+          fi
+
+      - name: Say what the upstream release changes
+        run: |
+          git fetch --quiet origin "refs/heads/sync/$TAG"
+          if [ "$(git rev-parse FETCH_HEAD)" != "$SHA" ]; then
+            echo "::error::sync/$TAG is not the commit that was checked"; exit 1
+          fi
+          base=$(git rev-parse HEAD)
+          run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          {
+            echo "Upstream release **$TAG** merged cleanly into \`production\` and passed the fork's checks (build, tests, one start). It reaches the server only when you approve it."
+            echo
+            echo "- To approve or reject: open [this run]($run), \"Review deployments\", tick \`$APPROVAL_ENVIRONMENT\`."
+            echo "- Upstream's release notes: https://github.com/$UPSTREAM_REPO/releases/tag/$TAG"
+            echo "- Every change, line by line: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$base...$SHA"
+            echo "- Commits from upstream: $(git rev-list --count --no-merges "$base..$SHA")"
+            echo
+            echo "What changes on \`production\` (only upstream's changes: the candidate is \`production\` plus this release):"
+            echo
+            echo '```'
+            # file names come from upstream: keep them from ending the block or naming anyone
+            git diff --stat=110 --stat-count=70 "$base" "$SHA" | sed 's/[`@]/_/g' | head -c 20000
+            echo '```'
+            echo
+            echo "Approved: production moves to commit \`$SHA\` (the one that was checked) and is released; the server installs the release at its next maintenance time. Rejected: nothing changes, and the next daily run asks again. Not answered within 30 days: GitHub drops the request."
+          } > "$RUNNER_TEMP/summary.md"
+          cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+          title="Upstream $TAG is ready for production: your approval is needed"
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -z "$number" ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$RUNNER_TEMP/summary.md"
+          else
+            gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/summary.md"
+          fi
+
+  # Waits for the owner: the environment has a required reviewer. Until one
+  # approves, this job does not start and its token does not exist.
+  promote:
+    needs: [candidate, verify, review]
+    runs-on: ubuntu-latest
+    environment: upstream-approval
     permissions:
       contents: write
       issues: write
@@ -146,6 +228,10 @@ jobs:
           # starts over tomorrow.
           git push origin "$SHA:refs/heads/production"
           git push origin --delete "sync/$TAG"
+          title="Upstream $TAG is ready for production: your approval is needed"
+          for number in $(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[].number'); do
+            gh issue close "$number" --reason completed --comment "Approved and promoted: production is at $SHA." || true
+          done
 
       - name: Bring the merge into custom
         run: |

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Tab, Tabs, Typography, MenuItem, Select, useMediaQuery, CircularProgress } from '@mui/material';
 import { styled } from '@mui/system';
+import { useWithoutPaidTabs } from '../paidVisibility'; // Fork addition
 
 const StyledTabs = styled(Tabs)`
   border-right: 1px solid ${({ theme }) => theme.palette.divider};
@@ -38,6 +39,7 @@ const a11yProps = (index) => {
 };
 
 const PrettyTabbedView = ({ rootURL, tabs, isLoading, currentTab, setCurrentTab }) => {
+  tabs = useWithoutPaidTabs(tabs); // Fork addition: tabs marked paid are hidden without a licence
   const [value, setValue] = useState(0);
   const isMobile = useMediaQuery((theme) => theme.breakpoints.down('md'));
   const [initialMount, setInitialMount] = useState(true);

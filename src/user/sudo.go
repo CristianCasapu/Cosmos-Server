@@ -84,7 +84,7 @@ func UserSudo(w http.ResponseWriter, req *http.Request) {
 			}
 
 			utils.RecordSecurity(req, utils.SecSudoSuccess, "") // Fork addition: security record
-			SendUserToken(w, req, user, true, true)
+			SendUserToken(w, passwordConfirmed(req), user, true, true) // Fork addition: two hours from this confirmation, see fork_session_life.go
 
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"status": "OK",

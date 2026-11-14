@@ -15,6 +15,7 @@ import MarketPage from '../pages/market/listing';
 import ConstellationIndex  from '../pages/constellation';
 import proFeatures from '../pro';
 import { ProRoute } from '../components/proPage';
+import { PaidRoute } from '../components/paidVisibility'; // Fork addition
 import StorageIndex from '../pages/storage';
 import DashboardDefault from '../pages/dashboard';
 import { CronManager } from '../pages/cron/jobsManage';
@@ -24,6 +25,8 @@ import AllBackupsIndex from '../pages/backups';
 import SingleBackupIndex from '../pages/backups/single-backup-index';
 import SingleRepoIndex from '../pages/backups/single-repo-index';
 import { isDomain } from '../utils/indexs';
+import SecurityDashboard from '../pages/security'; // Fork addition: security dashboard
+import SecurityAuditPage from '../pages/securityAudit'; // Fork addition: the audit page
 
 // ==============================|| MAIN ROUTING ||============================== //
 
@@ -51,19 +54,19 @@ const MainRoutes = {
         },
         {
             path: '/cosmos-ui/backups',
-            element: <AllBackupsIndex />
+            element: <PaidRoute><AllBackupsIndex /></PaidRoute> // Fork addition: needs a licence
         },
         {
             path: '/cosmos-ui/backups/:backupName/',
-            element: <SingleBackupIndex />
+            element: <PaidRoute><SingleBackupIndex /></PaidRoute> // Fork addition: needs a licence
         },
         {
             path: '/cosmos-ui/backups/repo/:backupName/',
-            element: <SingleRepoIndex />
+            element: <PaidRoute><SingleRepoIndex /></PaidRoute> // Fork addition: needs a licence
         },
         {
             path: '/cosmos-ui/backups/:backupName/:subpath',
-            element: <SingleBackupIndex />
+            element: <PaidRoute><SingleBackupIndex /></PaidRoute> // Fork addition: needs a licence
         },
         {
             path: '/cosmos-ui/storage',
@@ -224,7 +227,14 @@ const MainRoutes = {
         {
             path: '/cosmos-ui/cron',
             element: <CronManager />
-        }].map(children => ({
+        },
+        {
+            // Fork addition: security dashboard
+            path: '/cosmos-ui/security',
+            element: <SecurityDashboard />
+        },
+        { path: '/cosmos-ui/security-audit', element: <SecurityAuditPage /> }, // Fork addition: the audit page
+        ].map(children => ({
             ...children,
             element: PrivateRoute({ children: children.element })
         }))

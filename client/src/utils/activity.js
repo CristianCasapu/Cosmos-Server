@@ -4,6 +4,7 @@
 // here; only requests that change something are followed, and the request
 // itself is never altered or delayed.
 import i18n from 'i18next';
+import { watchForRefusal } from './sudoPrompt';
 
 // Translated when the translations are loaded, the English text otherwise.
 const tr = (key, text, vars) => {
@@ -52,6 +53,7 @@ const IGNORED = [
   /^\/api\/(metrics|events|notifications|list-dir|dns-check|_logs|_memory)\b/,
   /^\/api\/jobs\/(get|running)\b/,
   /^\/api\/(config\/test-email|upnp|server-update|force-server-update)\b/,
+  /^\/api\/telegram\b/, // the Telegram card shows what a test message gave, in words, where it was asked for
   /^\/api\/servapps\/[^/]+\/(logs|terminal|export|check-update)\b/,
   /^\/api\/constellation\/(ping|devices\/[^/]+\/ping)\b/,
   /^\/rclone\/(config\/(dump|listremotes)|operations\/about|vfs\/stats|core\/stats)\b/,
@@ -111,6 +113,10 @@ const COMMANDS = [
   ['POST', /^\/api\/snapshots\/run$/, () => ['activity.snapshots.run', 'Start the incremental backup']],
   ['POST', /^\/api\/snapshots\/restore$/, () => ['activity.snapshots.restore', 'Restore the snapshot']],
   ['POST', /^\/api\/snapshots\/cleanup$/, () => ['activity.snapshots.cleanup', 'Delete the folder kept by a restore']],
+
+  // Fail2ban (src/fail2ban); its status is read with GET, which is never followed
+  ['POST', /^\/api\/fail2ban\/unban$/, () => ['activity.fail2ban.unban', 'Lift the Fail2ban ban']],
+  ['POST', /^\/api\/fail2ban\/settings$/, () => ['activity.fail2ban.settings', 'Save the Fail2ban settings']],
 
   ['POST', /^\/api\/backups\/[^/]+\/restore$/, () => ['activity.backup.restore', 'Start the restore']],
   ['POST', /^\/api\/backups\/[^/]+\/unlock$/, () => ['activity.backup.unlock', 'Unlock the backup repository']],
@@ -301,6 +307,8 @@ const follow = async (call, response) => {
 // trackFetch is called by the API client with every request it sends. It
 // returns the same promise it was given.
 export const trackFetch = (url, options, promise) => {
+  // a command refused because the password confirmation has ended asks for it again (sudoPrompt.js)
+  watchForRefusal(options, promise);
   try {
     const method = String((options && options.method) || 'GET').toUpperCase();
     const label = describe(url, method);

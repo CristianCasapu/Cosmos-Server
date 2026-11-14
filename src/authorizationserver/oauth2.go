@@ -374,7 +374,7 @@ func detectCallbackEndpoint(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	
-	userMod.SendUserToken(w, req, userInBase, true, false)
+	userMod.SendUserToken(w, userMod.NewSession(req), userInBase, true, false) // Fork addition: a sign-in starts a session, see user/fork_session_life.go
 
 	// redirect to user page 
 	// TODO: redirect to RIGHT PAGE

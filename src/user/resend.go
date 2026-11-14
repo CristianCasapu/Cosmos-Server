@@ -62,10 +62,11 @@ func UserResendInviteLink(w http.ResponseWriter, req *http.Request) {
 			RegisterKeyExp := time.Now().Add(time.Hour * 24 * 7)
 			RegisterKey := utils.GenerateRandomString(48)
 
-			err := utils.UpdateUser(nickname, map[string]interface{}{
+			// Fork addition: a password reset by an administrator ends the account's sessions, see fork_session_life.go
+			err := utils.UpdateUser(nickname, withSessionsEnded(user, request.FormType, map[string]interface{}{
 				"RegisterKeyExp": RegisterKeyExp,
 				"RegisterKey": RegisterKey,
-			})
+			}))
 
 			if err != nil {
 				utils.Error("UserInvite: Error while updating user", err)

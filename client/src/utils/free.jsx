@@ -20,6 +20,7 @@ import { Warning as WarningIcon, Check as CheckIcon } from '@mui/icons-material'
 import bannerConst from '../assets/images/const_banner.png';
 import bannerStor from '../assets/images/stor_banner.png';
 import { getCurrencyFromLanguage } from './indexs';
+import { withPaidOfferGate } from '../components/paidVisibility'; // Fork addition
 
 const PremiumSalesPage = ({salesKey, extra}) => {
   const banners = {
@@ -226,4 +227,5 @@ const PremiumSalesPage = ({salesKey, extra}) => {
   );
 };
 
-export default PremiumSalesPage;
+// Fork addition: every offer goes through the gate (components/paidVisibility.jsx).
+export default withPaidOfferGate(PremiumSalesPage);

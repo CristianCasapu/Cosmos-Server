@@ -1,0 +1,9 @@
+# Installed by the Cosmos fork (fork/fail2ban/install.sh).
+#
+# Fail2ban puts bans back after a restart from its database, and forgets a
+# ban this long after it was issued, whatever the ban's length: with the
+# default of one day a one-week ban would be gone after a reboot on day two.
+# 32 days covers the longest ban the Cosmos panel accepts (31 days).
+
+[DEFAULT]
+dbpurgeage = 32d

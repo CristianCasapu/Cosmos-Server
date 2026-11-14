@@ -83,20 +83,26 @@ const (
 	SecScanProbe         = "scan.probe"
 
 	// what administrators do
-	SecConfigSaved       = "config.saved"
-	SecRouteCreated      = "route.created"
-	SecRouteUpdated      = "route.updated"
-	SecRouteDeleted      = "route.deleted"
-	SecContainerAction   = "container.action"
-	SecContainerDeleted  = "container.deleted"
-	SecContainerCreated  = "container.created"
-	SecContainerEdited   = "container.edited"
-	SecContainerTerminal = "container.terminal.opened"
-	SecHostTerminal      = "host.terminal.opened"
-	SecServerUpdate      = "server.update.started"
-	SecServerRestart     = "server.restart"
-	SecSnapshotRestore   = "snapshot.restore.started"
-	SecAPIChange         = "api.change"
+	SecConfigSaved          = "config.saved"
+	SecRouteCreated         = "route.created"
+	SecRouteUpdated         = "route.updated"
+	SecRouteDeleted         = "route.deleted"
+	SecContainerAction      = "container.action"
+	SecContainerDeleted     = "container.deleted"
+	SecContainerCreated     = "container.created"
+	SecContainerEdited      = "container.edited"
+	SecContainerTerminal    = "container.terminal.opened"
+	SecHostTerminal         = "host.terminal.opened"
+	SecServerUpdate         = "server.update.started"
+	SecServerUpdateRejected = "server.update.rejected"
+	SecServerRestart        = "server.restart"
+	SecSnapshotRestore      = "snapshot.restore.started"
+	SecAPIChange            = "api.change"
+
+	// Fail2ban (src/fail2ban). A kind is lower-case letters and dots, hence "firewall".
+	SecFail2banBan      = "firewall.ban"
+	SecFail2banUnban    = "firewall.unban"
+	SecFail2banSettings = "firewall.settings.saved"
 
 	// the record about itself
 	SecRecorderDropped = "recorder.dropped"
@@ -369,7 +375,13 @@ func RecordSecuritySessionError(req *http.Request, err error) {
 	case message == "User not found":
 		reason = "unknown_user"
 	case strings.Contains(message, "Password cycle changed"):
-		reason = "password_changed"
+		reason = "password_changed" // also: logged out since, on any device
+	case strings.Contains(message, "older than the maximum session age"):
+		reason = "session_too_old"
+	case strings.Contains(message, "Session has no start"):
+		reason = "session_unknown_start"
+	case strings.Contains(message, "before the account was created"):
+		reason = "account_recreated"
 	case strings.Contains(message, "No permissions for user role"):
 		reason = "no_role"
 	case strings.Contains(message, "falsified"), strings.Contains(message, "verification error"),

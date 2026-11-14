@@ -4,13 +4,17 @@ import (
 	"os"
 	"errors"
 	"strings"
-	"fmt"
 
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
 // Mount mounts a filesystem located at 'path' to 'mountpoint'.
 func MountMergerFS(paths []string, mountpoint string, opts string, permanent bool, chown string) error {
+	// Fork addition: the request is checked before anything is created, run or written (fork_mount_safety.go)
+	if err := checkMergeRequest(paths, mountpoint, opts, chown); err != nil {
+		return err
+	}
+
 	utils.Log("[STORAGE] Merging " + strings.Join(paths, ":") + " into " + mountpoint)
 
 	// Check if mountpoint exists
@@ -67,7 +71,8 @@ func MountMergerFS(paths []string, mountpoint string, opts string, permanent boo
 		}
 
 		// Format the fstab entry
-		fstabEntry := fmt.Sprintf("\n%s %s mergerfs use_ino,cache.files=partial,dropcacheonclose=true,allow_other,category.create=mfs%s 0 0\n", strings.Join(paths, ":"), mountpoint, opts)
+		// Fork addition: with nofail, see fork_mount_safety.go
+		fstabEntry := mergeFstabEntry(paths, mountpoint, opts)
 
 		// Append to /etc/fstab
 		file, err := os.OpenFile("/etc/fstab", os.O_APPEND|os.O_WRONLY, 0644)

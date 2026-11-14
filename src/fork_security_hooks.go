@@ -28,6 +28,8 @@ func registerSecurityRoutes(admin *mux.Router) {
 	admin.HandleFunc("/api/security/counts", security.CountsRoute)
 	admin.HandleFunc("/api/security/top-ips", security.TopIPsRoute)
 	admin.HandleFunc("/api/security/kinds", security.KindsRoute)
+	admin.HandleFunc("/api/security/overview", security.OverviewRoute)   // the dashboard
+	admin.HandleFunc("/api/security/incidents", security.IncidentsRoute) // the dashboard
 }
 
 // securityAudit is utils.SecurityAudit reading the status of the answer

@@ -124,14 +124,6 @@ func RefreshUserToken(w http.ResponseWriter, req *http.Request) ([]utils.Permiss
 		return nil, false, utils.User{}, errors.New("Token not valid")
 	}
 
-	// Fork addition: a token that was logged out is not accepted again, see fork_logout_revoke.go
-	if tokenRevoked(tokenString) {
-		utils.Error("UserToken: token was logged out", nil)
-		logOutUser(w, req)
-		redirectToReLogin(w, req)
-		return nil, false, utils.User{}, errors.New("Token was logged out")
-	}
-
 	var (
 		nickname      string
 		passwordCycle int
@@ -192,6 +184,15 @@ func RefreshUserToken(w http.ResponseWriter, req *http.Request) ([]utils.Permiss
 		return nil, false, utils.User{}, errors.New("Password cycle changed, token is too old")
 	}
 
+	// Fork addition: a session has a start and a maximum age, see fork_session_life.go
+	life, errLife := sessionLifeOf(claims, userInBase)
+	if errLife != nil {
+		utils.Error("UserToken: "+errLife.Error(), nil)
+		logOutUser(w, req)
+		redirectToReLogin(w, req)
+		return nil, false, utils.User{}, errLife
+	}
+
 	requestURL := req.URL.Path
 	// Fork addition: no path is exempt from the second factor, see fork_session.go (upstream: three path prefixes)
 	isSettingMFA := secondFactorExempt(requestURL)
@@ -217,25 +218,12 @@ func RefreshUserToken(w http.ResponseWriter, req *http.Request) ([]utils.Permiss
 	}
 
 	// Determine sudo state from sudo-until timestamp
-	isSudoed := false
+	// Fork addition: the confirmation ends two hours after the password and no
+	// request renews it, see fork_session_life.go (upstream re-issued the
+	// token with two new hours whenever it was used in its second hour)
 	hasSudoPerms := utils.PermissionsHaveSudo(permissions)
+	isSudoed := hasSudoPerms && life.sudoActive()
 	resendToken := false
-
-	if hasSudoPerms {
-		if sudoUntilRaw, ok := claims["sudo-until"]; ok {
-			sudoUntil := int64(sudoUntilRaw.(float64))
-			if sudoUntil > time.Now().Unix() {
-				isSudoed = true
-				// If close to sudo expiry (within 1 hour), refresh
-				if time.Now().Unix() + 3600 > sudoUntil {
-					resendToken = true
-					utils.Debug("UserToken: Sudo refreshing")
-				}
-			}
-			// else: sudo expired, isSudoed stays false
-		}
-		// else: no sudo-until claim, isSudoed stays false
-	}
 
 	// if close to expiration, refresh
 	if int64(claims["iat"].(float64)) + (24 * 3600) < time.Now().Unix() {
@@ -266,7 +254,8 @@ func RefreshUserToken(w http.ResponseWriter, req *http.Request) ([]utils.Permiss
 	}
 
 	if resendToken {
-		SendUserToken(w, req, userInBase, mfaDone, isSudoed)
+		// Fork addition: the re-issued token continues the session it replaces, see fork_session_life.go
+		SendUserToken(w, carriedSession(req, life), userInBase, mfaDone, isSudoed)
 	}
 
 	return permissions, isSudoed, userInBase, nil
@@ -327,7 +316,11 @@ func SendUserToken(w http.ResponseWriter, req *http.Request, user utils.User, mf
 	reqHostname := req.Host
 	reqHostNoPort := strings.Split(reqHostname, ":")[0]
 
-	expiration := time.Now().Add(14 * 24 * time.Hour)
+	// Fork addition: when the session started and until when the password
+	// counts as confirmed are fixed points that a re-issue copies, see
+	// fork_session_life.go (upstream: 14 days and two hours from every issue)
+	life := sessionLifeFor(req, user, sudoed)
+	expiration := life.cookieExpiry()
 
 	// Resolve permissions from role at token creation time
 	perms := utils.GetRolePermissions(user.Role)
@@ -346,12 +339,13 @@ func SendUserToken(w http.ResponseWriter, req *http.Request, user utils.User, mf
 	claims["nbf"] = time.Now().Unix()
 	claims["mfaDone"] = mfaDone
 	claims["forDomain"] = reqHostNoPort
+	claims[sessionStartClaim] = life.start // Fork addition
 
 	sudoUntil := int64(-1)
 
 	// if sudoed, add a timeout
-	if sudoed {
-		sudoUntil = time.Now().Add(time.Hour * 2).Unix()
+	if life.sudoUntil > 0 { // Fork addition: the end the session already has (upstream: if sudoed, two hours from now)
+		sudoUntil = life.sudoUntil
 		claims["sudo-until"] = sudoUntil
 	}
 

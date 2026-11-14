@@ -37,15 +37,15 @@ upstream 0.23.4 unless noted and may have moved.
 The findings, with where and how, are kept outside this public repository
 (the owner has them). Decisions that are the owner's:
 
-1. Signed releases: updates install automatically and only GitHub's TLS and a
-   checksum from the same release stand before root. An Ed25519 signature
-   checked by server and launcher; needs a key the owner generates.
-2. Upstream releases reach `production` after three days without a look: an
-   approval step (one click per release).
-3. The release workflow as two jobs: a build without write rights, a publish.
-4. Password confirmation (sudo) renews itself while a tab is open: a fixed
-   two hours instead.
-5. "Log out everywhere" and a maximum session age.
+1. to 5. Done: signed releases, approval of upstream releases, the release
+   workflow in two jobs, the two-hour password confirmation, logout that
+   ends every session with a 30-day maximum (see `FORK.md`). Left from
+   these: a spare release key in slot 2 with an offline copy (without one,
+   losing the secret means one release installed by hand); a ruleset on
+   `production` and two-factor on the GitHub account, since signing does not
+   protect against someone who can push to `production`; repeating a
+   refused command by itself after the password; "skip this upstream
+   release for good".
 6. Labels that come from an image (`cosmos-force-network-mode` and the like)
    are obeyed: ignore them unless set by the admin.
 7. Routes that act on GET: POST only, with the UI changed to match.
@@ -74,6 +74,23 @@ security record.
   (check Constellation's and existing repositories' compatibility first).
 - GitHub Actions are pinned by commit but to old majors (Node 20 runtime).
 
+## Security features: left for later (2026-11-13)
+
+- Dashboard: thresholds of the status line are constants; "Under attack" does
+  not say whether the attacking addresses are already blocked; a refused
+  cross-site request is logged but not in the record.
+- Audit: where "Recent activity on your account" lives (home page for now);
+  the 2000-line export cap; the own-activity view hides why a login failed.
+- Telegram: a "find my chat ID" button; the bell for "update available" and
+  "container keeps stopping"; SMART warnings (nothing raises them); alerts
+  are sorted by name, not metric; no proxy setting.
+- Fail2ban: enabling single jails or banning by hand from the panel; bans of
+  an IPv6 /64; SmartShield's whitelist as never-ban list; events for bans
+  that expire; its never-ban list holds the LAN's IPv6 prefix as it was at
+  install time (the host guard refreshes its own copy every ten minutes).
+- Upstream asks `/api/me` about 47 times per page load, which eats into the
+  500-requests-a-minute limit.
+
 ## Usability gaps found in the code
 
 | # | Gap | Where |
@@ -81,9 +98,8 @@ security record.
 | 1 | No choice of where an app's data goes at install (config vs bulk data, per disk); named volumes land in Docker's root | install wizard, `DefaultDataPath` only |
 | 3 | No system-health overview (certificate expiry, failed jobs, stopped containers, full disks); the container-updates banner never shows (`.length` on a map) | `servapps.jsx:296` |
 | 10 | "Provided" certificate mode and certificate status | check again on 0.24.0, the Domains tab changed this |
-| 12 | A permanent mount is written to `/etc/fstab` by device path (`/dev/sdb1`, not a UUID) and without `nofail`: a missing or renamed disk can stop the boot. The server does not check that the mount point is under `/mnt` (only the form does) | `src/storage/mounts.go` |
 
-(2 data disks, 4 time zone, 5 port conflicts, 6 image defaults, 7 help texts, 8 maintenance time, 9 schedules, 11 file picker shortcuts, 13 volume usage, 14 volume paths and 15 alerts are done; see `FORK.md`.)
+(2 data disks, 4 time zone, 5 port conflicts, 6 image defaults, 7 help texts, 8 maintenance time, 9 schedules, 12 mounts, 11 file picker shortcuts, 13 volume usage, 14 volume paths and 15 alerts are done; see `FORK.md`.)
 
 Limits of the port check (5): ports of stopped containers are not known, Cosmos' own ports are read from the saved settings (not from `COSMOS_HTTP_PORT`/`COSMOS_HTTPS_PORT`), host-network containers are not covered.
 

@@ -88,6 +88,40 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }))
   }
 
+  // Fork addition: the user audit panel (src/security/useraudit*.go). All GET,
+  // read only; the query is built by utils/auditFilters.js.
+  function securityAudit(query: string, cursor = 0, limit = 50, quiet = false) {
+    const params = new URLSearchParams(query || '');
+    if (cursor) params.set('cursor', String(cursor));
+    params.set('limit', String(limit));
+    return wrap(apiFetch('/cosmos/api/security/audit?' + params.toString(), {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }), quiet)
+  }
+
+  function securityUserSummary(user: string) {
+    return wrap(apiFetch('/cosmos/api/security/user-summary?' + new URLSearchParams({ user }).toString(), {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }))
+  }
+
+  function securityMyActivity(cursor = 0, limit = 20) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cursor) params.set('cursor', String(cursor));
+    return wrap(apiFetch('/cosmos/api/security/my-activity?' + params.toString(), {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }), true)
+  }
+
   function upnpRetry() {
     return wrap(apiFetch('/cosmos/api/upnp', {
       method: 'POST',
@@ -146,6 +180,61 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ Source: source, Snapshot: snapshot }),
+    }))
+  }
+
+  // Fork addition: Fail2ban on the server (src/fail2ban). GET = whether it is
+  // installed and running, the fork's jails, the banned addresses and the
+  // settings; unban lifts one ban (jail "" = every jail of the fork);
+  // settings writes the thresholds and the never-ban list.
+  function fail2banStatus() {
+    return wrap(apiFetch('/cosmos/api/fail2ban', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }))
+  }
+
+  function fail2banUnban(ip: string, jail: string) {
+    return wrap(apiFetch('/cosmos/api/fail2ban/unban', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ ip, jail }),
+    }))
+  }
+
+  function fail2banSettings(settings: { jails: Record<string, { maxRetry: number, findTime: number, banTime: number }>, ignoreIP: string[] }) {
+    return wrap(apiFetch('/cosmos/api/fail2ban/settings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(settings),
+    }))
+  }
+
+  // Fork addition: notifications through Telegram (src/telegram). GET = how
+  // deliveries go (no settings in it); the test sends one message with the
+  // settings given, saved or not, and answers with Telegram's verdict in words.
+  function telegramStatus() {
+    return wrap(apiFetch('/cosmos/api/telegram', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }))
+  }
+
+  function telegramTest(telegramConfig) {
+    return wrap(apiFetch('/cosmos/api/telegram/test', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ Telegram: telegramConfig }),
     }))
   }
 
@@ -288,10 +377,18 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     upnpRetry,
     reachability,
     reachabilityCheck,
+    securityAudit, // Fork addition: user audit panel
+    securityUserSummary,
+    securityMyActivity,
     snapshotsStatus,
     snapshotsRun,
     snapshotsRestore,
     snapshotsCleanup,
+    telegramStatus,
+    telegramTest,
+    fail2banStatus,
+    fail2banUnban,
+    fail2banSettings,
     getBackup,
     getDashboard,
     updateDNS,

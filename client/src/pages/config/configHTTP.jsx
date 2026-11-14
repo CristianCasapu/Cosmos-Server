@@ -16,6 +16,7 @@ import CountrySelect from '../../components/countrySelect';
 import { isDomain } from '../../utils/indexs';
 import { Trans, useTranslation } from 'react-i18next';
 import InternetAccess from './internetAccess';
+import { PaidOnly } from '../../components/paidVisibility'; // Fork addition
 
 const ConfigHTTP = ({ formik }) => {
   const { t } = useTranslation();
@@ -173,11 +174,13 @@ const ConfigHTTP = ({ formik }) => {
             helperText={t('mgmt.config.security.adminRestrictions.adminWhitelistInput.adminWhitelistHelperText')}
           />
 
+          <PaidOnly keep={formik.initialValues.AdminConstellationOnly}>{/* Fork addition: needs Constellation, hence a licence */}
           <CosmosCheckbox
             label={t('mgmt.config.security.adminRestrictions.adminConstellationCheckbox.adminConstellationLabel')}
             name="AdminConstellationOnly"
             formik={formik}
           />
+          </PaidOnly>
         </Grid>
       </MainCard>
     </Stack>

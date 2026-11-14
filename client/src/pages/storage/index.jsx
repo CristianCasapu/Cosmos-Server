@@ -54,14 +54,16 @@ const StorageIndex = () => {
           children: <div>
             {(!coStatus || !coStatus.Licence) ? <RemoteStorageSalesPage containerized={containerized}/> : <RClonePage containerized={containerized} coStatus={coStatus}/>}
           </div>,
-          path: 'external'
+          path: 'external',
+          paid: true, // Fork addition: needs a licence (components/paidVisibility.jsx)
         },
         {
           title: t('mgmt.storage.sharesTitle'),
           children: <div>
             {(!coStatus || !coStatus.Licence) ? <RemoteStorageSalesPage /> : <RCloneServePage />}
           </div>,
-          path: 'shares'
+          path: 'shares',
+          paid: true, // Fork addition: needs a licence (components/paidVisibility.jsx)
         },
         {
           title: t('mgmt.storage.mergeTitle'),

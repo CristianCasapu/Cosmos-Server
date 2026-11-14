@@ -1,0 +1,6 @@
+cosmos-fork-release-v1
+version 0.24.0-fork.11
+sha256 575cf6b1d453fe776613e513c4e5e6eac3c25fc6a31ce1ec8a72f1f1af3596b0 cosmos-cloud-0.24.0-fork.11-amd64.zip
+sha256 fcf65ad7b4f134483a7d8426f402b7a7dfe7abfbcaf020de55c90e90a2383b01 cosmos-cloud-0.24.0-fork.11-arm64.zip
+signature XfxT/eLfYy3lpszd88vLZ9dZwqZ9xKo1pcg3BQ5dAgFAMWkx0AEowhQngRtHCzFis0SCz0aPAXTQYPlBb0BIBQ==
+signature pdd3+v7WeYJlvONn7wfY4P84bl1jSP8oZu9j1gc6jY0q+hhEkOMoGo0Y81B+hxh3a6Jxlt+wBLMmvQV6LQOpDg==
