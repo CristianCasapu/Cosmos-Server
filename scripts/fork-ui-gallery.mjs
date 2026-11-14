@@ -63,6 +63,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 //   close: fn       undo it (default after `open`: Escape)
 //   core: true      part of the small set
 //   mock: [[path, body]]  answer the API calls under `path` with `body` instead of asking the server
+//   patch: [[path, fn]]   ask the server, then change its JSON answer with fn(json, url) before the page gets it
 // A step that cannot be done is reported in the summary, not fatal.
 // ---------------------------------------------------------------------------
 // the page's main action ("Create", "New ..."): the first filled button with a plus, above the list
@@ -121,6 +122,7 @@ const views = [
   { id: 'urls', path: '/cosmos-ui/config-url', core: true, captures: [
     {},
     { id: 'new', open: create },
+    { id: 'no-match', open: async (page) => { await page.locator('main input[placeholder]').first().fill('zzzz-nothing'); }, close: async (page) => { await page.locator('main input[placeholder]').first().fill(''); } },
     { id: 'shield', tab: 1 },
     { id: 'whitelist', tab: 2 },
   ] },
@@ -168,6 +170,19 @@ const views = [
   { id: 'monitoring-no-metrics', path: '/cosmos-ui/monitoring', wait: 1500, mock: [['/cosmos/api/metrics', { status: 'OK', data: null }]], captures: [{}, { id: 'proxy', tab: 1, wait: 800 }] },
   { id: 'monitoring-empty-metrics', path: '/cosmos-ui/monitoring', wait: 1500, mock: [['/cosmos/api/metrics', { status: 'OK', data: [] }]], captures: [{}, { id: 'proxy', tab: 1, wait: 800 }] },
   { id: 'container-no-metrics', path: '/cosmos-ui/servapps/containers/jellyfin', wait: 800, mock: [['/cosmos/api/metrics', { status: 'OK', data: null }]], captures: [{ id: 'monitoring', tab: 2, wait: 1200 }] },
+  // the home page's health card: every kind of problem at once, and all well
+  { id: 'home-health', path: '/cosmos-ui/', core: true, wait: 1500, patch: [
+    ['/cosmos/api/list-metrics', (j) => ({ ...j, data: { ...(j.data || {}), 'cosmos.system.disk./storage': 'Disk /storage' } })],
+    ['/cosmos/api/metrics', (j, url) => (/cosmos\.system\.disk\./.test(decodeURIComponent(url)) ? { status: 'OK', data: [{ Key: 'cosmos.system.disk./storage', Max: 4000e9, Values: [{ Value: 3880e9 }] }] } : j)],
+    ['/cosmos/api/snapshots', () => ({ status: 'OK', data: { enabled: true, sources: [{ path: '/storage/photos', lastError: 'The folder was empty: is the disk mounted?' }] } })],
+    ['/cosmos/api/jobs', (j) => ({ ...j, data: { ...(j.data || {}), Custom: { ...((j.data || {}).Custom || {}), 'nightly-cleanup': { Name: 'nightly-cleanup', Scheduler: 'Custom', LastRun: '2026-11-14T03:00:00Z', LastRunSuccess: false } } } })],
+  ] },
+  { id: 'home-calm', path: '/cosmos-ui/', wait: 1500, patch: [
+    ['/cosmos/api/jobs', () => ({ status: 'OK', data: { Custom: {} } })],
+    ['/cosmos/api/servapps', (j) => ({ ...j, data: (j.data || []).filter((c) => c.State !== 'exited' || !/Exited \((?!0|137|143)\d+\)/.test(c.Status)) })],
+  ] },
+  // the "updates are available" line on ServApps (the test images have no newer version)
+  { id: 'servapps-updates', path: '/cosmos-ui/servapps', wait: 1200, patch: [['/cosmos/api/config', (j) => ({ ...j, updates: { '/jellyfin': true, '/radarr': true } })]] },
   // upstream's licence-only pages: one picture each, for the record
   { id: 'paid-backups', path: '/cosmos-ui/backups' },
   { id: 'paid-constellation', path: '/cosmos-ui/constellation' },
@@ -568,6 +583,17 @@ const run = async (engineName, viewport, mode) => {
     await room(perLoad);
     const before = stamps.length;
     for (const [part, body] of view.mock || []) await page.route((url) => url.pathname.startsWith(part), (route) => route.fulfill({ json: body }));
+    for (const [part, change] of view.patch || []) {
+      await page.route((url) => url.pathname === part || url.pathname.startsWith(part + '?'), async (route) => {
+        try {
+          const answer = await route.fetch();
+          let json = null;
+          try { json = await answer.json(); } catch (e) { /* not JSON: passed on */ }
+          if (json === null) return route.fulfill({ response: answer });
+          return route.fulfill({ response: answer, json: change(json, route.request().url()) });
+        } catch (e) { return route.continue().catch(() => {}); }
+      });
+    }
     try { await page.goto(base + view.path, { waitUntil: 'domcontentloaded' }); } catch (e) { note(label, view.id, 'did not load:', e.message.slice(0, 120)); return; }
     await settle(view.wait || 0);
     perLoad = Math.max(perLoad, Math.min(stamps.length - before + 20, 260));
@@ -588,7 +614,7 @@ const run = async (engineName, viewport, mode) => {
         }
       } catch (e) { /* the next step reports what is in its way */ }
     }
-    if (view.mock) await page.unrouteAll({ behavior: 'ignoreErrors' });
+    if (view.mock || view.patch) await page.unrouteAll({ behavior: 'ignoreErrors' });
   };
 
   // the pages that need no session, then the login through its form

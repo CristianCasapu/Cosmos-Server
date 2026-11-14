@@ -15,7 +15,8 @@ import {
   Stack,
   TextField,
   Typography,
-  Alert
+  Alert,
+  useMediaQuery
 } from '@mui/material';
 import MainCard from '../../../components/MainCard';
 
@@ -36,6 +37,8 @@ const PlotComponent = ({ title, slot, data, SimpleDesign, withSelector, xAxis, z
      : 0);
      
   const isDark = theme.palette.mode === 'dark';
+  // Fork addition: on a phone one labelled axis and no axis titles (two columns of labels took half the chart)
+  const phone = useMediaQuery('(max-width:599.95px)');
 
   const backColor = isDark ? '0,0,0' : '255,255,255';
   const textColor = isDark ? 'white' : 'dark';
@@ -116,22 +119,23 @@ const PlotComponent = ({ title, slot, data, SimpleDesign, withSelector, xAxis, z
           show: !SimpleDesign,
           color: line
         },
-        tickAmount: xAxis.length,
+        tickAmount: phone ? Math.min(4, xAxis.length) : xAxis.length, // Fork addition: fewer labels on a phone
         min: zoom.xaxis && zoom.xaxis.min,
         max: zoom.xaxis && zoom.xaxis.max,
       },
       yaxis: toProcess.map((thisdata, ida) => ({
         opposite: ida % 2 === 1, 
+        show: !(phone && ida > 0), // Fork addition: the other series keep their own scale, the legend names them
         labels: {
           style: {
             colors: [secondary],
-            fontSize: '11px',
+            fontSize: '12px', // Fork addition: was 11px
           },
           
           formatter: FormaterForMetric(thisdata)
         },
         title: {
-          text: thisdata && thisdata.Label,
+          text: phone ? undefined : (thisdata && thisdata.Label), // Fork addition: no rotated title on a phone
         },
         max: (thisdata && thisdata.Max) ? thisdata.Max : undefined,
         min: (thisdata && thisdata.Max) ? 0 : undefined,
@@ -163,7 +167,7 @@ const PlotComponent = ({ title, slot, data, SimpleDesign, withSelector, xAxis, z
         data: serie.dataAxis
       }
     }));
-  }, [slot, data, selected]);
+  }, [slot, data, selected, phone]);
 
   useEffect(() => {
     // if different

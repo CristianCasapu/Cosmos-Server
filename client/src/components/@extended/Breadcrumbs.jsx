@@ -21,6 +21,7 @@ const Breadcrumbs = ({ navigation }) => {
     const crumbs = crumbsFor(location.pathname, menuEntries(navigation));
 
     if (!crumbs.length) return <Typography />;
+    // (the page's own name, the last crumb, is the page's one first-level heading for screen readers)
 
     return (
         <Box className="ct-breadcrumbs" sx={{ mb: { xs: 2, sm: 2.5 } }}>
@@ -33,7 +34,7 @@ const Breadcrumbs = ({ navigation }) => {
                             {text}
                         </Typography>
                     ) : (
-                        <Typography key={index} variant="subtitle1" color="textPrimary" aria-current={last ? 'page' : undefined} sx={{ overflowWrap: 'anywhere' }}>
+                        <Typography key={index} variant="subtitle1" component={last ? 'h1' : 'span'} color="textPrimary" aria-current={last ? 'page' : undefined} sx={{ overflowWrap: 'anywhere' }}>
                             {text}
                         </Typography>
                     );

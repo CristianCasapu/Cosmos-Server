@@ -15,6 +15,7 @@ import { DisconnectOutlined } from '@ant-design/icons';
 import ThrottledNotice from './components/throttledNotice'; // Fork addition
 import { throttledRecently } from './utils/sessionCheck'; // Fork addition
 import { PWAUpdateNotice } from './components/pwa'; // Fork addition: the installable app, see components/pwa.jsx
+import SkinAccent from './components/skinAccent'; // Fork addition
 
 // ==============================|| APP - THEME, ROUTER, LOCAL  ||============================== //
 
@@ -98,6 +99,7 @@ const App = () => {
             </ScrollTop>
             <ActivityIndicator />
             <PWAUpdateNotice />{/* Fork addition */}
+            <SkinAccent primary={PrimaryColor} secondary={SecondaryColor} />{/* Fork addition: the skin takes the Theme colours */}
         </ThemeCustomization>
 
         : <div>

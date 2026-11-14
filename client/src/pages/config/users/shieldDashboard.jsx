@@ -150,6 +150,7 @@ const ShieldDashboard = () => {
       <Grid item xs={12}>
         <Typography variant="h5" style={{ marginBottom: '10px' }}>{t('mgmt.shield.bans.title')}</Typography>
         <PrettyTableView
+            empty={{ title: t('emptyState.bans.title', 'No address is blocked'), text: t('emptyState.bans.text', 'Addresses SmartShield blocks for abuse appear here, with the time their block ends.') }} /* Fork addition: what this list is for and how it fills */
           isLoading={clients === null}
           data={clients || []}
           getKey={(c) => c.clientID}

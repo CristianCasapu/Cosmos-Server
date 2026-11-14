@@ -195,6 +195,13 @@ func GetFavicon(w http.ResponseWriter, req *http.Request) {
 	// Keyed by the configured URL, not the dialed address: container IPs and redirects change and must not invalidate a cached icon.
 	cacheKey := siteurl
 
+	// Fork addition: one lookup per application, never under the lock of all icons, and the
+	// placeholder when it takes long or failed a moment ago (fork_icon_wait.go). The rest of
+	// this function is upstream's search, kept unchanged for merges and no longer used.
+	if forkServeFavicon(w, cacheKey, siteurl, container) {
+		return
+	}
+
 	IconCacheLock <- true
 	defer func() { <-IconCacheLock }()
 

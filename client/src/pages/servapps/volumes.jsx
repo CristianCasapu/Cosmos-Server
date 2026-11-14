@@ -53,6 +53,7 @@ const VolumeManagementList = () => {
 
             {rows && (
                 <PrettyTableView
+            empty={{ title: t('emptyState.volumes.title', 'No volumes'), text: t('emptyState.volumes.text', 'Docker volumes keep the data of apps. They are created with the apps that need them, or with “New Volume” above.') }} /* Fork addition: what this list is for and how it fills */
                     data={rows}
                     isLoading={isLoading}
                     onRowClick={() => {}}

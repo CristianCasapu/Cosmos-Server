@@ -113,6 +113,7 @@ const ShieldWhitelist = () => {
     {error && <Alert severity="error" style={{ marginBottom: '10px' }}>{error}</Alert>}
 
     <PrettyTableView
+            empty={{ title: t('emptyState.whitelist.title', 'Nobody is on the whitelist'), text: t('emptyState.whitelist.text', 'Addresses listed here are never blocked by SmartShield. Add one with the button above.') }} /* Fork addition: what this list is for and how it fills */
       isLoading={config === null}
       data={entries}
       getKey={(e, i) => i + e.IP}

@@ -155,6 +155,7 @@ const VolumeContainerSetup = ({
                     <Grid item xs={12}>
                       {volumes && (
                         <PrettyTableView
+            empty={{ title: t('emptyState.containerVolumes.title', 'No volumes or folders'), text: t('emptyState.containerVolumes.text', 'This app keeps nothing outside its container: its data is lost when it is re-created. Add a volume or a folder of the server with the + button above.') }} /* Fork addition: what this list is for and how it fills */
                           data={formik.values.volumes}
                           onRowClick={() => {}}
                           getKey={(r) => r.Id}

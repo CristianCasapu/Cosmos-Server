@@ -298,7 +298,7 @@ const ServApps = ({stack}) => {
         {/* Fork addition: updatesAvailable is a map of container names, ".length" was never set */}
         {updatesAvailable && Object.keys(updatesAvailable).length > 0 && <Grid2 style={gridAnim} xs={12} item>
           <Item>
-            <Alert severity="info">{t('mgmt.servapps.updatesAvailableFor')} {Object.keys(updatesAvailable).join(', ')}</Alert>
+            <Alert severity="info">{t('mgmt.servapps.updatesAvailableFor')} {Object.keys(updatesAvailable).map((name) => name.replace(/^\//, '')).join(', ')}</Alert>
           </Item>
         </Grid2>}
         {/* Fork addition: one action for the apps that have no URL at all */}
@@ -442,7 +442,7 @@ const ServApps = ({stack}) => {
                       }}
                     /> Isolate Container Network <ContainerNetworkWarning container={app.app} />
                   </Stack> */}
-                  <Stack style={{ fontSize: '80%' }} direction={"row"} alignItems="center">
+                  <Stack component="label" style={{ fontSize: '80%' }} direction={"row"} alignItems="center">{/* Fork addition: a label, so the box has a name */}
                     <Checkbox
                       checked={app.labels['cosmos-auto-update'] === 'true' ||
                         (selfName && app.name.replace('/', '') == selfName && config.AutoUpdate)}

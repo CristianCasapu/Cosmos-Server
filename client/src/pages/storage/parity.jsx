@@ -143,7 +143,8 @@ export const Parity = () => {
         </Stack>
       <div>
       {editOpened && <SnapRAIDDialogInternal refresh={refresh} open={editOpened} setOpen={setEditOpened} data={editOpened} />}
-      {parities && <PrettyTableView 
+      {parities && <PrettyTableView
+            empty={{ title: t('emptyState.parity.title', 'No parity set'), text: t('emptyState.parity.text', 'A parity set (SnapRAID) protects data disks against the loss of one of them. Create one with the button above.') }} /* Fork addition: what this list is for and how it fills */
         data={parities}
         getKey={(r) => r.Name}
         columns={[

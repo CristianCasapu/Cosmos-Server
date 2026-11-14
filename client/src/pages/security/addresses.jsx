@@ -68,6 +68,7 @@ const Addresses = ({ overview, bans, bansKnown, catalogue, onShowAddress, onUnba
       </MainCard>
     ) : (
       <PrettyTableView
+            empty={{ title: t('emptyState.addresses.title', 'No address stood out'), text: t('emptyState.addresses.text', 'Addresses behind failed sign-ins, probes or refused requests in this period are listed here.') }} /* Fork addition: what this list is for and how it fills */
         data={top}
         getKey={(a) => a.ip}
         columns={[

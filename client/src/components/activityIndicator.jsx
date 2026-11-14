@@ -87,7 +87,8 @@ const ActivityIndicator = () => {
             {activity.total > 1 ? ' · ' + t('activity.count', '{{done}}/{{total}}', { done: activity.done, total: activity.total }) : ''}
           </Typography>
           <Typography variant="caption" color="textSecondary" noWrap component="div">
-            {elapsed(now - oldest.startedAt, t)}
+            {/* the seconds are not read out each time they change: the line is a live region */}
+            <span aria-hidden="true">{elapsed(now - oldest.startedAt, t)}</span>
             {current.detail ? ' · ' + current.detail : ''}
           </Typography>
         </Box>
