@@ -268,3 +268,76 @@ func blocksUsed(t *testing.T, path string) int64 {
 	}
 	return info.Sys().(*syscall.Stat_t).Blocks * 512
 }
+
+// The snapshots are only kept where no other user can change them.
+func TestDestinationMustBeForCosmosOnly(t *testing.T) {
+	t.Run("a destination others can write to is refused", func(t *testing.T) {
+		cfg, source := fixture(t)
+		write(t, filepath.Join(source, "a.txt"), "a", 0644)
+		os.Chmod(cfg.Destination, 0777)
+		_, _, err := snapshotSource(cfg, source, day(12))
+		if err == nil || !strings.Contains(err.Error(), "chmod go-w") {
+			t.Errorf("snapshot into a destination with mode 777: %v", err)
+		}
+		if entries, _ := os.ReadDir(cfg.Destination); len(entries) != 0 {
+			t.Errorf("something was written there: %v", entries)
+		}
+	})
+
+	t.Run("the folder of a source that others can reach is closed again", func(t *testing.T) {
+		cfg, source := fixture(t)
+		write(t, filepath.Join(source, "a.txt"), "a", 0644)
+		store := filepath.Join(cfg.Destination, Slug(source))
+		os.Mkdir(store, 0755)
+		os.Chmod(store, 0757)
+		dir, _ := snap(t, cfg, source, day(12))
+		if info, _ := os.Stat(store); info.Mode().Perm() != 0700 {
+			t.Errorf("the folder of the source has mode %o, want 700", info.Mode().Perm())
+		}
+		if got := read(t, filepath.Join(dir, "a.txt")); got != "a" {
+			t.Errorf("the snapshot holds %q", got)
+		}
+	})
+
+	t.Run("a restore from a folder others can change is refused", func(t *testing.T) {
+		cfg, source := fixture(t)
+		useConfig(t, cfg)
+		write(t, filepath.Join(source, "a.txt"), "a", 0644)
+		dir, _ := snap(t, cfg, source, day(12))
+		write(t, filepath.Join(source, "a.txt"), "changed", 0644)
+		os.Chmod(filepath.Dir(dir), 0770)
+		if err := Restore(source, filepath.Base(dir)); err == nil || !strings.Contains(err.Error(), "other users") {
+			t.Errorf("restore from a folder with mode 770: %v", err)
+		}
+		os.Chmod(filepath.Dir(dir), 0700)
+		os.Chmod(cfg.Destination, 0775)
+		if err := Restore(source, filepath.Base(dir)); err == nil || !strings.Contains(err.Error(), "other users") {
+			t.Errorf("restore from a destination with mode 775: %v", err)
+		}
+		if got := read(t, filepath.Join(source, "a.txt")); got != "changed" {
+			t.Errorf("the folder was replaced: %q", got)
+		}
+	})
+
+	t.Run("folders of another user are refused", func(t *testing.T) {
+		if os.Geteuid() != 0 {
+			t.Skip("only root can give a folder to another user")
+		}
+		cfg, source := fixture(t)
+		write(t, filepath.Join(source, "a.txt"), "a", 0644)
+		os.Chown(cfg.Destination, 1234, 1234)
+		if _, _, err := snapshotSource(cfg, source, day(12)); err == nil || !strings.Contains(err.Error(), "belongs to user 1234") {
+			t.Errorf("snapshot into a destination of another user: %v", err)
+		}
+		os.Chown(cfg.Destination, 0, 0)
+		store := filepath.Join(cfg.Destination, Slug(source))
+		os.Mkdir(store, 0700)
+		os.Chown(store, 1234, 1234)
+		if _, _, err := snapshotSource(cfg, source, day(12)); err == nil || !strings.Contains(err.Error(), "belongs to user 1234") {
+			t.Errorf("snapshot into a folder of another user: %v", err)
+		}
+		if entries, _ := os.ReadDir(store); len(entries) != 0 {
+			t.Errorf("something was written there: %v", entries)
+		}
+	})
+}

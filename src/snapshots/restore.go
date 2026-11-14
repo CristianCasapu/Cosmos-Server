@@ -147,6 +147,17 @@ func planRestore(cfg utils.SnapshotsConfig, source string, id string) (restoreJo
 	if info, err := os.Lstat(job.snapshot); err != nil || !info.IsDir() {
 		return job, fmt.Errorf("there is no snapshot %s of %s", id, source)
 	}
+	// what is restored must come from folders no other user controls (see destination.go)
+	if info, err := os.Stat(filepath.Clean(hostPath(cfg.Destination))); err == nil {
+		if err := CheckDestination(cfg.Destination, info); err != nil {
+			return job, fmt.Errorf("the destination %w", err)
+		}
+	}
+	if info, err := os.Lstat(dir); err == nil {
+		if err := checkStoreForRestore(filepath.Join(cfg.Destination, Slug(source)), info); err != nil {
+			return job, err
+		}
+	}
 
 	// the snapshots would be moved aside with the folder, and be gone from where they are looked for
 	if clean := filepath.Clean(source); clean == cfg.Destination || inside(cfg.Destination, clean) {
