@@ -61,7 +61,8 @@ const ActivityIndicator = () => {
 
   return <>
     {/* outcomes at the top, where they do not cover the buttons of a dialog */}
-    {activity.toasts.length > 0 && <Box sx={{ ...layer, top: { xs: 12, sm: 20 } }}>
+    {/* clear of a phone's notch in the installed app (the skin's --ct-safe-top, 0 elsewhere) */}
+    {activity.toasts.length > 0 && <Box sx={{ ...layer, top: { xs: 'calc(12px + var(--ct-safe-top, 0px))', sm: 'calc(20px + var(--ct-safe-top, 0px))' } }}>
       <Stack spacing={1} sx={column} role="status" aria-live="polite">
         {activity.toasts.map((toast) => (
           // the Paper gives the tinted Alert an opaque surface to sit on
@@ -76,7 +77,7 @@ const ActivityIndicator = () => {
     </Box>}
 
     {/* what is running, at the bottom; on phones clear of the light/dark switch */}
-    {showRunning && <Box sx={{ ...layer, bottom: { xs: 68, sm: 20 } }}>
+    {showRunning && <Box sx={{ ...layer, bottom: { xs: 'calc(68px + var(--ct-safe-bottom, 0px))', sm: 'calc(20px + var(--ct-safe-bottom, 0px))' } }}>
       <Paper elevation={6} role="status" aria-live="polite"
         sx={{ ...column, px: 2, py: 1.25, display: 'flex', alignItems: 'center', gap: 1.5, borderRadius: 2 }}>
         <CircularProgress size={20} thickness={5} sx={{ flexShrink: 0 }} />

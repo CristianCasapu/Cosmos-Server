@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 import visualizer from 'rollup-plugin-visualizer';
 import { createHash } from 'crypto';
 import { readFileSync, readdirSync } from 'fs';
+import { resolve } from 'path';
+import { pwaWorker } from './client/sw/build.mjs'; // Fork addition: the installable app's service worker
 
 // Fork addition: the skin in client/public/skin is copied to the build as-is,
 // so its files get no content hash of their own. Stamp their URLs in
@@ -49,11 +51,17 @@ const proxy = {
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react(), skinVersion()],
+  plugins: [react(), skinVersion(), pwaWorker()], // Fork addition: pwaWorker writes static/sw.js
   root: 'client',
   build: {
     outDir: '../static',
     rollupOptions: {
+      // Fork addition: the page shown when the server cannot be reached is built
+      // with the panel, so that it has the skin and hashed files (client/sw/)
+      input: {
+        main: resolve('client/index.html'),
+        offline: resolve('client/offline.html'),
+      },
       plugins: [visualizer({ open: true })],
     },
   },

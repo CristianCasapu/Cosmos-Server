@@ -46,6 +46,7 @@ import ConfigHTTP from './configHTTP';
 import ConfigHTTPS from './configHTTPS';
 import ConfigExternal from './configExternal';
 import ConfigAppearance from './configAppearance';
+import { PWASettings } from '../../components/pwa'; // Fork addition: the installable app
 import ConfigAPITokens from './configAPITokens';
 import { refreshPaidVisibility } from '../../components/paidVisibility'; // Fork addition
 
@@ -176,6 +177,7 @@ const ConfigManagement = () => {
           MaintenanceTime: config.MaintenanceTime || '02:00', // fork addition
           Timezone: config.Timezone || '', // fork addition
           HidePaidFeatures: !config.ShowPaidFeatures, // Fork addition: stored inverted
+          OfferWebApp: !config.DisableWebApp, // Fork addition: stored inverted
 
           Licence: config.Licence,
           ServerToken: config.ServerToken,
@@ -290,6 +292,7 @@ const ConfigManagement = () => {
             MaintenanceTime: values.MaintenanceTime, // fork addition
             Timezone: (values.Timezone || '').trim(), // fork addition
             ShowPaidFeatures: !values.HidePaidFeatures, // Fork addition
+            DisableWebApp: !values.OfferWebApp, // Fork addition
             BlockedCountries: values.GeoBlocking,
             CountryBlacklistIsWhitelist: values.CountryBlacklistIsWhitelist,
             MonitoringDisabled: !values.MonitoringEnabled,
@@ -411,7 +414,7 @@ const ConfigManagement = () => {
                 },
                 {
                   title: t('mgmt.config.appearanceTitle'),
-                  children: wrapTab(formik, <ConfigAppearance formik={formik} />),
+                  children: wrapTab(formik, <><ConfigAppearance formik={formik} /><PWASettings formik={formik} /></>), // Fork addition: PWASettings
                   url: "/appearance",
                 },
                 {

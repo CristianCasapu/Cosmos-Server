@@ -16,6 +16,15 @@
 }
 
 :root {
+  /* ---- the parts of the screen a phone keeps for itself (notch, rounded
+     corners, home indicator). Non-zero only where index.html's
+     viewport-fit=cover lets the page under them: the installed app on an
+     iPhone, and Safari in landscape. */
+  --ct-safe-top: env(safe-area-inset-top, 0px);
+  --ct-safe-right: env(safe-area-inset-right, 0px);
+  --ct-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --ct-safe-left: env(safe-area-inset-left, 0px);
+
   /* ---- the accent. --ct-accent is for lines, rings and glows; text takes
      --ct-accent-text and white text sits on --ct-accent-fill: both are at
      least 4.5:1 in either mode, which plain #4084ff is not. */
@@ -671,7 +680,7 @@ header.MuiAppBar-root a:hover > .MuiChip-root {
 }
 .ct-savebar-unsaved.ct-savebar-first {
   position: sticky;
-  top: 72px;
+  top: calc(72px + var(--ct-safe-top));
   z-index: 10;
   border-color: var(--ct-warn-border);
 }
@@ -725,7 +734,8 @@ html:has(header.MuiAppBar-root) .ct-mode-toggle { display: none; }
 .ct-mode-toggle {
   position: fixed;
   right: 18px;
-  bottom: 18px;
+  right: calc(18px + var(--ct-safe-right));
+  bottom: calc(18px + var(--ct-safe-bottom));
   z-index: 1250; /* above the side drawer, below dialogs */
   width: 44px;
   height: 44px;
@@ -784,4 +794,66 @@ html:has(header.MuiAppBar-root) .ct-mode-toggle { display: none; }
   /* upstream's endless decorations: the sheen over "update available", the pulsing logo, the shake */
   .shinyButton::before { animation: none !important; display: none; }
   .pulsing, .shake { animation: none !important; }
+}
+
+/* ---------- the installed app: notch and home indicator ------------------- */
+
+/* The header grows by the notch and keeps its buttons clear of the rounded
+   corners; the page's first line (the toolbar-high spacer in <main>) moves
+   down by the same amount. The side menu, the page's end and the messages
+   at the bottom keep clear of the home indicator. All of it is 0 outside an
+   installed app on a phone (--ct-safe-* above). */
+header.MuiAppBar-root {
+  padding-top: var(--ct-safe-top);
+  padding-left: var(--ct-safe-left);
+  padding-right: var(--ct-safe-right);
+}
+nav.ct-drawer ~ main > .MuiToolbar-root:first-child { margin-top: var(--ct-safe-top); }
+nav.ct-drawer ~ main.MuiBox-root {
+  padding-bottom: calc(24px + var(--ct-safe-bottom)) !important;
+  padding-left: calc(16px + var(--ct-safe-left)) !important;
+  padding-right: calc(16px + var(--ct-safe-right)) !important;
+}
+@media (min-width: 600px) {
+  nav.ct-drawer ~ main.MuiBox-root {
+    padding-left: calc(24px + var(--ct-safe-left)) !important;
+    padding-right: calc(24px + var(--ct-safe-right)) !important;
+  }
+}
+.MuiDrawer-paper {
+  padding-top: var(--ct-safe-top);
+  padding-bottom: var(--ct-safe-bottom);
+  padding-left: var(--ct-safe-left);
+}
+.MuiSnackbar-root.MuiSnackbar-anchorOriginBottomCenter,
+.MuiSnackbar-root.MuiSnackbar-anchorOriginBottomLeft,
+.MuiSnackbar-root.MuiSnackbar-anchorOriginBottomRight { margin-bottom: var(--ct-safe-bottom); }
+.MuiSnackbar-root.MuiSnackbar-anchorOriginTopCenter { margin-top: var(--ct-safe-top); }
+.MuiDialog-paperFullScreen {
+  padding-top: var(--ct-safe-top);
+  padding-bottom: var(--ct-safe-bottom);
+}
+
+/* the notice of a new version floats over the page */
+.ct-pwa-update .MuiAlert-root { box-shadow: var(--ct-shadow-pop); }
+
+/* ---------- a message with a button, on a phone --------------------------- */
+
+/* MUI puts an alert's button beside its text. On a phone a long button left
+   the text a column one word (or one letter) wide; there the button goes
+   under the text, to the right. A close cross alone stays beside it. */
+@media (max-width: 599.95px) {
+  .MuiAlert-root:has(> .MuiAlert-action .MuiButton-root) { flex-wrap: wrap; }
+  .MuiAlert-root:has(> .MuiAlert-action .MuiButton-root) > .MuiAlert-message { flex: 1 1 calc(100% - 48px); min-width: 0; }
+  .MuiAlert-root:has(> .MuiAlert-action .MuiButton-root) > .MuiAlert-action { margin-left: auto; padding: 0 0 4px; }
+}
+
+/* ---------- long code lines (keys, certificates) -------------------------- */
+
+/* A key or a certificate in a <pre> kept its full width and ran out of the
+   card on a phone, cut off: it scrolls inside the card instead. */
+pre.code {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
 }

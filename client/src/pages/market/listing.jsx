@@ -318,13 +318,10 @@ const MarketPage = () => {
         {showcase && showcase.length > 0 && <Showcases showcase={showcase} isDark={isDark} isAdmin={isAdmin} />}
       </Stack>
 
-      <Stack spacing={1} style={{
+      {/* Fork addition: the margins as sx, matching the page's padding at each width (16 px at the sides of a phone: -24 px ran 8 px out of the window) */}
+      <Stack spacing={1} sx={{ mx: { xs: -2, sm: -3 }, mb: -3, p: { xs: 2, sm: 3 } }} style={{
         ...backgroundStyle,
-        marginLeft: "-24px",
-        marginRight: "-24px",
-        marginBottom: "-24px",
         minHeight: 'calc(65vh - 80px)',
-        padding: '24px',
       }}>
         <h2>{t('navigation.market.applicationsTitle')}</h2>
         {/* Fork addition: useFlexGap flexWrap (on a phone the row ran out of the window) */}

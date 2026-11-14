@@ -14,6 +14,7 @@ import { notify } from './utils/activity';
 import { DisconnectOutlined } from '@ant-design/icons';
 import ThrottledNotice from './components/throttledNotice'; // Fork addition
 import { throttledRecently } from './utils/sessionCheck'; // Fork addition
+import { PWAUpdateNotice } from './components/pwa'; // Fork addition: the installable app, see components/pwa.jsx
 
 // ==============================|| APP - THEME, ROUTER, LOCAL  ||============================== //
 
@@ -96,6 +97,7 @@ const App = () => {
                 <Routes />
             </ScrollTop>
             <ActivityIndicator />
+            <PWAUpdateNotice />{/* Fork addition */}
         </ThemeCustomization>
 
         : <div>

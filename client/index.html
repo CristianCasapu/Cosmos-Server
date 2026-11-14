@@ -3,9 +3,21 @@
   <head>
     <meta http-equiv="expires" content="0">
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Cosmos</title>
     <link rel="icon" type="image/x-icon" href="/src/assets/images/icons/logo2.png">
+    <!-- Fork addition: the panel as an installable app (client/sw/, src/fork_pwa.go).
+         viewport-fit=cover hands the notch and the home indicator to the skin's
+         --ct-safe-* (theme.css); mode.js keeps theme-color and the iOS status bar
+         in step with the mode the user chose. -->
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#0a0f1d" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#f2f5fa" media="(prefers-color-scheme: light)">
+    <link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Cosmos">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <style>
       @media (prefers-color-scheme: dark) {
         html {

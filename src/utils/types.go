@@ -225,6 +225,10 @@ type Config struct {
 	// none. Stored inverted so that a configuration without it hides them (the
 	// fork's default). Presentation only: read by the UI through /api/status.
 	ShowPaidFeatures bool `json:"ShowPaidFeatures,omitempty"`
+	// Fork addition: switch off the installable app (the panel's service worker
+	// and web app manifest), see src/fork_pwa.go. Stored inverted so that a
+	// configuration without it offers the app. Read by the UI through /api/status.
+	DisableWebApp bool `json:"DisableWebApp,omitempty"`
 	IncrBackupOutputDir string
 	DisableHostModeWarning bool
 	AdminWhitelistIPs []string
