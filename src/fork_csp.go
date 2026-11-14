@@ -75,8 +75,9 @@ const (
 	forkReferrerPolicy = "same-origin"
 
 	// the powerful features the panel never uses; the clipboard (copy
-	// buttons, pasting a one-time code) and full screen stay allowed
-	forkPermissionsPolicy = "accelerometer=(), autoplay=(), bluetooth=(), camera=(), display-capture=(), geolocation=(), gyroscope=(), hid=(), magnetometer=(), microphone=(), midi=(), payment=(), serial=(), usb=(), xr-spatial-tracking=()"
+	// buttons, pasting a one-time code) and full screen stay allowed. Only
+	// names every Chromium knows: an unknown one is an error in its console
+	forkPermissionsPolicy = "accelerometer=(), autoplay=(), camera=(), display-capture=(), geolocation=(), gyroscope=(), hid=(), magnetometer=(), microphone=(), midi=(), payment=(), serial=(), usb=(), xr-spatial-tracking=()"
 
 	forkHSTSPublic = "max-age=31536000"
 	forkHSTSForget = "max-age=0"
@@ -128,7 +129,10 @@ func forkPanelHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", forkReferrerPolicy)
 		h.Set("Permissions-Policy", forkPermissionsPolicy)
-		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		// browsers ignore it on plain HTTP, with an error in the console
+		if r.TLS != nil {
+			h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		}
 		forkHSTS(h, r)
 		next.ServeHTTP(w, r)
 	})

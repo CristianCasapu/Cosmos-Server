@@ -122,7 +122,12 @@ func TestPanelHeadersOnEveryPanelPath(t *testing.T) {
 	policy := forkPanelPolicy([]string{"https://app.example.com"})
 	for _, path := range []string{"/cosmos-ui/", "/cosmos-ui/login", "/cosmos-ui/servapps/containers/x", "/cosmos-ui/offline.html",
 		"/cosmos-ui/assets/main-1a2b.js", "/cosmos-ui/sw.js", "/cosmos-ui/manifest.webmanifest"} {
-		w := cspAsk(router, "http://cosmos.example.com"+path)
+		req := httptest.NewRequest("GET", "https://cosmos.example.com"+path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if plain := cspAsk(router, "http://cosmos.example.com"+path); plain.Header().Get("Cross-Origin-Opener-Policy") != "" {
+			t.Errorf("%s: Cross-Origin-Opener-Policy over plain HTTP, where browsers refuse it", path)
+		}
 		if w.Code != http.StatusOK {
 			t.Errorf("%s: %d", path, w.Code)
 		}

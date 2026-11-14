@@ -13,16 +13,14 @@ import (
 
 func TestReturnOriginSource(t *testing.T) {
 	for uri, want := range map[string]string{
-		"https://app.example.com/oauth/callback?x=1":  "https://app.example.com",
-		"https://APP.example.com:8443/cb":             "https://app.example.com:8443",
-		"http://jellyfin.dpe.local:2052/cb":           "http://jellyfin.dpe.local:2052",
-		"http://127.0.0.1/callback":                   "http://127.0.0.1:*",
-		"http://127.0.0.1:5000/callback":              "http://127.0.0.1:*",
-		"http://[::1]:8080/cb":                        "http://[::1]:*",
-		"http://localhost:3000/cb":                    "http://localhost:*",
-		"https://[2001:db8::1]:9000/cb":               "https://[2001:db8::1]:9000",
-		"com.example.app:/oauth2redirect":             "com.example.app:",
-		"  https://padded.example.com/cb  ":           "https://padded.example.com",
+		"https://app.example.com/oauth/callback?x=1": "https://app.example.com",
+		"https://APP.example.com:8443/cb":            "https://app.example.com:8443",
+		"http://jellyfin.dpe.local:2052/cb":          "http://jellyfin.dpe.local:2052",
+		"http://127.0.0.1/callback":                  "http://127.0.0.1:*",
+		"http://127.0.0.1:5000/callback":             "http://127.0.0.1:*",
+		"http://localhost:3000/cb":                   "http://localhost:*",
+		"com.example.app:/oauth2redirect":            "com.example.app:",
+		"  https://padded.example.com/cb  ":          "https://padded.example.com",
 	} {
 		got, ok := returnOriginSource(uri)
 		if !ok || got != want {
@@ -41,6 +39,9 @@ func TestReturnOriginSource(t *testing.T) {
 		"https://app.example.com\r\nX-Injected: 1",
 		"https://" + strings.Repeat("a", 2100) + ".example.com/cb",
 		"1http://bad.scheme/",
+		// browsers refuse IPv6 addresses in a policy
+		"http://[::1]:8080/cb",
+		"https://[2001:db8::1]:9000/cb",
 	} {
 		if got, ok := returnOriginSource(uri); ok {
 			t.Errorf("%q gave %q, want nothing", uri, got)

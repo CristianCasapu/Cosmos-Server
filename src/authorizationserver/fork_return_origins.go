@@ -29,7 +29,7 @@ var returnOrigins atomic.Value // []string
 
 var (
 	cspScheme = regexp.MustCompile(`^[a-z][a-z0-9+.-]*$`)
-	cspHost   = regexp.MustCompile(`^[a-z0-9.-]+$|^\[[0-9a-f:.]+\]$`)
+	cspHost   = regexp.MustCompile(`^[a-z0-9.-]+$`)
 )
 
 // rememberReturnOrigins is the hook of Init, once every client is registered.
@@ -84,8 +84,10 @@ func returnOriginSource(uri string) (string, bool) {
 	if host == "" {
 		return "", false
 	}
+	// an IPv6 address cannot be written in a script policy (browsers drop
+	// such a source with an error): a sign-in ending on one is left out
 	if strings.Contains(host, ":") {
-		host = "[" + host + "]"
+		return "", false
 	}
 	if !cspHost.MatchString(host) {
 		return "", false
