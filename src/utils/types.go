@@ -229,6 +229,7 @@ type Config struct {
 	// and web app manifest), see src/fork_pwa.go. Stored inverted so that a
 	// configuration without it offers the app. Read by the UI through /api/status.
 	DisableWebApp bool `json:"DisableWebApp,omitempty"`
+	Turnstile ForkTurnstileConfig `json:"Turnstile,omitzero"` // Fork addition: Cloudflare Turnstile on the panel's public forms, see utils/fork_turnstile.go and src/turnstile
 	IncrBackupOutputDir string
 	DisableHostModeWarning bool
 	AdminWhitelistIPs []string

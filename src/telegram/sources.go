@@ -43,6 +43,7 @@ var securitySentences = map[string]string{
 // under these names. A detail that is not listed is not sent.
 var detailLabels = []struct{ key, label string }{
 	{"reason", "Reason"},
+	{"form", "Form"},
 	{"role", "New role"},
 	{"permission", "Permission"},
 	{"what", "What"},
@@ -250,6 +251,9 @@ const (
 	// raised by src/cloudflare/originpulls.go
 	titleOriginPullExpiring = "header.notification.title.originPullExpiring"
 	titleOriginPullStopped  = "header.notification.title.originPullStopped"
+	// raised by src/turnstile/watch.go (Fork addition)
+	titleTurnstileProblem      = "header.notification.title.turnstileProblem"
+	messageTurnstileKeyRefused = "header.notification.message.turnstileKeyRefused"
 	// TitleDeliveryFailed is this package's own notification. It is never
 	// forwarded: Telegram is what does not work.
 	TitleDeliveryFailed   = "header.notification.title.telegramFailed"
@@ -350,6 +354,15 @@ func noticeFromNotification(n utils.Notification, config utils.Config) (notice, 
 	case titleOriginPullStopped:
 		return notice{category: CategorySystem, key: "originpull.stopped", label: "Cloudflare certificate check not confirmed", priority: priorityNormal,
 			title: "Requiring a certificate from Cloudflare's proxy was not confirmed in time and is back to testing: nothing is refused."}, true
+
+	case titleTurnstileProblem:
+		nt := notice{category: CategorySystem, key: "turnstile.unreachable", label: "Sign-in check unavailable", priority: priorityNormal,
+			title: "Cloudflare's sign-in check (Turnstile) cannot be reached: visitors from the internet cannot sign in meanwhile. The home network signs in without it."}
+		if n.Message == messageTurnstileKeyRefused {
+			nt.key = "turnstile.key"
+			nt.title = "Cloudflare refuses the secret key of the sign-in check (Turnstile): visitors from the internet cannot sign in. Put in a new key in Configuration > Domains > Sign-in check, from the home network."
+		}
+		return nt, true
 
 	case titleContainerUpdate:
 		return notice{category: CategoryApps, key: "container.updated", label: "Container updated", priority: priorityLow,

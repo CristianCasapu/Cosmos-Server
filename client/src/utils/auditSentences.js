@@ -50,6 +50,37 @@ const SENTENCES = {
     variants: { expired: 'an expired invitation or reset link for {{target}}' },
   },
 
+  // Fork addition: Cloudflare Turnstile on the public forms (src/turnstile)
+  'auth.turnstile.missing': {
+    text: 'a public form was sent without Cloudflare\'s sign-in check', ip: true,
+    pick: (e) => detail(e, 'form'),
+    variants: {
+      login: 'a sign-in was sent without Cloudflare\'s sign-in check',
+      reset: 'a forgot-password form was sent without Cloudflare\'s sign-in check',
+      register: 'an invitation or reset link was used without Cloudflare\'s sign-in check',
+    },
+  },
+  'auth.turnstile.failed': {
+    text: 'Cloudflare\'s sign-in check of a public form was refused', ip: true,
+    pick: (e) => detail(e, 'reason'),
+    variants: {
+      invalid: 'Cloudflare\'s sign-in check was refused: the token is not valid',
+      used: 'Cloudflare\'s sign-in check was refused: the token was used before or is too old',
+      hostname: 'Cloudflare\'s sign-in check was refused: the token was made for another address',
+      action: 'Cloudflare\'s sign-in check was refused: the token was made for another form',
+      malformed: 'Cloudflare\'s sign-in check was refused: the token is malformed',
+      too_many: 'Cloudflare\'s sign-in check was refused: too many checks from one visitor',
+    },
+  },
+  'auth.turnstile.unavailable': {
+    text: 'Cloudflare\'s sign-in check could not be made', ip: true,
+    pick: (e) => detail(e, 'reason'),
+    variants: {
+      unreachable: 'Cloudflare\'s sign-in check could not be made: Cloudflare could not be reached or answered with an error',
+      key_refused: 'Cloudflare\'s sign-in check could not be made: Cloudflare refused the secret key',
+    },
+  },
+
   'user.created': {
     text: '{{actor}} created the account {{target}}', ip: true,
     pick: (e) => (detail(e, 'role') ? 'role' : ''),
@@ -317,8 +348,8 @@ export function auditSentence(event, t = identity) {
 
 // The outcome a kind has by itself (the catalogue's): a "failed login" that
 // failed needs no ": it failed".
-const FAILED_KINDS = ['auth.login.failed', 'auth.mfa.failed', 'auth.sudo.failed', 'auth.reset.rejected', 'auth.register.failed', 'recorder.dropped'];
-const DENIED_KINDS = ['auth.session.forged', 'auth.session.rejected', 'token.invalid', 'token.expired', 'token.ip.denied', 'access.denied', 'access.grant.denied', 'access.ip.denied', 'access.local.denied', 'access.origin.denied', 'access.foreign.denied'];
+const FAILED_KINDS = ['auth.login.failed', 'auth.mfa.failed', 'auth.sudo.failed', 'auth.reset.rejected', 'auth.register.failed', 'recorder.dropped', 'auth.turnstile.unavailable'];
+const DENIED_KINDS = ['auth.session.forged', 'auth.session.rejected', 'token.invalid', 'token.expired', 'token.ip.denied', 'access.denied', 'access.grant.denied', 'access.ip.denied', 'access.local.denied', 'access.origin.denied', 'access.foreign.denied', 'auth.turnstile.missing', 'auth.turnstile.failed'];
 
 function defaultOutcome(kind) {
   if (FAILED_KINDS.includes(kind)) return 'failed';
@@ -337,7 +368,7 @@ export function isProblem(event) {
 // list of kinds or families ("auth.login.*") as the API takes them.
 export const KIND_GROUPS = [
   { id: 'logins', label: 'Logins and logouts', kinds: ['auth.login.*', 'auth.logout'] },
-  { id: 'credentials', label: 'Passwords and two-factor', kinds: ['auth.mfa.*', 'auth.sudo.*', 'auth.password.*', 'auth.reset.*', 'auth.register.*', 'user.reset.created', 'user.mfa.reset'] },
+  { id: 'credentials', label: 'Passwords and two-factor', kinds: ['auth.mfa.*', 'auth.sudo.*', 'auth.password.*', 'auth.reset.*', 'auth.register.*', 'auth.turnstile.*', 'user.reset.created', 'user.mfa.reset'] },
   { id: 'accounts', label: 'Accounts', kinds: ['user.*'] },
   { id: 'tokens', label: 'API tokens', kinds: ['token.*'] },
   { id: 'settings', label: 'Settings and URLs', kinds: ['config.*', 'route.*'] },

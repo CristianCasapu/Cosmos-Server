@@ -1204,6 +1204,7 @@ func InitServer() *mux.Router {
 	registerUserAuditRoutes(srapiAdmin, srapi) // Fork addition: the user audit panel, read only
 	registerTelegramRoutes(srapiAdmin) // Fork addition: notifications through Telegram, see fork_telegram.go
 	registerFail2banRoutes(srapiAdmin) // Fork addition: Fail2ban status, unban and settings, see fork_fail2ban.go
+	registerTurnstileRoutes(srapiAdmin) // Fork addition: Cloudflare Turnstile settings, see fork_turnstile.go
 
 	srapiAdmin.HandleFunc("/api/shield/bans", proxy.API_ShieldBans)
 	srapiAdmin.HandleFunc("/api/shield/unban", proxy.API_ShieldUnban)
@@ -1321,6 +1322,7 @@ func InitServer() *mux.Router {
 	}
 
 	SecureAPI(srapiStrict, false, false, true)
+	forkTurnstile(srapiStrict) // Fork addition: Cloudflare Turnstile on the public forms, after the shield and the token check, see fork_turnstile.go
 	SecureAPI(srapi, false, false, false)
 	SecureAPI(srapiAdmin, false, false, false)
 	

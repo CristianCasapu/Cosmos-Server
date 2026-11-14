@@ -10,7 +10,7 @@
 export const JAILS = {
   'cosmos-auth': {
     label: ['fail2ban.jail.auth', 'Logins'],
-    watches: ['fail2ban.jail.auth.watches', 'Failed logins, wrong two-factor codes, wrong password at the confirmation prompt, bad invitation or reset links, API tokens that do not exist.'],
+    watches: ['fail2ban.jail.auth.watches', 'Failed logins, wrong two-factor codes, wrong password at the confirmation prompt, bad invitation or reset links, API tokens that do not exist, sign-in checks of Cloudflare that were forged or used twice.'],
   },
   'cosmos-probe': {
     label: ['fail2ban.jail.probe', 'Probes'],
