@@ -196,14 +196,14 @@ security record.
 
 ## Local names: left for later (2026-11-14)
 
-- Names under the owner's public domain that point at the server's private
-  address (for example `radarr.home.<domain>`), with the wildcard Let's
-  Encrypt certificate: every device resolves them and no certificate warning
-  appears. Costs: the private address is in public DNS, and a router's
-  rebinding protection may need an allow-list entry. The owner's decision.
-- The host's Avahi announces the server's own name on Docker's interfaces
-  too (`allow-interfaces=eno1` in `/etc/avahi/avahi-daemon.conf` would stop
-  that; Cosmos' own names are right either way). Proposed to the owner.
+- Names for use at home under the owner's domain: done (see `FORK.md`).
+  Left: AAAA (ULA) records; a per-app opt-out (every app gets a home name
+  once the domain is switched on); home names for URLs with a port of their
+  own; domains whose DNS is not at Cloudflare; the app cards were not seen
+  in a browser (logic covered by `node --test`). The owner's to change if
+  wanted: the panel's home name (`cosmos.<label>.<domain>`), sign-in going
+  through the panel's home name rather than its public one, home names in
+  app links shown only to accounts that may read the configuration.
 - `.local` does not resolve on Android 11 and older, most smart TVs, Linux
   with only systemd-resolved, or over Tailscale; names with a dot before
   `.local` fail on Windows and most Linux machines.
