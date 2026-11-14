@@ -30,7 +30,8 @@ package main
 // write to.
 //
 // The API's answers are data, never pages: they get a policy that allows
-// nothing, so that an answer opened in a tab can neither run nor load anything.
+// nothing but the browser's own styling of a text it shows, so that an answer
+// opened in a tab can neither run nor load anything.
 //
 // Strict-Transport-Security, on the panel and the API: only on a name whose
 // certificate the public authorities vouch for, for a year, without
@@ -70,7 +71,9 @@ import (
 const (
 	forkCSPReportOnlyEnv = "COSMOS_CSP_REPORT_ONLY"
 
-	forkAPIPolicy = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+	// an answer opened in a tab (the logs) is shown by the browser's own
+	// viewer, which styles it inline (WebKit refuses its text view otherwise)
+	forkAPIPolicy = "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 
 	forkReferrerPolicy = "same-origin"
 
