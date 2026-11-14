@@ -85,35 +85,38 @@ func saveSettingsAs(t *testing.T, restarted chan struct{}, as func(*http.Request
 }
 
 // the changes a configuration-only caller may not make, each on the settings as read
-var hostPowerChanges = map[string]func(c *utils.Config){
-	"a scheduled job's command": func(c *utils.Config) {
-		c.CRON["tidy"] = utils.CRONConfig{Name: "tidy", Enabled: true, Crontab: "0 0 3 * * *", Command: "echo changed"}
-	},
-	"a new scheduled job": func(c *utils.Config) {
-		c.CRON["more"] = utils.CRONConfig{Name: "more", Enabled: true, Crontab: "* * * * * *", Command: "echo more"}
-	},
-	"SnapRAID": func(c *utils.Config) { c.Storage.SnapRAIDs[0].Data["d2"] = "/" },
-	"a backup's source": func(c *utils.Config) {
-		b := c.Backup.Backups["photos"]
-		b.Source = "/"
-		c.Backup.Backups["photos"] = b
-	},
-	"the backup folder":        func(c *utils.Config) { c.BackupOutputDir = "/srv/elsewhere" },
-	"remote storage":           func(c *utils.Config) { c.RemoteStorage.Shares[0].Source = "/" },
-	"incremental backups":      func(c *utils.Config) { c.Snapshots.Sources = []string{"/srv/music"} },
-	"a folder URL's folder":    func(c *utils.Config) { c.HTTPConfig.ProxyConfig.Routes[0].Target = "/" },
-	"a folder URL made public": func(c *utils.Config) { c.HTTPConfig.ProxyConfig.Routes[0].Host = "other.example.com" },
-	"a URL turned into a folder URL": func(c *utils.Config) {
-		c.HTTPConfig.ProxyConfig.Routes[1].Mode = "SPA"
-		c.HTTPConfig.ProxyConfig.Routes[1].Target = "/"
-	},
-	"a new folder URL": func(c *utils.Config) {
-		c.HTTPConfig.ProxyConfig.Routes = append(c.HTTPConfig.ProxyConfig.Routes, utils.ProxyRouteConfig{Name: "root", UseHost: true, Host: "root.example.com", Mode: "STATIC", Target: "/"})
-	},
+func hostPowerChanges(t *testing.T) map[string]func(c *utils.Config) {
+	backupDir := t.TempDir()
+	return map[string]func(c *utils.Config){
+		"a scheduled job's command": func(c *utils.Config) {
+			c.CRON["tidy"] = utils.CRONConfig{Name: "tidy", Enabled: true, Crontab: "0 0 3 * * *", Command: "echo changed"}
+		},
+		"a new scheduled job": func(c *utils.Config) {
+			c.CRON["more"] = utils.CRONConfig{Name: "more", Enabled: true, Crontab: "* * * * * *", Command: "echo more"}
+		},
+		"SnapRAID": func(c *utils.Config) { c.Storage.SnapRAIDs[0].Data["d2"] = "/" },
+		"a backup's source": func(c *utils.Config) {
+			b := c.Backup.Backups["photos"]
+			b.Source = "/"
+			c.Backup.Backups["photos"] = b
+		},
+		"the backup folder":        func(c *utils.Config) { c.BackupOutputDir = backupDir },
+		"remote storage":           func(c *utils.Config) { c.RemoteStorage.Shares[0].Source = "/" },
+		"incremental backups":      func(c *utils.Config) { c.Snapshots.Sources = []string{"/srv/music"} },
+		"a folder URL's folder":    func(c *utils.Config) { c.HTTPConfig.ProxyConfig.Routes[0].Target = "/" },
+		"a folder URL made public": func(c *utils.Config) { c.HTTPConfig.ProxyConfig.Routes[0].Host = "other.example.com" },
+		"a URL turned into a folder URL": func(c *utils.Config) {
+			c.HTTPConfig.ProxyConfig.Routes[1].Mode = "SPA"
+			c.HTTPConfig.ProxyConfig.Routes[1].Target = "/"
+		},
+		"a new folder URL": func(c *utils.Config) {
+			c.HTTPConfig.ProxyConfig.Routes = append(c.HTTPConfig.ProxyConfig.Routes, utils.ProxyRouteConfig{Name: "root", UseHost: true, Host: "root.example.com", Mode: "STATIC", Target: "/"})
+		},
+	}
 }
 
 func TestConfigurationOnlyCannotChangeWhatRunsOnTheHost(t *testing.T) {
-	for name, change := range hostPowerChanges {
+	for name, change := range hostPowerChanges(t) {
 		restarted := hostPowersServer(t)
 		before, _ := json.Marshal(utils.ReadConfigFromFile())
 		settings := readSettingsAs(t, asConfigurationToken)
@@ -155,7 +158,7 @@ func TestConfigurationOnlyStillSavesTheSettingsPageUnchanged(t *testing.T) {
 }
 
 func TestAnAdministratorStillChangesWhatRunsOnTheHost(t *testing.T) {
-	for name, change := range hostPowerChanges {
+	for name, change := range hostPowerChanges(t) {
 		restarted := hostPowersServer(t)
 		settings := readSettingsAs(t, asAdmin)
 		change(&settings)
