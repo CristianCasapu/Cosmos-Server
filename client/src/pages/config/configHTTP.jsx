@@ -20,7 +20,7 @@ import { PaidOnly } from '../../components/paidVisibility'; // Fork addition
 import { ownCountries, safeDefaultBlocked } from '../../utils/geoDefaults'; // Fork addition
 import { PanelReach } from '../../components/reachability'; // Fork addition
 import { LocalNamesSettings } from '../../components/localNames'; // Fork addition
-import { useHttpCheck, ForkHttpBeforeSave, ForkHostnameHint, ForkHttpPorts, ForkAdminWhitelist, ForkGeoOwnCountry } from './forkHttpSettings'; // Fork addition
+import { useHttpCheck, ForkHttpBeforeSave, ForkHostnameHint, ForkHttpPorts, ForkAdminWhitelist, ForkGeoOwnCountry, ForkTrustedProxies } from './forkHttpSettings'; // Fork addition
 
 const ConfigHTTP = ({ formik }) => {
   const [geoLeftOut, setGeoLeftOut] = React.useState(null); // Fork addition: what the default country list left out
@@ -100,12 +100,8 @@ const ConfigHTTP = ({ formik }) => {
 
       <MainCard title={t('global.securityTitle')}>
         <Grid container spacing={3}>
-          <CosmosInputText
-            label={t('mgmt.config.security.trustedProxiesInput.trustedProxiesLabel')}
-            name="TrustedProxies"
-            formik={formik}
-            helperText={t('mgmt.config.security.trustedProxiesInput.trustedProxiesHelperText')}
-          />
+          {/* Fork addition: a list with the proxy in front of you, the proxy containers and Cloudflare proposed (forkHttpSettings.jsx); upstream had a free text field */}
+          <ForkTrustedProxies formik={formik} check={check} />
 
           <CosmosFormDivider title='Geo-Blocking' />
 
@@ -123,12 +119,13 @@ const ConfigHTTP = ({ formik }) => {
           </Grid>
 
           <CountrySelect name="GeoBlocking" label={t('mgmt.config.security.geoBlockSelection', { blockAllow: formik.values.CountryBlacklistIsWhitelist ? t('mgmt.config.security.geoBlockSelection.varAllow') : t('mgmt.config.security.geoBlockSelection.varBlock') })} formik={formik} />
-          <ForkGeoOwnCountry formik={formik} />{/* Fork addition: the country the admin is in, refused by the list */}
+          <ForkGeoOwnCountry formik={formik} check={check} />{/* Fork addition: the country the admin is in, refused by the list */}
 
           <Grid item xs={12}>
             <Button onClick={() => {
               // Fork addition: the default list without the country the admin or the server is in (utils/geoDefaults.js); upstream's list blocks sixteen countries, the admin's own included
               const { list, leftOut } = safeDefaultBlocked(ownCountries({
+                seen: check && check.seen && check.seen.country, // Fork addition: the country of the address the server sees
                 serverCountry: formik.values.ServerCountry,
                 zones: [Intl.DateTimeFormat().resolvedOptions().timeZone, formik.values.Timezone],
                 languages: navigator.languages,

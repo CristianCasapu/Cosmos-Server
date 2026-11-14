@@ -137,7 +137,7 @@ const (
 func homeServer() []systemInterface {
 	return []systemInterface{
 		{Name: "lo", Index: 1, Flags: net.FlagUp | net.FlagLoopback, IPv4: []net.IP{net.IPv4(127, 0, 0, 1)}},
-		{Name: "eno1", Index: 2, Flags: upMulticast, IPv4: []net.IP{net.IPv4(172, 16, 0, 14)}},
+		{Name: "eno1", Index: 2, Flags: upMulticast, IPv4: []net.IP{net.IPv4(172, 16, 0, 21)}},
 		{Name: "eno2", Index: 3, Flags: net.FlagBroadcast | net.FlagMulticast}, // down
 		{Name: "tailscale0", Index: 6, Flags: net.FlagUp | net.FlagPointToPoint | net.FlagMulticast, IPv4: []net.IP{net.IPv4(100, 64, 0, 2)}},
 		{Name: "br-90a4ac8c00e0", Index: 7, Flags: upMulticast, IPv4: []net.IP{net.IPv4(172, 18, 0, 1)}},
@@ -247,8 +247,8 @@ func TestLocalNamesAreAddressRecordsOnTheLANOnly(t *testing.T) {
 	ForkPublishLocalNames()
 
 	h.expectLive(map[string][]string{
-		"radarr.local": {"11=192.168.1.5", "2=172.16.0.14"},
-		"sonarr.local": {"11=192.168.1.5", "2=172.16.0.14"},
+		"radarr.local": {"11=192.168.1.5", "2=172.16.0.21"},
+		"sonarr.local": {"11=192.168.1.5", "2=172.16.0.21"},
 	})
 	// one group per name, so a collision names its name; the DNS-SD entry stays, on the same interfaces
 	committed := 0
@@ -319,7 +319,7 @@ func TestRepublishAfterAvahiRestart(t *testing.T) {
 	h.daemon.generation++ // the daemon restarted: it no longer knows the groups
 	h.expectLive(map[string][]string{})
 	checkMDNS()
-	h.expectLive(map[string][]string{"radarr.local": {"2=172.16.0.14"}})
+	h.expectLive(map[string][]string{"radarr.local": {"2=172.16.0.21"}})
 	if h.daemon.closed != 1 {
 		t.Fatalf("the old connection was closed %d times", h.daemon.closed)
 	}
@@ -395,7 +395,7 @@ func TestLocalCollisionWithAnotherProgram(t *testing.T) {
 func TestOwnHostNameIsLeftToAvahi(t *testing.T) {
 	h := newHarness(t, "server.local", "radarr.local")
 	ForkPublishLocalNames()
-	h.expectLive(map[string][]string{"radarr.local": {"2=172.16.0.14"}})
+	h.expectLive(map[string][]string{"radarr.local": {"2=172.16.0.21"}})
 	if stateOf("server.local") != nameHostName {
 		t.Fatalf("state %q", stateOf("server.local"))
 	}
@@ -414,7 +414,7 @@ func TestAvahiAbsentAndAppearingLater(t *testing.T) {
 	}
 	h.onBus = true
 	checkMDNS()
-	h.expectLive(map[string][]string{"radarr.local": {"2=172.16.0.14"}})
+	h.expectLive(map[string][]string{"radarr.local": {"2=172.16.0.21"}})
 }
 
 func TestSwitchingOffWithdraws(t *testing.T) {
@@ -433,7 +433,7 @@ func TestRemovedNameIsWithdrawn(t *testing.T) {
 	ForkPublishLocalNames()
 	h.routes("sonarr.local")
 	ForkPublishLocalNames()
-	h.expectLive(map[string][]string{"sonarr.local": {"2=172.16.0.14"}})
+	h.expectLive(map[string][]string{"sonarr.local": {"2=172.16.0.21"}})
 }
 
 func TestBounds(t *testing.T) {
@@ -468,7 +468,7 @@ func TestStatusAnswersAndCache(t *testing.T) {
 	if !resp.Names[0].Answered || resp.Names[1].Answered || len(resp.Names[1].Answers) != 1 || !resp.Names[1].Checked {
 		t.Fatalf("%+v", resp.Names)
 	}
-	if resp.HostName != "server.local" || len(resp.Interfaces) != 1 || resp.Interfaces[0].Address != "172.16.0.14" || resp.HTTPSPort != "2053" {
+	if resp.HostName != "server.local" || len(resp.Interfaces) != 1 || resp.Interfaces[0].Address != "172.16.0.21" || resp.HTTPSPort != "2053" {
 		t.Fatalf("%+v", resp)
 	}
 	localNamesStatus(false)
@@ -505,13 +505,13 @@ func TestParseMDNSAnswers(t *testing.T) {
 	reply := new(dns.Msg)
 	reply.Response = true
 	reply.Answer = []dns.RR{
-		&dns.A{Hdr: dns.RR_Header{Name: "Radarr.local.", Rrtype: dns.TypeA, Class: dns.ClassINET}, A: net.IPv4(172, 16, 0, 14)},
+		&dns.A{Hdr: dns.RR_Header{Name: "Radarr.local.", Rrtype: dns.TypeA, Class: dns.ClassINET}, A: net.IPv4(172, 16, 0, 21)},
 		&dns.A{Hdr: dns.RR_Header{Name: "other.local.", Rrtype: dns.TypeA, Class: dns.ClassINET}, A: net.IPv4(172, 16, 0, 15)},
 		&dns.CNAME{Hdr: dns.RR_Header{Name: "radarr.local.", Rrtype: dns.TypeCNAME, Class: dns.ClassINET}, Target: "server.local."},
 	}
 	raw, _ := reply.Pack()
 	got := parseMDNSAnswers(raw, map[string]bool{"radarr.local.": true})
-	if len(got) != 1 || got[0].address != "172.16.0.14" {
+	if len(got) != 1 || got[0].address != "172.16.0.21" {
 		t.Fatalf("%v", got)
 	}
 	query := new(dns.Msg)

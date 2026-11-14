@@ -35,31 +35,31 @@ func SnapRAIDRunRoute(w http.ResponseWriter, req *http.Request) {
 		for _, snap := range snaps {
 			if snap.Name == name {
 				if action == "sync" {
-					RunSnapRAIDSync(snap)
+					if err := RunSnapRAIDSync(snap); err != nil { forkSnapRAIDActionFailed(w, action, snap.Name, err); return } // Fork addition: a failure is answered as one (fork_snapraid.go)
 					json.NewEncoder(w).Encode(map[string]interface{}{
 						"status": "OK",
 					})
 					return
 				} else if action == "scrub" {
-					RunSnapRAIDScrub(snap)
+					if err := RunSnapRAIDScrub(snap); err != nil { forkSnapRAIDActionFailed(w, action, snap.Name, err); return } // Fork addition: a failure is answered as one (fork_snapraid.go)
 					json.NewEncoder(w).Encode(map[string]interface{}{
 						"status": "OK",
 					})
 					return
 				} else if action == "fix" {
-					RunSnapRAIDFix(snap)
+					if err := RunSnapRAIDFix(snap); err != nil { forkSnapRAIDActionFailed(w, action, snap.Name, err); return } // Fork addition: a failure is answered as one (fork_snapraid.go)
 					json.NewEncoder(w).Encode(map[string]interface{}{
 						"status": "OK",
 					})
 					return
 				}	else if action == "enable" {
-					ToggleSnapRAID(snap.Name, true)
+					if err := ToggleSnapRAID(snap.Name, true); err != nil { forkSnapRAIDActionFailed(w, action, snap.Name, err); return } // Fork addition: a failure is answered as one (fork_snapraid.go)
 					json.NewEncoder(w).Encode(map[string]interface{}{
 						"status": "OK",
 					})
 					return
 				}	else if action == "disable" {
-					ToggleSnapRAID(snap.Name, false)
+					if err := ToggleSnapRAID(snap.Name, false); err != nil { forkSnapRAIDActionFailed(w, action, snap.Name, err); return } // Fork addition: a failure is answered as one (fork_snapraid.go)
 					json.NewEncoder(w).Encode(map[string]interface{}{
 						"status": "OK",
 					})

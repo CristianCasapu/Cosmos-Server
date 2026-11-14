@@ -15,6 +15,8 @@ import { crontabToText } from "../../utils/indexs";
 import { MountPickerEntry } from "./mountPickerEntry";
 import { json } from "react-router";
 import { Trans, useTranslation } from 'react-i18next';
+import { ForkParityDisks } from './forkStorageForms'; // Fork addition
+import { keepOnBackdrop } from '../../components/formHelpers'; // Fork addition
 import CronHelp, { cronFieldErrors } from '../../components/cronInput'; // Fork addition: the schedule in words, checked, with schedules to pick
 
 const SnapRAIDDialogInternal = ({ refresh, open, setOpen, data = {}}) => {
@@ -30,7 +32,7 @@ const SnapRAIDDialogInternal = ({ refresh, open, setOpen, data = {}}) => {
     validateOnChange: false,
     validate: (values) => cronFieldErrors(values, ['syncCronTab', 'scrubCronTab']), // Fork addition: a schedule the server would not run is not saved
     validationSchema: yup.object({
-      name: yup.string().required(t('global.required')).min(3, t('mgmt.storage.snapraid.min3chars')).matches(/^[a-zA-Z0-9_ ]+$/, t('mgmt.storage.snapraid.notAlphanumeric')),
+      name: yup.string().required(t('global.required')).min(3, t('mgmt.storage.snapraid.min3chars')).matches(/^[A-Za-z0-9][A-Za-z0-9 _-]{2,31}$/, t('mgmt.storage.fork.parityName', 'A name of 3 to 32 letters, digits, spaces, dashes or underscores, for example Storage Parity')) /* Fork addition: the server's rule (storage/fork_snapraid.go) */,
       parity: yup.array().min(1, t('mgmt.storage.snapraid.min1parity')),
       data: yup.object().test('data', t('mgmt.storage.snapraid.min2datadisks'), (value) => {
         return Object.keys(value).length >= 2;
@@ -66,7 +68,7 @@ const SnapRAIDDialogInternal = ({ refresh, open, setOpen, data = {}}) => {
   });
 
   return <>
-    <Dialog open={open} onClose={() => setOpen(false)}>
+    <Dialog open={open} onClose={keepOnBackdrop(() => setOpen(false))} maxWidth="sm" fullWidth>{/* Fork addition */}
           <FormikProvider value={formik}>
             <form onSubmit={formik.handleSubmit}>
             <DialogTitle>
@@ -90,49 +92,13 @@ const SnapRAIDDialogInternal = ({ refresh, open, setOpen, data = {}}) => {
                         error={formik.touched.name && Boolean(formik.errors.name)}
                         helperText={formik.touched.name && formik.errors.name}
                       />
-                      <FormLabel>
-                        <strong>{t('mgmt.storage.snapraid.createParity.step')} 1:</strong> {t('mgmt.storage.snapraid.createParity.Step1Text')}
-                      </FormLabel>
-                      <MountPicker onChange={(value) => formik.setFieldValue('parity', value)} value={formik.values.parity} />
+                      {/* Fork addition: the data disks ticked from the mounted data disks with their size, the parity disk proposed and each other disk with the reason it cannot be the parity (forkStorageForms.jsx); upstream: two pickers of every mount */}
+                      <ForkParityDisks formik={formik} />
                       {formik.errors.parity && (
                           <Grid item xs={12}>
                               <FormHelperText error>{formik.errors.parity}</FormHelperText>
                           </Grid>
                       )}
-                      <FormLabel>
-                        <strong>{t('mgmt.storage.snapraid.createParity.step')} 2:</strong> {t('mgmt.storage.snapraid.createParity.Step2Text')}
-                      </FormLabel>
-                      
-
-                      {Object.keys(formik.values.data).map((dataName) => {
-                        const dataDisk = formik.values.data[dataName];
-                        
-                        return <MountPickerEntry
-                            id={`data.${dataName}`}
-                            name={`data.${dataName}`}
-                            label={`${dataName}`}
-                            value={dataDisk}
-                            onChange={formik.handleChange}
-                            formik={formik}
-                            touched={formik.touched.data && formik.touched.data[dataName]}
-                            error={formik.touched.data && formik.touched.data[dataName] && Boolean(formik.errors.data)}
-                            helperText={formik.touched.data && formik.touched.data[dataName] && formik.errors.data}
-                          />
-                      })}
-                      
-                      <Stack direction="row" spacing={2}>
-                        <Button onClick={() => {
-                          const data = formik.values.data;
-                          data[`disk${Object.keys(data).length}`] = '';
-                          formik.setFieldValue('data', data);
-                        }}>{t('mgmt.storage.snapraid.addDatadisk')}</Button>
-                        <Button onClick={() => {
-                          const data = formik.values.data;
-                          delete data[Object.keys(data).pop()];
-                          formik.setFieldValue('data', data);
-                        }}>{t('mgmt.storage.snapraid.removeDatadisk')}</Button>
-                      </Stack>
-
                       {formik.errors.data && (
                           <Grid item xs={12}>
                               <FormHelperText error>{formik.errors.data}</FormHelperText>
@@ -145,7 +111,7 @@ const SnapRAIDDialogInternal = ({ refresh, open, setOpen, data = {}}) => {
                       )}
                       <Stack spacing={2}>
                         <FormLabel>
-                          <strong>{t('mgmt.storage.snapraid.createParity.step')} 3:</strong> {t('mgmt.storage.snapraid.createParity.Step3Text')}
+                          {/* Fork addition: the two steps before it are one list now */}{t('mgmt.storage.snapraid.createParity.Step3Text')}
                         </FormLabel>
                         <TextField
                           fullWidth

@@ -92,7 +92,7 @@ test('entryProblem: what the never-ban list accepts', () => {
 test('neverBanned: does the list cover an address', () => {
   const list = ['127.0.0.0/8', '::1', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7', 'fe80::/10', '203.0.113.7', '2001:db8:5::/48', 'not an entry'];
   const cases = {
-    '192.168.1.20': true, '172.16.0.14': true, '172.31.255.255': true, '172.32.0.1': false, '10.255.0.1': true, '11.0.0.1': false,
+    '192.168.1.20': true, '172.16.0.21': true, '172.31.255.255': true, '172.32.0.1': false, '10.255.0.1': true, '11.0.0.1': false,
     '203.0.113.7': true, '203.0.113.8': false, '127.0.0.1': true, '::1': true, 'fd00::5': true, 'fe80::1': true,
     '2001:db8:5:1::9': true, '2001:db8:6::9': false, '::ffff:192.168.1.20': true, '': false, 'example.com': false, '192.168.0.0/16': false,
   };

@@ -55,6 +55,9 @@ func discoverEndpoint(rw http.ResponseWriter, req *http.Request) {
 
 	// Fork addition: the panel's address with the port in use (utils/fork_panel_origin.go); upstream named the hostname alone, which is port 443
 	realHostname = utils.PanelOriginFor(req)
+	if issuer, ok := panelIssuer(req); ok && proxyRoute == nil {
+		hostname = issuer // Fork addition: the issuer names the port in use, see fork_issuer.go
+	}
 
 	rw.Header().Del("Content-Type")
 	rw.Header().Set("Content-Type", "application/json")

@@ -352,6 +352,8 @@ var httpCheckLimit = &httpCheckLimiter{}
 type serverAddress struct {
 	IP      string `json:"ip"`
 	Network string `json:"network"`
+	// the network card, for the forms that ask for one (a macvlan network's parent)
+	Interface string `json:"interface"`
 }
 
 // serverAddresses lists the addresses of this server's own network
@@ -381,7 +383,7 @@ var serverAddresses = func() []serverAddress {
 				continue
 			}
 			network := &net.IPNet{IP: ipNet.IP.Mask(ipNet.Mask), Mask: ipNet.Mask}
-			found = append(found, serverAddress{IP: ipNet.IP.String(), Network: network.String()})
+			found = append(found, serverAddress{IP: ipNet.IP.String(), Network: network.String(), Interface: plainText(name)})
 			if len(found) >= 16 {
 				return found
 			}
@@ -417,6 +419,8 @@ type httpCheckAnswer struct {
 		Passes  bool             `json:"passes"`
 		Entries []httpCheckEntry `json:"entries"`
 	} `json:"whitelist"`
+	// the proposals for trusted proxies and the country, see fork_http_proxies.go
+	Seen httpCheckExtras `json:"seen"`
 }
 
 func httpCheck(req *http.Request, body httpCheckRequest, config utils.Config) httpCheckAnswer {
@@ -447,6 +451,7 @@ func httpCheck(req *http.Request, body httpCheckRequest, config utils.Config) ht
 		answer.Whitelist.Entries = append(answer.Whitelist.Entries, httpCheckEntry{Value: entry, Valid: validAddressEntry(entry)})
 	}
 	answer.Whitelist.Passes = wouldLetThrough(client, remote, body.ConstellationOnly, whitelist)
+	answer.Seen = httpCheckExtrasFor(req, config)
 	return answer
 }
 

@@ -218,3 +218,38 @@ export const ownCountriesRefused = (countries, isAllowList, own) => {
   const list = new Set((countries || []).map((c) => String(c).toUpperCase()));
   return (own || []).map((c) => String(c).toUpperCase()).filter((c) => (isAllowList ? list.size > 0 && !list.has(c) : list.has(c)));
 };
+
+// --- trusted proxies -------------------------------------------------------
+
+// The entries the form proposes for trusted proxies, from what the server saw
+// (src/configapi/fork_http_proxies.go): the proxy this request came through,
+// and the containers of reverse-proxy images. Those already covered are left out.
+export const proxyProposals = (check, list) => {
+  const seen = check && check.seen;
+  if (!seen) return [];
+  const current = cleanList(list);
+  const covered = (ip) => current.some((entry) => entry === ip || inRange(ip, entry));
+  const proposals = [];
+  if (seen.via && !seen.viaTrusted && !covered(seen.via)) {
+    proposals.push({ value: seen.via, source: ['mgmt.config.http.fork.proxyVia', 'Your request reached Cosmos through {{ip}}, which said it forwards it for someone else: a reverse proxy in front of Cosmos. Until it is trusted, every visitor it forwards looks like {{ip}}, and blocking one blocks them all.', { ip: seen.via }] });
+  }
+  (seen.proxies || []).forEach((proxy) => {
+    (proxy.addresses || []).forEach((ip) => {
+      if (!covered(ip) && !proposals.some((p) => p.value === ip)) {
+        proposals.push({ value: ip, source: ['mgmt.config.http.fork.proxyContainer', 'The container {{name}} ({{image}}) on a Docker network of this server. Trust it only if your visitors reach Cosmos through it.', { name: proxy.name, image: proxy.image }] });
+      }
+    });
+  });
+  return proposals;
+};
+
+// What to say about Cloudflare under trusted proxies: null, or the state and
+// whether its ranges are all in the list already.
+export const cloudflareProxyNote = (check, list) => {
+  const cf = check && check.seen && check.seen.cloudflare;
+  if (!cf || !cf.connected) return null;
+  const current = new Set(cleanList(list));
+  const ranges = cf.ranges || [];
+  const missing = ranges.filter((r) => !current.has(r));
+  return { trusted: Boolean(cf.trusted), ranges, missing, listed: ranges.length > 0 && missing.length === 0 };
+};

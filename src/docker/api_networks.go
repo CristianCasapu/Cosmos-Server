@@ -341,6 +341,12 @@ func CreateNetworkRoute(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
+		// Fork addition: the name, the driver, the subnet and the parent card are checked first, see fork_network_create.go
+		if msg := checkNetworkPayload(&payload); msg != "" {
+			utils.HTTPError(w, msg, http.StatusBadRequest, "CN006")
+			return
+		}
+
 		networkCreate := types.NetworkCreate{
 			CheckDuplicate: true,
 			Driver:         payload.Driver,

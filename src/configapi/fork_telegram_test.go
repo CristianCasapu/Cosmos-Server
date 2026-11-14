@@ -39,7 +39,7 @@ func telegramTestConfig(t *testing.T) chan struct{} {
 	restarted := settingsTestServer(t)
 	config := utils.DefaultConfig
 	config.NewInstall = false
-	config.HTTPConfig.Hostname = "172.16.0.14"
+	config.HTTPConfig.Hostname = "172.16.0.21"
 	config.HTTPConfig.HTTPPort = "2052"
 	config.HTTPConfig.HTTPSPort = "2053"
 	config.HTTPConfig.HTTPSCertificateMode = utils.HTTPSCertModeList["DISABLED"]
@@ -79,7 +79,7 @@ func saveSettings(t *testing.T, config utils.Config, restarted chan struct{}) *h
 		t.Fatal(err)
 	}
 	w := httptest.NewRecorder()
-	ConfigApiSet(w, asAdmin(httptest.NewRequest("PUT", "http://172.16.0.14:2053/cosmos/api/config", bytes.NewReader(body))))
+	ConfigApiSet(w, asAdmin(httptest.NewRequest("PUT", "http://172.16.0.21:2053/cosmos/api/config", bytes.NewReader(body))))
 	if w.Code == http.StatusOK {
 		<-restarted // the restart that follows a save is over
 	}
@@ -89,7 +89,7 @@ func saveSettings(t *testing.T, config utils.Config, restarted chan struct{}) *h
 func TestTelegramTokenIsMaskedForEveryReader(t *testing.T) {
 	telegramTestConfig(t)
 	get := func() *http.Request {
-		return httptest.NewRequest("GET", "http://172.16.0.14:2053/cosmos/api/config", nil)
+		return httptest.NewRequest("GET", "http://172.16.0.21:2053/cosmos/api/config", nil)
 	}
 
 	readers := map[string]*http.Request{
@@ -134,7 +134,7 @@ func TestTelegramTokenIsMaskedForEveryReader(t *testing.T) {
 func TestTelegramTokenSurvivesASaveOfTheForm(t *testing.T) {
 	restarted := telegramTestConfig(t)
 	get := func() *http.Request {
-		return asAdmin(httptest.NewRequest("GET", "http://172.16.0.14:2053/cosmos/api/config", nil))
+		return asAdmin(httptest.NewRequest("GET", "http://172.16.0.21:2053/cosmos/api/config", nil))
 	}
 
 	// the settings page reads the settings and saves them whole, the token as the mask it got
@@ -188,7 +188,7 @@ func TestTelegramTokenSurvivesASaveOfTheForm(t *testing.T) {
 
 func TestTelegramSettingsAreCheckedOnSave(t *testing.T) {
 	restarted := telegramTestConfig(t)
-	read, _ := readSettings(t, asAdmin(httptest.NewRequest("GET", "http://172.16.0.14:2053/cosmos/api/config", nil)))
+	read, _ := readSettings(t, asAdmin(httptest.NewRequest("GET", "http://172.16.0.21:2053/cosmos/api/config", nil)))
 
 	refused := map[string]func(*utils.TelegramConfig){
 		"a token that would change the request": func(c *utils.TelegramConfig) { c.BotToken = telegramOtherToken + "/../getUpdates" },
@@ -217,7 +217,7 @@ func TestTelegramSettingsAreCheckedOnSave(t *testing.T) {
 	config := utils.GetBaseMainConfig()
 	config.Telegram.MinSeverity = "whatever"
 	utils.SetBaseMainConfig(config)
-	read, _ = readSettings(t, asAdmin(httptest.NewRequest("GET", "http://172.16.0.14:2053/cosmos/api/config", nil)))
+	read, _ = readSettings(t, asAdmin(httptest.NewRequest("GET", "http://172.16.0.21:2053/cosmos/api/config", nil)))
 	read.BackupFrequency = "daily"
 	if w := saveSettings(t, read, restarted); w.Code != http.StatusOK {
 		t.Fatalf("an unchanged section kept a save from going through: %d %s", w.Code, w.Body.String())
@@ -230,7 +230,7 @@ func TestTelegramChatIsToldBeforeItLosesTheNotifications(t *testing.T) {
 	telegramChanges = nil
 	telegramChangesMu.Unlock()
 
-	read, _ := readSettings(t, asAdmin(httptest.NewRequest("GET", "http://172.16.0.14:2053/cosmos/api/config", nil)))
+	read, _ := readSettings(t, asAdmin(httptest.NewRequest("GET", "http://172.16.0.21:2053/cosmos/api/config", nil)))
 	read.Telegram.ChatID = "666"
 	if w := saveSettings(t, read, restarted); w.Code != http.StatusOK {
 		t.Fatalf("PUT config: %d %s", w.Code, w.Body.String())

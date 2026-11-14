@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 import {
   portChoice, portsOf, portNumber, portProblems, portStateText, panelAddress, saveEffects,
   cleanList, isAddressEntry, isProxyEntry, invalidEntries, inRange, whitelistProposals, locksOut,
-  hostnameProblem, hostnameProposals, ownCountriesRefused,
+  hostnameProblem, hostnameProposals, ownCountriesRefused, proxyProposals, cloudflareProxyNote,
 } from './httpSettings.js';
+import { ownCountries } from './geoDefaults.js';
 
 test('the usual pairs of ports are one choice; anything else is "other"', () => {
   assert.equal(portChoice('80', '443'), 'standard');
@@ -101,4 +102,27 @@ test('geo-blocking: the country the admin is in, refused by the list, is named',
   assert.deepEqual(ownCountriesRefused(['FR'], true, ['RO']), ['RO']); // an allow list without it
   assert.deepEqual(ownCountriesRefused([], true, ['RO']), []); // an empty allow list allows everyone
   assert.deepEqual(ownCountriesRefused(['CN'], false, ['RO']), []);
+});
+
+test('trusted proxies: the proxy in front of this request and the proxy containers, unless listed', () => {
+  const check = { seen: { via: '172.18.0.5', viaTrusted: false, proxies: [{ name: 'npm', image: 'nginx-proxy-manager', addresses: ['172.18.0.2', '172.18.0.5'] }] } };
+  assert.deepEqual(proxyProposals(check, '').map((p) => p.value), ['172.18.0.5', '172.18.0.2']);
+  assert.equal(proxyProposals(check, '')[0].source[0], 'mgmt.config.http.fork.proxyVia');
+  assert.deepEqual(proxyProposals(check, '172.18.0.0/16').map((p) => p.value), []);
+  // already trusted: nothing proposed for it
+  assert.deepEqual(proxyProposals({ seen: { via: '172.18.0.5', viaTrusted: true, proxies: [] } }, ''), []);
+  assert.deepEqual(proxyProposals(null, ''), []);
+});
+
+test('Cloudflare under trusted proxies', () => {
+  assert.equal(cloudflareProxyNote({ seen: { cloudflare: { connected: false } } }, ''), null);
+  const note = cloudflareProxyNote({ seen: { cloudflare: { connected: true, trusted: true, ranges: ['173.245.48.0/20', '103.21.244.0/22'] } } }, '173.245.48.0/20');
+  assert.deepEqual(note.missing, ['103.21.244.0/22']);
+  assert.equal(note.trusted, true);
+  assert.equal(cloudflareProxyNote({ seen: { cloudflare: { connected: true, ranges: ['1.0.0.0/24'] } } }, '1.0.0.0/24').listed, true);
+});
+
+test('the country of the address the server sees comes first', () => {
+  assert.deepEqual(ownCountries({ seen: 'ro', languages: ['de-DE'] }), ['RO', 'DE']);
+  assert.deepEqual(ownCountries({ seen: 'not a code' }), []);
 });

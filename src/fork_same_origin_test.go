@@ -39,7 +39,7 @@ type originCase struct {
 }
 
 func TestAPIRefusesRequestsOfOtherSites(t *testing.T) {
-	const host = "172.16.0.14:2053"
+	const host = "172.16.0.21:2053"
 	cases := []originCase{
 		// the panel itself
 		{"panel call", "GET", "/cosmos/api/restart", map[string]string{"Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors"}, true},
@@ -68,8 +68,8 @@ func TestAPIRefusesRequestsOfOtherSites(t *testing.T) {
 		{"link opened from a mail program or the address bar", "GET", "/cosmos/api/restart", map[string]string{"Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate"}, false},
 		{"old browser: form of another site", "POST", "/cosmos/api/docker-service", map[string]string{"Origin": "https://evil.example"}, false},
 		{"old browser: sandboxed frame", "POST", "/cosmos/api/docker-service", map[string]string{"Origin": "null"}, false},
-		{"Origin of the same name on another port", "POST", "/cosmos/api/docker-service", map[string]string{"Origin": "https://172.16.0.14:8096"}, false},
-		{"Origin that only starts like this host", "POST", "/cosmos/api/docker-service", map[string]string{"Origin": "https://172.16.0.14:2053.evil.example"}, false},
+		{"Origin of the same name on another port", "POST", "/cosmos/api/docker-service", map[string]string{"Origin": "https://172.16.0.21:8096"}, false},
+		{"Origin that only starts like this host", "POST", "/cosmos/api/docker-service", map[string]string{"Origin": "https://172.16.0.21:2053.evil.example"}, false},
 		{"websocket of another site", "GET", "/cosmos/api/terminal/bash", map[string]string{"Origin": "https://evil.example", "Upgrade": "websocket"}, false},
 		{"a forged X-Forwarded-Host does not help a marked request", "POST", "/cosmos/api/docker-service", map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example", "X-Forwarded-Host": "evil.example"}, false},
 		{"a token-like query that is not a Cosmos token", "GET", "/cosmos/api/restart?token=abc", map[string]string{"Sec-Fetch-Site": "cross-site"}, false},
@@ -131,25 +131,25 @@ func TestAPIDoesNotAnswerOnThePortOfAnApplication(t *testing.T) {
 	sameOrigin := map[string]string{"Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors"}
 
 	// a page of the application calls the API on its own origin
-	if code, reached := try("172.16.0.14:7200", "/cosmos/api/restart", sameOrigin); code != http.StatusForbidden || reached != 0 {
+	if code, reached := try("172.16.0.21:7200", "/cosmos/api/restart", sameOrigin); code != http.StatusForbidden || reached != 0 {
 		t.Errorf("the API answered on the port of an application: %d (handler reached %d times)", code, reached)
 	}
-	if code, reached := try("172.16.0.14:7200", "/cosmos/rclone/config/create", sameOrigin); code != http.StatusForbidden || reached != 0 {
+	if code, reached := try("172.16.0.21:7200", "/cosmos/rclone/config/create", sameOrigin); code != http.StatusForbidden || reached != 0 {
 		t.Errorf("the rclone API answered on the port of an application: %d (handler reached %d times)", code, reached)
 	}
 	// neither a script nor a token changes where the API lives
-	if code, reached := try("172.16.0.14:7200", "/cosmos/api/restart", nil); code != http.StatusForbidden || reached != 0 {
+	if code, reached := try("172.16.0.21:7200", "/cosmos/api/restart", nil); code != http.StatusForbidden || reached != 0 {
 		t.Errorf("a request without browser headers was answered on the port of an application: %d", code)
 	}
-	if code, reached := try("172.16.0.14:7200", "/cosmos/api/restart", map[string]string{"Authorization": "Bearer cosmos_abc"}); code != http.StatusForbidden || reached != 0 {
+	if code, reached := try("172.16.0.21:7200", "/cosmos/api/restart", map[string]string{"Authorization": "Bearer cosmos_abc"}); code != http.StatusForbidden || reached != 0 {
 		t.Errorf("a request with a token was answered on the port of an application: %d", code)
 	}
 	// the sign-in of the application ends on its own address
-	if code, reached := try("172.16.0.14:7200", "/cosmos/oauth2/detect-callback?code=x&state=y", map[string]string{"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "navigate"}); code != http.StatusOK || reached != 1 {
+	if code, reached := try("172.16.0.21:7200", "/cosmos/oauth2/detect-callback?code=x&state=y", map[string]string{"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "navigate"}); code != http.StatusOK || reached != 1 {
 		t.Errorf("the sign-in callback of an application on its port: %d (handler reached %d times)", code, reached)
 	}
 	// the server's own port is unchanged
-	if code, reached := try("172.16.0.14:2053", "/cosmos/api/restart", sameOrigin); code != http.StatusOK || reached != 1 {
+	if code, reached := try("172.16.0.21:2053", "/cosmos/api/restart", sameOrigin); code != http.StatusOK || reached != 1 {
 		t.Errorf("the API on the server's own port: %d (handler reached %d times)", code, reached)
 	}
 }
@@ -204,7 +204,7 @@ func TestPrintableStripsControlCharacters(t *testing.T) {
 // refused it as one of a fixed list of words: nothing a request says about
 // itself is recorded as the reason. What passes leaves no such entry.
 func TestRefusedForeignRequestsAreRecorded(t *testing.T) {
-	const host = "172.16.0.14:2053"
+	const host = "172.16.0.21:2053"
 	events := captureSecurity(t)
 	reached := 0
 	router := sameOriginTestRouter(&reached)

@@ -121,7 +121,7 @@ func TestForgedForwardedForDoesNotMakeAVisitorLocal(t *testing.T) {
 
 // The shield and the local links must agree on what a local address is.
 func TestIsLocalClientMatchesLocalLinks(t *testing.T) {
-	for _, address := range []string{"192.168.1.10", "172.16.0.14", "10.0.0.5", "127.0.0.1", "169.254.10.1", "::1", "fe80::1", "fd12:3456::1", "8.8.8.8", "172.32.0.1", "100.64.0.1", "2a02:2f04::1", "2001:4860:4860::8888"} {
+	for _, address := range []string{"192.168.1.10", "172.16.0.21", "10.0.0.5", "127.0.0.1", "169.254.10.1", "::1", "fe80::1", "fd12:3456::1", "8.8.8.8", "172.32.0.1", "100.64.0.1", "2a02:2f04::1", "2001:4860:4860::8888"} {
 		if isLocalClient(address) != isLocalAddress(address) {
 			t.Errorf("%s: the shield says local=%v, the local links say local=%v", address, isLocalClient(address), isLocalAddress(address))
 		}

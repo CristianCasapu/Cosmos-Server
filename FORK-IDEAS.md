@@ -11,18 +11,21 @@ upstream 0.23.4 unless noted and may have moved.
    Setup tab (simple view), the new-container form and the market installer
    (addresses), users, scheduled jobs, the email settings, the Cloudflare
    set-up (see `FORK.md`; the principles are kept with the owner's plans).
-   Also done: the HTTP settings, the URL Security tab, formatting a disk,
-   the alerts editor and API tokens. Still to go through the same way:
-   OpenID clients, the storage mount, merge and SnapRAID dialogs, the
-   Domains dialog by hand. Left from the last round:
-   the admin's country for the geo-blocking warning comes from the browser,
-   not from the address the server sees; trusted proxies are a validated
-   text field, not a list; `api-docs/` does not know the new route, the
-   format request's `confirm` field or the codes UC030 to UC035. The owner's
-   to change if wanted: a save that would lock the admin out is refused with
-   no override; a format request without the typed name is refused (outside
-   scripts formatting through the API stop working); the Strict level's 500
-   requests a minute.
+   The list is done (HTTP settings, URL protection, disk format, alerts,
+   API tokens, OpenID clients, the storage dialogs, the domain dialog, the
+   small forms; see `FORK.md`). Left from it: `api-docs/` does not know the
+   fork's new routes, fields and codes; no "test the provider credentials"
+   check for a domain added by hand; a folder a failed mount created stays
+   behind; creating a SnapRAID setup still waits for running jobs; a mount
+   under /mnt that is not a data disk can no longer be unmounted from the
+   panel; `github.com/robfig/cron/v3` is imported directly but marked
+   indirect in `go.mod`. The owner's to change if wanted: a save that would
+   lock the admin out is refused with no override; format and unmount need
+   the typed name (outside scripts using the API without it are refused);
+   the Strict level's 500 requests a minute; merges combine local data disks
+   only; OpenID accepts a phone app's own scheme besides https; the parity
+   proposal is the smallest disk that is large enough; whether Cloudflare's
+   ranges are offered under trusted proxies at all.
 2. **App links and reachability: done** (a local address always, an external
    one per attached domain, grouped on the cards, "Domains", and a chip that
    says whether the app can be reached from the internet). Left, the owner's
@@ -156,6 +159,20 @@ security record.
   which Docker's list does not give); Theme colours on the sign-in pages of
   a device that never opened the panel (needs the colours in an answer
   visitors can read); the icon timings (2 s wait, 5 minutes for a failure).
+
+## What a stranger can still learn (2026-11-14)
+
+- A publicly trusted certificate that lists other names is served as it is
+  to visitors of a name served directly: issue one certificate per direct
+  name, or wildcards only. The hourly count of refused handshakes is shown
+  nowhere in the panel.
+- A name served directly ties the address to the domain by design; the
+  Certificate Transparency logs list every name of every certificate
+  ordered; another Cloudflare account steering a connection to the server
+  with the right name is closed only by Authenticated Origin Pulls with the
+  owner's own certificate; the refusal itself says a TLS server listens.
+- The ownership markers Cosmos writes in DNS say "managed by cosmos";
+  `/cosmos/api/can-send-email` answers anyone (the sign-in page needs it).
 
 ## Seen with the day's work together, left as it is (2026-11-14)
 

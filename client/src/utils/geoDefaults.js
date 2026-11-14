@@ -54,8 +54,13 @@ const regionOfLanguage = (tag) => {
 // The countries the admin or the server may be in, as two-letter codes.
 // `serverCountry` is the setting, `zones` time zone names (browser, server),
 // `languages` the browser's language tags.
-export const ownCountries = ({ serverCountry, zones, languages } = {}) => {
+export const ownCountries = ({ serverCountry, zones, languages, seen } = {}) => {
   const found = new Set();
+  // Fork addition: the country of the address the server sees this admin at, first (POST /api/config/http-check)
+  const seenCode = String(seen || '').trim().toUpperCase();
+  if (/^[A-Z]{2}$/.test(seenCode)) {
+    found.add(seenCode);
+  }
   const code = String(serverCountry || '').trim().toUpperCase();
   if (/^[A-Z]{2}$/.test(code)) {
     found.add(code);

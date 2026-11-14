@@ -142,6 +142,12 @@ func createOpenIDClient(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 	}
+	// Fork addition: the ID and the redirect URIs are checked, see fork_openid.go
+	if problem := checkOpenIDClient(&newClient, clients); problem != nil {
+		utils.ConfigLock.Unlock()
+		utils.HTTPError(w, problem.Message, http.StatusBadRequest, problem.Code)
+		return
+	}
 
 	// Generate a secret server-side, store the bcrypt hash, return the plain secret once
 	plainSecret := utils.GenerateRandomString(32)
@@ -233,6 +239,12 @@ func updateOpenIDClient(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Fork addition: the stored secret is kept, the ID stays unique, the redirect URIs are checked, see fork_openid.go
+	if problem := prepareOpenIDUpdate(&updatedClient, clients, clientIndex); problem != nil {
+		utils.ConfigLock.Unlock()
+		utils.HTTPError(w, problem.Message, http.StatusBadRequest, problem.Code)
+		return
+	}
 	clients[clientIndex] = updatedClient
 	utils.ConfigLock.Unlock()
 
@@ -251,6 +263,7 @@ func updateOpenIDClient(w http.ResponseWriter, req *http.Request) {
 		map[string]interface{}{
 	})
 
+	updatedClient.Secret = "" // Fork addition: the hash is not sent back
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status": "OK",
 		"data":   updatedClient,

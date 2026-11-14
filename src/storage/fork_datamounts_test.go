@@ -18,7 +18,7 @@ const mountinfoServer = `24 29 0:22 / /sys rw,nosuid,nodev,noexec,relatime share
 26 29 0:6 / /dev rw,nosuid,relatime shared:2 - devtmpfs udev rw,size=65831040k,nr_inodes=16457760,mode=755,inode64
 27 26 0:24 / /dev/pts rw,nosuid,noexec,relatime shared:3 - devpts devpts rw,gid=5,mode=600,ptmxmode=000
 28 29 0:25 / /run rw,nosuid,nodev,noexec,relatime shared:5 - tmpfs tmpfs rw,size=13193312k,mode=755,inode64
-29 1 254:0 / / rw,relatime shared:1 - ext4 /dev/mapper/dpe--vg-root rw,errors=remount-ro
+29 1 254:0 / / rw,relatime shared:1 - ext4 /dev/mapper/host--vg-root rw,errors=remount-ro
 30 24 0:7 / /sys/kernel/security rw,nosuid,nodev,noexec,relatime shared:7 - securityfs securityfs rw
 31 26 0:26 / /dev/shm rw,nosuid,nodev shared:4 - tmpfs tmpfs rw,inode64
 32 24 0:27 / /sys/fs/cgroup rw,nosuid,nodev,noexec,relatime shared:8 - cgroup2 cgroup2 rw,nsdelegate,memory_recursiveprot

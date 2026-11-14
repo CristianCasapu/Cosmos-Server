@@ -9,11 +9,12 @@ import (
 )
 
 // Mount mounts a filesystem located at 'path' to 'mountpoint'.
-func MountMergerFS(paths []string, mountpoint string, opts string, permanent bool, chown string) error {
+func MountMergerFS(paths []string, mountpoint string, opts string, permanent bool, chown string) (err error) { // Fork addition: named result, for the undo below
 	// Fork addition: the request is checked before anything is created, run or written (fork_mount_safety.go)
 	if err := checkMergeRequest(paths, mountpoint, opts, chown); err != nil {
 		return err
 	}
+	if err := forkCheckMerge(paths, mountpoint, opts); err != nil { return err } // Fork addition: data disks only, no overlap, a known policy (fork_mount_guard.go)
 
 	utils.Log("[STORAGE] Merging " + strings.Join(paths, ":") + " into " + mountpoint)
 
@@ -21,7 +22,7 @@ func MountMergerFS(paths []string, mountpoint string, opts string, permanent boo
 	if _, err := os.Stat(mountpoint); os.IsNotExist(err) {
 		utils.Log("[STORAGE] Mountpoint does not exist, creating " + mountpoint)
 		// Create the mountpoint if it does not exist
-		if err := os.Mkdir(mountpoint, 0750); err != nil {
+		if err := makeMountFolder(mountpoint, 0750); err != nil { // Fork addition: a variable for the tests (fork_storage_errors.go)
 			return err
 		}
 	} else {
@@ -41,17 +42,18 @@ func MountMergerFS(paths []string, mountpoint string, opts string, permanent boo
 	}
 
 	// Execute the mount command
-	_, err := utils.Exec("mergerfs", "-o", "use_ino,cache.files=partial,dropcacheonclose=true,allow_other,category.create=mfs" + opts, strings.Join(paths, ":"), mountpoint)
+	_, err = forkRun("Merging into "+mountpoint, "mergerfs", "-o", "use_ino,cache.files=partial,dropcacheonclose=true,allow_other,category.create=mfs" + opts, strings.Join(paths, ":"), mountpoint) // Fork addition: through runStorageCommand (fork_storage_errors.go)
 	if err != nil {
 		return err
 	}
+	defer forkUndoMountOnError(&err, mountpoint, "The merged folder") // Fork addition: a failure after the mount unmounts again (fork_mount_guard.go)
 
 	utils.Log("[STORAGE] command: mergerfs -o use_ino,cache.files=partial,dropcacheonclose=true,allow_other,category.create=mfs" + opts + " " + strings.Join(paths, ":") + " " + mountpoint)
 
 	// chown the mountpoint
 	if chown != "" {
 		utils.Log("[STORAGE] Chowning " + mountpoint + " to " + chown)
-		out, err := utils.Exec("chown", chown, mountpoint)
+		out, err := forkRun("Setting the owner of "+mountpoint+" to "+chown, "chown", "--", chown, mountpoint) // Fork addition: through runStorageCommand (fork_storage_errors.go)
 		utils.Debug(out)
 		if err != nil {
 			return err
@@ -75,7 +77,7 @@ func MountMergerFS(paths []string, mountpoint string, opts string, permanent boo
 		fstabEntry := mergeFstabEntry(paths, mountpoint, opts)
 
 		// Append to /etc/fstab
-		file, err := os.OpenFile("/etc/fstab", os.O_APPEND|os.O_WRONLY, 0644)
+		file, err := os.OpenFile(fstabFile, os.O_APPEND|os.O_WRONLY, 0644) // Fork addition: a variable for the tests
 		if err != nil {
 			return err
 		}

@@ -14,7 +14,7 @@ import (
 //
 // Upstream announces "starting HTTPS servers and redirecting HTTP to HTTPS",
 // but the redirect was lost in 2026 and plainHTTPHandler answers 404 to
-// everything that is not in an HTTP-only zone: http://172.16.0.14:2052/ and
+// everything that is not in an HTTP-only zone: http://172.16.0.21:2052/ and
 // http://app.example.com/ both end there, although the same addresses work
 // over HTTPS on the other port.
 //
@@ -97,6 +97,9 @@ func plainHostname(name string) bool {
 // redirectPlainHTTPToHTTPS is the hook of plainHTTPHandler. It returns true
 // when it answered the request.
 func redirectPlainHTTPToHTTPS(w http.ResponseWriter, r *http.Request) bool {
+	if !forkTLS.plainRedirectAllowed(r) {
+		return false // a name this peer could not open over HTTPS answers like an unknown one (fork_tls_names.go)
+	}
 	target, ok := plainHTTPRedirectTarget(r.Host, r.URL, serverPortHTTPS)
 	if !ok {
 		return false
