@@ -955,6 +955,9 @@ pre.code {
     overflow-wrap: anywhere;
   }
   .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root > * { min-width: 0; max-width: 100%; }
+  /* the first cell is the card's title: no column name before it (unless it is a control, a lone box needs its name) */
+  .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root:first-child[data-label]:not(:has(input, button, [role=button]))::before { display: none; }
+  .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root:first-child:not(:has(input, button, [role=button])) { font-weight: 600; }
   /* a cell without a name (an icon, the row's buttons) takes the whole line */
   .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root:not([data-label]) { justify-content: flex-start; flex-wrap: wrap; }
   .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root.ct-table-empty > .MuiTableCell-root { display: block; }

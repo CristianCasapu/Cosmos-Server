@@ -71,7 +71,7 @@ const PrettyTableView = ({ isLoading, getKey, data, columns, sort, onRowClick, l
       {!isLoading && <TableContainer className="ct-table-card" style={{
         width: fullWidth ? '100%': '',
       }} component={Paper} elevation={0}>
-        <Table ref={tableRef} className={phoneCards ? 'ct-table-cards' : undefined} role="table">
+        <Table ref={tableRef} className={phoneCards && columns.filter((c) => c && (!c.screenMin || screenMin[c.screenMin]) && (!c.screenMax || screenMax[c.screenMax])).length > 2 ? 'ct-table-cards' : undefined} role="table">{/* (a table of one or two columns fits a phone as it is) */}
           <TableHead>
             <TableRow role="row" sx={{
               '& .MuiTableCell-head': { fontWeight: 600 },
