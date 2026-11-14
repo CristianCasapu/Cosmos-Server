@@ -62,7 +62,7 @@ for (const engineName of engineNames) {
     check(sent.some((s) => s === `POST /cosmos/api/servapps/${app}/manage/start 200`), tag, 'Start sent as POST and done');
 
     // automatic updates on and off (the switch recreates the container)
-    const autoUpdate = () => page.locator("xpath=(//div[contains(normalize-space(.), 'Auto Update Container') and .//input[@type='checkbox']])[last()]//input[@type='checkbox']");
+    const autoUpdate = () => page.getByLabel('Auto Update Container');
     for (let round = 0; round < 2; round++) {
       const state = (await autoUpdate().isChecked()) ? 'false' : 'true';
       await autoUpdate().click();
@@ -99,7 +99,8 @@ for (const engineName of engineNames) {
     check(r.status() === 401, tag, 'session ended after logout', r.status());
     await page.screenshot({ path: `shots/commands-${tag}-logout.png` });
 
-    const relevant = errors.filter((e) => !/Failed to load resource.*(405|404|401)/.test(e));
+    // the worker is refused behind a certificate the browser does not trust (a test instance's own): not a fault
+    const relevant = errors.filter((e) => !/Failed to load resource.*(405|404|401)/.test(e) && !/SSL certificate error occurred when fetching the script/.test(e));
     check(relevant.length === 0, tag, 'no script error', relevant.join(' | ').slice(0, 600));
     console.log('     sent:', sent.join(' ; '));
     await browser.close();
