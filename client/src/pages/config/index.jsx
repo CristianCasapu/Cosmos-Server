@@ -49,6 +49,7 @@ import ConfigAppearance from './configAppearance';
 import { PWASettings } from '../../components/pwa'; // Fork addition: the installable app
 import ConfigAPITokens from './configAPITokens';
 import { refreshPaidVisibility } from '../../components/paidVisibility'; // Fork addition
+import { httpSettingsValidation } from './forkHttpSettings'; // Fork addition
 
 const SaveButton = ({ formik, saveLabel, sticky }) => {
   // Fork addition: say when something was changed and not saved yet, and keep the
@@ -264,6 +265,7 @@ const ConfigManagement = () => {
             t('mgmt.config.internet.reserved.validation', 'Enter port numbers separated by commas, "none", or leave it empty for the usual list')),
           ...snapshotsValidation(t), // fork addition
           ...telegramValidation(t, config), // fork addition
+          ...httpSettingsValidation(t, config), // fork addition: hostname, ports and address lists, only when changed (forkHttpSettings.jsx)
         })}
 
         onSubmit={async (values, { setSubmitting, setFieldValue }) => {

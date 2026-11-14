@@ -69,6 +69,19 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }), true)
   }
 
+  // Fork addition: what the HTTP settings being edited would do (ports free?
+  // would the admin whitelist let this request through?), nothing saved. The
+  // form shows the answer itself, so an error is not announced.
+  function httpCheck(values) {
+    return wrap(apiFetch('/cosmos/api/config/http-check', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(values),
+    }), true)
+  }
+
   // Fork addition: UPnP port forwarding status; retry re-applies the saved settings now.
   function upnpStatus(quiet = false) {
     return wrap(apiFetch('/cosmos/api/upnp', {
@@ -494,6 +507,7 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     canSendEmail,
     testEmail,
     detectEmail,
+    httpCheck, // Fork addition
     serverUpdateStatus,
     checkServerUpdate,
     upnpStatus,
