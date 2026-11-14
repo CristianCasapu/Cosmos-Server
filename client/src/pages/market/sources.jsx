@@ -120,7 +120,7 @@ const EditSourcesModal = ({ onSave }) => {
           <Stack spacing={2}>
             <Alert severity="info" style={{ margin: '0 20px 20px 20px' }}>
               {t('navigation.market.newSources.additionalMarketsInfo')} <br />
-              {t('navigation.market.newSources.additionalMarketsInfo.moreInfo')}  <a href="https://github.com/azukaar/awesome-cosmos-cloud" target="_blank">{t('navigation.market.newSources.additionalMarketsInfo.href')}</a>
+              {t('navigation.market.newSources.additionalMarketsInfo.moreInfo')}  <a href="https://github.com/azukaar/awesome-cosmos-cloud" target="_blank" rel="noopener noreferrer">{t('navigation.market.newSources.additionalMarketsInfo.href')}</a>
             </Alert>
             {formik.values.sources && formik.values.sources
             .map((action, index) => {

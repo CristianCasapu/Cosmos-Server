@@ -383,6 +383,9 @@ func ReadConfigFromFile() Config {
 
 	configFile := GetConfigFileName()
 	Log("Using config file: " + configFile)
+	if kept, refused := refuseDefaultConfig(configFile); refused { // Fork addition: a missing file is not a new install, see fork_config_missing.go
+		return kept
+	}
 	if CreateDefaultConfigFileIfNecessary() {
 		LoadBaseMainConfig(DefaultConfig)
 		return DefaultConfig
@@ -418,6 +421,7 @@ func ReadConfigFromFile() Config {
 }
 
 func LoadBaseMainConfig(config Config) {
+	noticeConfigLoaded(config) // Fork addition: see fork_config_missing.go
 	base := config
 	baseMainConfig.Store(&base)
 
@@ -547,7 +551,8 @@ func SaveConfigTofile(config Config) {
 		return encoder.Encode(config)
 	})
 	if err != nil {
-		Fatal("Writing Config File", err)
+		configWriteFailed(err) // Fork addition: reported, the server keeps running (upstream: Fatal), see fork_config_missing.go
+		return
 	}
 
 	Log("Config file saved.")

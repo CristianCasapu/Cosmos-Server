@@ -156,7 +156,7 @@ export const Backups = ({pathFilters}) => {
               return <div style={{position: 'relative'}}>
                 <MenuButton>
                   <MenuItem disabled={loading} onClick={() => {
-                    window.open('/cosmos-ui/backups/' + r.Name, '_blank');
+                    window.open('/cosmos-ui/backups/' + r.Name, '_blank', 'noopener,noreferrer');
                   }}>
                     <ListItemIcon>
                       <EditOutlined fontSize="small" />

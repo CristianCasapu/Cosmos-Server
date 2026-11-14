@@ -27,7 +27,7 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
 
   function restart() {
     return apiFetch('/cosmos/api/restart', {
-      method: 'GET',
+      method: 'POST', // Fork addition: a command, sent as POST (src/fork_post_only.go)
       headers: {
         'Content-Type': 'application/json'
       },

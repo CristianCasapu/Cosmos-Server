@@ -88,6 +88,11 @@ func UserEdit(w http.ResponseWriter, req *http.Request) {
 			toSet["Role"] = *request.Role
 		}
 
+		// Fork addition: the role and the email address only of an account whose permissions the caller holds itself, see fork_manage_target.go
+		if len(toSet) > 0 && refuseStrongerAccountByName(w, req, nickname) {
+			return
+		}
+
 		auditUserEdit(req, nickname, toSet) // Fork addition: security record
 		err := utils.UpdateUser(nickname, toSet)
 

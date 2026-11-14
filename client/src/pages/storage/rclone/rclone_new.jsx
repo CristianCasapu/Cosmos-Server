@@ -71,7 +71,7 @@ const RCloneNewConfig = ({ onClose, initialValues }) => {
     return (
       <>
         <Alert severity="info">
-          {t('mgmt.storage.rclone.doclink')}&nbsp;<a href={`https://rclone.org/${config.Name}/`} target="_blank" rel="noreferrer">link</a>
+          {t('mgmt.storage.rclone.doclink')}&nbsp;<a href={`https://rclone.org/${config.Name}/`} target="_blank" rel="noopener noreferrer">link</a>
         </Alert>
         <Field
           as={TextField}
@@ -87,7 +87,7 @@ const RCloneNewConfig = ({ onClose, initialValues }) => {
         {standardFields}
         {ProvAuth.includes(config.Name) && (<>
           <Alert severity="info">
-            {t('mgmt.storage.rclone.tokenInfo')}&nbsp;<a href={`https://cosmos-cloud.io/doc/82%20Remote%20Storage`} target="_blank" rel="noreferrer">link</a> 
+            {t('mgmt.storage.rclone.tokenInfo')}&nbsp;<a href={`https://cosmos-cloud.io/doc/82%20Remote%20Storage`} target="_blank" rel="noopener noreferrer">link</a> 
           </Alert>
           <Field
             as={TextField}

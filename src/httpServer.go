@@ -659,7 +659,13 @@ func tokenMiddleware(next http.Handler) http.Handler {
 				return
 			}
 
-			utils.TriggerEvent(
+			// Fork addition: at most what the owner's role holds now, and no token of an owner who is gone, see fork_token_owner.go
+			tokenPermissions, ownerOK := tokenPermissionsNow(w, r, matchedName, matchedToken)
+			if !ownerOK {
+				return
+			}
+
+			proxy.SampledEvent( // Fork addition: one row per minute and token, see proxy/fork_event_sample.go (upstream: utils.TriggerEvent)
 				"cosmos.api.token.used",
 				"API Token used",
 				"info",
@@ -681,7 +687,7 @@ func tokenMiddleware(next http.Handler) http.Handler {
 				APIToken: &utils.APITokenContext{
 					Name:        matchedName,
 					Owner:       matchedToken.Owner,
-					Permissions: matchedToken.Permissions,
+					Permissions: tokenPermissions, // Fork addition: was matchedToken.Permissions
 				},
 			})
 			r = r.WithContext(ctx)
@@ -1300,9 +1306,11 @@ func InitServer() *mux.Router {
 	}
 
 	srapiAdmin.Use(utils.Restrictions(config.AdminConstellationOnly, config.AdminWhitelistIPs))
+	restrictAdminElsewhere(srapi, utils.Restrictions(config.AdminConstellationOnly, config.AdminWhitelistIPs)) // Fork addition: the host terminal and remote storage settings too, see fork_admin_routes.go
 
 	// Fork addition: the API answers the panel's own pages, not other sites, see fork_same_origin.go
 	requireSameOrigin(srapi, srapiStrict, srapiAdmin)
+	commandsOnlyByPost(srapi, srapiStrict, srapiAdmin) // Fork addition: commands take POST, never GET, see fork_post_only.go
 	forkAPINoStore(srapi, srapiStrict, srapiAdmin) // Fork addition: no answer of the API is kept by a browser, see fork_pwa.go
 	limitRequestBodies(maxSignInBody, srapiStrict) // Fork addition: the sign-in routes read a bounded body, see fork_api_inputs.go
 	
@@ -1313,6 +1321,7 @@ func InitServer() *mux.Router {
 	srapi.Use(utils.SetSecurityHeaders)
 	srapiStrict.Use(utils.SetSecurityHeaders)
 	srapiAdmin.Use(utils.SetSecurityHeaders)
+	forkAPIHeaders(srapi, srapiStrict, srapiAdmin) // Fork addition: the API's script policy and HSTS, see fork_csp.go
 
 	if(!config.HTTPConfig.AcceptAllInsecureHostname) {
 		srapi.Use(utils.EnsureHostname)
@@ -1341,6 +1350,7 @@ func InitServer() *mux.Router {
 	// fs := http.FileServer(http.Dir(pwd + "/static"))
 	uirouter := router.PathPrefix("/cosmos-ui").Subrouter()
 	uirouter.Use(utils.SetSecurityHeaders)
+	uirouter.Use(forkPanelHeaders) // Fork addition: the panel's script policy and security headers, see fork_csp.go
 	SecureAPI(uirouter, true, true, false)
 	uirouter.PathPrefix("/").Handler(http.StripPrefix("/cosmos-ui", forkPWAStatic(utils.SPAHandler(pwd + "/static"), pwd + "/static"))) // Fork addition: the installable app's worker and manifest, and cache headers, see fork_pwa.go
 	

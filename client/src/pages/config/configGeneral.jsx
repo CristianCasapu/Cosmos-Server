@@ -354,6 +354,7 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
                       <Button
                         href='https://billing.stripe.com/p/login/28obMlc7X1jgeqY144'
                         target="_blank"
+                        rel="noopener noreferrer"
                         variant="outlined">
                         {t('mgmt.config.general.licenceInput.manageLicenceButton')}
                       </Button>

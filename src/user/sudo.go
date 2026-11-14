@@ -75,6 +75,10 @@ func UserSudo(w http.ResponseWriter, req *http.Request) {
 			utils.HTTPError(w, "User not registered", http.StatusInternalServerError, "UL002")
 			return
 		} else {
+			// Fork addition: a limit on wrong passwords per account, see fork_sudo_limit.go
+			if sudoAttemptRefused(w, nickname) {
+				return
+			}
 			err2 := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
 			if err2 != nil {
 				utils.RecordSecurity(req, utils.SecSudoFailed, "") // Fork addition: security record
@@ -84,6 +88,7 @@ func UserSudo(w http.ResponseWriter, req *http.Request) {
 			}
 
 			utils.RecordSecurity(req, utils.SecSudoSuccess, "") // Fork addition: security record
+			sudoSucceeded(nickname) // Fork addition: the wrong passwords are forgotten, see fork_sudo_limit.go
 			SendUserToken(w, passwordConfirmed(req), user, true, true) // Fork addition: two hours from this confirmation, see fork_session_life.go
 
 			json.NewEncoder(w).Encode(map[string]interface{}{

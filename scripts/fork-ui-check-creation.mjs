@@ -14,9 +14,12 @@
 //   container "vpn" (busybox, sleep 3600); a folder of another disk than the
 //   test Cosmos' own files mounted at /mnt/data in both (so that it is a
 //   data disk to Cosmos and the folders Cosmos creates exist for Docker);
-// - a web server at MARKET serving index.json (a market source whose "compose"
-//   entries are data: URLs: the browser fetches them, and an http: one is
-//   blocked as mixed content on the HTTPS panel) with the templates jellyfin
+// - a web server at MARKET serving index.json over http (the server reads it)
+//   and the compose files over HTTPS (the browser fetches them: an http: one is
+//   blocked as mixed content on the HTTPS panel, and the panel's script policy
+//   refuses data: addresses in connect-src; a self-signed certificate for the
+//   server's address will do, the browsers here accept it), whose "compose"
+//   entries are https://<MARKET's address>/<name>.json, with the templates jellyfin
 //   and panel: "Jellyfin" (supported_architectures amd64, arm64; image
 //   localhost:5000/jellyfin:latest, command sleep 3600, TZ empty, a named
 //   volume on /config and a bind {DefaultDataPath}/{ServiceName}/media on

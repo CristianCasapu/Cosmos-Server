@@ -408,6 +408,10 @@ func snapshotSource(cfg utils.SnapshotsConfig, source string, now time.Time) (id
 	if err != nil || !destInfo.IsDir() {
 		return "", meta, fmt.Errorf("the destination %s does not exist (is its disk connected?)", cfg.Destination)
 	}
+	// only Cosmos may change what is in there (see destination.go)
+	if err := CheckDestination(cfg.Destination, destInfo); err != nil {
+		return "", meta, fmt.Errorf("the destination %w", err)
+	}
 
 	srcReal := filepath.Clean(hostPath(source))
 	srcInfo, err := os.Lstat(srcReal)
@@ -441,6 +445,9 @@ func snapshotSource(cfg utils.SnapshotsConfig, source string, now time.Time) (id
 		return "", meta, fmt.Errorf("cannot write to the destination (%s)", reason(err))
 	}
 	defer store.Close()
+	if err := secureStore(store, dir); err != nil {
+		return "", meta, err
+	}
 
 	cleanPartials(cfg.Destination, source, dir)
 

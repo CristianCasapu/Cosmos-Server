@@ -91,6 +91,7 @@ const COMMANDS = [
   ['DELETE', /^\/api\/network\/(.+)$/, (m) => ['activity.network.delete', 'Delete network {{name}}', { name: decode(m[1]) }]],
   ['POST', /^\/api\/networks$/, () => ['activity.network.create', 'Create the network']],
 
+  [null, /^\/api\/reset-metrics$/, () => ['activity.metrics.reset', 'Reset the monitoring data']], // Fork addition: a POST command since src/fork_post_only.go
   [null, /^\/api\/restart$/, () => ['activity.restartCosmos', 'Restart Cosmos']],
   [null, /^\/api\/restart-server$/, () => ['activity.restartServer', 'Restart the server']],
   [null, /^\/api\/config\/dns$/, whenChanging(() => ['activity.config.dns', 'Save the DNS settings'])],
@@ -158,6 +159,10 @@ const COMMANDS = [
   ['POST', /^\/api\/disks\/format$/, () => ['activity.storage.format', 'Format the disk']],
   ['POST', /^\/api\/new-dir$/, () => ['activity.storage.newDir', 'Create the folder']],
   ['POST', /^\/api\/upload\//, () => ['activity.upload', 'Upload the file']],
+  // Fork addition: commands that are POST since src/fork_post_only.go
+  [null, /^\/api\/snapraid\/[^/]+\/fix$/, () => ['activity.snapraid.fix', 'Start the repair from parity']],
+  [null, /^\/api\/snapraid\/[^/]+\/enable$/, () => ['activity.snapraid.enable', 'Switch the parity setup on']],
+  [null, /^\/api\/snapraid\/[^/]+\/disable$/, () => ['activity.snapraid.disable', 'Switch the parity setup off']],
   [null, /^\/api\/snapraid\/[^/]+\/sync$/, () => ['activity.snapraid.sync', 'Start the parity sync']],
   [null, /^\/api\/snapraid\/[^/]+\/scrub$/, () => ['activity.snapraid.scrub', 'Start the parity check']],
   [null, /^\/api\/snapraid/, byMethod({ POST: ['activity.snapraid.save', 'Save the parity setup'], DELETE: ['activity.snapraid.delete', 'Delete the parity setup'] })],

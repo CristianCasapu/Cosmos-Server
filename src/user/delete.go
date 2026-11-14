@@ -34,6 +34,11 @@ func UserDelete(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Fork addition: only an account whose permissions the caller holds itself, see fork_manage_target.go
+	if refuseStrongerAccountByName(w, req, nickname) {
+		return
+	}
+
 	if utils.FBL.AgentMode {
 		utils.Error("User: Agents cannot manage users. Use a manager server", nil)
 		utils.HTTPError(w, "User Creation Error: Agents cannot manage users. Use a manager server",

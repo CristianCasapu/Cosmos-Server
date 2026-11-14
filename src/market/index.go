@@ -26,6 +26,8 @@ func MarketGet(w http.ResponseWriter, req *http.Request) {
 	if utils.CheckPermissions(w, req, utils.PERM_LOGIN) != nil {
 		return
 	}
+	marketMu.Lock() // Fork addition: one request at a time works on the cache, see fork_fetch.go
+	defer marketMu.Unlock()
 
 	if(req.Method == "GET") {
 		config := utils.GetMainConfig()
