@@ -86,6 +86,7 @@ const SENTENCES = {
   },
   'access.ip.denied': { text: 'a request was refused by an address restriction', ip: true },
   'access.local.denied': { text: 'a local-only address was asked for from outside', ip: true },
+  'access.origin.denied': { text: 'an address served through Cloudflare was asked for directly', ip: true },
 
   'shield.blocked': { text: 'a request was blocked by SmartShield', ip: true },
   'shield.strike': { text: 'SmartShield blocked a client for an hour', ip: true },
@@ -254,7 +255,7 @@ export function auditSentence(event, t = identity) {
 // The outcome a kind has by itself (the catalogue's): a "failed login" that
 // failed needs no ": it failed".
 const FAILED_KINDS = ['auth.login.failed', 'auth.mfa.failed', 'auth.sudo.failed', 'auth.reset.rejected', 'auth.register.failed', 'recorder.dropped'];
-const DENIED_KINDS = ['auth.session.forged', 'auth.session.rejected', 'token.invalid', 'token.expired', 'token.ip.denied', 'access.denied', 'access.grant.denied', 'access.ip.denied', 'access.local.denied'];
+const DENIED_KINDS = ['auth.session.forged', 'auth.session.rejected', 'token.invalid', 'token.expired', 'token.ip.denied', 'access.denied', 'access.grant.denied', 'access.ip.denied', 'access.local.denied', 'access.origin.denied'];
 
 function defaultOutcome(kind) {
   if (FAILED_KINDS.includes(kind)) return 'failed';

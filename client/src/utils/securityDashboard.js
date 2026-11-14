@@ -151,6 +151,13 @@ export const KIND_TEXT = {
     todo: 'Nothing to do. To reach it from outside, change the URL\'s settings.',
     link: 'urls',
   },
+  'access.origin.denied': {
+    label: 'Asked around Cloudflare',
+    what: 'An address that is served through Cloudflare\'s proxy was asked for directly, from an address that is neither Cloudflare\'s nor on your local network.',
+    stopped: 'yes',
+    todo: 'Nothing to do: someone knows the server\'s own address and tried it. If it is you, use the address through Cloudflare, or switch that address to "Directly".',
+    link: 'urls',
+  },
   'shield.blocked': {
     label: 'Request from a blocked address',
     what: 'SmartShield turned a request away because its sender is over its limits or banned.',
