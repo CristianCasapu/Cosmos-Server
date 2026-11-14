@@ -132,36 +132,35 @@ const ServerUpdate = () => {
   </Grid>;
 };
 
-const ServerUpdateAlert = () => {
+// The home page's line for its notice area (components/homeNotices.jsx): a newer
+// release, with "Update now" (asks first), or the installation under way.
+const useServerUpdateNotice = () => {
   const { t } = useTranslation();
   const update = useServerUpdate();
   const { status } = update;
-
+  const dialog = <UpdateConfirm update={update} />;
   if (update.installing) {
-    return <Alert severity="info">{t('mgmt.config.general.updateCheck.updateFound', { version: shown(update.installing) })}</Alert>;
+    return { items: [{ id: 'server-update', severity: 'info',
+      text: t('mgmt.config.general.updateCheck.updateFound', { version: shown(update.installing) }) }], dialog };
   }
   if (!status || !status.updateAvailable) {
-    return null;
+    return { items: [], dialog };
   }
-
-  return <>
-    <Alert severity="warning" action={
-      <PermissionGuard permission={PERM_ADMIN}>
-        <Button color="inherit" size="small" disabled={update.checking} onClick={() => update.setConfirm(true)}>
-          {t('mgmt.config.update.installNow', 'Update now')}
-        </Button>
-      </PermissionGuard>
-    }>
-      {t('mgmt.config.update.availableRunning', 'Version {{version}} of Cosmos is available (this server runs {{current}}).',
-        { version: shown(status.latestVersion), current: shown(status.currentVersion) })}
-      {' '}
-      {status.autoUpdate
-        ? t('mgmt.config.update.autoAt', 'It will be installed automatically at {{time}}.', { time: status.maintenanceTime })
-        : t('mgmt.config.update.manualOnly', 'Automatic updates are off, so it is installed only when you choose to.')}
-    </Alert>
-    <UpdateConfirm update={update} />
-  </>;
+  return { items: [{
+    id: 'server-update',
+    severity: 'warning',
+    text: t('mgmt.config.update.availableRunning', 'Version {{version}} of Cosmos is available (this server runs {{current}}).',
+      { version: shown(status.latestVersion), current: shown(status.currentVersion) }),
+    detail: status.autoUpdate
+      ? t('mgmt.config.update.autoAt', 'It will be installed automatically at {{time}}.', { time: status.maintenanceTime })
+      : t('mgmt.config.update.manualOnly', 'Automatic updates are off, so it is installed only when you choose to.'),
+    actions: <PermissionGuard permission={PERM_ADMIN}>
+      <Button color="inherit" size="small" variant="outlined" startIcon={<CloudDownloadOutlined />} disabled={update.checking} onClick={() => update.setConfirm(true)}>
+        {t('mgmt.config.update.installNow', 'Update now')}
+      </Button>
+    </PermissionGuard>,
+  }], dialog };
 };
 
 export default ServerUpdate;
-export { ServerUpdateAlert };
+export { useServerUpdateNotice };

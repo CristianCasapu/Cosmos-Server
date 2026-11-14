@@ -14,8 +14,7 @@ import HostChip from '../../components/hostChip';
 import AppLinks, { AppDomains } from '../../components/appLinks'; // Fork addition
 import { ReachChip } from '../../components/reachability'; // Fork addition
 import PortChips from '../../components/portChips'; // Fork addition
-import LocalAddressesForAll from '../../components/localAddressesForAll'; // Fork addition
-import Leftovers from '../../components/leftovers'; // Fork addition: containers left by an interrupted change
+import ServAppsNotices from '../../components/servappsNotices'; // Fork addition: leftovers, updates and apps without an address in one notice area
 import { Link } from 'react-router-dom';
 import ExposeModal from './exposeModal';
 import GetActions from './actionBar';
@@ -258,17 +257,16 @@ const ServApps = ({stack}) => {
 
     <Stack spacing={{xs: 1, sm: 1, md: 2 }}>
       <Stack direction="row" spacing={2}>
-        {stack && <Link to="/cosmos-ui/servapps">
-          <ResponsiveButton variant="secondary" startIcon={<RollbackOutlined />}>Back</ResponsiveButton>
-        </Link>}
+        {/* Fork addition: links styled as buttons (one Tab stop each; they were buttons inside links) */}
+        {stack && <ResponsiveButton component={Link} to="/cosmos-ui/servapps" variant="outlined" startIcon={<RollbackOutlined />}>{t('global.backAction', 'Back')}</ResponsiveButton>}
         {!stack && <>
         <PermissionGuard permission={PERM_RESOURCES}>
-          <Link to="/cosmos-ui/servapps/new-service" style={{ textDecoration: 'none' }}>
-            <ResponsiveButton
-              variant="contained"
-              startIcon={<AppstoreAddOutlined />}
-              >{t('navigation.market.startServAppButton')}</ResponsiveButton>
-          </Link>
+          <ResponsiveButton
+            component={Link}
+            to="/cosmos-ui/servapps/new-service"
+            variant="contained"
+            startIcon={<AppstoreAddOutlined />}
+            >{t('navigation.market.startServAppButton')}</ResponsiveButton>
         </PermissionGuard>
         <ResponsiveButton variant="outlined" startIcon={<ReloadOutlined />} onClick={() => {
           refreshServApps();
@@ -299,17 +297,10 @@ const ServApps = ({stack}) => {
       </div>
       
       <Grid2 container spacing={{xs: 1, sm: 1, md: 2 }}>
-        {/* Fork addition: containers left behind by an interrupted change, with a way back */}
-        {!stack && <Leftovers servApps={servApps} refresh={refreshServApps} wrap={(notice) => <Grid2 style={gridAnim} xs={12} item><Item>{notice}</Item></Grid2>} />}
-        {/* Fork addition: updatesAvailable is a map of container names, ".length" was never set */}
-        {updatesAvailable && Object.keys(updatesAvailable).length > 0 && <Grid2 style={gridAnim} xs={12} item>
-          <Item>
-            <Alert severity="info">{t('mgmt.servapps.updatesAvailableFor')} {Object.keys(updatesAvailable).map((name) => name.replace(/^\//, '')).join(', ')}</Alert>
-          </Item>
-        </Grid2>}
-        {/* Fork addition: one action for the apps that have no URL at all */}
-        {!stack && <LocalAddressesForAll config={config} containers={servApps} selfName={selfName} refresh={refreshServApps}
-          wrap={(notice) => <Grid2 style={gridAnim} xs={12} item><Item>{notice}</Item></Grid2>} />}
+        {/* Fork addition: what needs attention (leftovers of interrupted changes, updates, apps without an address), one area */}
+        <Grid2 xs={12} item sx={{ '&:empty': { display: 'none' } }}>
+          <ServAppsNotices config={config} servApps={servApps} selfName={selfName} refresh={refreshServApps} updates={updatesAvailable} stack={stack} />
+        </Grid2>
         {servApps && Object.values(servAppsStacked)
           .filter(app => {
             if (search.length < 2) return true;

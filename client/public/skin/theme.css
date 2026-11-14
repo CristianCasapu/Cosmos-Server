@@ -771,8 +771,6 @@ html:has(header.MuiAppBar-root) .ct-mode-toggle { display: none; }
   /* what is tapped most gets a finger's width */
   header.MuiAppBar-root .MuiToolbar-root > .MuiIconButton-root { width: var(--ct-touch); height: var(--ct-touch); }
   header.MuiAppBar-root .MuiIconButton-root { width: 40px; height: 40px; }
-  header.MuiAppBar-root .MuiToolbar-root > .MuiStack-root > :not(style) + :not(style) { margin-left: 8px; }
-  header.MuiAppBar-root .MuiToolbar-root > .MuiStack-root > .MuiBox-root { margin-left: 0; }
   .MuiDrawer-paper .MuiListItemButton-root { min-height: var(--ct-touch); }
   main .MuiButton-root.MuiButton-root:not(.MuiButton-sizeSmall) { min-height: var(--ct-touch); }
   .MuiDialogActions-root .MuiButton-root.MuiButton-root { min-height: var(--ct-touch); }
@@ -919,7 +917,10 @@ pre.code {
   /* the header's buttons: a finger's width (44 px) */
   header.MuiAppBar-root .MuiIconButton-root { width: var(--ct-touch); height: var(--ct-touch); }
   header.MuiAppBar-root .MuiChip-root { height: var(--ct-touch); }
-  header.MuiAppBar-root .MuiToolbar-root > .MuiStack-root > :not(style) + :not(style) { margin-left: 6px; }
+  /* a visible gap between them (a gap, not margins: the controls hidden on a phone take no room) */
+  header.MuiAppBar-root .MuiToolbar-root > .MuiStack-root { gap: 8px; align-items: center; }
+  header.MuiAppBar-root .MuiToolbar-root > .MuiStack-root > * { margin-left: 0 !important; }
+  header.MuiAppBar-root .MuiToolbar-root > .MuiStack-root > .MuiBox-root:empty { display: none; }
 
   /* A table of rows becomes a list of cards: each cell on its own line with
      its column's name before it. Nothing is cut at the right any more. The
@@ -1003,24 +1004,71 @@ pre.code {
   .app-hover:hover { transform: none !important; }
 }
 
-/* ---------- the home page's health card (components/healthCard.jsx) ------- */
-.ct-health {
+/* ---------- phones: what is tapped gets a finger's height (44 px) ---------- */
+@media (max-width: 599.95px) {
+  /* small text buttons outside tables (the chart's Latest / Hourly / Daily, "All settings") */
+  main .MuiButton-root.MuiButton-root.MuiButton-sizeSmall:not(.MuiTableCell-root .MuiButton-root) { min-height: var(--ct-touch); }
+  /* the page's tab picker and the other full selects */
+  main .MuiOutlinedInput-root .MuiSelect-select.MuiSelect-outlined:not(.MuiInputBase-inputSizeSmall) {
+    min-height: var(--ct-touch);
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  /* the close button of a message */
+  .MuiAlert-action > .MuiIconButton-root { width: var(--ct-touch); height: var(--ct-touch); }
+}
+
+/* ---------- things that need attention (components/noticeArea.jsx) -------- */
+/* One surface per page (ServApps, a stack, home), one line per item, the most
+   urgent first; its edge takes the colour of the most urgent line. */
+.ct-notices {
   background-color: var(--ct-surface);
   border: 1px solid var(--ct-border);
-  border-radius: 12px;
-  padding: 10px 16px;
+  border-left-width: 4px;
+  border-radius: var(--ct-radius-l);
+  padding: 6px 16px;
   box-shadow: var(--ct-shadow);
   color: var(--ct-text);
+  min-width: 0;
 }
-.ct-health-attention { border-color: var(--ct-warn-border); }
-.ct-health-line { display: flex; align-items: flex-start; gap: 10px; overflow-wrap: anywhere; color: var(--ct-text); }
-.ct-health-line > span { min-width: 0; }
-.ct-health-unread { color: var(--ct-muted); padding-left: 26px; }
-.ct-health-icon { flex: none; font-size: 16px; margin-top: 2px; }
-.ct-health-ok { color: var(--ct-ok-text); }
-.ct-health-warning { color: var(--ct-warn-text); }
-.ct-health-error { color: var(--ct-danger-text); }
-.ct-health-link.ct-health-link { font-weight: 600; white-space: nowrap; }
+.ct-notices-error { border-color: var(--ct-danger-border); border-left-color: var(--ct-danger-text); }
+.ct-notices-warning { border-color: var(--ct-warn-border); border-left-color: var(--ct-warn-text); }
+.ct-notices-unknown { border-left-color: var(--ct-muted); }
+.ct-notices-info { border-left-color: var(--ct-info-text); }
+.ct-notices-success { border-left-color: var(--ct-ok-text); }
+.ct-notices-list { list-style: none; margin: 0; padding: 0; }
+.ct-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  column-gap: 10px;
+  row-gap: 8px;
+  padding: 10px 0;
+  overflow-wrap: anywhere;
+}
+.ct-notice + .ct-notice { border-top: 1px solid var(--ct-border); }
+.ct-notice-icon { flex: none; font-size: 16px; margin-top: 3px; }
+.ct-notice-body { flex: 1 1 240px; min-width: 0; }
+.ct-notice-text.ct-notice-text { color: var(--ct-text); }
+.ct-notice-detail.ct-notice-detail { color: var(--ct-muted); margin-top: 2px; }
+.ct-notice-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-left: auto; }
+.ct-notice-error { color: var(--ct-danger-text); }
+.ct-notice-warning { color: var(--ct-warn-text); }
+.ct-notice-unknown { color: var(--ct-muted); }
+.ct-notice-info { color: var(--ct-info-text); }
+.ct-notice-success { color: var(--ct-ok-text); }
+.ct-notice-link.ct-notice-link { font-weight: 600; white-space: nowrap; }
+.ct-notices-toggle.ct-notices-toggle { margin: 0 0 6px 18px; }
+@media (max-width: 599.95px) {
+  /* on a phone the actions go under the text, from its left edge, each as wide as it needs */
+  .ct-notices { padding: 4px 12px; }
+  .ct-notice-actions { flex: 1 1 100%; margin-left: 26px; }
+  .ct-notices-toggle.ct-notices-toggle { margin-left: 14px; min-height: var(--ct-touch); }
+  .ct-notice-actions .MuiButton-root.MuiButton-root { min-height: var(--ct-touch); }
+}
 
 /* text for screen readers only */
 .ct-visually-hidden {

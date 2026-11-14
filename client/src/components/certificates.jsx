@@ -595,23 +595,24 @@ export const AnotherDomain = ({ zones, onClose, onCloudflare, onManual }) => {
 // certificate, for which domain, and what to do. Nothing when nothing is
 // (this replaces upstream's "provide an email address" and its list of raw
 // errors since the last restart, see pages/home/index.jsx).
-export const CertificateAlerts = () => {
+// The home page's lines for its notice area (components/homeNotices.jsx): what
+// is wrong with a certificate, for which domain, and what to do. `failed`: the
+// status could not be read.
+export const useCertificateNotices = () => {
   const { t } = useTranslation();
   const tr = (sentence) => (sentence ? t(sentence[0], sentence[1], sentence[2]) : '');
   const state = useCertificates();
   // read again at every visit of the home page: what was read on another page may be old
   React.useEffect(() => { loadCertificates(); }, []);
-  const alerts = homeAlerts(state.data, dateTime);
-  if (alerts.length === 0) return null;
-  return <>
-    {alerts.map((alert, index) => <Alert key={alert.domain + ':' + index} severity={alert.severity} sx={{ ...wrap, '& .MuiAlert-message': { minWidth: 0 } }} data-certs-home={alert.domain || 'ca'}>
-      <Stack spacing={0.5}>
-        <Typography variant="body2" sx={wrap}>{alert.what.map(tr).join(' ')}</Typography>
-        {alert.todo && <Typography variant="body2" sx={wrap}>{tr(alert.todo)}</Typography>}
-        <Typography variant="body2"><Link component={RouterLink} to={FIX_LINKS.domains()}>{t('mgmt.certs.home.open', 'Open the certificates')}</Link></Typography>
-      </Stack>
-    </Alert>)}
-  </>;
+  const items = homeAlerts(state.data, dateTime).map((alert, index) => ({
+    id: 'cert:' + (alert.domain || 'ca') + ':' + index,
+    severity: alert.severity,
+    attrs: { 'data-certs-home': alert.domain || 'ca' },
+    text: <span style={wrap}>{alert.what.map(tr).join(' ')}</span>,
+    detail: alert.todo ? <span style={wrap}>{tr(alert.todo)}</span> : null,
+    actions: <Link component={RouterLink} to={FIX_LINKS.domains()} className="ct-notice-link">{t('mgmt.certs.home.open', 'Open the certificates')}</Link>,
+  }));
+  return { items, failed: Boolean(state.failed && !state.data), loaded: Boolean(state.data) };
 };
 
 export default CertificatesOverview;

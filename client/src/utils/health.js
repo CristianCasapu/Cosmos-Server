@@ -4,9 +4,11 @@
 //   apps stopped by an error     GET /api/servapps (a crash or a restart loop)
 //   disks nearly full            GET /api/list-metrics + /api/metrics (cosmos.system.disk.*)
 //   snapshots that went wrong    GET /api/snapshots
-//   certificates                 counted from the home page's certificate alerts
-// Each line is { id, severity, text: [key, English, params], link }. Pure
-// functions, tested with node --test.
+//   apps killed for lack of memory  GET /api/servapps/{name}/ for the apps that exited with 137 (at most 5)
+// Each line is { id, severity, text: [key, English, params], link }. The card
+// has three states (healthState): every check made and nothing found, something
+// needs attention, or not everything could be checked (never "all is well"
+// then). Pure functions, tested with node --test.
 
 export const DISK_WARN = 90; // per cent used
 export const DISK_FULL = 95;
@@ -51,6 +53,20 @@ export const brokenContainers = (containers) => {
   return out;
 };
 
+// The memory killer ends a container with 137, the code of a stop by the admin
+// too; only Docker's inspect says which (State.OOMKilled). These are the apps
+// worth asking about, at most `max`: one request each, once per visit.
+export const OOM_CHECKS = 5;
+export const oomCandidates = (containers, max = OOM_CHECKS) => (Array.isArray(containers) ? containers : [])
+  .filter((c) => c && String(c.State || '').toLowerCase() === 'exited' && exitCode(c.Status) === 137)
+  .map((c) => String((c.Names && c.Names[0]) || '').replace(/^\//, ''))
+  .filter(Boolean)
+  .slice(0, max);
+// inspected: { name: the inspect answer, or undefined when it could not be read } -> the names killed for memory
+export const oomKilled = (inspected) => Object.entries(inspected || {})
+  .filter(([, info]) => info && info.State && info.State.OOMKilled === true)
+  .map(([name]) => name);
+
 // metrics: the answer of /api/metrics for the disk keys -> the disks at DISK_WARN % or more
 export const fullDisks = (metrics) => {
   const out = [];
@@ -80,22 +96,17 @@ const LINKS = {
   apps: '/cosmos-ui/servapps',
   storage: '/cosmos-ui/storage',
   snapshots: '/cosmos-ui/config-general/general',
-  certificates: '/cosmos-ui/config-general/https',
 };
 
 const names = (list, max = 3) => list.slice(0, max).join(', ') + (list.length > max ? ' …' : '');
 
-// sources: { jobs, containers, disks, snapshots, certificateAlerts } as read
+// sources: { jobs, containers, disks, snapshots, oom } as read (the certificates have lines of their own
+// in the home page's notice area, components/certificates.jsx)
 // (undefined: not read); failed: the names of the sources that could not be read
 export const healthLines = (sources) => {
   const lines = [];
-  const { jobs, containers, disks, snapshots, certificateAlerts } = sources || {};
+  const { jobs, containers, disks, snapshots, oom } = sources || {};
 
-  if (certificateAlerts && certificateAlerts.length) {
-    const errors = certificateAlerts.filter((a) => a.severity === 'error').length;
-    lines.push({ id: 'certificates', severity: errors ? 'error' : 'warning', link: LINKS.certificates,
-      text: s('health.certificates', '{{count}} certificate problem(s): see the notices above.', { count: certificateAlerts.length }) });
-  }
   const broken = brokenContainers(containers);
   if (broken.length === 1) {
     const c = broken[0];
@@ -106,6 +117,13 @@ export const healthLines = (sources) => {
   } else if (broken.length > 1) {
     lines.push({ id: 'containers', severity: 'error', link: LINKS.apps,
       text: s('health.containers', '{{count}} apps stopped with an error or keep restarting: {{names}}.', { count: broken.length, names: names(broken.map((c) => c.name)) }) });
+  }
+  const killed = Array.isArray(oom) ? oom : [];
+  if (killed.length) {
+    lines.push({ id: 'oom', severity: 'error', link: killed.length === 1 ? LINKS.container(killed[0]) : LINKS.apps,
+      text: killed.length === 1
+        ? s('health.oomOne', '{{name}} was stopped because the server ran out of memory.', { name: killed[0] })
+        : s('health.oom', '{{count}} apps were stopped because the server ran out of memory: {{names}}.', { count: killed.length, names: names(killed) }) });
   }
   const failed = failedJobs(jobs);
   if (failed.length) {
@@ -133,4 +151,27 @@ export const healthLines = (sources) => {
 export const calmLine = (sources) => {
   const running = (Array.isArray(sources && sources.containers) ? sources.containers : []).filter((c) => c && c.State === 'running').length;
   return s('health.calm', 'All is well: {{running}} apps running, no failed job, no disk above {{warn}} %, no problem with certificates or snapshots.', { running, warn: DISK_WARN });
+};
+
+// A source the server refused to answer because of its request limit, not because something is wrong.
+export const isThrottled = (error) => {
+  if (!error) return false;
+  const code = String(error.code === undefined ? '' : error.code);
+  return code === '429' || code === 'HTTP003' || Number(error.status) === 429 || /too many requests/i.test(String(error.message || ''));
+};
+
+// The card's state: 'ok' only when every source was read and nothing was found.
+//   lines: healthLines(...); unread: the names of the sources that could not be read
+export const healthState = (lines, unread) => {
+  if (Array.isArray(lines) && lines.length) return 'attention';
+  if (Array.isArray(unread) && unread.length) return 'unknown';
+  return 'ok';
+};
+
+// The line for what could not be checked. `throttled`: at least one of them was refused by the request limit.
+export const unreadLine = (unread, throttled) => {
+  const what = (Array.isArray(unread) ? unread : []).join(', ');
+  return throttled
+    ? s('health.unreadThrottled', 'Could not check {{what}}: the server is limiting requests right now. Check again in a minute.', { what })
+    : s('health.unreadFailed', 'Could not check {{what}}: the server did not answer. Check again, or see the server\'s logs if it keeps failing.', { what });
 };
