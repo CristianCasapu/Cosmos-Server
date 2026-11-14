@@ -17,9 +17,12 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/docker/go-units"
 )
 
 // portRange reads "8080" or "8000-8010": first and last port.
@@ -97,6 +100,86 @@ func CheckServiceRequest(request DockerServiceCreateRequest) error {
 				return fmt.Errorf("service %s, device %q: write it as /dev/on-the-server:/dev/in-the-container", key, device)
 			}
 		}
+		if err := checkServiceFields(service); err != nil {
+			return fmt.Errorf("service %s, %s", key, err.Error())
+		}
+	}
+	return nil
+}
+
+// userPattern: a name, a number, or user:group with either part a name or a number.
+var userPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,31})?$`)
+
+var networkModePattern = regexp.MustCompile(`^(bridge|host|none|default|(container|service):[A-Za-z0-9][A-Za-z0-9_.-]{0,127}|[A-Za-z0-9][A-Za-z0-9_.-]{0,127})$`)
+
+// serverCPUs is how many CPUs the daemon has, 0 when not known. Replaced by the tests.
+var serverCPUs = func() int {
+	if DockerClient == nil {
+		return 0
+	}
+	info, err := DockerClient.Info(DockerContext)
+	if err != nil {
+		return 0
+	}
+	return info.NCPU
+}
+
+// checkServiceFields checks the fields of the new-container form (and the
+// same keys of a compose file) the way Docker will read them, so that a bad
+// value is said before anything is created instead of half-way.
+func checkServiceFields(service ContainerCreateRequestContainer) error {
+	if service.User != "" && !userPattern.MatchString(service.User) {
+		return fmt.Errorf("user %q: enter a user name or number, or user:group, for example 1000:1000", service.User)
+	}
+	for name, value := range map[string]string{"memory limit": service.MemLimit, "memory reservation": service.MemReservation} {
+		if value == "" {
+			continue
+		}
+		size, err := units.RAMInBytes(value)
+		if err != nil || size < 0 {
+			return fmt.Errorf("%s %q: enter a size such as 512m or 2g", name, value)
+		}
+		if name == "memory limit" && size > 0 && size < 6*1024*1024 {
+			return fmt.Errorf("memory limit %q: Docker needs at least 6m", value)
+		}
+	}
+	if service.CPUs < 0 {
+		return fmt.Errorf("CPUs %v: enter 0 for no limit, or a number such as 0.5 or 2", service.CPUs)
+	}
+	if service.CPUs > 0 {
+		if cpus := serverCPUs(); cpus > 0 && service.CPUs > float64(cpus) {
+			return fmt.Errorf("CPUs %v: this server has %d", service.CPUs, cpus)
+		}
+	}
+	mode := effectiveNetworkMode(service)
+	if mode != "" && !networkModePattern.MatchString(mode) {
+		return fmt.Errorf("network mode %q: use bridge, host, none, the name of a network, or container:<name> to use another app's network", mode)
+	}
+	if strings.HasPrefix(mode, "container:") || strings.HasPrefix(mode, "service:") {
+		if len(service.Ports) > 0 {
+			return fmt.Errorf("uses the network of %s, so it cannot publish ports of its own: publish them on %s", strings.SplitN(mode, ":", 2)[1], strings.SplitN(mode, ":", 2)[1])
+		}
+	}
+	if policy := strings.TrimSpace(service.RestartPolicy); policy != "" {
+		name, retries, found := strings.Cut(policy, ":")
+		switch name {
+		case "no", "always", "unless-stopped", "on-failure":
+		default:
+			return fmt.Errorf("restart %q: use no, always, unless-stopped or on-failure", policy)
+		}
+		if found {
+			if count, err := strconv.Atoi(retries); name != "on-failure" || err != nil || count < 0 {
+				return fmt.Errorf("restart %q: only on-failure takes a number of tries, as on-failure:5", policy)
+			}
+		}
+	}
+	if _, err := service.ShmSize.bytes(); err != nil {
+		return errors.New("shm_size: " + err.Error())
+	}
+	for _, entry := range service.Tmpfs.list {
+		if !strings.HasPrefix(entry, "/") {
+			return fmt.Errorf("tmpfs %q: give the folder in the container, starting with /", entry)
+		}
 	}
 	return nil
 }
@@ -131,6 +214,21 @@ func forkRefuseService(w http.ResponseWriter, req *http.Request, request DockerS
 		fmt.Fprintf(w, "%s", "[OPERATION FAILED] "+err.Error()+"\n")
 		flush()
 		return false
+	}
+	// access to the server that needs the admin's yes, item by item (fork_sensitive_access.go)
+	if missing := unconfirmedSensitive(request, req.URL.Query()); len(missing) > 0 {
+		fmt.Fprintf(w, "%s", "[OPERATION FAILED] This definition asks for access to the server that needs your explicit confirmation on the review: "+
+			sensitiveSentence(missing)+". Nothing was created.\n")
+		flush()
+		return false
+	}
+	// an image made for another processor is said before the pull (fork_image_arch.go)
+	if req.URL.Query().Get("anyArch") != "1" {
+		if refusal := platformRefusal(request); refusal != "" {
+			fmt.Fprintf(w, "%s", "[OPERATION FAILED] "+refusal+"\n")
+			flush()
+			return false
+		}
 	}
 	if req.URL.Query().Get("replace") != "1" {
 		if existing := ExistingServiceNames(request); len(existing) > 0 {

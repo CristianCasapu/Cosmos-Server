@@ -312,7 +312,7 @@ func liveService(t *testing.T, hostPort string) error {
 			"app": {
 				Name:        livePrefix + "app",
 				Image:       liveImage,
-				Command:     "sleep 3600",
+				Command:     forkList([]string{"sleep", "3600"}),
 				StopSignal:  "SIGKILL",
 				Environment: []string{"MARK=edited"},
 				Ports:       []string{hostPort + ":80"},

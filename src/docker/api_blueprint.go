@@ -31,11 +31,14 @@ type ContainerCreateRequestServiceNetwork struct {
 }
 
 type ContainerCreateRequestContainerHealthcheck struct {
-	Test        []string `json:"test"`
-	Interval int `json:"interval"`
-	Timeout int `json:"timeout"`
+	// Fork addition: a test may be a text, durations may be "1m30s" (fork_compose_types.go); upstream: []string and int seconds
+	Test        forkHealthTest `json:"test"`
+	Interval forkDuration `json:"interval"`
+	Timeout forkDuration `json:"timeout"`
 	Retries int `json:"retries"`
-	StartPeriod int `json:"start_period"`
+	StartPeriod forkDuration `json:"start_period"`
+	StartInterval forkDuration `json:"start_interval,omitempty"` // Fork addition
+	Disable bool `json:"disable,omitempty"` // Fork addition
 }
 
 type ContainerCreateRequestContainerDependsOnCont struct {
@@ -61,8 +64,9 @@ type ContainerCreateRequestContainer struct {
 	Tty            bool              `json:"tty,omitempty"`
 	StdinOpen      bool              `json:"stdin_open,omitempty"`
 
-	Command string `json:"command,omitempty"`
-	Entrypoint string `json:"entrypoint,omitempty"`
+	// Fork addition: a text or an exec-form list (fork_compose_types.go); upstream: string split on spaces
+	Command forkStringList `json:"command,omitempty"`
+	Entrypoint forkStringList `json:"entrypoint,omitempty"`
 	Runtime string `json:"runtime,omitempty"`
 	WorkingDir string `json:"working_dir,omitempty"`
 	User string `json:"user,omitempty"`
@@ -95,6 +99,8 @@ type ContainerCreateRequestContainer struct {
 	CpusetCpus string `json:"cpuset_cpus,omitempty"`
 
 	PostInstall []string `json:"post_install,omitempty"`
+
+	forkServiceExtras // Fork addition: shm_size, tmpfs, init, read_only (fork_compose_types.go)
 }
 
 type ContainerCreateRequestVolume struct {
@@ -553,12 +559,13 @@ func CreateService(serviceRequest DockerServiceCreateRequest, OnLog func(string)
 			}
 		}
 		
-		if container.Command != "" {
-			containerConfig.Cmd = strings.Fields(container.Command)
+		// Fork addition: exec-form lists kept as they are, a text split like a shell would (fork_compose_types.go)
+		if container.Command.Given() {
+			containerConfig.Cmd = container.Command.Args()
 		}
 
-		if container.Entrypoint != "" {
-			containerConfig.Entrypoint = strslice.StrSlice(strings.Fields(container.Entrypoint))
+		if container.Entrypoint.Given() {
+			containerConfig.Entrypoint = strslice.StrSlice(container.Entrypoint.Args())
 		}
 
 		// For Expose / Ports
@@ -748,9 +755,7 @@ func CreateService(serviceRequest DockerServiceCreateRequest, OnLog func(string)
 		hostConfig := &conttype.HostConfig{
 			PortBindings: PortBindings,
 			Mounts:       container.Volumes,
-			RestartPolicy: conttype.RestartPolicy{
-				Name: conttype.RestartPolicyMode(container.RestartPolicy),
-			},
+			RestartPolicy: restartPolicy(container.RestartPolicy), // Fork addition: "on-failure:5" too (fork_compose_types.go)
 			Privileged:   container.Privileged,
 			NetworkMode:  conttype.NetworkMode(container.NetworkMode),
 			DNS:         container.DNS,
@@ -793,14 +798,14 @@ func CreateService(serviceRequest DockerServiceCreateRequest, OnLog func(string)
 		}		
 
 		// For Healthcheck
-		if len(container.HealthCheck.Test) > 0 {
-			containerConfig.Healthcheck = &conttype.HealthConfig{
-				Test: container.HealthCheck.Test,
-				Interval: time.Duration(container.HealthCheck.Interval) * time.Second,
-				Timeout: time.Duration(container.HealthCheck.Timeout) * time.Second,
-				StartPeriod: time.Duration(container.HealthCheck.StartPeriod) * time.Second,
-				Retries: container.HealthCheck.Retries,
-			}
+		// Fork addition: durations as compose writes them, disable, start_interval (fork_compose_types.go)
+		containerConfig.Healthcheck = healthConfig(container.HealthCheck)
+
+		// Fork addition: shm_size, tmpfs, init, read_only (fork_compose_types.go)
+		if err := applyServiceExtras(container, hostConfig); err != nil {
+			OnLog(utils.DoErr("%s\n", err.Error()))
+			Rollback(rollbackActions, OnLog)
+			return err
 		}
 
 		// For Devices
@@ -1099,6 +1104,7 @@ func CreateService(serviceRequest DockerServiceCreateRequest, OnLog func(string)
 func ReOrderServices(serviceMap map[string]ContainerCreateRequestContainer) ([]ContainerCreateRequestContainer, bool, error) {
 	startOrder := []ContainerCreateRequestContainer{}
 	mustStart := false
+	inRequest := forkNamesInRequest(serviceMap) // Fork addition: see fork_compose_types.go
 
 	for len(serviceMap) > 0 {
 		// Keep track of whether we've added any services in this iteration
@@ -1111,7 +1117,9 @@ func ReOrderServices(serviceMap map[string]ContainerCreateRequestContainer) ([]C
 			}
 			
 			// if network_mode is container: then we need to add a dependency
-			if strings.HasPrefix(string(service.NetworkMode), "container:") {
+			// Fork addition: only when that container is part of this request; another app's (a VPN that
+			// exists already, as "use as VPN" picks it) is running, and waiting for it never ended
+			if strings.HasPrefix(string(service.NetworkMode), "container:") && inRequest[strings.TrimPrefix(string(service.NetworkMode), "container:")] {
 				depService := strings.TrimPrefix(string(service.NetworkMode), "container:")
 				dependencies[depService] = ContainerCreateRequestContainerDependsOnCont{
 					Condition: "service_started",

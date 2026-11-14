@@ -1084,6 +1084,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/servapps-leftovers", docker.LeftoversRoute) // Fork addition: containers left by an interrupted edit, see docker/fork_leftovers.go
 	srapiAdmin.HandleFunc("/api/servapps", docker.ContainersRoute)
 	srapiAdmin.HandleFunc("/api/docker-service", docker.CreateServiceRoute)
+	srapiAdmin.HandleFunc("/api/install/plan", InstallPlanRoute) // Fork addition: the server's platform, the images' platforms and the places for data, see fork_install_plan.go
 	
 	srapiAdmin.HandleFunc("/api/markets", market.MarketGet)
 

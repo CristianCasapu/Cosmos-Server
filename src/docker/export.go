@@ -35,8 +35,9 @@ func ExportContainer(containerID string) (ContainerCreateRequestContainer, error
 			Image:        detailedInfo.Config.Image,
 			Environment:  detailedInfo.Config.Env,
 			Labels:       detailedInfo.Config.Labels,
-			Command:      strings.Join(detailedInfo.Config.Cmd, " "),
-			Entrypoint:   strings.Join(detailedInfo.Config.Entrypoint, " "),
+			// Fork addition: kept as lists, so an argument with a space survives an edit (fork_compose_types.go)
+			Command:      forkList(detailedInfo.Config.Cmd),
+			Entrypoint:   forkList(detailedInfo.Config.Entrypoint),
 			WorkingDir:   detailedInfo.Config.WorkingDir,
 			User:         detailedInfo.Config.User,
 			Tty:          detailedInfo.Config.Tty,
@@ -143,11 +144,17 @@ func ExportContainer(containerID string) (ContainerCreateRequestContainer, error
 
 		// healthcheck
 		if detailedInfo.Config.Healthcheck != nil {
-			service.HealthCheck.Test = detailedInfo.Config.Healthcheck.Test
-			service.HealthCheck.Interval = int(detailedInfo.Config.Healthcheck.Interval.Seconds())
-			service.HealthCheck.Timeout = int(detailedInfo.Config.Healthcheck.Timeout.Seconds())
+			// Fork addition: the durations keep their precision (fork_compose_types.go)
+			service.HealthCheck.Test = forkHealthTest(detailedInfo.Config.Healthcheck.Test)
+			service.HealthCheck.Interval = forkDuration(detailedInfo.Config.Healthcheck.Interval)
+			service.HealthCheck.Timeout = forkDuration(detailedInfo.Config.Healthcheck.Timeout)
 			service.HealthCheck.Retries = detailedInfo.Config.Healthcheck.Retries
-			service.HealthCheck.StartPeriod = int(detailedInfo.Config.Healthcheck.StartPeriod.Seconds())
+			service.HealthCheck.StartPeriod = forkDuration(detailedInfo.Config.Healthcheck.StartPeriod)
+			service.HealthCheck.StartInterval = forkDuration(detailedInfo.Config.Healthcheck.StartInterval)
+		}
+		service.forkServiceExtras = exportServiceExtras(detailedInfo.HostConfig) // Fork addition: an edit keeps shm_size, tmpfs, init, read_only
+		if detailedInfo.HostConfig.RestartPolicy.MaximumRetryCount > 0 { // Fork addition: "on-failure:3" keeps its count
+			service.RestartPolicy += ":" + strconv.Itoa(detailedInfo.HostConfig.RestartPolicy.MaximumRetryCount)
 		}
 
 		// user UID/GID

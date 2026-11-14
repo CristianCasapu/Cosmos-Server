@@ -1,0 +1,25 @@
+{
+  "_comment": "What the new-container form sends for the state built in client/src/utils/newContainer.test.mjs ('the request of the form is the fixture the live test creates'); fork_creation_live_test.go creates it against a Docker of its own and checks every field.",
+  "services": {
+    "container_name": {
+      "container_name": "cosmos-edit-live-form",
+      "image": "busybox:1.36",
+      "environment": ["MARK=form"],
+      "labels": {},
+      "dns": [],
+      "devices": [],
+      "expose": [],
+      "tty": false,
+      "stdin_open": false,
+      "ports": [],
+      "restart": "unless-stopped",
+      "volumes": [],
+      "networks": {},
+      "routes": [],
+      "user": "1000:1000",
+      "mem_limit": "64m",
+      "cpus": 0.5,
+      "network_mode": "container:cosmos-edit-live-vpn"
+    }
+  }
+}
