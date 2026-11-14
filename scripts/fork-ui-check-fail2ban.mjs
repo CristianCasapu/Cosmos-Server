@@ -14,6 +14,13 @@
 //                       state, the jails, the ban, the warning; lifts the
 //                       ban; adds the browser's address to the list; changes
 //                       a threshold; tries values that must be refused.
+//   PHASE=cloudflare    Fail2ban runs with the fork's jails and Cosmos serves
+//                       at least one address through Cloudflare. Checks what
+//                       the panel says a ban does and does not do for such
+//                       visitors, that Cloudflare's ranges are shown as kept
+//                       on the never-ban list and are not among the
+//                       administrator's entries, and that saving the settings
+//                       keeps them there (RANGES: how many, default 22).
 //   PHASE=stopped       Fail2ban is installed and stopped.
 //   PHASE=notinstalled  there is no fail2ban-client.
 //
@@ -189,6 +196,38 @@ if (phase === 'stopped' || phase === 'notinstalled') {
       // the fields of a jail fit the screen
       const box = await page.locator('#fail2ban-recidive-banTime').boundingBox();
       expect(box && box.x >= 0 && box.x + box.width <= viewport.width, `${name} ${size}: the fields are inside the screen`);
+      await browser.close();
+    }
+  }
+}
+
+if (phase === 'cloudflare') {
+  const ranges = process.env.RANGES || '22';
+  for (const [name, type] of engines) {
+    for (const [size, viewport] of [['desktop', { width: 1366, height: 900 }], ['phone', { width: 390, height: 844 }]]) {
+      const { browser, ctx, page } = await open(type, name, viewport);
+      const text = await visit(page, name, `cloudflare-${size}`);
+      expect(text.includes('Fail2ban is active.'), `${name} ${size}: Fail2ban is active`);
+      expect(await page.locator('[data-fail2ban-through="cloudflare"]').count() === 1, `${name} ${size}: the note on visitors who come through Cloudflare is there`);
+      expect(/A ban works for whoever connects to this server directly/.test(text) && /does not report them to Fail2ban/.test(text)
+        && /SmartShield still blocks them inside Cosmos/.test(text), `${name} ${size}: it says what a ban does and does not do for them`);
+      expect(!text.includes('Cosmos is set up behind a reverse proxy'), `${name} ${size}: the old warning about a reverse proxy is gone`);
+      expect(await page.locator('[data-fail2ban-cloudflare="info"]').count() === 1 && text.includes(`Also never banned: Cloudflare's ${ranges} address ranges`),
+        `${name} ${size}: Cloudflare's ${ranges} ranges are shown as kept on the never-ban list`);
+      expect(!/173\.245\.48\.0\/20/.test(text), `${name} ${size}: Cloudflare's ranges are not among the administrator's entries`);
+      await noSidewaysScroll(page, `${name} ${size}`);
+      const box = await page.locator('[data-fail2ban-cloudflare]').boundingBox();
+      expect(box && box.x >= 0 && box.x + box.width <= viewport.width + 1, `${name} ${size}: the note fits the screen`);
+
+      if (name === 'chromium' && size === 'desktop') {
+        // saving the settings from the panel keeps Cloudflare's ranges where they are
+        const status = (await (await ctx.request.get(base + '/cosmos/api/fail2ban')).json()).data;
+        expect(status.cloudflareIgnored === status.cloudflareRanges && status.cloudflareRanges > 0, `${name}: the jails run with all of Cloudflare's ranges (${status.cloudflareIgnored} of ${status.cloudflareRanges})`);
+        expect(!status.settings.ignoreIP.some((entry) => entry.startsWith('173.245.') || entry.startsWith('2606:4700')), `${name}: the settings the form starts from hold the administrator's entries only`);
+        const saved = await ctx.request.post(base + '/cosmos/api/fail2ban/settings', { data: status.settings });
+        const after = (await saved.json()).data;
+        expect(saved.status() === 200 && after.cloudflareIgnored === after.cloudflareRanges, `${name}: after a save from the panel the jails still run with all of them`);
+      }
       await browser.close();
     }
   }

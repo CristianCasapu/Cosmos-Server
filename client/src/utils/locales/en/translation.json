@@ -125,8 +125,6 @@
 	"fail2ban.unit.minutes": "minutes",
 	"fail2ban.warn.private": "The private networks are not all on the never-ban list.",
 	"fail2ban.warn.private.text": "Devices at home and the containers on this server use private addresses (10.x, 172.16 to 172.31, 192.168.x). Without them on the list a device or an app that misbehaves towards Cosmos is banned like a stranger, and a banned container loses its network.",
-	"fail2ban.warn.proxy": "Cosmos is set up behind a reverse proxy.",
-	"fail2ban.warn.proxy.text": "Visitors who come through the proxy cannot be blocked by this server's firewall: their packets arrive from the proxy. And a proxy that passes on the X-Forwarded-For header a visitor sent lets that visitor choose which address gets banned. Ban at the proxy instead, or remove the trusted proxies (Configuration, HTTP) if Cosmos is reached directly.",
 	"fail2ban.warn.self": "Your own address, {{ip}}, can be banned.",
 	"fail2ban.warn.self.add": "Never ban my address",
 	"fail2ban.warn.self.text": "It is not among the addresses that are never banned. A few mistyped passwords from it would cut it off from the whole server, this panel and SSH included, until the ban ends.",
@@ -3846,5 +3844,10 @@
 	"header.notification.title.originPullExpiring": "Cloudflare certificate expires soon",
 	"header.notification.message.originPullExpiring": "The certificate Cloudflare's proxy presents to this server expires in {{Vars}}. After that, requests through Cloudflare are refused while the check is enforced. See Configuration > Domains > Cloudflare, \"Proof that a request came through Cloudflare\".",
 	"header.notification.title.originPullStopped": "Cloudflare certificate check not confirmed",
-	"header.notification.message.originPullStopped": "Requiring a certificate from Cloudflare's proxy was switched on but not confirmed within three minutes, so Cosmos went back to testing: nothing is refused. If the panel stopped answering through Cloudflare at that moment, the certificate is not in place at Cloudflare yet. See Configuration > Domains > Cloudflare."
+	"header.notification.message.originPullStopped": "Requiring a certificate from Cloudflare's proxy was switched on but not confirmed within three minutes, so Cosmos went back to testing: nothing is refused. If the panel stopped answering through Cloudflare at that moment, the certificate is not in place at Cloudflare yet. See Configuration > Domains > Cloudflare.",
+	"fail2ban.through.cloudflare": "Addresses served through Cloudflare: {{n}}. A ban works for whoever connects to this server directly. Visitors who come through Cloudflare never reach the firewall, only Cloudflare does: Cosmos does not report them to Fail2ban, so nothing they do leads to a ban here, and nobody can get somebody else's address banned by claiming it. SmartShield still blocks them inside Cosmos, by the address Cloudflare reports. To stop them earlier, block them at Cloudflare.",
+	"fail2ban.through.proxy": "Reverse proxies Cosmos trusts (Configuration, HTTP): {{n}}. Visitors who come through them never reach the firewall either and are not reported to Fail2ban. Whoever connects to this server directly is banned as usual.",
+	"fail2ban.cloudflare.kept": "Also never banned: Cloudflare's {{count}} address ranges. Every visitor of an address served through Cloudflare arrives from them, so a ban of one would cut them all off. Cosmos keeps them on the list by itself, replaces them when Cloudflare's list changes and takes them off when nothing is served through Cloudflare any more.",
+	"fail2ban.cloudflare.missing": "Cloudflare's address ranges belong on this list while an address is served through Cloudflare, and the jails run with {{ignored}} of {{count}} of them. Cosmos adds them by itself within a minute. If this stays, save the settings below once.",
+	"fail2ban.self.forwarded": "You reach this page through Cloudflare or a reverse proxy, which reports your address as {{ip}}. A ban at the firewall cannot cut this connection off, whatever address it names."
 }

@@ -288,3 +288,43 @@ export const settingsOf = (form, bounds) => {
   }
   return Object.keys(problems).length > 0 ? { problems } : { settings };
 };
+
+// What a ban does and does not do when visitors do not connect to the server
+// themselves. Cosmos does not write such visitors to the log Fail2ban reads
+// (src/security/logfile.go): the firewall could not cut them off, and the
+// address is somebody's report.
+export const THROUGH = {
+  cloudflare: ['fail2ban.through.cloudflare', 'Addresses served through Cloudflare: {{n}}. A ban works for whoever connects to this server directly. Visitors who come through Cloudflare never reach the firewall, only Cloudflare does: Cosmos does not report them to Fail2ban, so nothing they do leads to a ban here, and nobody can get somebody else\'s address banned by claiming it. SmartShield still blocks them inside Cosmos, by the address Cloudflare reports. To stop them earlier, block them at Cloudflare.'],
+  proxy: ['fail2ban.through.proxy', 'Reverse proxies Cosmos trusts (Configuration, HTTP): {{n}}. Visitors who come through them never reach the firewall either and are not reported to Fail2ban. Whoever connects to this server directly is banned as usual.'],
+};
+
+// The notes that apply to a status: [[key, text, values], ...].
+export const throughNotes = (status) => {
+  const notes = [];
+  if (status && status.cloudflareHostnames > 0) notes.push([...THROUGH.cloudflare, { n: status.cloudflareHostnames }]);
+  if (status && status.trustedProxies > 0) notes.push([...THROUGH.proxy, { n: status.trustedProxies }]);
+  return notes;
+};
+
+// Cloudflare's address ranges on the never-ban list, which Cosmos keeps
+// there by itself while an address is served through Cloudflare:
+// [severity, key, text, values], or null when nothing is served through it.
+export const CLOUDFLARE_LIST = {
+  kept: ['fail2ban.cloudflare.kept', 'Also never banned: Cloudflare\'s {{count}} address ranges. Every visitor of an address served through Cloudflare arrives from them, so a ban of one would cut them all off. Cosmos keeps them on the list by itself, replaces them when Cloudflare\'s list changes and takes them off when nothing is served through Cloudflare any more.'],
+  missing: ['fail2ban.cloudflare.missing', 'Cloudflare\'s address ranges belong on this list while an address is served through Cloudflare, and the jails run with {{ignored}} of {{count}} of them. Cosmos adds them by itself within a minute. If this stays, save the settings below once.'],
+};
+
+export const cloudflareList = (status) => {
+  if (!status || !status.cloudflareHostnames || !status.cloudflareRanges) return null;
+  const values = { count: status.cloudflareRanges, ignored: status.cloudflareIgnored || 0 };
+  return values.ignored >= values.count
+    ? ['info', ...CLOUDFLARE_LIST.kept, values]
+    : ['warning', ...CLOUDFLARE_LIST.missing, values];
+};
+
+// Whether to warn that the address this page is looked at from can be
+// banned. Not when that address is a proxy's report: a ban of it would not
+// cut this connection off.
+export const warnsAboutSelf = (status) => Boolean(status && status.clientIP && !status.clientIgnored && !status.clientForwarded);
+
+export const SELF_FORWARDED = ['fail2ban.self.forwarded', 'You reach this page through Cloudflare or a reverse proxy, which reports your address as {{ip}}. A ban at the firewall cannot cut this connection off, whatever address it names.'];
