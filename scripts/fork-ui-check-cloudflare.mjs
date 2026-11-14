@@ -19,7 +19,8 @@
 //     (EDGE=http://<SERVER_IP>:8081 is its control port). It stands in for Cloudflare's
 //     proxy: requests that reach Cosmos from Cloudflare's address, with or without the
 //     certificate Cosmos uploaded. Nothing on the host is touched.
-// PART=pulls runs only that part (the domain must be connected by an earlier full run).
+// PART=pulls runs only that part and the panel's reachability (the domain must be connected
+// by an earlier full run). The rest is for a fresh instance: it switches radarr on once.
 // It finishes the set-up wizard itself: HTTPS with the self-signed
 // certificate, the server's IP address as its hostname, as on the server
 // this was written for. Screenshots go to ./shots.
@@ -147,6 +148,25 @@ const insideCard = async (page, name, where) => {
     return [...section.querySelectorAll('*')].filter((el) => el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().right > limit).length;
   });
   expect(out === 0, `${name}: nothing sticks out of the card (${where}; ${out} elements)`);
+};
+
+// the panel's own address among the reachability checks (Configuration > HTTP)
+const panelReach = async (page, name) => {
+  await page.goto(base + '/cosmos-ui/config-general/http-server', { waitUntil: 'domcontentloaded' });
+  const own = page.locator('[data-reach-own-panel]');
+  await own.waitFor({ timeout: 45000 });
+  await page.waitForTimeout(1500);
+  const text = await own.innerText();
+  // the test instance serves a certificate of its own making, so the verdict is "problem" and the address is not a link
+  expect(/example\.org/.test(text) && /Internet: (checked|not verified|problem)/.test(text), `${name}: the panel's own address is checked for reachability, with the same states as an application`);
+  expect(/The Cosmos panel answers at this address; everything in it needs a login/.test(text), `${name}: it is told apart from an application`);
+  expect(/Served through Cloudflare: Cosmos answers for this name to Cloudflare's network and to your local network only/.test(text), `${name}: it says the panel is served through Cloudflare`);
+  expect(/certificate/i.test(text), `${name}: it says what the certificate is worth`);
+  await own.scrollIntoViewIfNeeded();
+  await shot(page, name, 'panel-reach');
+  await noSideScroll(page, name, 'Configuration > HTTP');
+  const box = await own.boundingBox();
+  expect(!!box && box.x >= 0 && box.x + box.width <= page.viewportSize().width + 1, `${name}: the panel's reachability fits the screen`);
 };
 
 const apexBefore = (await record('example.org'))[0];
@@ -343,6 +363,8 @@ if (!onlyPulls) {
   const act = (body) => ctx.request.post(base + '/cosmos/api/cloudflare/origin-pulls', { data: body });
   const stored = async () => JSON.parse(await (await ctx.request.get(base + '/cosmos/api/config')).text()).data.HTTPConfig.Cloudflare.OriginPulls || {};
   try {
+    await panelReach(page, name);
+
     // from a clean state, whatever an earlier run left
     await act({ action: 'mode', mode: 'off' });
     await act({ action: 'discard' });
@@ -519,6 +541,8 @@ const others = [
 for (const [type, name, viewport] of others) {
   const { browser, ctx, page } = await open(type, name, viewport);
   try {
+    await panelReach(page, name);
+
     // Authenticated Origin Pulls: the section, a test with counts, enforcing, the dialogs
     const act = (body) => ctx.request.post(base + '/cosmos/api/cloudflare/origin-pulls', { data: body });
     await act({ action: 'mode', mode: 'off' });
