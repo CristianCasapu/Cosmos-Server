@@ -45,7 +45,8 @@ for (let round = 0; round < 3; round++) {
     await page.goto(base + path, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(3500);
     const text = (await page.locator('body').innerText()).replace(/\s+/g, ' ').trim();
-    const real = [...new Set(errors)].filter((e) => !e.startsWith('Too many requests'));
+    // a refused call that a page does not catch is reported as an error of that name (WebKit: "Error: …"): that is the refusal, not a crash
+    const real = [...new Set(errors)].filter((e) => !/^(Error: )?Too many requests/.test(e));
     if (real.length || text.length < 40) {
       note(name, path, 'text', text.length, '| refused:', [...new Set(refused.filter((r) => r !== 'me'))].join(',').slice(0, 120), '| errors:', JSON.stringify(real).slice(0, 600));
       real.forEach((e) => { found[path + ' :: ' + e.split(' @ ')[0]] = 1; });

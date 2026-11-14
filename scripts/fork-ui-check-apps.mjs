@@ -66,7 +66,7 @@ const newButtons = page.locator('.MuiChip-root', { hasText: /^New/ });
 note('"New" buttons:', await newButtons.count());
 await newButtons.last().click();
 await page.waitForTimeout(2500);
-note('default host:', await page.locator('input[name=Host]').inputValue().catch(() => '?'), '| target:', await page.locator('input[name=Target], input[name=Target-preview]').first().inputValue().catch(() => '?'));
+note('default host:', await page.locator('input[name=Host]').inputValue().catch(() => '?'), '| port picked:', (await page.locator('#Target .MuiChip-root[aria-checked=true]').allInnerTexts()).map((x) => x.trim()).join(',') || '?');
 const chip = page.locator('.MuiChip-root', { hasText: '.example.org' }).last();
 note('domain chip:', await chip.innerText().catch(() => 'NONE'));
 await chip.click().catch(() => {});
@@ -128,8 +128,9 @@ for (const [name, viewport] of [['desktop', { width: 1366, height: 900 }], ['pho
   await next();
   await page.locator('input[type=checkbox]').first().check();
   await page.waitForTimeout(1500);
-  const proposals = page.locator('form .MuiChip-clickable');
-  note(name, 'URL step: host', await page.locator('input[name=Host]').inputValue().catch(() => '?'), '| target', await page.locator('input[name=Target]').inputValue().catch(() => '?'), '| proposals:', (await proposals.allInnerTexts()).join(' , ') || 'NONE');
+  // the address proposals (the simple view of the URL form also has chips for the port and for who may open it)
+  const proposals = page.locator('form .MuiChip-clickable:not([role=radio])');
+  note(name, 'URL step: host', await page.locator('input[name=Host]').inputValue().catch(() => '?'), '| port picked', (await page.locator('#Target .MuiChip-root[aria-checked=true]').allInnerTexts()).map((x) => x.trim()).join(',') || 'none (typed)', '| proposals:', (await proposals.allInnerTexts()).join(' , ') || 'NONE');
   await page.locator('input[name=Host]').evaluate((el) => el.scrollIntoView({ block: 'center' }));
   await shot('url');
   await page.locator('input[name=Host]').fill(''); await page.locator('input[name=Host]').blur(); await page.waitForTimeout(500);
