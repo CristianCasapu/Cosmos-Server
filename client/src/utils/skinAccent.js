@@ -92,6 +92,12 @@ export const reach = (colour, against, need, direction) => {
 };
 
 const WHITE = { r: 255, g: 255, b: 255 };
+// top at `alpha` over an opaque under
+export const mix = (top, under, alpha) => ({
+  r: Math.round(top.r * alpha + under.r * (1 - alpha)),
+  g: Math.round(top.g * alpha + under.g * (1 - alpha)),
+  b: Math.round(top.b * alpha + under.b * (1 - alpha)),
+});
 const DEFAULT_SECONDARY = { r: 14, g: 150, b: 184 };
 const rgbList = (c) => `${c.r}, ${c.g}, ${c.b}`;
 
@@ -109,8 +115,15 @@ export const accentTokens = (primaryText, secondaryText) => {
   const fillA = reach(primary, [WHITE], 4.6, 'down');
   const fillB = reach(secondary, [WHITE], 4.6, 'down');
 
+  // accent text also sits on the accent's own tints: the soft fill of a selected tab or quiet
+  // button, the selected menu entry (up to 20 % of the accent over the surface)
+  const tinted = (surfaces) => {
+    const out = [...surfaces];
+    for (const surface of surfaces) for (const alpha of [0.09, 0.14, 0.2]) out.push(mix(primary, surface, alpha));
+    return out;
+  };
   const perMode = (surfaces, direction, softAlpha, edgeAlpha) => {
-    const text = reach(primary, surfaces, 4.6, direction);
+    const text = reach(primary, tinted(surfaces), 4.6, direction);
     const ring = reach(primary, [surfaces[0]], 3.1, direction);
     return {
       '--ct-focus': hex(ring),
