@@ -1,4 +1,6 @@
 import * as React from 'react';
+import i18next from 'i18next'; // Fork addition
+import { hostCheckText } from '../../../utils/hostCheck'; // Fork addition
 import * as API from '../../../api';
 import MainCard from '../../../components/MainCard';
 import { Formik } from 'formik';
@@ -51,7 +53,7 @@ const checkHost = debounce((host, setHostError) => {
     API.checkHost(host).then((data) => {
       setHostError(null)
     }).catch((err) => {
-      setHostError(err.message)
+      setHostError(i18next.t(...hostCheckText(host, err.message))) // Fork addition: in plain words, not the resolver's error
     });
   } else {
     setHostError(null);

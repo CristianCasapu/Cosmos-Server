@@ -1,4 +1,4 @@
-import { Box, CircularProgress, Input, InputAdornment, Stack, Tooltip, Alert } from "@mui/material";
+import { Box, CircularProgress, Input, InputAdornment, Stack, Tooltip, Alert, Typography } from "@mui/material"; // Fork addition: Typography
 import { HomeBackground, TransparentHeader } from "../home";
 import { useEffect, useState } from "react";
 import * as API from "../../api";
@@ -41,17 +41,19 @@ function Screenshots({ screenshots }) {
     objectFit: 'cover', // This will cover the area without losing the aspect ratio
   };
 
+  // Fork addition: on a phone the frame is as tall as the picture (a fixed 400 px left a band of empty space under it)
+  const frame = { height: { xs: 'auto', sm: '400px' } };
   return screenshots.length > 1 ? (
     <Carousel animation="slide" navButtonsAlwaysVisible={false} fullHeightHover="true" swipe={false}>
       {
-        screenshots.map((item, i) => <div style={{height: "400px"}}>
-          <img style={{ maxHeight: '100%', width: '100%' }} key={i} src={item} />
-        </div>)
+        screenshots.map((item, i) => <Box sx={frame} key={i}>
+          <img style={{ maxHeight: '100%', width: '100%', objectFit: 'contain' }} src={item} alt="" />
+        </Box>)
       }
     </Carousel>)
-    : <div style={{height: "400px"}}>
-        <img src={screenshots[0]} style={{ maxHeight: '100%', width: '100%' }} />
-      </div>
+    : <Box sx={frame}>
+        <img src={screenshots[0]} style={{ maxHeight: '100%', width: '100%', objectFit: 'contain' }} alt="" />
+      </Box>
 }
 
 function Showcases({ showcase, isDark, isAdmin }) {
@@ -69,15 +71,25 @@ function Showcases({ showcase, isDark, isAdmin }) {
 
 function ShowcasesItem({ isDark, item, isAdmin }) {
   const { t, i18n } = useTranslation();
+  // Fork addition: on a phone the screenshot is a band above the text instead of under it (the text panel covered it);
+  // the description is cut after a few lines instead of in the middle of one; "View" is a link styled as a button (one Tab stop)
   return (
-    <Paper style={{
+    <Paper sx={{
       position: 'relative',
-      background: 'url(' + item.screenshots[0] + ')',
-      height: '31vh',
+      background: { xs: 'none', sm: 'url(' + item.screenshots[0] + ')' },
+      height: { xs: 'auto', sm: '31vh' },
       backgroundSize: 'auto 100%',
       maxWidth: '120vh',
       margin: 'auto',
+      overflow: 'hidden',
     }}>
+      <Box className="ct-showcase-shot" aria-hidden="true" sx={{
+        display: { xs: 'block', sm: 'none' },
+        height: '140px',
+        backgroundImage: 'url(' + item.screenshots[0] + ')',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center top',
+      }} />
       <Stack direction="row" spacing={2} style={{ height: '100%', overflow: 'hidden' }} justifyContent="flex-end">
         <Stack direction="column" spacing={2} style={{ height: '100%' }} sx={{
           backgroundColor: isDark ? 'var(--ct-surface, #20232b)' : 'rgba(255,255,255)',
@@ -91,26 +103,27 @@ function ShowcasesItem({ isDark, item, isAdmin }) {
           },
 
           '@media (max-width: 600px)': {
-            width: '80%',
-            padding: '20px 20px',
+            width: '100%',
+            padding: '16px',
+            filter: 'none',
           }
         }}>
-          <Stack direction="row" spacing={2}>
-            <img src={item.icon} style={{ width: '36px', height: '36px' }} />
-            <h2>{item.name}</h2>
+          <Stack direction="row" spacing={2} alignItems="center">
+            <img src={item.icon} alt="" style={{ width: '36px', height: '36px' }} />
+            <h2 style={{ margin: 0 }}>{item.name}</h2>
           </Stack>
-          <p dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item?.translation?.[i18n?.resolvedLanguage]?.longDescription || item?.translation?.[i18n?.resolvedLanguage.substr?.(0,2)]?.longDescription || item.longDescription) }} style={{
+          <Box component="p" className="ct-showcase-text" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item?.translation?.[i18n?.resolvedLanguage]?.longDescription || item?.translation?.[i18n?.resolvedLanguage.substr?.(0,2)]?.longDescription || item.longDescription) }} sx={{
             overflow: 'hidden',
-          }}></p>
-          <Stack direction="row" spacing={2} justifyContent="flex-start">
+            margin: 0,
+            display: '-webkit-box',
+            WebkitBoxOrient: 'vertical',
+            WebkitLineClamp: { xs: 3, sm: 4 },
+          }}></Box>
+          <Stack direction="row" spacing={2} justifyContent="flex-start" useFlexGap flexWrap="wrap">
             <DockerComposeImport installerInit defaultName={item.name} dockerComposeInit={item.compose} />
-            <Link to={"/cosmos-ui/market-listing/cosmos-cloud/" + item.name} style={{
-              textDecoration: 'none',
-            }}>
-              <Button className="CheckButton" color="primary" variant="outlined">
-                {t('navigation.market.viewButton')}
-              </Button> 
-            </Link>
+            <Button component={Link} to={"/cosmos-ui/market-listing/cosmos-cloud/" + item.name} className="CheckButton" color="primary" variant="outlined">
+              {t('navigation.market.viewButton')}
+            </Button>
           </Stack>
         </Stack>
       </Stack>
@@ -155,11 +168,12 @@ const MarketPage = () => {
     backgroundColor: 'var(--ct-bg, rgb(245,245,247))',
   };
 
+  const [loaded, setLoaded] = useState(false); // Fork addition: the spinners only until the answer came
   const refresh = () => {
     API.market.list().then((res) => {
       setApps(res.data.all);
       setShowcase(res.data.showcase);
-    });
+    }).finally(() => setLoaded(true));
   };
 
   useEffect(() => {
@@ -233,7 +247,7 @@ const MarketPage = () => {
       zIndex: 1300,
       backgroundColor: 'rgba(0,0,0,0.5)',
     }}>
-      <Link to="/cosmos-ui/market-listing" as={Box}
+      <Link to="/cosmos-ui/market-listing" as={Box} tabIndex={-1} aria-hidden="true" /* Fork addition: the backdrop closes on a click; "Close" is the control */
         style={{
           position: 'fixed',
           top: 0,
@@ -259,13 +273,10 @@ const MarketPage = () => {
           }
         }}>
 
-          <Link to="/cosmos-ui/market-listing" style={{
-            textDecoration: 'none',
-          }}>
-            <Button className="CheckButton" color="primary" variant="outlined">
-              {t('global.close')}
-            </Button>
-          </Link>
+          {/* Fork addition: a link styled as a button (one Tab stop; it was a button inside a link) */}
+          <Button component={Link} to="/cosmos-ui/market-listing" className="CheckButton" color="primary" variant="outlined" sx={{ alignSelf: 'flex-start' }}>
+            {t('global.close')}
+          </Button>
 
           <div style={{ textAlign: 'center' }}>
             <Screenshots screenshots={openedApp.screenshots} isAdmin={isAdmin}/>
@@ -273,7 +284,7 @@ const MarketPage = () => {
 
           <Stack direction="row" spacing={2}>
             <img src={openedApp.icon} style={{ width: '36px', height: '36px' }} />
-            <h2>{openedApp.name} <span style={{color:'grey'}}>{openedApp.appstore != 'cosmos-cloud' ? (' @ '+openedApp.appstore) : ''}</span></h2>
+            <h2>{openedApp.name} <span style={{color:'var(--ct-muted, grey)'}}>{/* Fork addition: the skin's secondary text (grey was 4.4:1 on the dark card) */}{openedApp.appstore != 'cosmos-cloud' ? (' @ '+openedApp.appstore) : ''}</span></h2>
           </Stack>
 
           <div>
@@ -310,8 +321,9 @@ const MarketPage = () => {
     </Box>}
 
     <Stack style={{ position: 'relative' }} spacing={1}>
-      <Stack style={{ height: '35vh' }} spacing={1}>
-        {(!showcase || !Object.keys(showcase).length) && <Box style={{
+      {/* Fork addition: on a phone the showcase is as tall as its content (band and text); nothing is kept for an empty one */}
+      {!(loaded && (!showcase || !showcase.length)) && <Stack sx={{ height: { xs: 'auto', sm: '35vh' }, minHeight: { xs: loaded ? 0 : '35vh', sm: 0 } }} spacing={1}>
+        {!loaded && <Box style={{
           width: '100%',
           height: '100%',
           zIndex: 1000,
@@ -324,7 +336,7 @@ const MarketPage = () => {
           />
         </Box>}
         {showcase && showcase.length > 0 && <Showcases showcase={showcase} isDark={isDark} isAdmin={isAdmin} />}
-      </Stack>
+      </Stack>}
 
       {/* Fork addition: the margins as sx, matching the page's padding at each width (16 px at the sides of a phone: -24 px ran 8 px out of the window) */}
       <Stack spacing={1} sx={{ mx: { xs: -2, sm: -3 }, mb: -3, p: { xs: 2, sm: 3 } }} style={{
@@ -348,18 +360,19 @@ const MarketPage = () => {
           />
 
           <PermissionGuard permission={PERM_RESOURCES}>
-            <Link to="/cosmos-ui/servapps/new-service" style={{ textDecoration: 'none' }}>
-              <ResponsiveButton
-                variant="contained"
-                startIcon={<AppstoreAddOutlined />}
-              >{t('navigation.market.startServAppButton')}</ResponsiveButton>
-            </Link>
+            {/* Fork addition: a link styled as a button (one Tab stop) */}
+            <ResponsiveButton
+              component={Link}
+              to="/cosmos-ui/servapps/new-service"
+              variant="contained"
+              startIcon={<AppstoreAddOutlined />}
+            >{t('navigation.market.startServAppButton')}</ResponsiveButton>
           </PermissionGuard>
           <DockerComposeImport refresh={() => { }} />
           <EditSourcesModal onSave={refresh} />
           <PersistentCheckbox name="filterDups" label={t('navigation.market.filterDuplicateCheckbox')} value={filterDups} onChange={setFilterDups} />
         </Stack>
-        {(!apps || !Object.keys(apps).length) && <Box style={{
+        {!loaded && (!apps || !Object.keys(apps).length) && <Box style={{
           width: '100%',
           height: '100%',
           zIndex: 1000,
@@ -373,6 +386,13 @@ const MarketPage = () => {
           />
         </Box>}
 
+        {/* Fork addition: said when no source answered (a server without a way out, a source that is down) */}
+        {loaded && !filteredAppList.length && !search && <Alert severity="info" sx={{ maxWidth: 720 }}>
+          {t('navigation.market.nothingLoaded', 'No app could be loaded from the market sources. Check that this server can reach the internet, or the addresses under "Sources".')}
+        </Alert>}
+        {loaded && !filteredAppList.length && search.length > 2 && <Typography variant="body2" color="text.secondary">
+          {t('navigation.market.noMatch', 'No app matches “{{search}}”.', { search: search.slice(0, 80), interpolation: { escapeValue: false } })}
+        </Typography>}
         {apps && Object.keys(apps).length > 0 && <Grid2 container spacing={{ xs: 1, sm: 1, md: 2 }}>
           {filteredAppList.map((app) => {
               return <Grid2
@@ -386,7 +406,7 @@ const MarketPage = () => {
                     <Stack spacing={3} direction={'row'} alignItems={'center'} style={{ padding: '0px 15px' }}>
                       <img src={app.icon} style={{ width: 64, height: 64 }} />
                       <Stack spacing={1}>
-                        <div style={{ fontWeight: "bold" }}>{app.name}<span style={{color:'grey'}}>{app.appstore != 'cosmos-cloud' ? (' @ '+app.appstore) : ''}</span></div>
+                        <div style={{ fontWeight: "bold" }}>{app.name}<span style={{color:'var(--ct-muted, grey)'}}>{/* Fork addition: the skin's secondary text (grey was 4.4:1 on the dark card) */}{app.appstore != 'cosmos-cloud' ? (' @ '+app.appstore) : ''}</span></div>
                         <div style={{
                           height: '40px',
                           overflow: 'hidden',
