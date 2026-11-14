@@ -48,6 +48,10 @@ type ForkCloudflareConfig struct {
 	// prove with a client certificate that Cloudflare's proxy made it, see
 	// fork_origin_pulls.go. Off until the admin switches it on.
 	OriginPulls ForkOriginPullsConfig `json:"OriginPulls,omitzero"`
+	// HomeNames lists the domains whose apps get names for use at home
+	// (<app>.<label>.<domain> at the server's private address), see
+	// fork_home_names.go.
+	HomeNames []ForkHomeNamesZone `json:"HomeNames,omitempty"`
 }
 
 // CloudflareMaxNames bounds the lists of hostnames kept in the configuration.

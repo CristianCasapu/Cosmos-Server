@@ -13,7 +13,8 @@ package utils
 // visitor used for the app is the port of the panel: it is taken from the
 // request (which also covers a router that forwards another external port),
 // and from the settings only when there is no request to go by. The
-// hostname always comes from the settings, never from the request.
+// hostname always comes from the settings, never from the request (on a
+// name for use at home: the panel's home name, also from the settings).
 
 import (
 	"net"
@@ -47,6 +48,16 @@ func PanelOriginFor(req *http.Request) string {
 	}
 
 	host := config.Hostname
+	// a visitor on a name for use at home is sent to the panel's home name
+	// of that domain (fork_home_names.go): the round trip stays in the
+	// house, with the trusted certificate. The name is the settings', the
+	// request only tells which of them.
+	if req != nil {
+		full := GetMainConfig()
+		if zone, ok := HomeZoneOf(full, req.Host); ok {
+			host = PanelHomeHost(full, zone)
+		}
+	}
 	if _, _, err := net.SplitHostPort(host); err == nil {
 		// the setting names a port itself
 		return scheme + host

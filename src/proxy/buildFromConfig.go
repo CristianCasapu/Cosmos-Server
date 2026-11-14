@@ -31,6 +31,9 @@ func BuildFromConfig(router *mux.Router, config utils.ProxyConfig) *mux.Router {
 
 	// Share routes are materialized into config.Routes by storage.ReconcileShareRoutes ("share" owner).
 
+	// Fork addition: the apps' names for use at home, before the URLs (host-exact), see fork_home_names.go
+	buildHomeRoutes(func(route utils.ProxyRouteConfig) { RouterGen(route, router, RouteTo(route)) })
+
 	for i := len(config.Routes)-1; i >= 0; i-- {
 		routeConfig := config.Routes[i]
 		if !routeConfig.Disabled && ((strings.HasPrefix(routeConfig.Target, "http://") || strings.HasPrefix(routeConfig.Target, "https://")) ||

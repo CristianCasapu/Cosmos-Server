@@ -664,6 +664,7 @@ func GetAllHostnames(removePorts bool) []string {
 
 	proxies := GetMainConfig().HTTPConfig.ProxyConfig.Routes
 	proxies = append(proxies, GetConstellationTunnelRoutes()...)
+	hostnames = append(hostnames, HomeHostnames()...) // Fork addition: the names for use at home, see fork_home_names.go
 	
 	for _, proxy := range proxies {
 		if proxy.UseHost && proxy.Host != "" && !strings.Contains(proxy.Host, ",") && !strings.Contains(proxy.Host, " ") {
@@ -1458,6 +1459,7 @@ func FindRouteByReqHost(hostname string) (string, *ProxyRouteConfig) {
 	// so the append never writes into the shared config backing array.
 	allRoutes := append([]ProxyRouteConfig{}, config.HTTPConfig.ProxyConfig.Routes...)
 	allRoutes = append(allRoutes, GetConstellationTunnelRoutes()...)
+	allRoutes = append(allRoutes, HomeRoutes()...) // Fork addition: the apps' names for use at home, see fork_home_names.go
 
 	for _, route := range allRoutes {
 			if route.Host == hostname {

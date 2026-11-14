@@ -482,6 +482,12 @@ func EnsureHostnameCosmosAPI(next http.Handler) http.Handler {
 			}
 		}
 
+		// Fork addition: the panel's name for use at home (local visitors only, proxy/fork_home_names.go)
+		if IsPanelHomeHost(reqHostNoPort) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		if og != reqHostNoPort {
 			PushShieldMetrics("hostname")
 			RecordSecurity(r, SecShieldHostname, "") // Fork addition: security record
