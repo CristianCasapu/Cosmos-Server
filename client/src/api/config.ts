@@ -173,7 +173,16 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
   // plain words, so the answer comes back as { ok, data, reason, detail,
   // message } whatever the status was.
   function cloudflareCall(path: string, method: string, body?: any) {
-    return apiFetch('/cosmos/api/cloudflare' + path, {
+    return forkCall('/cosmos/api/cloudflare' + path, method, body);
+  }
+
+  // Fork addition: the same for the certificates (src/certs).
+  function certificatesCall(path: string, method: string, body?: any) {
+    return forkCall('/cosmos/api/certificates' + path, method, body);
+  }
+
+  function forkCall(url: string, method: string, body?: any) {
+    return apiFetch(url, {
       method,
       headers: {
         'Content-Type': 'application/json'
@@ -198,6 +207,14 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
   }
 
   const cloudflareStatus = () => cloudflareCall('', 'GET');
+
+  // Fork addition: certificates (src/certs)
+  const certificatesStatus = () => certificatesCall('', 'GET');
+  const certificatesProviders = () => certificatesCall('/providers', 'GET');
+  const certificatesRenew = (domain: string) => certificatesCall('/renew', 'POST', { domain });
+  const certificatesDomain = (domain: string) => certificatesCall('/domain', 'POST', { domain });
+  const certificatesDelegation = (domain: string, via: string) => certificatesCall('/delegation', 'POST', { domain, via });
+  const certificatesSettings = (httpChallenge: string) => certificatesCall('/settings', 'POST', { httpChallenge });
   const cloudflareCheck = (token: string, zone = '') => cloudflareCall('/check', 'POST', { token, zone });
   const cloudflarePreview = (token: string, zone: string, panel = '', takeOver: string[] = []) =>
     cloudflareCall('/preview', 'POST', { token, zone, panel, takeOver });
@@ -465,6 +482,12 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     cloudflareShield,
     cloudflarePanel,
     cloudflareRanges,
+    certificatesStatus,
+    certificatesProviders,
+    certificatesRenew,
+    certificatesDomain,
+    certificatesDelegation,
+    certificatesSettings,
     snapshotsStatus,
     snapshotsRun,
     snapshotsRestore,

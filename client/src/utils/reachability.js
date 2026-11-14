@@ -130,7 +130,7 @@ export const CHECK_TEXT = {
   'shield.port': ['port', 'Set to go through Cloudflare, but visitors use port {{port}}, which Cloudflare does not pass on (it passes HTTPS on 443, 2053, 2083, 2087, 2096 and 8443).', 'internet'],
 
   'cert.valid': ['valid', 'The certificate is valid until {{until}}.', null],
-  'cert.selfSigned': ['selfSigned', 'The certificate is not one browsers trust: visitors get a warning. Use Let\'s Encrypt for the domain.', 'domains'],
+  'cert.selfSigned': ['selfSigned', 'The certificate is not one browsers trust: visitors get a warning.', 'domains'],
   'cert.wrongName': ['wrongName', 'The certificate does not cover this name: visitors get a warning.', 'domains'],
   'cert.expired': ['expired', 'The certificate has expired: visitors get a warning.', 'domains'],
   'cert.none': ['none', 'No certificate is ready for this name yet.', 'domains'],

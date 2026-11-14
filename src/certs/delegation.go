@@ -148,7 +148,9 @@ type Delegation struct {
 	Name   string `json:"name"`
 	Record string `json:"record"`
 	Target string `json:"target"`
-	State  string `json:"state"`
+	// Via is the domain the challenge is answered in.
+	Via   string `json:"via"`
+	State string `json:"state"`
 	// Found is where the record points now, when it exists.
 	Found string `json:"found,omitempty"`
 	// Detail is the resolver's own words when the lookup failed.
@@ -163,7 +165,7 @@ func under(name string, domain string) bool {
 // CheckDelegation looks the record of a name up: it must be a CNAME whose
 // chain (eight aliases at most) ends at a name under via.
 func CheckDelegation(ctx context.Context, r Resolver, name string, via string) Delegation {
-	result := Delegation{Name: normalName(name), Record: challengeName(name), Target: DelegationTarget(name, via), State: DelegationMissing}
+	result := Delegation{Name: normalName(name), Record: challengeName(name), Target: DelegationTarget(name, via), Via: normalName(via), State: DelegationMissing}
 	current := result.Record
 	seen := map[string]bool{current: true}
 	for hop := 0; hop < maxHops; hop++ {

@@ -265,7 +265,7 @@ func GetStatus() Status {
 					for _, name := range utils.ZoneCertHostnames(zone.DNSZoneConfig, zone.Hosts) {
 						if record := challengeName(name); !seen[record] {
 							seen[record] = true
-							view.Records = append(view.Records, Delegation{Name: name, Record: record, Target: DelegationTarget(name, zone.ChallengeVia)})
+							view.Records = append(view.Records, Delegation{Name: name, Record: record, Target: DelegationTarget(name, zone.ChallengeVia), Via: normalName(zone.ChallengeVia)})
 						}
 					}
 				}

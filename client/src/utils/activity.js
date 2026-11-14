@@ -56,6 +56,7 @@ const IGNORED = [
   /^\/api\/(config\/test-email|upnp|server-update|force-server-update)\b/,
   /^\/api\/telegram\b/, // the Telegram card shows what a test message gave, in words, where it was asked for
   /^\/api\/cloudflare\/(check|preview)\b/, // Fork addition: the guided set-up shows these answers itself
+  /^\/api\/certificates\/(domain|delegation)\b/, // Fork addition: lookups for "Add another domain", which shows what was found itself
   /^\/api\/servapps\/[^/]+\/(logs|terminal|export|check-update)\b/,
   /^\/api\/constellation\/(ping|devices\/[^/]+\/ping)\b/,
   /^\/rclone\/(config\/(dump|listremotes)|operations\/about|vfs\/stats|core\/stats)\b/,
@@ -119,6 +120,10 @@ const COMMANDS = [
   ['POST', /^\/api\/cloudflare\/panel$/, () => ['activity.cloudflare.panel', 'Set the panel\'s address']],
   ['POST', /^\/api\/cloudflare\/takeover$/, () => ['activity.cloudflare.takeover', 'Let Cosmos replace the existing record']],
   ['POST', /^\/api\/cloudflare\/ranges$/, () => ['activity.cloudflare.ranges', 'Update Cloudflare\'s addresses']],
+
+  // certificates (src/certs): the status is read with GET, which is never followed
+  ['POST', /^\/api\/certificates\/renew$/, () => ['activity.certificates.renew', 'Start the renewal of the certificate']],
+  ['POST', /^\/api\/certificates\/settings$/, () => ['activity.certificates.settings', 'Change how domains are proven']],
 
   // incremental snapshots (src/snapshots); their status is read with GET, which is never followed
   ['POST', /^\/api\/snapshots\/run$/, () => ['activity.snapshots.run', 'Start the incremental backup']],

@@ -288,7 +288,7 @@ func DomainRoute(w http.ResponseWriter, req *http.Request) {
 	}
 	for _, zone := range zones {
 		if canAnswerFor(zone) && !under(name, zone.Zone) {
-			info.CanAnswer = append(info.CanAnswer, Delegation{Name: name, Record: challengeName(name), Target: DelegationTarget(name, zone.Zone)})
+			info.CanAnswer = append(info.CanAnswer, Delegation{Name: name, Record: challengeName(name), Target: DelegationTarget(name, zone.Zone), Via: normalName(zone.Zone)})
 		}
 	}
 	answer(w, info)

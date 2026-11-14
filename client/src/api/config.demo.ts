@@ -97,6 +97,17 @@ const cloudflareShield = cloudflareNone;
 const cloudflarePanel = cloudflareNone;
 const cloudflareRanges = cloudflareNone;
 
+// Fork addition: the demo orders no certificate
+const certificatesStatus = () => Promise.resolve({
+  ok: true, status: 200, reason: '', detail: '', message: '',
+  data: { ca: { kind: 'production', name: "Let's Encrypt" }, challenges: { http: 'possible', reason: 'ports', setting: '', httpsPort: 443, httpPort: 80 }, certificates: [], hosts: [], canAnswer: [] },
+});
+const certificatesProviders = cloudflareNone;
+const certificatesRenew = cloudflareNone;
+const certificatesDomain = cloudflareNone;
+const certificatesDelegation = cloudflareNone;
+const certificatesSettings = cloudflareNone;
+
 function serverUpdateStatus() {
   return new Promise((resolve, reject) => {
     resolve({
@@ -262,6 +273,12 @@ export {
   cloudflareShield,
   cloudflarePanel,
   cloudflareRanges,
+  certificatesStatus,
+  certificatesProviders,
+  certificatesRenew,
+  certificatesDomain,
+  certificatesDelegation,
+  certificatesSettings,
   serverUpdateStatus,
   checkServerUpdate,
   snapshotsStatus,
