@@ -55,15 +55,11 @@ func TestATokenTakesABoundedLifetimeAndRealAddresses(t *testing.T) {
 		t.Errorf("a refused change was stored: %v", got)
 	}
 
-	// what is right still goes through
-	if problem := tokenExpiryProblem(3650); problem != "" {
-		t.Errorf("ten years: %s", problem)
+	// what is right still goes through (the checks are in fork_api_tokens.go)
+	if code := create(`{"name":"ten-years","permissions":[1],"expiryDays":3650,"ipWhitelist":[" 192.168.1.20 ","10.0.0.0/8","2001:db8::/32","::1"]}`); code != http.StatusOK {
+		t.Errorf("a token of ten years with right addresses: %d, want 200", code)
 	}
-	if problem := tokenExpiryProblem(0); problem != "" {
-		t.Errorf("no expiry: %s", problem)
-	}
-	kept, problem := cleanTokenWhitelist([]string{" 192.168.1.20 ", "10.0.0.0/8", "", "2001:db8::/32", "::1"})
-	if problem != "" || len(kept) != 4 || kept[0] != "192.168.1.20" {
-		t.Errorf("a list of right addresses: %v %q", kept, problem)
+	if got := utils.ReadConfigFromFile().APITokens["ten-years"].IPWhitelist; len(got) != 4 || got[0] != "192.168.1.20" {
+		t.Errorf("the addresses as stored: %v", got)
 	}
 }

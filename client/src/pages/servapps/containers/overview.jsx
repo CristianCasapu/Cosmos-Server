@@ -62,6 +62,7 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
       <ExposeModal
         openModal={openModal} 
         setOpenModal={setOpenModal}
+        refresh={refreshAll /* Fork addition: read again once the dialog has exposed the app */}
         container={Config}
         config={config}
         updateRoutes={
@@ -142,12 +143,14 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
             <strong><DesktopOutlined /> ID</strong>
             <div style={info} className="ct-readonly">{containerInfo.Id}</div>
             <strong><InfoCircleOutlined /> {t('mgmt.servApps.container.overview.ipAddressTitle')}</strong>
-            <div style={info} className="ct-readonly">{IPAddress}</div>
+            <div style={info} className="ct-readonly">{IPAddress || <span className="ct-muted-text">{t('mgmt.servApps.container.overview.noAddress', 'None while the app is stopped')}</span>}</div>{/* Fork addition: an empty box said nothing */}
             <strong>
               <SafetyCertificateOutlined/> {t('mgmt.servApps.container.overview.healthTitle')}
             </strong>
             <div style={info} className="ct-readonly">{healthStatus}</div>
-            <strong><SettingOutlined /> {t('mgmt.servApps.container.overview.settingsTitle')} {State.Status !== 'running' ? t('mgmt.servApps.startToEditInfo') : ''}</strong>
+            <strong><SettingOutlined /> {t('mgmt.servApps.container.overview.settingsTitle')}</strong>
+            {/* Fork addition: the note on a line of its own (it ran into the title: "Settings Start container to edit") */}
+            {State.Status !== 'running' && <Typography variant="body2" color="textSecondary">{t('mgmt.servApps.startToEditInfo')}</Typography>}
             {/* <Stack style={{ fontSize: '80%' }} direction={"row"} alignItems="center">
               <Checkbox
                 checked={Config.Labels['cosmos-force-network-secured'] === 'true'}
@@ -162,7 +165,7 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
                 }}
               /> Isolate Container Network
             </Stack> */}
-            <Stack style={{ fontSize: '80%' }} direction={"row"} alignItems="center">
+            <Stack component="label" style={{ fontSize: '80%' }} direction={"row"} alignItems="center">{/* Fork addition: a label, so the box has a name */}
               <PermissionGuard permission={PERM_RESOURCES} alwaysShow>
                 <Checkbox
                   checked={Config.Labels['cosmos-auto-update'] === 'true'  ||
@@ -179,7 +182,7 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
                 />
               </PermissionGuard> {t('mgmt.servApps.autoUpdateCheckbox')}
             </Stack>
-            <Stack style={{ fontSize: '80%' }} direction={"row"} alignItems="center">
+            <Stack component="label" style={{ fontSize: '80%' }} direction={"row"} alignItems="center">{/* Fork addition: a label, so the box has a name */}
               <PermissionGuard permission={PERM_RESOURCES} alwaysShow>
                 <Checkbox
                   checked={Config.Labels['cosmos-lazy'] === 'true'}

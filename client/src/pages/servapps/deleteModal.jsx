@@ -14,6 +14,7 @@ import { PERM_RESOURCES } from '../../utils/permissions';
 
 const DeleteModal = ({Ids, containers, refreshServApps, setIsUpdatingId, config}) => {
   const { t } = useTranslation();
+  const isMiniMobile = useMediaQuery((theme) => theme.breakpoints.down('xsm')); // Fork addition
   const [isOpen, setIsOpen] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState(false);
   const [failed, setFailed] = React.useState([]);
@@ -283,7 +284,7 @@ const DeleteModal = ({Ids, containers, refreshServApps, setIsUpdatingId, config}
             setFailed([]);
             setDeleted([]);
             setIgnored([]);
-        }} color="error" size='large'>
+        }} color="error" size={isMiniMobile ? 'medium' : 'large'}>{/* Fork addition: the size of the other actions of the bar (it stood out on a phone) */}
           <DeleteOutlined />
         </IconButton></Tooltip>
      </PermissionGuard>

@@ -176,13 +176,13 @@ export default function createStorageAPI(apiFetch: ApiFetch) {
       }))
     },
 
-    format({disk, format, password}: { disk: string; format: string; password?: string }, onProgress: (line: string) => void): Promise<ReadableStream> {
+    format({disk, format, password, confirm}: { disk: string; format: string; password?: string; confirm?: string }, onProgress: (line: string) => void): Promise<ReadableStream> {
       const requestOptions: RequestInit = {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({disk, format, password})
+        body: JSON.stringify({disk, format, password, confirm}) // Fork addition: confirm, the disk's name as typed
       };
 
       return apiFetch('/cosmos/api/disks/format', requestOptions)

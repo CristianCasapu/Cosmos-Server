@@ -32,6 +32,8 @@ import { CosmosCheckbox, CosmosFormDivider, CosmosInputText, CosmosSelect } from
 import { MetricPicker } from './MetricsPicker';
 import { useTranslation } from 'react-i18next';
 import dayjs from 'dayjs';
+import { ForkAlertTemplates, ForkAlertUnit, ForkAlertReadBack, forkAlertValidate } from './forkAlertGuide'; // Fork addition
+import { keepOnBackdrop } from '../../components/formHelpers'; // Fork addition
 
 const DisplayOperator = (operator) => {
   switch (operator) {
@@ -46,7 +48,7 @@ const DisplayOperator = (operator) => {
   }
 }
 
-const EditAlertModal = ({ open, onClose, onSave }) => {
+const EditAlertModal = ({ open, onClose, onSave, metrics, names }) => { // Fork addition: metrics, names
   const { t } = useTranslation();
 
   const AlertValidationSchema = Yup.object().shape({
@@ -70,20 +72,25 @@ const EditAlertModal = ({ open, onClose, onSave }) => {
       severity: open.Severity || 'error',
     },
     validationSchema: AlertValidationSchema,
-    onSubmit: (values) => {
+    // Fork addition: the checks of utils/alertForm.js (a known metric, a unique name, the unit, actions that work)
+    validate: forkAlertValidate(t, { metrics, names, original: open.Name }),
+    // Fork addition: the dialog stays open until the server answered, and keeps what was entered if it refused
+    onSubmit: (values, { setErrors }) => {
       values.actions = values.actions.filter((a) => !a.removed);
-      onSave(values);
-      onClose();
+      return Promise.resolve(onSave(values, open.Name)).then(() => onClose()).catch((err) => {
+        setErrors({ submit: (err && err.message) || String(err) });
+      });
     },
   });
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={keepOnBackdrop(onClose) /* Fork addition: a click beside it lost the alert */} maxWidth="sm" fullWidth>
       <DialogTitle>{t('navigation.monitoring.alerts.action.edit')}</DialogTitle>
       <FormikProvider value={formik}>
       <form onSubmit={formik.handleSubmit}>
         <DialogContent>
           <Stack spacing={2}>
+            {!open.Name && <ForkAlertTemplates formik={formik} metrics={metrics} />}{/* Fork addition: ready-made alerts for a new one */}
             <CosmosInputText
               name="name"
               label={t('navigation.monitoring.alerts.alertNameLabel')}
@@ -122,6 +129,7 @@ const EditAlertModal = ({ open, onClose, onSave }) => {
                 formik={formik}
               />
             </Stack>
+            <ForkAlertUnit formik={formik} />{/* Fork addition: the unit of the value */}
 
             <CosmosSelect
               name="period"
@@ -209,12 +217,14 @@ const EditAlertModal = ({ open, onClose, onSave }) => {
                 {t('mgmt.monitoring.alerts.addActionButton')}
               </Button>
             </Stack>
+            <ForkAlertReadBack formik={formik} metrics={metrics} />{/* Fork addition: the alert in one sentence */}
+            {formik.errors.submit && <Alert severity="error">{formik.errors.submit}</Alert>}
 
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={onClose}>{t('global.cancelAction')}</Button>
-          <Button variant='contained' type="submit">{t('global.saveAction')}</Button>
+          <Button variant='contained' type="submit" disabled={formik.isSubmitting}>{t('global.saveAction')}</Button>
         </DialogActions>
       </form>
       </FormikProvider>
@@ -289,15 +299,20 @@ const AlertPage = () => {
     });
   }
   
-  const saveAlert = (data) => {
+  const saveAlert = (data, original) => { // Fork addition: original, the name the alert had
     setIsLoading(true);
     
     data.conditionValue = parseInt(data.conditionValue);
+    data.name = String(data.name).trim(); // Fork addition
+
+    // Fork addition: a renamed alert replaces its old entry instead of leaving a copy of it
+    const kept = { ...config.MonitoringAlerts };
+    if (original && original !== data.name) delete kept[original];
 
     let toSave = {
       ...config,
       MonitoringAlerts: {
-        ...config.MonitoringAlerts,
+        ...kept,
         [data.name]: {
           Name: data.name,
           Enabled: true,
@@ -316,8 +331,12 @@ const AlertPage = () => {
       }
     };
 
-    API.config.set(toSave).then(() => {
+    // Fork addition: returned, so that the dialog waits for the answer
+    return API.config.set(toSave).then(() => {
       refresh(15); // fork addition: the server may be restarting its listener
+    }).catch((err) => {
+      setIsLoading(false);
+      throw err;
     });
   }
   
@@ -426,7 +445,8 @@ const AlertPage = () => {
   }
 
   return <div style={{ maxWidth: "1200px", margin: "auto" }}>
-    {openModal && <EditAlertModal open={openModal} onClose={() => setOpenModal(false)} onSave={saveAlert} />}
+    {openModal && <EditAlertModal open={openModal} onClose={() => setOpenModal(false)} onSave={saveAlert}
+      metrics={metrics} names={Object.keys((config && config.MonitoringAlerts) || {})} /* Fork addition */ />}
 
     {/* Fork addition: useFlexGap flexWrap, the buttons go to a second line on a phone instead of being squeezed */}
     <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap" style={{marginBottom: '15px'}}>

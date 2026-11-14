@@ -437,3 +437,42 @@ export const choiceProblems = (web, ports, choices, config, containerName) => {
   Object.keys(problems).forEach((key) => { if (!problems[key]) delete problems[key]; });
   return problems;
 };
+
+// ---- an app getting its first URL (the "New URL" dialog) ---------------------
+// The choices for the app as it will be once `route` exists: the plans read
+// the configuration with the route added, so its web interface can be
+// proposed for the internet before it is created. `ports` are the app's
+// published ports as portPlan takes them. Returns the plans, the choices
+// (`value` over the proposals; nothing ticked unless already exposed), the
+// problems by field, what to send ({ expose, withdraw }), and `blocked` when
+// the choices cannot be sent as they are.
+export const routeExposure = ({ config, cloudflare, router, containerName, image, route, ports, value }) => {
+  const name = String(containerName || '').replace(/^\//, '');
+  const planned = route ? withRoutes(config, [route]) : config;
+  const web = webPlan({ config: planned, cloudflare, containerName: name, image });
+  const portList = portPlan({ config: planned, cloudflare, router, containerName: name, ports });
+  const before = initialChoices(web, portList);
+  // the proposals follow the route; what was touched stays as it was set
+  const current = value
+    ? { web: { ...before.web, ...(value.web || {}) }, ports: { ...before.ports, ...(value.ports || {}) } }
+    : before;
+  const problems = choiceProblems(web, portList, current, planned, name);
+  const changes = exposureChanges(name, web, portList, before, current);
+  // the URL being created is never withdrawn from here (it is deleted under URLs)
+  const own = hostOf(route);
+  if (own && changes.withdraw) {
+    const kept = changes.withdraw.web.filter((w) => w.hostname !== own);
+    changes.withdraw = kept.length + changes.withdraw.ports.length > 0 ? { ...changes.withdraw, web: kept } : null;
+  }
+  const unconfirmed = portList.some((p) => p.risky && !p.exposed && current.ports[p.key] && current.ports[p.key].on && !current.ports[p.key].risky);
+  return {
+    web,
+    ports: portList,
+    before,
+    current,
+    problems,
+    changes,
+    chosen: !!(changes.expose || changes.withdraw),
+    blocked: Object.keys(problems).length > 0 || unconfirmed,
+  };
+};

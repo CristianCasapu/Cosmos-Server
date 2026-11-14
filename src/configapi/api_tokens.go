@@ -156,16 +156,10 @@ func createAPIToken(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Fork addition: a bounded lifetime and real addresses, see fork_api_token_inputs.go
-	if problem := tokenExpiryProblem(request.ExpiryDays); problem != "" {
-		utils.HTTPError(w, problem, http.StatusBadRequest, "AT017")
+	// Fork addition: the IP restriction, the description, the expiry and the permissions are checked, see fork_api_tokens.go
+	if err := checkCreateToken(&request); err != nil {
+		utils.HTTPError(w, err.Error(), http.StatusBadRequest, "AT017")
 		return
-	}
-	if kept, problem := cleanTokenWhitelist(request.IPWhitelist); problem != "" {
-		utils.HTTPError(w, problem, http.StatusBadRequest, "AT018")
-		return
-	} else {
-		request.IPWhitelist = kept
 	}
 
 	// Build permissions array
@@ -366,13 +360,10 @@ func updateAPIToken(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "Invalid request", http.StatusBadRequest, "AT031")
 		return
 	}
-
-	// Fork addition: real addresses, see fork_api_token_inputs.go
-	if kept, problem := cleanTokenWhitelist(request.IPWhitelist); problem != "" {
-		utils.HTTPError(w, problem, http.StatusBadRequest, "AT018")
+	// Fork addition: as on creation, see fork_api_tokens.go
+	if err := checkUpdateToken(&request); err != nil {
+		utils.HTTPError(w, err.Error(), http.StatusBadRequest, "AT035")
 		return
-	} else if request.IPWhitelist != nil {
-		request.IPWhitelist = kept
 	}
 
 	utils.ConfigLock.Lock()

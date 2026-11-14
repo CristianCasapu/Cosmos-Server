@@ -117,7 +117,8 @@ export const RAIDArrays = () => {
         setOpen={setEditOpened} 
         data={editOpened} 
       />}
-      {raids && <PrettyTableView 
+      {raids && <PrettyTableView
+            empty={{ title: t('emptyState.raid.title', 'No RAID array'), text: t('emptyState.raid.text', 'RAID arrays of the server are listed here. Create one with the button above.') }} /* Fork addition: what this list is for and how it fills */
         data={raids}
         getKey={(r) => r.device}
         columns={[

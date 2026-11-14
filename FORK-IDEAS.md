@@ -11,14 +11,18 @@ upstream 0.23.4 unless noted and may have moved.
    Setup tab (simple view), the new-container form and the market installer
    (addresses), users, scheduled jobs, the email settings, the Cloudflare
    set-up (see `FORK.md`; the principles are kept with the owner's plans).
-   Still to go through the same way, in this order: the HTTP settings
-   (ports and the admin whitelist need a check before saving; the
-   geo-blocking default no longer holds the admin's own country), the URL
-   Security tab (one "protection" choice in
-   place of six numbers), the container wizard (it silently drops User, the
-   limits, the network mode and "use as VPN"), storage (`mkfs` reports success
-   when it failed), the alerts editor, the Domains dialog by hand, API
-   tokens, OpenID.
+   Also done: the HTTP settings, the URL Security tab, formatting a disk,
+   the alerts editor and API tokens. Still to go through the same way:
+   OpenID clients, the storage mount, merge and SnapRAID dialogs, the
+   Domains dialog by hand. Left from the last round:
+   the admin's country for the geo-blocking warning comes from the browser,
+   not from the address the server sees; trusted proxies are a validated
+   text field, not a list; `api-docs/` does not know the new route, the
+   format request's `confirm` field or the codes UC030 to UC035. The owner's
+   to change if wanted: a save that would lock the admin out is refused with
+   no override; a format request without the typed name is refused (outside
+   scripts formatting through the API stop working); the Strict level's 500
+   requests a minute.
 2. **App links and reachability: done** (a local address always, an external
    one per attached domain, grouped on the cards, "Domains", and a chip that
    says whether the app can be reached from the internet). Left, the owner's
@@ -136,15 +140,41 @@ security record.
 
 ## Look of the panel: left for later (2026-11-14)
 
-- The skin does not follow the colours under Configuration > Theme.
-- On a phone: about twenty field labels are cut with "…" in the settings and
-  container forms; the container Volumes tab and the alerts table are cut
-  at the right; charts keep two columns of axis labels; log lines break
-  inside words; the Market's showcase scrolls sideways.
-- Empty tables still say "No Data To Show"; the Domains tab's public key
-  block runs out of its box on a phone; a favicon of an unreachable app
-  holds a request for ten seconds.
-- Not tried on a real phone or real Safari, only the WebKit engine.
+- On a phone the Market showcase's text panel still overlaps its screenshot
+  (upstream's carousel); the other chart series keep their own scale without
+  a drawn axis (legend and tooltip give the values).
+- A button wrapped in a link ("Start ServApp") is two Tab stops (upstream's
+  pattern on many pages); a few controls still have no name (container
+  Source/Target fields outside the card layout, the countries field on the
+  HTTP tab); heading levels inside pages still skip; some targets on a phone
+  are still under 44 px.
+- Not tried on a real phone, real Safari or a screen reader, only the
+  engines; log lines were never seen with real output.
+- The owner's to change if wanted: the health card's thresholds (disks 90 %
+  and 95 %; exit codes 0, 137 and 143 count as stopped on purpose) and
+  whether stopped apps that should run count (needs the restart policy,
+  which Docker's list does not give); Theme colours on the sign-in pages of
+  a device that never opened the panel (needs the colours in an answer
+  visitors can read); the icon timings (2 s wait, 5 minutes for a failure).
+
+## Creating apps: left for later (2026-11-14)
+
+- An image's declared volumes and ports are known only when the image is
+  already on the server (nothing is pulled to read them): "Review and
+  create" proposes no volumes for a new image. `env_file` cannot be read
+  (the review says so). PUID/PGID are proposed only for linuxserver.io
+  images. The review's sentences are not shown when editing.
+- One WebKit page error ("Load failed") while the server reloaded after a
+  creation, probably upstream's list refresh; unproven. The New URL dialog
+  was not seen in a browser as a non-admin. `DomainPicker` in
+  `hostnameSuggestions.jsx` is unused now.
+- The owner's to change if wanted: the list of sensitive access and the
+  tick per item; which data counts as configuration and which as bulk; bulk
+  data in a Docker volume proposed on the data disk with the most free
+  space; a lone compose port published on the same server port;
+  `unless-stopped` when a file sets no restart policy; PUID/PGID from the
+  owner of the data path, else 1000; "put the previous one back" has no
+  confirmation and the container it sets aside becomes a leftover itself.
 
 ## Installable app: left for later (2026-11-14)
 
@@ -157,8 +187,6 @@ security record.
   authority installed on the device.
 - Left out on purpose: push notifications, background sync, offline viewing
   of data, manifest screenshots, the window-controls-overlay title bar.
-- Seen, not fixed: the "SA" chip on URL pages has low contrast (1.98:1);
-  some header icon buttons are 36-40 px on phones (44 px is the target).
 - The owner's to change if wanted: "Not now" lasting 30 days, the four
   shortcuts.
 
@@ -215,11 +243,9 @@ security record.
 
 | # | Gap | Where |
 | --- | --- | --- |
-| 1 | No choice of where an app's data goes at install (config vs bulk data, per disk); named volumes land in Docker's root | install wizard, `DefaultDataPath` only |
-| 3 | No system-health overview (certificate expiry, failed jobs, stopped containers, full disks); the container-updates banner never shows (`.length` on a map) | `servapps.jsx:296` |
 | 10 | "Provided" certificate mode and certificate status | check again on 0.24.0, the Domains tab changed this |
 
-(2 data disks, 4 time zone, 5 port conflicts, 6 image defaults, 7 help texts, 8 maintenance time, 9 schedules, 12 mounts, 11 file picker shortcuts, 13 volume usage, 14 volume paths and 15 alerts are done; see `FORK.md`.)
+(1 where an app's data goes, 3 system health, 2 data disks, 4 time zone, 5 port conflicts, 6 image defaults, 7 help texts, 8 maintenance time, 9 schedules, 12 mounts, 11 file picker shortcuts, 13 volume usage, 14 volume paths and 15 alerts are done; see `FORK.md`.)
 
 Limits of the port check (5): ports of stopped containers are not known, Cosmos' own ports are read from the saved settings (not from `COSMOS_HTTP_PORT`/`COSMOS_HTTPS_PORT`), host-network containers are not covered.
 

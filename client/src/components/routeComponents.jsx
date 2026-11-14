@@ -55,8 +55,8 @@ let routeImages = {
   "SPA": {
     label: "SPA",
     icon: "SP",
-    background: "linear-gradient(135deg, #e74c3c, #c0392b)",
-    color: "black",
+    background: "linear-gradient(135deg, #c0392b, #a93226)", // Fork addition: white needs the darker red (black on it was 4:1)
+    color: "white",
   },
 }
 
@@ -74,7 +74,7 @@ export const RouteMode = ({route}) => {
 
   return c ? <><Tooltip title={c.label}>
     <Chip
-      icon={<span>{cicon}</span>}
+      icon={<span style={{ color: c.color }}>{cicon}</span>}/* Fork addition: the mark's own colour (the skin's chip rule made it the page's text colour: 1.98:1 on the cyan) */
       // label={c.label}
       sx={{
         background: c.background,

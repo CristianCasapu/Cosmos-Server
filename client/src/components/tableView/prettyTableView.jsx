@@ -11,10 +11,13 @@ import { SearchOutlined } from '@ant-design/icons';
 import { useTheme } from '@mui/material/styles';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { TableEmpty, TableNoMatch, cellLabel, useCellNames } from './tableEmpty'; // Fork addition: empty lists, search without a match, rows as cards on a phone
 
-const PrettyTableView = ({ isLoading, getKey, data, columns, sort, onRowClick, linkTo, buttons, fullWidth }) => {
+const PrettyTableView = ({ isLoading, getKey, data, columns, sort, onRowClick, linkTo, buttons, fullWidth, empty, phoneCards = true }) => {
   const { t } = useTranslation();
   const [search, setSearch] = React.useState('');
+  const tableRef = React.useRef(null); // Fork addition: names for the controls in cells
+  useCellNames(tableRef);
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
   const screenMin = {
@@ -36,11 +39,13 @@ const PrettyTableView = ({ isLoading, getKey, data, columns, sort, onRowClick, l
 
   return (
     <Stack direction="column" spacing={2} style={{width: fullWidth ? '100%': ''}}>
-      <Stack direction="row" spacing={2}>
+      <Stack direction="row" spacing={2} className="ct-table-tools">
         <Input placeholder={t('global.searchPlaceholder')}
           value={search}
+          inputProps={{ 'aria-label': t('global.searchPlaceholder') }}
           style={{
             width: '300px',
+            maxWidth: '100%', // Fork addition
             borderRadius: '8px',
           }}
           startAdornment={
@@ -61,31 +66,29 @@ const PrettyTableView = ({ isLoading, getKey, data, columns, sort, onRowClick, l
             )}
 
 
-      {!isLoading && <TableContainer style={{
+      {/* Fork addition: the card and its header take the skin's surfaces (were a neutral grey on the navy page);
+          on a phone each row is a card of its own (ct-table-cards, skin), with the roles kept for screen readers */}
+      {!isLoading && <TableContainer className="ct-table-card" style={{
         width: fullWidth ? '100%': '',
-        backgroundColor: isDark ? 'rgba(32,35,43,1)' : 'rgba(255,255,255)',
-        borderRadius: '12px',
-        border: isDark ? '1px solid rgba(40,48,70,0.6)' : '1px solid rgba(0,0,0,0.06)',
-        boxShadow: theme.customShadows?.glass || 'none',
       }} component={Paper} elevation={0}>
-        <Table aria-label="simple table">
+        <Table ref={tableRef} className={phoneCards && columns.filter((c) => c && (!c.screenMin || screenMin[c.screenMin]) && (!c.screenMax || screenMax[c.screenMax])).length > 2 ? 'ct-table-cards' : undefined} role="table">{/* (a table of one or two columns fits a phone as it is) */}
           <TableHead>
-            <TableRow sx={{
-              background: isDark ? 'rgba(0,0,0,0.20)' : 'rgba(0,0,0,0.03)',
+            <TableRow role="row" sx={{
               '& .MuiTableCell-head': { fontWeight: 600 },
             }}>
               {columns.filter(c=>c).map((column) => (
                 ((!column.screenMin || screenMin[column.screenMin]) &&
                 (!column.screenMax || screenMax[column.screenMax]) &&
-                <TableCell>{column.title}</TableCell>)
+                <TableCell role="columnheader">{column.title}</TableCell>)
               ))}
             </TableRow>
           </TableHead>
           <TableBody>
-            {(!data || data.length === 0) && <TableRow>
-              <TableCell colSpan={columns.length} style={{textAlign: 'center'}}>{t('global.noData')}</TableCell>
-            </TableRow>}
-            {data
+            {(!data || data.length === 0) && <TableEmpty colSpan={columns.length} empty={empty} />}
+            {/* Fork addition: a search that leaves nothing says so */}
+            {data && data.length > 0 && search && search.length > 2 && !data.some((row) => columns.filter(c=>c).some((column) => column.search && column.search(row).toLowerCase().includes(search.toLowerCase()))) &&
+              <TableNoMatch colSpan={columns.length} search={search} onClear={() => setSearch('')} />}
+            {(data || [])
               .filter((row) => {
                 if (!search || search.length <= 2) return true;
                 let found = false;
@@ -103,14 +106,15 @@ const PrettyTableView = ({ isLoading, getKey, data, columns, sort, onRowClick, l
               .map((row, key) => (
                 <TableRow
                   key={getKey(row, key)}
+                  role="row"
                   sx={{
                     cursor: 'pointer',
                     borderLeft: '2px solid transparent',
                     transition: 'background 0.15s ease',
                     '&:last-child td, &:last-child th, &:last-child .MuiTableCell-root': { border: 0 },
                     '&:hover': {
-                      backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
-                      borderColor: theme.palette.primary.main,
+                      backgroundColor: 'var(--ct-hover)', // Fork addition: the skin's hover and accent
+                      borderColor: 'var(--ct-accent)',
                       '&:hover .emphasis': {
                         textDecoration: 'underline'
                       }
@@ -122,6 +126,9 @@ const PrettyTableView = ({ isLoading, getKey, data, columns, sort, onRowClick, l
                     ((!column.screenMin || screenMin[column.screenMin]) && 
                     (!column.screenMax || screenMax[column.screenMax]) &&
                     <TableCell 
+                      role={(linkTo && !column.clickable) ? undefined : 'cell'}
+                      data-label={cellLabel(column)}
+                      {...((linkTo && !column.clickable && !cellLabel(column)) ? { tabIndex: -1, 'aria-hidden': true } : {})/* Fork addition: a cell without a column name (the icon) repeats the row's link: out of the Tab order */}
                       component={(linkTo && !column.clickable) ? Link : 'td'}
                       onClick={() => !column.clickable && onRowClick && onRowClick(row, key)}
                       to={linkTo && linkTo(row, key)}

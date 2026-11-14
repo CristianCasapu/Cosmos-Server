@@ -31,6 +31,7 @@
   --ct-accent: #4084ff;
   --ct-accent-2: #0e96b8;
   --ct-accent-glow: 64, 132, 255;
+  --ct-accent-2-glow: 14, 150, 184;
   --ct-gradient: linear-gradient(135deg, var(--ct-accent), var(--ct-accent-2));
   --ct-accent-fill: linear-gradient(135deg, #2f6fe6, #0b7a96);
   --ct-ok-fill: linear-gradient(135deg, #16873f, #116932);
@@ -154,7 +155,7 @@ body {
 body {
   background-image:
     radial-gradient(1100px 620px at 88% -12%, rgba(var(--ct-accent-glow), 0.11), transparent 62%),
-    radial-gradient(900px 560px at -8% 108%, rgba(14, 150, 184, 0.08), transparent 60%) !important;
+    radial-gradient(900px 560px at -8% 108%, rgba(var(--ct-accent-2-glow), 0.08), transparent 60%) !important;
   background-attachment: fixed !important;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -189,6 +190,8 @@ body {
 [style*="font-size: 55%"] { font-size: max(var(--ct-text-xs), 55%) !important; }
 
 /* ---------- keyboard focus ------------------------------------------------ */
+/* (--ct-focus is the accent at 3:1 on the page in each mode; it follows the
+   Theme colours, see client/src/components/skinAccent.jsx) */
 
 /* One ring for everything that takes the keyboard. MUI removes the outline
    and shows a ripple, which is easy to miss and absent on plain links. */
@@ -338,7 +341,7 @@ header.MuiAppBar-root a:hover > .MuiChip-root {
 .MuiDrawer-paper .MuiListItemButton-root.Mui-selected,
 .MuiDrawer-paper .MuiListItemButton-root.Mui-selected:hover {
   background-color: transparent;
-  background-image: linear-gradient(90deg, rgba(var(--ct-accent-glow), 0.2), rgba(14, 150, 184, 0.07));
+  background-image: linear-gradient(90deg, rgba(var(--ct-accent-glow), 0.2), rgba(var(--ct-accent-2-glow), 0.07));
   border-left-color: transparent;
   border-right-color: transparent;
   box-shadow: inset 3px 0 0 var(--ct-accent);
@@ -495,7 +498,7 @@ header.MuiAppBar-root a:hover > .MuiChip-root {
 .MuiOutlinedInput-root .MuiOutlinedInput-notchedOutline { border-color: var(--ct-border-control); }
 .MuiOutlinedInput-root.MuiOutlinedInput-root:not(.Mui-error):not(.Mui-disabled):hover .MuiOutlinedInput-notchedOutline { border-color: var(--ct-accent); }
 .MuiOutlinedInput-root.MuiOutlinedInput-root.Mui-focused:not(.Mui-error) { box-shadow: 0 0 0 3px rgba(var(--ct-accent-glow), 0.3); }
-.MuiOutlinedInput-root.MuiOutlinedInput-root.Mui-focused:not(.Mui-error) .MuiOutlinedInput-notchedOutline { border-color: var(--ct-accent); }
+.MuiOutlinedInput-root.MuiOutlinedInput-root.Mui-focused:not(.Mui-error) .MuiOutlinedInput-notchedOutline { border-color: var(--ct-focus); }
 .MuiOutlinedInput-root.Mui-disabled .MuiOutlinedInput-notchedOutline { border-color: var(--ct-border-strong); }
 .MuiInput-root.MuiInput-root::after { border-bottom-color: var(--ct-accent); }
 .MuiInputBase-input::placeholder { color: var(--ct-muted); opacity: 1; }
@@ -510,7 +513,7 @@ header.MuiAppBar-root a:hover > .MuiChip-root {
 .MuiCheckbox-root.MuiCheckbox-root:not(.Mui-checked):not(.MuiCheckbox-indeterminate):not(.Mui-disabled) > svg,
 .MuiRadio-root.MuiRadio-root:not(.Mui-checked):not(.Mui-disabled) > span > svg { color: var(--ct-border-control); }
 .MuiCheckbox-root.MuiCheckbox-colorPrimary.Mui-checked:not(.Mui-disabled),
-.MuiRadio-root.MuiRadio-colorPrimary.Mui-checked:not(.Mui-disabled) { color: var(--ct-accent); }
+.MuiRadio-root.MuiRadio-colorPrimary.Mui-checked:not(.Mui-disabled) { color: var(--ct-focus); } /* 3:1 on the page in both modes, whatever the Theme colour */
 .MuiCircularProgress-root.MuiCircularProgress-colorPrimary { color: var(--ct-accent); }
 
 /* ---------- tables -------------------------------------------------------- */
@@ -856,4 +859,180 @@ pre.code {
   min-width: 0;
   max-width: 100%;
   overflow-x: auto;
+  /* one surface for keys and certificates in both modes (it was a translucent grey slab) */
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 10px 12px;
+  font-size: var(--ct-text-xs);
+  line-height: 1.5;
+  background-color: var(--ct-surface-2);
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-s);
+  color: var(--ct-text);
 }
+
+/* ==========================================================================
+   Third pass (plan 24): tables, labels, logs, phones
+   ========================================================================== */
+
+/* ---------- tables (client/src/components/tableView/prettyTableView.jsx) --- */
+
+/* the card of a table is a card like the others (it was a neutral grey) */
+.ct-table-card.ct-table-card {
+  background-color: var(--ct-surface);
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-l);
+  box-shadow: var(--ct-shadow);
+}
+/* the row that says the list is empty, or that the search found nothing */
+.ct-table-empty > .MuiTableCell-root.MuiTableCell-root { border-bottom: 0; }
+.MuiTableRow-root.ct-table-empty:hover { background-color: transparent !important; border-color: transparent !important; cursor: default !important; }
+.ct-table-tools { flex-wrap: wrap; row-gap: 8px; align-items: center; }
+
+/* ---------- labels above fields ------------------------------------------- */
+
+/* A label that sits above its field (not the floating label inside an
+   outlined field) wraps instead of being cut with "…": on a phone about
+   twenty settings had their meaning cut off. */
+.MuiInputLabel-root.MuiInputLabel-root:not(.MuiInputLabel-formControl) {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  max-width: 100%;
+  line-height: 1.4;
+}
+
+/* ---------- logs ----------------------------------------------------------- */
+
+/* client/src/components/logLine.jsx: a line breaks between words; only a
+   token longer than the line (a URL, a hash) breaks inside */
+.ct-logline {
+  white-space: pre-wrap;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+/* ---------- phones --------------------------------------------------------- */
+
+@media (max-width: 599.95px) {
+  /* the header's buttons: a finger's width (44 px) */
+  header.MuiAppBar-root .MuiIconButton-root { width: var(--ct-touch); height: var(--ct-touch); }
+  header.MuiAppBar-root .MuiChip-root { height: var(--ct-touch); }
+  header.MuiAppBar-root .MuiToolbar-root > .MuiStack-root > :not(style) + :not(style) { margin-left: 6px; }
+
+  /* A table of rows becomes a list of cards: each cell on its own line with
+     its column's name before it. Nothing is cut at the right any more. The
+     roles set in prettyTableView.jsx keep it a table for screen readers. */
+  .ct-table-cards.ct-table-cards,
+  .ct-table-cards > .MuiTableBody-root { display: block; width: 100%; }
+  .ct-table-cards > .MuiTableHead-root {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root {
+    display: block;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--ct-border);
+    border-left: 0 !important;
+  }
+  .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root:last-child { border-bottom: 0; }
+  /* a cell is a line of the card: its column's name in a narrow column at the left, the value in
+     normal flow beside it (whatever the value is made of: text, several blocks, buttons) */
+  .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root {
+    display: block;
+    position: relative;
+    min-width: 0;
+    min-height: 32px;
+    padding: 6px 0;
+    border: 0;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: break-word; /* a long name breaks only when it does not fit */
+  }
+  .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root[data-label] { padding-left: calc(34% + 12px); }
+  .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root[data-label]::before {
+    content: attr(data-label);
+    position: absolute;
+    left: 0;
+    top: 9px;
+    width: 34%;
+    font-size: var(--ct-text-xs);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    line-height: 1.3;
+    text-transform: uppercase;
+    color: var(--ct-muted);
+    overflow-wrap: anywhere;
+  }
+  .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root > * { max-width: 100%; }
+  /* the first cell is the card's title: no column name before it (unless it is a control, a lone box needs its name) */
+  .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root:first-child[data-label]:not(:has(input, button, [role=button])) { padding-left: 0; font-weight: 600; }
+  .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root:first-child[data-label]:not(:has(input, button, [role=button]))::before { display: none; }
+  .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root.ct-table-empty > .MuiTableCell-root { display: block; }
+  /* fields and rows of things inside a card line use the width that is left */
+  .ct-table-cards .MuiInputBase-root { max-width: 100%; }
+  .ct-table-cards .MuiTableCell-root .MuiStack-root { min-width: 0; flex-wrap: wrap; row-gap: 4px; }
+  .ct-table-cards .MuiTableCell-root .MuiFormControl-root,
+  .ct-table-cards .MuiTableCell-root .MuiAutocomplete-root,
+  .ct-table-cards .MuiTableCell-root .MuiTextField-root { flex: 1 1 auto; min-width: 0 !important; max-width: 100%; } /* (some carry an inline min-width of 200 px) */
+
+  /* the page's own controls: a finger's width too (the tab select of every page was 41 px, the
+     action icons of the app cards 36 px); not the small buttons inside a field */
+  main .MuiOutlinedInput-root:not(.MuiInputBase-multiline) { min-height: var(--ct-touch); }
+  main .MuiIconButton-root.MuiIconButton-root:not(.MuiInputAdornment-root .MuiIconButton-root):not(.MuiIconButton-sizeSmall) { min-width: var(--ct-touch); min-height: var(--ct-touch); }
+
+  /* a row of buttons wraps instead of squeezing its buttons into two lines */
+  main .MuiStack-root.MuiStack-root:has(> .MuiButton-root + .MuiButton-root) { flex-wrap: wrap; row-gap: 8px; }
+}
+
+/* the Market's showcase: its slides stay inside their frame */
+.ct-market-showcase { overflow: hidden; max-width: 100%; }
+
+/* ---------- motion ---------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  /* no animation runs on (progress indicators keep turning: they say that something is under way) */
+  *:not(.MuiCircularProgress-root):not(.MuiCircularProgress-svg):not(.MuiCircularProgress-circle):not(.MuiLinearProgress-bar),
+  *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+  .app-hover:hover { transform: none !important; }
+}
+
+/* ---------- the home page's health card (components/healthCard.jsx) ------- */
+.ct-health {
+  background-color: var(--ct-surface);
+  border: 1px solid var(--ct-border);
+  border-radius: 12px;
+  padding: 10px 16px;
+  box-shadow: var(--ct-shadow);
+  color: var(--ct-text);
+}
+.ct-health-attention { border-color: var(--ct-warn-border); }
+.ct-health-line { display: flex; align-items: flex-start; gap: 10px; overflow-wrap: anywhere; color: var(--ct-text); }
+.ct-health-line > span { min-width: 0; }
+.ct-health-unread { color: var(--ct-muted); padding-left: 26px; }
+.ct-health-icon { flex: none; font-size: 16px; margin-top: 2px; }
+.ct-health-ok { color: var(--ct-ok-text); }
+.ct-health-warning { color: var(--ct-warn-text); }
+.ct-health-error { color: var(--ct-danger-text); }
+.ct-health-link.ct-health-link { font-weight: 600; white-space: nowrap; }
+
+/* text for screen readers only */
+.ct-visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.ct-muted-text { color: var(--ct-muted); }
+
+/* a link inside a message: the message's own text colour, underlined (the
+   accent on a tinted message was below 4.5:1) */
+.MuiAlert-message a:not(.MuiButton-root) { color: inherit; text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }

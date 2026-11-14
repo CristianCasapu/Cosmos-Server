@@ -239,8 +239,20 @@ func (d *Detector) Detect(parent context.Context, domain string) Result {
 	}
 
 	result.Candidates = rank(candidates, d.MaxCandidates)
-	result.Complete = ctx.Err() == nil
+	result.Complete = !ranOut(ctx)
 	return result
+}
+
+// ranOut says whether the time of a detection is over. The connections of
+// the checks end at the context's own deadline, and they can return an
+// instant before the context itself is marked as done: the clock is asked
+// too, so a detection cut short is never reported as complete.
+func ranOut(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	deadline, ok := ctx.Deadline()
+	return ok && !time.Now().Before(deadline)
 }
 
 // mx asks for the domain's MX records and returns the first usable host.

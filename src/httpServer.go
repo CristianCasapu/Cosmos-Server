@@ -1043,6 +1043,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/config/dns", configapi.ConfigApiDNS)
 	srapiAdmin.HandleFunc("/api/config/test-email", configapi.ConfigApiTestEmail)
 	srapiAdmin.HandleFunc("/api/config/email-detect", maildetect.Route) // Fork addition: proposes SMTP settings for an email address
+	srapiAdmin.HandleFunc("/api/config/http-check", configapi.HTTPCheckRoute) // Fork addition: checks the HTTP settings before a save, see configapi/fork_http_settings.go
 	srapiAdmin.HandleFunc("/api/upnp", upnp.StatusRoute)
 	srapiAdmin.HandleFunc("/api/reachability", reach.StatusRoute) // Fork addition: can the apps be reached from the internet
 	srapiAdmin.HandleFunc("/api/local-names", proxy.LocalNamesRoute) // Fork addition: are the .local names published and answered, see proxy/fork_mdns_status.go
@@ -1087,8 +1088,10 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/network/{networkId}", docker.NetworkContainerRoutes)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/networks", docker.NetworkContainerRoutes)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/check-update", docker.CanUpdateImageRoute)
+	srapiAdmin.HandleFunc("/api/servapps-leftovers", docker.LeftoversRoute) // Fork addition: containers left by an interrupted edit, see docker/fork_leftovers.go
 	srapiAdmin.HandleFunc("/api/servapps", docker.ContainersRoute)
 	srapiAdmin.HandleFunc("/api/docker-service", docker.CreateServiceRoute)
+	srapiAdmin.HandleFunc("/api/install/plan", InstallPlanRoute) // Fork addition: the server's platform, the images' platforms and the places for data, see fork_install_plan.go
 	
 	srapiAdmin.HandleFunc("/api/markets", market.MarketGet)
 

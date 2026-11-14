@@ -7,6 +7,7 @@ import {
   InputLabel,
   Skeleton,
   Stack,
+  Typography,
 } from '@mui/material';
 import { CosmosCheckbox } from './users/formShortcuts';
 import UploadButtons from '../../components/fileUpload';
@@ -26,7 +27,7 @@ const ConfigAppearance = ({ formik }) => {
             {formik.values.Background} alt={t('mgmt.config.appearance.uploadWallpaperButton.previewBrokenError')}
             width={285} />}
           {uploadingBackground && <Skeleton variant="rectangular" width={285} height={140} />}
-           <Stack spacing={1} direction="row">
+           <Stack spacing={1} direction="row" useFlexGap flexWrap="wrap" sx={{ mt: 1 }}>{/* Fork addition: wraps on a phone */}
             <UploadButtons
               accept='.jpg, .png, .gif, .jpeg, .webp, .bmp, .avif, .tiff, .svg'
               label={t('mgmt.config.appearance.uploadWallpaperButton.uploadWallpaperLabel')}
@@ -68,6 +69,13 @@ const ConfigAppearance = ({ formik }) => {
             name="Expanded"
             formik={formik}
           />
+        </Grid>
+
+        {/* Fork addition: what the two colours change */}
+        <Grid item xs={12}>
+          <Typography variant="body2" color="textSecondary" className="ct-theme-note">
+            {t('mgmt.config.appearance.colorsNote', 'The two colours tint the whole panel: buttons, links, the selected menu entry, tabs and the keyboard focus ring, in light and dark mode, and the sign-in pages of devices that have opened the panel since. Where a colour would be hard to read, Cosmos uses a lighter or darker shade of it. The changes show at once; Save keeps them.')}
+          </Typography>
         </Grid>
 
         <Grid item xs={12}>

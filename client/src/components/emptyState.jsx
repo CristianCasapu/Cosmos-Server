@@ -6,10 +6,10 @@ import * as React from 'react';
 import { Alert, Box, Typography } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 
-const EmptyState = ({ icon, title, children, action, compact }) => (
+const EmptyState = ({ icon, title, children, action, compact, titleComponent = 'h2' }) => (
   <Box className="ct-empty" role="status" sx={{ textAlign: 'center', py: compact ? 3 : 8, px: 2, maxWidth: 560, mx: 'auto' }}>
     {icon && <Box className="ct-empty-icon" aria-hidden="true" sx={{ fontSize: compact ? 28 : 44, lineHeight: 1, mb: 1.5, color: 'text.secondary' }}>{icon}</Box>}
-    {title && <Typography variant="h4" component="h2" sx={{ mb: 1, overflowWrap: 'anywhere' }}>{title}</Typography>}
+    {title && <Typography variant="h4" component={titleComponent} sx={{ mb: 1, overflowWrap: 'anywhere', ...(compact ? { fontSize: '1rem' } : {}) }}>{title}</Typography>}
     {children && <Typography variant="body1" color="textSecondary" component="div" sx={{ overflowWrap: 'anywhere' }}>{children}</Typography>}
     {action && <Box sx={{ mt: 2.5, display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>{action}</Box>}
   </Box>

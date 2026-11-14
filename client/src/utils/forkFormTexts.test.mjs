@@ -19,6 +19,20 @@ const files = [
   ['../pages/config/users/forkUserDialogs.jsx', ['mgmt.usermgmt.fork.']],
   ['../pages/cron/newJob.jsx', ['mgmt.cron.fork.']],
   ['./activity.js', ['activity.throttled']],
+  ['../pages/config/forkHttpSettings.jsx', ['mgmt.config.http.fork.']],
+  ['../pages/config/routes/forkRouteProtection.jsx', ['mgmt.urls.protection.']],
+  ['../pages/storage/forkFormatDialog.jsx', ['mgmt.storage.fork.']],
+  ['../pages/config/forkTokenForm.jsx', ['mgmt.config.apiTokens.fork.']],
+  ['../pages/dashboard/forkAlertGuide.jsx', ['mgmt.monitoring.alerts.fork.']],
+];
+
+// Pure modules return their texts as ['key', 'English', variables]: [file, prefixes]
+const arrayFiles = [
+  ['./httpSettings.js', ['mgmt.config.http.fork.']],
+  ['./routeProtection.js', ['mgmt.urls.protection.']],
+  ['./formatDisk.js', ['mgmt.storage.fork.']],
+  ['./tokenForm.js', ['mgmt.config.apiTokens.fork.']],
+  ['./alertForm.js', ['mgmt.monitoring.alerts.fork.']],
 ];
 
 // t('key', 'English text' …) and tr('key', 'English text' …), the text in single quotes
@@ -50,6 +64,19 @@ test('a text with a value in it names the value the code passes', () => {
       for (const name of wanted) {
         assert.ok(new RegExp('\\b' + name + '\\b').test(given), `${m[1]}: {{${name}}} is not passed (${file})`);
       }
+    }
+  }
+});
+
+test('the texts pure modules return are in the English translation file, word for word', () => {
+  for (const [file, prefixes] of arrayFiles) {
+    const source = readFileSync(new URL(file, import.meta.url), 'utf8');
+    const own = [...source.matchAll(/\[\s*'([^']+)'\s*,\s*'((?:[^'\\]|\\.)*)'/gs)]
+      .map((m) => [m[1], m[2].replace(/\\(.)/g, (whole, c) => (c === 'n' ? '\n' : c))])
+      .filter(([key]) => prefixes.some((prefix) => key.startsWith(prefix)));
+    assert.ok(own.length > 0, `${file}: no text found`);
+    for (const [key, text] of own) {
+      assert.equal(translations[key], text, `translation.json: ${key} (${file})`);
     }
   }
 });

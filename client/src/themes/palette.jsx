@@ -8,6 +8,7 @@ import { presetPalettes } from '@ant-design/colors';
 import ThemeOption from './theme';
 
 import * as API from '../api';
+import { accentTokens } from '../utils/skinAccent'; // Fork addition
 
 // ==============================|| DEFAULT THEME - PALETTE  ||============================== //
 
@@ -35,7 +36,10 @@ const Palette = (mode, PrimaryColor, SecondaryColor) => {
     const paletteColor = ThemeOption(colors, mode === 'dark');
 
     if(PrimaryColor) {
-        paletteColor.primary.main = PrimaryColor;
+        // Fork addition: the shade of the colour that is readable as text in this mode (utils/skinAccent.js);
+        // MUI derives its lighter and darker tones from it, and uses them as text in places the skin does not reach
+        const tokens = accentTokens(PrimaryColor, SecondaryColor);
+        paletteColor.primary.main = tokens ? tokens[mode === 'dark' ? 'dark' : 'light']['--ct-accent-text'] : PrimaryColor;
     }
     if(SecondaryColor) {
         paletteColor.secondary.main = SecondaryColor;

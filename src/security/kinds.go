@@ -156,7 +156,7 @@ var catalogue = func() map[string]Kind {
 		audit(utils.SecRouteCreated, SeverityMedium, "URL created", "A URL (route) was created. Target: its name."),
 		audit(utils.SecRouteUpdated, SeverityMedium, "URL changed", "A URL (route) was changed. Target: its name."),
 		audit(utils.SecRouteDeleted, SeverityMedium, "URL deleted", "A URL (route) was deleted. Target: its name."),
-		audit(utils.SecContainerAction, SeverityLow, "Container action", "A container was started, stopped, restarted, killed, paused, recreated or updated. Target: the container. Details: action."),
+		audit(utils.SecContainerAction, SeverityLow, "Container action", "A container was started, stopped, restarted, killed, paused, recreated or updated, or one left behind by an interrupted change was put back (action restore_leftover; the target is the leftover's name). Target: the container. Details: action."),
 		audit(utils.SecContainerDeleted, SeverityMedium, "Container deleted", "A container was deleted. Target: the container."),
 		audit(utils.SecContainerCreated, SeverityMedium, "Containers created", "Containers, networks or volumes were created from a compose description."),
 		audit(utils.SecContainerEdited, SeverityLow, "Container edited", "The settings of a container were changed. Target: the container."),

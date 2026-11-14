@@ -247,7 +247,9 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
   }
 
   // Fork addition: replace — an edit of existing containers; without it the server refuses a name that exists
-  function createService(serviceData: any, onProgress: (line: string) => void, replace = false): Promise<ReadableStream> {
+  // Fork addition: `confirm` names each access to the server the admin said yes to, `anyArch` installs an image
+  // made for another processor anyway (src/docker/fork_sensitive_access.go, fork_image_arch.go)
+  function createService(serviceData: any, onProgress: (line: string) => void, replace = false, confirm: string[] = [], anyArch = false): Promise<ReadableStream> {
     const requestOptions: RequestInit = {
       method: 'POST',
       headers: {
@@ -256,7 +258,11 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
       body: JSON.stringify(serviceData)
     };
 
-    return apiFetch('/cosmos/api/docker-service' + (replace ? '?replace=1' : ''), requestOptions)
+    const query = new URLSearchParams(); // Fork addition
+    if (replace) query.append('replace', '1');
+    (confirm || []).forEach((item) => query.append('confirm', item));
+    if (anyArch) query.append('anyArch', '1');
+    return apiFetch('/cosmos/api/docker-service' + (query.toString() ? '?' + query.toString() : ''), requestOptions)
       .then(response => {
         if (!response.ok) {
           throw new Error(response.statusText);
@@ -409,6 +415,37 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
     }), true)
   }
 
+  // Fork addition: containers left behind by an interrupted change
+  // (src/docker/fork_leftovers.go). GET lists them; POST puts one back under
+  // its app's name ("restore") or deletes it ("remove").
+  // Fork addition: what the review of an installation needs (src/fork_install_plan.go); nothing is pulled
+  function installPlan(images: string[]): Promise<ApiResponse> {
+    return wrap(apiFetch('/cosmos/api/install/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ images }),
+    }));
+  }
+
+  function leftovers(): Promise<ApiResponse> {
+    return wrap(apiFetch('/cosmos/api/servapps-leftovers', {
+      method: 'GET',
+      headers: {
+          'Content-Type': 'application/json'
+      },
+    }), true)
+  }
+
+  function leftoverAction(action: 'restore' | 'remove', name: string): Promise<ApiResponse> {
+    return wrap(apiFetch('/cosmos/api/servapps-leftovers', {
+      method: 'POST',
+      headers: {
+          'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ action, name }),
+    }))
+  }
+
   return {
     inspectImage,
     list,
@@ -436,5 +473,8 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
     updateContainerImage,
     exportContainer,
     migrateHost,
+    installPlan, // Fork addition: the server's platform, the images' platforms, the places for data
+    leftovers, // Fork addition
+    leftoverAction, // Fork addition
   };
 }

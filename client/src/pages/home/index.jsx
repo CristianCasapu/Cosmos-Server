@@ -21,6 +21,7 @@ import { NoMeasurements } from '../../components/emptyState';
 import Migrate014 from "./migrate014";
 import MyActivity from '../securityAudit/myActivity'; // Fork addition: recent activity on the own account
 import { CertificateAlerts } from '../../components/certificates'; // Fork addition
+import HealthCard from '../../components/healthCard'; // Fork addition
 import { Trans, useTranslation } from 'react-i18next';
 
 
@@ -419,6 +420,9 @@ const HomePage = () => {
             {isAdmin && coStatus && !coStatus.docker && (
                 <Alert severity="error"><Trans i18nKey="newInstall.dockerNotConnected" /></Alert>
             )}
+
+            {/* Fork addition: what needs attention (jobs, apps, disks, snapshots, certificates), or one calm line */}
+            {isAdmin && coStatus && <HealthCard docker={!!coStatus.docker} />}
         </Stack>
 
         {/* Metrics */}

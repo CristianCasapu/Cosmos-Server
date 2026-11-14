@@ -191,6 +191,7 @@ const SENTENCES = {
       auto_update_off: '{{actor}} turned off automatic updates for the container {{target}}',
       lazy_on: '{{actor}} turned on start-on-demand for the container {{target}}',
       lazy_off: '{{actor}} turned off start-on-demand for the container {{target}}',
+      restore_leftover: '{{actor}} put back the container {{target}}, left by an interrupted change, under its app\'s name', // Fork addition: fork_leftovers.go
     },
   },
   'container.deleted': { text: '{{actor}} deleted the container {{target}}', ip: true },

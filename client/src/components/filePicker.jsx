@@ -287,7 +287,7 @@ const FilePickerButton = ({ disabled, raw, canCreate, restic, onPick, size = '10
   return (
     <>
       {/* Fork addition: tooltip; the span keeps it working while the button is disabled and takes the button's place in the layout */}
-      <Tooltip title={tooltip || t('tooltip.browseFiles', 'Browse files')}><span style={{display: 'inline-flex'}}><IconButton onClick={() => setOpen(true)} disabled={disabled}>
+      <Tooltip title={tooltip || t('tooltip.browseFiles', 'Browse files')}><span style={{display: 'inline-flex'}}><IconButton aria-label={tooltip || t('tooltip.browseFiles', 'Browse files')} onClick={() => setOpen(true)} disabled={disabled}>
         {onPick ? <><FolderAddFilled style={{fontSize: size}}/></> : <FolderViewOutlined style={{fontSize: size}}/>}
       </IconButton></span></Tooltip>
       {open && <FilePickerModal canCreate={canCreate} restic={restic} raw={raw} select={select} open={open} onPick={onPick} OnClose={() => setOpen(false)} _storage={storage} _path={path} _value={value} />}
