@@ -97,6 +97,9 @@ func plainHostname(name string) bool {
 // redirectPlainHTTPToHTTPS is the hook of plainHTTPHandler. It returns true
 // when it answered the request.
 func redirectPlainHTTPToHTTPS(w http.ResponseWriter, r *http.Request) bool {
+	if !forkTLS.plainRedirectAllowed(r) {
+		return false // a name this peer could not open over HTTPS answers like an unknown one (fork_tls_names.go)
+	}
 	target, ok := plainHTTPRedirectTarget(r.Host, r.URL, serverPortHTTPS)
 	if !ok {
 		return false

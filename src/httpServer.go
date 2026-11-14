@@ -560,6 +560,7 @@ func startHTTPSServer(router *mux.Router) error {
 		DisableGeneralOptionsHandler: true,
 		ConnContext: proxy.HandoffConnContext,
 	}
+	forkTLSNames(HTTPServer) // Fork addition: a stranger's handshake for a name not served to it is refused, see fork_tls_names.go
 
 	// before the socket proxy: its HTTP routes hand their connections to this server
 	proxy.StartHTTPHandoff(HTTPServer, true)
