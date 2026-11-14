@@ -82,7 +82,8 @@ test('a route as its chip shows and opens it', () => {
 test('every place that shows an address goes through this module', () => {
   const uses = {
     '../components/hostnameSuggestions.jsx': ['shownAddress(externalAddress(name, domain), ports)', '<ExternalPortNote config={config}'],
-    '../components/appLinks.jsx': ['route={shownRoute(route, ports, scheme)}', '<ExternalPortNote config={config}'],
+    '../components/appLinks.jsx': ['route={shownRoute(route, ports, scheme)}'],
+    '../components/exposure.jsx': ["'https://' + shownAddress(choice.host, outside, 'https')"],
     '../components/routerPorts.jsx': ['shownAddress(web.route.Host, ports', 'portAddress(mapping, host)'],
     '../pages/config/internetAccess.jsx': ['hostWithPort(hostname, publicPort'],
   };
@@ -93,7 +94,6 @@ test('every place that shows an address goes through this module', () => {
   // what is stored as a route's host never carries the external port
   const suggestions = read('../components/hostnameSuggestions.jsx');
   assert.match(suggestions, /export const externalAddress = \(name, domain\) => hostLabel\(name\) \+ '\.' \+ domain;/);
-  assert.ok(read('../components/appLinks.jsx').includes('Host: externalAddress(base.Name, row.domain),'));
   // the server builds its links with the same rule
   const reach = read('../../../src/reach/state.go');
   assert.ok(reach.includes('externalPort = mapping.ExternalPort'));
@@ -127,6 +127,11 @@ test('the name a forwarded port is reached at', () => {
   assert.equal(publicHost({ routes: [], config: { HTTPConfig: { Hostname: 'cosmos.example.org' } }, status }), 'cosmos.example.org');
   assert.equal(publicHost({ routes: [], config: { HTTPConfig: { Hostname: 'server.local' } }, status }), '203.0.113.7');
   assert.equal(publicHost({ routes: [{ UseHost: false, Host: 'x.example.org' }], config: config(), status: {} }), '');
+  // a name served through Cloudflare's proxy cannot carry a forwarded port
+  const shielded = { HTTPConfig: { Hostname: 'cosmos.example.org', Cloudflare: { Shielded: ['jellyfin.example.org', 'cosmos.example.org'] } } };
+  assert.equal(publicHost({ routes, config: shielded, status }), '203.0.113.7');
+  // the port's own DNS-only name comes first
+  assert.equal(publicHost({ routes, config: shielded, status, mapping: { hostname: 'Jellyfin-Direct.example.org' } }), 'jellyfin-direct.example.org');
 });
 
 test('the note when the external port is not the wanted one', () => {

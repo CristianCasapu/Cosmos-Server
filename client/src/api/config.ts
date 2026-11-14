@@ -194,8 +194,8 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
   // calls never throw: the screens show Cloudflare's refusals themselves, in
   // plain words, so the answer comes back as { ok, data, reason, detail,
   // message } whatever the status was.
-  function cloudflareCall(path: string, method: string, body?: any) {
-    return apiFetch('/cosmos/api/cloudflare' + path, {
+  function cloudflareCall(path: string, method: string, body?: any, base = '/cosmos/api/cloudflare') {
+    return apiFetch(base + path, {
       method,
       headers: {
         'Content-Type': 'application/json'
@@ -220,6 +220,8 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
   }
 
   const cloudflareStatus = () => cloudflareCall('', 'GET');
+  // Fork addition: expose an app to the internet, or withdraw that (src/cloudflare/expose.go); answers like the calls above
+  const expose = (body: any) => cloudflareCall('', 'POST', body, '/cosmos/api/expose');
   const cloudflareCheck = (token: string, zone = '') => cloudflareCall('/check', 'POST', { token, zone });
   const cloudflarePreview = (token: string, zone: string, panel = '', takeOver: string[] = []) =>
     cloudflareCall('/preview', 'POST', { token, zone, panel, takeOver });
@@ -492,6 +494,7 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     cloudflarePanel,
     cloudflareRanges,
     cloudflareOriginPulls,
+    expose,
     snapshotsStatus,
     snapshotsRun,
     snapshotsRestore,

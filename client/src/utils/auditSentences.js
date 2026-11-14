@@ -123,6 +123,22 @@ const SENTENCES = {
     pick: (e) => (String(e.target || '').startsWith('Cosmos ') ? 'own' : ''),
     variants: { own: '{{actor}} closed the {{target}} port on the router' },
   },
+  'expose.opened': {
+    text: '{{actor}} exposed {{target}} to the internet: {{web}}', ip: true,
+    pick: (e) => (detail(e, 'ports') ? (detail(e, 'web') ? 'both' : 'ports') : ''),
+    variants: {
+      ports: '{{actor}} exposed {{target}} to the internet: port {{ports}}, forwarded by the router',
+      both: '{{actor}} exposed {{target}} to the internet: {{web}}, and port {{ports}} forwarded by the router',
+    },
+  },
+  'expose.closed': {
+    text: '{{actor}} withdrew {{target}} from the internet: {{web}}', ip: true,
+    pick: (e) => (detail(e, 'ports') ? (detail(e, 'web') ? 'both' : 'ports') : ''),
+    variants: {
+      ports: '{{actor}} withdrew {{target}} from the internet: port {{ports}} closed on the router',
+      both: '{{actor}} withdrew {{target}} from the internet: {{web}}, and port {{ports}} closed on the router',
+    },
+  },
   'upnp.mapping.created': {
     text: 'the router now forwards port {{external}} ({{protocol}}) to {{target}}',
     pick: (e) => (detail(e, 'wanted') ? 'moved' : ''),
@@ -325,7 +341,7 @@ export const KIND_GROUPS = [
   { id: 'tokens', label: 'API tokens', kinds: ['token.*'] },
   { id: 'settings', label: 'Settings and URLs', kinds: ['config.*', 'route.*'] },
   { id: 'containers', label: 'Containers and terminals', kinds: ['container.*', 'host.*', 'snapshot.*'] },
-  { id: 'server', label: 'Server and SmartShield', kinds: ['server.*', 'shield.unban', 'firewall.unban', 'firewall.settings.saved', 'upnp.*'] },
+  { id: 'server', label: 'Server and SmartShield', kinds: ['server.*', 'shield.unban', 'firewall.unban', 'firewall.settings.saved', 'upnp.*', 'expose.*'] },
   { id: 'refused', label: 'Permissions refused', kinds: ['access.*'] },
   { id: 'other', label: 'Other changes', kinds: ['api.change'] },
 ];

@@ -7,6 +7,8 @@ import { DeleteButton } from '../../components/delete';
 import { CosmosCheckbox } from '../config/users/formShortcuts';
 import { getContaienrsJobs, getContainersRoutes } from '../../utils/routes';
 import { useTranslation } from 'react-i18next';
+import { serverBack } from '../../utils/appLinks'; // Fork addition
+import { withdrawRequest } from '../../utils/exposure'; // Fork addition
 import PermissionGuard from '../../components/permissionGuard';
 import { PERM_RESOURCES } from '../../utils/permissions';
 
@@ -86,7 +88,6 @@ const DeleteModal = ({Ids, containers, refreshServApps, setIsUpdatingId, config}
     return self.indexOf(job) === index;
   });
 
-  console.log(cronJobs)
 
   const doDelete = () => {
     setIsDeleting(true);
@@ -166,26 +167,30 @@ const DeleteModal = ({Ids, containers, refreshServApps, setIsUpdatingId, config}
         })
       );  
 
-      promises2.concat(
-        routes.map((route) => {
+      // Fork addition: routes one after the other: each deletion reloads the server, and deletions sent
+      // together failed, leaving URLs (and their DNS records) behind. Then the app's ports on the router
+      // and their names, at once rather than when the router's choices are forgotten.
+      promises2.push((async () => {
+        for (const route of routes) {
           let key = route + '-route';
-          if (ignored.includes(key)) return;
-  
-          return API.config.deleteRoute(route)
-          .then(() => {
-            setDeleted((prev) => {
-              if(!prev) return [key];
-              else return [...prev, key];
-            });
-          })
-          .catch((err) => {
-            setFailed((prev) => {
-              if(!prev) return [key];
-              else return [...prev, key];
-            });
-          });
-        })
-      );
+          if (ignored.includes(key)) continue;
+          try {
+            await API.config.deleteRoute(route);
+            setDeleted((prev) => (!prev ? [key] : [...prev, key]));
+          } catch (err) {
+            setFailed((prev) => (!prev ? [key] : [...prev, key]));
+          }
+          await serverBack();
+        }
+        for (const container of containers) {
+          const name = container.Name.replace('/', '');
+          if (ignored.includes(container.Name + '-container')) continue;
+          const open = ((config.HTTPConfig.UPnP && config.HTTPConfig.UPnP.AppPorts) || []).filter((choice) => choice.Container === name);
+          if (open.length > 0) {
+            await API.config.expose(withdrawRequest(name, [], open.map((choice) => ({ port: choice.Port, protocol: choice.Protocol }))));
+          }
+        }
+      })());
 
       promises2.concat(
         cronJobs.map((job) => {

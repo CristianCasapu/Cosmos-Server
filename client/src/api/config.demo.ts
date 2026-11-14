@@ -101,6 +101,7 @@ const cloudflareShield = cloudflareNone;
 const cloudflarePanel = cloudflareNone;
 const cloudflareRanges = cloudflareNone;
 const cloudflareOriginPulls = cloudflareNone;
+const expose = cloudflareNone; // Fork addition
 
 function serverUpdateStatus() {
   return new Promise((resolve, reject) => {
@@ -270,6 +271,7 @@ export {
   cloudflarePanel,
   cloudflareRanges,
   cloudflareOriginPulls,
+  expose,
   serverUpdateStatus,
   checkServerUpdate,
   snapshotsStatus,

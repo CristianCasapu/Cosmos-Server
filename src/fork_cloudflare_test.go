@@ -93,3 +93,17 @@ func TestCloudflareIsWiredIn(t *testing.T) {
 		t.Error("the guard is added after the URLs")
 	}
 }
+
+// The names of ports exposed directly reach the DNS pass through one line in
+// upstream's loop (src/dnsrecords/run.go); without it they get no record.
+func TestExposedPortNamesAreHookedIntoTheDNSPass(t *testing.T) {
+	source, err := os.ReadFile("dnsrecords/run.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pass := string(source)
+	hook := strings.Index(pass, "hosts = ForkMoreHosts(hosts)")
+	if hook == -1 || hook < strings.Index(pass, "hosts, wildcard, ok := HostAddresses()") {
+		t.Error("the hook that adds the names of exposed ports to the DNS pass is gone")
+	}
+}
