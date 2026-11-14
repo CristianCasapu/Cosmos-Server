@@ -29,6 +29,7 @@ import LogsInModal from "../../../components/logsInModal";
 import ResponsiveButton from "../../../components/responseiveButton";
 import { useTranslation } from 'react-i18next';
 import PermissionGuard from '../../../components/permissionGuard';
+import { fieldProblems, limitsForForm } from '../../../utils/newContainer'; // Fork addition
 import { PERM_RESOURCES } from '../../../utils/permissions';
 
 const containerInfoFrom = (values) => {
@@ -111,12 +112,9 @@ const DockerContainerSetup = ({
           })
         : [],
       interactive: containerInfo.Config.Tty && containerInfo.Config.OpenStdin,
-      memLimit: containerInfo.HostConfig.Memory
-        ? String(containerInfo.HostConfig.Memory)
-        : '',
-      cpus: containerInfo.HostConfig.NanoCpus
-        ? containerInfo.HostConfig.NanoCpus / 1e9
-        : 0,
+      // Fork addition: the memory limit as a size ("512m"), not in bytes; the new form's own text kept (utils/newContainer.js)
+      memLimit: limitsForForm(containerInfo).memLimit,
+      cpus: limitsForForm(containerInfo).cpus,
     };
   }, [
     containerInfo.Config.Env,
@@ -128,6 +126,8 @@ const DockerContainerSetup = ({
     containerInfo.HostConfig.Devices,
     containerInfo.HostConfig.RestartPolicy.Name,
     containerInfo.Name,
+    containerInfo.HostConfig.Memory, // Fork addition
+    containerInfo.HostConfig.NanoCpus, // Fork addition
   ]);
 
   const onValidate = useCallback(
@@ -150,10 +150,15 @@ const DockerContainerSetup = ({
       if (uniqueLabelKeys.length !== labelKeys.length) {
         errors.submit = t('mgmt.servapps.newContainer.label.labelNotUniqueError');
       }
+      // Fork addition: a user or a limit the server would refuse is said under its field (utils/newContainer.js)
+      const problems = fieldProblems({ Config: { User: values.user }, ForkLimits: { memLimit: values.memLimit, cpus: parseFloat(values.cpus) || 0 } });
+      Object.keys(problems).forEach((field) => {
+        if (!installer) errors[field] = t(problems[field][0], problems[field][1]);
+      });
       OnChange && OnChange(containerInfoFrom(values));
       return errors;
     },
-    [OnChange, newContainer]
+    [OnChange, newContainer, installer] // Fork addition: installer
   );
 
   const onSubmit = useCallback(
