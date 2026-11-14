@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
+
+	"github.com/azukaar/cosmos-server/src/utils"
 )
 
 // Fork addition: tests of fork_same_origin.go, which requests the API accepts
@@ -195,5 +197,82 @@ func TestPrintableStripsControlCharacters(t *testing.T) {
 	}
 	if got := printable(strings.Repeat("a", 500), 120); len(got) != 120 {
 		t.Errorf("expected 120 bytes, got %d", len(got))
+	}
+}
+
+// A refused request is an incident in the security record, with which rule
+// refused it as one of a fixed list of words: nothing a request says about
+// itself is recorded as the reason. What passes leaves no such entry.
+func TestRefusedForeignRequestsAreRecorded(t *testing.T) {
+	const host = "172.16.0.14:2053"
+	events := captureSecurity(t)
+	reached := 0
+	router := sameOriginTestRouter(&reached)
+
+	ask := func(method string, target string, headers map[string]string) int {
+		req := httptest.NewRequest(method, "https://"+host+target, nil)
+		req.Host = host
+		req.RemoteAddr = "203.0.113.7:50000"
+		for name, value := range headers {
+			req.Header.Set(name, value)
+		}
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, req)
+		return recorder.Code
+	}
+
+	hostile := "cross-site\r\n2026-11-13T10:00:00+0000 cosmos-security kind=auth.login.failed ip=198.51.100.1"
+	refused := []struct {
+		name    string
+		method  string
+		target  string
+		headers map[string]string
+		reason  string
+	}{
+		{"another website", "POST", "/cosmos/api/restart", map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example.net"}, "another_site"},
+		{"another application of the same domain", "POST", "/cosmos/api/docker-service", map[string]string{"Sec-Fetch-Site": "same-site"}, "same_domain"},
+		{"opened from the address bar", "GET", "/cosmos/api/restart", map[string]string{"Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate"}, "opened_by_hand"},
+		{"an old browser, Origin of another site", "POST", "/cosmos/api/restart", map[string]string{"Origin": "https://evil.example.net"}, "another_origin"},
+		{"a mark that is not one", "GET", "/cosmos/api/restart", map[string]string{"Sec-Fetch-Site": hostile}, "not_understood"},
+	}
+	for _, c := range refused {
+		if code := ask(c.method, c.target, c.headers); code != http.StatusForbidden {
+			t.Errorf("%s: status %d, want 403", c.name, code)
+		}
+	}
+	// what the panel itself and programs send: no entry
+	if code := ask("POST", "/cosmos/api/restart", map[string]string{"Sec-Fetch-Site": "same-origin"}); code != http.StatusOK {
+		t.Errorf("the panel's own call: status %d", code)
+	}
+	if code := ask("GET", "/cosmos/api/restart", nil); code != http.StatusOK {
+		t.Errorf("a script's call: status %d", code)
+	}
+
+	got := events()
+	if len(got) != len(refused) {
+		t.Fatalf("%d events for %d refusals and two requests that passed: %+v", len(got), len(refused), got)
+	}
+	for i, c := range refused {
+		event := got[i]
+		if event.Kind != utils.SecAccessForeignDenied || event.IP != "203.0.113.7" || event.Path != strings.SplitN(c.target, "?", 2)[0] || event.Method != c.method {
+			t.Errorf("%s: recorded %+v", c.name, event)
+		}
+		if event.Details["reason"] != c.reason || len(event.Details) != 1 {
+			t.Errorf("%s: reason %q (details %v), want %q", c.name, event.Details["reason"], event.Details, c.reason)
+		}
+	}
+	if reached != 2 {
+		t.Errorf("%d requests reached a handler, want the two that may", reached)
+	}
+
+	// the port of an application
+	previous := routePortOf
+	routePortOf = func(*http.Request) (string, bool) { return "7200", true }
+	defer func() { routePortOf = previous }()
+	if code := ask("GET", "/cosmos/api/restart", map[string]string{"Sec-Fetch-Site": "same-origin"}); code != http.StatusForbidden {
+		t.Errorf("on the port of an application: status %d", code)
+	}
+	if got = events(); got[len(got)-1].Details["reason"] != "application_port" {
+		t.Errorf("on the port of an application: %+v", got[len(got)-1])
 	}
 }

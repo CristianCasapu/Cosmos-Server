@@ -71,6 +71,8 @@ const (
 	SecAccessLocalDenied = "access.local.denied"
 	// Fork addition (Cloudflare): a hostname served through Cloudflare was asked for around it
 	SecAccessOriginDenied = "access.origin.denied"
+	// a request to the API that the panel's own pages did not start (src/fork_same_origin.go)
+	SecAccessForeignDenied = "access.foreign.denied"
 
 	// the shields
 	SecShieldBlocked     = "shield.blocked"
