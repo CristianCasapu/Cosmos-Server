@@ -68,7 +68,8 @@ const routes = config.HTTPConfig.ProxyConfig.Routes || [];
 const wanted = [
   { Name: 'Jellyfin', Description: 'Films and series', UseHost: true, Host: 'jellyfin.' + host, Target: 'http://jellyfin:8096', Mode: 'SERVAPP', AuthEnabled: true },
   { Name: 'Vaultwarden', Description: 'Passwords', UseHost: true, Host: 'vault.' + host, Target: 'http://vaultwarden:80', Mode: 'SERVAPP', AuthEnabled: false, BlockCommonBots: true },
-  { Name: 'Router', Description: 'The router\'s own page', UseHost: true, Host: 'router.' + host, Target: 'http://192.168.1.1', Mode: 'PROXY', AuthEnabled: true, AdminOnly: true },
+  // an address that never answers (a documentation range): the icon of an app that cannot be reached
+  { Name: 'Router', Description: 'The router\'s own page', UseHost: true, Host: 'router.' + host, Target: 'http://192.0.2.1', Mode: 'PROXY', AuthEnabled: true, AdminOnly: true },
   // answered for real by a container's published port, so that the proxy charts have traffic
   { Name: 'Sonarr', Description: 'Series', UseHost: true, Host: 'sonarr.' + host, Target: process.env.LIVE_TARGET || 'http://cosmos-polish-dind:8989', Mode: 'PROXY', AuthEnabled: false },
 ];
@@ -79,6 +80,11 @@ for (const route of wanted) {
   changed = true;
 }
 config.HTTPConfig.ProxyConfig.Routes = routes;
+// a scheduled job that fails when it runs, for the home page's health card
+if (!config.CRON || !config.CRON['nightly-cleanup']) {
+  config.CRON = { ...(config.CRON || {}), 'nightly-cleanup': { Enabled: true, Name: 'nightly-cleanup', Crontab: '0 0 3 * * *', Command: 'false', Container: '' } };
+  changed = true;
+}
 const primary = process.env.THEME_PRIMARY || 'rgba(64, 132, 255, 1)';
 const secondary = process.env.THEME_SECONDARY || 'rgba(14, 150, 184, 1)';
 if (!config.ThemeConfig || config.ThemeConfig.PrimaryColor !== primary) {
@@ -116,6 +122,9 @@ for (const [nickname, email, register] of [['maria', 'maria@example.org', true],
 // --- a scheduled job and an API token, so that those lists are not empty
 const cron = (await call('GET', 'cron')).body;
 note('cron list', JSON.stringify(cron).slice(0, 120));
+
+// --- the failing job runs once
+note('job run', (await call('POST', 'jobs/run', { scheduler: 'Custom', name: 'nightly-cleanup' })).status);
 
 // --- a few container actions, for the events and the audit page
 for (const [name, action] of [['radarr', 'restart'], ['pihole', 'start'], ['pihole', 'stop']]) {
