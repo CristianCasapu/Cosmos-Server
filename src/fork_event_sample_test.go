@@ -28,7 +28,15 @@ func TestTokenUseLeavesOneEventRowPerMinute(t *testing.T) {
 	if err := utils.InitMetricsDatabase(); err != nil {
 		t.Fatal(err)
 	}
+	// the token's owner must exist (fork_token_owner.go)
+	if err := utils.InitStore(); err != nil {
+		t.Fatal("InitStore:", err)
+	}
+	if err := utils.CreateUser(utils.User{Nickname: "admin", Password: "x", Role: utils.ADMIN}); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
+		utils.CloseStore()
 		utils.CloseMetricsDatabase()
 		utils.CONFIGFOLDER = prevFolder
 		utils.LoadBaseMainConfig(prev)
