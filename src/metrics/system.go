@@ -83,7 +83,7 @@ func GetSystemMetrics() {
 	}
 
 	// Get Network Usage
-	netIO, err := net.IOCountersWithContext(ctx, false)
+	netIO, err := forkNetCounters(ctx, net.IOCountersWithContext) // Fork addition: the server's own network cards, never going back, see fork_net.go; upstream: net.IOCountersWithContext(ctx, false)
 
 	// netIOTest, _ := net.IOCountersWithContext(ctx, true)
 	// for _, v := range netIOTest {

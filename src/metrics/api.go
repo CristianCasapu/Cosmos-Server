@@ -16,7 +16,7 @@ func AggloMetrics(metricsList []string) []DataDefDB {
 		utils.Error("Metrics: Error fetching metrics", err)
 		return []DataDefDB{}
 	}
-	return metrics
+	return forkNoNegativeTraffic(metrics) // Fork addition: negative traffic recorded before the fix shows as zero, see fork_net.go
 }
 
 // API_GetMetrics godoc
