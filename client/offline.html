@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Fork addition: what the installed panel shows when the server cannot be
+         reached (client/sw/worker.js answers a page with it, status 503). It
+         shows no data of the server: only that it is not there, and a retry. -->
+    <title>Cosmos cannot be reached</title>
+    <meta name="robots" content="noindex">
+    <meta name="theme-color" content="#0a0f1d" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#f2f5fa" media="(prefers-color-scheme: light)">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <style id="ct-boot">html{background-color:#0a0f1d !important}html[data-ct-mode="light"]{background-color:#f2f5fa !important}@media (prefers-color-scheme: light){html:not([data-ct-mode]){background-color:#f2f5fa !important}}</style>
+    <script id="ct-mode" src="/skin/mode.js?v=__SKIN_VERSION__"></script>
+    <script type="module" src="/src/offline/offline.js"></script>
+  </head>
+  <body class="ct-offline">
+    <main class="ct-offline-card" aria-labelledby="ct-offline-title">
+      <img class="ct-offline-icon" src="/pwa/icon-192.png" width="64" height="64" alt="">
+      <h1 id="ct-offline-title">Cosmos cannot be reached</h1>
+      <p>This device got no answer from the server. Check this device's connection first; if it works, the server may be restarting, switched off, or not reachable from the network you are on.</p>
+      <p class="ct-offline-muted">Nothing is shown from memory: the panel opens again as soon as the server answers.</p>
+      <div class="ct-offline-actions">
+        <button type="button" id="ct-offline-retry" class="ct-offline-button">Try again</button>
+      </div>
+      <p id="ct-offline-status" class="ct-offline-status" role="status" aria-live="polite"></p>
+    </main>
+    <link rel="stylesheet" id="ct-theme" href="/skin/theme.css?v=__SKIN_VERSION__">
+  </body>
+</html>
