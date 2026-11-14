@@ -17,11 +17,14 @@ import ResponsiveButton from '../../components/responseiveButton';
 import { useTranslation } from 'react-i18next';
 import PermissionGuard from '../../components/permissionGuard';
 import { PERM_RESOURCES } from '../../utils/permissions';
+import { ForkNetworkFields, networkErrors, useTakenNames } from './forkSmallForms'; // Fork addition
+import { keepOnBackdrop } from '../../components/formHelpers'; // Fork addition
 
 
 const NewNetworkButton = ({ fullWidth, refresh }) => {
   const { t } = useTranslation();
   const [isOpened, setIsOpened] = React.useState(false);
+  const taken = useTakenNames('network', isOpened); // Fork addition
 
   const formik = useFormik({
     initialValues: {
@@ -31,14 +34,11 @@ const NewNetworkButton = ({ fullWidth, refresh }) => {
       parentInterface: '',
       subnet: '',
     },
-    validationSchema: Yup.object({
-      name: Yup.string().required(t('global.required')),
-      driver: Yup.string().required(t('global.required')),
-      parentInterface: Yup.string().when('driver', {
-        is: 'macvlan',
-        then: Yup.string().required(t('mgmt.servApps.createNetwork.parentReqForMacvlan'))
-      }),
-    }),
+    // Fork addition: Docker's name rule, the names that exist, the subnet and the parent card, see forkSmallForms.jsx
+    validate: (values) => {
+      const errors = networkErrors(values, taken);
+      return Object.fromEntries(Object.entries(errors).map(([k, v]) => [k, t(v[0], v[1], v[2] || {})]));
+    },
     onSubmit: (values, { setErrors, setStatus, setSubmitting }) => {
       setSubmitting(true);
       return API.docker.createNetwork(values)
@@ -57,75 +57,15 @@ const NewNetworkButton = ({ fullWidth, refresh }) => {
 
   return (
     <>
-      <Dialog open={isOpened} onClose={() => setIsOpened(false)}>
+      <Dialog open={isOpened} onClose={keepOnBackdrop(() => setIsOpened(false))} maxWidth="sm" fullWidth>{/* Fork addition: full width on a phone, kept on a click beside it */}
         <FormikProvider value={formik}>
           <DialogTitle>{t('mgmt.servapps.networks.list.newNetwork')}</DialogTitle>
           <DialogContent>
             <DialogContentText>
               <form onSubmit={formik.handleSubmit}>
-                <Stack spacing={2} width={'300px'} style={{ marginTop: '10px' }}>
-                  <TextField
-                    fullWidth
-                    id="name"
-                    name="name"
-                    label={t('global.nameTitle')}
-                    value={formik.values.name}
-                    onChange={formik.handleChange}
-                    error={formik.touched.name && Boolean(formik.errors.name)}
-                    helperText={formik.touched.name && formik.errors.name}
-                    style={{ marginBottom: '16px' }}
-                  />
-
-                  <FormControl
-                    fullWidth
-                    variant="outlined"
-                    error={formik.touched.driver && Boolean(formik.errors.driver)}
-                    style={{ marginBottom: '16px' }}
-                  >
-                    <InputLabel htmlFor="driver">{t('global.driver')}</InputLabel>
-                    <Select
-                      id="driver"
-                      name="driver"
-                      value={formik.values.driver}
-                      onChange={formik.handleChange}
-                      label={t('global.driver')}
-                    >
-                      <MenuItem value="">
-                        <em>{t('mgmt.servApps.driver.none')}</em>
-                      </MenuItem>
-                      <MenuItem value="bridge">{t('mgmt.servapps.networks.list.bridge')}</MenuItem>
-                      <MenuItem value="host">{t('mgmt.servapps.networks.list.host')}</MenuItem>
-                      <MenuItem value="overlay">{t('mgmt.servapps.networks.list.overlay')}</MenuItem>
-                      <MenuItem value="macvlan">{t('mgmt.servapps.networks.list.macvlan')}</MenuItem>
-                    </Select>
-                  </FormControl>
-                  
-                  <TextField
-                    fullWidth
-                    id="subnet"
-                    name="subnet"
-                    label={t('mgmt.servapps.networks.list.subnet')}
-                    value={formik.values.subnet}
-                    onChange={formik.handleChange}
-                    error={formik.touched.subnet && Boolean(formik.errors.subnet)}
-                    helperText={formik.touched.subnet && formik.errors.subnet}
-                    style={{ marginBottom: '16px' }}
-                  />
-
-                  {formik.values.driver === 'macvlan' && (
-                    <TextField
-                      fullWidth
-                      id="parentInterface"
-                      name="parentInterface"
-                      label={t('mgmt.servapps.networks.list.parentIf')}
-                      value={formik.values.parentInterface}
-                      onChange={formik.handleChange}
-                      error={formik.touched.parentInterface && Boolean(formik.errors.parentInterface)}
-                      helperText={formik.touched.parentInterface && formik.errors.parentInterface}
-                      style={{ marginBottom: '16px' }}
-                    />
-                  )}
-
+                <Stack spacing={2} style={{ marginTop: '10px' }}>
+                  {/* Fork addition: the fields guided, see forkSmallForms.jsx (upstream: free text, five drivers of which three cannot be created) */}
+                  <ForkNetworkFields formik={formik} taken={taken} />
                   <CosmosCheckbox
                     name="attachCosmos"
                     label={t('mgmt.servapps.networks.attackNetwork')}

@@ -26,6 +26,9 @@ const files = [
   ['../pages/dashboard/forkAlertGuide.jsx', ['mgmt.monitoring.alerts.fork.']],
   ['../pages/openid/forkOpenidForm.jsx', ['mgmt.openId.fork.']],
   ['../pages/config/forkZoneMode.jsx', ['mgmt.config.zones.fork.']],
+  ['../pages/servapps/forkSmallForms.jsx', ['mgmt.servApps.fork.']],
+  ['../pages/market/sources.jsx', ['mgmt.market.fork.']],
+  ['../pages/config/users/shieldWhitelist.jsx', ['mgmt.shield.fork.']],
 ];
 
 // Pure modules return their texts as ['key', 'English', variables]: [file, prefixes]
@@ -37,6 +40,7 @@ const arrayFiles = [
   ['./alertForm.js', ['mgmt.monitoring.alerts.fork.']],
   ['./openidForm.js', ['mgmt.openId.fork.']],
   ['./zoneMode.js', ['mgmt.config.zones.fork.']],
+  ['./smallForms.js', ['mgmt.servApps.fork.', 'mgmt.market.fork.', 'mgmt.shield.fork.']],
 ];
 
 // t('key', 'English text' …) and tr('key', 'English text' …), the text in single quotes

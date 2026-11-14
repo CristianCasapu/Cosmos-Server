@@ -30,11 +30,14 @@ import { DeleteButton } from '../../components/delete';
 import { CosmosCheckbox, CosmosFormDivider, CosmosInputText, CosmosSelect } from '../config/users/formShortcuts';
 import ResponsiveButton from '../../components/responseiveButton';
 import { useTranslation } from 'react-i18next';
+import { marketUrlProblem, marketNameFromUrl } from '../../utils/smallForms'; // Fork addition: the address checked, a name proposed from it
+import { keepOnBackdrop } from '../../components/formHelpers'; // Fork addition
 
 const EditSourcesModal = ({ onSave }) => {
   const { t } = useTranslation();
   const [config, setConfig] = React.useState(null);
   const [open, setOpen] = React.useState(false);
+  const proposedNames = React.useRef({}); // Fork addition: the name each row got from its address, replaced only while untouched
   
   const AlertValidationSchema = Yup.object().shape({
     name: Yup.string().required(t('global.name.validation')),
@@ -92,6 +95,9 @@ const EditSourcesModal = ({ onSave }) => {
         }
         if (source.Url === '') {
           errors[`sources.${index}.Url`] = t('navigation.market.sources.urlRequiredValidation');
+        } else if (marketUrlProblem(source.Url)) { // Fork addition: the server refuses the same (configapi/fork_small_lists.go)
+          const problem = marketUrlProblem(source.Url);
+          errors[`sources.${index}.Url`] = t(problem[0], problem[1]);
         }
 
         if (source.Name === 'cosmos-cloud' || values.sources.filter((s) => s.Name === source.Name && !s.removed).length > 1) {
@@ -99,14 +105,13 @@ const EditSourcesModal = ({ onSave }) => {
         }
       });
 
-      console.log(errors)
   
       return errors;
     }
   });
 
   return (<>
-    <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={keepOnBackdrop(() => setOpen(false))} maxWidth="sm" fullWidth>
       <DialogTitle>{t('navigation.market.sourcesTitle')}</DialogTitle>
         
       {config && <FormikProvider value={formik}>
@@ -121,7 +126,7 @@ const EditSourcesModal = ({ onSave }) => {
             .map((action, index) => {
               return !action.removed && <>
                 <Stack spacing={0} key={index}>
-                  <Stack direction="row" spacing={2}>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>{/* Fork addition: one under the other on a phone */}
                     <CosmosInputText
                       name={`sources.${index}.Name`}
                       label="Name"
@@ -132,6 +137,18 @@ const EditSourcesModal = ({ onSave }) => {
                         name={`sources.${index}.Url`}
                         label="URL"
                         formik={formik}
+                        placeholder="https://example.com/cosmos-servapps.json"
+                        onChange={(e) => {
+                          // Fork addition: a name proposed from the address while the name is empty or still the proposal
+                          const name = formik.values.sources[index].Name;
+                          if (!name || name === proposedNames.current[index]) {
+                            const taken = formik.values.sources.filter((src, i) => i !== index && !src.removed).map((src) => src.Name);
+                            const proposed = marketNameFromUrl(e.target.value, taken);
+                            proposedNames.current[index] = proposed;
+                            formik.setFieldValue(`sources.${index}.Name`, proposed);
+                          }
+                        }}
+                        helperText={t('mgmt.market.fork.urlHelp', 'The address of the market\'s list (a .json file), as its author publishes it. Cosmos reads it each time the market is opened.')}
                       />
                     </div>
                     

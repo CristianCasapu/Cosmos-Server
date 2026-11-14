@@ -315,6 +315,13 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
+		// Fork addition: the SmartShield whitelist and the market sources are checked when they changed, see fork_small_lists.go
+		if problem := checkSmallLists(&request, config); problem != nil {
+			utils.Error("SettingsUpdate: "+problem.Message, nil)
+			utils.HTTPError(w, problem.Message, http.StatusBadRequest, problem.Code)
+			return
+		}
+
 		// Fork addition: changed HTTP settings must not take the panel away (ports, admin whitelist, hostname), see fork_http_settings.go
 		if problem := checkHTTPSettings(req, &request, config); problem != nil {
 			utils.Error("SettingsUpdate: "+problem.Message, nil)

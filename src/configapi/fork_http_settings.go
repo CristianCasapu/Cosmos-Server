@@ -352,6 +352,8 @@ var httpCheckLimit = &httpCheckLimiter{}
 type serverAddress struct {
 	IP      string `json:"ip"`
 	Network string `json:"network"`
+	// the network card, for the forms that ask for one (a macvlan network's parent)
+	Interface string `json:"interface"`
 }
 
 // serverAddresses lists the addresses of this server's own network
@@ -381,7 +383,7 @@ var serverAddresses = func() []serverAddress {
 				continue
 			}
 			network := &net.IPNet{IP: ipNet.IP.Mask(ipNet.Mask), Mask: ipNet.Mask}
-			found = append(found, serverAddress{IP: ipNet.IP.String(), Network: network.String()})
+			found = append(found, serverAddress{IP: ipNet.IP.String(), Network: network.String(), Interface: plainText(name)})
 			if len(found) >= 16 {
 				return found
 			}

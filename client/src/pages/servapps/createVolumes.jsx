@@ -22,19 +22,23 @@ import * as API from '../../api';
 import { useTranslation } from 'react-i18next';
 import PermissionGuard from '../../components/permissionGuard';
 import { PERM_RESOURCES } from '../../utils/permissions';
+import { ForkVolumeFields, volumeErrors, useTakenNames } from './forkSmallForms'; // Fork addition
+import { keepOnBackdrop } from '../../components/formHelpers'; // Fork addition
 
 const NewVolumeButton = ({ fullWidth, refresh }) => {
   const { t } = useTranslation();
   const [isOpened, setIsOpened] = useState(false);
+  const taken = useTakenNames('volume', isOpened); // Fork addition
   const formik = useFormik({
     initialValues: {
       name: '',
       driver: 'local',
     },
-    validationSchema: Yup.object({
-      name: Yup.string().required(t('global.required')),
-      driver: Yup.string().required(t('global.required')),
-    }),
+    // Fork addition: Docker's name rule and the names that exist, see forkSmallForms.jsx
+    validate: (values) => {
+      const errors = volumeErrors(values, taken);
+      return Object.fromEntries(Object.entries(errors).map(([k, v]) => [k, t(v[0], v[1], v[2] || {})]));
+    },
     onSubmit: (values, { setErrors, setStatus, setSubmitting }) => {
       setSubmitting(true);
       return API.docker.createVolume(values)
@@ -53,44 +57,14 @@ const NewVolumeButton = ({ fullWidth, refresh }) => {
 
   return (
     <>
-      <Dialog open={isOpened} onClose={() => setIsOpened(false)}>
+      <Dialog open={isOpened} onClose={keepOnBackdrop(() => setIsOpened(false))} maxWidth="sm" fullWidth>{/* Fork addition */}
         <FormikProvider value={formik}>
           <DialogTitle>{t('mgmt.servApps.volumes.newVolumeTitle')}</DialogTitle>
           <DialogContent>
             <DialogContentText></DialogContentText>
             <form onSubmit={formik.handleSubmit}>
-              <TextField
-                fullWidth
-                id="name"
-                name="name"
-                label="Name"
-                value={formik.values.name}
-                onChange={formik.handleChange}
-                error={formik.touched.name && Boolean(formik.errors.name)}
-                helperText={formik.touched.name && formik.errors.name}
-                style={{ marginBottom: '16px' }}
-              />
-              <FormControl
-                fullWidth
-                variant="outlined"
-                error={formik.touched.driver && Boolean(formik.errors.driver)}
-                style={{ marginBottom: '16px' }}
-              >
-                <InputLabel htmlFor="driver">{t('global.driver')}</InputLabel>
-                <Select
-                  id="driver"
-                  name="driver"
-                  value={formik.values.driver}
-                  onChange={formik.handleChange}
-                  label={t('global.driver')}
-                >
-                  <MenuItem value="">
-                    <em>{t('mgmt.servApps.driver.none')}</em>
-                  </MenuItem>
-                  <MenuItem value="local">{t('mgmt.servApps.volumes.newVolume.driverSelection.localChoice')}</MenuItem>
-                  {/* Add more driver options if needed */}
-                </Select>
-              </FormControl>
+              {/* Fork addition: the name checked and the driver said in words, see forkSmallForms.jsx (upstream: a select with one driver) */}
+              <ForkVolumeFields formik={formik} taken={taken} />
             </form>
             {formik.errors.submit && (
               <Grid item xs={12}>
