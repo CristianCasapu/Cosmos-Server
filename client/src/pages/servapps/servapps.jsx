@@ -242,6 +242,7 @@ const ServApps = ({stack}) => {
     <ExposeModal
       openModal={openModal} 
       setOpenModal={setOpenModal}
+      refresh={refreshServApps /* Fork addition: read again once the dialog has exposed the app */}
       container={servApps.find((app) => {
         return app.Names[0].replace('/', '') === (openModal && openModal.Names[0].replace('/', ''));
       })}

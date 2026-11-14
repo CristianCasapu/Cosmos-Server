@@ -31,8 +31,15 @@ import { applyProposal, isEmptyValue, stillProposed } from '../../../utils/propo
 import defaultport from '../../servapps/defaultport.json';
 import {
   accessFields, accessOf, buildTarget, containerPorts, describeAddress, freeName, guideFits,
-  proposePort, schemeForPort, targetParts, tidyAddress,
+  portToPropose, proposePort, schemeForPort, targetParts, tidyAddress,
 } from '../../../utils/routeGuide';
+
+// The port this form last proposed for an app's new URL, by app name. Kept
+// outside the form: the new-container form mounts its URL tab afresh on each
+// visit, and a port typed on its Network tab in between must still replace
+// the earlier proposal (never a port the admin picked: that one is dropped
+// from here).
+const proposedPorts = new Map();
 
 const nameOf = (container) => String((container && ((container.Names && container.Names[0]) || container.Name)) || '').replace(/^\//, '');
 const imageOf = (container) => String((container && (container.Image || (container.Config && container.Config.Image))) || '');
@@ -183,12 +190,20 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
   // the port: proposed while none is set, never in place of one that is
   React.useEffect(() => {
     // (not while a port is being typed: an emptied field is about to be filled)
-    if (readOnly || otherPort || mode !== 'SERVAPP' || !container || !appName || parts.port !== '' || !proposal.port) {
+    if (readOnly || otherPort || mode !== 'SERVAPP' || !container || !appName) {
       return;
     }
-    const scheme = schemeForPort(proposal.port);
+    // also in place of the form's earlier proposal, when the app's ports changed since
+    const port = portToPropose({ current: parts.port, proposal, proposedBefore: proposedPorts.get(appName), isNew });
+    if (!port) {
+      return;
+    }
+    if (isNew) {
+      proposedPorts.set(appName, port);
+    }
+    const scheme = schemeForPort(port);
     change({
-      Target: buildTarget({ scheme, host: appName, port: proposal.port }),
+      Target: buildTarget({ scheme, host: appName, port }),
       AcceptInsecureHTTPSTarget: scheme === 'https',
     });
   }, [mode, appName, proposal.port, parts.port, !!container, otherPort]);
@@ -219,6 +234,8 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
   };
 
   const setPort = (port) => {
+    // picked or typed: the admin's own from here on (utils/routeGuide.js' portToPropose)
+    proposedPorts.delete(appName);
     const scheme = schemeProposed.current || !parts.scheme ? schemeForPort(port) : parts.scheme;
     change({
       Target: buildTarget({ scheme, host: appName, port }),

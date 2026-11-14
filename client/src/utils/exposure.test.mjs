@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   RISKY_PORTS, TEXT, accessSentence, directName, exposeRequest, exposureDomains, isRiskyPort, nameProblem, portPlan,
-  choiceProblems, exposureChanges, initialChoices, proposeAccess, proposeThrough, throughSentence, webPlan, withRoutes, withdrawRequest,
+  choiceProblems, exposureChanges, initialChoices, proposeAccess, proposeThrough, routeExposure, throughSentence, webPlan, withRoutes, withdrawRequest,
 } from './exposure.js';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -199,4 +199,54 @@ test('problems of the choices', () => {
   assert.deepEqual(choiceProblems(web, ports, choices, cfg, 'sonarr'), {
     'web:example.org': 'taken', 'port:sonarr:6881/tcp': 'outside', 'port:sonarr:6881/tcp:external': 'externalPort',
   });
+});
+
+test('the "New URL" dialog: the app is planned on the URL it is getting, nothing ticked', () => {
+  const route = { Name: 'gitea', Mode: 'SERVAPP', UseHost: true, Host: 'gitea.local', Target: 'http://gitea:3000' };
+  const ports = [{ port: 3000, protocol: 'tcp', hostPort: 3000 }, { port: 2222, protocol: 'tcp', hostPort: 2222 }];
+  const args = { config: config(), cloudflare: cloudflare(), router: {}, containerName: '/gitea', image: 'gitea/gitea', route, ports };
+  const start = routeExposure(args);
+  assert.equal(start.web.available, true);
+  assert.equal(start.web.route.Name, 'gitea');
+  assert.deepEqual(start.web.domains.map((d) => [d.zone, d.host, d.through]), [['example.org', 'gitea.example.org', 'cloudflare'], ['example.net', 'gitea.example.net', 'direct']]);
+  // the web port goes through Cosmos; the other port is offered
+  assert.deepEqual(start.ports.map((p) => p.key), ['gitea:2222/tcp']);
+  // nothing ticked: nothing to send
+  assert.equal(start.chosen, false);
+  assert.deepEqual(start.changes, { expose: null, withdraw: null });
+  assert.equal(start.blocked, false);
+
+  // a domain ticked through Cloudflare: one expose request for the new URL
+  const value = { web: { 'example.org': { ...start.current.web['example.org'], on: true } } };
+  const ticked = routeExposure({ ...args, value });
+  assert.equal(ticked.chosen, true);
+  assert.deepEqual(ticked.changes.expose, {
+    action: 'expose', container: 'gitea', confirm: 'gitea',
+    web: [{ route: 'gitea', hostname: 'gitea.example.org', through: 'cloudflare', access: 'anyone' }], ports: [],
+  });
+  assert.equal(ticked.changes.withdraw, null);
+  // what was not touched keeps following the proposals
+  assert.equal(ticked.current.web['example.net'].on, false);
+
+  // a name another app has: blocked, with the problem under its field
+  const taken = routeExposure({ ...args, value: { web: { 'example.org': { ...value.web['example.org'], host: 'radarr.example.org' } } } });
+  assert.equal(taken.problems['web:example.org'], 'taken');
+  assert.equal(taken.blocked, true);
+
+  // a dangerous port ticked without its confirmation: blocked
+  const db = routeExposure({ ...args, ports: [...ports, { port: 5432, protocol: 'tcp', hostPort: 5432 }], value: { ports: { 'gitea:5432/tcp': { on: true, hostname: 'gitea-direct.example.org', externalPort: '', risky: false } } } });
+  assert.equal(db.blocked, true);
+  assert.equal(routeExposure({ ...args, ports: [...ports, { port: 5432, protocol: 'tcp', hostPort: 5432 }], value: { ports: { 'gitea:5432/tcp': { on: true, hostname: 'gitea-direct.example.org', externalPort: '', risky: true } } } }).blocked, false);
+});
+
+test('the "New URL" dialog never withdraws the URL it creates', () => {
+  // the URL typed with an internet address: it is the app's address under that domain already
+  const route = { Name: 'gitea', Mode: 'SERVAPP', UseHost: true, Host: 'gitea.example.org', Target: 'http://gitea:3000' };
+  const args = { config: config(), cloudflare: cloudflare(), router: {}, containerName: 'gitea', image: 'gitea/gitea', route, ports: [] };
+  const start = routeExposure(args);
+  assert.equal(start.current.web['example.org'].on, true);
+  assert.equal(start.chosen, false);
+  const off = routeExposure({ ...args, value: { web: { 'example.org': { ...start.current.web['example.org'], on: false } } } });
+  assert.equal(off.changes.withdraw, null);
+  assert.equal(off.chosen, false);
 });

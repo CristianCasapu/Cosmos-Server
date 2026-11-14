@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  targetParts, buildTarget, containerPorts, proposePort, accessOf, accessFields,
+  targetParts, buildTarget, containerPorts, portToPropose, proposePort, accessOf, accessFields,
   guideFits, describeAddress, newAppRoute, routesOfContainer, planLocalAddresses, freeName, tidyAddress,
 } from './routeGuide.js';
 
@@ -42,6 +42,45 @@ test('the ports of a container: TCP only, each once, smallest first', () => {
   assert.deepEqual(containerPorts(jellyfin), [8096, 8920]);
   assert.deepEqual(containerPorts({}), []);
   assert.deepEqual(containerPorts(null), []);
+});
+
+test('the ports of a container being created: what its Network tab holds', () => {
+  // the new-container form: Ports stays empty, the Network tab writes ExposedPorts and NetworkSettings.Ports
+  const form = {
+    Name: 'web', Names: ['web'], Ports: [],
+    Config: { Image: 'nginx', ExposedPorts: ['8080/tcp', '53/udp', '9000-9001/tcp'] },
+    NetworkSettings: { Networks: {}, Ports: { '8080/tcp': [{ HostIp: '', HostPort: '8081' }], '3000/tcp': [{ HostIp: '', HostPort: '' }] } },
+  };
+  assert.deepEqual(containerPorts(form), [3000, 8080]);
+  // the form before anything is typed on its Network tab
+  assert.deepEqual(containerPorts({ Ports: [], Config: { ExposedPorts: [] }, NetworkSettings: { Networks: {}, Ports: [] } }), []);
+  // Docker's inspect: objects keyed "80/tcp", a stopped container's Ports may be null
+  assert.deepEqual(containerPorts({ Config: { ExposedPorts: { '80/tcp': {}, '443': {} } }, NetworkSettings: { Ports: null } }), [80, 443]);
+  // the list and the declared ports together, each once
+  assert.deepEqual(containerPorts({ Ports: [{ PrivatePort: 80, Type: 'tcp' }], Config: { ExposedPorts: { '80/tcp': {}, '81/tcp': {} } } }), [80, 81]);
+  // nonsense is ignored
+  assert.deepEqual(containerPorts({ Ports: 'x', Config: { ExposedPorts: ['0/tcp', '70000/tcp', 'abc', null] }, NetworkSettings: { Ports: 'x' } }), []);
+  // the proposal sees them
+  const typed = { Ports: [], Config: { Image: 'myapp', ExposedPorts: ['8080/tcp'] }, NetworkSettings: { Networks: {}, Ports: { '8080/tcp': [{ HostIp: '', HostPort: '8081' }] } } };
+  assert.deepEqual(proposePort('myapp', containerPorts(typed), defaults), { port: 8080, source: 'only' });
+});
+
+test('the port is proposed while empty, and again while it still holds the earlier proposal', () => {
+  const p = (port) => ({ port, source: 'only' });
+  // empty: the proposal goes in, new URL or not
+  assert.equal(portToPropose({ current: '', proposal: p(8080), isNew: true }), 8080);
+  assert.equal(portToPropose({ current: '', proposal: p(8080), isNew: false }), 8080);
+  // nothing to propose
+  assert.equal(portToPropose({ current: '', proposal: { port: null, source: 'none' }, isNew: true }), null);
+  // the field holds the form's earlier proposal (80, the usual port), the Network tab added 8080 since
+  assert.equal(portToPropose({ current: '80', proposal: p(8080), proposedBefore: 80, isNew: true }), 8080);
+  // the same proposal: nothing to do
+  assert.equal(portToPropose({ current: '8080', proposal: p(8080), proposedBefore: 8080, isNew: true }), null);
+  // a port the admin picked or typed (no earlier proposal kept, or another one) is never replaced
+  assert.equal(portToPropose({ current: '80', proposal: p(8080), isNew: true }), null);
+  assert.equal(portToPropose({ current: '81', proposal: p(8080), proposedBefore: 80, isNew: true }), null);
+  // a URL that exists keeps its port
+  assert.equal(portToPropose({ current: '80', proposal: p(8080), proposedBefore: 80, isNew: false }), null);
 });
 
 test('the proposed port and where the proposal comes from', () => {

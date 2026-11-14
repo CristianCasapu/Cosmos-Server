@@ -33,6 +33,7 @@ import { useTranslation } from 'react-i18next';
 import defaultport from '../../servapps/defaultport.json';
 
 import * as API  from '../../../api';
+import { containerPorts } from '../../../utils/routeGuide'; // Fork addition
 
 // Fork addition: `required` marks the container and its port as mandatory
 export function CosmosContainerPicker({formik, nameOnly, lockTarget, TargetContainer, onTargetChange, label, name = "Target", required}) {
@@ -77,6 +78,7 @@ export function CosmosContainerPicker({formik, nameOnly, lockTarget, TargetConta
         setHasPublicPorts(true);
       }
     })
+    portsTemp = [...new Set([...portsTemp, ...containerPorts(newContainer)])] // Fork addition: also the ports a container being created holds (its Network tab)
     setPortsOptions(portsTemp)
 
     if(targetResult.port == '') {
