@@ -163,11 +163,11 @@ func CreateGPTTable(diskPath string) (io.Reader, error) {
 	var outputBuffer bytes.Buffer
 	
 	// Create GPT table
-	parted := exec.Command("parted", "-s", diskPath, "mklabel", "gpt")
-	parted.Stdout = &outputBuffer
-	parted.Stderr = &outputBuffer
-	if err := parted.Run(); err != nil {
-			return &outputBuffer, fmt.Errorf("failed to create GPT table: %w", err)
+	// Fork addition: through runStorageCommand (fork_format.go), with the reason when it fails
+	out, err := runStorageCommand("parted", "-s", diskPath, "mklabel", "gpt")
+	outputBuffer.WriteString(out)
+	if err != nil {
+			return &outputBuffer, commandFailure("Creating the partition table on "+diskPath, "parted", out, err)
 	}
 
 	return &outputBuffer, nil
@@ -176,58 +176,20 @@ func CreateGPTTable(diskPath string) (io.Reader, error) {
 func FormatDisk(diskPath string, filesystemType string) (io.Reader, error) {
 	utils.Log("[STORAGE] Formatting disk " + diskPath + " with filesystem " + filesystemType)
 
-	// check filesystem type
-	supportedFilesystems := []string{"ext4", "xfs", "ntfs", "fat32", "exfat", "btrfs", "zfs", "ext3", "ext2"}
-	isSupported := false
-	for _, fs := range supportedFilesystems {
-		if fs == filesystemType {
-		isSupported = true
-		break
-		}
-	}
-	if !isSupported {
-		return nil, errors.New("unsupported filesystem type")
-	}
-
-	// check if the disk is mounted
-	mounted, err := IsDiskMounted(diskPath)
-	if err != nil {
-		return nil, err
-	}
-	if mounted {
-		return nil, errors.New("disk is mounted, please unmount it first")
-	}
-
-	// Example: mkfs.ext4 /dev/sdx - Make sure the disk path is correct!
-	// WARNING: This will erase all data on the disk!
-	cmd := exec.Command("mkfs", "-t", filesystemType, diskPath)
-
-	// stream the output of the command
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	cmd.Stderr = cmd.Stdout
-
-	// Start the command
-	err = cmd.Start()
-	if err != nil {
-		return nil, err
-	}
-	
-	return out, nil
+	// Fork addition: the command for the file system, waited for, its exit status
+	// and output as the reason, and refused when the device is in use; upstream
+	// started mkfs without waiting and never learnt whether it failed, see fork_format.go
+	return forkFormatDisk(diskPath, filesystemType)
 }
 
 func CreateSinglePartition(diskPath string) (io.Reader, error) {
 	utils.Log("[STORAGE] Creating single partition for " + diskPath)
 	
-	// Check if disk is mounted
-	mounted, err := IsDiskMounted(diskPath)
-	if err != nil {
+	// Fork addition: in use means mounted, a partition mounted, swap, RAID or LVM, see fork_format.go
+	if reason, err := diskInUse(diskPath); err != nil {
 			return nil, err
-	}
-	if mounted {
-			return nil, errors.New("disk is mounted, please unmount it first")
+	} else if reason != "" {
+			return nil, errors.New(reason)
 	}
 
 	var outputBuffer bytes.Buffer
@@ -235,16 +197,18 @@ func CreateSinglePartition(diskPath string) (io.Reader, error) {
 	// Create partition using parted
 	// -s means script mode (no prompts)
 	// mkpart creates a partition spanning 0% to 100% of disk
-	cmd := exec.Command("parted", "-s", diskPath, "mkpart", "primary", "0%", "100%")
-	cmd.Stdout = &outputBuffer
-	cmd.Stderr = &outputBuffer
-	
-	if err := cmd.Run(); err != nil {
-			return &outputBuffer, fmt.Errorf("failed to create partition: %w", err)
+	// Fork addition: through runStorageCommand, with the reason when it fails
+	out, err := runStorageCommand("parted", "-s", diskPath, "mkpart", "primary", "0%", "100%")
+	outputBuffer.WriteString(out)
+	if err != nil {
+			return &outputBuffer, commandFailure("Creating the partition on "+diskPath, "parted", out, err)
 	}
 
 	// Force kernel to reread partition table
-	exec.Command("partprobe", diskPath).Run()
+	// Fork addition: what partprobe said when it failed is shown; the caller waits for the partition
+	if said := forkPartitionProbe(diskPath); said != "" {
+		outputBuffer.WriteString("partprobe: " + said + "\n")
+	}
 	
 	return &outputBuffer, nil
 }

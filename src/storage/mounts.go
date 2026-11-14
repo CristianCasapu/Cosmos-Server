@@ -257,18 +257,7 @@ func removeFstabEntry(mountpoint string) error {
 func IsDiskMounted(diskPath string) (bool, error) {
 	utils.Log("[STORAGE] Checking if disk " + diskPath + " is mounted")
 
-	// List all mounted filesystems using moby/sys/mountinfo
-	mountPoints, err := mountinfo.GetMounts(nil)
-	if err != nil {
-		return false, err
-	}
-
-	// Check if the disk is in the list of mounted filesystems
-	for _, mp := range mountPoints {
-		if mp.Mountpoint == diskPath {
-			return true, nil
-		}
-	}
-
-	return false, nil
+	// Fork addition: the device or one of its partitions is the source of a mount;
+	// upstream compared the mount point with the device path and never found one, see fork_format.go
+	return forkDiskMounted(diskPath)
 }

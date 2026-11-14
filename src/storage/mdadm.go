@@ -93,7 +93,7 @@ func CreateRaidArray(config RaidConfig) error {
 	// Format the RAID array
 	ioreadr, err := FormatDisk("/dev/md/" + config.Name, config.Filesystem)
 	if err != nil {
-		return fmt.Errorf("failed to format RAID array: %v", err)
+		return fmt.Errorf("failed to format RAID array: %v", err) // Fork addition: FormatDisk now waits for mkfs and returns its failure, see fork_format.go
 	}
 	output = ""
 	scanner := bufio.NewScanner(ioreadr)
