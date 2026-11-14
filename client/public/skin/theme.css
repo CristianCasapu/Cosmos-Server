@@ -351,7 +351,18 @@ header.MuiAppBar-root a:hover > .MuiChip-root {
   opacity: 1;
 }
 
+/* the menu's footer (language, version, the light/dark switch on a phone): a strip of its
+   own, so that the entries scrolling behind it do not show through */
+.ct-drawer-footer {
+  margin: 0 !important;
+  padding: 10px;
+  position: relative;
+  z-index: 1;
+  background-color: var(--ct-surface);
+  border-top: 1px solid var(--ct-border);
+}
 .ct-drawer-footer .MuiChip-root .MuiChip-label { font-size: var(--ct-text-xs); }
+.ct-drawer-footer .ct-mode-button { width: 40px; height: 40px; font-size: 1rem; }
 
 /* ---------- buttons ------------------------------------------------------- */
 
