@@ -921,7 +921,14 @@ pre.code {
   header.MuiAppBar-root .MuiToolbar-root > .MuiStack-root { gap: 8px; align-items: center; }
   header.MuiAppBar-root .MuiToolbar-root > .MuiStack-root > * { margin-left: 0 !important; }
   header.MuiAppBar-root .MuiToolbar-root > .MuiStack-root > .MuiBox-root:empty { display: none; }
-
+}
+@media (max-width: 399.95px) {
+  /* 360 px with the "Admin" chip: menu, jobs, notifications, Admin, Logout and More fit with 6 px gaps */
+  header.MuiAppBar-root .MuiToolbar-root { padding-left: 12px; padding-right: 12px; }
+  header.MuiAppBar-root .MuiToolbar-root > .MuiStack-root { gap: 6px; }
+  header.MuiAppBar-root .MuiChip-root .MuiChip-label { padding-left: 10px; padding-right: 10px; }
+}
+@media (max-width: 599.95px) {
   /* A table of rows becomes a list of cards: each cell on its own line with
      its column's name before it. Nothing is cut at the right any more. The
      roles set in prettyTableView.jsx keep it a table for screen readers. */

@@ -66,7 +66,7 @@ const SudoModal = () => {
         label="Admin" 
         onClick={handleOpen}
         color="primary"
-        style={{height: '36px'}} 
+        sx={{ height: { xs: 44, sm: 36 } }} /* Fork addition: a finger's height on a phone (was style 36px) */
       />
       <Modal
         open={open}
