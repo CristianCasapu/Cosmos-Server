@@ -25,7 +25,9 @@ import { useTranslation } from 'react-i18next';
 import * as API from '../../../api';
 import { CosmosCheckbox, CosmosFormDivider, CosmosInputText } from '../users/formShortcuts';
 import HostnameSuggestions, { localAddress } from '../../../components/hostnameSuggestions';
-import { ChoiceChips, ProposalNote } from '../../../components/formChoices';
+import { ChoiceRow, ProposalNote } from '../../../components/formHelpers';
+import ProposalBox from '../../../components/proposalBox';
+import { applyProposal, isEmptyValue, stillProposed } from '../../../utils/proposals';
 import defaultport from '../../servapps/defaultport.json';
 import {
   accessFields, accessOf, buildTarget, containerPorts, describeAddress, freeName, guideFits,
@@ -99,8 +101,13 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
   const [containers, setContainers] = React.useState(null);
   const [otherPort, setOtherPort] = React.useState(false);
   const [showName, setShowName] = React.useState(false);
-  // what is still as proposed, and so may be proposed again when the address or the app changes
-  const proposed = React.useRef({ name: !!isNew, description: !!isNew, host: !!isNew && !lockTarget, scheme: true });
+  // What the form proposed, and where (utils/proposals.js): a field that still
+  // holds its proposal may take the next one, what was typed is never
+  // replaced. The values a new URL starts with are proposals too; an existing
+  // URL gets none.
+  const marks = React.useRef(isNew ? { Name: formik.values.Name, Description: formik.values.Description, Host: formik.values.Host } : {});
+  // http or https follows the port until it is picked by hand
+  const schemeProposed = React.useRef(true);
 
   const values = formik.values;
   const mode = values.Mode || 'SERVAPP';
@@ -117,7 +124,21 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
     formik.setValues(latest.current);
   };
   // for what follows a change the field itself writes (typing in it): once that change is in
-  const changeAfter = (changes) => setTimeout(() => change(changes()), 0);
+  const changeAfter = (changes) => setTimeout(() => {
+    const follows = changes();
+    if (Object.keys(follows).length > 0) {
+      change(follows);
+    }
+  }, 0);
+  // the fields a proposal may fill, with the marks kept for the next one
+  const propose = (proposal) => {
+    if (!isNew) {
+      return {};
+    }
+    const result = applyProposal(latest.current, proposal, marks.current);
+    marks.current = result.marks;
+    return result.values;
+  };
 
   // a new URL has an address of its own: that is what this form is for
   const fit = guideFits(isNew && !values.UsePathPrefix ? { ...values, UseHost: true } : values);
@@ -148,11 +169,11 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
     if (!values.UseHost && !values.UsePathPrefix) {
       start.UseHost = true;
     }
-    if (lockTarget && (routeNames || []).includes(values.Name)) {
-      start.Name = freeName(values.Name, routeNames);
-    }
-    if (lockTarget && values.Host) {
-      start.Description = describeAddress(appName || values.Name, values.Host);
+    if (lockTarget) {
+      Object.assign(start, propose({
+        Name: freeName(values.Name, routeNames),
+        ...(values.Host ? { Description: describeAddress(appName || values.Name, values.Host) } : {}),
+      }));
     }
     if (Object.keys(start).length > 0) {
       change(start);
@@ -176,37 +197,37 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
   // (local or internet), and for a URL to another device its name ("router"
   // for router.local), which has no app to be named after.
   const withAddress = (host) => {
-    const changes = {};
-    let name = appName || values.Name;
-    if (isNew && proposed.current.name && mode === 'PROXY') {
+    const now = latest.current;
+    const proposal = {};
+    let name = appName || now.Name;
+    if (mode === 'PROXY' && (isEmptyValue(now.Name) || stillProposed(now, marks.current, 'Name'))) {
       const label = String(host || '').split(/[.:]/)[0].replace(/[^a-zA-Z0-9-]/g, '');
       if (label) {
         name = freeName(label, routeNames);
-        changes.Name = name;
+        proposal.Name = name;
       }
     }
-    if (isNew && proposed.current.description) {
-      changes.Description = describeAddress(name, host);
-    }
-    return changes;
+    proposal.Description = describeAddress(name, host);
+    return propose(proposal);
   };
 
+  // an address picked from the proposals, or tidied after typing: the admin's own from here on
   const setHost = (host) => {
-    proposed.current.host = false;
+    delete marks.current.Host;
     change({ Host: host, UseHost: true, ...withAddress(host) });
     onHostChange && onHostChange(host);
   };
 
   const setPort = (port) => {
-    const scheme = proposed.current.scheme || !parts.scheme ? schemeForPort(port) : parts.scheme;
+    const scheme = schemeProposed.current || !parts.scheme ? schemeForPort(port) : parts.scheme;
     change({
       Target: buildTarget({ scheme, host: appName, port }),
-      ...(proposed.current.scheme ? { AcceptInsecureHTTPSTarget: scheme === 'https' } : {}),
+      ...(schemeProposed.current ? { AcceptInsecureHTTPSTarget: scheme === 'https' } : {}),
     });
   };
 
   const setScheme = (scheme) => {
-    proposed.current.scheme = false;
+    schemeProposed.current = false;
     change({
       Target: buildTarget({ scheme, host: appName, port: parts.port }),
       // an app's own HTTPS certificate is its own: there is nothing to check it against
@@ -221,31 +242,28 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
     }
     const next = proposePort(imageOf(picked), containerPorts(picked), defaultport);
     const scheme = schemeForPort(next.port);
-    proposed.current.scheme = true;
+    schemeProposed.current = true;
     setOtherPort(false);
+    // picking the app is the admin's choice: where the address leads is set
     const changes = {
       Target: buildTarget({ scheme, host: name, port: next.port || '' }),
       AcceptInsecureHTTPSTarget: scheme === 'https',
     };
-    if (isNew && proposed.current.name) {
-      changes.Name = freeName(name, routeNames);
+    // its name and its local address are proposals: they fill what is empty or still proposed
+    let address = '';
+    try {
+      address = localAddress(name, config);
+    } catch (e) {
+      // the configuration is not loaded: the address is left to be typed
     }
-    let host = values.Host;
-    if (isNew && (proposed.current.host || !values.Host)) {
-      try {
-        host = localAddress(name, config);
-        proposed.current.host = true;
-        changes.Host = host;
-        changes.UseHost = true;
-        onHostChange && onHostChange(host);
-      } catch (e) {
-        // the configuration is not loaded: the address is left to be typed
-      }
+    const filled = propose({ Name: freeName(name, routeNames), ...(address ? { Host: address } : {}) });
+    let host = latest.current.Host;
+    if (filled.Host !== undefined) {
+      host = filled.Host;
+      filled.UseHost = true;
+      onHostChange && onHostChange(host);
     }
-    if (isNew && proposed.current.description) {
-      changes.Description = describeAddress(name, host);
-    }
-    change(changes);
+    change({ ...changes, ...filled, ...propose({ Description: describeAddress(name, host) }) });
   };
 
   const setMode = (next) => {
@@ -256,7 +274,7 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
     if (next === mode) {
       return;
     }
-    proposed.current.scheme = true;
+    schemeProposed.current = true;
     change({ Mode: next, Target: next === 'PROXY' ? 'http://' : '', AcceptInsecureHTTPSTarget: false });
   };
 
@@ -323,7 +341,7 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
       </Stack>
     </Grid>
 
-    {!lockTarget && <ChoiceChips
+    {!lockTarget && <ChoiceRow
       name="guide-mode"
       label={t('mgmt.urls.guide.mode.label', 'What should the address open?')}
       value={mode}
@@ -366,12 +384,9 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
       required
       helperText={t('mgmt.urls.guide.address.help', 'What people type to open it, without http://. For example radarr.local, or films.example.org with a domain of yours.')}
       onChange={(event) => {
-        proposed.current.host = false;
         const host = event.target.value;
-        if (Object.keys(withAddress(host)).length > 0) {
-          changeAfter(() => withAddress(host));
-        }
-        onHostChange && onHostChange(event.target.value);
+        changeAfter(() => withAddress(host));
+        onHostChange && onHostChange(host);
       }}
       inputProps={{
         autoCapitalize: 'none',
@@ -395,7 +410,7 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
     {addressExtra && <Grid item xs={12}>{addressExtra}</Grid>}
 
     {mode === 'SERVAPP' && (lockTarget || appName) && <>
-      <ChoiceChips
+      <ChoiceRow
         name="Target"
         required
         label={lockTarget
@@ -425,9 +440,19 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
           onChange={(event) => setPort(event.target.value.replace(/\D/g, '').slice(0, 5))}
         />}
         <ProposalNote>{portNote}</ProposalNote>
-      </ChoiceChips>
+      </ChoiceRow>
 
-      <ChoiceChips
+      {/* the app's usual port, when the URL leads elsewhere: it waits here with its button */}
+      {container && proposal.source === 'usual' && parts.port !== '' && portNumber !== proposal.port && <Grid item xs={12}>
+        <ProposalBox
+          title={t('mgmt.urls.guide.port.usualTitle', '{{app}} usually answers on port {{port}}', { app: shortImage(imageOf(container)), port: proposal.port })}
+          source={t('mgmt.urls.guide.port.usualHeld', 'This URL leads to port {{current}}. If the address shows "502 Bad Gateway", the port is the first thing to check.', { current: parts.port })}
+          onUse={() => { setOtherPort(false); setPort(proposal.port); }}
+          useLabel={t('mgmt.urls.guide.port.usualUse', 'Use port {{port}}', { port: proposal.port })}
+        />
+      </Grid>}
+
+      <ChoiceRow
         name="guide-scheme"
         label={t('mgmt.urls.guide.scheme.label', 'The app speaks')}
         value={parts.scheme === 'https' ? 'https' : 'http'}
@@ -456,7 +481,7 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
       />}
     </>}
 
-    <ChoiceChips
+    <ChoiceRow
       name="guide-access"
       label={t('mgmt.urls.guide.access.label', 'Who may open it')}
       value={access}
@@ -478,19 +503,20 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
             label={t('mgmt.urls.guide.name.label', 'Name in the list of URLs')}
             formik={plain}
             required
-            onChange={() => { proposed.current.name = false; }}
           />
           <CosmosInputText
             name="Description"
             label={t('global.description')}
             formik={formik}
-            onChange={() => { proposed.current.description = false; }}
           />
         </Grid>
         : <Stack direction="row" alignItems="center" spacing={1} useFlexGap flexWrap="wrap">
           <Typography variant="caption" color="textSecondary" sx={{ overflowWrap: 'anywhere' }}>
-            {t('mgmt.urls.guide.summary',
-              'Saved as "{{name}}", with the protection against abuse (Smart Shield) switched on.', { name: values.Name })}
+            {values._SmartShield_Enabled
+              ? t('mgmt.urls.guide.summary',
+                'Saved as "{{name}}", with the protection against abuse (Smart Shield) switched on.', { name: values.Name })
+              : t('mgmt.urls.guide.summaryNoShield',
+                'Saved as "{{name}}". The protection against abuse (Smart Shield) is switched off for it: see "All settings".', { name: values.Name })}
           </Typography>
           <Button size="small" startIcon={<EditOutlined />} onClick={() => setShowName(true)}>
             {t('mgmt.urls.guide.name.change', 'Change the name')}

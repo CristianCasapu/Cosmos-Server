@@ -7,7 +7,7 @@ import * as API from '../../api';
 import { DomainPicker, externalAddress, localAddress } from '../../components/hostnameSuggestions';
 import { useTranslation } from 'react-i18next';
 import { serverBack } from '../../utils/appLinks'; // Fork addition
-import { keepOnBackdrop } from '../../components/formChoices'; // Fork addition
+import { keepOnBackdrop } from '../../components/formHelpers'; // Fork addition
 import { newAppRoute } from '../../utils/routeGuide'; // Fork addition
 
 const ExposeModal = ({ openModal, setOpenModal, config, updateRoutes, container }) => {

@@ -12,7 +12,7 @@ import RouteManagement from '../../config/routes/routeman';
 import { ValidateRoute, getFaviconURL, sanitizeRoute } from '../../../utils/routes';
 import HostChip from '../../../components/hostChip';
 import { useTranslation } from 'react-i18next';
-import { keepOnBackdrop } from '../../../components/formChoices'; // Fork addition
+import { keepOnBackdrop } from '../../../components/formHelpers'; // Fork addition
 
 
 const NewRouteCreate = ({ openNewModal, setOpenNewModal, config }) => {

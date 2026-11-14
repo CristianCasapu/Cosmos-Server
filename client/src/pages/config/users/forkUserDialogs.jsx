@@ -28,7 +28,7 @@ import { useFormik } from 'formik';
 import { useTranslation } from 'react-i18next';
 import * as API from '../../../api';
 import { CosmosInputText } from './formShortcuts';
-import { ChoiceChips, keepOnBackdrop } from '../../../components/formChoices';
+import { ChoiceRow, keepOnBackdrop } from '../../../components/formHelpers';
 import { useClientInfos } from '../../../utils/hooks';
 import { emailProblem, inviteWay, nicknameProblem, roleChoices } from '../../../utils/userForm';
 
@@ -126,7 +126,7 @@ export const CreateUserDialog = ({ open, onClose, roles, users, onCreated }) => 
             autoComplete="off"
             helperText={t('mgmt.usermgmt.fork.email.help', 'Used to send the invitation and password resets.')}
           />
-          <ChoiceChips
+          <ChoiceRow
             name="role"
             label={t('global.role')}
             options={roleOptions}
@@ -208,14 +208,14 @@ export const EditUserDialog = ({ user, onClose, roles, onSaved }) => {
             autoComplete="off"
             helperText={t('mgmt.usermgmt.fork.email.help', 'Used to send the invitation and password resets.')}
           />
-          <ChoiceChips
+          <ChoiceRow
             name="role"
             label={t('global.role')}
             options={options}
             value={formik.values.role}
             disabled={own}
             onChange={(role) => formik.setFieldValue('role', role)}
-            helperText={own ? t('mgmt.usermgmt.fork.role.own', 'This is your own account: another administrator has to change its role.') : undefined}
+            note={own ? t('mgmt.usermgmt.fork.role.own', 'This is your own account: another administrator has to change its role.') : undefined}
           />
           {formik.errors.submit && <Grid item xs={12}>
             <Alert severity="error" sx={{ overflowWrap: 'anywhere' }}>{formik.errors.submit}</Alert>
