@@ -61,7 +61,7 @@ func TestSettingsSaveKeepsTheSelfSignedCertificateAndItsCA(t *testing.T) {
 	restarted := settingsTestServer(t)
 
 	// a server reached by its IP, HTTPS with the certificate it made itself
-	domains := []string{"172.16.0.14"}
+	domains := []string{"172.16.0.21"}
 	config := utils.DefaultConfig
 	config.NewInstall = false
 	config.HTTPConfig.Hostname = domains[0]
@@ -94,7 +94,7 @@ func TestSettingsSaveKeepsTheSelfSignedCertificateAndItsCA(t *testing.T) {
 
 	// the settings page reads the settings...
 	w := httptest.NewRecorder()
-	ConfigApiGet(w, asAdmin(httptest.NewRequest("GET", "http://172.16.0.14:2053/cosmos/api/config", nil)))
+	ConfigApiGet(w, asAdmin(httptest.NewRequest("GET", "http://172.16.0.21:2053/cosmos/api/config", nil)))
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET config: %d %s", w.Code, w.Body.String())
 	}
@@ -115,7 +115,7 @@ func TestSettingsSaveKeepsTheSelfSignedCertificateAndItsCA(t *testing.T) {
 		t.Fatal(err)
 	}
 	w = httptest.NewRecorder()
-	ConfigApiSet(w, asAdmin(httptest.NewRequest("PUT", "http://172.16.0.14:2053/cosmos/api/config", bytes.NewReader(body))))
+	ConfigApiSet(w, asAdmin(httptest.NewRequest("PUT", "http://172.16.0.21:2053/cosmos/api/config", bytes.NewReader(body))))
 	if w.Code != http.StatusOK {
 		t.Fatalf("PUT config: %d %s", w.Code, w.Body.String())
 	}
@@ -160,7 +160,7 @@ func TestSettingsSaveKeepsTheSelfSignedCertificateAndItsCA(t *testing.T) {
 
 	// And the CA still signs: a certificate made later (a new hostname, a
 	// renewal) comes from the CA the browsers were told to trust, not from a new one.
-	laterPEM, _, err := utils.GenerateRSAWebCertificates([]string{"172.16.0.14", "nas.local"})
+	laterPEM, _, err := utils.GenerateRSAWebCertificates([]string{"172.16.0.21", "nas.local"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestKeepServerCertificatesIgnoresWhatTheRequestCarries(t *testing.T) {
 	stored.HTTPConfig.CAPrivateKey = "stored CA key"
 	stored.HTTPConfig.SelfTLSCert = "stored certificate"
 	stored.HTTPConfig.SelfTLSKey = "stored key"
-	stored.HTTPConfig.SelfTLSKeyHostsCached = []string{"172.16.0.14"}
+	stored.HTTPConfig.SelfTLSKeyHostsCached = []string{"172.16.0.21"}
 	stored.HTTPConfig.SelfTLSValidUntil = validUntil
 
 	// neither blanks nor values of the caller's choosing get in
@@ -212,7 +212,7 @@ func TestKeepServerCertificatesIgnoresWhatTheRequestCarries(t *testing.T) {
 		kept := config.HTTPConfig
 		if kept.CACert != "stored CA" || kept.CAPrivateKey != "stored CA key" ||
 			kept.SelfTLSCert != "stored certificate" || kept.SelfTLSKey != "stored key" ||
-			len(kept.SelfTLSKeyHostsCached) != 1 || kept.SelfTLSKeyHostsCached[0] != "172.16.0.14" ||
+			len(kept.SelfTLSKeyHostsCached) != 1 || kept.SelfTLSKeyHostsCached[0] != "172.16.0.21" ||
 			!kept.SelfTLSValidUntil.Equal(validUntil) {
 			t.Errorf("%s request: the stored CA and certificate were not kept: %+v", name, kept)
 		}

@@ -125,13 +125,13 @@ func TestSessionTokenIsBoundToItsHostname(t *testing.T) {
 }
 
 func TestHostWithinDomain(t *testing.T) {
-	yes := [][2]string{{"example.com", "example.com"}, {"a.example.com", "example.com"}, {"a.b.example.com", "example.com"}, {"172.16.0.14", "172.16.0.14"}, {"", ""}}
+	yes := [][2]string{{"example.com", "example.com"}, {"a.example.com", "example.com"}, {"a.b.example.com", "example.com"}, {"172.16.0.21", "172.16.0.21"}, {"", ""}}
 	for _, c := range yes {
 		if !hostWithinDomain(c[0], c[1]) {
 			t.Errorf("%q should be within %q", c[0], c[1])
 		}
 	}
-	no := [][2]string{{"evilexample.com", "example.com"}, {"example.com", "a.example.com"}, {"example.com", ""}, {"1172.16.0.14", "172.16.0.14"}, {"example.com.evil.net", "example.com"}}
+	no := [][2]string{{"evilexample.com", "example.com"}, {"example.com", "a.example.com"}, {"example.com", ""}, {"1172.16.0.21", "172.16.0.21"}, {"example.com.evil.net", "example.com"}}
 	for _, c := range no {
 		if hostWithinDomain(c[0], c[1]) {
 			t.Errorf("%q must not be within %q", c[0], c[1])

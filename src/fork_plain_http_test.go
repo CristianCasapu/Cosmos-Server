@@ -19,7 +19,7 @@ func plainHTTPTestConfig(t *testing.T, change func(*utils.Config)) {
 	t.Helper()
 
 	config := utils.Config{}
-	config.HTTPConfig.Hostname = "172.16.0.14"
+	config.HTTPConfig.Hostname = "172.16.0.21"
 	config.HTTPConfig.HTTPPort = "2052"
 	config.HTTPConfig.HTTPSPort = "2053"
 	config.HTTPConfig.HTTPSCertificateMode = "LETSENCRYPT"
@@ -59,8 +59,8 @@ func TestPlainHTTPRedirectTarget(t *testing.T) {
 		host, uri, httpsPort, want string
 	}{
 		// the server's own hostname, with and without the port it was asked on
-		{"172.16.0.14:2052", "/cosmos-ui/", "2053", "https://172.16.0.14:2053/cosmos-ui/"},
-		{"172.16.0.14", "/", "2053", "https://172.16.0.14:2053/"},
+		{"172.16.0.21:2052", "/cosmos-ui/", "2053", "https://172.16.0.21:2053/cosmos-ui/"},
+		{"172.16.0.21", "/", "2053", "https://172.16.0.21:2053/"},
 		// the hostname of a route, path and query untouched
 		{"media.home.lan:2052", "/web/index.html?a=1&b=%2Fx%20y", "2053", "https://media.home.lan:2053/web/index.html?a=1&b=%2Fx%20y"},
 		{"media.home.lan:2052", "/a%2Fb/c", "2053", "https://media.home.lan:2053/a%2Fb/c"},
@@ -100,7 +100,7 @@ func TestPlainHTTPRedirectFollowsWhatHTTPSAccepts(t *testing.T) {
 	for host, want := range map[string]string{
 		"192.168.1.10:2052": "https://192.168.1.10:2053/cosmos-ui/",
 		"127.0.0.1:2052":    "https://127.0.0.1:2053/cosmos-ui/",
-		"172.16.0.14:2052":  "https://172.16.0.14:2053/cosmos-ui/",
+		"172.16.0.21:2052":  "https://172.16.0.21:2053/cosmos-ui/",
 	} {
 		if got, ok := redirectTarget(t, host, "/cosmos-ui/", "2053"); !ok || got != want {
 			t.Errorf("local IP access allowed: http://%s -> %q (%v), want %q", host, got, ok, want)
@@ -155,7 +155,7 @@ func TestPlainHTTPHandlerRedirectsAndServesNothingMore(t *testing.T) {
 
 		// the report: the UI by IP, and an application by its hostname, used to answer 404
 		for host, want := range map[string]string{
-			"172.16.0.14:2052":    "https://172.16.0.14:2053/cosmos-ui/?x=1",
+			"172.16.0.21:2052":    "https://172.16.0.21:2053/cosmos-ui/?x=1",
 			"media.home.lan:2052": "https://media.home.lan:2053/cosmos-ui/?x=1",
 		} {
 			for _, method := range []string{"GET", "HEAD", "POST"} {

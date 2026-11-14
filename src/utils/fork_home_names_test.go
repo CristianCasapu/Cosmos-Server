@@ -193,7 +193,7 @@ func TestPanelHomeName(t *testing.T) {
 		"example.org":        "cosmos.home.example.org", // the domain's own name
 		"172.16.0.10":        "cosmos.home.example.org",
 		"panel.example.org":  "panel.home.example.org",
-		"dpe.local":          "dpe.home.example.org",
+		"homebox.local":          "homebox.home.example.org",
 		"under_score.example.org": "cosmos.home.example.org",
 	} {
 		cfg := homeTestConfig("home")

@@ -34,11 +34,11 @@ func selfSignedFor(t *testing.T, names []string) (*x509.Certificate, string) {
 }
 
 func TestSelfSignedCertificateIsValidForAnIPAddress(t *testing.T) {
-	names := []string{"172.16.0.14", "jellyfin.local", "fd00::14", "cosmos.example.com"}
+	names := []string{"172.16.0.21", "jellyfin.local", "fd00::14", "cosmos.example.com"}
 	cert, certPEM := selfSignedFor(t, names)
 
-	// what a browser checks for https://172.16.0.14:2053
-	for _, host := range []string{"172.16.0.14", "fd00::14", "jellyfin.local", "cosmos.example.com"} {
+	// what a browser checks for https://172.16.0.21:2053
+	for _, host := range []string{"172.16.0.21", "fd00::14", "jellyfin.local", "cosmos.example.com"} {
 		if err := cert.VerifyHostname(host); err != nil {
 			t.Errorf("the certificate is not valid for %s: %v", host, err)
 		}
@@ -51,7 +51,7 @@ func TestSelfSignedCertificateIsValidForAnIPAddress(t *testing.T) {
 	if !roots.AppendCertsFromPEM([]byte(GetBaseMainConfig().HTTPConfig.CACert)) {
 		t.Fatal("no certificate authority was stored")
 	}
-	if _, err := cert.Verify(x509.VerifyOptions{Roots: roots, DNSName: "172.16.0.14"}); err != nil {
+	if _, err := cert.Verify(x509.VerifyOptions{Roots: roots, DNSName: "172.16.0.21"}); err != nil {
 		t.Errorf("a device that trusts Cosmos' authority does not accept the certificate for the address: %v", err)
 	}
 
@@ -67,7 +67,7 @@ func TestSelfSignedCertificateIsValidForAnIPAddress(t *testing.T) {
 }
 
 func TestCertificateIPs(t *testing.T) {
-	ips := CertificateIPs([]string{"172.16.0.14", "172.16.0.14:2053", "[fd00::14]:2053", "fd00::14", "app.local", "localhost", ""})
+	ips := CertificateIPs([]string{"172.16.0.21", "172.16.0.21:2053", "[fd00::14]:2053", "fd00::14", "app.local", "localhost", ""})
 	if len(ips) != 4 {
 		t.Fatalf("expected 4 addresses, got %v", ips)
 	}
