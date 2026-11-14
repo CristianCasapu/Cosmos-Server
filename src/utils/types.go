@@ -338,6 +338,7 @@ type HTTPConfig struct {
 	UseForwardedFor bool
 	AllowSearchEngine bool
 	PublishMDNS bool
+	MDNSInterfaces []string `json:",omitempty"` // Fork addition: the interfaces the .local names are published on (empty: chosen automatically), see proxy/fork_mdns.go
 	TrustedProxies []string
 	UPnP UPnPConfig // fork addition, see src/upnp
 	Cloudflare ForkCloudflareConfig `json:"Cloudflare,omitzero"` // Fork addition: Cloudflare's proxy per hostname, see fork_cloudflare.go

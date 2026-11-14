@@ -10,6 +10,8 @@ import { getHostnameFromName, IsRouteSocketProxy } from '../utils/routes';
 import { isLocalHost } from '../utils/appLinks';
 import { ExternalPortNote, useCosmosPorts } from './routerPorts';
 import { shownAddress } from '../utils/routerPorts';
+import { LocalNameState } from './localNames'; // Fork addition
+import { isLocalName } from '../utils/localNames';
 
 // The app's name as a DNS label.
 export const hostLabel = (name) => (name || '')
@@ -147,6 +149,8 @@ const HostnameSuggestions = ({ name, value, config, onPick, disabled, inline }) 
           />
         ))}
       </Stack>
+      {/* Fork addition: is the .local name (the one picked, else the proposed one) published and answered, see localNames.jsx */}
+      <LocalNameState host={isLocalName(value) ? value : (suggestions.find((suggestion) => isLocalName(suggestion.host)) || {}).host} help />
       {/* the proposals are stored as they are, without a port: say which port they are reached on */}
       {!noDomain && <ExternalPortNote config={config} example={(suggestions.find((suggestion) => !suggestion.local) || {}).host} />}
       {noDomain && <Typography variant="caption" color="textSecondary">

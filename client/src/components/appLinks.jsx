@@ -30,6 +30,7 @@ import { PortForwardHint, configuredDomains, externalAddress, hostLabel } from '
 import { baseIsUnderDomain, baseRoute, domainRoutes, groupAppRoutes, routeHost, serverBack } from '../utils/appLinks';
 import { AddressShield, loadCloudflare, useCloudflare } from './cloudflare';
 import { hostEntry } from '../utils/cloudflare';
+import { useLocalNamesTitle } from './localNames'; // Fork addition
 
 // The chips of an app's routes, local links first. In a row of chips each
 // group starts with its icon; with `rows` each group gets a line of its own,
@@ -39,6 +40,8 @@ const AppLinks = ({ routes, chipStyle, rows }) => {
   // a host is stored without a port; its chip shows and opens it with the port it is reached on
   const ports = useCosmosPorts(null);
   const scheme = window.location.protocol === 'http:' ? 'http' : 'https';
+  // Fork addition: whether the .local names are published and answered, see localNames.jsx
+  const localTitle = useLocalNamesTitle((routes || []).map(routeHost));
 
   return groupAppRoutes(routes, window.location.host).map((group) => {
     const Icon = group.local ? HomeOutlined : GlobalOutlined;
@@ -56,7 +59,7 @@ const AppLinks = ({ routes, chipStyle, rows }) => {
       </div>;
     }
     return <React.Fragment key={label}>
-      <Tooltip title={label}>
+      <Tooltip title={group.local && localTitle ? label + ' — ' + localTitle : label}>
         <Icon aria-label={label} style={{ flexShrink: 0 }} />
       </Tooltip>
       {chips}
