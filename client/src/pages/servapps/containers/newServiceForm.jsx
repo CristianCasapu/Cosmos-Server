@@ -189,6 +189,7 @@ const NewDockerServiceForm = () => {
           children:  <Stack spacing={2}>
             <MainCard  style={{ maxWidth: '1000px', width: '100%', margin: 'auto', position: 'relative' }}>
               <Checkbox
+                inputProps={{ 'aria-label': t('mgmt.servApp.url') }} /* Fork addition: a name */
                 checked={containerInfo.CreateRoute}
                 onChange={(e) => {
                   const newValues = {

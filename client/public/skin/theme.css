@@ -1021,6 +1021,12 @@ pre.code {
   .MuiAlert-action > .MuiIconButton-root { width: var(--ct-touch); height: var(--ct-touch); }
 }
 
+/* ---------- the sign-in page's messages (AuthLogin) ------------------------ */
+/* "You need to be logged in", "You have been disconnected": as wide as the
+   form, under the title (they sat in a centred grid with negative margins) */
+.MuiGrid-container.MuiGrid-justifyContent-xs-center > .MuiAlert-root { flex: 1 1 100%; }
+.MuiGrid-container.MuiGrid-justifyContent-xs-center:has(> .MuiAlert-root) { margin: 0 0 16px; width: 100%; }
+
 /* ---------- things that need attention (components/noticeArea.jsx) -------- */
 /* One surface per page (ServApps, a stack, home), one line per item, the most
    urgent first; its edge takes the colour of the most urgent line. */
@@ -1068,6 +1074,9 @@ pre.code {
   .ct-notice-actions { flex: 1 1 100%; margin-left: 26px; }
   .ct-notices-toggle.ct-notices-toggle { margin-left: 14px; min-height: var(--ct-touch); }
   .ct-notice-actions .MuiButton-root.MuiButton-root { min-height: var(--ct-touch); }
+  .ct-notice-actions a.ct-notice-link { display: inline-flex; align-items: center; min-height: var(--ct-touch); padding-right: 12px; }
+  /* the sign-in pages' main buttons (they have no <main>) */
+  .MuiButton-root.MuiButton-root.MuiButton-sizeLarge { min-height: var(--ct-touch); }
 }
 
 /* text for screen readers only */

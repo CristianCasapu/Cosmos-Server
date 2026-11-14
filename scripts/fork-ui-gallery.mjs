@@ -250,7 +250,7 @@ const views = [
   ] },
   { id: 'market-app', path: '/cosmos-ui/market-listing/cosmos-cloud/Jellyfin', core: true, wait: 1500, mock: [...marketMock, ...noDnsMock], captures: [
     {},
-    { id: 'review', wait: 2500, open: async (page) => { await page.getByRole('button', { name: /^Install$/ }).last().click(); } },
+    { id: 'review', wait: 2500, open: async (page) => { await page.getByRole('button', { name: /Install$/ }).last().click(); } },
   ] },
   { id: 'new-container-steps', path: '/cosmos-ui/servapps/new-service', captures: [
     {},

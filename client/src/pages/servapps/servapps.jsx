@@ -472,14 +472,13 @@ const ServApps = ({stack}) => {
               </div>
  
               <div>
-                <Link to={app.type === 'stack' ? 
+                {/* Fork addition: a link styled as a button (one Tab stop; it was a button inside a link) */}
+                <Button component={Link} to={app.type === 'stack' ? 
                   `/cosmos-ui/servapps/stack/${app.name}` : 
                   `/cosmos-ui/servapps/containers/${app.name.replace('/', '')}`
-                  }>
-                  <Button variant="outlined" color="primary" fullWidth>
+                  } variant="outlined" color="primary" fullWidth>
                     {app.type === 'stack' ? t('mgmt.servapps.viewStackButton') : t('mgmt.servapps.viewDetailsButton')}
-                  </Button>
-                </Link>
+                </Button>
               </div>
               {/* <Stack>
                 <Button variant="contained" color="primary" onClick={() => {

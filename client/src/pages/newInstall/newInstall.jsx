@@ -171,11 +171,10 @@ const NewInstall = () => {
                         </Button>
                     </>}
                 </Stack>
-                <a style={{color: 'white', textDecoration: 'none'}} target='_blank' rel="noopener noreferrer" href="https://cosmos-cloud.io/doc/2%20setup">
-                    <Button variant="outlined" color="inherit" startIcon={<QuestionCircleOutlined />}>
-                     {t('newInstall.linkToDocs')}
-                    </Button>
-                </a>
+                {/* Fork addition: a link styled as a button (one Tab stop; it was a button inside a link) */}
+                <Button component="a" target='_blank' rel="noopener noreferrer" href="https://cosmos-cloud.io/doc/2%20setup" variant="outlined" color="inherit" startIcon={<QuestionCircleOutlined />}>
+                    {t('newInstall.linkToDocs')}
+                </Button>
             </div>,
             nextButtonLabel: () => {
                 return 'Start';

@@ -184,7 +184,7 @@ const MFASetup = () => {
         </Typography>
       </Grid>
       <Grid  item xs={12} textAlign={'center'}>
-        <canvas style={{borderRadius: '15px'}} ref={canvasRef} />
+        <canvas style={{borderRadius: '15px', maxWidth: '100%', height: 'auto'}} ref={canvasRef} />{/* Fork addition: fits a 360 px phone (300 px code + the card's padding ran over) */}
       </Grid>
       <Grid item xs={12}>
         <Typography variant="h5">{t('mgmt.openid.newMfa.otpManualCode')}</Typography>

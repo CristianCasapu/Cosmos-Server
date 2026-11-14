@@ -307,7 +307,7 @@ const MarketPage = () => {
             </div>
           </div>}
           
-          <div>
+          <div style={{ overflowWrap: 'anywhere' }}>{/* Fork addition: a long address breaks instead of running out of a phone's screen */}
             <div><strong>{t('navigation.market.repository')}:</strong> <LinkMUI href={openedApp.repository}>{openedApp.repository}</LinkMUI></div>
             <div><strong>{t('navigation.market.image')}:</strong> <LinkMUI href={openedApp.image}>{openedApp.image}</LinkMUI></div>
             <div><strong>{t('navigation.market.compose')}:</strong> <LinkMUI href={openedApp.compose}>{openedApp.compose}</LinkMUI></div>
