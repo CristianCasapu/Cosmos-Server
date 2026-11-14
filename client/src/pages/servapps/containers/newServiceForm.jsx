@@ -22,6 +22,9 @@ import { localAddress } from '../../../components/hostnameSuggestions'; // Fork 
 import ImageDefaults from './imageDefaults'; // Fork addition
 import { usePortSources, ComposePortConflicts } from '../../../components/portConflicts'; // Fork addition: host ports that are already taken
 import { useTranslation } from 'react-i18next';
+import { networkModeValue, quickSetup, serviceFromForm, withDockerTab } from '../../../utils/newContainer'; // Fork addition
+import { containerPorts, newAppRoute, proposePort, schemeForPort } from '../../../utils/routeGuide'; // Fork addition
+import defaultport from '../defaultport.json'; // Fork addition
 
 const NewDockerServiceForm = () => {
   const { t } = useTranslation();
@@ -33,6 +36,8 @@ const NewDockerServiceForm = () => {
   // Fork addition: who holds which host port, and whether a row of the Network step cannot work
   const portSources = usePortSources();
   const [portsBlocked, setPortsBlocked] = React.useState(false);
+  // Fork addition: the URL "Review and create" proposed, shown by the URL tab if it is opened afterwards
+  const [quickRoute, setQuickRoute] = React.useState(null);
   const [containerInfo, setContainerInfo] = React.useState({
     Name: '',
     Names: [],
@@ -71,31 +76,39 @@ const NewDockerServiceForm = () => {
     refreshConfig();
   }, []);
 
-  let service = {
-    services: {
-      container_name : {
-        container_name: containerInfo.Name,
-        image: containerInfo.Config.Image,
-        environment: containerInfo.Config.Env,
-        labels: containerInfo.Config.Labels,
-        dns: containerInfo.HostConfig.Dns,
-        devices: containerInfo.HostConfig.Devices ? containerInfo.HostConfig.Devices.map((device) => {
-          return `${device.PathOnHost}:${device.PathInContainer}`;
-        }) : [],
-        expose: containerInfo.Config.ExposedPorts,
-        tty: containerInfo.Config.Tty,
-        stdin_open: containerInfo.Config.OpenStdin,
-        ports: containerInfo.HostConfig.PortBindings,
-        restart: containerInfo.HostConfig.RestartPolicy.Name,
-        volumes: containerInfo.HostConfig.Mounts,
-        networks: Object.keys(containerInfo.NetworkSettings.Networks).reduce((acc, cur) => {
-          acc[cur] = {};
-          return acc;
-        }, {}),
-        routes: containerInfo.CreateRoute ? [containerInfo.Route] : [],
-      }
-    },
-  }
+  // Fork addition: every field of the form reaches the request (utils/newContainer.js); upstream left out
+  // the user, the limits, the network mode and the interactive tick
+  let service = serviceFromForm(containerInfo);
+
+  // Fork addition: one confirmation by default. "Review and create" fills in what can be proposed (the name from
+  // the image, a local URL on the image's usual or declared port) and goes to the review, which proposes the rest
+  // (restart policy, time zone, where the data goes) and says in words what will be created.
+  const quick = () => <Stack style={{ maxWidth: '1000px', width: '100%', margin: 'auto' }} spacing={1}>
+    <Button
+      variant="contained"
+      color="primary"
+      fullWidth
+      data-quick-review
+      disabled={!String(containerInfo.Config.Image || '').trim() || !config /* the addresses need the settings */}
+      onClick={() => {
+        const image = String(containerInfo.Config.Image || '').trim();
+        const port = proposePort(image, containerPorts(containerInfo), defaultport);
+        const { info } = quickSetup(containerInfo, {
+          port,
+          route: (name, number) => newAppRoute({ name, host: localAddress(name, config), port: number, scheme: schemeForPort(number) }),
+        });
+        setContainerInfo(info);
+        if (info.Route && info.Route !== containerInfo.Route) setQuickRoute(info.Route);
+        setMaxTab(4);
+        setCurrentTab(4);
+      }}
+    >
+      {t('mgmt.servapps.creation.quick', 'Review and create')}
+    </Button>
+    <div style={{ fontSize: '0.8em', opacity: 0.8 }}>
+      {t('mgmt.servapps.creation.quickHint', 'Cosmos proposes the rest (a local address, the restart policy, where the data goes) and shows everything on one page before anything is created. The other tabs stay open for changes.')}
+    </div>
+  </Stack>;
 
   const nav = () => <Stack
     direction="row"
@@ -152,33 +165,7 @@ const NewDockerServiceForm = () => {
           }}><DockerContainerSetup newContainer containerInfo={containerInfo}
             afterImage={<ImageDefaults image={imageToInspect} containerInfo={containerInfo} onApply={setContainerInfo} /> /* Fork addition */}
             OnChange={(values) => {
-            const newValues = {
-              ...containerInfo,
-              Name: values.name,
-              Names: [values.name],
-              Config: {
-                ...containerInfo.Config,
-                Image: values.image,
-                Name: values.name,
-                Env: values.envVars,
-                Labels: values.labels,
-                User: values.user,
-              },
-              HostConfig: {
-                ...containerInfo.HostConfig,
-                Devices: values.devices.map((device) => {
-                  return {
-                    PathOnHost: device.split(':')[0],
-                    PathInContainer: device.split(':')[1],
-                    CgroupPermissions: 'rwm',
-                  };
-                }),
-                RestartPolicy: {
-                  Name: values.restartPolicy,
-                },
-              },
-            }
-            setContainerInfo(newValues);
+            setContainerInfo(withDockerTab(containerInfo, values)); // Fork addition: user, limits and the interactive tick are kept
           }} 
           OnForceSecure={(value) => {
             const newValues = {
@@ -192,7 +179,7 @@ const NewDockerServiceForm = () => {
               },
             }
             setContainerInfo(newValues);
-          }}/>{nav()}</Stack>
+          }}/>{quick()}{nav()}</Stack>
         },
         {
           title: 'URL',
@@ -211,7 +198,7 @@ const NewDockerServiceForm = () => {
               />{t('mgmt.servApp.url')}
             </MainCard>
             {containerInfo.CreateRoute && <RouteManagement TargetContainer={containerInfo} 
-              routeConfig={{
+              routeConfig={quickRoute /* Fork addition */ || {
                 Target: "http://"+containerInfo.Name.replace('/', '') + ":",
                 Mode: "SERVAPP",
                 Name: containerInfo.Name.replace('/', ''),
@@ -263,6 +250,7 @@ const NewDockerServiceForm = () => {
               HostConfig: {
                 ...containerInfo.HostConfig,
                 Dns: (values.networkMode || '').startsWith('container:') ? [] : (values.dns || '').split(',').map((s) => s.trim()).filter(Boolean),
+                NetworkMode: networkModeValue(values.networkMode), // Fork addition: the network mode and "use as VPN" were never sent
                 // Fork addition: a port without a host port is not published (the form says so); "":80 published a random one
                 PortBindings: values.ports.filter((port) => String(port.hostPort === undefined || port.hostPort === null ? '' : port.hostPort).trim() !== '').map((port) => {
                   return `${port.hostPort}:${port.port}/${port.protocol}`;

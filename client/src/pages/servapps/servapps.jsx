@@ -15,6 +15,7 @@ import AppLinks, { AppDomains } from '../../components/appLinks'; // Fork additi
 import { ReachChip } from '../../components/reachability'; // Fork addition
 import PortChips from '../../components/portChips'; // Fork addition
 import LocalAddressesForAll from '../../components/localAddressesForAll'; // Fork addition
+import Leftovers from '../../components/leftovers'; // Fork addition: containers left by an interrupted change
 import { Link } from 'react-router-dom';
 import ExposeModal from './exposeModal';
 import GetActions from './actionBar';
@@ -241,6 +242,7 @@ const ServApps = ({stack}) => {
     <ExposeModal
       openModal={openModal} 
       setOpenModal={setOpenModal}
+      refresh={refreshServApps /* Fork addition: read again once the dialog has exposed the app */}
       container={servApps.find((app) => {
         return app.Names[0].replace('/', '') === (openModal && openModal.Names[0].replace('/', ''));
       })}
@@ -295,6 +297,8 @@ const ServApps = ({stack}) => {
       </div>
       
       <Grid2 container spacing={{xs: 1, sm: 1, md: 2 }}>
+        {/* Fork addition: containers left behind by an interrupted change, with a way back */}
+        {!stack && <Leftovers servApps={servApps} refresh={refreshServApps} wrap={(notice) => <Grid2 style={gridAnim} xs={12} item><Item>{notice}</Item></Grid2>} />}
         {/* Fork addition: updatesAvailable is a map of container names, ".length" was never set */}
         {updatesAvailable && Object.keys(updatesAvailable).length > 0 && <Grid2 style={gridAnim} xs={12} item>
           <Item>

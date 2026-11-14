@@ -184,6 +184,7 @@ const SENTENCES = {
       unpause: '{{actor}} resumed the container {{target}}',
       recreate: '{{actor}} recreated the container {{target}}',
       update: '{{actor}} updated the container {{target}}',
+      restore_leftover: '{{actor}} put back the container {{target}}, left by an interrupted change, under its app\'s name', // Fork addition: fork_leftovers.go
     },
   },
   'container.deleted': { text: '{{actor}} deleted the container {{target}}', ip: true },

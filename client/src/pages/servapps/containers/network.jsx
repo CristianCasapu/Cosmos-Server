@@ -188,6 +188,10 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                     label={t('mgmt.servApps.networks.useAsVPN')}
                     nameOnly
                   />
+                  {/* Fork addition: Docker refuses ports of a container that uses another one's network */}
+                  {(formik.values.networkMode || '').startsWith('container:') && <Alert severity="info" sx={{ overflowWrap: 'anywhere' }} data-shared-network>
+                    {t('mgmt.servapps.fork.sharedNetwork', 'This container uses the network of {{name}}: it cannot publish ports of its own, so the ports below are not published. Publish them on {{name}} instead.', { name: formik.values.networkMode.replace('container:', '') })}
+                  </Alert>}
                   {!(formik.values.networkMode || '').startsWith('container:') && <CosmosInputText
                     label={t('mgmt.servApps.networks.dnsLabel')}
                     name="dns"

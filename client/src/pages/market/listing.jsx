@@ -19,6 +19,7 @@ import EditSourcesModal from "./sources";
 import { PersistentCheckbox } from "../../components/persistentInput";
 import { useTranslation } from 'react-i18next'; 
 import DOMPurify from 'dompurify';
+import { marketArchFits } from '../../utils/dataPlaces'; // Fork addition
 
 function Screenshots({ screenshots }) {
   const aspectRatioContainerStyle = {
@@ -282,6 +283,10 @@ const MarketPage = () => {
           <div>
             {openedApp.supported_architectures && openedApp.supported_architectures.slice(0, 8).map((tag) => <Chip label={tag} />)}
           </div>
+          {/* Fork addition: said before the install, not at the pull (the review checks the image itself again) */}
+          {!marketArchFits(openedApp.supported_architectures, API.CPU_ARCH) && <Alert severity="warning" data-market-arch>
+            {t('navigation.market.archMismatch', 'This app is listed for {{list}} only, and this server is {{arch}}: it will most likely not start here.', { list: openedApp.supported_architectures.join(', '), arch: API.CPU_ARCH })}
+          </Alert>}
 
           {openedApp.appstore != 'cosmos-cloud' && <div>
             <div>

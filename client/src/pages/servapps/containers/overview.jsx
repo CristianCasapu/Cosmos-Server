@@ -62,6 +62,7 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
       <ExposeModal
         openModal={openModal} 
         setOpenModal={setOpenModal}
+        refresh={refreshAll /* Fork addition: read again once the dialog has exposed the app */}
         container={Config}
         config={config}
         updateRoutes={

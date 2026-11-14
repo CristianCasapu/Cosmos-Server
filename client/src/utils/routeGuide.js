@@ -21,17 +21,60 @@ export const targetParts = (target) => {
 
 export const buildTarget = ({ scheme, host, port }) => (scheme ? scheme + '://' : '') + (host || '') + ':' + (port === undefined || port === null ? '' : port);
 
-// The TCP ports a container listens on, as Docker lists them (declared by
-// the image or published), smallest first, each once.
+// "80/tcp" (Docker's key for a port) → 80; a UDP port, a range or anything
+// else → null.
+const tcpPortOf = (key) => {
+  const m = String(key || '').trim().match(/^(\d+)(?:\/(tcp|udp|sctp))?$/i);
+  return m && (m[2] || 'tcp').toLowerCase() === 'tcp' ? Number(m[1]) : null;
+};
+
+// The TCP ports a container listens on, smallest first, each once. Read from
+// every shape the panel holds a container in: Docker's list (`Ports`:
+// [{ PrivatePort, Type }]), Docker's inspect (`Config.ExposedPorts` and
+// `NetworkSettings.Ports`, keyed "80/tcp"), and the new-container form,
+// whose Network tab keeps `Config.ExposedPorts` as ["80/tcp"] and
+// `NetworkSettings.Ports` keyed "80/tcp" (its `Ports` is empty).
 export const containerPorts = (container) => {
   const ports = new Set();
-  ((container && container.Ports) || []).forEach((port) => {
-    const number = Number(port && port.PrivatePort);
-    if (port && (port.Type || 'tcp') === 'tcp' && Number.isInteger(number) && number > 0 && number <= 65535) {
+  const add = (number) => {
+    if (Number.isInteger(number) && number > 0 && number <= 65535) {
       ports.add(number);
     }
+  };
+  const keysOf = (holder) => (Array.isArray(holder) ? holder : Object.keys(holder || {}));
+  const list = container && container.Ports;
+  (Array.isArray(list) ? list : []).forEach((port) => {
+    if (port && typeof port === 'object' && (port.Type || 'tcp') === 'tcp') {
+      add(Number(port.PrivatePort));
+    }
   });
+  keysOf(container && container.Config && container.Config.ExposedPorts).forEach((key) => add(tcpPortOf(key)));
+  const published = container && container.NetworkSettings && container.NetworkSettings.Ports;
+  if (published && typeof published === 'object') {
+    keysOf(published).forEach((key) => add(tcpPortOf(key)));
+  }
   return [...ports].sort((a, b) => a - b);
+};
+
+// The port the URL form may put in now, or null to leave the field as it is.
+// A new URL takes the proposal while its port is empty, and again when the
+// proposal changes while the field still holds the form's earlier proposal
+// (`proposedBefore`: ports declared or typed on another tab arrived since).
+// A port the admin picked or typed is never replaced, nor is the port of a
+// URL that exists.
+export const portToPropose = ({ current, proposal, proposedBefore, isNew }) => {
+  const wanted = proposal && proposal.port ? Number(proposal.port) : null;
+  const now = String(current === undefined || current === null ? '' : current).trim();
+  if (!wanted) {
+    return null;
+  }
+  if (now === '') {
+    return wanted;
+  }
+  if (isNew && proposedBefore !== undefined && proposedBefore !== null && String(proposedBefore) === now && Number(now) !== wanted) {
+    return wanted;
+  }
+  return null;
 };
 
 const usualPortOf = (image, defaults) => {

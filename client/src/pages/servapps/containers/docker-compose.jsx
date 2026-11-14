@@ -39,9 +39,10 @@ import { FilePickerButton } from '../../../components/filePicker';
 import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_RESOURCES } from '../../../utils/permissions';
 import { ComposePortConflicts } from '../../../components/portConflicts'; // Fork addition
+import { convertCompose } from '../../../utils/composeImport'; // Fork addition
 // Fork addition: local address by default, external ones per attached domain
 import { keepOnBackdrop } from '../../../components/formHelpers'; // Fork addition
-import HostnameSuggestions, { DomainPicker, addressName, installerRouteHasAddress, localAddress, withExternalRoutes } from '../../../components/hostnameSuggestions';
+import HostnameSuggestions, { addressName, installerRouteHasAddress, localAddress, withExternalRoutes } from '../../../components/hostnameSuggestions';
 
 function checkIsOnline() {
   API.isOnline().then((res) => {
@@ -90,378 +91,20 @@ const cleanUpStore = (service) => {
   return newService;
 }
 
-const convertDockerCompose = (config, serviceName, dockerCompose, setYmlError) => {
-      let doc;
-
-      try {
-        doc = yaml.load(dockerCompose);
-
-        if (typeof doc === 'object' && doc !== null && Object.keys(doc).length > 0 &&
-          !doc.services && !doc.networks && !doc.volumes) {
-          doc = {
-            services: Object.assign({}, doc)
-          }
-        }
-
-        // convert to the proper format
-        if (doc.services) {
-          Object.keys(doc.services).forEach((key) => {
-            // convert volumes
-            if (doc.services[key].volumes) {
-              if (Array.isArray(doc.services[key].volumes)) {
-                let volumes = [];
-                doc.services[key].volumes.forEach((volume) => {
-                  if (typeof volume === 'object') {
-                    volumes.push(volume);
-                  } else {
-                    let volumeSplit = volume.split(':');
-                    let volumeObj = {
-                      source: volumeSplit[0],
-                      target: volumeSplit[1],
-                      type: (volume[0] === '/' || volume[0] === '.') ? 'bind' : 'volume',
-                    };
-                    volumes.push(volumeObj);
-                  }
-                });
-                doc.services[key].volumes = volumes;
-              }
-            }
-
-            if(doc.services[key].volumes)
-              Object.values(doc.services[key].volumes).forEach((volume) => {
-                if (volume.source && volume.source[0] === '.') {
-                  let defaultPath = (config && config.DockerConfig && config.DockerConfig.DefaultDataPath) || "/cosmos-storage"
-                  volume.source = defaultPath + volume.source.replace('.', '');
-                }
-              });
-
-            // convert expose
-            if (doc.services[key].expose) {
-              doc.services[key].expose = doc.services[key].expose.map((port) => {
-                return '' + port;
-              })
-            }
-
-            // convert ports
-            if (doc.services[key].ports && Array.isArray(doc.services[key].ports)) {
-              let ports = [];
-              doc.services[key].ports.forEach((port) => {
-                if (typeof port === 'string') {
-                  ports.push(port);
-                  return;
-                }
-                ports.push(`${port.published}:${port.target}/${port.protocol || 'tcp'}`);
-              });
-              doc.services[key].ports = ports;
-            }
-
-            //convert user
-            if (doc.services[key].user) {
-              doc.services[key].user = '' + doc.services[key].user;
-            }
-
-            // convert labels: 
-            if (doc.services[key].labels) {
-              if (Array.isArray(doc.services[key].labels)) {
-                let labels = {};
-                doc.services[key].labels.forEach((label) => {
-                  const [key, value] = label.split(/=(.*)/s);
-                  labels['' + key] = '' + value;
-                });
-                doc.services[key].labels = labels;
-              }
-              if (typeof doc.services[key].labels == 'object') {
-                let labels = {};
-                Object.keys(doc.services[key].labels).forEach((keylabel) => {
-                  labels['' + keylabel] = '' + doc.services[key].labels[keylabel];
-                });
-                doc.services[key].labels = labels;
-              }
-            }
-
-            // convert environment
-            if (doc.services[key].environment) {
-              if (!Array.isArray(doc.services[key].environment)) {
-                let environment = [];
-                Object.keys(doc.services[key].environment).forEach((keyenv) => {
-                  environment.push(keyenv + '=' + doc.services[key].environment[keyenv]);
-                });
-                doc.services[key].environment = environment;
-              }
-            }
-
-            // convert Sysctls array to map
-            if (doc.services[key].sysctls) {
-              if (Array.isArray(doc.services[key].sysctls)) {
-                let sysctls = {};
-                doc.services[key].sysctls.forEach((sysctl) => {
-                  sysctls['' + sysctl] = '';
-                });
-                doc.services[key].sysctls = sysctls;
-              }
-            }
-
-            // convert network
-            if (doc.services[key].networks) {
-              if (Array.isArray(doc.services[key].networks)) {
-                let networks = {};
-                doc.services[key].networks.forEach((network) => {
-                  if (typeof network === 'object') {
-                    networks['' + network.name] = network;
-                  }
-                  else
-                    networks['' + network] = {};
-                });
-                doc.services[key].networks = networks;
-              }
-            }
-
-            // convert devices
-            if (doc.services[key].devices) {
-              if (Array.isArray(doc.services[key].devices)) {
-                let devices = [];
-                doc.services[key].devices.forEach((device) => {
-                  if(device.indexOf(':') === -1) {
-                    devices.push(device + ':' + device);
-                  } else {
-                    devices.push(device);
-                  }
-                });
-                doc.services[key].devices = devices;
-              }
-            }
-
-            // convert command 
-            if (doc.services[key].command) {
-              if (typeof doc.services[key].command !== 'string') {
-                doc.services[key].command = doc.services[key].command.join(' ');
-              }
-            }
-
-            // convert DependsOn
-            if (doc.services[key].depends_on) {
-              if (Array.isArray(doc.services[key].depends_on)) {
-                let depends_on = {};
-                doc.services[key].depends_on.forEach((depend, index) => {
-                  if (typeof depend === 'object') {
-                    depends_on[index] = depend;
-                  } else {
-                    depends_on['' + depend] = {}; 
-                  }
-                });
-                doc.services[key].depends_on = depends_on;
-              }
-            }
-
-            // convert healthcheck
-            if (doc.services[key].healthcheck) {
-              const toConvert = ["timeout", "interval", "start_period"];
-              toConvert.forEach((valT) => {
-                if(typeof doc.services[key].healthcheck[valT] === 'string') {
-                  let original = doc.services[key].healthcheck[valT];
-                  let value = parseInt(original);
-                  if (original.endsWith('m')) {
-                    value = value * 60;
-                  } else if (original.endsWith('h')) {
-                    value = value * 60 * 60;
-                  } else if (original.endsWith('d')) {
-                    value = value * 60 * 60 * 24;
-                  }
-                  doc.services[key].healthcheck[valT] = value;
-                }
-              });
-            }
-
-            // ensure hostname
-            if (!doc.services[key].hostname) {
-              doc.services[key].hostname = key;
-            }
-            
-            // if service name is set, namespace the keys
-            if (serviceName) {
-              let newKey = serviceName + '-' + key;
-              doc.services[newKey] = doc.services[key];
-              doc.services[newKey].old_key = key;
-              delete doc.services[key];
-              key = newKey;
-            }
-
-            // ensure container_name
-            if (!doc.services[key].container_name) {
-              doc.services[key].container_name = key;
-            }
-          });
-
-          // ensure depends on names
-          Object.keys(doc.services).forEach((key) => {
-            if (doc.services[key].depends_on) {
-              Object.keys(doc.services[key].depends_on).forEach((depend) => {
-                Object.keys(doc.services).forEach((potentialMatch) => {
-                  if (doc.services[potentialMatch].old_key === depend) {
-                    let name = doc.services[potentialMatch].container_name || potentialMatch;
-                    doc.services[key].depends_on[name] = doc.services[key].depends_on[depend];
-                    if (name !== depend) {
-                      delete doc.services[key].depends_on[depend];
-                    }
-                  }
-                });
-              });
-            }
-          });
-
-          // ensure network mode names
-          Object.keys(doc.services).forEach((key) => {
-            if (doc.services[key].network_mode) {
-              if (doc.services[key].network_mode && (doc.services[key].network_mode.startsWith('service:') || doc.services[key].network_mode.startsWith('container:'))) {
-                let service = doc.services[key].network_mode.split(':')[1];
-                let found = false;
-                Object.keys(doc.services).forEach((potentialMatch) => {
-                  if (doc.services[potentialMatch].old_key === service) {
-                    found = true;
-                    doc.services[key].network_mode = 'container:' + (doc.services[potentialMatch].container_name || potentialMatch);
-                  }
-                });
-                if (!found) {
-                  doc.services[key].network_mode = 'container:NOT_FOUND';
-                }
-              }
-            }
-          });
-
-          // for each network mode that are container, add a label and remove hostname
-          Object.keys(doc.services).forEach((key) => {
-            if (doc.services[key].network_mode && (doc.services[key].network_mode.startsWith('service:') || doc.services[key].network_mode.startsWith('container:'))) {
-              doc.services[key].labels = doc.services[key].labels || {};
-              doc.services[key].labels['cosmos-force-network-mode'] = doc.services[key].network_mode;
-              
-              // remove hostname
-              if (doc.services[key].hostname) {
-                delete doc.services[key].hostname;
-              }
-            }
-          });
-          
-          // clean up old-keys
-          Object.keys(doc.services).forEach((key) => {
-            delete doc.services[key].old_key;
-          });
-        }
-
-        // convert networks
-        if (doc.networks) {
-          if (Array.isArray(doc.networks)) {
-            let networks = {};
-            doc.networks.forEach((network) => {
-              if (typeof network === 'object') {
-                networks['' + network.name] = network;
-              }
-              else
-                networks['' + network] = {};
-            });
-            doc.networks = networks;
-          } else {
-            let networks = {};
-            Object.keys(doc.networks).forEach((key) => {
-              networks['' + key] = doc.networks[key] || {};
-            });
-            doc.networks = networks;
-          }
-        }
-
-        // convert volumes
-        if (doc.volumes) {
-          if (Array.isArray(doc.volumes)) {
-            let volumes = {};
-            doc.volumes.forEach((volume) => {
-              if (!volume) {
-                volume = {};
-              }
-              if (typeof volume === 'object') {
-                volumes['' + volume.name] = volume;
-              }
-              else
-                volumes['' + volume] = {};
-            });
-            doc.volumes = volumes;
-          } else {
-            let volumes = {};
-            Object.keys(doc.volumes).forEach((key) => {
-              volumes['' + key] = doc.volumes[key] || {};
-            });
-            doc.volumes = volumes;
-          }
-        }
-
-        // create default network
-        let hasDefaultNetwork = false;
-        if (doc.services) {
-          Object.keys(doc.services).forEach((key) => {
-            if(!doc.services[key].network_mode) {
-              doc.services[key].network_mode = 'cosmos-' + serviceName + '-default';
-              hasDefaultNetwork = true;
-            }
-          });
-        }
-
-        if(hasDefaultNetwork) {
-          if(!doc.networks) {
-            doc.networks = {}
-          }
-          
-          doc.networks['cosmos-' + serviceName + '-default'] = {}
-        }
-
-        // stack up
-        if (doc.services && Object.keys(doc.services).length > 1) {
-          let hasMain = false;
-          Object.keys(doc.services).forEach((key) => {
-            if(!doc.services[key].labels) {
-              doc.services[key].labels = {};
-            }
-            if(!doc.services[key].labels['cosmos.stack'])
-              doc.services[key].labels['cosmos.stack'] = serviceName;
-            if(doc.services[key].labels['cosmos.stack.main'])
-              hasMain = true;
-          });
-
-          if(!hasMain) {
-            Object.keys(doc.services).forEach((key) => {
-              if(!hasMain) {
-                if(doc.services[key].labels['cosmos.stack'] == serviceName) {
-                  doc.services[key].labels['cosmos.stack.main'] = "true";
-                  hasMain = true;
-                }
-              }
-            });
-          }
-        }
-
-        // cosmos features
-        if (doc.services) {
-          Object.keys(doc.services).forEach((key) => {
-            if(doc.services[key]['x-routes']) {
-              doc.services[key].routes = doc.services[key]['x-routes'];
-              delete doc.services[key]['x-routes'];
-            }
-          });
-          
-          if(doc.services['x-post-install']) {
-            doc['cosmos-installer'] = doc.services['x-post-install'];
-            delete doc.services['x-post-install'];
-          }
-        }
-        
-        // enable market features
-        if (doc['x-cosmos-installer']) {
-          doc['cosmos-installer'] = doc['x-cosmos-installer'];
-          delete doc['x-cosmos-installer'];
-        }
-
-        return doc;
-      } catch (e) {
-        setYmlError(e.message);
-        return;
-      }
+// Fork addition: the conversion is utils/composeImport.js, which takes every compose form it knows and names
+// what it does not take (upstream's conversion broke a lone port and dropped unknown keys without a word).
+const convertDockerCompose = (config, serviceName, dockerCompose, setYmlError, setNotes) => {
+  try {
+    const result = convertCompose(yaml.load(dockerCompose), {
+      serviceName,
+      dataPath: (config && config.DockerConfig && config.DockerConfig.DefaultDataPath) || '/cosmos-storage',
+    });
+    setNotes && setNotes(result.notes);
+    return result.doc;
+  } catch (e) {
+    setYmlError(e.message);
+    return;
+  }
 }
 
 const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaultName }) => {
@@ -484,6 +127,8 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
   const [detectedEnvVars, setDetectedEnvVars] = useState([]);
   // Fork addition: domains attached to the app; each adds an external address per route
   const [domains, setDomains] = useState([]);
+  // Fork addition: what the imported file has that is not taken as written
+  const [notes, setNotes] = useState([]);
 
   // Extract ${VAR} patterns from docker compose
   const extractEnvVars = (compose) => {
@@ -638,8 +283,11 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
       let jsoned;
       if(isJson) {
         jsoned = JSON.parse(rendered);
+        setNotes([]); // Fork addition
       } else {
-        jsoned = convertDockerCompose(config, serviceName, rendered, setYmlError);
+        jsoned = convertDockerCompose(config, serviceName, rendered, setYmlError, (found) => { // Fork addition: the notes
+          if (JSON.stringify(found) !== JSON.stringify(notes)) setNotes(found);
+        });
       // Fork addition: not printed to the console: it holds the generated passwords
       }
       
@@ -1011,10 +659,6 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
                 })
               })}
 
-              {/* Fork addition: the internet (domains, Cloudflare or direct, ports) is proposed on the last step, see components/exposure.jsx */}
-              {Object.keys(hostnames).length > 0 && <Typography variant="caption" color="textSecondary" component="div">
-                {t('mgmt.expose.install.later', 'Reaching the app from the internet as well is proposed on the next step.')}
-              </Typography>}
 
               {service && service.services && Object.values(service.services).map((value) => {
                 return <CosmosCollapse title={t('mgmt.servApps.newContainer.customize', {container_name: value.container_name})}>
@@ -1086,6 +730,12 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
                 </CosmosCollapse>
               })}
 
+              {/* Fork addition: one screen, one confirmation: the review, the internet and Create follow the app's own fields */}
+              {service && service.services && <Stack spacing={2} data-installer-review>
+                <ComposePortConflicts service={service} />
+                <NewDockerService service={service} refresh={refresh} notes={notes}
+                  holdReason={hostnameErrors() ? t('mgmt.servapps.creation.holdAddress', 'Every address above needs a name, without spaces.') : ''} />
+              </Stack>}
             </>)}
           </Stack></>}
           
@@ -1096,7 +746,7 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
           {step === 1 && <Stack spacing={2}>
             {/* Fork addition: host ports of the definition that are already taken */}
             <ComposePortConflicts service={service} />
-            <NewDockerService service={service} refresh={refresh} />
+            <NewDockerService service={service} refresh={refresh} notes={notes} />
           </Stack>}
         </DialogContentText>
       </DialogContent>
@@ -1117,7 +767,7 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
           setHostnames({});
           setOverrides({});
         }}>{t('global.close')}</Button>
-        <Button disabled={!dockerCompose || ymlError || hostnameErrors()} onClick={() => {
+        {!(installer && step === 0) /* Fork addition: the installer's review is on the same screen */ && <Button disabled={!dockerCompose || ymlError || hostnameErrors()} onClick={() => {
           if (step === 0) {
             setStep(1);
           } else {
@@ -1126,7 +776,7 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
         }}>
           {step === 0 && t('global.next')}
           {step === 1 && t('global.backAction')}
-        </Button>
+        </Button>}
       </DialogActions>)}
     </Dialog>
 

@@ -8,6 +8,8 @@
 //   unticked).
 // - InstallExposure: the same choices while an app is being created, sent
 //   once its containers exist.
+// - RouteExposure: the same choices in the "New URL" dialog, for the app as it
+//   will be with the URL being made; the dialog sends them once it exists.
 import * as React from 'react';
 import {
   Alert, Button, Checkbox, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Stack,
@@ -24,8 +26,8 @@ import { RouterPortLinks, setRouterStatus, useCosmosPorts, useRouterStatus } fro
 import { installPorts, shownAddress } from '../utils/routerPorts';
 import { serverBack } from '../utils/appLinks';
 import {
-  accessSentence, choiceProblems, definitionPorts, exposureChanges, initialChoices, portPlan, text, throughSentence, webPlan,
-  withRoutes,
+  accessSentence, choiceProblems, definitionPorts, exposureChanges, initialChoices, portPlan, routeExposure, text, throughSentence,
+  webPlan, withRoutes,
 } from '../utils/exposure';
 
 const useSay = () => {
@@ -414,6 +416,64 @@ export const InstallExposure = ({ service, definition, done }) => {
         : t('mgmt.expose.install.failed', '{{name}} could not be set up for the internet: {{error}}', { name: r.name, error: r.message || '' })}
     </Alert>)}
   </Stack>;
+};
+
+// The internet choices of the "New URL" dialog (pages/servapps/exposeModal.jsx):
+// `container` is the app as Docker lists it, `route` the URL being made. The
+// choices are the dialog's (`value`, `onChange`); `onPlan({ changes, chosen,
+// blocked })` tells it what there is to send, every time that changes. The
+// dialog sends `changes` once the URL exists (sendExposure).
+export const RouteExposure = ({ config, containerName, image, route, container, value, onChange, onPlan, busy }) => {
+  const { t } = useTranslation();
+  const cloudflareState = useCloudflare();
+  const cloudflare = cloudflareState.data;
+  const router = useRouterStatus();
+  const cosmos = useCosmosPorts(config);
+  // the proposals need the domains' state: wait for its first answer
+  const ready = !!config && cloudflareState.at > 0;
+  const plan = ready ? routeExposure({ config, cloudflare, router, containerName, image, route, ports: containerPortsOf(container), value }) : null;
+  const summary = plan ? { changes: plan.changes, chosen: plan.chosen, blocked: plan.blocked } : { changes: { expose: null, withdraw: null }, chosen: false, blocked: false };
+  const key = JSON.stringify(summary);
+  React.useEffect(() => { onPlan && onPlan(summary); }, [key]);
+
+  const name = String(containerName || '').replace(/^\//, '');
+  return <Stack spacing={1.5} data-expose-route sx={{ minWidth: 0 }}>
+    <Typography variant="subtitle1"><GlobalOutlined /> {t('mgmt.expose.install.title', 'Reach it from the internet as well? (optional)')}</Typography>
+    <Typography variant="caption" color="textSecondary">
+      {t('mgmt.expose.newUrl.text', 'The URL above is created in any case. Tick what should also be reached from the internet: everything is proposed, nothing is opened without a tick.')}
+    </Typography>
+    {!plan && <Typography variant="body2">{t('mgmt.expose.loading', 'Looking at the app\'s ports and the domains…')}</Typography>}
+    {plan && <ExposureForm
+      name={name}
+      image={image}
+      web={plan.web}
+      ports={plan.ports}
+      value={plan.current}
+      onChange={onChange}
+      cloudflare={cloudflare}
+      problems={plan.problems}
+      busy={busy}
+      cosmos={cosmos}
+    />}
+    {plan && plan.chosen && !busy && <Alert severity="info">{t('mgmt.expose.newUrl.pending', 'What is ticked is set up once the URL is created.')}</Alert>}
+  </Stack>;
+};
+
+// Sends what RouteExposure chose, once the URL exists (the server has reloaded
+// and answers again): { ok, message }. Withdrawals first, as the Internet
+// dialog does.
+export const sendExposure = async (changes) => {
+  let reloaded = false;
+  for (const body of [changes && changes.withdraw, changes && changes.expose].filter(Boolean)) {
+    const res = await API.config.expose(body);
+    if (!res.ok) {
+      await afterChange(reloaded);
+      return { ok: false, message: res.message || '' };
+    }
+    reloaded = reloaded || !!(res.data && res.data.reloaded);
+  }
+  await afterChange(reloaded);
+  return { ok: true, message: '' };
 };
 
 // The chip that opens the dialog, beside an app's URLs.

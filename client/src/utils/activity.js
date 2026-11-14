@@ -6,6 +6,7 @@
 import i18n from 'i18next';
 import { watchForRefusal } from './sudoPrompt';
 import { ERROR_PAGE_MESSAGE, NO_ANSWER_MESSAGE, plainFailure } from './serverAnswer';
+import { commandLabel as leftoverCommand } from './leftovers'; // Fork addition: containers left by an interrupted change
 
 // Translated when the translations are loaded, the English text otherwise.
 const tr = (key, text, vars) => {
@@ -53,6 +54,7 @@ const IGNORED = [
   /^\/api\/(login|logout|sudo|mfa|register|password-reset|me|status|newInstall|setup-join)\b/,
   /^\/api\/config\/email-detect\b/, // a lookup for the email form, which shows what was found itself
   /^\/api\/config\/http-check\b/, // Fork addition: the HTTP settings form shows what the check found itself
+  /^\/api\/install\/plan\b/, // Fork addition: a lookup for the installation's review, which shows what was found itself
   /^\/api\/(metrics|events|notifications|list-dir|dns-check|_logs|_memory)\b/,
   /^\/api\/jobs\/(get|running)\b/,
   /^\/api\/(config\/test-email|upnp|server-update|force-server-update)\b/,
@@ -78,6 +80,7 @@ const COMMANDS = [
   [null, /^\/api\/servapps\/([^/]+)\/lazy\//, (m) => ['activity.container.lazy', 'Change start-on-demand for {{name}}', { name: decode(m[1]) }]],
   ['POST', /^\/api\/servapps\/([^/]+)\/update$/, (m) => ['activity.container.settings', 'Save the settings of {{name}}', { name: decode(m[1]) }]],
   [null, /^\/api\/servapps\/([^/]+)\/network/, whenChanging((m) => ['activity.container.networks', 'Change the networks of {{name}}', { name: decode(m[1]) }])],
+  ['POST', /^\/api\/servapps-leftovers$/, (m, method, body) => leftoverCommand(body)], // which one is in the body
   ['POST', /^\/api\/docker-service$/, () => ['activity.install', 'Install the application']],
   ['POST', /^\/api\/servapps\/?$/, () => ['activity.container.create', 'Create the container']],
   ['DELETE', /^\/api\/servapps\//, () => ['activity.container.delete', 'Delete the application']],
@@ -164,7 +167,7 @@ const COMMANDS = [
 
 // describe returns the plain-words name of a command, or null for a request
 // that is not followed.
-export const describe = (url, method) => {
+export const describe = (url, method, body) => {
   const path = String(url || '').replace(/^https?:\/\/[^/]+/, '').split('?')[0];
   const m = path.match(/^\/cosmos(\/(?:api|rclone)\/.*)$/);
   if (!m) {
@@ -179,7 +182,7 @@ export const describe = (url, method) => {
     if (commandMethod && commandMethod !== method) continue;
     const match = rest.match(re);
     if (match) {
-      const found = label(match, method);
+      const found = label(match, method, body);
       return found ? tr(found[0], found[1], found[2]) : null;
     }
   }
@@ -346,7 +349,7 @@ export const trackFetch = (url, options, promise) => {
   watchForRefusal(options, promise);
   try {
     const method = String((options && options.method) || 'GET').toUpperCase();
-    const label = describe(url, method);
+    const label = describe(url, method, options && options.body);
     if (!label) {
       return promise;
     }
