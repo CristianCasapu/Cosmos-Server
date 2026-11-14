@@ -597,21 +597,59 @@ func main() {
 	expect(!handshake("app.example.net", roots).trusted, "it is answered with the self-signed certificate")
 
 	// ---- 8. renewal when due
-	fmt.Println("== 8. renewal by itself when due")
+	fmt.Println("== 8. renewal by itself when due, by the lifetime")
 	cert = certOf(certStatus(), "example.org")
 	note("example.org: valid until", text(cert, "notAfter"), "- renewal planned", text(cert, "renewAt"), "by", cert["renewSource"])
+	expect(cert["renewSource"] == "lifetime", "the panel: the renewal is planned by the lifetime", cert["renewSource"])
 	current := handshake("app1.example.org", roots)
-	fakeCalls(true)
+	seenAt := time.Time{}
 	changed := until("the certificate of example.org is replaced before it ends", int(validity/time.Second), func() bool {
 		now := handshake("app1.example.org", roots)
+		seenAt = time.Now()
 		return now.trusted && now.serial != current.serial
 	})
 	after := handshake("app1.example.org", roots)
 	expect(changed && after.until.After(current.until), "a new certificate with a later end is served, without a restart", after.until.Sub(current.until).Round(time.Second))
 	expect(time.Now().Before(current.until), "before the old one ended", time.Until(current.until).Round(time.Second), "left")
-	expect(time.Since(current.from) > validity/3, "and not right after it was issued", time.Since(current.from).Round(time.Second), "old")
+	planned, _ := time.Parse(time.RFC3339Nano, text(cert, "renewAt"))
+	expect(!planned.IsZero() && seenAt.After(planned.Add(-2*time.Second)) && seenAt.Sub(current.from) > validity/3,
+		"not before the announced moment, with a third of the lifetime left", seenAt.Sub(current.from).Round(time.Second), "old")
 	cert = certOf(certStatus(), "example.org")
 	expect(at(cert, "last", "ok") == true && names(cert) == "*.example.org a.b.example.org c.d.example.org example.org", "the panel: renewed, same names", names(cert))
+
+	// ---- 9. the CA's renewal window (RFC 9773)
+	fmt.Println("== 9. the CA's renewal window")
+	// Until here the windows were not asked for: Pebble's spans the whole
+	// lifetime of its four-minute certificates, so the moment drawn from it
+	// can fall right after an order, and the parts above could not say when
+	// an order is expected. From this start on they are asked for.
+	heldCom := handshake("app.example.com", roots)
+	if err := os.WriteFile("/shared/app.env", []byte("FORK_ACME_TEST_NO_ARI=0\n"), 0644); err != nil {
+		expect(false, "the test server's settings can be changed", err)
+	}
+	restartProcess()
+	inWindow := func(cert object) bool {
+		from, _ := time.Parse(time.RFC3339Nano, text(cert, "notBefore"))
+		to, _ := time.Parse(time.RFC3339Nano, text(cert, "notAfter"))
+		at, _ := time.Parse(time.RFC3339Nano, text(cert, "renewAt"))
+		return cert["renewSource"] == "ca" && !at.Before(from) && !at.After(to)
+	}
+	known := until("the panel plans the renewals by the CA's windows", 60, func() bool {
+		status := certStatus()
+		return inWindow(certOf(status, "example.org")) && inWindow(certOf(status, "example.com"))
+	})
+	expect(known, "the panel: both renewals are planned at a moment inside the CA's window")
+	org := certOf(certStatus(), "example.org")
+	note("example.org:", text(org, "renewAt"), "wait:", org["wait"], "renew now:", org["canRenew"], org["renewBlocked"])
+	if text(org, "wait", "reason") == "sameNames" {
+		expect(org["canRenew"] == false && org["renewBlocked"] == "sameNames",
+			"example.org had three certificates for the same names in this run: nothing orders a fourth, not even \"Renew now\"")
+	}
+	windowed := until("example.com is renewed before it ends", int(validity/time.Second)+30, func() bool {
+		now := handshake("app.example.com", roots)
+		return now.trusted && now.serial != heldCom.serial
+	})
+	expect(windowed && time.Now().Before(heldCom.until), "example.com is renewed before its certificate ends", time.Until(heldCom.until).Round(time.Second), "left")
 
 	fmt.Println()
 	if len(failures) > 0 {

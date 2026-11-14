@@ -13,7 +13,8 @@
 # (HTTPS stays up with the previous certificate, the reason is told, the wait
 # survives a restart), "Renew now", a domain at another DNS provider through
 # a delegated challenge, a name that would need HTTP-01 (no order), and a
-# renewal by itself when due (Pebble is told to issue for four minutes).
+# renewal by itself when due (Pebble is told to issue for four minutes), and
+# the renewals planned by the CA's renewal windows once they are asked for.
 #
 # How the test server is pointed at Pebble: FORK_ACME_TEST_DIRECTORY together
 # with FORK_ACME_TEST_CA (src/certs/ca.go). Nothing else differs from a
@@ -127,13 +128,17 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
 done
 check roots
 
+# read by the test server at each start: the checks switch the CA's renewal
+# windows on for the last part only (src/certs/ca.go, FORK_ACME_TEST_NO_ARI)
+echo "FORK_ACME_TEST_NO_ARI=1" > "$SCRATCH/shared/app.env"
+
 echo "== the test server"
 docker run -d --name "$PREFIX-app" --network "$NET" --ip "$SUBNET.10" --dns "$SUBNET.2" \
 	-v "$SCRATCH/bin:/work:ro" -v "$SCRATCH/shared:/shared:ro" -v "$SCRATCH/config:/config" -w /work \
 	-e COSMOS_CONFIG_FOLDER=/config/ -e COSMOS_HTTP_PORT=2052 -e COSMOS_HTTPS_PORT=2053 \
 	-e SSL_CERT_FILE=/shared/roots.pem \
 	-e FORK_ACME_TEST_DIRECTORY=https://pebble:14000/dir -e FORK_ACME_TEST_CA=/shared/pebble.minica.pem -e FORK_ACME_TEST_TICK=5 \
-	"$GO_IMAGE" sh -c 'while true; do /work/cosmos; sleep 1; done' >/dev/null
+	"$GO_IMAGE" sh -c 'while true; do set -a; . /shared/app.env; set +a; /work/cosmos; sleep 1; done' >/dev/null
 
 result=0
 check run || result=$?

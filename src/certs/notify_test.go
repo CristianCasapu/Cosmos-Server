@@ -232,4 +232,19 @@ func TestTheRenewalWindowOfTheCAIsAskedSparingly(t *testing.T) {
 	if moment, source := renewMoment(leaf, store.get("zone:example.org").ARI); source != "ca" || !moment.Equal(pick) {
 		t.Errorf("the renewal follows the CA: %v by %s", moment, source)
 	}
+
+	// the switch of the end-to-end test does nothing without a test authority
+	t.Setenv(envTestNoARI, "1")
+	env.now = t0.Add(40 * time.Hour)
+	refreshRenewalInfo(utils.GetMainConfig(), env.now)
+	if asked != 4 {
+		t.Errorf("%s=1 changed a server without a test authority: asked %d times", envTestNoARI, asked)
+	}
+	// and with one, the CA is not asked
+	testCA = &CA{Kind: "test", Name: "Test authority", Directory: Current().Directory}
+	env.now = t0.Add(80 * time.Hour)
+	refreshRenewalInfo(utils.GetMainConfig(), env.now)
+	if asked != 4 {
+		t.Errorf("with %s=1 and a test authority the CA was asked", envTestNoARI)
+	}
 }

@@ -32,6 +32,11 @@ const (
 	envTestDirectory = "FORK_ACME_TEST_DIRECTORY"
 	envTestCA        = "FORK_ACME_TEST_CA"
 	envTestTick      = "FORK_ACME_TEST_TICK"
+	// envTestNoARI=1 leaves the CA's renewal windows unasked, with a test
+	// authority only: Pebble's window spans a certificate's whole lifetime,
+	// so the moment drawn from it may fall right after an order, and the
+	// end-to-end test could not say when an order is expected.
+	envTestNoARI = "FORK_ACME_TEST_NO_ARI"
 )
 
 // CA is a certificate authority orders go to.

@@ -132,6 +132,9 @@ var renewalInfo = func(ctx context.Context, ca CA, email string, leaf *x509.Cert
 // exists yet: asking must never be what registers one.
 func refreshRenewalInfo(config utils.Config, now time.Time) {
 	ca := Current()
+	if testCA != nil && os.Getenv(envTestNoARI) == "1" {
+		return
+	}
 	if loadAccount(ca) == nil {
 		return
 	}
