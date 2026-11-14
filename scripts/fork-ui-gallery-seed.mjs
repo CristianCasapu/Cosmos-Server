@@ -104,9 +104,16 @@ if (changed) {
 
 // --- a second user who finished the invitation, a third who did not
 const users = ((await call('GET', 'users')).body.data || []).map((u) => u.nickname || u.Nickname);
-for (const [nickname, email, register] of [['maria', 'maria@example.org', true], ['bunica', 'bunica@example.org', false]]) {
+// (with the admin, five: the most a server without a licence takes; the longest nickname the server
+// accepts is 32 letters, and a second administrator)
+for (const [nickname, email, register, role] of [
+  ['maria', 'maria@example.org', true],
+  ['bunica', 'bunica@example.org', false],
+  ['alexandruconstantinescu2026home', 'alexandru.constantinescu.family.archive@example.org', true],
+  ['ops', 'ops@example.org', true, 2],
+]) {
   if (users.includes(nickname)) continue;
-  const made = await call('POST', 'users', { nickname, email });
+  const made = await call('POST', 'users', { nickname, email, ...(role !== undefined ? { role } : {}) });
   const key = made.body && made.body.data && (made.body.data.registerKey || made.body.data.RegisterKey);
   note('user', nickname, made.status, key ? 'invited' : JSON.stringify(made.body).slice(0, 200));
   if (register && key) {
