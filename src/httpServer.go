@@ -658,7 +658,7 @@ func tokenMiddleware(next http.Handler) http.Handler {
 				return
 			}
 
-			utils.TriggerEvent(
+			proxy.SampledEvent( // Fork addition: one row per minute and token, see proxy/fork_event_sample.go (upstream: utils.TriggerEvent)
 				"cosmos.api.token.used",
 				"API Token used",
 				"info",
