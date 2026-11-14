@@ -658,6 +658,12 @@ func tokenMiddleware(next http.Handler) http.Handler {
 				return
 			}
 
+			// Fork addition: at most what the owner's role holds now, and no token of an owner who is gone, see fork_token_owner.go
+			tokenPermissions, ownerOK := tokenPermissionsNow(w, r, matchedName, matchedToken)
+			if !ownerOK {
+				return
+			}
+
 			utils.TriggerEvent(
 				"cosmos.api.token.used",
 				"API Token used",
@@ -680,7 +686,7 @@ func tokenMiddleware(next http.Handler) http.Handler {
 				APIToken: &utils.APITokenContext{
 					Name:        matchedName,
 					Owner:       matchedToken.Owner,
-					Permissions: matchedToken.Permissions,
+					Permissions: tokenPermissions, // Fork addition: was matchedToken.Permissions
 				},
 			})
 			r = r.WithContext(ctx)
