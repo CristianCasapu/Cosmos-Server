@@ -322,6 +322,10 @@ test('the home page: an alert names the domain, what is wrong and what to do, an
   assert.match(alerts(status(acme({ expired: true, warn: true, notAfter: days(-1) })))[0], /^error example\.org: example\.org: its certificate ended on 2026-11-13 12:00.*\| Press "Renew now"/);
   assert.match(alerts(status(acme({ warn: true, notAfter: days(6), last: { ok: false, code: 'dnsPropagation' } })))[0],
     /^warning example\.org: example\.org: its certificate ends on 2026-11-20 12:00 and could not be renewed yet\. The record was created.*\| Check at your registrar/);
+  assert.match(alerts(status(acme({ expired: true, notAfter: days(-1), wait: { reason: 'sameNames', until: days(2) } })))[0], /browsers refuse it\. \| Three certificates were issued/);
+  // nothing failed, but a bound holds the renewal back: that is what is said
+  assert.match(alerts(status(acme({ warn: true, notAfter: days(6), wait: { reason: 'sameNames', until: days(2) } })))[0],
+    /could not be renewed yet\. \| Three certificates were issued for exactly these names in a week .*2026-11-16 12:00/);
   assert.match(alerts(status(acme({ trust: 'private', issuer: 'Somebody' })))[0], /^warning example\.org: example\.org: its certificate \(Somebody\) is not one browsers trust/);
   assert.match(alerts(status(acme({ uncovered: ['a.b.example.org'] })))[0], /does not cover a\.b\.example\.org.*within half an hour/);
   // a failure that does not heal is told while the certificate is still valid

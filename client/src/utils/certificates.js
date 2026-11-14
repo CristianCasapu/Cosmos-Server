@@ -423,7 +423,7 @@ export const homeAlerts = (status, format) => {
     }
     if (cert.expired) {
       push('error', [s('mgmt.certs.home.expired', '{{domain}}: its certificate ended on {{date}}, and browsers refuse it.', { domain, date: format(cert.notAfter) }), failed && failed.what],
-        failed ? failed.todo : s('mgmt.certs.home.expiredTodo', 'Press "Renew now" under Configuration > Domains > Certificates.'));
+        failed ? failed.todo : (waitSentence(cert.wait, format) || s('mgmt.certs.home.expiredTodo', 'Press "Renew now" under Configuration > Domains > Certificates.')));
       continue;
     }
     if (cert.trust !== 'public' && !ca) {
@@ -433,7 +433,7 @@ export const homeAlerts = (status, format) => {
     }
     if (cert.warn) {
       push('warning', [s('mgmt.certs.home.late', '{{domain}}: its certificate ends on {{date}} and could not be renewed yet.', { domain, date: format(cert.notAfter) }), failed && failed.what],
-        failed ? failed.todo : s('mgmt.certs.home.lateTodo', 'Cosmos keeps trying by itself; Configuration > Domains > Certificates shows how it goes.'));
+        failed ? failed.todo : (waitSentence(cert.wait, format) || s('mgmt.certs.home.lateTodo', 'Cosmos keeps trying by itself; Configuration > Domains > Certificates shows how it goes.')));
       continue;
     }
     if (failed && LASTING_FAILURES.includes(cert.last.code)) {

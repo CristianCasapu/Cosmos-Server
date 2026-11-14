@@ -18,6 +18,7 @@ import {
   DialogTitle,
   Divider,
   IconButton,
+  Link,
   Stack,
   Tooltip,
   Typography,
@@ -49,7 +50,7 @@ import {
   renewBlockedSentence, validitySentences, waitSentence, waysFor, zoneToSave,
 } from '../utils/certificates';
 import { FIX_LINKS } from '../utils/reachability';
-import { Link } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router-dom';
 
 // --- one status for the page, shared by the card and the dialogs
 let store = { data: null, loading: false, failed: false };
@@ -222,7 +223,8 @@ const DomainCertificate = ({ cert, hosts, now, onRenew, busy, notice }) => {
             </LoadingButton>
           </span>
         </Tooltip>
-        {!cert.canRenew && blocked && <Typography variant="caption" color="textSecondary" sx={wrap}>{tr(blocked)}</Typography>}
+        {/* the same reason as the wait above is not said twice */}
+        {!cert.canRenew && blocked && !(cert.wait && cert.wait.reason === cert.renewBlocked) && <Typography variant="caption" color="textSecondary" sx={wrap}>{tr(blocked)}</Typography>}
       </Stack>
     </PermissionGuard>}
   </Stack>;
@@ -606,7 +608,7 @@ export const CertificateAlerts = () => {
       <Stack spacing={0.5}>
         <Typography variant="body2" sx={wrap}>{alert.what.map(tr).join(' ')}</Typography>
         {alert.todo && <Typography variant="body2" sx={wrap}>{tr(alert.todo)}</Typography>}
-        <Typography variant="body2"><Link to={FIX_LINKS.domains()}>{t('mgmt.certs.home.open', 'Open the certificates')}</Link></Typography>
+        <Typography variant="body2"><Link component={RouterLink} to={FIX_LINKS.domains()}>{t('mgmt.certs.home.open', 'Open the certificates')}</Link></Typography>
       </Stack>
     </Alert>)}
   </>;
