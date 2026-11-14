@@ -22,7 +22,7 @@ import { FilePickerButton } from '../../components/filePicker';
 import PermissionGuard from '../../components/permissionGuard';
 import { PERM_ADMIN, PERM_CREDENTIALS_READ } from '../../utils/permissions';
 import { useClientInfos } from '../../utils/hooks';
-import EmailTest from './emailTest';
+import EmailSettings from './emailSettings'; // Fork addition: the email settings, rebuilt
 import ServerUpdate from '../../components/serverUpdate';
 import Snapshots from './snapshots'; // fork addition
 import Telegram from './telegram'; // fork addition
@@ -369,74 +369,8 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
 
       <MainCard title="Emails - SMTP">
         <Stack spacing={2}>
-          <Alert severity="info">{t('mgmt.config.email.inbobox.label')}.</Alert>
-
-          <CosmosCheckbox
-            label={t('mgmt.config.email.enableCheckbox.enableLabel')}
-            name="Email_Enabled"
-            formik={formik}
-          />
-
-          {formik.values.Email_Enabled && (<>
-            <CosmosInputText
-              label="SMTP Host"
-              name="Email_Host"
-              formik={formik}
-              helperText="SMTP Host"
-            />
-
-            <CosmosInputText
-              label="SMTP Port"
-              name="Email_Port"
-              formik={formik}
-              helperText="SMTP Port"
-            />
-
-            <CosmosInputText
-              label={t('mgmt.config.email.usernameInput.usernameLabel')}
-              name="Email_Username"
-              formik={formik}
-              helperText={t('mgmt.config.email.usernameInput.usernameHelperText')}
-            />
-
-            <CosmosInputPassword
-              label={t('mgmt.config.email.passwordInput.passwordLabel')}
-              name="Email_Password"
-              autoComplete='new-password'
-              formik={formik}
-              helperText={t('mgmt.config.email.passwordInput.passwordHelperText')}
-              noStrength
-            />
-
-            <CosmosInputText
-              label={t('mgmt.config.email.senderInput.senderLabel')}
-              name="Email_From"
-              formik={formik}
-              helperText={t('mgmt.config.email.senderInput.senderHelperText')}
-            />
-
-            <CosmosCheckbox
-              label={t('mgmt.config.email.tlsCheckbox.tlsLabel')}
-              name="Email_UseTLS"
-              formik={formik}
-            />
-
-            {formik.values.Email_UseTLS && (
-              <CosmosCheckbox
-                label={t('mgmt.config.email.selfSignedCheckbox.SelfSignedLabel')}
-                name="Email_AllowInsecureTLS"
-                formik={formik}
-              />
-            )}
-
-            <CosmosCheckbox
-              label={t('mgmt.config.email.notifyLoginCheckbox.notifyLoginLabel')}
-              name="Email_NotifyLogin"
-              formik={formik}
-            />
-
-            <EmailTest formik={formik} />
-          </>)}
+          {/* Fork addition: the card's content is emailSettings.jsx: address and password, proposed server settings, a check before saving */}
+          <EmailSettings formik={formik} config={config} />
         </Stack>
       </MainCard>
     </Stack>

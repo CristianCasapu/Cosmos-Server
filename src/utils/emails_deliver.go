@@ -5,7 +5,6 @@ package utils
 
 import (
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"net"
 	"net/smtp"
@@ -27,6 +26,8 @@ type EmailStep struct {
 	Name   string `json:"name"`
 	OK     bool   `json:"ok"`
 	Detail string `json:"detail,omitempty"`
+	// Code names the reason of a failed step with a fixed word, see fork_email_failure.go.
+	Code string `json:"code,omitempty"`
 }
 
 // usesImplicitTLS reports whether the connection must be encrypted from the
@@ -43,7 +44,7 @@ func DeliverEmail(cfg EmailConfig, from string, to []string, msg []byte) ([]Emai
 		steps = append(steps, EmailStep{Name: name, OK: true, Detail: detail})
 	}
 	fail := func(name string, err error) ([]EmailStep, error) {
-		steps = append(steps, EmailStep{Name: name, OK: false, Detail: err.Error()})
+		steps = append(steps, EmailStep{Name: name, OK: false, Detail: err.Error(), Code: emailFailureCode(name, err, cfg)})
 		return steps, err
 	}
 
@@ -84,7 +85,7 @@ func DeliverEmail(cfg EmailConfig, from string, to []string, msg []byte) ([]Emai
 	if cfg.UseTLS {
 		if !implicitTLS {
 			if ok, _ := c.Extension("STARTTLS"); !ok {
-				return fail("tls", errors.New("the server does not offer STARTTLS on this port"))
+				return fail("tls", errNoStartTLS)
 			}
 			if err = c.StartTLS(tlsConfig); err != nil {
 				return fail("tls", err)
@@ -104,17 +105,23 @@ func DeliverEmail(cfg EmailConfig, from string, to []string, msg []byte) ([]Emai
 	}
 
 	if cfg.Username != "" || cfg.Password != "" {
-		auth := smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
+		// PLAIN, or LOGIN for servers that offer nothing else, see fork_email_auth.go
+		auth, err := chooseEmailAuth(c, cfg)
+		if err != nil {
+			return fail("auth", err)
+		}
 		if err = c.Auth(auth); err != nil {
 			return fail("auth", err)
 		}
 		pass("auth", cfg.Username)
 	}
 
-	if err = c.Mail(from); err != nil {
+	// the sender may be "Name <address>": the envelope takes the address
+	envelope, _ := EmailSender(from)
+	if err = c.Mail(envelope); err != nil {
 		return fail("sender", err)
 	}
-	pass("sender", from)
+	pass("sender", envelope)
 
 	for _, rcpt := range to {
 		if err = c.Rcpt(rcpt); err != nil {
@@ -143,9 +150,10 @@ func DeliverEmail(cfg EmailConfig, from string, to []string, msg []byte) ([]Emai
 // BuildEmailMessage renders the standard Cosmos email around body.
 func BuildEmailMessage(from string, recipients []string, subject string, body string) []byte {
 	serverURL := GetServerURL("")
+	_, sender := EmailSender(from)
 	return []byte(fmt.Sprintf(
 		Template,
-		from,
+		sender,
 		strings.Join(recipients, ","),
 		subject,
 		serverURL+"logo",
