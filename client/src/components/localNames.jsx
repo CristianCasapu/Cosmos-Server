@@ -212,29 +212,25 @@ export const LocalNamesSettings = ({ formik }) => {
   const state = summary(status);
 
   return <Stack spacing={1.5} sx={{ mt: 1.5 }}>
-    {status && <Alert
-      severity={state ? state.level : 'info'}
-      sx={{ overflowWrap: 'anywhere', '& .MuiAlert-message': { minWidth: 0 }, '& .MuiAlert-action': { alignItems: 'flex-start', pt: 0.5 } }}
-      action={status.enabled && status.avahi === 'running' && <LoadingButton color="inherit" size="small" variant="outlined" loading={checking} startIcon={<ReloadOutlined />} onClick={check} sx={{ whiteSpace: 'nowrap' }}>
-        {t('mgmt.localNames.checkAgain', 'Check again')}
-      </LoadingButton>}
-    >
-      <Stack spacing={0.5}>
+    {status && <Alert severity={state ? state.level : 'info'} sx={{ overflowWrap: 'anywhere', '& .MuiAlert-message': { minWidth: 0 } }}>
+      <Stack spacing={0.5} alignItems="flex-start">
         <span>{say(t, state && state.text)}</span>
         {status.hostName && <span>{t('mgmt.localNames.hostNameIs', 'Avahi\'s name for this server: {{name}}.', { name: status.hostName })}</span>}
         {problems.map((text) => <span key={text}>{text}</span>)}
         {status.checkedAt && !String(status.checkedAt).startsWith('0001') && <span>{t('mgmt.localNames.checkedAt', 'Asked on the network at {{time}}.', { time: new Date(status.checkedAt).toLocaleTimeString() })}</span>}
+        {status.enabled && status.avahi === 'running' && <LoadingButton color="inherit" size="small" variant="outlined" loading={checking} startIcon={<ReloadOutlined />} onClick={check} sx={{ mt: 0.5 }}>
+          {t('mgmt.localNames.checkAgain', 'Check again')}
+        </LoadingButton>}
       </Stack>
     </Alert>}
     {advice && <Alert severity="info" sx={{ overflowWrap: 'anywhere', '& .MuiAlert-message': { minWidth: 0 } }}>{say(t, advice)}</Alert>}
     <CosmosInputText
-      label={t('mgmt.localNames.interfaces', 'Network interfaces to publish on (empty: the ones facing the local network, chosen automatically)')}
+      label={t('mgmt.localNames.interfaces', 'Network interfaces for the .local names')}
       name="MDNSInterfaces"
-      placeholder="eno1"
       formik={formik}
     />
     <Typography variant="caption" color="textSecondary">
-      {t('mgmt.localNames.interfacesHelp', 'Names as the server spells them, separated by commas (for example eno1, wlan0). Docker\'s networks, VPNs and Tailscale are never chosen automatically.')}
+      {t('mgmt.localNames.interfacesHelp', 'Leave empty to use the interfaces facing the local network, chosen automatically (Docker\'s networks, VPNs and Tailscale never are). Otherwise names as the server spells them, separated by commas (for example eno1, wlan0).')}
     </Typography>
     <LocalNamesNote status={status} />
   </Stack>;

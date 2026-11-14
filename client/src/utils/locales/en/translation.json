@@ -4024,8 +4024,6 @@
 	"mgmt.localNames.checkAgain": "Check again",
 	"mgmt.localNames.hostNameIs": "Avahi's name for this server: {{name}}.",
 	"mgmt.localNames.checkedAt": "Asked on the network at {{time}}.",
-	"mgmt.localNames.interfaces": "Network interfaces to publish on (empty: the ones facing the local network, chosen automatically)",
-	"mgmt.localNames.interfacesHelp": "Names as the server spells them, separated by commas (for example eno1, wlan0). Docker's networks, VPNs and Tailscale are never chosen automatically.",
 	"mgmt.localNames.off": "Cosmos does not publish .local names (Configuration > HTTP, \"Publish .local domains\"): such a name only works where a DNS entry points it at the server.",
 	"mgmt.localNames.absent": "Avahi is not running on the server, so no device can resolve .local names. Install and start it (Debian, Ubuntu: apt install avahi-daemon).",
 	"mgmt.localNames.noInterface": "No network interface facing the local network was found, so the names are not published. Name the interface in Configuration > HTTP.",
@@ -4053,5 +4051,7 @@
 	"mgmt.localNames.device.linux": "Linux: yes with Avahi and nss-mdns (most desktop distributions). Not with systemd-resolved alone, whose mDNS is off unless switched on.",
 	"mgmt.localNames.device.old": "Android 11 and older, most smart TVs, consoles and many apps: no.",
 	"mgmt.localNames.device.remote": "Away from home (Tailscale, VPN, mobile data): no, the names stay on the local network.",
-	"activity.localNames.check": "Check the local names on the network"
+	"activity.localNames.check": "Check the local names on the network",
+	"mgmt.localNames.interfaces": "Network interfaces for the .local names",
+	"mgmt.localNames.interfacesHelp": "Leave empty to use the interfaces facing the local network, chosen automatically (Docker's networks, VPNs and Tailscale never are). Otherwise names as the server spells them, separated by commas (for example eno1, wlan0)."
 }
