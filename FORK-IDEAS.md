@@ -11,10 +11,10 @@ upstream 0.23.4 unless noted and may have moved.
    Setup tab (simple view), the new-container form and the market installer
    (addresses), users, scheduled jobs, the email settings, the Cloudflare
    set-up (see `FORK.md`; the principles are kept with the owner's plans).
-   Still to go through the same way, in this order: **the HTTP settings**
-   (geo-blocking's "Reset to default" blocks Romania along with fifteen
-   other countries: a lock-out trap; ports and the admin whitelist need a
-   check before saving), the URL Security tab (one "protection" choice in
+   Still to go through the same way, in this order: the HTTP settings
+   (ports and the admin whitelist need a check before saving; the
+   geo-blocking default no longer holds the admin's own country), the URL
+   Security tab (one "protection" choice in
    place of six numbers), the container wizard (it silently drops User, the
    limits and the network mode; an existing name replaces the app; a port
    without ":" crashes the create handler), storage (`mkfs` reports success

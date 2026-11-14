@@ -17,8 +17,10 @@ import { isDomain } from '../../utils/indexs';
 import { Trans, useTranslation } from 'react-i18next';
 import InternetAccess from './internetAccess';
 import { PaidOnly } from '../../components/paidVisibility'; // Fork addition
+import { ownCountries, safeDefaultBlocked } from '../../utils/geoDefaults'; // Fork addition
 
 const ConfigHTTP = ({ formik }) => {
+  const [geoLeftOut, setGeoLeftOut] = React.useState(null); // Fork addition: what the default country list left out
   const { t } = useTranslation();
 
   return (
@@ -156,9 +158,22 @@ const ConfigHTTP = ({ formik }) => {
 
           <Grid item xs={12}>
             <Button onClick={() => {
-              formik.setFieldValue("GeoBlocking", ["CN","RU","TR","BR","BD","IN","NP","PK","LK","VN","ID","IR","IQ","EG","AF","RO",])
+              // Fork addition: the default list without the country the admin or the server is in (utils/geoDefaults.js); upstream's list blocks sixteen countries, the admin's own included
+              const { list, leftOut } = safeDefaultBlocked(ownCountries({
+                serverCountry: formik.values.ServerCountry,
+                zones: [Intl.DateTimeFormat().resolvedOptions().timeZone, formik.values.Timezone],
+                languages: navigator.languages,
+              }));
+              formik.setFieldValue("GeoBlocking", list)
               formik.setFieldValue("CountryBlacklistIsWhitelist", false)
+              setGeoLeftOut(leftOut);
             }} variant="outlined">{t('mgmt.config.security.geoblock.resetToDefaultButton')}</Button>
+            {/* Fork addition: say which country was left out, and that the list is the admin's to check */}
+            {geoLeftOut && <FormHelperText>
+              {geoLeftOut.length > 0
+                ? t('mgmt.config.security.geoblock.leftOut', '{{countries}} was left off the list: you or this server seem to be there, and blocking it would lock you out. Check that no other country you connect from is on the list before you save.', { countries: geoLeftOut.join(', ') })
+                : t('mgmt.config.security.geoblock.checkOwn', 'Check that no country you connect from is on the list before you save: visitors from a listed country are refused, you included.')}
+            </FormHelperText>}
           </Grid>
 
           <CosmosFormDivider title={t('mgmt.config.security.adminRestrictionsTitle')} />

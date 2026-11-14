@@ -1287,6 +1287,8 @@
 	"mgmt.config.security.geoBlockSelection.geoBlockLabel.varBlock": "blocked from accessing",
 	"mgmt.config.security.geoBlockSelection.varAllow": "allow",
 	"mgmt.config.security.geoBlockSelection.varBlock": "block",
+	"mgmt.config.security.geoblock.checkOwn": "Check that no country you connect from is on the list before you save: visitors from a listed country are refused, you included.",
+	"mgmt.config.security.geoblock.leftOut": "{{countries}} was left off the list: you or this server seem to be there, and blocking it would lock you out. Check that no other country you connect from is on the list before you save.",
 	"mgmt.config.security.geoblock.resetToDefaultButton": "Reset to default (most dangerous countries)",
 	"mgmt.config.security.invertBlacklistCheckbox.invertBlacklistLabel": "Use list as whitelist instead of blacklist",
 	"mgmt.constellation.externalTextSlaveNoAdmin": "This server is currently running as slave mode, you can only add your devices to the main server.",
