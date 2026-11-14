@@ -1,6 +1,6 @@
 import * as React from 'react';
 import MainCard from '../../../components/MainCard';
-import { Alert, Button, Chip, Divider, Stack, TextField, useMediaQuery } from '@mui/material';
+import { Alert, Button, Chip, Collapse, Divider, Stack, TextField, useMediaQuery } from '@mui/material';
 import HostChip from '../../../components/hostChip';
 import { RouteMode, RouteSecurity } from '../../../components/routeComponents';
 import { getFaviconURL } from '../../../utils/routes';
@@ -22,6 +22,8 @@ import LogLine from '../../../components/logLine';
 import Highlighter from '../../../components/third-party/Highlighter';
 import { useTranslation } from 'react-i18next';
 import { InstallExposure } from '../../../components/exposure'; // Fork addition: the internet, proposed and optional
+import CreationReview, { reviewHolds, useCreation } from '../../../components/creationReview'; // Fork addition
+import { sensitiveAccess } from '../../../utils/sensitiveAccess'; // Fork addition
 
 import Editor from 'react-simple-code-editor';
 import { highlight, languages } from 'prismjs/components/prism-core';
@@ -59,7 +61,8 @@ const preStyle = {
   opacity: '1',
 }
 
-const NewDockerService = ({service, refresh, edit}) => {
+// Fork addition: `notes` are what an imported file could not take as written (utils/composeImport.js)
+const NewDockerService = ({service, refresh, edit, notes, holdReason}) => {
   const { t, i18n } = useTranslation();
   const { containerName } = useParams();
   const [container, setContainer] = React.useState(null);
@@ -74,7 +77,20 @@ const NewDockerService = ({service, refresh, edit}) => {
   delete service['cosmos-installer'];
   delete service['x-cosmos-installer'];
 
-  const [dockerCompose, setDockerCompose] = React.useState(JSON.stringify(service, null, 2));
+  // Fork addition: the review (components/creationReview.jsx) proposes what the server can decide and where the
+  // data goes; the definition below follows it until the admin edits it by hand
+  const frozen = (installer && installer['frozen-volumes']) || [];
+  const creation = useCreation(service, { edit, frozen });
+  const [edited, setEdited] = React.useState(null);
+  const [showDefinition, setShowDefinition] = React.useState(!!edit);
+  const [confirmed, setConfirmed] = React.useState([]);
+  const [anyArch, setAnyArch] = React.useState(false);
+  const dockerCompose = edited !== null ? edited : JSON.stringify(creation.final, null, 2);
+  const setDockerCompose = setEdited;
+  let current = creation.final;
+  try { current = JSON.parse(dockerCompose); } catch (e) { /* said on Create */ }
+  const sensitive = sensitiveAccess(current, creation.plan && creation.plan.protected);
+  const hold = holdReason || reviewHolds(t, { notes, sensitive, confirmed, plan: creation.plan, anyArch, edit });
 
   const create = () => {
     // Fork addition: a definition that is not JSON or YAML is said, not thrown; a failure ends the wait
@@ -100,7 +116,8 @@ const NewDockerService = ({service, refresh, edit}) => {
         const reason = newlog.replace(/^.*\[OPERATION FAILED\][.\s]*/, '').trim();
         setFailed(reason && !/rolled ?back/i.test(reason) ? reason : t('mgmt.servapps.create.failed', 'The creation failed and what was made has been removed again: the reason is in the log below.'));
       }
-    }, !!edit).catch((e) => setFailed(e.message || String(e)));
+    }, !!edit, sensitiveAccess(definition, creation.plan && creation.plan.protected).map((item) => item.id).filter((id) => confirmed.includes(id)), anyArch)
+      .catch((e) => setFailed(e.message || String(e)));
   }
 
   let isJSON = false;
@@ -112,9 +129,15 @@ const NewDockerService = ({service, refresh, edit}) => {
     <MainCard title={edit ? t('mgmt.servapps.container.compose.editServiceTitle') : t('mgmt.servapps.container.compose.createServiceButton')}>
     <Stack spacing={1}>
       {/* Fork addition: optionally open published ports on the router once the app exists (off by default) */}
-      {!edit && <InstallExposure service={service} definition={dockerCompose} done={isDone} />}
+      {/* Fork addition: the review in words, the data places, the confirmations (components/creationReview.jsx) */}
+      <CreationReview definition={current} base={creation.base} plan={creation.plan} notes={notes} proposed={creation.proposed} frozen={frozen}
+        sensitive={sensitive} confirmed={confirmed} onConfirm={setConfirmed} choices={creation.choices} onChoices={creation.setChoices}
+        anyArch={anyArch} onAnyArch={setAnyArch} busy={!!log.length && !failed} edit={edit} />
+      {!edit && <InstallExposure service={current} definition={dockerCompose} done={isDone} />}
       {failed && <Alert severity="error" sx={{ overflowWrap: 'anywhere' }} data-create-failed>{failed}</Alert>}
+      {hold && !isDone && !log.length && <Alert severity="info" sx={{ overflowWrap: 'anywhere' }} data-create-hold>{hold}</Alert>}
       {!isDone && <LoadingButton 
+        disabled={!!hold}
         onClick={create}
         variant="contained"
         color="primary"
@@ -137,12 +160,19 @@ const NewDockerService = ({service, refresh, edit}) => {
 
       {(edit || failed) && !isDone && log.length ? <Button onClick={() => { setLog([]); setFailed(''); }}>{t('global.backAction')}</Button> : null}
 
+      {/* Fork addition: the definition is the advanced door, open for an edit */}
+      {!log.length && !edit && <Button size="small" sx={{ alignSelf: 'flex-start' }} onClick={() => setShowDefinition(!showDefinition)} data-definition-door>
+        {showDefinition ? t('mgmt.servapps.creation.hideDefinition', 'Hide the definition') : t('mgmt.servapps.creation.showDefinition', 'The definition (advanced)')}
+      </Button>}
+      {!log.length && edited !== null && !edit && <Alert severity="info" sx={{ overflowWrap: 'anywhere' }} action={<Button size="small" onClick={() => setEdited(null)}>{t('mgmt.servapps.creation.undoEdits', 'Undo my edits')}</Button>}>
+        {t('mgmt.servapps.creation.edited', 'You changed the definition by hand: it is created as written, and changes made above no longer reach it.')}
+      </Alert>}
       {log.length ? <pre style={preStyle} ref={preRef}>
         {log.map((l) => {
           return <LogLine message={tryParseProgressLog(l)} docker isMobile={!screenMin} />
         })}
       </pre> :
-      <div>
+      <Collapse in={showDefinition || !!edit}><div>
         <Editor
           value={dockerCompose}
           placeholder={t('mgmt.servapps.pasteComposeButton.pasteComposePlaceholder')}
@@ -157,7 +187,7 @@ const NewDockerService = ({service, refresh, edit}) => {
             backgroundColor: '#000',
           }}
         />
-      </div>
+      </div></Collapse>
       }
     </Stack>
   </MainCard>
