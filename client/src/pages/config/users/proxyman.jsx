@@ -232,7 +232,8 @@ const ProxyManagement = () => {
     {config && <>
       <NewRouteCreate openNewModal={openNewModal} setOpenNewModal={setOpenNewModal} config={config}/>
       
-      {routes && <PrettyTableView 
+      {routes && <PrettyTableView
+            empty={{ title: t('emptyState.urls.title', 'No URLs yet'), text: t('emptyState.urls.text', 'A URL gives an app an address people can open. Create one with “Create” above, or with “New” on an app in ServApps.') }} /* Fork addition: what this list is for and how it fills */
         data={routes}
         getKey={(r, k) => k + r.Name + r.Target + r.Mode + (r._IsTunnel ? '_tunnel' : '')}
         linkTo={(r) => {

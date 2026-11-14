@@ -58,7 +58,8 @@ export const StorageMounts = () => {
     {mountDialog && <MountDialogInternal data={mountDialog.data} refresh={refresh} unmount={mountDialog.unmount} open={mountDialog} setOpen={setMountDialog} />}
     {(config) ? <Stack spacing={2}>
       {containerized && <VMWarning />}
-      <PrettyTableView 
+      <PrettyTableView
+            empty={{ title: t('emptyState.mounts.title', 'No mounts'), text: t('emptyState.mounts.text', 'Disks and partitions mounted on the server are listed here. Mount one with “New Mount” above.') }} /* Fork addition: what this list is for and how it fills */
         data={mounts}
         getKey={(r) => `${r.device} - ${refresh.path}`}
         buttons={[

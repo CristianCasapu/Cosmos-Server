@@ -115,7 +115,8 @@ export const CronManager = () => {
             "SeaweedFS": t('mgmt.scheduler.seaweedFSJobsTitle'),
             "__OT__SeaweedFS": t('mgmt.scheduler.oneTimeJobsTitle'),
           }[scheduler])}</h4>
-          <PrettyTableView 
+          <PrettyTableView
+            {...(scheduler === 'Custom' ? { empty: { title: t('emptyState.cron.title', 'No scheduled jobs yet'), text: t('emptyState.cron.text', 'A job runs a command on a schedule, on the server or inside an app.'), action: isAdmin && <Button variant="outlined" size="small" onClick={() => setNewJob(true)}>{t('mgmt.cron.newCronTitle')}</Button> } } : { empty: { title: t('emptyState.cronParity.title', 'No parity jobs'), text: t('emptyState.cronParity.text', 'They appear here by themselves once a parity set is created under Storage > Parity.') } })} /* Fork addition: what this list is for and how it fills */
             data={Object.values(cronJobs[scheduler])}
             getKey={(r) => `${r.Name}`}
             buttons={[

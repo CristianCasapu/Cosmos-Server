@@ -185,6 +185,7 @@ const OpenIdList = () => {
       </Dialog>}
 
       {clients && <PrettyTableView
+            empty={{ title: t('emptyState.openid.title', 'No OpenID clients yet'), text: t('emptyState.openid.text', 'Apps that sign their users in with their Cosmos account are listed here. Add one with “Create” above.') }} /* Fork addition: what this list is for and how it fills */
         data={clients}
         getKey={(r) => r.id}
         onRowClick={(r) => {

@@ -56,7 +56,8 @@ export const StorageMerges = () => {
       <Stack spacing={2}>
       {containerized && <VMWarning />}
       <div>
-        <PrettyTableView 
+        <PrettyTableView
+            empty={{ title: t('emptyState.merges.title', 'No merged disks'), text: t('emptyState.merges.text', 'A merge shows several disks as one folder (MergerFS). Create one with the button above.') }} /* Fork addition: what this list is for and how it fills */
           data={mounts.filter((mount) => mount.type === 'fuse.mergerfs')}
           getKey={(r) => `${r.device} - ${refresh.path}`}
           buttons={[
