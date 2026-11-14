@@ -13,7 +13,6 @@ import { ValidateRoute, getFaviconURL, sanitizeRoute, getContainersRoutes } from
 import HostChip from '../../components/hostChip';
 import AppLinks, { AppDomains } from '../../components/appLinks'; // Fork addition
 import { ReachChip } from '../../components/reachability'; // Fork addition
-import { RouterPortLinks } from '../../components/routerPorts'; // Fork addition
 import { Link } from 'react-router-dom';
 import ExposeModal from './exposeModal';
 import GetActions from './actionBar';
@@ -27,6 +26,7 @@ import { useTheme } from '@mui/material/styles';
 import { useTranslation } from 'react-i18next';
 import PermissionGuard from '../../components/permissionGuard';
 import { PERM_RESOURCES, PERM_CREDENTIALS_READ } from '../../utils/permissions';
+import { RouterPortLinks } from '../../components/routerPorts'; // Fork addition: the app's ports the router forwards
 
 // Exported: the Constellation feature pages reuse this card.
 export const Item = styled(Paper)(({ theme }) => ({
