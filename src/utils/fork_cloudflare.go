@@ -44,6 +44,10 @@ type ForkCloudflareConfig struct {
 	RangesV4      []string  `json:"RangesV4,omitempty"`
 	RangesV6      []string  `json:"RangesV6,omitempty"`
 	RangesUpdated time.Time `json:"RangesUpdated,omitzero"`
+	// OriginPulls: whether a connection from Cloudflare's addresses must
+	// prove with a client certificate that Cloudflare's proxy made it, see
+	// fork_origin_pulls.go. Off until the admin switches it on.
+	OriginPulls ForkOriginPullsConfig `json:"OriginPulls,omitzero"`
 }
 
 // CloudflareMaxNames bounds the lists of hostnames kept in the configuration.

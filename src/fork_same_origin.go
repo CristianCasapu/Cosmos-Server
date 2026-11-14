@@ -60,12 +60,31 @@ func requireSameOrigin(routers ...*mux.Router) {
 func sameOriginOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if reason := foreignRequest(r); reason != "" {
+			utils.RecordSecurity(r, utils.SecAccessForeignDenied, "", "reason", foreignReasonCode(reason)) // security record
 			utils.Warn("Refused a request to the API that the panel did not start (" + reason + "): " + r.Method + " " + printable(r.URL.Path, 120))
 			utils.HTTPError(w, "This request did not come from the panel and was refused. Open the panel and use it from there.", http.StatusForbidden, "HTTP009")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// foreignReasonCode is the reason of a refusal as the security record keeps
+// it: one of a fixed list, nothing of the request's own text.
+func foreignReasonCode(reason string) string {
+	switch {
+	case strings.HasPrefix(reason, "asked on port "):
+		return "application_port"
+	case reason == "Sec-Fetch-Site: cross-site":
+		return "another_site"
+	case reason == "Sec-Fetch-Site: same-site":
+		return "same_domain"
+	case reason == "Sec-Fetch-Site: none":
+		return "opened_by_hand"
+	case reason == "Origin is another site":
+		return "another_origin"
+	}
+	return "not_understood"
 }
 
 // foreignRequest returns why a request must be refused, or "" when it may pass.

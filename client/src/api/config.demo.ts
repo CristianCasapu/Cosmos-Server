@@ -96,6 +96,7 @@ const cloudflareTakeOver = cloudflareNone;
 const cloudflareShield = cloudflareNone;
 const cloudflarePanel = cloudflareNone;
 const cloudflareRanges = cloudflareNone;
+const cloudflareOriginPulls = cloudflareNone;
 
 function serverUpdateStatus() {
   return new Promise((resolve, reject) => {
@@ -262,6 +263,7 @@ export {
   cloudflareShield,
   cloudflarePanel,
   cloudflareRanges,
+  cloudflareOriginPulls,
   serverUpdateStatus,
   checkServerUpdate,
   snapshotsStatus,

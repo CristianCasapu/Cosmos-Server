@@ -6,11 +6,29 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/azukaar/cosmos-server/src/utils"
 )
 
-// The Fail2ban file: one line per incident that has a client address.
+// The Fail2ban file: one line per incident whose address is one the
+// firewall can act on.
 //
 //	2026-11-13T10:22:01+0200 cosmos-security kind=auth.login.failed ip=203.0.113.7 sev=medium n=1
+//
+// An address on a line is always the peer of a connection to this server.
+// Three kinds of incidents have no line:
+//
+//   - one whose address a proxy reported (Cloudflare for a hostname served
+//     through it, a trusted reverse proxy): the firewall cannot cut that
+//     visitor off, since the packets are the proxy's, and whoever reaches
+//     the server from the proxy's addresses may have chosen the address. A
+//     ban would only hit that address's own direct connections, which is how
+//     a server is made to ban an innocent. SmartShield goes on counting and
+//     blocking such a visitor inside Cosmos;
+//   - one whose address is Cloudflare's own while a hostname is served
+//     through Cloudflare: every visitor of such a hostname arrives from
+//     those addresses;
+//   - one from this machine or the local link (loopback, link-local).
 //
 // Everything on a line is produced here: the time, the kind (from the
 // catalogue), the address (the parser's canonical form), the severity and a
@@ -32,9 +50,13 @@ const (
 
 // loggable reports whether an event belongs in the Fail2ban file: an
 // incident from an address that can be acted on. Loopback, unspecified,
-// link-local and multicast addresses never are.
+// link-local and multicast addresses never are, nor an address a proxy
+// reported, nor one of Cloudflare's while a hostname is served through it.
 func loggable(event Event) bool {
-	if event.Class != ClassIncident || event.IP == "" {
+	if event.Class != ClassIncident || event.IP == "" || event.Forwarded {
+		return false
+	}
+	if utils.CloudflareNeverBan(event.IP) {
 		return false
 	}
 	addr, err := netip.ParseAddr(event.IP)

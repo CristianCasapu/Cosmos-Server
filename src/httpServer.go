@@ -546,9 +546,9 @@ func startHTTPSServer(router *mux.Router) error {
 	secondaryCert = &_secondaryCert
 
 	HTTPServer = &http.Server{
-    TLSConfig: &tls.Config{
+    TLSConfig: originPullTLS(&tls.Config{ // Fork addition: Cloudflare's proxy is asked for a client certificate when the admin switched that on, see fork_origin_pulls.go
 			GetCertificate: GetCertificate,
-		},
+		}),
 		Addr: "0.0.0.0:" + serverPortHTTPS,
 		ReadTimeout: 0,
 		ReadHeaderTimeout: 10 * time.Second,

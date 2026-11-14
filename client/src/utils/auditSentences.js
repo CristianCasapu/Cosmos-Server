@@ -86,7 +86,28 @@ const SENTENCES = {
   },
   'access.ip.denied': { text: 'a request was refused by an address restriction', ip: true },
   'access.local.denied': { text: 'a local-only address was asked for from outside', ip: true },
-  'access.origin.denied': { text: 'an address served through Cloudflare was asked for directly', ip: true },
+  'access.origin.denied': {
+    text: 'an address served through Cloudflare was asked for directly', ip: true,
+    // from Cloudflare's own addresses, without the certificate that shows its proxy made the request
+    pick: (e) => (['no_certificate', 'wrong_certificate', 'expired_certificate', 'not_https'].includes(detail(e, 'reason')) ? detail(e, 'reason') : ''),
+    variants: {
+      no_certificate: 'a request for an address served through Cloudflare came from Cloudflare\'s addresses without a certificate',
+      wrong_certificate: 'a request for an address served through Cloudflare came from Cloudflare\'s addresses with another certificate than the expected one',
+      expired_certificate: 'a request for an address served through Cloudflare came from Cloudflare\'s addresses with an expired certificate',
+      not_https: 'a request for an address served through Cloudflare came from Cloudflare\'s addresses over plain HTTP',
+    },
+  },
+  'access.foreign.denied': {
+    text: 'a request to the panel was refused: the panel\'s own pages did not start it', ip: true,
+    pick: (e) => detail(e, 'reason'),
+    variants: {
+      another_site: 'a request to the panel that another website started was refused',
+      same_domain: 'a request to the panel that another application of the same domain started was refused',
+      opened_by_hand: 'an address of the panel\'s API was opened by hand (address bar, bookmark, another program) and refused',
+      another_origin: 'a request to the panel that names another site as its origin was refused',
+      application_port: 'a request to the panel\'s API on the port of an application was refused',
+    },
+  },
 
   'shield.blocked': { text: 'a request was blocked by SmartShield', ip: true },
   'shield.strike': { text: 'SmartShield blocked a client for an hour', ip: true },
@@ -280,7 +301,7 @@ export function auditSentence(event, t = identity) {
 // The outcome a kind has by itself (the catalogue's): a "failed login" that
 // failed needs no ": it failed".
 const FAILED_KINDS = ['auth.login.failed', 'auth.mfa.failed', 'auth.sudo.failed', 'auth.reset.rejected', 'auth.register.failed', 'recorder.dropped'];
-const DENIED_KINDS = ['auth.session.forged', 'auth.session.rejected', 'token.invalid', 'token.expired', 'token.ip.denied', 'access.denied', 'access.grant.denied', 'access.ip.denied', 'access.local.denied', 'access.origin.denied'];
+const DENIED_KINDS = ['auth.session.forged', 'auth.session.rejected', 'token.invalid', 'token.expired', 'token.ip.denied', 'access.denied', 'access.grant.denied', 'access.ip.denied', 'access.local.denied', 'access.origin.denied', 'access.foreign.denied'];
 
 function defaultOutcome(kind) {
   if (FAILED_KINDS.includes(kind)) return 'failed';

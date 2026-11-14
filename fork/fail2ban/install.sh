@@ -9,7 +9,8 @@
 # What it does, in this order:
 #   1. works out the addresses that are never banned (this machine, the
 #      private networks, the IPv6 networks of the local link, the address of
-#      your SSH session, whatever you add with --ignore);
+#      your SSH session, whatever you add with --ignore, and Cloudflare's
+#      address ranges when Cosmos serves an address through Cloudflare);
 #   2. writes the fork's filter and jail files under /etc/fail2ban, BEFORE
 #      the package is installed: Debian's package starts an sshd jail at
 #      once, and these files are what keeps your own network out of it;
@@ -31,13 +32,15 @@
 #                        may be given several times
 #   --no-sshd            do not watch SSH (Debian's own sshd jail is turned off too)
 #   --no-cosmos-jails    only watch SSH: leave the jails that read Cosmos' log off
-#   --behind-proxy       install the Cosmos jails although Cosmos is set up
-#                        behind a reverse proxy (read the warning it prints)
 #   --log <path>         Cosmos' security log
 #                        (default /var/lib/cosmos/cosmos.security.log)
 #   --cosmos-config <path>
-#                        Cosmos' configuration, read to see whether a reverse
-#                        proxy is set up (default /var/lib/cosmos/cosmos.config.json)
+#                        Cosmos' configuration, read to see whether addresses
+#                        are served through Cloudflare or a reverse proxy
+#                        (default /var/lib/cosmos/cosmos.config.json)
+#   --behind-proxy       no longer needed, accepted and ignored: Cosmos does
+#                        not write visitors a proxy reported to its security
+#                        log any more, so the jails are safe behind one
 #   --accept-nftables-service
 #                        go on although nftables.service is enabled
 #   --help               this text
@@ -54,6 +57,13 @@ BACKUP_ROOT=/var/backups/cosmos-fail2ban
 # networks at home (the same list as jail.d/cosmos-10-jails.local).
 BASE_IGNORE="127.0.0.0/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 fc00::/7 fe80::/10"
 
+# Cloudflare's published address ranges (https://www.cloudflare.com/ips/,
+# last changed 2023-09-28): the same list as cloudflareBuiltinV4 and
+# cloudflareBuiltinV6 in src/utils/fork_cloudflare.go, which a test compares
+# with this line. Used when Cosmos serves an address through Cloudflare and
+# its configuration holds no newer list.
+CLOUDFLARE_RANGES="173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32"
+
 FILTERS="cosmos-auth cosmos-probe cosmos-scan cosmos-abuse"
 COSMOS_JAILS="cosmos-auth cosmos-probe cosmos-scan cosmos-abuse"
 
@@ -61,7 +71,6 @@ DRY_RUN=0
 YES=0
 WITH_SSHD=1
 WITH_COSMOS=1
-BEHIND_PROXY=0
 ACCEPT_NFTABLES_SERVICE=0
 EXTRA_IGNORE=""
 
@@ -77,7 +86,7 @@ while [ $# -gt 0 ]; do
 		--yes) YES=1 ;;
 		--no-sshd) WITH_SSHD=0 ;;
 		--no-cosmos-jails) WITH_COSMOS=0 ;;
-		--behind-proxy) BEHIND_PROXY=1 ;;
+		--behind-proxy) ;; # no longer needed, see --help
 		--accept-nftables-service) ACCEPT_NFTABLES_SERVICE=1 ;;
 		--ignore) [ $# -ge 2 ] || die "--ignore needs an address or a network"; EXTRA_IGNORE="$EXTRA_IGNORE
 $2"; shift ;;
@@ -261,36 +270,100 @@ for entries in lists:
 	fi
 fi
 
+# -------------------------------------------- Cloudflare and reverse proxies ---
+
+# What Cosmos' configuration says about who stands in front of it. Only
+# counts and networks are taken from the file, each parsed by Python.
+SHIELDED=0
+PROXIES=0
+CF_RANGES=""
+CF_SOURCE=""
+if [ -r "$COSMOS_CONFIG" ]; then
+	FRONT=$(py '
+import ipaddress, json, sys
+try:
+    http = json.load(open(sys.argv[1])).get("HTTPConfig") or {}
+except Exception:
+    print("unknown"); sys.exit(0)
+cloudflare = http.get("Cloudflare") or {}
+shielded = [name for name in (cloudflare.get("Shielded") or []) if isinstance(name, str) and name.strip()]
+proxies = [entry for entry in (http.get("TrustedProxies") or []) if str(entry).strip()]
+
+def usable(entries, version):
+    # what a list of Cloudflare ranges can be: public networks, not too wide, not too many
+    if not isinstance(entries, list) or not 1 <= len(entries) <= 200:
+        return None
+    networks = []
+    for entry in entries:
+        try:
+            network = ipaddress.ip_network(str(entry).strip(), strict=True)
+        except ValueError:
+            return None
+        if network.version != version or not network.is_global or network.prefixlen < (8 if version == 4 else 16):
+            return None
+        networks.append(str(network))
+    return networks
+
+v4 = usable(cloudflare.get("RangesV4"), 4)
+v6 = usable(cloudflare.get("RangesV6"), 6)
+stored = " ".join(v4 + v6) if v4 and v6 else ""
+print(len(shielded), len(proxies), stored)
+' "$COSMOS_CONFIG")
+	if [ "$FRONT" != unknown ]; then
+		SHIELDED=${FRONT%% *}
+		rest=${FRONT#* }
+		PROXIES=${rest%% *}
+		case "$rest" in
+			*" "*) CF_RANGES=${rest#* } ;;
+		esac
+	fi
+fi
+if [ "$SHIELDED" != 0 ] && [ "$WITH_COSMOS" = 1 ]; then
+	if [ -n "$CF_RANGES" ]; then
+		CF_SOURCE="the list Cosmos fetched from Cloudflare"
+	else
+		CF_RANGES=$CLOUDFLARE_RANGES
+		CF_SOURCE="Cloudflare's published list of 2023-09-28, built into this script"
+	fi
+	# shellcheck disable=SC2086
+	CF_RANGES=$(canonical $CF_RANGES | tr '\n' ' ' | sed 's/ $//') || die "Cloudflare's address ranges could not be read"
+	IGNORE="$IGNORE $CF_RANGES"
+else
+	CF_RANGES=""
+fi
+
+# The settings file of Cosmos' panel wins over this script's files for the
+# fork's jails. Cosmos puts Cloudflare's ranges into it by itself; until it
+# has, say so.
+CF_PANEL_NOTE=""
+if [ -n "$CF_RANGES" ] && [ -f "$PANEL_FILE" ]; then
+	status=0
+	# shellcheck disable=SC2086
+	py '
+import ipaddress, sys
+wanted = {ipaddress.ip_network(value) for value in sys.argv[2:]}
+lists = [line.split("=", 1)[1].split() for line in open(sys.argv[1]) if line.startswith("ignoreip")]
+for entries in lists:
+    held = set()
+    for entry in entries:
+        try:
+            held.add(ipaddress.ip_network(entry, strict=False))
+        except ValueError:
+            continue
+    if not wanted <= held:
+        sys.exit(1)
+sys.exit(0 if lists else 1)
+' "$PANEL_FILE" $CF_RANGES || status=$?
+	if [ "$status" != 0 ]; then
+		CF_PANEL_NOTE="the settings file of Cosmos' panel ($PANEL_FILE) is read after this script's files and does not hold Cloudflare's ranges yet. Cosmos adds them by itself within a minute of running (the version of the fork this script came with, or a later one). Check afterwards with: fail2ban-client get cosmos-auth ignoreip"
+	fi
+fi
+
 # one canonical list, no duplicates, order kept
 # shellcheck disable=SC2086
 LIST=$(canonical $IGNORE) || die "could not work out the addresses that are never banned"
 IGNORE=$(printf '%s\n' "$LIST" | awk '!seen[$0]++' | tr '\n' ' ' | sed 's/ $//')
 [ -n "$IGNORE" ] || die "the list of addresses that are never banned came out empty"
-
-# ------------------------------------------------------- reverse proxy check ---
-
-PROXIES=unknown
-if [ -r "$COSMOS_CONFIG" ]; then
-	PROXIES=$(py '
-import json, sys
-try:
-    config = json.load(open(sys.argv[1]))
-    proxies = (config.get("HTTPConfig") or {}).get("TrustedProxies") or []
-    print(len([p for p in proxies if str(p).strip()]))
-except Exception:
-    print("unknown")
-' "$COSMOS_CONFIG")
-fi
-if [ "$WITH_COSMOS" = 1 ] && [ "$PROXIES" != unknown ] && [ "$PROXIES" != 0 ]; then
-	if [ "$BEHIND_PROXY" = 1 ]; then
-		warn "Cosmos trusts $PROXIES reverse proxy address(es) (HTTPConfig.TrustedProxies)."
-		warn "Visitors who come through the proxy cannot be blocked by this server's firewall, and a"
-		warn "proxy that passes on the X-Forwarded-For header a client sent lets that client choose"
-		warn "which address gets banned. The Cosmos jails are installed because you asked for it."
-	else
-		die "Cosmos is set up behind a reverse proxy (HTTPConfig.TrustedProxies has $PROXIES entr(ies)): bans made here would not stop visitors who come through it, and could be aimed at other addresses. Run again with --no-cosmos-jails (SSH only) or, knowing this, with --behind-proxy"
-	fi
-fi
 
 # -------------------------------------------------------------- what to write ---
 
@@ -378,11 +451,45 @@ say "    published ports of the containers (table inet f2b-cosmos, hook prerouti
 say "    Thresholds can be changed afterwards in Cosmos' panel."
 say ""
 say "  never banned"
-for network in $IGNORE; do say "    $network"; done
+for network in $IGNORE; do
+	case " $CF_RANGES " in
+		*" $network "*) ;; # listed below, as Cloudflare's
+		*) say "    $network" ;;
+	esac
+done
 [ -z "$SESSION_NOTE" ] || say "    ($SESSION_NOTE)"
 [ -z "$PANEL_NOTE" ] || warn "$PANEL_NOTE"
 say "    (and this machine's own addresses)"
+if [ -n "$CF_RANGES" ]; then
+	say ""
+	say "  never banned: Cloudflare ($SHIELDED address(es) of Cosmos are served through Cloudflare)"
+	for network in $CF_RANGES; do say "    $network"; done
+	say "    ($CF_SOURCE)"
+	say "    Every visitor of an address served through Cloudflare reaches this server from"
+	say "    these ranges: a ban of one of them would cut all of them off. Cosmos keeps this"
+	say "    list current afterwards, in the settings file it writes for Fail2ban"
+	say "    ($ETC/jail.d/cosmos-90-panel.local), and takes it off again when nothing is"
+	say "    served through Cloudflare any more."
+	[ -z "$CF_PANEL_NOTE" ] || say "    Note: $CF_PANEL_NOTE"
+fi
 say ""
+if [ "$WITH_COSMOS" = 1 ] && { [ "$SHIELDED" != 0 ] || [ "$PROXIES" != 0 ]; }; then
+	say "  what a ban does when visitors come through Cloudflare or a reverse proxy"
+	if [ "$SHIELDED" != 0 ]; then
+		say "    Addresses served directly: a ban cuts the visitor off at the firewall, as always."
+		say "    Addresses served through Cloudflare: the firewall never sees those visitors, only"
+		say "    Cloudflare. Cosmos does not write them to the log the jails read, so nothing they"
+		say "    do leads to a ban here, and nobody can get somebody else's address banned by"
+		say "    claiming it. SmartShield still blocks them inside Cosmos, by the address"
+		say "    Cloudflare reports; to stop them earlier, block them at Cloudflare."
+	fi
+	if [ "$PROXIES" != 0 ]; then
+		say "    Cosmos trusts $PROXIES reverse proxy address(es) (HTTPConfig.TrustedProxies): visitors"
+		say "    who come through them are not written to that log either, for the same reason."
+		say "    Whoever connects to this server directly is still banned as usual."
+	fi
+	say ""
+fi
 if [ "$HAVE_SYSTEMD" = 1 ]; then
 	say "  service    fail2ban is enabled at boot and (re)loaded"
 else

@@ -138,7 +138,8 @@ var catalogue = func() map[string]Kind {
 		incident(utils.SecAccessGrantDenied, SeverityHigh, OutcomeDenied, "Refused to grant a permission", "Someone who may manage users, roles or tokens tried to hand out a permission they do not hold themselves."),
 		incident(utils.SecAccessIPDenied, SeverityMedium, OutcomeDenied, "Address not allowed", "A request was refused by an address restriction (the admin whitelist or a URL's own)."),
 		incident(utils.SecAccessLocalDenied, SeverityLow, OutcomeDenied, "Local address asked from outside", "An address that is served on the local network only was requested from outside it."),
-		incident(utils.SecAccessOriginDenied, SeverityLow, OutcomeDenied, "Asked around Cloudflare", "An address that is served through Cloudflare's proxy was requested from an address that is neither Cloudflare's nor on the local network."),
+		incident(utils.SecAccessOriginDenied, SeverityLow, OutcomeDenied, "Not through Cloudflare's proxy", "An address that is served through Cloudflare's proxy was requested another way: from an address that is neither Cloudflare's nor on the local network, or from Cloudflare's addresses without the certificate that shows its proxy made the request. Details: reason."),
+		incident(utils.SecAccessForeignDenied, SeverityLow, OutcomeDenied, "Request the panel did not start", "A request to the panel's API was refused because it did not come from the panel's own pages: another website, another application of the same domain, an address opened by hand, or the port of an application. Details: reason."),
 
 		incident(utils.SecShieldBlocked, SeverityMedium, OutcomeBlocked, "Blocked by SmartShield", "A request was refused because its sender is over a SmartShield budget or banned. Details: route."),
 		incident(utils.SecShieldStrike, SeverityMedium, OutcomeBlocked, "SmartShield strike", "A client went over a SmartShield budget and is blocked for an hour. Details: limit, route."),

@@ -9,11 +9,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/gorilla/mux"
 
+	"github.com/azukaar/cosmos-server/src/cloudflare"
+	"github.com/azukaar/cosmos-server/src/fail2ban"
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
@@ -75,5 +78,13 @@ func TestFail2banRoutesAreRegisteredAndProtected(t *testing.T) {
 		if code := serve("POST", path, reader); code != http.StatusNotFound {
 			t.Errorf("POST %s: %d, want 404", path, code)
 		}
+	}
+}
+
+// The never-ban list of Fail2ban follows what is served through Cloudflare:
+// the Cloudflare routes tell the Fail2ban integration when that changes.
+func TestFail2banIsToldWhenCloudflareChanges(t *testing.T) {
+	if reflect.ValueOf(cloudflare.AfterChange).Pointer() != reflect.ValueOf(fail2ban.CloudflareChanged).Pointer() {
+		t.Error("a change of the hostnames served through Cloudflare, or of its ranges, does not reach Fail2ban's never-ban list")
 	}
 }

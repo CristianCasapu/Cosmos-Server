@@ -152,11 +152,17 @@ export const KIND_TEXT = {
     link: 'urls',
   },
   'access.origin.denied': {
-    label: 'Asked around Cloudflare',
-    what: 'An address that is served through Cloudflare\'s proxy was asked for directly, from an address that is neither Cloudflare\'s nor on your local network.',
+    label: 'Not through Cloudflare\'s proxy',
+    what: 'An address that is served through Cloudflare\'s proxy was asked for another way: directly, from an address that is neither Cloudflare\'s nor on your local network, or from one of Cloudflare\'s addresses without the certificate that shows its proxy made the request.',
     stopped: 'yes',
-    todo: 'Nothing to do: someone knows the server\'s own address and tried it. If it is you, use the address through Cloudflare, or switch that address to "Directly".',
+    todo: 'Nothing to do: someone knows the server\'s own address and tried it, directly or through Cloudflare\'s network. If it is you, use the address through Cloudflare, or switch that address to "Directly". If your own visits are refused since you required the certificate, press "Stop enforcing" under Configuration > Domains > Cloudflare.',
     link: 'urls',
+  },
+  'access.foreign.denied': {
+    label: 'Request the panel did not start',
+    what: 'A request to the panel was refused because it did not come from the panel\'s own pages: another website, another application of the same domain, or an address opened by hand.',
+    stopped: 'yes',
+    todo: 'Nothing to do if it happened once: opening an address of the panel\'s API in the address bar does this too. If it repeats while you are logged in, a page you have open elsewhere is trying to act with your login: close it, and look at which address it came from.',
   },
   'shield.blocked': {
     label: 'Request from a blocked address',

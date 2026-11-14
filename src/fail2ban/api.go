@@ -16,6 +16,15 @@ import (
 
 const maxBody = 16 << 10
 
+// statusFor is the status for the one who asks: with the address the
+// request counts as coming from, and whether a proxy reported it.
+func statusFor(req *http.Request) Status {
+	client := utils.GetClientIP(req)
+	status := GetStatus(client)
+	status.ClientForwarded = utils.IsForwardedClient(req, client)
+	return status
+}
+
 func answer(w http.ResponseWriter, data any) {
 	json.NewEncoder(w).Encode(utils.APIResponse{Status: "OK", Data: data})
 }
@@ -39,7 +48,7 @@ func StatusRoute(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "Method not allowed", http.StatusMethodNotAllowed, "HTTP001")
 		return
 	}
-	answer(w, GetStatus(utils.GetClientIP(req)))
+	answer(w, statusFor(req))
 }
 
 // unbanRequest names the address to unban and the jail to unban it from;
@@ -127,7 +136,7 @@ func UnbanRoute(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "Fail2ban did not lift the ban", http.StatusConflict, "F2B005")
 		return
 	}
-	answer(w, GetStatus(utils.GetClientIP(req)))
+	answer(w, statusFor(req))
 }
 
 // SettingsRoute godoc
@@ -178,5 +187,5 @@ func SettingsRoute(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "The settings could not be applied", http.StatusConflict, "F2B007")
 		return
 	}
-	answer(w, GetStatus(utils.GetClientIP(req)))
+	answer(w, statusFor(req))
 }

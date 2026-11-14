@@ -37,7 +37,10 @@ import PrettyTableView from '../../components/tableView/prettyTableView';
 import { ConfirmModalDirect } from '../../components/confirmModal';
 import PermissionGuard from '../../components/permissionGuard';
 import { PERM_ADMIN } from '../../utils/permissions';
-import { JAILS, durationWords, entryProblem, formOf, neverBanned, settingsOf, stateOf, timeLeft } from '../../utils/fail2ban';
+import {
+  JAILS, SELF_FORWARDED, cloudflareList, durationWords, entryProblem, formOf, neverBanned, settingsOf, stateOf, throughNotes, timeLeft,
+  warnsAboutSelf,
+} from '../../utils/fail2ban';
 
 const POLL_EVERY = 10000;
 const INSTALL_COMMAND = 'sh fork/fail2ban/install.sh';
@@ -243,6 +246,7 @@ const Fail2banPanel = () => {
   };
 
   const formCovers = Boolean(form && status && status.clientIP) && neverBanned(form.ignoreIP, status.clientIP);
+  const cloudflareRanges = cloudflareList(status);
 
   return <div style={{ maxWidth: '1200px', margin: 'auto' }}>
     {confirmUnban && <ConfirmModalDirect
@@ -301,12 +305,16 @@ const Fail2banPanel = () => {
         {t('fail2ban.incomplete', 'Fail2ban did not answer every question in time: jails or bans may be missing below. This page asks again every few seconds.')}
       </Alert>}
 
-      {state === 'active' && status.trustedProxies > 0 && <Alert severity="warning">
-        <strong>{t('fail2ban.warn.proxy', 'Cosmos is set up behind a reverse proxy.')}</strong>{' '}
-        {t('fail2ban.warn.proxy.text', 'Visitors who come through the proxy cannot be blocked by this server\'s firewall: their packets arrive from the proxy. And a proxy that passes on the X-Forwarded-For header a visitor sent lets that visitor choose which address gets banned. Ban at the proxy instead, or remove the trusted proxies (Configuration, HTTP) if Cosmos is reached directly.')}
-      </Alert>}
+      {state === 'active' && throughNotes(status).map((note) => <Alert key={note[0]} severity="info" data-fail2ban-through={note[0].split('.').pop()}
+        sx={{ overflowWrap: 'anywhere', '& .MuiAlert-message': { minWidth: 0 } }}>
+        {t(note[0], note[1], note[2])}
+      </Alert>)}
 
-      {state === 'active' && status.clientIP && !status.clientIgnored && <Alert severity="warning" action={
+      {state === 'active' && status.clientForwarded && status.clientIP && <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+        {t(SELF_FORWARDED[0], SELF_FORWARDED[1], { ip: status.clientIP })}
+      </Typography>}
+
+      {state === 'active' && warnsAboutSelf(status) && <Alert severity="warning" action={
         canSave && <PermissionGuard permission={PERM_ADMIN}>
           <LoadingButton color="inherit" size="small" loading={saving} onClick={protectMe}>{t('fail2ban.warn.self.add', 'Never ban my address')}</LoadingButton>
         </PermissionGuard>
@@ -423,6 +431,10 @@ const Fail2banPanel = () => {
               />)}
               {form.ignoreIP.length === 0 && <Typography variant="body2" color="text.secondary">{t('fail2ban.ignore.none', 'Only the server itself.')}</Typography>}
             </Stack>
+            {cloudflareRanges && <Alert severity={cloudflareRanges[0]} data-fail2ban-cloudflare={cloudflareRanges[0]}
+              sx={{ overflowWrap: 'anywhere', '& .MuiAlert-message': { minWidth: 0 } }}>
+              {t(cloudflareRanges[1], cloudflareRanges[2], cloudflareRanges[3])}
+            </Alert>}
             {status.otherIgnored > 0 && <FormHelperText>
               {t('fail2ban.ignore.others', 'Fail2ban\'s list also holds {{n}} entries that are not addresses (host names). They are not shown, and saving here removes them.', { n: status.otherIgnored })}
             </FormHelperText>}
@@ -445,7 +457,7 @@ const Fail2banPanel = () => {
             </Stack>
             {entryError && <FormHelperText error>{entryError}</FormHelperText>}
             {problems.ignoreIP && <FormHelperText error>{tr(problems.ignoreIP)}</FormHelperText>}
-            {canSave && dirty && status.clientIP && !formCovers && <Alert severity="warning">
+            {canSave && dirty && status.clientIP && !status.clientForwarded && !formCovers && <Alert severity="warning">
               {t('fail2ban.ignore.selfMissing', 'Your own address, {{ip}}, is not on this list: once saved, it can be banned.', { ip: status.clientIP })}
             </Alert>}
           </Stack>

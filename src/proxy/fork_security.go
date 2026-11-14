@@ -35,6 +35,9 @@ func recordShieldBan(ban *UserBan) {
 		event.Actor = nickname
 	} else {
 		event.IP = ban.ClientID
+		// SmartShield counts an address whatever way its requests came: one
+		// that a proxy reported lately is not acted on at the firewall
+		event.Forwarded = utils.WasForwardedClient(ban.ClientID)
 	}
 	utils.RecordSecurityEvent(event)
 }

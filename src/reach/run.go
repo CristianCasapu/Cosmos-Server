@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -69,12 +70,15 @@ var (
 
 // Response is what the endpoint returns.
 type Response struct {
-	Routes         []RouteResult `json:"routes"`
-	PublicIP       string        `json:"publicIP,omitempty"`
-	PublicIPSource string        `json:"publicIPSource"` // upnp, dyndns, lookup, or "" when unknown
-	CheckedAt      time.Time     `json:"checkedAt"`
-	TooSoon        bool          `json:"tooSoon,omitempty"`
-	LookupFailed   bool          `json:"lookupFailed,omitempty"`
+	Routes []RouteResult `json:"routes"`
+	// Panel is the verdict on Cosmos' own address (HTTPConfig.Hostname), the
+	// same checks as for a route. Fork addition (Cloudflare hardening).
+	Panel          *RouteResult `json:"panel,omitempty"`
+	PublicIP       string       `json:"publicIP,omitempty"`
+	PublicIPSource string       `json:"publicIPSource"` // upnp, dyndns, lookup, or "" when unknown
+	CheckedAt      time.Time    `json:"checkedAt"`
+	TooSoon        bool         `json:"tooSoon,omitempty"`
+	LookupFailed   bool         `json:"lookupFailed,omitempty"`
 }
 
 // publicAddress is the server's public IPv4 as far as Cosmos knows it without
@@ -147,10 +151,11 @@ func Run(opts Options) Response {
 		}
 	}
 
-	// the hostnames to look up, from the configuration only
+	// the hostnames to look up, from the configuration only: the panel's
+	// own first, then those of the routes
 	wanted := map[string]DNSAnswer{}
 	names := []string{}
-	for _, route := range routes {
+	for _, route := range append([]utils.ProxyRouteConfig{panelRoute(config.HTTPConfig)}, routes...) {
 		name := NeedsDNS(route, config.HTTPConfig)
 		if name == "" {
 			continue
@@ -240,6 +245,10 @@ func Run(opts Options) Response {
 	for _, route := range routes {
 		resp.Routes = append(resp.Routes, Evaluate(route, env))
 	}
+	if strings.TrimSpace(config.HTTPConfig.Hostname) != "" {
+		panel := EvaluatePanel(env)
+		resp.Panel = &panel
+	}
 	sort.SliceStable(resp.Routes, func(i, j int) bool { return resp.Routes[i].Route < resp.Routes[j].Route })
 	return resp
 }
@@ -248,6 +257,10 @@ func Run(opts Options) Response {
 // resolve to, for callers who may read the routes but are not admins.
 func hideAddresses(resp Response) Response {
 	resp.PublicIP = ""
+	if resp.Panel != nil {
+		panel := hideAddresses(Response{Routes: []RouteResult{*resp.Panel}}).Routes[0]
+		resp.Panel = &panel
+	}
 	routes := make([]RouteResult, len(resp.Routes))
 	for i, route := range resp.Routes {
 		checks := make([]Check, len(route.Checks))
