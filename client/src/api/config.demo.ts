@@ -41,6 +41,24 @@ function testEmail(emailConfig, recipient = '') {
   });
 }
 
+// Fork addition: what the server would propose for a mail domain
+function detectEmail(domain) {
+  return new Promise((resolve, reject) => {
+    resolve({
+      "status": "OK",
+      "data": {
+        "domain": domain,
+        "mx": "found",
+        "complete": true,
+        "candidates": [
+          { "host": "smtp." + domain, "port": 465, "security": "tls", "source": "guess", "check": "ok", "cert": "ok", "auth": ["PLAIN", "LOGIN"] },
+          { "host": "smtp." + domain, "port": 587, "security": "starttls", "source": "guess", "check": "ok", "cert": "ok", "auth": ["PLAIN", "LOGIN"] },
+        ],
+      }
+    })
+  });
+}
+
 function upnpStatus() {
   return new Promise((resolve, reject) => {
     resolve({
@@ -215,6 +233,7 @@ export {
   updateDNS,
   canSendEmail,
   testEmail,
+  detectEmail,
   upnpStatus,
   upnpRetry,
   reachability,
