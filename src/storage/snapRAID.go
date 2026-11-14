@@ -3,7 +3,7 @@ package storage
 import (
 	"os"
 	"errors"
-	"strings"
+	// "strings" Fork addition: no longer used once the checks moved to fork_snapraid.go
 	"strconv"
 	
 	"github.com/azukaar/cosmos-server/src/utils"
@@ -26,116 +26,19 @@ func findParent(disks []BlockDevice, path string) (BlockDevice, error) {
 
 // Create a SnapRAID configuration
 func CreateSnapRAID(raidOptions utils.SnapRAIDConfig, editRaid string) error {
-	data := raidOptions.Data
-	parity := raidOptions.Parity
-	
-	// utils.Log("[STORAGE] Create SnapRAID " + strings.Join(data, ":") + " with " + strings.Join(data, ":"))
-	
-	// make sure name is at least 3 characters and contains only letters and numbers
-	if len(raidOptions.Name) < 3 || strings.ContainsAny(raidOptions.Name, "./!?@#$%^&*()_+=-{}[]|\\:;\"'<>,") {
-		return errors.New("Name must be at least 3 characters and contain only letters and numbers")
-	}
-
-	// Check config
-	count := 0
-	for _, d := range data {
-		if d != "" {
-			count++
-		}
-	}
-	if count <= 1 {
-		return errors.New("At least 2 data disks are required")
-	}
-
-	if len(parity) == 0 {
-		return errors.New("At least 1 parity disk is required")
-	}
-
-	// check if two data are actually on the same disk
-	mountPoints, err := ListMounts()
-	if err != nil {
+	// Fork addition: upstream's checks (a list of refused name characters, data and parity
+	// found with findParent, which matches "" too) are replaced by fork_snapraid.go's, on the
+	// listed data mounts: names, empty rows, counts, one physical disk each, parity size,
+	// a rename onto another name, the schedules
+	if err := forkCheckSnapRAID(raidOptions, editRaid); err != nil {
 		return err
 	}
 
-	devices := map[string]bool{}
-
-	for _, d1 := range data {
-		for _, m := range mountPoints {
-			if m.Path == d1 {
-				if !devices[m.Device] {
-					devices[m.Device] = true
-				} else {
-					return errors.New("Do not add different mountpoints that are on the same disk. It will cause data loss")
-				}
-			}
-		}
-	}
-
-	// check if 2 partitions are on the same disk
-	disks, err := ListDisks()
-	if err != nil {
+	// Fork addition: saved under ConfigLock, the name checked again against the file (fork_snapraid.go)
+	if err := saveSnapRAID(raidOptions, editRaid); err != nil {
 		return err
 	}
 
-	disksUsed := map[string]bool{}
-	for _, d1 := range data {
-		parent, err := findParent(disks, d1)
-		if err != nil {
-			return errors.New("Make sure you are using mountpoints that are disks or full disks partitions")
-		}
-		if !disksUsed[parent.Name] {
-			disksUsed[parent.Name] = true
-		} else {
-			return errors.New("Do not add different partitions that are on the same disk. It will cause data loss")
-		}
-	}
-
-	// Check if already exist
-	if editRaid == "" {
-		for _, r := range utils.GetMainConfig().Storage.SnapRAIDs {
-			if r.Name == raidOptions.Name {
-				return errors.New("Name already exist")
-			}
-		}
-	}
-
-	// Check if partiy is the biggest disk
-	// Check if parity is not in data
-	for _, p := range parity {
-		for _, d := range data {
-			if p == d {
-				return errors.New("Parity disk cannot be a data disk")
-			}
-			pd, err := findParent(disks, p)
-			if err != nil {
-				return errors.New("Parity disk must be a disk")
-			}
-			dd, err := findParent(disks, d)
-			if err != nil {
-				return errors.New("Data disk must be a disk")
-			}
-			if dd.Size.Int64 > pd.Size.Int64 {
-				return errors.New("Parity disk must be the biggest disk")
-			}
-		}
-	}
-
-	// save to config 
-	config := utils.ReadConfigFromFile()
-	// remove the old one
-	if editRaid != "" {
-		for i, r := range config.Storage.SnapRAIDs {
-			if r.Name == editRaid {
-				config.Storage.SnapRAIDs = append(config.Storage.SnapRAIDs[:i], config.Storage.SnapRAIDs[i+1:]...)
-				break
-			}
-		}
-	}
-
-	// add the new one
-	config.Storage.SnapRAIDs = append(config.Storage.SnapRAIDs, raidOptions)
-	utils.SetBaseMainConfig(config)
-	
 	utils.TriggerEvent(
 		"cosmos.settings",
 		"Settings updated",
@@ -223,6 +126,7 @@ func InitSnapRAIDConfig() {
 			Scheduler: "SnapRAID",
 			Name: "SnapRAID sync " + raidOptions.Name,
 			Crontab: raidOptions.SyncCrontab,
+			Disabled: !raidOptions.Enabled, // Fork addition: "disable" stops the schedule
 			Cancellable: true,
 			Job: cron.JobFromCommand("snapraid", "-q", "sync", "-c", utils.CONFIGFOLDER + "snapraid/" + raidOptions.Name + ".conf"),
 		})
@@ -231,6 +135,7 @@ func InitSnapRAIDConfig() {
 			Scheduler: "SnapRAID",
 			Name: "SnapRAID scrub " + raidOptions.Name,
 			Crontab: raidOptions.ScrubCrontab,
+			Disabled: !raidOptions.Enabled, // Fork addition: "disable" stops the schedule
 			Cancellable: true,
 			Job: cron.JobFromCommand("snapraid", "-q", "scrub", "-c", utils.CONFIGFOLDER + "snapraid/" + raidOptions.Name + ".conf"),
 		})
@@ -238,6 +143,8 @@ func InitSnapRAIDConfig() {
 }
 
 func ToggleSnapRAID(name string, enable bool) error {
+	toggled := false
+	defer func() { if toggled { reinitSnapRAIDInBackground() } }() // Fork addition: the jobs follow the switch, re-registered once the lock is released (fork_snapraid.go)
 	utils.ConfigLock.Lock()
 	defer utils.ConfigLock.Unlock()
 
@@ -247,6 +154,7 @@ func ToggleSnapRAID(name string, enable bool) error {
 			config.Storage.SnapRAIDs[i].Enabled = enable
 			utils.SetBaseMainConfig(config)
 			utils.Log("Toggled SnapRAID " + name)
+			toggled = true // Fork addition
 			return nil
 		}
 	}
@@ -255,13 +163,12 @@ func ToggleSnapRAID(name string, enable bool) error {
 
 func RunSnapRAIDSync(raid utils.SnapRAIDConfig) error {
 	utils.Log("[STORAGE] Running SnapRAID sync for " + raid.Name)
-	cron.ManualRunJob("SnapRAID", "SnapRAID sync " + raid.Name)
-
-	return nil
+	return cron.ManualRunJob("SnapRAID", "SnapRAID sync " + raid.Name) // Fork addition: its error is returned
 }
 
 func RunSnapRAIDFix(raid utils.SnapRAIDConfig) error {
 	utils.Log("[STORAGE] Running SnapRAID fix for " + raid.Name)
+	if err := snapRAIDConfReady(raid.Name); err != nil { return err } // Fork addition: say why it cannot run
 
 	cron.RunOneTimeJob(cron.ConfigJob{
 		Scheduler: "SnapRAID",
@@ -275,9 +182,7 @@ func RunSnapRAIDFix(raid utils.SnapRAIDConfig) error {
 
 func RunSnapRAIDScrub(raid utils.SnapRAIDConfig) error  {
 	utils.Log("[STORAGE] Running SnapRAID scrub for " + raid.Name)
-	cron.ManualRunJob("SnapRAID", "SnapRAID scrub " + raid.Name)
-
-	return nil
+	return cron.ManualRunJob("SnapRAID", "SnapRAID scrub " + raid.Name) // Fork addition: its error is returned
 }
 
 func RunSnapRAIDStatus(raid utils.SnapRAIDConfig) (string, error)  {

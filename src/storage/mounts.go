@@ -78,11 +78,12 @@ func ListMounts() ([]MountPoint, error) {
 
 
 // Mount mounts a filesystem located at 'path' to 'mountpoint'.
-func Mount(path, mountpoint string, permanent bool, netDisk bool, chown string) error {
+func Mount(path, mountpoint string, permanent bool, netDisk bool, chown string) (err error) { // Fork addition: named result, for the undo below
 	// Fork addition: the request is checked before anything is created, run or written (fork_mount_safety.go)
 	if err := checkMountRequest(path, mountpoint, chown, netDisk); err != nil {
 		return err
 	}
+	if err := forkCheckMountTarget(path, mountpoint, netDisk); err != nil { return err } // Fork addition: no mount over a mount point, no device in use (fork_mount_guard.go)
 
 	utils.Log("[STORAGE] Mounting " + path + " to " + mountpoint)
 
@@ -90,7 +91,7 @@ func Mount(path, mountpoint string, permanent bool, netDisk bool, chown string) 
 	if _, err := os.Stat(mountpoint); os.IsNotExist(err) {
 		utils.Log("[STORAGE] Mountpoint does not exist, creating " + mountpoint)
 		// Create the mountpoint if it does not exist
-		if err := os.Mkdir(mountpoint, 0750); err != nil {
+		if err := makeMountFolder(mountpoint, 0750); err != nil { // Fork addition: a variable for the tests (fork_storage_errors.go)
 			return err
 		}
 	} else {
@@ -106,15 +107,16 @@ func Mount(path, mountpoint string, permanent bool, netDisk bool, chown string) 
 	}
 
 	// Execute the mount command
-	out, err := utils.Exec("mount", path, mountpoint)
+	out, err := forkRun("Mounting "+path+" on "+mountpoint, "mount", "--", path, mountpoint) // Fork addition: through runStorageCommand (fork_storage_errors.go)
 	utils.Debug(out)
 	if err != nil {
 		return err
 	}
+	defer forkUndoMountOnError(&err, mountpoint, path) // Fork addition: a failure after the mount unmounts again (fork_mount_guard.go)
 	
 	if chown != "" {
 		utils.Log("[STORAGE] Chowning " + mountpoint + " to " + chown)
-		out, err := utils.Exec("chown", chown, mountpoint)
+		out, err := forkRun("Setting the owner of "+mountpoint+" to "+chown, "chown", "--", chown, mountpoint) // Fork addition: through runStorageCommand (fork_storage_errors.go)
 		utils.Debug(out)
 		if err != nil {
 			return err
@@ -143,7 +145,7 @@ func Mount(path, mountpoint string, permanent bool, netDisk bool, chown string) 
 		}
 
 		// Append to /etc/fstab
-		file, err := os.OpenFile("/etc/fstab", os.O_APPEND|os.O_WRONLY, 0644)
+		file, err := os.OpenFile(fstabFile, os.O_APPEND|os.O_WRONLY, 0644) // Fork addition: a variable for the tests
 		if err != nil {
 			return err
 		}
@@ -170,7 +172,7 @@ func Unmount(mountpoint string, permanent bool) error {
 	utils.Log("[STORAGE] Unmounting " + mountpoint)
 
 	// Execute the umount command
-	_, err := utils.Exec("umount", mountpoint)
+	_, err := forkRun("Unmounting "+mountpoint, "umount", "--", mountpoint) // Fork addition: through runStorageCommand (fork_storage_errors.go)
 	if err != nil {
 		return err
 	}
@@ -179,7 +181,7 @@ func Unmount(mountpoint string, permanent bool) error {
 	if !isPermanent || permanent {
 		utils.Log("[STORAGE] Mountpoint is not in /etc/fstab or unmount is permanent, removing mountpoint")
 		// Remove the mountpoint
-		if err := os.Remove(mountpoint); err != nil {
+		if err := removeMountFolder(mountpoint); err != nil { // Fork addition: a variable for the tests (fork_storage_errors.go)
 			return err
 		}
 	}
@@ -201,7 +203,7 @@ func Unmount(mountpoint string, permanent bool) error {
 func isMountPointInFstab(mountpoint string) (bool, error) {
 	mountpoint = strings.Replace(mountpoint, "/var/mnt/", "/mnt/", 1)
 
-	file, err := os.Open("/etc/fstab")
+	file, err := os.Open(fstabFile) // Fork addition: a variable for the tests
 	if err != nil {
 		return false, err
 	}
@@ -225,7 +227,7 @@ func isMountPointInFstab(mountpoint string) (bool, error) {
 func removeFstabEntry(mountpoint string) error {
 	mountpoint = strings.Replace(mountpoint, "/var/mnt/", "/mnt/", 1)
 
-	file, err := os.Open("/etc/fstab")
+	file, err := os.Open(fstabFile) // Fork addition: a variable for the tests
 	if err != nil {
 		return err
 	}
@@ -250,7 +252,7 @@ func removeFstabEntry(mountpoint string) error {
 
 	utils.Debug("[STORAGE] Writing new /etc/fstab")
 
-	return os.WriteFile("/etc/fstab", []byte(strings.Join(lines, "\n")), 0644)
+	return os.WriteFile(fstabFile, []byte(strings.Join(lines, "\n")), 0644) // Fork addition: a variable for the tests
 }
 
 // check if disk is mounted
