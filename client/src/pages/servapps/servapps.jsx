@@ -343,7 +343,7 @@ const ServApps = ({stack}) => {
                       <Typography  variant="h5" color="text.secondary" className="ct-app-name" title={app.name.replace('/', '')}>
                       {app.name.replace('/', '')}&nbsp; {app.type === 'stack' && <Chip label="Stack" color="primary" size="small" style={{fontSize: '55%'}}/>}
                       </Typography>
-                      <Typography color="text.secondary" style={{fontSize: '80%', whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '100%', textOverflow: 'ellipsis'}}>
+                      <Typography color="text.secondary" title={app.app.Image} style={{fontSize: '80%', whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '100%', textOverflow: 'ellipsis'}}>
                         {app.app.Image}
                       </Typography>
                     </Stack>

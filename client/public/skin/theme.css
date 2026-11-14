@@ -486,8 +486,9 @@ header.MuiAppBar-root a:hover > .MuiChip-root {
 .MuiFormHelperText-root.MuiFormHelperText-root.Mui-error { color: var(--ct-danger-text); }
 
 /* a box that is off still has an edge */
-.MuiCheckbox-root.MuiCheckbox-root:not(.Mui-checked):not(.MuiCheckbox-indeterminate):not(.Mui-disabled),
-.MuiRadio-root.MuiRadio-root:not(.Mui-checked):not(.Mui-disabled) { color: var(--ct-border-control); }
+/* (the picture of the box only: some labels sit inside the checkbox's own element) */
+.MuiCheckbox-root.MuiCheckbox-root:not(.Mui-checked):not(.MuiCheckbox-indeterminate):not(.Mui-disabled) > svg,
+.MuiRadio-root.MuiRadio-root:not(.Mui-checked):not(.Mui-disabled) > span > svg { color: var(--ct-border-control); }
 .MuiCheckbox-root.MuiCheckbox-colorPrimary.Mui-checked:not(.Mui-disabled),
 .MuiRadio-root.MuiRadio-colorPrimary.Mui-checked:not(.Mui-disabled) { color: var(--ct-accent); }
 .MuiCircularProgress-root.MuiCircularProgress-colorPrimary { color: var(--ct-accent); }
@@ -769,4 +770,7 @@ html:has(header.MuiAppBar-root) .ct-mode-toggle { display: none; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
   .app-hover:hover, .ct-mode-toggle:hover { transform: none !important; }
+  /* upstream's endless decorations: the sheen over "update available", the pulsing logo, the shake */
+  .shinyButton::before { animation: none !important; display: none; }
+  .pulsing, .shake { animation: none !important; }
 }
