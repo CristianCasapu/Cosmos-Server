@@ -90,6 +90,9 @@ export const CHECK_TEXT = {
   'access.adminOnly': ['adminOnly', 'Open to the internet; only admins get in, after logging in.', null],
   'access.login': ['login', 'Open to the internet; visitors log in to Cosmos first.', null],
   'access.open': ['open', 'Open to everyone who reaches the address.', null],
+  // the panel's own address (the server's answer has it apart from the URLs, as "panel")
+  'access.panel': ['panel', 'The Cosmos panel answers at this address; everything in it needs a login.', null],
+  'access.panelLocal': ['panelLocal', 'The panel\'s address is a local one: it is reached on your local network only.', null],
 
   'record.exists': ['exists', 'The record exists at Cloudflare.', null],
   'record.pending': ['pending', 'The record is being written at Cloudflare: this takes up to a minute.', null],
@@ -150,13 +153,23 @@ export const checkSentence = (check, routeName) => {
   if (!entry) {
     return { key: 'mgmt.reach.check.unknown', text: 'Not checked.', params, fix: null };
   }
+  // the panel is not one of the URLs: what a URL's settings fix is fixed where its address is set
+  const where = entry[2] === 'route' && routeName === PANEL_ROUTE ? 'internet' : entry[2];
   return {
     key: 'mgmt.reach.check.' + check.id + '.' + entry[0],
     text: entry[1],
     params,
-    fix: entry[2] ? FIX_LINKS[entry[2]](routeName) : null,
+    fix: where ? FIX_LINKS[where](routeName) : null,
   };
 };
+
+// The panel's own address is judged like a URL (the server's answer has it
+// as "panel"). It has no name among the URLs: this stands in for one.
+export const PANEL_ROUTE = '';
+
+// The panel's verdict as a list of results, the form summarize takes; empty
+// when the server sent none (no address set yet).
+export const panelResults = (data) => (data && data.panel ? [{ ...data.panel, route: PANEL_ROUTE }] : []);
 
 // The addresses an admin sees beside a sentence ('' when none was sent).
 export const checkAddresses = (check) => {

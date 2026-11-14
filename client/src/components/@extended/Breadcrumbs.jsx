@@ -1,114 +1,46 @@
 import PropTypes from 'prop-types';
-import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 // material-ui
 import MuiBreadcrumbs from '@mui/material/Breadcrumbs';
-import { Grid, Typography } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 
 // project imports
-import MainCard from '../MainCard';
+import { crumbsFor, menuEntries } from '../../utils/wayfinding';
 
 // ==============================|| BREADCRUMBS ||============================== //
 
-const Breadcrumbs = ({ navigation, title, ...others }) => {
+// Fork addition: the crumbs come from utils/wayfinding.js. Upstream showed the
+// raw parts of the address ("containers", "general"), an untranslated "Home"
+// and no link back, inside a card; now: Home, the menu entry (a link when the
+// page is below it) and the thing the page is about, on the page itself.
+const Breadcrumbs = ({ navigation }) => {
     const { t } = useTranslation();
     const location = useLocation();
-    const [main, setMain] = useState();
-    const [item, setItem] = useState();
-    let subItem = '';
+    const crumbs = crumbsFor(location.pathname, menuEntries(navigation));
 
-    // extract /servapps/stack/:stack
-    const subPath = location.pathname.split('/')[3];
-    if(subPath && location.pathname.split('/')[4]) {
-        subItem = <Typography variant="subtitle1" color="textPrimary">
-            {location.pathname.split('/')[4]}
-        </Typography>;
-    }
+    if (!crumbs.length) return <Typography />;
 
-    // set active item state
-    const getCollapse = (menu) => {
-        if (menu.children) {
-            menu.children.filter((collapse) => {
-                if (collapse.type && collapse.type === 'collapse') {
-                    getCollapse(collapse);
-                } else if (collapse.type && collapse.type === 'item') {
-                    if (location.pathname.startsWith(collapse.url)) {
-                        setMain(menu);
-                        setItem(collapse);
-                    }
-                }
-                return false;
-            });
-        }
-    };
-
-    useEffect(() => {
-        navigation?.items?.map((menu) => {
-            if (menu.type && menu.type === 'group') {
-                getCollapse(menu);
-            }
-            return false;
-        });
-    });
-
-    // only used for component demo breadcrumbs
-    if (location.pathname === '/breadcrumbs') {
-        location.pathname = '/dashboard/analytics';
-    }
-
-    let mainContent;
-    let itemContent;
-    let breadcrumbContent = <Typography />;
-    let itemTitle = '';
-
-    // collapse item
-    if (main && main.type === 'collapse') {
-        mainContent = (
-            <Typography component={Link} to={document.location.pathname} variant="h6" sx={{ textDecoration: 'none' }} color="textSecondary">
-                {t(main.title)}
-            </Typography>
-        );
-    }
-
-    // items
-    if (item && item.type === 'item') {
-        itemTitle = item.title;
-        itemContent = (
-            <Typography variant="subtitle1" color="textPrimary">
-                {t(itemTitle)}
-            </Typography>
-        );
-
-        // main
-        if (item.breadcrumbs !== false) {
-            breadcrumbContent = (
-                <MainCard border={false} sx={{ mb: 3, background: 'transparent', backdropFilter: 'none', boxShadow: 'none' }} {...others} content={false}>
-                    <Grid container direction="column" justifyContent="flex-start" alignItems="flex-start" spacing={1}>
-                        <Grid item>
-                            <MuiBreadcrumbs aria-label="breadcrumb">
-                                <Typography component={Link} to="/" color="textSecondary" variant="h6" sx={{ textDecoration: 'none' }}>
-                                    Home
-                                </Typography>
-                                {mainContent}
-                                {itemContent}
-                                {subPath && <Typography variant="subtitle1" color="textPrimary">{subPath}</Typography>}
-                                {subItem}
-                            </MuiBreadcrumbs>
-                        </Grid>
-                        {title && (
-                            <Grid item sx={{ mt: 2 }}>
-                                <Typography variant="h5">{t(item.title)}</Typography>
-                            </Grid>
-                        )}
-                    </Grid>
-                </MainCard>
-            );
-        }
-    }
-
-    return breadcrumbContent;
+    return (
+        <Box className="ct-breadcrumbs" sx={{ mb: { xs: 2, sm: 2.5 } }}>
+            <MuiBreadcrumbs aria-label={t('navigation.breadcrumb', 'You are here')}>
+                {crumbs.map((crumb, index) => {
+                    const text = crumb.key ? t(crumb.key, crumb.text) : crumb.text;
+                    const last = index === crumbs.length - 1;
+                    return crumb.to && !last ? (
+                        <Typography key={index} component={Link} to={crumb.to} variant="h6" color="textSecondary" className="ct-crumb-link" sx={{ textDecoration: 'none' }}>
+                            {text}
+                        </Typography>
+                    ) : (
+                        <Typography key={index} variant="subtitle1" color="textPrimary" aria-current={last ? 'page' : undefined} sx={{ overflowWrap: 'anywhere' }}>
+                            {text}
+                        </Typography>
+                    );
+                })}
+            </MuiBreadcrumbs>
+        </Box>
+    );
 };
 
 Breadcrumbs.propTypes = {

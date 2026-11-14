@@ -449,3 +449,35 @@ func Evaluate(route utils.ProxyRouteConfig, env Env) RouteResult {
 	}
 	return result
 }
+
+// Fork addition (Cloudflare hardening): the panel's own address.
+//
+// Cosmos' panel answers at HTTPConfig.Hostname. Whether that name resolves
+// to this server, whether the router forwards the port and whether the
+// certificate fits is the same question as for the address of an
+// application, so the panel is judged as a URL at that address that needs a
+// login. Only what is said about who may open it differs.
+
+// panelRoute is the panel as a route: at Cosmos' own hostname, behind the
+// login.
+func panelRoute(http utils.HTTPConfig) utils.ProxyRouteConfig {
+	return utils.ProxyRouteConfig{UseHost: true, Host: http.Hostname, AuthEnabled: true}
+}
+
+// EvaluatePanel gives the verdict on the panel's own address. Its Route is
+// empty: it is not one of the URLs.
+func EvaluatePanel(env Env) RouteResult {
+	result := Evaluate(panelRoute(env.HTTP), env)
+	for i := range result.Checks {
+		if result.Checks[i].ID != "access" {
+			continue
+		}
+		switch result.Checks[i].Code {
+		case "login":
+			result.Checks[i].Code = "panel"
+		case "localGuard", "noHost":
+			result.Checks[i].Code = "panelLocal"
+		}
+	}
+	return result
+}

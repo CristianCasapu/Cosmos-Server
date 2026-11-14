@@ -84,6 +84,10 @@ function reachability() {
 
 const reachabilityCheck = reachability;
 
+// Fork addition: the demo publishes no .local names
+const localNames = () => Promise.resolve({ status: 'OK', data: { enabled: false, avahi: 'off', names: [], interfaces: [], problems: [], avahiConf: { read: false, allowInterfaces: [], denyInterfaces: [] } } });
+const localNamesCheck = localNames;
+
 // Fork addition: the demo has no Cloudflare to talk to
 const cloudflareNone = () => Promise.resolve({ ok: false, status: 0, data: null, reason: 'no_answer', detail: '', message: '' });
 const cloudflareStatus = () => Promise.resolve({
@@ -96,6 +100,7 @@ const cloudflareTakeOver = cloudflareNone;
 const cloudflareShield = cloudflareNone;
 const cloudflarePanel = cloudflareNone;
 const cloudflareRanges = cloudflareNone;
+const cloudflareOriginPulls = cloudflareNone;
 
 // Fork addition: the demo orders no certificate
 const certificatesStatus = () => Promise.resolve({
@@ -266,6 +271,8 @@ export {
   upnpRetry,
   reachability,
   reachabilityCheck,
+  localNames,
+  localNamesCheck,
   cloudflareStatus,
   cloudflareCheck,
   cloudflarePreview,
@@ -279,6 +286,7 @@ export {
   certificatesDomain,
   certificatesDelegation,
   certificatesSettings,
+  cloudflareOriginPulls,
   serverUpdateStatus,
   checkServerUpdate,
   snapshotsStatus,

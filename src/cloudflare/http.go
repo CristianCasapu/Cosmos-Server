@@ -37,6 +37,11 @@ var (
 	restartServer    = func() { go utils.SoftRestartServer() }
 )
 
+// AfterChange is called when the hostnames served through Cloudflare or
+// Cloudflare's address ranges changed. The server sets it (src/fork_fail2ban.go):
+// the never-ban list of Fail2ban follows both.
+var AfterChange = func() {}
+
 func readBody(w http.ResponseWriter, req *http.Request, limit int64, into interface{}) bool {
 	raw, err := io.ReadAll(io.LimitReader(req.Body, limit+1))
 	if err != nil || int64(len(raw)) > limit {
@@ -431,6 +436,7 @@ func ShieldRoute(w http.ResponseWriter, req *http.Request) {
 	utils.AuditSecurity(req, utils.SecConfigSaved, host, "sections", "cloudflare", "served", outcome)
 	forgetSync()
 	triggerReconcile()
+	AfterChange()
 
 	cf := utils.GetMainConfig().HTTPConfig.Cloudflare
 	answer(w, map[string]interface{}{
@@ -504,12 +510,16 @@ func refreshRanges(ctx context.Context) error {
 	if !ok4 || !ok6 {
 		return &APIError{Kind: "other", Message: "the list Cloudflare sent is not a list of public networks: kept the previous one"}
 	}
-	return updateConfig(func(config *utils.Config) error {
+	err = updateConfig(func(config *utils.Config) error {
 		config.HTTPConfig.Cloudflare.RangesV4 = cleanV4
 		config.HTTPConfig.Cloudflare.RangesV6 = cleanV6
 		config.HTTPConfig.Cloudflare.RangesUpdated = time.Now().UTC().Truncate(time.Second)
 		return nil
 	})
+	if err == nil {
+		AfterChange()
+	}
+	return err
 }
 
 // RangesRoute godoc
@@ -621,6 +631,9 @@ type Status struct {
 	Address string `json:"address,omitempty"`
 	// Hostname is the panel's own address now
 	Hostname string `json:"hostname"`
+	// OriginPulls: whether Cloudflare's proxy must prove itself with a
+	// client certificate, see originpulls.go
+	OriginPulls OriginPullsState `json:"originPulls"`
 }
 
 // GetStatus gathers what the screens show. Nothing is asked of Cloudflare.
@@ -636,6 +649,7 @@ func GetStatus(withAddresses bool) Status {
 		AllowedPorts: utils.CloudflareHTTPSPorts,
 		Ranges:       rangesStatus(cf, withAddresses),
 		Hostname:     utils.CloudflareHostname(config.HTTPConfig.Hostname),
+		OriginPulls:  originPullsStatus(config),
 	}
 	status.PortOK = utils.IsCloudflareHTTPSPort(status.PublicPort)
 	if withAddresses {
@@ -732,6 +746,7 @@ const rangesMaxAge = 7 * 24 * time.Hour
 // Cloudflare and its addresses are not trusted.
 func Start() {
 	startOnce.Do(func() {
+		startOriginPullWatch()
 		go func() {
 			for {
 				time.Sleep(24 * time.Hour)

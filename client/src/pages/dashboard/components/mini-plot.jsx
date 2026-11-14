@@ -29,11 +29,14 @@ import Chart from 'react-apexcharts';
 import { FormaterForMetric, formatDate, toUTC } from './utils';
 
 import * as API from '../../../api';
+import { useTranslation } from 'react-i18next';
 
 const _MiniPlotComponent = ({metrics, labels, noLabels, noBackground, agglo, title}) => {
   const theme = useTheme();
+  const { t } = useTranslation();
   const { primary, secondary } = theme.palette.text;
   const [dataMetrics, setDataMetrics] = useState([]);
+  const [answered, setAnswered] = useState(false); // Fork addition: asked, and the server had nothing
   const [series, setSeries] = useState([]);
   const slot = 'hourly';
   const [ref, inView] = useInView();
@@ -71,6 +74,7 @@ const _MiniPlotComponent = ({metrics, labels, noLabels, noBackground, agglo, tit
     API.metrics.get(metrics).then((res) => {
       const toProcess = res.data || [];
       setDataMetrics(toProcess);
+      setAnswered(true);
 
       const _series = toProcess.map((serie) => ({
         name: 'Value',
@@ -198,7 +202,8 @@ const _MiniPlotComponent = ({metrics, labels, noLabels, noBackground, agglo, tit
     return showValue;
   }
 
-  return <Stack direction='row' spacing={3} 
+  // Fork addition: the classes let the skin give the box its own surface; no chart is built without a series, a word instead
+  return <Stack direction='row' spacing={3} className={'ct-miniplot' + (series.length ? '' : ' ct-miniplot-empty')}
                 alignItems='center' sx={{padding: '0px 20px', width: '100%', backgroundColor: noBackground ? '' : 'rgba(0,0,0,0.075)'}}
                 justifyContent={'space-around'}>
 
@@ -238,7 +243,8 @@ const _MiniPlotComponent = ({metrics, labels, noLabels, noBackground, agglo, tit
         margin: '-10px 0px -20px 10px',
         flexGrow: 1,
       }} ref={ref}>
-        <Chart options={chartOptions} series={series} type="line" height={90} />
+        {series.length > 0 && <Chart options={chartOptions} series={series} type="line" height={90} />}
+        {series.length === 0 && answered && <div className="ct-miniplot-none">{t('monitoring.noMeasurementsShort', 'No measurements yet')}</div>}
       </div>
     </Stack>
 }

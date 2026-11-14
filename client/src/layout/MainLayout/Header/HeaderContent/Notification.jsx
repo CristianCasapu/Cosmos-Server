@@ -159,7 +159,7 @@ const Notification = () => {
                 disableRipple
                 color="secondary"
                 sx={{ color: 'text.primary', bgcolor: open ? iconBackColorOpen : iconBackColor }}
-                aria-label="open profile"
+                aria-label={t('header.notificationTitle', 'Notification')} /* Fork addition: was "open profile" */
                 ref={anchorRef}
                 aria-controls={open ? 'profile-grow' : undefined}
                 aria-haspopup="true"
@@ -260,6 +260,10 @@ const Notification = () => {
                                                 </ListItemSecondaryAction>
                                             </ListItemButton>
                                         <Divider /></>))}
+                                        {/* Fork addition: an empty list says so (it was a title and nothing under it) */}
+                                        {(!notifications || notifications.length === 0) && <Typography variant="body1" color="textSecondary" sx={{ px: 2.5, py: 2 }}>
+                                            {t('header.notification.empty', 'Nothing to report. Updates, alerts and jobs that failed are listed here.')}
+                                        </Typography>}
                                     </List>
                                 </MainCard>
                             </ClickAwayListener>

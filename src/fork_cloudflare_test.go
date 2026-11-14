@@ -61,13 +61,14 @@ func TestCloudflareIsWiredIn(t *testing.T) {
 	router := mux.NewRouter()
 	registerCloudflareRoutes(router.PathPrefix("/cosmos").Subrouter())
 	for path, method := range map[string]string{
-		"/cosmos/api/cloudflare":          "GET",
-		"/cosmos/api/cloudflare/check":    "POST",
-		"/cosmos/api/cloudflare/preview":  "POST",
-		"/cosmos/api/cloudflare/takeover": "POST",
-		"/cosmos/api/cloudflare/shield":   "POST",
-		"/cosmos/api/cloudflare/panel":    "POST",
-		"/cosmos/api/cloudflare/ranges":   "POST",
+		"/cosmos/api/cloudflare":              "GET",
+		"/cosmos/api/cloudflare/check":        "POST",
+		"/cosmos/api/cloudflare/preview":      "POST",
+		"/cosmos/api/cloudflare/takeover":     "POST",
+		"/cosmos/api/cloudflare/shield":       "POST",
+		"/cosmos/api/cloudflare/panel":        "POST",
+		"/cosmos/api/cloudflare/ranges":       "POST",
+		"/cosmos/api/cloudflare/origin-pulls": "POST",
 	} {
 		recorder := httptest.NewRecorder()
 		router.ServeHTTP(recorder, httptest.NewRequest(method, path, strings.NewReader("{}")))
@@ -81,7 +82,7 @@ func TestCloudflareIsWiredIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, hook := range []string{"router.Use(proxy.CloudflareOriginGuard)", "registerCloudflareRoutes(srapiAdmin)"} {
+	for _, hook := range []string{"router.Use(proxy.CloudflareOriginGuard)", "registerCloudflareRoutes(srapiAdmin)", "TLSConfig: originPullTLS(&tls.Config{"} {
 		if strings.Count(string(source), hook) != 1 {
 			t.Errorf("httpServer.go: %q is not there exactly once", hook)
 		}

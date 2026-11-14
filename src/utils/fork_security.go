@@ -71,6 +71,8 @@ const (
 	SecAccessLocalDenied = "access.local.denied"
 	// Fork addition (Cloudflare): a hostname served through Cloudflare was asked for around it
 	SecAccessOriginDenied = "access.origin.denied"
+	// a request to the API that the panel's own pages did not start (src/fork_same_origin.go)
+	SecAccessForeignDenied = "access.foreign.denied"
 
 	// the shields
 	SecShieldBlocked     = "shield.blocked"
@@ -148,6 +150,11 @@ type SecurityEvent struct {
 	// Count is 1, or for a summary row the number of events it stands for.
 	Count   int               `json:"count"`
 	Details map[string]string `json:"details"`
+	// Forwarded: IP is what a proxy (Cloudflare for a hostname served
+	// through it, or a trusted proxy) reported, not the peer of a
+	// connection. Such an event is never written to the Fail2ban file: see
+	// fork_forwarded_for.go. Not stored.
+	Forwarded bool `json:"-"`
 }
 
 var (
@@ -233,6 +240,7 @@ func securityEventOf(req *http.Request, actor string, kind string, target string
 	}
 
 	event.IP = SecurityClientIP(req)
+	event.Forwarded = IsForwardedClient(req, event.IP)
 	event.Host = req.Host
 	event.Method = req.Method
 	if req.URL != nil {

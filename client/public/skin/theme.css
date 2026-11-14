@@ -16,25 +16,59 @@
 }
 
 :root {
+  /* ---- the accent. --ct-accent is for lines, rings and glows; text takes
+     --ct-accent-text and white text sits on --ct-accent-fill: both are at
+     least 4.5:1 in either mode, which plain #4084ff is not. */
   --ct-accent: #4084ff;
   --ct-accent-2: #0e96b8;
   --ct-accent-glow: 64, 132, 255;
   --ct-gradient: linear-gradient(135deg, var(--ct-accent), var(--ct-accent-2));
+  --ct-accent-fill: linear-gradient(135deg, #2f6fe6, #0b7a96);
+  --ct-ok-fill: linear-gradient(135deg, #16873f, #116932);
+  --ct-danger-fill: linear-gradient(135deg, #dc2626, #b91c1c);
+  --ct-info-fill: linear-gradient(135deg, #0e7490, #155e75);
+  --ct-warn-fill: linear-gradient(135deg, #f6b73c, #dc9a16); /* under dark text */
+  --ct-on-warn: #231603;
+  --ct-focus: #4084ff;
 
-  /* dark (default) */
+  /* ---- one scale each for corners, text and controls */
+  --ct-radius-s: 8px;   /* chips, menu items, small buttons */
+  --ct-radius-m: 10px;  /* buttons, inputs */
+  --ct-radius-l: 14px;  /* cards */
+  --ct-radius-xl: 16px; /* dialogs, home tiles */
+  --ct-text-xs: 0.75rem;   /* 12 px: nothing is smaller */
+  --ct-text-s: 0.8125rem;
+  --ct-text-m: 0.875rem;
+  --ct-control: 36px;      /* a button's height */
+  --ct-touch: 44px;        /* the same on a phone, for what is tapped most */
+
+  /* ---- dark (default) */
   --ct-bg: #0a0f1d;
   --ct-surface: #121a2d;
   --ct-surface-2: #172138;
   --ct-elevated: #18223a;
   --ct-input: rgba(148, 163, 184, 0.06);
+  --ct-text: #e8edf5;
+  --ct-muted: #9aa8be;
   --ct-border: rgba(148, 163, 184, 0.14);
   --ct-border-strong: rgba(148, 163, 184, 0.26);
-  --ct-muted: #93a1b8;
+  --ct-border-control: rgba(148, 163, 184, 0.6); /* the edge of an input or a checkbox: 3:1 on a card */
   --ct-hover: rgba(148, 163, 184, 0.08);
+  --ct-chip: rgba(148, 163, 184, 0.16);
   --ct-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 10px 30px rgba(2, 6, 23, 0.38);
   --ct-shadow-pop: 0 18px 50px rgba(2, 6, 23, 0.6);
   --ct-header: rgba(10, 15, 29, 0.72);
   --ct-scroll: rgba(148, 163, 184, 0.32);
+  --ct-accent-text: #6ea3ff;
+  --ct-accent-soft: rgba(64, 132, 255, 0.14);
+  --ct-accent-soft-border: rgba(110, 163, 255, 0.4);
+  /* ---- states: a text colour, a soft fill and its edge */
+  --ct-ok-text: #4ade80;      --ct-ok-bg: rgba(34, 197, 94, 0.13);     --ct-ok-border: rgba(74, 222, 128, 0.38);
+  --ct-warn-text: #fbbf24;    --ct-warn-bg: rgba(245, 158, 11, 0.13);  --ct-warn-border: rgba(251, 191, 36, 0.4);
+  --ct-danger-text: #ff8587;  --ct-danger-bg: rgba(239, 68, 68, 0.14); --ct-danger-border: rgba(248, 113, 113, 0.45);
+  --ct-info-text: #67d3e8;    --ct-info-bg: rgba(14, 150, 184, 0.15);  --ct-info-border: rgba(103, 211, 232, 0.38);
+  --ct-disabled-bg: rgba(148, 163, 184, 0.14);
+  --ct-disabled-text: rgba(226, 232, 240, 0.5);
 }
 
 /* ct-mode.js sets data-ct-mode on <html> to the mode Cosmos will render in
@@ -45,35 +79,59 @@
   color-scheme: light;
   --ct-bg: #f2f5fa;
   --ct-surface: #ffffff;
-  --ct-surface-2: #f7f9fc;
+  --ct-surface-2: #f6f8fb;
   --ct-elevated: #ffffff;
   --ct-input: #ffffff;
+  --ct-text: #1f2633;
+  --ct-muted: #586479;
   --ct-border: #e2e8f0;
   --ct-border-strong: #cbd5e1;
-  --ct-muted: #64748b;
-  --ct-hover: rgba(15, 23, 42, 0.045);
+  --ct-border-control: #8591a5;
+  --ct-hover: rgba(15, 23, 42, 0.05);
+  --ct-chip: #e9edf3;
   --ct-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 8px 24px rgba(15, 23, 42, 0.06);
   --ct-shadow-pop: 0 18px 50px rgba(15, 23, 42, 0.18);
   --ct-header: rgba(255, 255, 255, 0.78);
   --ct-scroll: rgba(100, 116, 139, 0.4);
+  --ct-accent-text: #1d4ed8;
+  --ct-accent-soft: rgba(37, 99, 235, 0.09);
+  --ct-accent-soft-border: rgba(37, 99, 235, 0.35);
+  --ct-ok-text: #166534;      --ct-ok-bg: #e7f6ec;      --ct-ok-border: #a3d9b5;
+  --ct-warn-text: #8a3c0b;    --ct-warn-bg: #fdf3d7;    --ct-warn-border: #e9c36a;
+  --ct-danger-text: #b91c1c;  --ct-danger-bg: #fdecec;  --ct-danger-border: #f0a9a9;
+  --ct-info-text: #0b6680;    --ct-info-bg: #e3f4f9;    --ct-info-border: #9bd2e2;
+  --ct-disabled-bg: #e8ecf2;
+  --ct-disabled-text: #8a95a8;
 }
 
-/* Same light values for the case where the script did not run. */
+/* Same light values for the case where the script did not run (keep the two lists alike). */
 @media (prefers-color-scheme: light) {
   :root:not([data-ct-mode]) {
     --ct-bg: #f2f5fa;
     --ct-surface: #ffffff;
-    --ct-surface-2: #f7f9fc;
+    --ct-surface-2: #f6f8fb;
     --ct-elevated: #ffffff;
     --ct-input: #ffffff;
+    --ct-text: #1f2633;
+    --ct-muted: #586479;
     --ct-border: #e2e8f0;
     --ct-border-strong: #cbd5e1;
-    --ct-muted: #64748b;
-    --ct-hover: rgba(15, 23, 42, 0.045);
+    --ct-border-control: #8591a5;
+    --ct-hover: rgba(15, 23, 42, 0.05);
+    --ct-chip: #e9edf3;
     --ct-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 8px 24px rgba(15, 23, 42, 0.06);
     --ct-shadow-pop: 0 18px 50px rgba(15, 23, 42, 0.18);
     --ct-header: rgba(255, 255, 255, 0.78);
     --ct-scroll: rgba(100, 116, 139, 0.4);
+    --ct-accent-text: #1d4ed8;
+    --ct-accent-soft: rgba(37, 99, 235, 0.09);
+    --ct-accent-soft-border: rgba(37, 99, 235, 0.35);
+    --ct-ok-text: #166534;      --ct-ok-bg: #e7f6ec;      --ct-ok-border: #a3d9b5;
+    --ct-warn-text: #8a3c0b;    --ct-warn-bg: #fdf3d7;    --ct-warn-border: #e9c36a;
+    --ct-danger-text: #b91c1c;  --ct-danger-bg: #fdecec;  --ct-danger-border: #f0a9a9;
+    --ct-info-text: #0b6680;    --ct-info-bg: #e3f4f9;    --ct-info-border: #9bd2e2;
+    --ct-disabled-bg: #e8ecf2;
+    --ct-disabled-text: #8a95a8;
   }
 }
 
@@ -113,6 +171,36 @@ body {
   background-clip: padding-box;
 }
 
+/* ---------- nothing below 12 px ------------------------------------------- */
+
+/* Upstream sizes some texts as a share of their parent in a style attribute;
+   on the 12 px lines that gives 9 to 10 px (image names, "Auto Update
+   Container", the "Stack" chip). The share stays, with 12 px as its floor. */
+[style*="font-size: 80%"] { font-size: max(var(--ct-text-xs), 80%) !important; }
+[style*="font-size: 55%"] { font-size: max(var(--ct-text-xs), 55%) !important; }
+
+/* ---------- keyboard focus ------------------------------------------------ */
+
+/* One ring for everything that takes the keyboard. MUI removes the outline
+   and shows a ripple, which is easy to miss and absent on plain links. */
+.MuiButtonBase-root.Mui-focusVisible,
+.MuiButtonBase-root:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:not([tabindex="-1"]):focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--ct-focus);
+  outline-offset: 2px;
+}
+/* where the ring would be cut by the box around it, draw it inside */
+.MuiDrawer-paper .MuiListItemButton-root.Mui-focusVisible,
+.MuiMenuItem-root.Mui-focusVisible,
+.MuiTab-root.Mui-focusVisible,
+.MuiTableRow-root:focus-visible,
+.MuiAccordionSummary-root.Mui-focusVisible { outline-offset: -2px; }
+/* a text field shows its focus on its frame */
+.MuiInputBase-input:focus-visible { outline: none; }
+
 /* ---------- surfaces ------------------------------------------------------ */
 
 /* Glass tiles on the home page, alerts and the app bar keep their own fills. */
@@ -121,14 +209,14 @@ body {
   background-image: none;
 }
 
-.MuiPaper-rounded.MuiPaper-rounded { border-radius: 14px; }
+.MuiPaper-rounded.MuiPaper-rounded { border-radius: var(--ct-radius-l); }
 
 .MuiCard-root.MuiCard-root {
   border: 1px solid var(--ct-border);
   box-shadow: var(--ct-shadow);
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
-.MuiCard-root.MuiCard-root:hover { border-color: var(--ct-border-strong); }
+
+.MuiCardHeader-root .MuiCardHeader-title { font-size: 0.9375rem; }
 
 .MuiAccordion-root.MuiAccordion-root {
   border: 1px solid var(--ct-border);
@@ -137,6 +225,44 @@ body {
 .MuiAccordion-root.MuiAccordion-root::before { display: none; }
 
 .MuiDivider-root.MuiDivider-root { border-color: var(--ct-border); }
+.MuiDivider-root.MuiDivider-root::before,
+.MuiDivider-root.MuiDivider-root::after { border-color: var(--ct-border); }
+
+/* values shown for reading (a container's image, id, address) */
+.ct-readonly {
+  background-color: var(--ct-surface-2) !important;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-s) !important;
+  overflow-wrap: anywhere;
+}
+
+/* the small chart of an app card: a quiet surface, and a word when it is empty */
+.MuiPaper-root .ct-miniplot {
+  background-color: var(--ct-surface-2) !important;
+  border-radius: var(--ct-radius-m);
+  min-height: 84px;
+}
+/* an app's name on its card: one line, the whole name in its tooltip */
+.ct-app-name {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ct-app-title { min-width: 0; flex: 1 1 auto; }
+.ct-app-title > .MuiStack-root { min-width: 0; height: auto !important; min-height: 40px; }
+/* empty: no column of labels beside the word */
+.ct-miniplot-empty > :first-child { display: none; }
+.ct-miniplot-empty > :last-child { margin: 0 !important; }
+.ct-miniplot-none {
+  color: var(--ct-muted);
+  font-size: var(--ct-text-xs);
+  text-align: center;
+  padding: 30px 0 34px;
+}
+
+/* "nothing here" blocks (client/src/components/emptyState.jsx) */
+.ct-empty-icon { color: var(--ct-muted); }
 
 /* ---------- top bar ------------------------------------------------------- */
 
@@ -149,6 +275,32 @@ header.MuiAppBar-root {
   box-shadow: none !important;
 }
 
+/* the bar's buttons: one quiet tile each instead of neutral grey squares */
+header.MuiAppBar-root .MuiIconButton-root.MuiIconButton-root {
+  background-color: var(--ct-hover);
+  color: var(--ct-text);
+}
+header.MuiAppBar-root .MuiIconButton-root.MuiIconButton-root:hover {
+  background-color: var(--ct-accent-soft);
+  color: var(--ct-accent-text);
+}
+header.MuiAppBar-root .MuiChip-root {
+  border-radius: var(--ct-radius-m);
+  background-color: var(--ct-hover);
+  color: var(--ct-text);
+}
+header.MuiAppBar-root a:hover > .MuiChip-root {
+  background-color: var(--ct-accent-soft);
+  color: var(--ct-accent-text);
+}
+
+/* where the page is: Home / the menu entry / what the page is about */
+.ct-breadcrumbs .MuiBreadcrumbs-ol { row-gap: 2px; }
+.ct-breadcrumbs .MuiTypography-root { font-size: var(--ct-text-s); line-height: 1.5; }
+.ct-breadcrumbs .MuiBreadcrumbs-separator { color: var(--ct-muted); }
+.ct-breadcrumbs .ct-crumb-link { color: var(--ct-muted); font-weight: 500; }
+.ct-breadcrumbs .ct-crumb-link:hover { color: var(--ct-accent-text); text-decoration: underline; }
+
 /* ---------- side navigation ---------------------------------------------- */
 
 .MuiDrawer-root .MuiDrawer-paper {
@@ -158,10 +310,18 @@ header.MuiAppBar-root {
   box-shadow: none;
 }
 
+/* The closed menu stays in the page, zero pixels wide: take it out of sight
+   and out of the keyboard's way (it left a line down the left edge and 18
+   invisible stops for the Tab key). The class is set in Drawer/index.jsx. */
+.ct-drawer-closed .MuiDrawer-docked .MuiDrawer-paper {
+  visibility: hidden;
+  border-right: 0;
+}
+
 .MuiDrawer-paper .MuiListItemButton-root {
   width: auto;
   margin: 2px 8px;
-  border-radius: 10px;
+  border-radius: var(--ct-radius-m);
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 .MuiDrawer-paper .MuiListItemButton-root:hover { background-color: var(--ct-hover); }
@@ -170,82 +330,197 @@ header.MuiAppBar-root {
 .MuiDrawer-paper .MuiListItemButton-root.Mui-selected:hover {
   background-color: transparent;
   background-image: linear-gradient(90deg, rgba(var(--ct-accent-glow), 0.2), rgba(14, 150, 184, 0.07));
+  border-left-color: transparent;
   border-right-color: transparent;
   box-shadow: inset 3px 0 0 var(--ct-accent);
 }
 .MuiDrawer-paper .MuiListItemButton-root.Mui-selected .MuiListItemIcon-root,
 .MuiDrawer-paper .MuiListItemButton-root.Mui-selected .MuiTypography-root {
-  color: var(--ct-accent);
+  color: var(--ct-accent-text);
   font-weight: 600;
 }
 
-.MuiDrawer-paper .MuiListSubheader-root,
-.MuiDrawer-paper .MuiTypography-subtitle2 {
+/* the headings of the menu's groups */
+.MuiDrawer-paper h2.MuiTypography-root,
+.MuiDrawer-paper .MuiListSubheader-root {
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  font-size: 0.68rem;
+  font-size: var(--ct-text-xs);
+  font-weight: 600;
   color: var(--ct-muted);
+  opacity: 1;
 }
+
+/* the menu's footer (language, version, the light/dark switch on a phone): a strip of its
+   own, so that the entries scrolling behind it do not show through */
+.ct-drawer-footer {
+  margin: 0 !important;
+  padding: 10px;
+  position: relative;
+  z-index: 1;
+  background-color: var(--ct-surface);
+  border-top: 1px solid var(--ct-border);
+}
+.ct-drawer-footer .MuiChip-root .MuiChip-label { font-size: var(--ct-text-xs); }
+.ct-drawer-footer .ct-mode-button { width: 40px; height: 40px; font-size: 1rem; }
 
 /* ---------- buttons ------------------------------------------------------- */
 
 .MuiButton-root.MuiButton-root {
-  border-radius: 10px;
+  border-radius: var(--ct-radius-m);
   font-weight: 600;
   letter-spacing: 0;
+  min-height: var(--ct-control);
 }
+.MuiButton-root.MuiButton-sizeSmall { min-height: 30px; }
 
-.MuiButton-containedPrimary.MuiButton-containedPrimary {
-  box-shadow: 0 6px 18px rgba(var(--ct-accent-glow), 0.28);
+/* filled: the fills are dark enough for their white text */
+.MuiButton-contained.MuiButton-containedPrimary {
+  background-image: var(--ct-accent-fill);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(var(--ct-accent-glow), 0.24);
 }
+.MuiButton-contained.MuiButton-containedSecondary,
+.MuiButton-contained.MuiButton-containedInfo { background-image: var(--ct-info-fill); color: #fff; }
+.MuiButton-contained.MuiButton-containedError { background-image: var(--ct-danger-fill); color: #fff; }
+.MuiButton-contained.MuiButton-containedSuccess { background-image: var(--ct-ok-fill); color: #fff; }
+.MuiButton-contained.MuiButton-containedWarning { background-image: var(--ct-warn-fill); color: var(--ct-on-warn); }
 
 /* Outlined buttons draw their border as a gradient behind a solid fill; the
    fill is hard-coded to the stock card colour, so repaint it per colour. */
 .MuiButton-outlined { --ct-btn-fill: var(--ct-surface); }
-.MuiButton-outlinedPrimary {
+.MuiButton-outlined.MuiButton-outlinedPrimary {
   background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), var(--ct-gradient);
+  color: var(--ct-accent-text);
 }
-.MuiButton-outlinedSecondary {
+.MuiButton-outlined.MuiButton-outlinedSecondary,
+.MuiButton-outlined.MuiButton-outlinedInfo {
   background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), linear-gradient(135deg, #0e96b8, #0a6f88);
+  color: var(--ct-info-text);
 }
-.MuiButton-outlinedError {
-  background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), linear-gradient(135deg, #ff4d4f, #a8071a);
+.MuiButton-outlined.MuiButton-outlinedError {
+  background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), linear-gradient(135deg, #ef4444, #b91c1c);
+  color: var(--ct-danger-text);
 }
-.MuiButton-outlinedSuccess {
-  background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), linear-gradient(135deg, #52c41a, #237804);
+.MuiButton-outlined.MuiButton-outlinedSuccess {
+  background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), linear-gradient(135deg, #22c55e, #15803d);
+  color: var(--ct-ok-text);
 }
-.MuiButton-outlinedWarning {
-  background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), linear-gradient(135deg, #faad14, #ad6800);
+.MuiButton-outlined.MuiButton-outlinedWarning {
+  background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), linear-gradient(135deg, #f59e0b, #b45309);
+  color: var(--ct-warn-text);
 }
-.MuiButton-outlinedInfo {
-  background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), linear-gradient(135deg, #13c2c2, #006d75);
-}
+/* pointed at, an outlined button fills: with the same safe fills */
+.MuiButton-outlined.MuiButton-outlinedPrimary:hover { background-image: var(--ct-accent-fill); color: #fff; }
+.MuiButton-outlined.MuiButton-outlinedSecondary:hover,
+.MuiButton-outlined.MuiButton-outlinedInfo:hover { background-image: var(--ct-info-fill); color: #fff; }
+.MuiButton-outlined.MuiButton-outlinedError:hover { background-image: var(--ct-danger-fill); color: #fff; }
+.MuiButton-outlined.MuiButton-outlinedSuccess:hover { background-image: var(--ct-ok-fill); color: #fff; }
+.MuiButton-outlined.MuiButton-outlinedWarning:hover { background-image: var(--ct-warn-fill); color: var(--ct-on-warn); }
 
-.MuiIconButton-root.MuiIconButton-root { border-radius: 10px; }
+/* text buttons and links */
+.MuiButton-text.MuiButton-textPrimary { color: var(--ct-accent-text); }
+.MuiButton-text.MuiButton-textSecondary,
+.MuiButton-text.MuiButton-textInfo { color: var(--ct-info-text); }
+.MuiButton-text.MuiButton-textError { color: var(--ct-danger-text); }
+.MuiButton-text.MuiButton-textSuccess { color: var(--ct-ok-text); }
+.MuiButton-text.MuiButton-textWarning { color: var(--ct-warn-text); }
+.MuiLink-root.MuiLink-root { color: var(--ct-accent-text); }
+
+/* One look for "not now": no gradient, no shadow, a quiet fill. */
+.MuiButton-root.MuiButton-root.Mui-disabled {
+  background-image: none;
+  background-color: var(--ct-disabled-bg);
+  border-color: transparent;
+  color: var(--ct-disabled-text);
+  box-shadow: none;
+}
+.MuiButton-text.MuiButton-text.Mui-disabled { background-color: transparent; }
+
+/* In a table every row has its buttons: filled, they outshout the page's one
+   main action. There they are quiet until pointed at. */
+.MuiTableCell-root .MuiButton-contained.MuiButton-contained:not(.Mui-disabled) {
+  background-image: none;
+  box-shadow: inset 0 0 0 1px var(--ct-quiet-edge, transparent); /* inside: the button is no wider than a filled one */
+}
+.MuiTableCell-root .MuiButton-contained.MuiButton-containedPrimary:not(.Mui-disabled) {
+  background-color: var(--ct-accent-soft); color: var(--ct-accent-text); --ct-quiet-edge: var(--ct-accent-soft-border);
+}
+.MuiTableCell-root .MuiButton-contained.MuiButton-containedError:not(.Mui-disabled) {
+  background-color: var(--ct-danger-bg); color: var(--ct-danger-text); --ct-quiet-edge: var(--ct-danger-border);
+}
+.MuiTableCell-root .MuiButton-contained.MuiButton-containedWarning:not(.Mui-disabled) {
+  background-color: var(--ct-warn-bg); color: var(--ct-warn-text); --ct-quiet-edge: var(--ct-warn-border);
+}
+.MuiTableCell-root .MuiButton-contained.MuiButton-containedSuccess:not(.Mui-disabled) {
+  background-color: var(--ct-ok-bg); color: var(--ct-ok-text); --ct-quiet-edge: var(--ct-ok-border);
+}
+.MuiTableCell-root .MuiButton-contained.MuiButton-containedSecondary:not(.Mui-disabled),
+.MuiTableCell-root .MuiButton-contained.MuiButton-containedInfo:not(.Mui-disabled) {
+  background-color: var(--ct-info-bg); color: var(--ct-info-text); --ct-quiet-edge: var(--ct-info-border);
+}
+.MuiTableCell-root .MuiButton-contained.MuiButton-containedPrimary:not(.Mui-disabled):hover { background-image: var(--ct-accent-fill); color: #fff; filter: none; }
+.MuiTableCell-root .MuiButton-contained.MuiButton-containedError:not(.Mui-disabled):hover { background-image: var(--ct-danger-fill); color: #fff; filter: none; }
+.MuiTableCell-root .MuiButton-contained.MuiButton-containedWarning:not(.Mui-disabled):hover { background-image: var(--ct-warn-fill); color: var(--ct-on-warn); filter: none; }
+.MuiTableCell-root .MuiButton-contained.MuiButton-containedSuccess:not(.Mui-disabled):hover { background-image: var(--ct-ok-fill); color: #fff; filter: none; }
+.MuiTableCell-root .MuiButton-contained.MuiButton-containedSecondary:not(.Mui-disabled):hover,
+.MuiTableCell-root .MuiButton-contained.MuiButton-containedInfo:not(.Mui-disabled):hover { background-image: var(--ct-info-fill); color: #fff; filter: none; }
+
+.MuiIconButton-root.MuiIconButton-root { border-radius: var(--ct-radius-m); }
+.MuiIconButton-root.MuiIconButton-colorPrimary { color: var(--ct-accent-text); }
+.MuiIconButton-root.MuiIconButton-colorError { color: var(--ct-danger-text); }
+.MuiIconButton-root.MuiIconButton-colorWarning { color: var(--ct-warn-text); }
+.MuiIconButton-root.MuiIconButton-colorSuccess { color: var(--ct-ok-text); }
+.MuiIconButton-root.MuiIconButton-colorInfo { color: var(--ct-info-text); }
+
+.MuiBadge-badge.MuiBadge-colorPrimary { background-image: var(--ct-accent-fill); color: #fff; }
+.MuiBadge-badge.MuiBadge-colorError { background-image: var(--ct-danger-fill); color: #fff; }
 
 /* ---------- forms --------------------------------------------------------- */
 
 .MuiOutlinedInput-root.MuiOutlinedInput-root {
-  border-radius: 10px;
+  border-radius: var(--ct-radius-m);
   background-color: var(--ct-input);
 }
-.MuiOutlinedInput-root .MuiOutlinedInput-notchedOutline { border-color: var(--ct-border-strong); }
+/* the edge of a field must be seen (3:1), not guessed */
+.MuiOutlinedInput-root .MuiOutlinedInput-notchedOutline { border-color: var(--ct-border-control); }
+.MuiOutlinedInput-root.MuiOutlinedInput-root:not(.Mui-error):not(.Mui-disabled):hover .MuiOutlinedInput-notchedOutline { border-color: var(--ct-accent); }
+.MuiOutlinedInput-root.MuiOutlinedInput-root.Mui-focused:not(.Mui-error) { box-shadow: 0 0 0 3px rgba(var(--ct-accent-glow), 0.3); }
+.MuiOutlinedInput-root.MuiOutlinedInput-root.Mui-focused:not(.Mui-error) .MuiOutlinedInput-notchedOutline { border-color: var(--ct-accent); }
+.MuiOutlinedInput-root.Mui-disabled .MuiOutlinedInput-notchedOutline { border-color: var(--ct-border-strong); }
+.MuiInput-root.MuiInput-root::after { border-bottom-color: var(--ct-accent); }
+.MuiInputBase-input::placeholder { color: var(--ct-muted); opacity: 1; }
 
 .MuiInputLabel-root.MuiInputLabel-root,
 .MuiFormLabel-root.MuiFormLabel-root { font-weight: 500; }
+.MuiFormLabel-root.MuiFormLabel-root.Mui-focused:not(.Mui-error) { color: var(--ct-accent-text); }
+.MuiFormHelperText-root.MuiFormHelperText-root.Mui-error { color: var(--ct-danger-text); }
+
+/* a box that is off still has an edge */
+/* (the picture of the box only: some labels sit inside the checkbox's own element) */
+.MuiCheckbox-root.MuiCheckbox-root:not(.Mui-checked):not(.MuiCheckbox-indeterminate):not(.Mui-disabled) > svg,
+.MuiRadio-root.MuiRadio-root:not(.Mui-checked):not(.Mui-disabled) > span > svg { color: var(--ct-border-control); }
+.MuiCheckbox-root.MuiCheckbox-colorPrimary.Mui-checked:not(.Mui-disabled),
+.MuiRadio-root.MuiRadio-colorPrimary.Mui-checked:not(.Mui-disabled) { color: var(--ct-accent); }
+.MuiCircularProgress-root.MuiCircularProgress-colorPrimary { color: var(--ct-accent); }
 
 /* ---------- tables -------------------------------------------------------- */
 
 .MuiTableCell-root.MuiTableCell-root { border-color: var(--ct-border); }
 
 .MuiTableCell-head.MuiTableCell-head {
-  font-size: 0.7rem;
+  font-size: var(--ct-text-xs);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.06em;
   color: var(--ct-muted);
   background-color: var(--ct-surface-2);
+  padding-top: 14px;
+  padding-bottom: 14px;
+  white-space: nowrap; /* "CP U" */
 }
+/* numbers stay on one line */
+.MuiTableCell-alignRight.MuiTableCell-alignRight { white-space: nowrap; }
 
 .MuiTableRow-root.MuiTableRow-hover:hover { background-color: var(--ct-hover); }
 
@@ -257,10 +532,36 @@ header.MuiAppBar-root {
   background-color: transparent;
   background-image: linear-gradient(90deg, var(--ct-accent), var(--ct-accent-2));
 }
+.MuiTabs-vertical .MuiTabs-indicator.MuiTabs-indicator { height: auto; width: 3px; border-radius: 3px 0 0 3px; }
 .MuiTab-root.MuiTab-root { font-weight: 500; text-transform: none; }
-.MuiTab-root.MuiTab-root.Mui-selected { font-weight: 600; }
+.MuiTab-root.MuiTab-root.Mui-selected { font-weight: 600; color: var(--ct-accent-text); }
+.MuiTab-root.MuiTab-root:not(.Mui-selected):not(.Mui-disabled):hover { color: var(--ct-accent-text); }
+/* the tabs down the side of a page: the current one is a marked row, not only a coloured word */
+.MuiTabs-vertical .MuiTab-root.MuiTab-root { border-radius: var(--ct-radius-s) 0 0 var(--ct-radius-s); min-height: 42px; }
+.MuiTabs-vertical .MuiTab-root.MuiTab-root.Mui-selected { background-color: var(--ct-accent-soft); }
 
-.MuiChip-root.MuiChip-root { font-weight: 500; }
+.MuiChip-root.MuiChip-root { font-weight: 500; border-radius: var(--ct-radius-s); }
+.MuiChip-root.MuiChip-sizeSmall .MuiChip-label { font-size: var(--ct-text-xs); }
+.MuiChip-root .MuiChip-icon { color: inherit; }
+
+/* A state is said in a word on a soft tint: readable in both modes, and not
+   louder than the page's buttons. */
+.MuiChip-filled.MuiChip-colorDefault { background-color: var(--ct-chip); color: var(--ct-text); }
+.MuiChip-filled.MuiChip-colorSuccess { background-image: none; background-color: var(--ct-ok-bg); color: var(--ct-ok-text); box-shadow: inset 0 0 0 1px var(--ct-ok-border); }
+.MuiChip-filled.MuiChip-colorError { background-image: none; background-color: var(--ct-danger-bg); color: var(--ct-danger-text); box-shadow: inset 0 0 0 1px var(--ct-danger-border); }
+.MuiChip-filled.MuiChip-colorWarning { background-image: none; background-color: var(--ct-warn-bg); color: var(--ct-warn-text); box-shadow: inset 0 0 0 1px var(--ct-warn-border); }
+.MuiChip-filled.MuiChip-colorInfo { background-image: none; background-color: var(--ct-info-bg); color: var(--ct-info-text); box-shadow: inset 0 0 0 1px var(--ct-info-border); }
+/* the accent chips are small buttons ("New +") and marks ("Stack"): they keep a fill */
+.MuiChip-filled.MuiChip-colorPrimary { background-image: var(--ct-accent-fill); color: #fff; }
+.MuiChip-filled.MuiChip-colorSecondary { background-image: var(--ct-info-fill); color: #fff; }
+
+.MuiChip-outlined.MuiChip-colorDefault { border-color: var(--ct-border-control); }
+.MuiChip-outlined.MuiChip-colorPrimary { color: var(--ct-accent-text); border-color: var(--ct-accent-soft-border); }
+.MuiChip-outlined.MuiChip-colorSecondary,
+.MuiChip-outlined.MuiChip-colorInfo { color: var(--ct-info-text); border-color: var(--ct-info-border); }
+.MuiChip-outlined.MuiChip-colorSuccess { color: var(--ct-ok-text); border-color: var(--ct-ok-border); }
+.MuiChip-outlined.MuiChip-colorError { color: var(--ct-danger-text); border-color: var(--ct-danger-border); }
+.MuiChip-outlined.MuiChip-colorWarning { color: var(--ct-warn-text); border-color: var(--ct-warn-border); }
 
 .MuiLinearProgress-root.MuiLinearProgress-root {
   height: 6px;
@@ -272,14 +573,29 @@ header.MuiAppBar-root {
   background-image: linear-gradient(90deg, var(--ct-accent), var(--ct-accent-2));
 }
 
+/* ---------- messages ------------------------------------------------------ */
+
+/* One family for the four kinds: a soft tint of the kind over the surface,
+   its edge, the icon in its colour and the words in the page's text colour. */
+.MuiAlert-root.MuiAlert-root { border-radius: 12px; border: 1px solid transparent; }
+.MuiAlert-root.MuiAlert-standardInfo { background-color: var(--ct-info-bg); border-color: var(--ct-info-border); color: var(--ct-text); }
+.MuiAlert-root.MuiAlert-standardSuccess { background-color: var(--ct-ok-bg); border-color: var(--ct-ok-border); color: var(--ct-text); }
+.MuiAlert-root.MuiAlert-standardWarning { background-color: var(--ct-warn-bg); border-color: var(--ct-warn-border); color: var(--ct-text); }
+.MuiAlert-root.MuiAlert-standardError { background-color: var(--ct-danger-bg); border-color: var(--ct-danger-border); color: var(--ct-text); }
+.MuiAlert-root.MuiAlert-standardInfo .MuiAlert-icon { color: var(--ct-info-text); }
+.MuiAlert-root.MuiAlert-standardSuccess .MuiAlert-icon { color: var(--ct-ok-text); }
+.MuiAlert-root.MuiAlert-standardWarning .MuiAlert-icon { color: var(--ct-warn-text); }
+.MuiAlert-root.MuiAlert-standardError .MuiAlert-icon { color: var(--ct-danger-text); }
+
 /* ---------- overlays ------------------------------------------------------ */
 
 .MuiDialog-root .MuiDialog-paper {
   background-color: var(--ct-elevated);
   border: 1px solid var(--ct-border);
-  border-radius: 16px;
+  border-radius: var(--ct-radius-xl);
   box-shadow: var(--ct-shadow-pop);
 }
+.MuiDialogTitle-root.MuiDialogTitle-root { overflow-wrap: anywhere; }
 
 .MuiBackdrop-root.MuiBackdrop-root:not(.MuiBackdrop-invisible) {
   background-color: rgba(4, 8, 18, 0.62);
@@ -297,28 +613,91 @@ header.MuiAppBar-root {
 }
 
 .MuiMenuItem-root.MuiMenuItem-root {
-  border-radius: 8px;
+  border-radius: var(--ct-radius-s);
   margin: 2px 6px;
 }
 
-.MuiAlert-root.MuiAlert-root { border-radius: 12px; }
+/* ---------- charts -------------------------------------------------------- */
+
+/* The chart library writes its own greys into the picture: in dark mode the
+   legend and the axis titles were dark grey on navy. Its text takes the
+   skin's colours, and is 12 px like everything else. */
+.apexcharts-legend-text { color: var(--ct-text) !important; font-size: 12px !important; }
+.apexcharts-xaxis-label,
+.apexcharts-yaxis-label { fill: var(--ct-muted); }
+/* (not the x axis: some charts hide its labels with a size of 0) */
+.apexcharts-yaxis-label { font-size: 12px; }
+.apexcharts-xaxis-title-text,
+.apexcharts-yaxis-title-text { fill: var(--ct-muted); font-size: 12px; }
+.apexcharts-gridline { stroke: var(--ct-border); }
+.apexcharts-tooltip.apexcharts-tooltip {
+  background: var(--ct-elevated);
+  border: 1px solid var(--ct-border-strong);
+  color: var(--ct-text);
+  box-shadow: var(--ct-shadow-pop);
+}
+.apexcharts-tooltip.apexcharts-tooltip .apexcharts-tooltip-title {
+  background: var(--ct-surface-2);
+  border-bottom: 1px solid var(--ct-border);
+}
+.apexcharts-xaxistooltip.apexcharts-xaxistooltip,
+.apexcharts-yaxistooltip.apexcharts-yaxistooltip {
+  background: var(--ct-elevated);
+  border-color: var(--ct-border-strong);
+  color: var(--ct-text);
+}
+.apexcharts-menu.apexcharts-menu { background: var(--ct-elevated); border-color: var(--ct-border-strong); color: var(--ct-text); }
+
+/* ---------- settings: the save bar ---------------------------------------- */
+
+/* While something is changed and not saved, the first save bar stays in view
+   and says so (classes from client/src/pages/config/index.jsx). */
+.ct-savebar-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: var(--ct-text-s);
+  font-weight: 600;
+  color: var(--ct-warn-text);
+}
+.ct-savebar-note::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.ct-savebar-unsaved.ct-savebar-first {
+  position: sticky;
+  top: 72px;
+  z-index: 10;
+  border-color: var(--ct-warn-border);
+}
 
 /* ---------- home page ----------------------------------------------------- */
 
-.app { border-radius: 16px !important; }
+.app { border-radius: var(--ct-radius-xl) !important; }
 
 .app-hover:hover {
   box-shadow: 0 10px 34px rgba(2, 6, 23, 0.3), 0 0 0 1px rgba(var(--ct-accent-glow), 0.45),
     0 0 22px rgba(var(--ct-accent-glow), 0.2) !important;
 }
 
-/* ---------- sign-in page -------------------------------------------------- */
+/* ---------- sign-in pages ------------------------------------------------- */
 
-/* The large blurred logo behind the sign-in card is pink and purple; rotate
-   its hue so it lands on the blue and cyan of this skin. */
+/* A visitor may not read the panel's colours, so these pages fall back to
+   upstream's pink and purple. The skin's rules above already give them the
+   panel's buttons, fields and links; what is left: the coloured word of the
+   logo, and the large blurred logo behind the card, which becomes a faint
+   neutral shape. */
+.ct-logo-accent {
+  background-image: linear-gradient(to right, var(--ct-accent), var(--ct-accent-2)) !important;
+}
 img[alt="Cosmos"][width="1100"] {
-  filter: hue-rotate(-100deg) saturate(0.85);
-  opacity: 0.55;
+  filter: grayscale(1);
+  opacity: 0.14;
 }
 
 /* ---------- forced mode vs the app's own media rules ---------------------- */
@@ -335,15 +714,21 @@ img[alt="Cosmos"][width="1100"] {
 :root[data-ct-mode="light"] .glass-medium { background: rgba(255, 255, 255, 0.18); border-color: rgba(255, 255, 255, 0.2); }
 :root[data-ct-mode="light"] .glass-heavy { background: rgba(255, 255, 255, 0.25); border-color: rgba(255, 255, 255, 0.25); }
 
-/* ---------- light/dark switch (added by ct-mode.js) ----------------------- */
+/* ---------- light/dark switch --------------------------------------------- */
+
+/* The button mode.js adds floats over the page. Inside the panel the switch is
+   a button of the header (in the menu's footer on a phone), so the floating
+   one is left to the pages without a header: signing in. A browser without
+   :has() shows both, which is harmless. */
+html:has(header.MuiAppBar-root) .ct-mode-toggle { display: none; }
 
 .ct-mode-toggle {
   position: fixed;
   right: 18px;
   bottom: 18px;
   z-index: 1250; /* above the side drawer, below dialogs */
-  width: 38px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   display: grid;
   place-items: center;
@@ -353,22 +738,41 @@ img[alt="Cosmos"][width="1100"] {
   color: var(--ct-muted);
   box-shadow: var(--ct-shadow);
   cursor: pointer;
-  opacity: 0.8;
-  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  transition: color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 .ct-mode-toggle:hover {
-  opacity: 1;
-  color: var(--ct-accent);
+  color: var(--ct-accent-text);
   border-color: var(--ct-accent);
   transform: translateY(-1px);
 }
 .ct-mode-toggle:focus-visible {
-  opacity: 1;
-  outline: 2px solid var(--ct-accent);
+  outline: 2px solid var(--ct-focus);
   outline-offset: 2px;
 }
 /* A dashed ring marks "following the system". */
 .ct-mode-toggle.ct-mode-auto { border-style: dashed; }
+
+/* ---------- phones -------------------------------------------------------- */
+
+@media (max-width: 599.95px) {
+  /* what is tapped most gets a finger's width */
+  header.MuiAppBar-root .MuiToolbar-root > .MuiIconButton-root { width: var(--ct-touch); height: var(--ct-touch); }
+  header.MuiAppBar-root .MuiIconButton-root { width: 40px; height: 40px; }
+  header.MuiAppBar-root .MuiToolbar-root > .MuiStack-root > :not(style) + :not(style) { margin-left: 8px; }
+  header.MuiAppBar-root .MuiToolbar-root > .MuiStack-root > .MuiBox-root { margin-left: 0; }
+  .MuiDrawer-paper .MuiListItemButton-root { min-height: var(--ct-touch); }
+  main .MuiButton-root.MuiButton-root:not(.MuiButton-sizeSmall) { min-height: var(--ct-touch); }
+  .MuiDialogActions-root .MuiButton-root.MuiButton-root { min-height: var(--ct-touch); }
+
+  /* a dialog uses the screen: 12 px around it instead of 32 */
+  .MuiDialog-root .MuiDialog-paper:not(.MuiDialog-paperFullScreen) {
+    margin: 12px;
+    width: calc(100% - 24px);
+    max-width: calc(100% - 24px);
+    max-height: calc(100% - 24px);
+  }
+  .ct-savebar-unsaved.ct-savebar-first { top: 68px; }
+}
 
 @media print {
   .ct-mode-toggle { display: none; }
@@ -376,4 +780,8 @@ img[alt="Cosmos"][width="1100"] {
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
+  .app-hover:hover, .ct-mode-toggle:hover { transform: none !important; }
+  /* upstream's endless decorations: the sheen over "update available", the pulsing logo, the shake */
+  .shinyButton::before { animation: none !important; display: none; }
+  .pulsing, .shake { animation: none !important; }
 }

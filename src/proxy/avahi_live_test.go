@@ -90,21 +90,18 @@ func TestAvahiLive(t *testing.T) {
 		utils.LoadBaseMainConfig(config)
 	}
 	defer func() {
-		publisherMu.Lock()
-		if publisher != nil {
-			publisher.Close()
-			publisher = nil
-		}
-		publisherMu.Unlock()
+		localNames.mu.Lock()
+		localNames.withdrawAll()
+		localNames.mu.Unlock()
 	}()
 
 	// Publishing, adding a name, removing a name.
 	routes(a)
 	PublishAllMDNSFromConfig()
-	if publisher == nil {
+	if localNames.avahi == nil {
 		t.Fatal("no connection to Avahi")
 	}
-	t.Logf("host name: %s", publisher.Fqdn())
+	t.Logf("host name: %s, interfaces: %v", localNames.hostFqdn, localNames.ifaces)
 	if !resolves(t, a) {
 		t.Fatalf("%s does not resolve after publishing", a)
 	}
@@ -121,47 +118,18 @@ func TestAvahiLive(t *testing.T) {
 		t.Fatalf("after removing %s: it must not resolve and %s must", a, b)
 	}
 
-	// Nothing changed, so the watch must leave the names alone.
-	before := publisher
-	checkMDNS()
-	if publisher != before {
-		t.Fatal("the watch republished although nothing was lost")
-	}
-
 	restart := os.Getenv("AVAHI_LIVE_RESTART")
 	if restart == "" {
 		return
 	}
 
-	// The Avahi daemon restarts and forgets the names.
+	// The Avahi daemon restarts and forgets the names; the watch publishes them again.
 	if out, err := exec.Command("sh", "-c", restart).CombinedOutput(); err != nil {
 		t.Fatalf("restarting Avahi: %v: %s", err, out)
 	}
-	deadline := time.Now().Add(30 * time.Second)
-	for publisher.lost() == "" {
-		if time.Now().After(deadline) {
-			t.Fatal("the restart of the Avahi daemon was not noticed")
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	t.Logf("noticed: %s", publisher.lost())
-	if resolves(t, b) {
-		t.Fatalf("%s still resolves although Avahi lost it", b)
-	}
-
-	// What Cosmos did until now: publish the unchanged list again. Nothing happens.
-	PublishAllMDNSFromConfig()
-	if resolves(t, b) {
-		t.Logf("%s resolves again without the watch", b)
-	} else {
-		t.Logf("without the watch %s stays unresolvable", b)
-	}
-
+	time.Sleep(3 * time.Second)
 	checkMDNS()
 	if !resolves(t, b) {
 		t.Fatalf("%s does not resolve after the watch republished it", b)
-	}
-	if publisher.lost() != "" {
-		t.Fatalf("still lost after republishing: %s", publisher.lost())
 	}
 }

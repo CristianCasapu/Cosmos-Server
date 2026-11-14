@@ -14,6 +14,8 @@ import {
 import * as API from '../../api';
 import PlotComponent from './components/plot';
 import { formatDate } from './components/utils';
+import { hasMeasurements } from '../../utils/metricsState'; // Fork addition: nothing measured yet
+import { NoMeasurements } from '../../components/emptyState';
 
 const ContainerMetrics = ({containerName}) => {
     const { t } = useTranslation();
@@ -51,8 +53,8 @@ const ContainerMetrics = ({containerName}) => {
                 res.data.forEach((metric) => {
                     finalMetrics[metric.Key] = metric;
                 });
-                setMetrics(finalMetrics);
             }
+            setMetrics(finalMetrics); // Fork addition: also when the answer is empty (the page span forever)
             setTimeout(refreshMetrics, 10000);
         });
     };
@@ -107,6 +109,7 @@ const ContainerMetrics = ({containerName}) => {
           />
         </Box>}
         {metrics && <div style={{zIndex:2, maxWidth: "1000px", margin: "auto"}}>
+            {!hasMeasurements(metrics) && <NoMeasurements sx={{ mb: 3 }} />}{/* Fork addition */}
             <Grid container rowSpacing={4.5} columnSpacing={2.75} >
                 <Grid item xs={12}  xl={12} sx={{ mb: -2.25 }}>
                     <Typography variant="h4">{containerName} Monitoring</Typography>

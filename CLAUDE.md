@@ -147,6 +147,12 @@ WebKit does not keep the session cookie on a test hostname without a dot: give t
 
 The form checks are `scripts/fork-ui-check-url-form.mjs`, `-all-addresses`, `-users`, `-cron-job`, `-port-chips`, `-requests`, `-throttled` and `-url-wizard` (each header lists the containers it expects; `ENGINES=chromium,firefox,webkit SIZES=d,m`). A gotcha when writing forms: Formik computes each change from the last render's values, so two `setFieldValue` calls made in one go lose the first: set several values with one `setValues`.
 
+For the origin-pulls part the Cloudflare browser check needs the test Cosmos started with `--cap-add NET_ADMIN`, a Cloudflare address added inside its own network namespace, and the stand-in's `edge` role (the script header has the commands; `PART=pulls` is repeatable, the rest needs a fresh instance); the Fail2ban check has `PHASE=cloudflare`. The built-in Cloudflare shared origin-pull CA expires on 2029-11-01 and must be replaced in the source before then (a test fails when it has expired).
+
+For a look at everything, `scripts/fork-ui-gallery.mjs` (with `-seed.mjs` to fill a throwaway instance, `-noise.sh` to make incidents from other addresses and `-sheet.mjs` for contact sheets) captures every page, tab and main dialog in light and dark at 1920, 1366 and 390 px and writes a JSON summary per picture; run it before and after a styling change and compare (the headers hold the usage). The owner asked for styling improvements on 2026-11-13: the old rule "keep the existing styling exactly" now means "stay within the skin" (`client/public/skin/theme.css`), AA contrast in both modes, nothing below 12 px.
+
+`MDNS_E2E=new|old go test ./src/proxy/ -run MDNSE2E` runs only inside a container that has its own Avahi and dbus (Debian 13's systemd-resolved needs a drop-in with `MulticastDNS=yes` to act as a client); never against the host's Avahi. The sign-in in front of an app can be tried end to end on a throwaway instance with `httpsCertificateMode: SELFSIGNED`, a port other than 443 and Playwright's `ignoreHTTPSErrors` (a route with `AuthEnabled`, then open the app's address as a visitor).
+
 `scripts/fork-ui-check.mjs` logs in, confirms the password (`/api/sudo`: most
 admin actions need it), visits the main pages in three engines and at phone
 width, and reports script errors. Look at the screenshots it writes. Errors

@@ -27,6 +27,7 @@ import SingleRepoIndex from '../pages/backups/single-repo-index';
 import { isDomain } from '../utils/indexs';
 import SecurityDashboard from '../pages/security'; // Fork addition: security dashboard
 import SecurityAuditPage from '../pages/securityAudit'; // Fork addition: the audit page
+import NotFound from '../pages/extra-pages/notFound'; // Fork addition: unknown addresses
 
 // ==============================|| MAIN ROUTING ||============================== //
 
@@ -234,6 +235,7 @@ const MainRoutes = {
             element: <SecurityDashboard />
         },
         { path: '/cosmos-ui/security-audit', element: <SecurityAuditPage /> }, // Fork addition: the audit page
+        { path: '/cosmos-ui/*', element: <NotFound /> }, // Fork addition: any other address under the panel (it gave an empty window)
         ].map(children => ({
             ...children,
             element: PrivateRoute({ children: children.element })

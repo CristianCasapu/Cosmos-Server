@@ -72,6 +72,18 @@ type Status struct {
 	// TrustedProxies is how many reverse proxies Cosmos trusts
 	// (HTTPConfig.TrustedProxies).
 	TrustedProxies int `json:"trustedProxies"`
+	// ClientForwarded: ClientIP is what a proxy (Cloudflare, a trusted
+	// proxy) reported, not the address this request's connection came from.
+	// A ban of it would not cut this connection.
+	ClientForwarded bool `json:"clientForwarded"`
+	// CloudflareHostnames is how many hostnames are served through
+	// Cloudflare. While there are any, Cloudflare's ranges
+	// (CloudflareRanges of them) belong on the never-ban list;
+	// CloudflareIgnored is how many of them the jails run with. They are
+	// not part of Settings.IgnoreIP: Cosmos keeps them itself.
+	CloudflareHostnames int `json:"cloudflareHostnames"`
+	CloudflareRanges    int `json:"cloudflareRanges"`
+	CloudflareIgnored   int `json:"cloudflareIgnored"`
 
 	Time time.Time `json:"time"`
 }
@@ -218,6 +230,13 @@ func readShared() *shared {
 		status.Jails = append(status.Jails, JailStatus{Name: known.name, Thresholds: status.Settings.Jails[known.name]})
 	}
 
+	cloudflare := map[netip.Prefix]bool{}
+	for _, prefix := range cloudflareRanges() {
+		cloudflare[prefix] = true
+	}
+	status.CloudflareHostnames = cloudflareHostnames()
+	status.CloudflareRanges = len(cloudflare)
+
 	status.Installed = clientInstalled()
 	status.ConfigInstalled = configInstalled()
 	status.PanelFile = panelFileExists()
@@ -325,6 +344,11 @@ func readShared() *shared {
 		status.OtherIgnored = others
 		status.Settings.IgnoreIP = []string{}
 		for _, network := range networks {
+			if cloudflare[network] {
+				// Cosmos' own entries, not the administrator's
+				status.CloudflareIgnored++
+				continue
+			}
 			if len(status.Settings.IgnoreIP) < bounds.MaxIgnoreIP {
 				status.Settings.IgnoreIP = append(status.Settings.IgnoreIP, formatPrefix(network))
 			}

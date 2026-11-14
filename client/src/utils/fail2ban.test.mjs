@@ -168,3 +168,45 @@ test('every text of the panel\'s logic has its English entry in the translation 
     assert.equal(translation[key], text.replace(/\\'/g, "'"), key);
   }
 });
+
+test('what a ban does when visitors come through Cloudflare or a reverse proxy', async () => {
+  const { THROUGH, throughNotes } = await import('./fail2ban.js');
+  assert.deepEqual(throughNotes(null), []);
+  assert.deepEqual(throughNotes({ cloudflareHostnames: 0, trustedProxies: 0 }), []);
+  const mixed = throughNotes({ cloudflareHostnames: 2, trustedProxies: 0 });
+  assert.equal(mixed.length, 1);
+  assert.equal(mixed[0][0], 'fail2ban.through.cloudflare');
+  assert.deepEqual(mixed[0][2], { n: 2 });
+  // it says what still works, what does not, and who blocks instead
+  assert.match(THROUGH.cloudflare[1], /A ban works for whoever connects to this server directly/);
+  assert.match(THROUGH.cloudflare[1], /does not report them to Fail2ban/);
+  assert.match(THROUGH.cloudflare[1], /SmartShield still blocks them inside Cosmos/);
+  assert.match(THROUGH.cloudflare[1], /block them at Cloudflare/);
+  const both = throughNotes({ cloudflareHostnames: 1, trustedProxies: 3 });
+  assert.deepEqual(both.map((note) => note[0]), ['fail2ban.through.cloudflare', 'fail2ban.through.proxy']);
+  assert.deepEqual(both[1][2], { n: 3 });
+});
+
+test('Cloudflare\'s ranges on the never-ban list', async () => {
+  const { cloudflareList } = await import('./fail2ban.js');
+  assert.equal(cloudflareList(null), null);
+  assert.equal(cloudflareList({ cloudflareHostnames: 0, cloudflareRanges: 0 }), null, 'nothing is served through Cloudflare');
+  const kept = cloudflareList({ cloudflareHostnames: 2, cloudflareRanges: 22, cloudflareIgnored: 22 });
+  assert.equal(kept[0], 'info');
+  assert.equal(kept[1], 'fail2ban.cloudflare.kept');
+  assert.deepEqual(kept[3], { count: 22, ignored: 22 });
+  const missing = cloudflareList({ cloudflareHostnames: 2, cloudflareRanges: 22, cloudflareIgnored: 0 });
+  assert.equal(missing[0], 'warning');
+  assert.equal(missing[1], 'fail2ban.cloudflare.missing');
+  assert.match(missing[2], /adds them by itself within a minute/);
+  assert.equal(cloudflareList({ cloudflareHostnames: 1, cloudflareRanges: 22 })[0], 'warning');
+});
+
+test('the warning about one\'s own address is not for an address a proxy reported', async () => {
+  const { warnsAboutSelf } = await import('./fail2ban.js');
+  assert.equal(warnsAboutSelf({ clientIP: '203.0.113.7', clientIgnored: false, clientForwarded: false }), true);
+  assert.equal(warnsAboutSelf({ clientIP: '203.0.113.7', clientIgnored: true, clientForwarded: false }), false);
+  assert.equal(warnsAboutSelf({ clientIP: '86.120.1.1', clientIgnored: false, clientForwarded: true }), false);
+  assert.equal(warnsAboutSelf({ clientIP: '', clientIgnored: false }), false);
+  assert.equal(warnsAboutSelf(null), false);
+});

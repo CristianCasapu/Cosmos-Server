@@ -12,6 +12,15 @@
 //     jellyfin (an image named jellyfin/jellyfin), connected to that network only;
 //   - a fresh Cosmos at 172.31.53.10, run in a loop, with COSMOS_HTTP_PORT=2052,
 //     COSMOS_HTTPS_PORT=2053, SSL_CERT_FILE=/shared/ca.pem and DOCKER_HOST=tcp://<dind>:2375.
+//   - for the part on Authenticated Origin Pulls: the test Cosmos started with
+//     --cap-add NET_ADMIN, one of Cloudflare's addresses (173.245.48.5) added to the
+//     loopback interface inside its network namespace, and the stand-in's second role
+//     running there: `fork-fake-cloudflare edge <SERVER_IP>:2053 173.245.48.5 <FAKE>`
+//     (EDGE=http://<SERVER_IP>:8081 is its control port). It stands in for Cloudflare's
+//     proxy: requests that reach Cosmos from Cloudflare's address, with or without the
+//     certificate Cosmos uploaded. Nothing on the host is touched.
+// PART=pulls runs only that part and the panel's reachability (the domain must be connected
+// by an earlier full run). The rest is for a fresh instance: it switches radarr on once.
 // It finishes the set-up wizard itself: HTTPS with the self-signed
 // certificate, the server's IP address as its hostname, as on the server
 // this was written for. Screenshots go to ./shots.
@@ -21,6 +30,9 @@ const ip = process.env.SERVER_IP || '172.31.53.10';
 const plain = `http://${ip}:2052`;
 const base = `https://${ip}:2053`;
 const fake = process.env.FAKE || 'http://cosmos-cloudflare-fake:8080';
+const edge = process.env.EDGE || `http://${ip}:8081`;
+const onlyPulls = process.env.PART === 'pulls';
+const SSL = 'sslcerts0123456789abcdefghijklmnopqrstuvwxYZ';
 const password = 'Test-Passw0rd!x';
 const GOOD = 'cfut_dGVzdC10b2tlbi1mb3ItdGhlLWJyb3dzZXItY2hlY2s0123456789';
 const READ = 'readonly0123456789abcdefghijklmnopqrstuvwxYZ';
@@ -123,12 +135,46 @@ const pasteToken = async (page, token) => {
 };
 const check = (page) => page.getByRole('button', { name: 'Check the token' }).click();
 
+// what the stand-in for Cloudflare's proxy does and holds
+const visit = async (host, cert, n = 1) => (await (await api.get(`${edge}/visit?host=${host}&cert=${cert}&n=${n}`)).json());
+const uploadedCerts = async () => (await (await api.get(fake + '/aop')).json());
+const pulls = (page) => page.locator('[data-origin-pulls]');
+const pullsMode = (page, mode) => page.locator(`[data-origin-pulls="${mode}"]`).waitFor({ timeout: 45000 });
+const verdictIs = (page, verdict) => page.locator(`[data-origin-pulls-verdict="${verdict}"]`).waitFor({ timeout: 30000 });
+const insideCard = async (page, name, where) => {
+  const out = await pulls(page).evaluate((section) => {
+    const card = section.closest('.MuiCard-root') || section.parentElement;
+    const limit = card.getBoundingClientRect().right + 1;
+    return [...section.querySelectorAll('*')].filter((el) => el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().right > limit).length;
+  });
+  expect(out === 0, `${name}: nothing sticks out of the card (${where}; ${out} elements)`);
+};
+
+// the panel's own address among the reachability checks (Configuration > HTTP)
+const panelReach = async (page, name) => {
+  await page.goto(base + '/cosmos-ui/config-general/http-server', { waitUntil: 'domcontentloaded' });
+  const own = page.locator('[data-reach-own-panel]');
+  await own.waitFor({ timeout: 45000 });
+  await page.waitForTimeout(1500);
+  const text = await own.innerText();
+  // the test instance serves a certificate of its own making, so the verdict is "problem" and the address is not a link
+  expect(/example\.org/.test(text) && /Internet: (checked|not verified|problem)/.test(text), `${name}: the panel's own address is checked for reachability, with the same states as an application`);
+  expect(/The Cosmos panel answers at this address; everything in it needs a login/.test(text), `${name}: it is told apart from an application`);
+  expect(/Served through Cloudflare: Cosmos answers for this name to Cloudflare's network and to your local network only/.test(text), `${name}: it says the panel is served through Cloudflare`);
+  expect(/certificate/i.test(text), `${name}: it says what the certificate is worth`);
+  await own.scrollIntoViewIfNeeded();
+  await shot(page, name, 'panel-reach');
+  await noSideScroll(page, name, 'Configuration > HTTP');
+  const box = await own.boundingBox();
+  expect(!!box && box.x >= 0 && box.x + box.width <= page.viewportSize().width + 1, `${name}: the panel's reachability fits the screen`);
+};
+
 const apexBefore = (await record('example.org'))[0];
 const zoneBefore = await records();
 note('the zone at the start:', zoneBefore.map((r) => `${r.type} ${r.name}${r.proxied ? ' (proxied)' : ''}`).join(', '));
 
 // ============ the whole way once: Chromium at desktop size
-{
+if (!onlyPulls) {
   const name = 'chromium-1366';
   const { browser, ctx, page } = await open(chromium, name, { width: 1366, height: 900 });
   const already = (await (await ctx.request.get(base + '/cosmos/api/zones')).json()).data.some((z) => z.Zone === 'example.org' && !z.derived);
@@ -237,7 +283,7 @@ note('the zone at the start:', zoneBefore.map((r) => `${r.type} ${r.name}${r.pro
     const host = app + '.example.org';
     if ((await record(host)).length === 0) {
       await page.getByText('Domains', { exact: true }).first().click();
-      await page.locator('[role=dialog]').getByText(host).click();
+      await page.locator('[role=dialog]').getByText(host, { exact: true }).click();
       await page.locator('[role=dialog]').getByRole('button', { name: 'Save' }).click();
       await until(`the record of ${host} exists at Cloudflare`, async () => (await record(host)).length === 1, 90);
       await page.locator(`[role=dialog] [data-cloudflare-host="${host}"]`).waitFor({ timeout: 60000 });
@@ -294,7 +340,7 @@ note('the zone at the start:', zoneBefore.map((r) => `${r.type} ${r.name}${r.pro
 }
 
 // what is at Cloudflare now
-{
+if (!onlyPulls) {
   const now = await records();
   const apex = now.filter((r) => r.name === 'example.org' && r.type === 'A');
   expect(apex.length === 1 && apex[0].id === apexBefore.id && apex[0].content === apexBefore.content && apex[0].proxied === true, 'the domain\'s own record is the very same record as before');
@@ -310,6 +356,180 @@ note('the zone at the start:', zoneBefore.map((r) => `${r.type} ${r.name}${r.pro
   expect(!JSON.stringify(all).includes(GOOD), 'the stand-in\'s log of requests holds no token (it never stores the header)');
 }
 
+// ============ Authenticated Origin Pulls, the whole way once: Chromium at desktop size
+{
+  const name = 'chromium-1366';
+  const { browser, ctx, page } = await open(chromium, name, { width: 1366, height: 900 });
+  const act = (body) => ctx.request.post(base + '/cosmos/api/cloudflare/origin-pulls', { data: body });
+  const stored = async () => JSON.parse(await (await ctx.request.get(base + '/cosmos/api/config')).text()).data.HTTPConfig.Cloudflare.OriginPulls || {};
+  try {
+    await panelReach(page, name);
+
+    // from a clean state, whatever an earlier run left
+    await act({ action: 'mode', mode: 'off' });
+    await act({ action: 'discard' });
+    for (const cert of (await stored()).Own || []) await act({ action: 'retire', fingerprint: cert.Fingerprint });
+
+    await domains(page);
+    await pullsMode(page, 'off');
+    await pulls(page).scrollIntoViewIfNeeded();
+    let text = await pulls(page).innerText();
+    expect(/Off: a request for an address served through Cloudflare is accepted from any of Cloudflare's addresses/.test(text), `${name}: origin pulls start switched off, and say so`);
+    expect(/Your local network never needs it/.test(text), `${name}: the section says the local network always remains a way in`);
+    await shot(page, name, 'pulls-1-off');
+
+    // nobody is asked for a certificate while it is off
+    let seen = await visit('example.org', 'none', 2);
+    expect(seen.asked === false && seen.statuses.every((status) => status !== 403 && status !== 0), `${name}: off: Cloudflare's proxy is not asked for a certificate, and is answered (${JSON.stringify(seen)})`);
+
+    // the two kinds, each with what it proves
+    await page.getByRole('radio', { name: /Cloudflare's shared certificate/ }).click();
+    await page.getByText(/It does not prove that a request passed your domain/).waitFor({ timeout: 15000 });
+    text = await pulls(page).innerText();
+    expect(/Switch "Global" on/.test(text) && /9A:1A:C2:B4:BE:15:F9:F2/.test(text) && /valid until 2029-11-01/.test(text), `${name}: the shared certificate comes with its steps, its fingerprint and its end`);
+    await shot(page, name, 'pulls-2-shared');
+    await page.getByRole('radio', { name: /A certificate of your own/ }).click();
+    await page.getByText(/Only your domain at Cloudflare can present it/).waitFor({ timeout: 15000 });
+    expect(await page.getByRole('button', { name: 'Start the test' }).isDisabled(), `${name}: without a certificate the test cannot start`);
+    expect(/Make a certificate and give it to Cloudflare first/.test(await pulls(page).innerText()), `${name}: and the card says why`);
+
+    // make one: its key waits to be handed over
+    await page.getByRole('button', { name: 'Make a certificate' }).click();
+    await page.locator('[data-origin-pull-cert="waiting"]').waitFor({ timeout: 30000 });
+    await page.locator('[data-origin-pull-handover]').waitFor({ timeout: 10000 });
+    await shot(page, name, 'pulls-3-made');
+    let config = await (await ctx.request.get(base + '/cosmos/api/config')).text();
+    expect(!config.includes('PRIVATE KEY'), `${name}: the settings hold no private key`);
+
+    // the stored token is the "Edit zone DNS" one: Cloudflare refuses, and the card says what to do
+    await calls(true);
+    const heldBefore = (await uploadedCerts()).certificates.length; // an earlier run of this script may have left some
+    await page.getByRole('button', { name: 'Upload to Cloudflare' }).click();
+    await page.locator('#origin-pulls-token').waitFor({ timeout: 20000 });
+    text = await pulls(page).innerText();
+    expect(/may not upload certificates/.test(text) && /SSL and Certificates > Edit/.test(text) && /does not keep it/.test(text), `${name}: a refused upload explains the one-time token and the upload by hand`);
+    expect((await uploadedCerts()).certificates.length === heldBefore, `${name}: nothing was uploaded with the DNS token`);
+    await shot(page, name, 'pulls-4-token-needed');
+    await insideCard(page, name, 'token needed');
+
+    await page.locator('#origin-pulls-token').fill(SSL);
+    await page.getByRole('button', { name: 'Upload with this token' }).click();
+    await page.getByText(/Cloudflare has the certificate for example\.org and "Zone-level" is switched on there/).waitFor({ timeout: 30000 });
+    const held = await uploadedCerts();
+    expect(held.certificates.length === heldBefore + 1 && held.enabled === true, `${name}: Cloudflare holds the certificate for the domain, switched on`);
+    const newest = held.certificates[held.certificates.length - 1];
+    expect(/BEGIN CERTIFICATE/.test(newest.certificate) && /PRIVATE KEY/.test(newest.private_key), `${name}: what was uploaded is a certificate with its key`);
+    await page.locator('[data-origin-pull-cert="handed"]').waitFor({ timeout: 15000 });
+    expect(await page.locator('#origin-pulls-token').count() === 0, `${name}: the one-time token is gone from the page`);
+    config = await (await ctx.request.get(base + '/cosmos/api/config')).text();
+    expect(!config.includes('PRIVATE KEY') && !config.includes(SSL), `${name}: the settings hold neither the key nor the one-time token`);
+    expect(!JSON.stringify(await calls()).includes('PRIVATE KEY'), `${name}: the stand-in's log of requests holds no key`);
+    await shot(page, name, 'pulls-5-uploaded');
+
+    // test: asked, counted, nothing refused
+    await page.getByRole('button', { name: 'Start the test' }).click();
+    await pullsMode(page, 'test');
+    await serverUp();
+    await verdictIs(page, 'none');
+    expect(/Open one of these addresses from outside your network/.test(await pulls(page).innerText()), `${name}: with nothing counted yet the card says where to look`);
+    expect(await page.getByRole('button', { name: 'Enforce' }).isDisabled(), `${name}: enforcing is not offered before a request verified`);
+    await shot(page, name, 'pulls-6-test-nothing-yet');
+
+    seen = await visit('example.org', 'wrong', 2);
+    expect(seen.asked === true && seen.statuses.every((status) => status !== 403 && status !== 0), `${name}: testing: Cloudflare's proxy is asked, and a wrong certificate is still answered (${JSON.stringify(seen)})`);
+    seen = await visit('radarr.example.org', 'none', 1);
+    expect(seen.statuses.every((status) => status !== 403 && status !== 0), `${name}: testing: no certificate is still answered`);
+    await verdictIs(page, 'nothing');
+    expect(await page.getByRole('button', { name: 'Enforce' }).isDisabled(), `${name}: enforcing is not offered while nothing verifies`);
+    await shot(page, name, 'pulls-7-test-nothing-verifies');
+
+    seen = await visit('example.org', 'uploaded', 4);
+    expect(seen.presented === true && seen.statuses.every((status) => status !== 403 && status !== 0), `${name}: the uploaded certificate is presented and answered (${JSON.stringify(seen)})`);
+    await verdictIs(page, 'failing');
+    text = await pulls(page).innerText();
+    expect(/4 requests verified, 3 did not/.test(text) && /another certificate than the expected one/.test(text) && /no certificate/.test(text), `${name}: the counts and the reasons are shown`);
+    expect(await page.getByRole('button', { name: 'Enforce anyway' }).isEnabled(), `${name}: with failures in the last minute only "Enforce anyway" is offered`);
+    await shot(page, name, 'pulls-8-test-failing');
+    await insideCard(page, name, 'test, failing');
+    await page.getByRole('button', { name: 'Enforce anyway' }).click();
+    await page.getByText('Enforce although some requests have no certificate?').waitFor({ timeout: 10000 });
+    await dialogFits(page, name, 'enforce anyway');
+    await shot(page, name, 'pulls-9-anyway');
+    await page.locator('[role=dialog]').last().getByRole('button', { name: 'Cancel' }).click();
+    expect((await stored()).Mode === 'test', `${name}: cancelling leaves the test running`);
+
+    // counted anew, only requests that verify: enforcing is offered
+    await page.getByRole('button', { name: 'Switch off' }).click();
+    await pullsMode(page, 'off');
+    await page.getByRole('button', { name: 'Start the test' }).click();
+    await pullsMode(page, 'test');
+    await serverUp();
+    await visit('example.org', 'uploaded', 3);
+    await visit('radarr.example.org', 'uploaded', 2);
+    await verdictIs(page, 'clean');
+    expect(/5 requests came through Cloudflare, each with a certificate that verified/.test(await pulls(page).innerText()), `${name}: a clean test says so`);
+    await shot(page, name, 'pulls-10-test-clean');
+
+    await page.getByRole('button', { name: 'Enforce', exact: true }).click();
+    await pullsMode(page, 'enforce');
+    await until(`${name}: this browser confirmed enforcing by itself`, async () => (await stored()).Confirmed === true, 30);
+    await page.getByText(/Enforcing: a request for an address served through Cloudflare is answered only when/).waitFor({ timeout: 30000 });
+
+    // what is refused now, and what is not
+    seen = await visit('example.org', 'none', 2);
+    expect(seen.asked === true && seen.statuses.every((status) => status === 403), `${name}: enforcing: Cloudflare's address without a certificate is refused (${JSON.stringify(seen)})`);
+    seen = await visit('radarr.example.org', 'wrong', 1);
+    expect(seen.statuses.every((status) => status === 403), `${name}: enforcing: a wrong certificate is refused`);
+    seen = await visit('example.org', 'uploaded', 2);
+    expect(seen.statuses.every((status) => status !== 403 && status !== 0), `${name}: enforcing: the uploaded certificate is answered (${JSON.stringify(seen)})`);
+    seen = await visit('jellyfin.example.org', 'none', 1);
+    expect(seen.statuses.every((status) => status !== 403 && status !== 0), `${name}: enforcing: an address served directly is not concerned`);
+    await verdictIs(page, 'enforcingRefused');
+    text = await pulls(page).innerText();
+    expect(/2 requests answered, 3 refused/.test(text), `${name}: while enforcing the card counts what was refused`);
+    expect((await ctx.request.get(base + '/cosmos/api/status')).status() === 200, `${name}: the panel still answers on the local network while enforcing`);
+    await shot(page, name, 'pulls-11-enforcing');
+    await insideCard(page, name, 'enforcing');
+    await noSideScroll(page, name, 'the Domains tab while enforcing');
+
+    // the refusals are in the security record, with the condition that failed
+    const events = await (await ctx.request.get(base + '/cosmos/api/security/events?kind=access.origin.denied&limit=20')).text();
+    expect(/"reason":"no_certificate"/.test(events) && /"reason":"wrong_certificate"/.test(events), `${name}: the security record says which condition failed`);
+
+    // while enforcing, the kind cannot be changed
+    expect(await page.getByRole('radio', { name: /Cloudflare's shared certificate/ }).isDisabled(), `${name}: the kind cannot be changed while enforcing`);
+
+    // one click back
+    await page.getByRole('button', { name: 'Stop enforcing' }).click();
+    await pullsMode(page, 'test');
+    seen = await visit('example.org', 'none', 1);
+    expect(seen.statuses.every((status) => status !== 403), `${name}: after "Stop enforcing" nothing is refused`);
+    await page.getByRole('button', { name: 'Switch off' }).click();
+    await pullsMode(page, 'off');
+
+    // a second certificate, handed over by hand: shown once
+    await page.getByRole('button', { name: 'Make a new certificate' }).click();
+    await page.locator('[data-origin-pull-handover]').waitFor({ timeout: 30000 });
+    await page.getByRole('button', { name: 'Show the certificate and key' }).click();
+    await page.locator('[data-origin-pull-revealed]').waitFor({ timeout: 20000 });
+    expect(/BEGIN CERTIFICATE/.test(await page.locator('#origin-pulls-certificate').inputValue()) && /PRIVATE KEY/.test(await page.locator('#origin-pulls-key').inputValue()), `${name}: the certificate and the key are shown`);
+    expect(/This is shown once/.test(await page.locator('[role=dialog]').last().innerText()), `${name}: and the dialog says it is the only time`);
+    await dialogFits(page, name, 'certificate and key');
+    await shot(page, name, 'pulls-12-revealed');
+    await page.getByRole('button', { name: /I have uploaded it/ }).click();
+    const again = await act({ action: 'reveal' });
+    expect(again.status() === 400 && /no_pending/.test(await again.text()), `${name}: the key cannot be shown a second time`);
+    await page.locator('[data-origin-pull-cert="handed"]').nth(1).waitFor({ timeout: 15000 });
+    await shot(page, name, 'pulls-13-two-certificates');
+    await page.getByRole('button', { name: 'Stop accepting this certificate' }).last().click();
+    await until(`${name}: one certificate is left`, async () => ((await stored()).Own || []).length === 1, 20);
+  } catch (e) {
+    failures.push(`${name} (origin pulls): ${e.message.split('\n')[0]}`);
+    await shot(page, name, 'pulls-failed').catch(() => {});
+  }
+  await browser.close();
+}
+
 // ============ every other engine and size: the screens, the preview, the switch
 const others = [
   [firefox, 'firefox-1366', { width: 1366, height: 900 }],
@@ -319,8 +539,71 @@ const others = [
   [webkit, 'webkit-390', { width: 390, height: 844 }],
 ];
 for (const [type, name, viewport] of others) {
-  const { browser, page } = await open(type, name, viewport);
+  const { browser, ctx, page } = await open(type, name, viewport);
   try {
+    await panelReach(page, name);
+
+    // Authenticated Origin Pulls: the section, a test with counts, enforcing, the dialogs
+    const act = (body) => ctx.request.post(base + '/cosmos/api/cloudflare/origin-pulls', { data: body });
+    await act({ action: 'mode', mode: 'off' });
+    await act({ action: 'kind', kind: 'own' });
+    await domains(page);
+    await pullsMode(page, 'off');
+    await pulls(page).scrollIntoViewIfNeeded();
+    await shot(page, name, 'pulls-off');
+    await insideCard(page, name, 'off');
+    await page.getByRole('radio', { name: /Cloudflare's shared certificate/ }).click();
+    await page.getByText(/It does not prove that a request passed your domain/).waitFor({ timeout: 15000 });
+    await insideCard(page, name, 'shared certificate');
+    await page.getByRole('radio', { name: /A certificate of your own/ }).click();
+    await page.getByText(/Only your domain at Cloudflare can present it/).waitFor({ timeout: 15000 });
+    await page.getByRole('button', { name: 'Start the test' }).click();
+    await pullsMode(page, 'test');
+    await serverUp();
+    await visit('example.org', 'none', 1);
+    await visit('example.org', 'uploaded', 2);
+    await verdictIs(page, 'failing');
+    await pulls(page).scrollIntoViewIfNeeded();
+    await shot(page, name, 'pulls-test');
+    await insideCard(page, name, 'test');
+    await noSideScroll(page, name, 'the Domains tab while testing');
+    await page.getByRole('button', { name: 'Enforce anyway' }).click();
+    await page.getByText('Enforce although some requests have no certificate?').waitFor({ timeout: 10000 });
+    await dialogFits(page, name, 'enforce anyway');
+    await shot(page, name, 'pulls-anyway');
+    await page.locator('[role=dialog]').last().getByRole('button', { name: 'Enforce anyway' }).click();
+    await pullsMode(page, 'enforce');
+    await page.getByText(/Enforcing: a request for an address served through Cloudflare is answered only when/).waitFor({ timeout: 30000 });
+    const refusedNow = await visit('example.org', 'none', 1);
+    expect(refusedNow.statuses.every((status) => status === 403), `${name}: enforcing refuses Cloudflare's address without the certificate`);
+    await verdictIs(page, 'enforcingRefused');
+    await pulls(page).scrollIntoViewIfNeeded();
+    await shot(page, name, 'pulls-enforcing');
+    await insideCard(page, name, 'enforcing');
+    await noSideScroll(page, name, 'the Domains tab while enforcing');
+    await page.getByRole('button', { name: 'Stop enforcing' }).click();
+    await pullsMode(page, 'test');
+    await page.getByRole('button', { name: 'Switch off' }).click();
+    await pullsMode(page, 'off');
+    // the certificate and its key, shown once: the dialog fits the screen
+    await page.getByRole('button', { name: 'Make a new certificate' }).click();
+    await page.locator('[data-origin-pull-handover]').waitFor({ timeout: 30000 });
+    await pulls(page).scrollIntoViewIfNeeded();
+    await shot(page, name, 'pulls-made');
+    await insideCard(page, name, 'a certificate waits');
+    await page.getByRole('button', { name: 'Show the certificate and key' }).click();
+    await page.locator('[data-origin-pull-revealed]').waitFor({ timeout: 20000 });
+    await dialogFits(page, name, 'certificate and key');
+    await shot(page, name, 'pulls-revealed');
+    await page.getByRole('button', { name: /I have uploaded it/ }).click();
+    await page.getByRole('button', { name: 'Stop accepting this certificate' }).last().click();
+    await page.locator('[data-origin-pull-cert]').nth(1).waitFor({ state: 'detached', timeout: 20000 });
+    expect(true, `${name}: origin pulls: test, enforce, stop and the hand-over by hand work`);
+    if (onlyPulls) {
+      await browser.close();
+      continue;
+    }
+
     await domains(page);
     await page.locator('[data-cloudflare-overview]').waitFor({ timeout: 30000 });
     const overview = await page.locator('[data-cloudflare-overview]').innerText();
@@ -377,7 +660,7 @@ for (const [type, name, viewport] of others) {
   await browser.close();
 }
 
-{
+if (!onlyPulls) {
   const apex = (await record('example.org'))[0];
   expect(apex && apex.id === apexBefore.id && apex.proxied === true && apex.content === apexBefore.content, 'after all runs: the domain\'s own record is unchanged');
 }

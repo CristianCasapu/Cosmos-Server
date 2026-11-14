@@ -101,17 +101,16 @@ security record.
 
 ## Cloudflare and email: left for later (2026-11-14)
 
-- **Authenticated Origin Pulls** (the owner's decision, recommended before
-  relying on the shield): Cloudflare's network is shared, so a request can
-  come from Cloudflare's addresses without passing the owner's zone; it
-  passes the "shielded names answer Cloudflare only" guard and can name any
-  public visitor address. Closing it needs a client-certificate check in
-  the TLS configuration.
-- The Fail2ban installer reads `TrustedProxies` only: with shielded names it
-  should put Cloudflare's ranges into `ignoreip` and say that a ban stops
-  direct connections only.
-- Reachability does not check the panel's own hostname; an Origin CA
-  certificate on a shielded name shows as "not trusted".
+- Authenticated Origin Pulls are built (off until switched on). To confirm on
+  the real setup: that Cloudflare accepts the certificate Cosmos makes, that
+  its proxy presents it on port 2053, and how long a change takes; the
+  owner's choices: shared or own certificate (own is the one that proves the
+  request passed the owner's zone), one-time token or manual upload.
+- A SmartShield strike has no Fail2ban line when a proxy reported that
+  address within the last day (accepted trade-off); `access.origin.denied`
+  does not count towards a ban.
+- An Origin CA certificate on a shielded name shows as "not trusted" in the
+  reachability check.
 - Unverified against the real Cloudflare: the "may this token edit?" check,
   the public-address lookup used by the preview, and whether the "Edit zone
   DNS" template alone is enough.
@@ -135,6 +134,35 @@ security record.
 - The owner's choices to review: the reserved list holds 443 by default; a
   stopped container's port is closed and reopened; a choice is forgotten 15
   minutes after its container is gone; at most 32 app ports.
+
+## Look of the panel: left for later (2026-11-14)
+
+- The skin does not follow the colours under Configuration > Theme.
+- On a phone: about twenty field labels are cut with "…" in the settings and
+  container forms; the container Volumes tab and the alerts table are cut
+  at the right; charts keep two columns of axis labels; log lines break
+  inside words; the Market's showcase scrolls sideways.
+- Empty tables still say "No Data To Show"; the Domains tab's public key
+  block runs out of its box on a phone; a favicon of an unreachable app
+  holds a request for ten seconds.
+- Not tried on a real phone or real Safari, only the WebKit engine.
+
+## Local names: left for later (2026-11-14)
+
+- Names under the owner's public domain that point at the server's private
+  address (for example `radarr.home.<domain>`), with the wildcard Let's
+  Encrypt certificate: every device resolves them and no certificate warning
+  appears. Costs: the private address is in public DNS, and a router's
+  rebinding protection may need an allow-list entry. The owner's decision.
+- The host's Avahi announces the server's own name on Docker's interfaces
+  too (`allow-interfaces=eno1` in `/etc/avahi/avahi-daemon.conf` would stop
+  that; Cosmos' own names are right either way). Proposed to the owner.
+- `.local` does not resolve on Android 11 and older, most smart TVs, Linux
+  with only systemd-resolved, or over Tailscale; names with a dot before
+  `.local` fail on Windows and most Linux machines.
+- The Cosmos sign-in in front of an app uses the server's configured HTTPS
+  port for the return address: if the router forwards another external port
+  for Cosmos itself, the return address is wrong.
 
 ## Usability gaps found in the code
 

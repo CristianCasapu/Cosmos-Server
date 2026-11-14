@@ -10,7 +10,10 @@ export type ApiFetch = (path: string, options?: RequestInit) => Promise<Response
 interface CosmosError extends Error {
   status?: number;
   code?: string | number;
+  unanswered?: boolean; // Fork addition
 }
+
+import { plainFailure, serverDidNotAnswer } from '../utils/serverAnswer'; // Fork addition
 
 let snackit: ((msg: string) => void) | undefined;
 
@@ -37,10 +40,12 @@ export default function wrap<T = any>(apicall: Promise<Response>, noError = fals
       try {
         rep = JSON.parse(rep);
       } catch (err) {
+        // Fork addition: an answer that is not JSON is never shown as it is (a proxy's error page, see utils/serverAnswer.js)
         rep = {
-          message: rep,
+          message: plainFailure(response.status, rep),
           status: response.status,
-          code: response.status
+          code: response.status,
+          unanswered: serverDidNotAnswer(response.status)
         };
       }
     } catch (err) {
@@ -66,6 +71,7 @@ export default function wrap<T = any>(apicall: Promise<Response>, noError = fals
     const e: CosmosError = new Error(rep.message);
     e.status = rep.status;
     e.code = rep.code;
+    e.unanswered = Boolean(rep.unanswered); // Fork addition: a proxy answered in the server's place
     throw e;
   });
 }

@@ -6,8 +6,15 @@ package main
 import (
 	"github.com/gorilla/mux"
 
+	"github.com/azukaar/cosmos-server/src/cloudflare"
 	"github.com/azukaar/cosmos-server/src/fail2ban"
 )
+
+func init() {
+	// the never-ban list follows the hostnames served through Cloudflare
+	// and Cloudflare's address ranges
+	cloudflare.AfterChange = fail2ban.CloudflareChanged
+}
 
 // registerFail2banRoutes adds the routes to the admin router: behind the
 // token check, the SmartShield and the admin address restriction, like

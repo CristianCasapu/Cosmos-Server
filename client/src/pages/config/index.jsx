@@ -1,3 +1,4 @@
+import { unansweredError } from '../../utils/serverAnswer'; // Fork addition
 import * as React from 'react';
 import * as API from '../../api';
 import MainCard from '../../components/MainCard';
@@ -48,10 +49,20 @@ import ConfigAppearance from './configAppearance';
 import ConfigAPITokens from './configAPITokens';
 import { refreshPaidVisibility } from '../../components/paidVisibility'; // Fork addition
 
-const SaveButton = ({ formik, saveLabel }) => {
+const SaveButton = ({ formik, saveLabel, sticky }) => {
+  // Fork addition: say when something was changed and not saved yet, and keep the
+  // first save bar in view while that is so (the page is long). "Saved" is what the
+  // form held when the server confirmed the last save.
+  const { t } = useTranslation();
+  const saved = React.useRef(null);
+  React.useEffect(() => {
+    if (saveLabel === t('global.savedConfirmation')) saved.current = formik.values;
+  }, [saveLabel]);
+  const unsaved = formik.dirty && formik.values !== saved.current && !formik.isSubmitting;
   return (
     <PermissionGuard permission={PERM_CONFIGURATION}>
-    <MainCard>
+    <MainCard className={'ct-savebar' + (unsaved ? ' ct-savebar-unsaved' : '') + (sticky ? ' ct-savebar-first' : '')}>
+      {unsaved && <div className="ct-savebar-note">{t('mgmt.config.unsavedChanges', 'You changed something that is not saved yet.')}</div>}
       {formik.errors.submit && (
         <Grid item xs={12}>
           <FormHelperText error>{formik.errors.submit}</FormHelperText>
@@ -93,7 +104,7 @@ const ConfigManagement = () => {
     let again = false;
     const retry = (error) => {
       // only when the server did not answer at all: an error it answered with has been shown
-      if (retries > 0 && !again && !(error && error.status)) {
+      if (retries > 0 && !again && unansweredError(error)) { // also when a proxy answered in the server's place (utils/serverAnswer.js)
         again = true;
         setTimeout(() => refresh(retries - 1), 1000);
       }
@@ -143,7 +154,7 @@ const ConfigManagement = () => {
           </Alert>
         </div>}
 
-        <SaveButton formik={formik} saveLabel={saveLabel} />
+        <SaveButton formik={formik} saveLabel={saveLabel} sticky />
         {content}
         <SaveButton formik={formik} saveLabel={saveLabel} />
       </Stack>
@@ -184,6 +195,7 @@ const ConfigManagement = () => {
           AllowSearchEngine: config.HTTPConfig.AllowSearchEngine,
           AllowHTTPLocalIPAccess: config.HTTPConfig.AllowHTTPLocalIPAccess,
           PublishMDNS: config.HTTPConfig.PublishMDNS,
+          MDNSInterfaces: (config.HTTPConfig.MDNSInterfaces || []).join(', '), // Fork addition: see components/localNames.jsx
           UPnP_Enabled: Boolean(config.HTTPConfig.UPnP && config.HTTPConfig.UPnP.Enabled),
           UPnP_ForwardHTTP: Boolean(config.HTTPConfig.UPnP && config.HTTPConfig.UPnP.ForwardHTTP),
           UPnP_ExternalHTTPSPort: (config.HTTPConfig.UPnP && config.HTTPConfig.UPnP.ExternalHTTPSPort) || '',
@@ -306,6 +318,7 @@ const ConfigManagement = () => {
               AllowSearchEngine: values.AllowSearchEngine,
               AllowHTTPLocalIPAccess: values.AllowHTTPLocalIPAccess,
               PublishMDNS: values.PublishMDNS,
+              MDNSInterfaces: String(values.MDNSInterfaces || '').split(',').map((x) => x.trim()).filter(Boolean), // Fork addition
               UPnP: {
                 Enabled: Boolean(values.UPnP_Enabled),
                 ForwardHTTP: Boolean(values.UPnP_ForwardHTTP),

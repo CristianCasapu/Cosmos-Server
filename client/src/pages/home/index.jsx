@@ -16,6 +16,8 @@ import { useClientInfos } from "../../utils/hooks";
 import { PERM_ADMIN_READ } from "../../utils/permissions";
 import { FormaterForMetric, formatDate } from "../dashboard/components/utils";
 import MiniPlotComponent from "../dashboard/components/mini-plot";
+import { metricsByKey, percentOf, hasMeasurements } from '../../utils/metricsState'; // Fork addition: no chart from nothing
+import { NoMeasurements } from '../../components/emptyState';
 import Migrate014 from "./migrate014";
 import MyActivity from '../securityAudit/myActivity'; // Fork addition: recent activity on the own account
 import { Trans, useTranslation } from 'react-i18next';
@@ -144,16 +146,9 @@ const HomePage = () => {
             "cosmos.proxy.all.success",
             "cosmos.proxy.all.error",
         ]).then((res) => {
-            setMetrics(prevMetrics => {
-                let finalMetrics = prevMetrics ? { ...prevMetrics } : {};
-                if(res.data) {
-                    res.data.forEach((metric) => {
-                        finalMetrics[metric.Key] = metric;
-                    });
-                    
-                    return finalMetrics;
-                }
-            });
+            // Fork addition: an answer with nothing in it is "nothing measured yet", not "still loading"
+            // (the updater returned undefined for it, and the cards below kept their dashes)
+            setMetrics(prevMetrics => metricsByKey(res.data, prevMetrics));
         });
     }
 
@@ -321,7 +316,8 @@ const HomePage = () => {
                     <div>{coStatus && (coStatus.AVX ? t('navigation.home.Avx') : t('navigation.home.noAvx'))}</div>
                 </Stack>
                 <div style={{height: '97px'}}>
-                    <Chart options={optionsRadial} series={[latestCPU]} type="radialBar" height={120} width={120} />
+                    {/* Fork addition: a dial only when there is a number (apexcharts threw on undefined) */}
+                    {Number.isFinite(latestCPU) && <Chart options={optionsRadial} series={[latestCPU]} type="radialBar" height={120} width={120} />}
                 </div>
             </Stack>
         </Box>,
@@ -333,7 +329,8 @@ const HomePage = () => {
                     <div>{t('navigation.home.usedRam')}: <strong>{latestRAM}</strong></div>
                 </Stack>
                 <div style={{height: '97px'}}>
-                    <Chart options={optionsRadial} series={[parseInt(latestRAMRaw / maxRAMRaw * 100)]} type="radialBar" height={120} width={120} />
+                    {/* Fork addition: 0/0 drew "NaN%" and a path of NaN */}
+                    {percentOf(latestRAMRaw, maxRAMRaw) !== null && <Chart options={optionsRadial} series={[percentOf(latestRAMRaw, maxRAMRaw)]} type="radialBar" height={120} width={120} />}
                 </div>
             </Stack>
         </Box>,
@@ -362,6 +359,8 @@ const HomePage = () => {
     ];
 
     const activeMetricCards = metrics ? liveMetricCards : loadingMetricCards;
+    // Fork addition: the server answered and has measured nothing yet (a fresh install, the first minute after a start)
+    const nothingMeasured = !!metrics && !hasMeasurements(metrics);
 
     return <Stack spacing={2} style={{maxWidth: '1450px', margin:'auto'}}>
         <HomeBackground status={coStatus} />
@@ -425,8 +424,9 @@ const HomePage = () => {
         {/* Metrics */}
         {isAdmin && coStatus && !coStatus.MonitoringDisabled && isMd && (
             <Box sx={{ zIndex: 2, px: 1 }}>
+                {nothingMeasured && <NoMeasurements sx={{ mb: 2 }} />}
                 <Grid2 container spacing={2}>
-                    {activeMetricCards.map((card, i) => (
+                    {!nothingMeasured && activeMetricCards.map((card, i) => (
                         <Grid2 item xs={12} sm={6} md={6} lg={3} xl={3} xxl={3} key={'metric-' + i}>
                             {card}
                         </Grid2>
@@ -491,7 +491,8 @@ const HomePage = () => {
                 <Grid2 item xs={12} sm={12} md={12} lg={12} xl={12}>
                     <Box className='app' style={{ padding: 32, borderRadius: 12, textAlign: 'center', ...appColor }}>
                         <h3 style={blockStyle}>{t('navigation.home.noAppsTitle')}</h3>
-                        <p style={{ ...blockStyle, marginTop: 8, opacity: 0.7 }}>{t('navigation.home.noApps')}</p>
+                        {/* Fork addition: whiteSpace normal (on a phone the sentence was cut after "Please a...") */}
+                        <p style={{ ...blockStyle, whiteSpace: 'normal', marginTop: 8, opacity: 0.8 }}>{t('navigation.home.noApps')}</p>
                     </Box>
                 </Grid2>
             )}

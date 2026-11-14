@@ -1,13 +1,16 @@
 // Package cffake is a fork addition: a stand-in for the parts of Cloudflare's
 // API the fork uses (token verification, zones, DNS records, the SSL setting,
-// the address ranges), for tests. Nothing in the server imports it; the tests
+// the address ranges, the client certificate of Authenticated Origin Pulls),
+// for tests. Nothing in the server imports it; the tests
 // of src/cloudflare do, and scripts/fork-fake-cloudflare.go serves it for the
 // browser checks. It answers the way Cloudflare's documentation describes,
 // and where that is silent the way the libdns client expects.
 package cffake
 
 import (
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net"
@@ -31,6 +34,17 @@ type Token struct {
 	ReadDNS      bool
 	EditDNS      bool
 	ReadSettings bool
+	// EditSSL: "SSL and Certificates: Edit", which the "Edit zone DNS"
+	// template does not include
+	EditSSL bool
+}
+
+// OriginPullCert is a client certificate uploaded for a zone's Authenticated
+// Origin Pulls: what Cloudflare's proxy would present to the origin.
+type OriginPullCert struct {
+	ID          string `json:"id"`
+	Certificate string `json:"certificate"`
+	PrivateKey  string `json:"private_key"`
 }
 
 // Record is a DNS record.
@@ -50,6 +64,9 @@ type Zone struct {
 	Plan    string
 	SSLMode string
 	Records []Record
+	// zone-level Authenticated Origin Pulls
+	OriginPullCerts   []OriginPullCert
+	OriginPullEnabled bool
 }
 
 // Call is one request the server got, without its credential.
@@ -222,6 +239,19 @@ func (s *Server) SetProxied(zoneName string, name string, recordType string, pro
 	}
 }
 
+// OriginPull returns the client certificates uploaded for a zone, the most
+// recent last, and whether its zone-level Authenticated Origin Pulls are on.
+func (s *Server) OriginPull(zoneName string) ([]OriginPullCert, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, zone := range s.zones {
+		if zone.Name == zoneName {
+			return append([]OriginPullCert{}, zone.OriginPullCerts...), zone.OriginPullEnabled
+		}
+	}
+	return nil, false
+}
+
 // Calls returns the requests received so far; clear empties the list.
 func (s *Server) Calls(clear bool) []Call {
 	s.mu.Lock()
@@ -277,6 +307,7 @@ var (
 	bearerForm  = regexp.MustCompile(`^Bearer [A-Za-z0-9_-]{40,}$`)
 	recordsPath = regexp.MustCompile(`^/client/v4/zones/([0-9a-f]{32})/dns_records(?:/([0-9a-f]{32}))?$`)
 	sslPath     = regexp.MustCompile(`^/client/v4/zones/([0-9a-f]{32})/settings/ssl$`)
+	pullsPath   = regexp.MustCompile(`^/client/v4/zones/([0-9a-f]{32})/origin_tls_client_auth(/settings)?$`)
 )
 
 func page(req *http.Request, total int, fallback int) (from int, to int, info map[string]int) {
@@ -318,7 +349,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.calls = append(s.calls, Call{Method: req.Method, Path: req.URL.Path, Body: string(raw)})
+	logged := string(raw)
+	if strings.Contains(logged, "private_key") {
+		// a private key is not kept in the list of calls
+		logged = "(a certificate and its private key)"
+	}
+	s.calls = append(s.calls, Call{Method: req.Method, Path: req.URL.Path, Body: logged})
 
 	if s.down {
 		w.WriteHeader(http.StatusBadGateway)
@@ -392,6 +428,52 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		ok(w, map[string]interface{}{"id": "ssl", "value": zone.SSLMode, "editable": true}, nil)
+		return
+	}
+
+	if match := pullsPath.FindStringSubmatch(path); match != nil {
+		zone := s.zone(match[1], token)
+		if zone == nil || !token.EditSSL {
+			fail(w, http.StatusForbidden, 10000, "Authentication error")
+			return
+		}
+		switch {
+		case match[2] == "" && req.Method == "POST":
+			var upload struct {
+				Certificate string `json:"certificate"`
+				PrivateKey  string `json:"private_key"`
+			}
+			if json.Unmarshal(raw, &upload) != nil || upload.PrivateKey == "" {
+				fail(w, http.StatusBadRequest, 1400, "Request body is invalid.")
+				return
+			}
+			block, _ := pem.Decode([]byte(upload.Certificate))
+			if block == nil {
+				fail(w, http.StatusBadRequest, 1402, "certificate could not be parsed")
+				return
+			}
+			cert, err := x509.ParseCertificate(block.Bytes)
+			if err != nil || cert.IsCA {
+				// what Cloudflare answers when a root is uploaded
+				fail(w, http.StatusBadRequest, 1401, "missing leaf certificate")
+				return
+			}
+			stored := OriginPullCert{ID: s.newID(), Certificate: upload.Certificate, PrivateKey: upload.PrivateKey}
+			zone.OriginPullCerts = append(zone.OriginPullCerts, stored)
+			ok(w, map[string]interface{}{"id": stored.ID, "status": "active", "expires_on": cert.NotAfter, "certificate": stored.Certificate}, nil)
+		case match[2] != "" && req.Method == "PUT":
+			var setting struct {
+				Enabled *bool `json:"enabled"`
+			}
+			if json.Unmarshal(raw, &setting) != nil || setting.Enabled == nil {
+				fail(w, http.StatusBadRequest, 1400, "Request body is invalid.")
+				return
+			}
+			zone.OriginPullEnabled = *setting.Enabled
+			ok(w, map[string]bool{"enabled": zone.OriginPullEnabled}, nil)
+		default:
+			fail(w, http.StatusMethodNotAllowed, 10405, "Method not allowed for this authentication scheme")
+		}
 		return
 	}
 

@@ -193,6 +193,12 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 
+		// Fork addition: the interfaces named for the .local names, see fork_mdns.go
+		if errM := validateMDNSInterfaces(request.HTTPConfig.MDNSInterfaces); errM != "" {
+			utils.HTTPError(w, errM, http.StatusBadRequest, "UC020")
+			return
+		}
+
 		// this PUT writes routes wholesale: validate before any write, including the op-log publish
 		for _, route := range request.HTTPConfig.ProxyConfig.Routes {
 			if msg := validateRoute(route); msg != "" {

@@ -21,7 +21,10 @@ import (
 //   - section names, which are jail names of the fixed list in jails.go,
 //   - integers within the bounds of jails.go, printed by strconv,
 //   - networks and addresses that were parsed by net/netip and are printed
-//     by it: digits, a to f, dots, colons and one slash.
+//     by it: digits, a to f, dots, colons and one slash. These are the
+//     administrator's list and, while a hostname is served through
+//     Cloudflare, Cloudflare's own ranges (cloudflare.go), which come from
+//     the list Cosmos validated and never from a request.
 //
 // None of these can contain a line break, a "%" (Fail2ban's interpolation),
 // a "<" (its tags), a "[" or a "#", so nothing a request sends can add a
@@ -50,6 +53,10 @@ type Settings struct {
 type checked struct {
 	jails   map[string]Thresholds // one entry per jail of the fixed list
 	ignored []netip.Prefix        // deduplicated, loopback first
+	// cloudflare are Cloudflare's ranges, added to the list that is written
+	// while a hostname is served through Cloudflare. They are not part of
+	// the administrator's list: Cosmos adds, refreshes and removes them.
+	cloudflare []netip.Prefix
 }
 
 var (
@@ -95,15 +102,32 @@ func check(settings Settings) (checked, error) {
 		result.jails[known.name] = thresholds
 	}
 
-	if len(settings.IgnoreIP) > bounds.MaxIgnoreIP {
+	// Cloudflare's ranges are added by Cosmos itself: sent back by a form
+	// they are not the administrator's entries, and do not use up their places
+	cloudflare := cloudflareRanges()
+	if len(settings.IgnoreIP) > bounds.MaxIgnoreIP+len(cloudflare) {
 		return checked{}, settingsError("At most %d addresses or networks can be listed as never banned", bounds.MaxIgnoreIP)
 	}
 	result.ignored = []netip.Prefix{loopback4, loopback6}
 	seen := map[netip.Prefix]bool{loopback4: true, loopback6: true}
+	for _, prefix := range cloudflare {
+		seen[prefix] = true
+	}
+	own := 0
 	for position, entry := range settings.IgnoreIP {
 		prefix, ok := parsePrefix(strings.TrimSpace(entry))
 		if !ok {
 			return checked{}, settingsError("Entry %d of the addresses that are never banned is not an address (203.0.113.7) or a network (203.0.113.0/24)", position+1)
+		}
+		isCloudflare := false
+		for _, known := range cloudflare {
+			isCloudflare = isCloudflare || known == prefix
+		}
+		if isCloudflare {
+			continue
+		}
+		if own++; own > bounds.MaxIgnoreIP {
+			return checked{}, settingsError("At most %d addresses or networks can be listed as never banned", bounds.MaxIgnoreIP)
 		}
 		if prefix.Bits() == 0 {
 			return checked{}, settingsError("Entry %d of the addresses that are never banned covers every address: nothing would ever be banned", position+1)
@@ -131,9 +155,19 @@ func (c checked) settings() Settings {
 
 // render produces the content of the panel's file.
 func render(c checked) string {
-	ignored := make([]string, 0, len(c.ignored))
+	ignored := make([]string, 0, len(c.ignored)+len(c.cloudflare))
+	listed := map[netip.Prefix]bool{}
 	for _, prefix := range c.ignored {
 		ignored = append(ignored, formatPrefix(prefix))
+		listed[prefix] = true
+	}
+	added := 0
+	for _, prefix := range c.cloudflare {
+		if !listed[prefix] {
+			ignored = append(ignored, formatPrefix(prefix))
+			listed[prefix] = true
+			added++
+		}
 	}
 	ignoreLine := strings.Join(ignored, " ")
 
@@ -142,6 +176,13 @@ func render(c checked) string {
 	b.WriteString("# Do not edit: it is replaced on the next save. It is read after\n")
 	b.WriteString("# cosmos-10-jails.local and cosmos-50-host.local, so what it says wins.\n")
 	b.WriteString("# Delete it and run \"fail2ban-client reload\" to go back to those files.\n")
+	if added > 0 {
+		b.WriteString("\n")
+		b.WriteString("# The last " + strconv.Itoa(added) + " entries of each list are Cloudflare's address ranges. Cosmos\n")
+		b.WriteString("# keeps them here while an address is served through Cloudflare: every\n")
+		b.WriteString("# visitor of such an address arrives from them, so a ban of one would cut\n")
+		b.WriteString("# them all off. Cosmos replaces them when Cloudflare's list changes.\n")
+	}
 	for _, known := range jails {
 		thresholds := c.jails[known.name]
 		b.WriteString("\n[" + known.name + "]\n")
@@ -225,17 +266,30 @@ func Apply(settings Settings) (Settings, error) {
 	if !configInstalled() {
 		return Settings{}, errNoInstall
 	}
+	clean.cloudflare = cloudflareRanges()
 
 	applyLock.Lock()
 	defer applyLock.Unlock()
 
+	if err := write(clean); err != nil {
+		return Settings{}, err
+	}
+	written := clean.settings()
+	saveSettings(written)
+	return written, nil
+}
+
+// write puts checked settings into the panel's file and makes Fail2ban read
+// its configuration again; if Fail2ban refuses, the file is put back as it
+// was. Called with applyLock held.
+func write(clean checked) error {
 	target := filepath.Join(jailDir, panelFile)
 	previous, readErr := os.ReadFile(target)
 	hadPrevious := readErr == nil
 
 	if err := replaceFile([]byte(render(clean))); err != nil {
 		utils.Error("Fail2ban: could not write the panel's settings file", err)
-		return Settings{}, errors.New("the settings file could not be written")
+		return errors.New("the settings file could not be written")
 	}
 	if ping() {
 		if err := reload(); err != nil {
@@ -247,14 +301,11 @@ func Apply(settings Settings) (Settings, error) {
 			}
 			reload()
 			forgetStatus()
-			return Settings{}, errors.New("Fail2ban did not accept the settings: they were not applied")
+			return errors.New("Fail2ban did not accept the settings: they were not applied")
 		}
 	}
 	forgetStatus()
-
-	written := clean.settings()
-	saveSettings(written)
-	return written, nil
+	return nil
 }
 
 // saveSettings stores what was applied in Cosmos' configuration. Tests

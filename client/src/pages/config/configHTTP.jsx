@@ -18,6 +18,8 @@ import { Trans, useTranslation } from 'react-i18next';
 import InternetAccess from './internetAccess';
 import { PaidOnly } from '../../components/paidVisibility'; // Fork addition
 import { ownCountries, safeDefaultBlocked } from '../../utils/geoDefaults'; // Fork addition
+import { PanelReach } from '../../components/reachability'; // Fork addition
+import { LocalNamesSettings } from '../../components/localNames'; // Fork addition
 
 const ConfigHTTP = ({ formik }) => {
   const [geoLeftOut, setGeoLeftOut] = React.useState(null); // Fork addition: what the default country list left out
@@ -46,6 +48,7 @@ const ConfigHTTP = ({ formik }) => {
                   {formik.errors.Hostname}
                 </FormHelperText>
               )}
+              <PanelReach />{/* Fork addition: the saved address as the internet sees it, see components/reachability.jsx */}
             </Stack>
           </Grid>
 
@@ -124,6 +127,7 @@ const ConfigHTTP = ({ formik }) => {
               name="PublishMDNS"
               formik={formik}
             />
+            <LocalNamesSettings formik={formik} />{/* Fork addition: are the names published and answered, which devices can use them */}
           </Grid>
         </Grid>
       </MainCard>

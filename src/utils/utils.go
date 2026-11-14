@@ -1336,12 +1336,27 @@ func GetProxyOIDCredentials(route ProxyRouteConfig, hashSecret bool) *fosite.Def
 		secret = string(hashedSecret)
 	}
 
-	callbackURL := fmt.Sprintf("https://%s/cosmos/oauth2/detect-callback", route.Host)
-	callbackURLClient := fmt.Sprintf("https://%s/oauth2/callback", route.Host)
+	// Fork addition: the addresses the visitor comes back to carry the server's
+	// HTTPS port when it is not 443 (fullhost, which upstream computed above and
+	// never used: the visitor was sent back to port 443, where this server is not).
+	// The port-less ones stay accepted, for a server reached on 443 from outside.
+	// Both forms are registered whatever IsHTTPS says at this moment: the clients are
+	// registered at start, before the HTTPS listener has set it.
+	httpsHost, otherHost := route.Host, ""
+	if host, port := parsedURL.Hostname(), parsedURL.Port(); err == nil && port == "" && HTTPSPort != "" && HTTPSPort != "443" {
+		ported := host + ":" + HTTPSPort
+		if IsHTTPS {
+			httpsHost, otherHost = ported, route.Host
+		} else {
+			otherHost = ported
+		}
+	}
+	callbackURL := fmt.Sprintf("https://%s/cosmos/oauth2/detect-callback", httpsHost)
+	callbackURLClient := fmt.Sprintf("https://%s/oauth2/callback", httpsHost)
 	// Also accept the route root, so an app doing its own OIDC with redirect_uri
 	// pointing at its homepage (e.g. https://app.example.com/) is supported without
 	// requiring a manually-created OpenID client.
-	rootURL := fmt.Sprintf("https://%s/", route.Host)
+	rootURL := fmt.Sprintf("https://%s/", httpsHost)
 
 	// Loopback redirect bases for native apps (RFC 8252 §7.3). fosite matches these
 	// with ANY port (only the port is ignored; scheme/host/path/query must match), so
@@ -1354,6 +1369,12 @@ func GetProxyOIDCredentials(route ProxyRouteConfig, hashSecret bool) *fosite.Def
 	loopbackRootV6 := "http://[::1]/"
 
 	redURls := []string{callbackURL, callbackURLClient, rootURL, loopbackRoot, loopbackRootV6}
+	if otherHost != "" { // Fork addition, see above
+		redURls = append(redURls,
+			fmt.Sprintf("https://%s/cosmos/oauth2/detect-callback", otherHost),
+			fmt.Sprintf("https://%s/oauth2/callback", otherHost),
+			fmt.Sprintf("https://%s/", otherHost))
+	}
 
 	if IsHTTPS && config.HTTPConfig.AllowHTTPLocalIPAccess {
 		callbackURL2 := fmt.Sprintf("http://%s/cosmos/oauth2/detect-callback", route.Host)

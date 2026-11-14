@@ -125,6 +125,28 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }))
   }
 
+  // Fork addition: are the .local names published and answered
+  // (src/proxy/fork_mdns_status.go). Admins only; GET stays quiet on errors,
+  // POST asks the network again.
+  function localNames() {
+    return wrap(apiFetch('/cosmos/api/local-names', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }), true)
+  }
+
+  function localNamesCheck() {
+    return wrap(apiFetch('/cosmos/api/local-names', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ check: true }),
+    }))
+  }
+
   // Fork addition: the user audit panel (src/security/useraudit*.go). All GET,
   // read only; the query is built by utils/auditFilters.js.
   function securityAudit(query: string, cursor = 0, limit = 50, quiet = false) {
@@ -222,6 +244,8 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
   const cloudflareShield = (hostname: string, shielded: boolean) => cloudflareCall('/shield', 'POST', { hostname, shielded });
   const cloudflarePanel = (hostname: string) => cloudflareCall('/panel', 'POST', { hostname });
   const cloudflareRanges = (action: string) => cloudflareCall('/ranges', 'POST', { action });
+  // Authenticated Origin Pulls: one route, the step is the body's "action"
+  const cloudflareOriginPulls = (body: any) => cloudflareCall('/origin-pulls', 'POST', body);
 
   // Fork addition: is there a newer server release? GET = last known answer,
   // POST = ask again. Neither installs anything.
@@ -472,6 +496,8 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     upnpRetry,
     reachability,
     reachabilityCheck,
+    localNames, // Fork addition: the .local names
+    localNamesCheck,
     securityAudit, // Fork addition: user audit panel
     securityUserSummary,
     securityMyActivity,
@@ -488,6 +514,7 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     certificatesDomain,
     certificatesDelegation,
     certificatesSettings,
+    cloudflareOriginPulls,
     snapshotsStatus,
     snapshotsRun,
     snapshotsRestore,

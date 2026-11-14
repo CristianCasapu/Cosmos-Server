@@ -45,6 +45,7 @@ import { useTranslation } from 'react-i18next';
 import * as API from '../api';
 import MainCard from './MainCard';
 import PermissionGuard from './permissionGuard';
+import OriginPulls from './originPulls';
 import { PERM_CONFIGURATION } from '../utils/permissions';
 import { serverBack } from '../utils/appLinks';
 import {
@@ -369,6 +370,8 @@ export const CloudflareOverview = () => {
           </Stack>
         </PermissionGuard>
       </Stack>
+
+      <OriginPulls status={data} reload={() => loadCloudflare(true)} />
     </Stack>
   </MainCard>;
 };

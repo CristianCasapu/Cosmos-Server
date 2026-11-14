@@ -109,7 +109,7 @@ const PlotComponent = ({ title, slot, data, SimpleDesign, withSelector, xAxis, z
           : xAxis,
         labels: {
           style: {
-            fontSize: (slot === 'latest' || SimpleDesign) ? '0' : '11px',
+            fontSize: (slot === 'latest' || SimpleDesign) ? '0' : '12px', // Fork addition: was 11px
           }
         },
         axisBorder: {

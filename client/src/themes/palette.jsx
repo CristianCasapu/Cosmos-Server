@@ -51,7 +51,7 @@ const Palette = (mode, PrimaryColor, SecondaryColor) => {
             ...paletteColor,
             text: {
                 primary: paletteColor.grey[0],
-                secondary: paletteColor.grey[200],
+                secondary: '#c5cedd', // Fork addition: a step below the main text (upstream: nearly white, no difference); 10:1 on the skin's cards
                 disabled: paletteColor.grey[300]
             },
             action: {
@@ -73,7 +73,7 @@ const Palette = (mode, PrimaryColor, SecondaryColor) => {
             ...paletteColor,
             text: {
                 primary: paletteColor.grey[700],
-                secondary: '#6b7280',
+                secondary: '#5b6577', // Fork addition: 5.3:1 on the skin's page background (upstream's #6b7280: 4.4:1)
                 disabled: paletteColor.grey[500]
             },
             action: {

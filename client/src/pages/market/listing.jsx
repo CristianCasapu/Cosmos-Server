@@ -76,7 +76,7 @@ function ShowcasesItem({ isDark, item, isAdmin }) {
     }}>
       <Stack direction="row" spacing={2} style={{ height: '100%', overflow: 'hidden' }} justifyContent="flex-end">
         <Stack direction="column" spacing={2} style={{ height: '100%' }} sx={{
-          backgroundColor: isDark ? '#20232b' : 'rgba(255,255,255)',
+          backgroundColor: isDark ? 'var(--ct-surface, #20232b)' : 'rgba(255,255,255)',
           padding: '20px 100px',
           width: '50%',
           filter: 'drop-shadow(-20px 0px 20px rgba(0, 0, 0, 1))',
@@ -116,7 +116,7 @@ function ShowcasesItem({ isDark, item, isAdmin }) {
 
 const appCardStyle = (theme) => ({
   width: '100%',
-  backgroundColor: theme.palette.mode === 'dark' ? '#20232b' : 'rgba(255,255,255)',
+  backgroundColor: theme.palette.mode === 'dark' ? 'var(--ct-surface, #20232b)' : 'rgba(255,255,255)',
   ...theme.typography.body2,
   padding: theme.spacing(1),
   color: theme.palette.text.secondary,
@@ -144,10 +144,11 @@ const MarketPage = () => {
   const { hasPermission } = useClientInfos();
   const isAdmin = hasPermission(PERM_RESOURCES);
 
+  // Fork addition: the skin's colours where it is loaded (upstream's neutral greys were a slab on the skin's navy)
   const backgroundStyle = isDark ? {
-    backgroundColor: '#141414',
+    backgroundColor: 'var(--ct-bg, #141414)',
   } : {
-    backgroundColor: 'rgb(245,245,247)',
+    backgroundColor: 'var(--ct-bg, rgb(245,245,247))',
   };
 
   const refresh = () => {
@@ -239,7 +240,7 @@ const MarketPage = () => {
 
       <Stack direction="row" spacing={2} style={{ height: '100%' }} justifyContent="flex-end">
         <Stack direction="column" spacing={3} style={{ height: '100%', overflow: "auto" }} sx={{
-          backgroundColor: isDark ? '#20232b' : 'rgba(255,255,255)',
+          backgroundColor: isDark ? 'var(--ct-surface, #20232b)' : 'rgba(255,255,255)',
           padding: '80px 80px',
           width: '100%',
           maxWidth: '800px',
@@ -326,7 +327,8 @@ const MarketPage = () => {
         padding: '24px',
       }}>
         <h2>{t('navigation.market.applicationsTitle')}</h2>
-        <Stack direction="row" spacing={2}>
+        {/* Fork addition: useFlexGap flexWrap (on a phone the row ran out of the window) */}
+        <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
           <Input placeholder={t('navigation.market.search',  {count: filteredAppList.length})}
             value={search}
             style={{ maxWidth: '400px' }}
@@ -389,7 +391,7 @@ const MarketPage = () => {
                         >{ app?.translation?.[i18n?.resolvedLanguage]?.description || app?.translation?.[i18n?.resolvedLanguage.substr?.(0,2)]?.description || app.description }</div>
                         <Stack direction={'row'} spacing={1}>
                           <div style={{
-                            fontStyle: "italic", opacity: 0.7,
+                            fontStyle: "italic", opacity: 1, /* Fork addition: was 0.7, which is 3:1 on white */
                             overflow: 'hidden',
                             height: '21px',
                             textOverflow: 'ellipsis',
