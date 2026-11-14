@@ -7,9 +7,19 @@ upstream 0.23.4 unless noted and may have moved.
 
 ## Asked for by the owner, not done yet
 
-1. **Forms that fill themselves in.** Done for the ServApps "New URL" dialog,
-   the new-container form and the market installer (see `FORK.md`). Still to
-   go through the same way: the route editor, mounts, cron jobs and alerts.
+1. **Forms that fill themselves in.** Done: the "New URL" dialog and the URL
+   Setup tab (simple view), the new-container form and the market installer
+   (addresses), users, scheduled jobs, the email settings, the Cloudflare
+   set-up (see `FORK.md`; the principles are kept with the owner's plans).
+   Still to go through the same way, in this order: **the HTTP settings**
+   (geo-blocking's "Reset to default" blocks Romania along with fifteen
+   other countries: a lock-out trap; ports and the admin whitelist need a
+   check before saving), the URL Security tab (one "protection" choice in
+   place of six numbers), the container wizard (it silently drops User, the
+   limits and the network mode; an existing name replaces the app; a port
+   without ":" crashes the create handler), storage (`mkfs` reports success
+   when it failed), the alerts editor, the Domains dialog by hand, API
+   tokens, OpenID.
 2. **App links and reachability: done** (a local address always, an external
    one per attached domain, grouped on the cards, "Domains", and a chip that
    says whether the app can be reached from the internet). Left, the owner's
@@ -88,8 +98,6 @@ security record.
   an IPv6 /64; SmartShield's whitelist as never-ban list; events for bans
   that expire; its never-ban list holds the LAN's IPv6 prefix as it was at
   install time (the host guard refreshes its own copy every ten minutes).
-- Upstream asks `/api/me` about 47 times per page load, which eats into the
-  500-requests-a-minute limit.
 
 ## Cloudflare and email: left for later (2026-11-14)
 
@@ -148,7 +156,6 @@ Confirmed by reading only, on 0.23.4; re-check on 0.24.0 before fixing. (The cer
 - **Let's Encrypt, leftover corners** (the plain-HTTP start is gone on 0.24.0, the self-signed certificate serves when an order fails): if no self-signed certificate can be generated and none is stored, the server still starts on HTTP only; a stored certificate that does not parse ends the process; an order through a DNS provider gives a notice without a reason.
 - **SmartShield and the local network** (re-checked on 0.24.0, nothing changed): a private address is treated like any other; three temporary bans in seven days give a permanent one (in memory: a restart clears it). A logged-in admin is never banned, but a device whose address is banned and whose session has expired cannot log in until the ban ends. Options, the owner's to choose: add the LAN range to the Shield whitelist (a setting), never make a ban permanent for local addresses, or switch permanent bans off.
 - **A container edit interrupted by a stop of Cosmos** leaves the old container stopped as `<name>-cosmos-old-<id>`; nothing offers to put it back or removes it at the next start. A failed network reconnection during an edit is only logged.
-- Route Setup/Security tabs can save stale config.
 
 ## From other forks and open upstream pull requests
 

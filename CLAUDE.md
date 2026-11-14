@@ -141,11 +141,11 @@ WebKit does not keep the session cookie on a test hostname without a dot: give t
 
 `scripts/fork-ui-check-sudo.mjs` checks that the password prompt comes back mid-work without losing a form.
 
-A browser check that loads full pages one after another has to pace itself (about one page every 8 seconds from one address): each page load asks `/api/me` some 46 times and the instance allows 500 API requests a minute; beyond that pages come up empty.
-
 `scripts/fork-ui-check-cloudflare.mjs` (with `scripts/fork-fake-cloudflare.go` answering as Cloudflare's API) and `scripts/fork-ui-check-email.mjs` (with `scripts/fork-fake-mail` as name server and mail server) run on an `--internal` Docker network; their headers list what they expect. Nothing is ever sent to the real Cloudflare or to real mail servers.
 
 `scripts/fork-ui-check-upnp.mjs` runs against `scripts/fork-fake-igd.go`, a stand-in router; the test Cosmos needs `--cap-add NET_ADMIN` and `ip route replace default via <stand-in>` because the UPnP client only talks to the default gateway (the script's header has the details). The live tests against a real router are opt-in: `UPNP_LIVE=1 go test ./src/upnp/ -run TestLiveRouter$ -v` (read only) and `UPNP_LIVE_WRITE=1 … -run TestLiveRouterMapping` (maps port 39999 for a minute); run them only when the owner asks.
+
+The form checks are `scripts/fork-ui-check-url-form.mjs`, `-all-addresses`, `-users`, `-cron-job`, `-port-chips`, `-requests`, `-throttled` and `-url-wizard` (each header lists the containers it expects; `ENGINES=chromium,firefox,webkit SIZES=d,m`). A gotcha when writing forms: Formik computes each change from the last render's values, so two `setFieldValue` calls made in one go lose the first: set several values with one `setValues`.
 
 `scripts/fork-ui-check.mjs` logs in, confirms the password (`/api/sudo`: most
 admin actions need it), visits the main pages in three engines and at phone
