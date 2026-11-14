@@ -1306,6 +1306,7 @@ func InitServer() *mux.Router {
 	srapi.Use(utils.SetSecurityHeaders)
 	srapiStrict.Use(utils.SetSecurityHeaders)
 	srapiAdmin.Use(utils.SetSecurityHeaders)
+	forkAPIHeaders(srapi, srapiStrict, srapiAdmin) // Fork addition: the API's script policy and HSTS, see fork_csp.go
 
 	if(!config.HTTPConfig.AcceptAllInsecureHostname) {
 		srapi.Use(utils.EnsureHostname)
@@ -1334,6 +1335,7 @@ func InitServer() *mux.Router {
 	// fs := http.FileServer(http.Dir(pwd + "/static"))
 	uirouter := router.PathPrefix("/cosmos-ui").Subrouter()
 	uirouter.Use(utils.SetSecurityHeaders)
+	uirouter.Use(forkPanelHeaders) // Fork addition: the panel's script policy and security headers, see fork_csp.go
 	SecureAPI(uirouter, true, true, false)
 	uirouter.PathPrefix("/").Handler(http.StripPrefix("/cosmos-ui", forkPWAStatic(utils.SPAHandler(pwd + "/static"), pwd + "/static"))) // Fork addition: the installable app's worker and manifest, and cache headers, see fork_pwa.go
 	

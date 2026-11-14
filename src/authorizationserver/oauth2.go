@@ -147,6 +147,7 @@ func Init() {
 		}
 	}
 	addHomeNameRedirects(store.Clients) // Fork addition: the return addresses of the apps' names for use at home, see fork_home_clients.go
+	rememberReturnOrigins(store.Clients) // Fork addition: where a sign-in may end, for the panel's form-action, see fork_return_origins.go
 
 	utils.Log("OpenID server initialized")
 }
