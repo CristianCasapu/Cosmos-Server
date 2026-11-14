@@ -72,24 +72,16 @@ export const portFor = (host, ports, scheme) => {
 // without one (it then matches on every port).
 export const shownAddress = (host, ports, scheme) => hostWithPort(host, portFor(host, ports, scheme || 'https'), scheme || 'https');
 
-// The link of a route: { label, href }. `origin` is the panel's own
-// (window.location.origin): it gives the scheme, and the whole address of a
-// route without a host of its own.
-export const routeAddress = (route, ports, origin) => {
-  const own = String(origin || '');
-  const scheme = own.startsWith('http://') ? 'http' : 'https';
-  const path = (route && route.UsePathPrefix && route.PathPrefix) || '';
-  if (!route || !route.UseHost || !route.Host) {
-    return { label: own + path, href: own + path };
+// A route as its chip shows and opens it: the same route with the port in
+// its host (the chip opens "<scheme>://<host><path>" as it finds it). A
+// route without a host of its own, or with a port already, is left alone.
+// Only for display: what is stored never carries the port.
+export const shownRoute = (route, ports, scheme) => {
+  if (!route || !route.UseHost || !route.Host || !ports) {
+    return route;
   }
-  let host = shownAddress(String(route.Host).trim(), ports, scheme);
-  if (!ports) {
-    // nothing known about the router (the viewer may not read the settings):
-    // the port the panel itself is open on, which is where Cosmos listens
-    const panel = own.match(/^https?:\/\/[^/]+?:(\d+)$/);
-    host = hostWithPort(host, panel ? panel[1] : 0, scheme);
-  }
-  return { label: host + path, href: scheme + '://' + host + path };
+  const host = shownAddress(String(route.Host).trim(), ports, scheme || 'https');
+  return host === route.Host ? route : { ...route, Host: host };
 };
 
 // ---------------------------------------------------------------------------

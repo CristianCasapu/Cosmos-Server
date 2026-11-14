@@ -21,7 +21,8 @@ import { GlobalOutlined, HomeOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import * as API from '../api';
 import HostChip from './hostChip';
-import { ExternalPortNote } from './routerPorts'; // the port the addresses are reached on from the internet (src/upnp)
+import { ExternalPortNote, useCosmosPorts } from './routerPorts'; // the port the addresses are reached on (src/upnp)
+import { shownRoute } from '../utils/routerPorts';
 import PermissionGuard from './permissionGuard';
 import { PERM_RESOURCES } from '../utils/permissions';
 import { IsRouteSocketProxy, ValidateRoute, getContainersRoutes } from '../utils/routes';
@@ -33,13 +34,16 @@ import { baseIsUnderDomain, baseRoute, domainRoutes, groupAppRoutes, routeHost, 
 // headed by the icon and what it stands for.
 const AppLinks = ({ routes, chipStyle, rows }) => {
   const { t } = useTranslation();
+  // a host is stored without a port; its chip shows and opens it with the port it is reached on
+  const ports = useCosmosPorts(null);
+  const scheme = window.location.protocol === 'http:' ? 'http' : 'https';
 
   return groupAppRoutes(routes, window.location.host).map((group) => {
     const Icon = group.local ? HomeOutlined : GlobalOutlined;
     const label = group.local
       ? t('mgmt.urls.links.local', 'Local network')
       : t('mgmt.urls.links.external', 'Internet');
-    const chips = group.routes.map((route) => <HostChip key={route.Name} route={route} settings style={chipStyle} />);
+    const chips = group.routes.map((route) => <HostChip key={route.Name} route={shownRoute(route, ports, scheme)} settings style={chipStyle} />);
 
     if (rows) {
       return <div key={label}>

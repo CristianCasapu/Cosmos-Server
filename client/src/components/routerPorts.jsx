@@ -2,7 +2,7 @@
 // server, utils/routerPorts.js for everything that can be computed without
 // the UI). The router's status is fetched once for the whole page and shared:
 // - useCosmosPorts: the ports Cosmos' own addresses are reached on, for every
-//   link and preview (hostChip, the address proposals, the Domains dialog);
+//   link and preview (an app's chips, the address proposals, the Domains dialog);
 // - RouterPortLine: the line of one published port on the container's page,
 //   with the switch that opens or closes it on the router;
 // - RouterPortLinks: the forwarded ports of an app as external addresses;

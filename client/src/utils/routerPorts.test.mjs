@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   TEXT, WEB_PORTS, appMappingsOf, confirmText, cosmosPorts, findAppMapping, hostHasPort, hostWithPort, installPorts, leaseText,
-  looksLikeWeb, mappingSentence, overviewRows, portAddress, portFor, portKey, portNote, publicHost, routeAddress, shownAddress,
+  looksLikeWeb, mappingSentence, overviewRows, portAddress, portFor, portKey, portNote, publicHost, shownAddress, shownRoute,
 } from './routerPorts.js';
 import { summarize } from './reachability.js';
 
@@ -55,36 +55,34 @@ test('local addresses use Cosmos\' own port, the others the external one', () =>
   assert.equal(shownAddress('app.example.org', { ...ports, externalHttps: 443 }), 'app.example.org');
 });
 
-test('the link of a route', () => {
-  const origin = 'https://192.168.1.50:2053';
+test('a route as its chip shows and opens it', () => {
   const route = (host, extra = {}) => ({ Name: 'app', UseHost: !!host, Host: host, ...extra });
-  assert.deepEqual(routeAddress(route('app.example.org'), ports, origin), { label: 'app.example.org:8443', href: 'https://app.example.org:8443' });
-  assert.deepEqual(routeAddress(route('app.local'), ports, origin), { label: 'app.local:2053', href: 'https://app.local:2053' });
-  assert.deepEqual(routeAddress(route('app.example.org', { UsePathPrefix: true, PathPrefix: '/x' }), ports, origin),
-    { label: 'app.example.org:8443/x', href: 'https://app.example.org:8443/x' });
-  // a path that is not in use is not part of the address
-  assert.equal(routeAddress(route('app.example.org', { UsePathPrefix: false, PathPrefix: '/old' }), ports, origin).href, 'https://app.example.org:8443');
-  // a host with a port of its own is left as it is
-  assert.equal(routeAddress(route('192.168.1.50:7200'), ports, origin).href, 'https://192.168.1.50:7200');
-  // forwarded on 443: no port in the link
-  assert.equal(routeAddress(route('app.example.org'), { ...ports, externalHttps: 443 }, origin).href, 'https://app.example.org');
+  assert.equal(shownRoute(route('app.example.org'), ports).Host, 'app.example.org:8443');
+  assert.equal(shownRoute(route('app.local'), ports).Host, 'app.local:2053');
   // the panel opened over plain HTTP
-  assert.equal(routeAddress(route('app.example.org'), ports, 'http://192.168.1.50:2052').href, 'http://app.example.org:2052');
-  // a route without a host is the panel's own address
-  assert.deepEqual(routeAddress(route('', { UsePathPrefix: true, PathPrefix: '/x' }), ports, origin), { label: origin + '/x', href: origin + '/x' });
-  // nothing known about the router: the port the panel is open on
-  assert.equal(routeAddress(route('app.example.org'), null, origin).href, 'https://app.example.org:2053');
-  assert.equal(routeAddress(route('app.example.org'), null, 'https://cosmos.example.org').href, 'https://app.example.org');
-  assert.equal(routeAddress(route('app.example.org:8443'), null, origin).href, 'https://app.example.org:8443');
+  assert.equal(shownRoute(route('app.example.org'), ports, 'http').Host, 'app.example.org:2052');
+  // the rest of the route is untouched, and the route itself is not changed
+  const original = route('app.example.org', { UsePathPrefix: true, PathPrefix: '/x', Target: 'http://app:80' });
+  const shown = shownRoute(original, ports);
+  assert.deepEqual({ ...shown, Host: 'app.example.org' }, original);
+  assert.equal(original.Host, 'app.example.org');
+  // a host with a port of its own, a route without a host, forwarded on 443, nothing known: as they are
+  const own = route('192.168.1.50:7200');
+  assert.equal(shownRoute(own, ports), own);
+  const none = route('', { UsePathPrefix: true, PathPrefix: '/x' });
+  assert.equal(shownRoute(none, ports), none);
+  const plain = route('app.example.org');
+  assert.equal(shownRoute(plain, { ...ports, externalHttps: 443 }), plain);
+  assert.equal(shownRoute(plain, null), plain);
+  assert.equal(shownRoute(null, ports), null);
 });
 
 // Every screen that shows or opens an address of Cosmos' own builds it with
 // the functions above. A screen that goes back to the bare host fails here.
 test('every place that shows an address goes through this module', () => {
   const uses = {
-    '../components/hostChip.jsx': ['routeAddress(route, useCosmosPorts(null), window.location.origin)', 'window.open(address.href', 'probeRoute(route, route.UseHost ? address.href'],
     '../components/hostnameSuggestions.jsx': ['shownAddress(externalAddress(name, domain), ports)', '<ExternalPortNote config={config}'],
-    '../components/appLinks.jsx': ['<ExternalPortNote config={config}'],
+    '../components/appLinks.jsx': ['route={shownRoute(route, ports, scheme)}', '<ExternalPortNote config={config}'],
     '../components/routerPorts.jsx': ['shownAddress(web.route.Host, ports', 'portAddress(mapping, host)'],
     '../pages/config/internetAccess.jsx': ['hostWithPort(hostname, publicPort'],
   };
