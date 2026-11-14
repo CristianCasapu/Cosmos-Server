@@ -7,7 +7,7 @@
 //   <PWAUpdateNotice>   "a new version is ready: Reload", when a new build's worker waits
 //   <PWAInstallButton>  in the header (in the menu's footer on phones), only while
 //                       this browser can install the panel and it is not installed
-//   <PWASettings>       the card in Configuration > Appearance: the switch, and how
+//   <PWASettings>       the card in Configuration > Theme: the switch, and how
 //                       to install on each kind of device
 import * as React from 'react';
 import {
@@ -287,7 +287,7 @@ export const PWAInstallButton = ({ sx, size }) => {
   );
 };
 
-// Configuration > Appearance. The switch is the server's: off, the browsers
+// Configuration > Theme. The switch is the server's: off, the browsers
 // that installed the panel remove its worker at their next visit.
 export const PWASettings = ({ formik }) => {
   const { t } = useTranslation();
