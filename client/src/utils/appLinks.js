@@ -97,3 +97,17 @@ export const routeLink = (route, location) => {
   }
   return scheme + '://' + host + path;
 };
+
+// Fork addition: an app's names for use at home (utils/homeNames.js,
+// homeRoutesFor) put first in its local group, which is made when the app
+// has no local address of its own.
+export const withHomeRoutes = (groups, homeRoutes) => {
+  if (!homeRoutes || homeRoutes.length === 0) {
+    return groups;
+  }
+  const local = groups.find((group) => group.local);
+  if (local) {
+    return groups.map((group) => (group.local ? { ...group, routes: [...homeRoutes, ...group.routes] } : group));
+  }
+  return [{ local: true, routes: homeRoutes }, ...groups];
+};

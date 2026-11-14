@@ -32,6 +32,8 @@ import { planLocalAddresses } from '../utils/routeGuide';
 import { localAddress } from './hostnameSuggestions';
 import { LocalNameState } from './localNames'; // Fork addition
 import { isLocalName } from '../utils/localNames';
+import { useHomeNames } from './homeNames'; // Fork addition: names for use at home
+import { activeSuffixes } from '../utils/homeNames';
 import { keepOnBackdrop } from './formHelpers';
 import { portSourceText } from '../pages/config/routes/forkRouteGuide';
 import defaultport from '../pages/servapps/defaultport.json';
@@ -61,6 +63,7 @@ const planFor = (config, containers, selfName) => {
 // `wrap` puts the notice into the page's grid; nothing is rendered when no app can be helped.
 const LocalAddressesForAll = ({ config, containers, selfName, refresh, wrap }) => {
   const { t } = useTranslation();
+  const homeSuffixes = activeSuffixes(useHomeNames()); // Fork addition: names for use at home
   const [plan, setPlan] = React.useState(null); // the list while the dialog is open
   const [ticked, setTicked] = React.useState({});
   const [outcome, setOutcome] = React.useState({}); // name → 'creating' | 'done' | the reason it failed
@@ -161,6 +164,10 @@ const LocalAddressesForAll = ({ config, containers, selfName, refresh, wrap }) =
               'Each ticked app gets the address shown. It works on the local network only: nothing becomes reachable from the internet. Every address can be changed or deleted afterwards under URLs.')}
           </Typography>
 
+          {/* Fork addition: each new address also gets its name for use at home, see homeNames.jsx */}
+          {homeSuffixes.length > 0 && <Typography variant="body2" color="textSecondary" sx={{ overflowWrap: 'anywhere' }}>
+            {t('mgmt.homeNames.bulk', 'Each of these apps then also gets a name for use at home (<app>.{{suffix}}), which works on every device at home.', { suffix: homeSuffixes.join(', <app>.') })}
+          </Typography>}
           {/* Fork addition: will the .local names resolve, and on which devices, see localNames.jsx */}
           <LocalNameState host={(offered.find((entry) => isLocalName(entry.host)) || {}).host} help />
 
