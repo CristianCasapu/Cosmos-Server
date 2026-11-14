@@ -62,11 +62,12 @@ func TestWriteFileAtomicReplacesContentAndKeepsMode(t *testing.T) {
 	checkFile(t, path, "first", 0640)
 
 	// an existing file is replaced and keeps its own mode, not the default one
+	os.Chmod(path, 0400)
 	before, _ := os.Stat(path)
 	if err := writeFileAtomic(path, 0600, writeString("second, and longer")); err != nil {
 		t.Fatal(err)
 	}
-	checkFile(t, path, "second, and longer", 0640)
+	checkFile(t, path, "second, and longer", 0400)
 	after, _ := os.Stat(path)
 	if os.SameFile(before, after) {
 		t.Error("the file was rewritten in place, not replaced by a new one")
@@ -76,7 +77,7 @@ func TestWriteFileAtomicReplacesContentAndKeepsMode(t *testing.T) {
 	if err := writeFileAtomic(path, 0600, writeString("3")); err != nil {
 		t.Fatal(err)
 	}
-	checkFile(t, path, "3", 0640)
+	checkFile(t, path, "3", 0400)
 
 	if names := folderEntries(t, dir); len(names) != 1 || names[0] != "cosmos.config.json" {
 		t.Errorf("folder holds %v, want only the file", names)
@@ -199,4 +200,20 @@ func TestSaveConfigTofileReplacesTheFile(t *testing.T) {
 
 	// the lock is released: a second save must not block
 	SaveConfigTofile(config)
+}
+
+// An existing file that others may read loses that with the next save: the
+// configuration holds secrets.
+func TestWriteFileAtomicNeverKeepsAccessForOthers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cosmos.config.json")
+	if err := os.WriteFile(path, []byte("old"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []os.FileMode{0644, 0660, 0606, 0777} {
+		os.Chmod(path, mode)
+		if err := writeFileAtomic(path, 0600, writeString("new")); err != nil {
+			t.Fatal(err)
+		}
+		checkFile(t, path, "new", mode&0700)
+	}
 }
