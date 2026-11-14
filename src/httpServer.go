@@ -1099,6 +1099,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/routes/{name}", configapi.RoutesIdRoute)
 	srapiAdmin.HandleFunc("/api/routes", configapi.RoutesRoute)
 
+	srapiAdmin.HandleFunc("/api/openid/{id}/secret", configapi.OpenIDSecretRoute) // Fork addition: a new client secret made on the server, see configapi/fork_openid.go
 	srapiAdmin.HandleFunc("/api/openid/{id}", configapi.OpenIDIdRoute)
 	srapiAdmin.HandleFunc("/api/openid", configapi.OpenIDRoute)
 
@@ -1235,6 +1236,8 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/mounts", storage.ListMountsRoute)
 	srapiAdmin.HandleFunc("/api/mount", storage.MountRoute)
 	srapiAdmin.HandleFunc("/api/unmount", storage.UnmountRoute)
+	srapiAdmin.HandleFunc("/api/storage/candidates", storage.StorageCandidatesRoute) // Fork addition: what can be mounted, merged or used for parity, see storage/fork_candidates.go
+	srapiAdmin.HandleFunc("/api/storage/unmount-check", storage.StorageUnmountCheckRoute) // Fork addition: what uses a mount, see storage/fork_unmount.go
 	srapiAdmin.HandleFunc("/api/merge", storage.MergeRoute)
 	srapiAdmin.HandleFunc("/api/snapraid", storage.SNAPRaidCRUDRoute)
 	srapiAdmin.HandleFunc("/api/snapraid/{name}", storage.SnapRAIDEditRoute)

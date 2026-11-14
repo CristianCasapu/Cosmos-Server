@@ -44,7 +44,13 @@ export default function createOpenIDAPI(apiFetch: ApiFetch) {
     }))
   }
 
+  // Fork addition: a new secret made on the server, returned once
+  function newSecret(id: string): Promise<ApiResponse<{ id: string; secret: string }>> {
+    return wrap(apiFetch(`/cosmos/api/openid/${encodeURIComponent(id)}/secret`, { method: 'POST', headers: { 'Content-Type': 'application/json' } }))
+  }
+
   return {
+    newSecret,
     list,
     get,
     create,

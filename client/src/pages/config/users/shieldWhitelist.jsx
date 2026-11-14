@@ -21,6 +21,8 @@ import { ConfirmModalDirect } from '../../../components/confirmModal';
 import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_CONFIGURATION } from '../../../utils/permissions';
 import { CosmosCheckbox, CosmosInputText } from './formShortcuts';
+import { whitelistEntryProposals } from '../../../utils/smallForms'; // Fork addition: the address in use and the local network proposed
+import { keepOnBackdrop } from '../../../components/formHelpers'; // Fork addition
 
 const isValidIPOrCIDR = (value) => {
   const v = (value || '').trim();
@@ -35,13 +37,21 @@ const isValidIPOrCIDR = (value) => {
   return /^\d+$/.test(prefix) && n >= 0 && n <= (v4 ? 32 : 128);
 };
 
-const AddEntryDialog = ({ open, onClose, onAdd, t }) => {
+const AddEntryDialog = ({ open, onClose, onAdd, t, entries = [] }) => {
+  // Fork addition: what the server sees of this admin, for the proposals (nothing contacted)
+  const [check, setCheck] = React.useState(null);
+  React.useEffect(() => {
+    if (!open) return;
+    API.config.httpCheck({ httpPort: '', httpsPort: '', adminWhitelist: [], constellationOnly: false })
+      .then((res) => setCheck(res.data)).catch(() => setCheck(null));
+  }, [open]);
   const formik = useFormik({
     initialValues: { IP: '', Label: '', BypassGeo: false, BypassIPRestriction: false },
     validateOnChange: false,
     validate: (values) => {
       const errors = {};
       if (!isValidIPOrCIDR(values.IP)) errors.IP = t('mgmt.shield.whitelist.invalidIP');
+      else if (entries.some((e) => String(e.IP).trim() === values.IP.trim())) errors.IP = t('mgmt.shield.fork.listed', 'This address is on the whitelist already'); // Fork addition
       return errors;
     },
     onSubmit: async (values, { setErrors, setSubmitting, resetForm }) => {
@@ -56,16 +66,28 @@ const AddEntryDialog = ({ open, onClose, onAdd, t }) => {
     },
   });
 
-  return <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+  const proposals = whitelistEntryProposals(check, entries); // Fork addition
+  return <Dialog open={open} onClose={keepOnBackdrop(onClose)} maxWidth="sm" fullWidth>
     <FormikProvider value={formik}>
       <form onSubmit={formik.handleSubmit}>
         <DialogTitle>{t('mgmt.shield.whitelist.add')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} style={{ marginTop: '10px' }}>
-            <CosmosInputText name="IP" label={t('mgmt.shield.whitelist.ip')} placeholder={t('mgmt.shield.whitelist.ipHelper')} formik={formik} />
-            <CosmosInputText name="Label" label={t('mgmt.shield.whitelist.label')} formik={formik} />
-            <CosmosCheckbox name="BypassGeo" label={t('mgmt.shield.whitelist.bypassGeo')} formik={formik} />
-            <CosmosCheckbox name="BypassIPRestriction" label={t('mgmt.shield.whitelist.bypassIP')} formik={formik} />
+            {/* Fork addition: the address in use and the local network, each a click away */}
+            {proposals.map((proposal) => <Stack key={proposal.IP} direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+              <Button size="small" variant="outlined" onClick={() => formik.setValues({ ...formik.values, IP: proposal.IP, Label: formik.values.Label || t(proposal.Label[0], proposal.Label[1]) })}>
+                {t('mgmt.shield.fork.use', 'Use {{ip}}', { ip: proposal.IP })}
+              </Button>
+              <Typography variant="caption" color="textSecondary" sx={{ flex: '1 1 200px', overflowWrap: 'anywhere' }}>{t(proposal.source[0], proposal.source[1])}</Typography>
+            </Stack>)}
+            <CosmosInputText name="IP" label={t('mgmt.shield.whitelist.ip')} placeholder={t('mgmt.shield.whitelist.ipHelper')} formik={formik}
+              helperText={t('mgmt.shield.fork.ipHelp', 'An address such as 192.168.1.20, or a range such as 192.168.1.0/24 for a whole network.')} />
+            <CosmosInputText name="Label" label={t('mgmt.shield.whitelist.label')} formik={formik}
+              helperText={t('mgmt.shield.fork.labelHelp', 'A word to recognise it by later, for example Home network or Office.')} />
+            <CosmosCheckbox name="BypassGeo" label={t('mgmt.shield.whitelist.bypassGeo')} formik={formik}
+              helperText={t('mgmt.shield.fork.bypassGeoHelp', 'Lets it in even from a country the geo-blocking refuses (Configuration > HTTP).')} />
+            <CosmosCheckbox name="BypassIPRestriction" label={t('mgmt.shield.whitelist.bypassIP')} formik={formik}
+              helperText={t('mgmt.shield.fork.bypassIPHelp', 'Lets it into URLs that allow only some addresses (a URL\'s Security tab). Without the tick only SmartShield\'s limits are lifted.')} />
             {formik.errors.submit && <Alert severity="error">{formik.errors.submit}</Alert>}
           </Stack>
         </DialogContent>
@@ -102,7 +124,7 @@ const ShieldWhitelist = () => {
   };
 
   return <div style={{ maxWidth: '1200px', margin: 'auto' }}>
-    <AddEntryDialog open={openAdd} onClose={() => setOpenAdd(false)} t={t} onAdd={(entry) => save([...entries, entry])} />
+    <AddEntryDialog open={openAdd} entries={entries} onClose={() => setOpenAdd(false)} t={t} onAdd={(entry) => save([...entries, entry])} />
     {confirmDelete !== null && <ConfirmModalDirect
       callback={() => save(entries.filter((_, i) => i !== confirmDelete))}
       content={t('mgmt.shield.whitelist.deleteConfirm', { ip: entries[confirmDelete] ? entries[confirmDelete].IP : '' })}

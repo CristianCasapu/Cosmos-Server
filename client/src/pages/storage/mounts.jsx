@@ -22,6 +22,7 @@ import VMWarning from "./vmWarning";
 import { useClientInfos } from "../../utils/hooks";
 import { PERM_RESOURCES } from "../../utils/permissions";
 import PermissionGuard from "../../components/permissionGuard";
+import { ForkMountDialog, ForkUnmountDialog } from "./forkStorageForms"; // Fork addition: the guided dialogs
 
 // Fork addition: data disks mounted outside /mnt are listed too. They were not
 // mounted through this page (which only mounts under /mnt), so they are shown
@@ -55,7 +56,9 @@ export const StorageMounts = () => {
   }, []);
 
   return <div style={{ maxWidth: "1200px", margin: "auto" }}>
-    {mountDialog && <MountDialogInternal data={mountDialog.data} refresh={refresh} unmount={mountDialog.unmount} open={mountDialog} setOpen={setMountDialog} />}
+    {/* Fork addition: the guided dialogs, see forkStorageForms.jsx (upstream: MountDialogInternal) */}
+    {mountDialog && !mountDialog.unmount && <ForkMountDialog existing={mountDialog.data} onClose={() => setMountDialog(null)} onDone={() => { setMountDialog(null); refresh(); }} />}
+    {mountDialog && mountDialog.unmount && <ForkUnmountDialog mount={mountDialog.data} onClose={() => setMountDialog(null)} onDone={() => { setMountDialog(null); refresh(); }} />}
     {(config) ? <Stack spacing={2}>
       {containerized && <VMWarning />}
       <PrettyTableView

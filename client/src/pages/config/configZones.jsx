@@ -31,6 +31,7 @@ import CloudflareOverview, { CloudflareConnect, loadCloudflare, useCloudflare } 
 import { CloudOutlined } from "@ant-design/icons"; // Fork addition
 import CertificatesOverview, { AnotherDomain, HttpChallengeNote, followCertificates } from "../../components/certificates"; // Fork addition
 import HomeNamesCard from "../../components/homeNames"; // Fork addition: names for use at home
+import { ForkZoneMode, ForkZoneProvider } from "./forkZoneMode"; // Fork addition
 
 // one line saying which certificate serves a hostname, reused by the route and hostname views
 export const HostCertificateLine = ({ cert }) => {
@@ -182,20 +183,13 @@ const ZoneDialog = ({ zone, onClose, onSaved }) => {
                   label={t('mgmt.config.zones.zoneLabel')}
                   placeholder="example.com"
                   formik={formik}
+                  helperText={t('mgmt.config.zones.fork.zoneHelp', 'The domain as you bought it, for example example.com, or a name used only at home such as home.arpa. Its apps are named below it (photos.example.com).')} /* Fork addition */
                 />
               )}
 
-              <CosmosSelect
-                name="HTTPSCertificateMode"
-                label={t('mgmt.config.security.encryption.httpsCertSelection.httpsCertLabel')}
-                formik={formik}
-                options={[
-                  ["LETSENCRYPT", t('mgmt.config.security.encryption.httpsCertSelection.sslLetsEncryptChoice')],
-                  ["SELFSIGNED", t('mgmt.config.security.encryption.httpsCertSelection.sslSelfSignedChoice')],
-                  ["PROVIDED", t('mgmt.config.security.encryption.httpsCertSelection.sslProvidedChoice')],
-                  ["DISABLED", t('mgmt.config.security.encryption.httpsCertSelection.sslDisabledChoice')],
-                ]}
-              />
+              {/* Fork addition: the mode as one choice with a sentence each, proposed from the name, and the DNS provider looked up (forkZoneMode.jsx); upstream had a select */}
+              <ForkZoneMode formik={formik} isNew={isNew} />
+              <ForkZoneProvider formik={formik} isNew={isNew} />
 
               {formik.values.HTTPSCertificateMode === "PROVIDED" && (
                 <>

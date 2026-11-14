@@ -84,6 +84,7 @@ type MountRequest struct {
 	Permanent  bool   `json:"permanent"`
 	NetDisk    bool   `json:"netDisk"`
 	Chown 		 string `json:"chown"`
+	Confirm    string `json:"confirm"` // Fork addition: the folder typed again, for an unmount that is permanent or in use (fork_unmount.go)
 }
 
 // MountRoute godoc
@@ -113,7 +114,7 @@ func MountRoute(w http.ResponseWriter, req *http.Request) {
 
 		if err := Mount(request.Path, request.MountPoint, request.Permanent, request.NetDisk, request.Chown); err != nil {
 			utils.Error("MountRoute: Error mounting", err)
-			utils.HTTPError(w, "Error mounting filesystem:" + err.Error(), http.StatusInternalServerError, "MNT002")
+			forkHTTPError(w, err, "Error mounting filesystem:", http.StatusInternalServerError, "MNT002") // Fork addition: a refusal keeps its own status and code (fork_storage_errors.go)
 			return
 		}
 
@@ -154,9 +155,9 @@ func UnmountRoute(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		if err := Unmount(request.MountPoint, request.Permanent); err != nil {
+		if err := forkUnmountChecked(request.MountPoint, request.Permanent, request.Confirm); err != nil { // Fork addition: listed data mounts only, typed confirmation (fork_unmount.go)
 			utils.Error("UnmountRoute: Error unmounting", err)
-			utils.HTTPError(w, "Error unmounting filesystem:" + err.Error(), http.StatusInternalServerError, "UMNT002")
+			forkHTTPError(w, err, "Error unmounting filesystem:", http.StatusInternalServerError, "UMNT002") // Fork addition: a refusal keeps its own status and code
 			return
 		}
 
@@ -208,7 +209,7 @@ func MergeRoute(w http.ResponseWriter, req *http.Request) {
 
 		if err := MountMergerFS(request.Branches, request.MountPoint, request.Opts, request.Permanent, request.Chown); err != nil {
 			utils.Error("MergeRoute: Error merging", err)
-			utils.HTTPError(w, "Error merging filesystem:" + err.Error(), http.StatusInternalServerError, "M002")
+			forkHTTPError(w, err, "Error merging filesystem:", http.StatusInternalServerError, "M002") // Fork addition: a refusal keeps its own status and code
 			return
 		}
 
@@ -235,7 +236,7 @@ func createSNAPRaidRoute(w http.ResponseWriter, req *http.Request) {
 
 	if err := CreateSnapRAID(request, ""); err != nil {
 		utils.Error("CreateSNAPRaidRoute: Error merging", err)
-		utils.HTTPError(w, "Error merging filesystem:" + err.Error(), http.StatusInternalServerError, "M002")
+		forkHTTPError(w, err, "Error merging filesystem:", http.StatusInternalServerError, "M002") // Fork addition: a refusal keeps its own status and code
 		return
 	}
 
@@ -260,7 +261,7 @@ func snapRAIDEditRoute(w http.ResponseWriter, req *http.Request) {
 
 	if err := CreateSnapRAID(request, name); err != nil {
 		utils.Error("SnapRAIDEditRoute: Error merging", err)
-		utils.HTTPError(w, "Error merging filesystem:" + err.Error(), http.StatusInternalServerError, "M002")
+		forkHTTPError(w, err, "Error merging filesystem:", http.StatusInternalServerError, "M002") // Fork addition: a refusal keeps its own status and code
 		return
 	}
 

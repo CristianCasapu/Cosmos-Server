@@ -16,7 +16,7 @@ import ProposalBox from '../../components/proposalBox';
 import {
   portChoice, portsOf, portProblems, portStateText, saveEffects, cleanList, joinList,
   isAddressEntry, isProxyEntry, invalidEntries, whitelistProposals, locksOut,
-  hostnameProblem, ownCountriesRefused, portNumber,
+  hostnameProblem, ownCountriesRefused, portNumber, proxyProposals, cloudflareProxyNote,
 } from '../../utils/httpSettings';
 import { ownCountries } from '../../utils/geoDefaults';
 
@@ -274,19 +274,102 @@ export const ForkAdminWhitelist = ({ formik, check }) => {
   </Grid>;
 };
 
-// Geo-blocking: the countries the admin seems to be in that the list would refuse.
-export const ForkGeoOwnCountry = ({ formik }) => {
+// Geo-blocking: the countries the admin seems to be in that the list would refuse:
+// the one of the address the server sees first, then the browser's hints.
+export const ForkGeoOwnCountry = ({ formik, check }) => {
   const { t } = useTranslation();
+  const seen = check && check.seen && check.seen.country;
+  const local = check && check.you && check.you.local;
   const own = ownCountries({
+    seen,
     serverCountry: formik.values.ServerCountry,
     zones: [Intl.DateTimeFormat().resolvedOptions().timeZone, formik.values.Timezone],
     languages: typeof navigator !== 'undefined' ? navigator.languages : [],
   });
   const refused = ownCountriesRefused(formik.values.GeoBlocking, formik.values.CountryBlacklistIsWhitelist, own);
-  if (refused.length === 0) return null;
+  const seenRefused = seen && refused.includes(String(seen).toUpperCase());
+  const hasList = (formik.values.GeoBlocking || []).length > 0;
+  return <>
+    {refused.length > 0 && <Grid item xs={12}>
+      <Alert severity={seenRefused ? 'error' : 'warning'} sx={{ '& .MuiAlert-message': { minWidth: 0 } }}>
+        {seenRefused
+          ? t('mgmt.config.http.fork.geoOwnSeen', 'Visitors from {{country}} would be refused, and you are there: the address the server sees you at ({{address}}) is in {{country}}, according to the location database on this server. Saving this list locks you out of every app and of the panel from where you are now.', { country: seen, address: check.you.address })
+          : t('mgmt.config.http.fork.geoOwn', 'Visitors from {{countries}} would be refused, and you or this server seem to be there (from the time zone and the languages of this browser). From the internet you would be locked out too.', { countries: refused.join(', ') })}
+      </Alert>
+    </Grid>}
+    {hasList && local && <Grid item xs={12}>
+      <FormHelperText>{t('mgmt.config.http.fork.geoLocal', 'You are on the local network ({{address}}): geo-blocking never applies there, so this list cannot lock you out at home. It does apply when you connect from the internet.', { address: check.you.address })}</FormHelperText>
+    </Grid>}
+  </>;
+};
+
+// Trusted proxies as a list of entries, with the proxy in front of this
+// request, the reverse-proxy containers and Cloudflare proposed.
+export const ForkTrustedProxies = ({ formik, check }) => {
+  const { t } = useTranslation();
+  const [typed, setTyped] = React.useState('');
+  const list = cleanList(formik.values.TrustedProxies);
+  const set = (next) => {
+    formik.setFieldTouched('TrustedProxies', true, false);
+    formik.setFieldValue('TrustedProxies', joinList(next));
+  };
+  const add = (entries) => {
+    const fresh = (Array.isArray(entries) ? entries : [entries]).map((e) => String(e || '').trim()).filter((e) => e && !list.includes(e));
+    if (fresh.length) set([...list, ...fresh]);
+  };
+  const typedProblem = typed.trim() && !isProxyEntry(typed) ? t('mgmt.config.http.fork.proxyEntryInvalid', 'Enter an address such as 172.17.0.1, a range such as 10.0.0.0/8, or the address of a list such as https://www.cloudflare.com/ips-v4') : '';
+  const proposals = proxyProposals(check, list);
+  const cloudflare = cloudflareProxyNote(check, list);
+  const seen = check && check.seen;
+
   return <Grid item xs={12}>
-    <Alert severity="warning" sx={{ '& .MuiAlert-message': { minWidth: 0 } }}>
-      {t('mgmt.config.http.fork.geoOwn', 'Visitors from {{countries}} would be refused, and you or this server seem to be there (from the time zone and the languages of this browser). From the internet you would be locked out too.', { countries: refused.join(', ') })}
-    </Alert>
+    <Stack spacing={1}>
+      <Typography variant="subtitle1" component="div">{t('mgmt.config.http.fork.proxiesLabel', 'Trusted proxies')}</Typography>
+      <FormHelperText sx={{ m: 0 }}>{t('mgmt.config.http.fork.proxiesHelp', 'Programs that pass visitors on to Cosmos (a reverse proxy, a tunnel). Cosmos believes them about the visitor\'s real address; anyone else saying so is ignored. Leave the list empty when visitors reach Cosmos directly.')}</FormHelperText>
+      {list.length > 0 && <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+        {list.map((entry) => <Chip
+          key={entry}
+          label={entry}
+          color={isProxyEntry(entry) ? 'default' : 'error'}
+          variant="outlined"
+          onDelete={() => set(list.filter((e) => e !== entry))}
+          sx={{ maxWidth: '100%' }}
+        />)}
+      </Stack>}
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'flex-start' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <FormField
+            id="fork-proxies-add"
+            value={typed}
+            placeholder="172.17.0.1"
+            onChange={setTyped}
+            onEnter={() => { if (!typedProblem) { add(typed); setTyped(''); } }}
+            error={typedProblem}
+            helperText={t('mgmt.config.http.fork.proxiesAddHelp', 'An address, a range, or the address of a published list, then Add.')}
+          />
+        </div>
+        <Button variant="outlined" disabled={!typed.trim() || Boolean(typedProblem)} onClick={() => { add(typed); setTyped(''); }} sx={{ minHeight: 41 }}>
+          {t('mgmt.config.http.fork.add', 'Add')}
+        </Button>
+      </Stack>
+      {proposals.map((proposal) => <Stack key={proposal.value} direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+        <Button size="small" variant="outlined" onClick={() => add(proposal.value)}>{t('mgmt.config.http.fork.addValue', 'Add {{value}}', { value: proposal.value })}</Button>
+        <FormHelperText sx={{ m: 0, overflowWrap: 'anywhere', flex: '1 1 240px' }}>{tr(t, proposal.source)}</FormHelperText>
+      </Stack>)}
+      {seen && seen.via && seen.viaTrusted && <FormHelperText>{t('mgmt.config.http.fork.proxyTrusted', 'Your request came through {{ip}}, which is trusted: Cosmos sees you at {{address}}.', { ip: seen.via, address: check.you.address })}</FormHelperText>}
+      {cloudflare && <Alert severity="info" sx={{ '& .MuiAlert-message': { minWidth: 0, overflowWrap: 'anywhere' } }}>
+        <Stack spacing={1} alignItems="flex-start">
+          <span>{cloudflare.trusted
+            ? t('mgmt.config.http.fork.cloudflareTrusted', 'A domain of this server is at Cloudflare, and Cosmos already believes Cloudflare\'s addresses for the apps served through Cloudflare (Domains > Cloudflare). They need not be listed here. Listing them here makes Cosmos believe them for every name, also those served directly; any Cloudflare customer can send traffic from those addresses.')
+            : t('mgmt.config.http.fork.cloudflareUntrusted', 'A domain of this server is at Cloudflare. If visitors reach apps through Cloudflare\'s proxy, switch on "Serve through Cloudflare" for those apps (Domains > Cloudflare): Cosmos then believes Cloudflare only for them. Listing Cloudflare\'s ranges here makes Cosmos believe them for every name.')}</span>
+          {cloudflare.listed
+            ? <span>{t('mgmt.config.http.fork.cloudflareListed', 'Cloudflare\'s {{count}} ranges are in the list.', { count: cloudflare.ranges.length })}</span>
+            : cloudflare.missing.length > 0 && <Button size="small" variant="outlined" color="inherit" onClick={() => add(cloudflare.missing)}>
+              {t('mgmt.config.http.fork.cloudflareAdd', 'Add Cloudflare\'s {{count}} ranges anyway', { count: cloudflare.missing.length })}
+            </Button>}
+        </Stack>
+      </Alert>}
+      {formik.touched.TrustedProxies && formik.errors.TrustedProxies && <FormHelperText error>{formik.errors.TrustedProxies}</FormHelperText>}
+    </Stack>
   </Grid>;
 };

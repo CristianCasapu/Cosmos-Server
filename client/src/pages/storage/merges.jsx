@@ -23,6 +23,7 @@ import { PERM_RESOURCES } from "../../utils/permissions";
 import PermissionGuard from "../../components/permissionGuard";
 
 import { mountedHere } from "./mounts";
+import { ForkUnmountDialog } from "./forkStorageForms"; // Fork addition
 
 export const StorageMerges = () => {
   const { t } = useTranslation();
@@ -31,6 +32,7 @@ export const StorageMerges = () => {
   const [config, setConfig] = useState(null);
   const [mounts, setMounts] = useState([]);
   const [mergeDialog, setMergeDialog] = useState(null);
+  const [unmerge, setUnmerge] = useState(null); // Fork addition: removing a merge asks first, see forkStorageForms.jsx
   const [loading, setLoading] = useState(false);
   const [containerized, setContainerized] = useState(false);
 
@@ -52,6 +54,7 @@ export const StorageMerges = () => {
 
   return <div style={{ maxWidth: "1200px", margin: "auto" }}>
     {(config) ? <>
+      {unmerge && <ForkUnmountDialog merged mount={unmerge} onClose={() => setUnmerge(null)} onDone={() => { setUnmerge(null); refresh(); }} />}
       {mergeDialog && <MergerDialogInternal data={mergeDialog.data} refresh={refresh} unmount={mergeDialog.unmount} open={mergeDialog} setOpen={setMergeDialog} />}
       <Stack spacing={2}>
       {containerized && <VMWarning />}
@@ -91,9 +94,7 @@ export const StorageMerges = () => {
               field: (r) => <>
                 <PermissionGuard permission={PERM_RESOURCES}>
                   <DeleteIconButton disabled={containerized || !mountedHere(r.path) /* Fork addition: see mounts.jsx */} onDelete={() => {
-                    API.storage.mounts.unmount({ mountPoint: r.path, permanent: true }).then(() => {
-                      refresh();
-                    });
+                    setUnmerge(r); // Fork addition: what uses it and a typed confirmation first (upstream unmounted at once)
                   }} />
                 </PermissionGuard>
               </>

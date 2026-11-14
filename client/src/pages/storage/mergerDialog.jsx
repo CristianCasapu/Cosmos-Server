@@ -12,6 +12,7 @@ import { PlusCircleOutlined } from "@ant-design/icons";
 import PermissionGuard from "../../components/permissionGuard";
 import { PERM_RESOURCES } from "../../utils/permissions";
 import { Trans, useTranslation } from 'react-i18next';
+import { ForkMergeDialog } from './forkStorageForms'; // Fork addition
 
 const MergerDialogInternal = ({ refresh, open, setOpen, data }) => {  
   const { t } = useTranslation();
@@ -130,7 +131,8 @@ const MergerDialog = ({ refresh, disabled }) => {
   const [open, setOpen] = useState(false);
 
   return <>
-    {open && <MergerDialogInternal refresh={refresh} open={open} setOpen={setOpen}/>}
+    {/* Fork addition: the guided dialog, see forkStorageForms.jsx (upstream: MergerDialogInternal) */}
+    {open && <ForkMergeDialog onClose={() => setOpen(false)} onDone={() => { setOpen(false); refresh && refresh(); }} />}
 
     <PermissionGuard permission={PERM_RESOURCES}>
       <ResponsiveButton

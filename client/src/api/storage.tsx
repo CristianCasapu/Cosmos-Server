@@ -50,6 +50,9 @@ export interface RaidCreateRequest {
 
 export default function createStorageAPI(apiFetch: ApiFetch) {
   const mounts = {
+    // Fork addition: what can be mounted, merged or used for parity, and what uses a mount (src/storage/fork_candidates.go, fork_unmount.go)
+    candidates: (): Promise<ApiResponse> => wrap(apiFetch('/cosmos/api/storage/candidates', { method: 'GET', headers: { 'Content-Type': 'application/json' } })),
+    unmountCheck: (mountPoint: string): Promise<ApiResponse> => wrap(apiFetch('/cosmos/api/storage/unmount-check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mountPoint }) })),
     list: (): Promise<ApiResponse> => {
       return wrap(apiFetch('/cosmos/api/mounts', {
         method: 'GET',
@@ -69,13 +72,13 @@ export default function createStorageAPI(apiFetch: ApiFetch) {
       }))
     },
 
-    unmount: ({mountPoint, permanent, chown}: UnmountRequest): Promise<ApiResponse> => {
+    unmount: ({mountPoint, permanent, chown, confirm}: UnmountRequest & { confirm?: string }): Promise<ApiResponse> => { // Fork addition: confirm, the folder as typed
       return wrap(apiFetch('/cosmos/api/unmount', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({mountPoint, permanent, chown})
+        body: JSON.stringify({mountPoint, permanent, chown, confirm})
       }))
     },
 
