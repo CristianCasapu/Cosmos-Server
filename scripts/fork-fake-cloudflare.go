@@ -18,6 +18,17 @@
 // token limited to that domain, one that may only read, one that sees a
 // second domain too.
 //
+// It is also the name server of what it holds (:53, UDP and TCP), so that
+// the record a certificate order writes through the API can be seen by a
+// test certificate authority (scripts/fork-acme-pebble.sh): SOA and NS for
+// each domain, A, TXT and CNAME from the records, an alias followed like a
+// resolver would. Records "at another DNS provider" (a domain the API does
+// not have) are added on the control port: GET /dns?zone=<domain> makes the
+// domain, GET /dns?name=<name>&type=<A|TXT|CNAME>&value=<value> adds a record,
+// GET /dns?clear=<name> removes what was added at a name. GET
+// /token?status=<active|disabled> switches the first token, and GET
+// /queries lists the DNS questions received (?clear=1 empties the list).
+//
 // How it is used: on a Docker network made with --internal (no way out), run
 // it in a container with the network alias api.cloudflare.com and a folder
 // mounted at /shared; start the throwaway Cosmos on the same network with
@@ -38,9 +49,14 @@ import (
 	"io"
 	"log"
 	"math/big"
+	"net"
 	"net/http"
 	"os"
+	"strings"
+	"sync"
 	"time"
+
+	"github.com/miekg/dns"
 
 	"github.com/azukaar/cosmos-server/src/cloudflare/cffake"
 )
@@ -108,6 +124,219 @@ func main() {
 		fake.SetProxied("example.org", r.URL.Query().Get("name"), "A", r.URL.Query().Get("on") == "1")
 		io.WriteString(w, "ok\n")
 	})
+	control.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		fake.AddToken(GoodToken, cffake.Token{Status: r.URL.Query().Get("status"), Zones: []string{"example.org"}, ReadDNS: true, EditDNS: true})
+		io.WriteString(w, "ok\n")
+	})
+	names := &nameServer{fake: fake, extra: map[string][]cffake.Record{}}
+	control.HandleFunc("/dns", names.control)
+	control.HandleFunc("/queries", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(names.asked(r.URL.Query().Get("clear") != ""))
+	})
+	names.start()
 	log.Println("fake Cloudflare ready")
 	log.Fatal(http.ListenAndServe(":8080", control))
+}
+
+// nameServer answers DNS for the domains of the stand-in and for the ones
+// added on the control port.
+type nameServer struct {
+	fake *cffake.Server
+	mu   sync.Mutex
+	// extra: domain -> records kept somewhere else than the API
+	extra   map[string][]cffake.Record
+	queries []string
+}
+
+func (n *nameServer) control(w http.ResponseWriter, r *http.Request) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	query := r.URL.Query()
+	lower := func(key string) string { return strings.TrimSuffix(strings.ToLower(query.Get(key)), ".") }
+	switch {
+	case query.Get("zone") != "":
+		if _, known := n.extra[lower("zone")]; !known {
+			n.extra[lower("zone")] = []cffake.Record{}
+		}
+	case query.Get("clear") != "":
+		for zone, records := range n.extra {
+			kept := []cffake.Record{}
+			for _, record := range records {
+				if record.Name != lower("clear") {
+					kept = append(kept, record)
+				}
+			}
+			n.extra[zone] = kept
+		}
+	case query.Get("name") != "":
+		zone := ""
+		for known := range n.extra {
+			if (lower("name") == known || strings.HasSuffix(lower("name"), "."+known)) && len(known) > len(zone) {
+				zone = known
+			}
+		}
+		if zone == "" {
+			http.Error(w, "no such domain: make it with ?zone= first", http.StatusBadRequest)
+			return
+		}
+		n.extra[zone] = append(n.extra[zone], cffake.Record{Type: strings.ToUpper(query.Get("type")), Name: lower("name"), Content: query.Get("value")})
+	}
+	io.WriteString(w, "ok\n")
+}
+
+func (n *nameServer) asked(clear bool) []string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	list := append([]string{}, n.queries...)
+	if clear {
+		n.queries = nil
+	}
+	return list
+}
+
+// zoneOf returns the domain a name belongs to and its records.
+func (n *nameServer) zoneOf(name string) (string, []cffake.Record) {
+	zone := ""
+	held := map[string]bool{}
+	for _, known := range n.fake.ZoneNames() {
+		held[known] = true
+	}
+	n.mu.Lock()
+	for known := range n.extra {
+		held[known] = false
+	}
+	n.mu.Unlock()
+	for known := range held {
+		if (name == known || strings.HasSuffix(name, "."+known)) && len(known) > len(zone) {
+			zone = known
+		}
+	}
+	if zone == "" {
+		return "", nil
+	}
+	if held[zone] {
+		return zone, n.fake.Records(zone)
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return zone, append([]cffake.Record{}, n.extra[zone]...)
+}
+
+func (n *nameServer) soa(zone string) dns.RR {
+	return &dns.SOA{Hdr: dns.RR_Header{Name: dns.Fqdn(zone), Rrtype: dns.TypeSOA, Class: dns.ClassINET, Ttl: 60},
+		Ns: "ns1." + dns.Fqdn(zone), Mbox: "hostmaster." + dns.Fqdn(zone), Serial: uint32(time.Now().Unix()), Refresh: 3600, Retry: 600, Expire: 86400, Minttl: 5}
+}
+
+// answer fills in the records of a name; an alias is followed, eight at most.
+func (n *nameServer) answer(message *dns.Msg, name string, kind uint16, own net.IP, hops int) (exists bool) {
+	zone, records := n.zoneOf(name)
+	if zone == "" {
+		return false
+	}
+	header := func(kind uint16) dns.RR_Header {
+		return dns.RR_Header{Name: dns.Fqdn(name), Rrtype: kind, Class: dns.ClassINET, Ttl: 5}
+	}
+	if name == zone {
+		exists = true
+		if kind == dns.TypeSOA {
+			message.Answer = append(message.Answer, n.soa(zone))
+		}
+		if kind == dns.TypeNS {
+			message.Answer = append(message.Answer, &dns.NS{Hdr: header(dns.TypeNS), Ns: "ns1." + dns.Fqdn(zone)})
+		}
+	}
+	if name == "ns1."+zone {
+		exists = true
+		if kind == dns.TypeA {
+			message.Answer = append(message.Answer, &dns.A{Hdr: header(dns.TypeA), A: own})
+		}
+	}
+	for _, record := range records {
+		if strings.ToLower(record.Name) != name {
+			if strings.HasSuffix(strings.ToLower(record.Name), "."+name) {
+				exists = true // an empty name above a record
+			}
+			continue
+		}
+		exists = true
+		switch {
+		case record.Type == "CNAME":
+			target := strings.TrimSuffix(strings.ToLower(record.Content), ".")
+			message.Answer = append(message.Answer, &dns.CNAME{Hdr: header(dns.TypeCNAME), Target: dns.Fqdn(target)})
+			if kind != dns.TypeCNAME && hops < 8 {
+				n.answer(message, target, kind, own, hops+1)
+			}
+		case record.Type == "TXT" && kind == dns.TypeTXT:
+			message.Answer = append(message.Answer, &dns.TXT{Hdr: header(dns.TypeTXT), Txt: []string{strings.Trim(record.Content, `"`)}})
+		case record.Type == "A" && kind == dns.TypeA:
+			if ip := net.ParseIP(record.Content).To4(); ip != nil {
+				message.Answer = append(message.Answer, &dns.A{Hdr: header(dns.TypeA), A: ip})
+			}
+		}
+	}
+	return exists
+}
+
+func (n *nameServer) serve(w dns.ResponseWriter, request *dns.Msg) {
+	message := new(dns.Msg)
+	message.SetReply(request)
+	message.Authoritative = true
+	message.RecursionAvailable = true
+	if len(request.Question) != 1 {
+		message.Rcode = dns.RcodeFormatError
+		w.WriteMsg(message)
+		return
+	}
+	question := request.Question[0]
+	name := strings.TrimSuffix(strings.ToLower(question.Name), ".")
+	n.mu.Lock()
+	n.queries = append(n.queries, dns.TypeToString[question.Qtype]+" "+name)
+	if len(n.queries) > 5000 {
+		n.queries = n.queries[len(n.queries)-5000:]
+	}
+	n.mu.Unlock()
+
+	own := net.IPv4(127, 0, 0, 1)
+	if local, ok := w.LocalAddr().(*net.UDPAddr); ok && local.IP.To4() != nil && !local.IP.IsUnspecified() {
+		own = local.IP
+	} else if local, ok := w.LocalAddr().(*net.TCPAddr); ok && local.IP.To4() != nil && !local.IP.IsUnspecified() {
+		own = local.IP
+	} else if ownAddress != nil {
+		own = ownAddress
+	}
+
+	zone, _ := n.zoneOf(name)
+	if zone == "" {
+		message.Rcode = dns.RcodeRefused
+		w.WriteMsg(message)
+		return
+	}
+	exists := n.answer(message, name, question.Qtype, own, 0)
+	if len(message.Answer) == 0 {
+		message.Ns = append(message.Ns, n.soa(zone))
+		if !exists {
+			message.Rcode = dns.RcodeNameError
+		}
+	}
+	w.WriteMsg(message)
+}
+
+// ownAddress is this container's address, for the A record of the name
+// server's own name when a question arrives on the wildcard socket.
+var ownAddress net.IP
+
+func (n *nameServer) start() {
+	if addresses, err := net.InterfaceAddrs(); err == nil {
+		for _, address := range addresses {
+			if network, ok := address.(*net.IPNet); ok && network.IP.To4() != nil && !network.IP.IsLoopback() {
+				ownAddress = network.IP.To4()
+				break
+			}
+		}
+	}
+	handler := dns.HandlerFunc(n.serve)
+	for _, network := range []string{"udp", "tcp"} {
+		server := &dns.Server{Addr: ":53", Net: network, Handler: handler}
+		go func() { log.Fatal(server.ListenAndServe()) }()
+	}
 }

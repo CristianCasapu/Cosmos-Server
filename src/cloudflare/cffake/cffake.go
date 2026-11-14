@@ -110,6 +110,17 @@ func (s *Server) AddZone(name string, records ...Record) string {
 	return zone.ID
 }
 
+// ZoneNames lists the domains the stand-in holds.
+func (s *Server) ZoneNames() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	names := []string{}
+	for _, zone := range s.zones {
+		names = append(names, zone.Name)
+	}
+	return names
+}
+
 // AddRecord adds a record to a zone, the way an edit in Cloudflare's
 // dashboard or another program would.
 func (s *Server) AddRecord(zoneName string, record Record) {
