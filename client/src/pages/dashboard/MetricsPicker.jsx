@@ -91,7 +91,7 @@ export const MetricPicker = ({ metricsInit, name, style, value, errors, placehol
         disablePortal
         name={name}
         value={value || (formik && formik.values[name])}
-        id="combo-box-demo"
+        id={name || "combo-box-demo"} /* Fork addition: the id the label above points at (it pointed at nothing) */
         isOptionEqualToValue={(option, value) => option.value === value}
         options={metrics}
         freeSolo

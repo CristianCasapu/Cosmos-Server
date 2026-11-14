@@ -13,6 +13,9 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { TableEmpty, TableNoMatch, cellLabel, useCellNames } from './tableEmpty'; // Fork addition: empty lists, search without a match, rows as cards on a phone
 
+// Fork addition: a cell that shows nothing (an empty description) is not a link of its own
+const emptyCell = (content) => content === null || content === undefined || content === false || content === '';
+
 const PrettyTableView = ({ isLoading, getKey, data, columns, sort, onRowClick, linkTo, buttons, fullWidth, empty, phoneCards = true }) => {
   const { t } = useTranslation();
   const [search, setSearch] = React.useState('');
@@ -128,7 +131,7 @@ const PrettyTableView = ({ isLoading, getKey, data, columns, sort, onRowClick, l
                     <TableCell 
                       role={(linkTo && !column.clickable) ? undefined : 'cell'}
                       data-label={cellLabel(column)}
-                      {...((linkTo && !column.clickable && !cellLabel(column)) ? { tabIndex: -1, 'aria-hidden': true } : {})/* Fork addition: a cell without a column name (the icon) repeats the row's link: out of the Tab order */}
+                      {...((linkTo && !column.clickable && (!cellLabel(column) || emptyCell(column.field(row, key)))) ? { tabIndex: -1, 'aria-hidden': true } : {})/* Fork addition: a cell without a column name (the icon) or without content repeats the row's link: out of the Tab order */}
                       component={(linkTo && !column.clickable) ? Link : 'td'}
                       onClick={() => !column.clickable && onRowClick && onRowClick(row, key)}
                       to={linkTo && linkTo(row, key)}

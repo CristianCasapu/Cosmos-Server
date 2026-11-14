@@ -56,7 +56,9 @@ const OpenID = () => {
           }}>
             <img src={icon} alt={'icon'} width="64px" />
             <div>
-              <Trans i18nKey='oidc.loginDescription' values={{client_id: client_id}} />
+              {/* Fork addition: the client's name from the address is shown as text, never parsed as markup */}
+              {t('oidc.signInTo', 'You are about to sign in to')} <strong>{client_id}</strong>.<br />
+              {t('oidc.checkPermissions', 'Check which permissions you are giving to this application.')}
             </div>
           </Stack>
         </Stack>
@@ -66,25 +68,26 @@ const OpenID = () => {
         <form action={"/oauth2/auth?" + entireSearch} method="post" ref={formRef}>
           <input type="hidden" name="client_id" value={client_id} />
           {[...new Set(scope ? scope.split(' ') : [])].map((scope) => {
+            // Fork addition: each permission's name labels its checkbox
             return scope == "openid" ? <div>
               <input type="checkbox" name="scopes" value={scope} checked hidden />
-              <Checkbox checked disabled />
-              {t('oidc.account')}
+              <label style={{ display: 'inline-flex', alignItems: 'center' }}><Checkbox checked disabled />
+              {t('oidc.account')}</label>
             </div>
               : <div>
                 <input type="checkbox" name="scopes" hidden value={scope} checked={checkedScopes.includes(scope)} />
-                <Checkbox checked={checkedScopes.includes(scope)} onChange={(e) => onchange(e, scope)} />
-                {scope}
+                <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}><Checkbox checked={checkedScopes.includes(scope)} onChange={(e) => onchange(e, scope)} />
+                {scope}</label>
               </div>
           })}
           <div style={{
-            fontSize: '0.8rem',
+            fontSize: '0.8125rem', /* Fork addition: the skin's small size, its secondary colour instead of a faded italic */
             marginTop: '15px',
             marginBottom: '20px',
-            opacity: '0.8',
-            fontStyle: 'italic',
+            color: 'var(--ct-muted)',
           }}>
-            <Trans i18nkey='oidc.redirectInfo' values={{redirect_uri: redirect_uri}} />
+            {/* Fork addition: was <Trans i18nkey=…> (lower-case k: nothing was shown); the address is text, never markup */}
+            {t('oidc.sentBackTo', 'You will be sent back to')} <strong style={{ overflowWrap: 'anywhere' }}>{redirect_uri}</strong> {t('oidc.afterSignIn', 'after signing in.')}
           </div>
 
           <LoadingButton

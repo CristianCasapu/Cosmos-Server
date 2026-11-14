@@ -125,6 +125,7 @@ const NewDockerServiceForm = () => {
       startIcon={<ArrowLeftOutlined />}
       disabled={currentTab === 0}  
       fullWidth
+      sx={{ flex: '1 1 0', minWidth: 0 }} /* Fork addition: the two buttons share the row equally (their text decided their widths on a phone) */
       onClick={() => {
         setCurrentTab(currentTab - 1);
       }}
@@ -134,6 +135,7 @@ const NewDockerServiceForm = () => {
     <Button
       variant="contained"
       fullWidth
+      sx={{ flex: '1 1 0', minWidth: 0 }} /* Fork addition */
       endIcon={<ArrowRightOutlined />}
       disabled={(currentTab === 4) || containerInfo.Name === '' || containerInfo.Config.Image === '' || (currentTab === 2 && portsBlocked) /* Fork addition */}
       onClick={() => {

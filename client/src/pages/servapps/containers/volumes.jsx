@@ -200,6 +200,7 @@ const VolumeContainerSetup = ({
                                     disabled={frozenVolumes.includes(r.Source)}
                                     variant="outlined"
                                     id="Type"
+                                    SelectProps={{ SelectDisplayProps: { 'aria-label': t('mgmt.servapps.volumes.typeLabel', 'Type of mount') } }} /* Fork addition: a name */
                                     select
                                     value={r.Type}
                                     name={`volumes[${k}].Type`}
@@ -235,6 +236,7 @@ const VolumeContainerSetup = ({
                                       variant="outlined"
                                       name={`volumes[${k}].Source`}
                                       id="Source"
+                                      inputProps={{ 'aria-label': t('global.source') }} /* Fork addition: a name */
                                       disabled={frozenVolumes.includes(
                                         r.Source
                                       )}
@@ -248,6 +250,7 @@ const VolumeContainerSetup = ({
                                       className="px-2 my-2"
                                       variant="outlined"
                                       disabled
+                                      inputProps={{ 'aria-label': t('global.source') }} /* Fork addition: a name */
                                       style={{ minWidth: "200px" }}
                                       value="(memory)"
                                     />
@@ -261,6 +264,7 @@ const VolumeContainerSetup = ({
                                         r.Source
                                       )}
                                       select
+                                      SelectProps={{ SelectDisplayProps: { 'aria-label': t('global.source') } }} /* Fork addition: a name */
                                       style={{ minWidth: "200px" }}
                                       value={r.Source}
                                       onChange={formik.handleChange}
@@ -295,6 +299,7 @@ const VolumeContainerSetup = ({
                                     variant="outlined"
                                     name={`volumes[${k}].Target`}
                                     id="Target"
+                                    inputProps={{ 'aria-label': t('global.target') }} /* Fork addition: a name */
                                     disabled={frozenVolumes.includes(r.Source)}
                                     style={{ minWidth: "200px" }}
                                     value={r.Target}

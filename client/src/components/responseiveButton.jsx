@@ -5,7 +5,7 @@ const ResponsiveButton = ({ children, startIcon, endIcon, size, style, ...props 
   const isMobile = useMediaQuery((theme) => theme.breakpoints.down('sm'));
   let newStyle = style || {};
   if (isMobile) {
-    newStyle.minHeight = '40px';
+    newStyle.minHeight = '44px'; // Fork addition: a finger's width (was 40px)
     newStyle.fontSize = '145%'
   }
 

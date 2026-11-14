@@ -20,8 +20,11 @@ export const PersistentCheckbox = ({ name, label, value, onChange }) => {
   return (
     <div style={{ display: 'flex', alignItems: 'center' }}>
       <input type="checkbox" name={name} hidden value={value} checked={value} />
-      <Checkbox onChange={handleChange} checked={value} />
-      {label}
+      {/* Fork addition: the label names the checkbox and is part of its target */}
+      <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+        <Checkbox onChange={handleChange} checked={value} />
+        {label}
+      </label>
     </div>
   );
 }

@@ -83,7 +83,8 @@ export const LanguagesSelect = () => {
       <Chip
         label={<span className={`fi fi-${languages.find(lang => lang.code === i18n.language)?.flag || 'gb'}`}></span>}
         sx={{ height: 24, '& .MuiChip-label': { fontSize: '0.85rem', py: 0.25 } }}
-        component="a"
+        component="button" /* Fork addition: a button with a name (it was a link without an address, out of the Tab order and nameless) */
+        aria-label={'Language: ' + (languages.find(lang => lang.code === i18n.language)?.name || 'English')}
         clickable
         onClick={() => setOpen(true)}
       />

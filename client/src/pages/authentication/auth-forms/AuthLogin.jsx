@@ -198,7 +198,7 @@ const AuthLogin = () => {
                                     {showResetPassword && <Link variant="h6" component={RouterLink} to="/cosmos-ui/forgot-password" color="primary">
                                         {t('auth.forgotPwd')}
                                     </Link>}
-                                    {!showResetPassword &&  <Typography variant="h6">
+                                    {!showResetPassword &&  <Typography variant="body2" color="textSecondary">{/* Fork addition: a remark, not a heading (was an h6) */}
                                         {t('auth.pwdResetNotAllowed')}
                                     </Typography>}
                                 </Stack>
