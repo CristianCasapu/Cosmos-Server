@@ -20,11 +20,15 @@ const files = [
   ['../pages/cron/newJob.jsx', ['mgmt.cron.fork.']],
   ['./activity.js', ['activity.throttled']],
   ['../pages/config/forkHttpSettings.jsx', ['mgmt.config.http.fork.']],
+  ['../pages/config/routes/forkRouteProtection.jsx', ['mgmt.urls.protection.']],
+  ['../pages/storage/forkFormatDialog.jsx', ['mgmt.storage.fork.']],
 ];
 
 // Pure modules return their texts as ['key', 'English', variables]: [file, prefixes]
 const arrayFiles = [
   ['./httpSettings.js', ['mgmt.config.http.fork.']],
+  ['./routeProtection.js', ['mgmt.urls.protection.']],
+  ['./formatDisk.js', ['mgmt.storage.fork.']],
 ];
 
 // t('key', 'English text' …) and tr('key', 'English text' …), the text in single quotes

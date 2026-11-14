@@ -24,7 +24,7 @@ import { simplifyNumber } from "../dashboard/components/utils";
 import LogsInModal from "../../components/logsInModal";
 import MountDiskDialog from "./mountDiskDialog";
 import PasswordModal from "../../components/passwordModal";
-import FormatModal from "./FormatModal";
+import FormatModal from "./forkFormatDialog"; // Fork addition: names the disk, typed confirmation; upstream: "./FormatModal"
 import MenuButton from "../../components/MenuButton";
 import ResponsiveButton from "../../components/responseiveButton";
 import SMARTDialog, { CompleteDataSMARTDisk, diskChip, diskColor, getSMARTDef, temperatureChip } from "./smart";
@@ -74,6 +74,7 @@ const FormatButton = ({disk, refresh, disabled}) => {
     </PermissionGuard>
     
     {passwordConfirm && <FormatModal
+      disk={disk} // Fork addition
       OnClose={() => {
         setPasswordConfirm(false);
         setLoading(false);
@@ -91,6 +92,7 @@ const FormatButton = ({disk, refresh, disabled}) => {
           disk: disk.name,
           format: formatting.format,
           password: formatting.password,
+          confirm: formatting.confirm, // Fork addition: the name typed in the dialog, checked by the server
         }, cb)
       }}
       initialLogs={[
@@ -100,6 +102,7 @@ const FormatButton = ({disk, refresh, disabled}) => {
       OnSuccess={() => {
         setLoading(false);
       }}
+      OnError={() => setLoading(false)} // Fork addition: the button kept spinning after a failed format
       OnClose={() => {
         setFormatting(false);
         refresh && refresh();
