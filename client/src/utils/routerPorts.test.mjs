@@ -72,8 +72,10 @@ test('the link of a route', () => {
   assert.equal(routeAddress(route('app.example.org'), ports, 'http://192.168.1.50:2052').href, 'http://app.example.org:2052');
   // a route without a host is the panel's own address
   assert.deepEqual(routeAddress(route('', { UsePathPrefix: true, PathPrefix: '/x' }), ports, origin), { label: origin + '/x', href: origin + '/x' });
-  // nothing known about the ports: as before
-  assert.equal(routeAddress(route('app.example.org'), null, origin).href, 'https://app.example.org');
+  // nothing known about the router: the port the panel is open on
+  assert.equal(routeAddress(route('app.example.org'), null, origin).href, 'https://app.example.org:2053');
+  assert.equal(routeAddress(route('app.example.org'), null, 'https://cosmos.example.org').href, 'https://app.example.org');
+  assert.equal(routeAddress(route('app.example.org:8443'), null, origin).href, 'https://app.example.org:8443');
 });
 
 // Every screen that shows or opens an address of Cosmos' own builds it with
@@ -82,7 +84,7 @@ test('every place that shows an address goes through this module', () => {
   const uses = {
     '../components/hostChip.jsx': ['routeAddress(route, useCosmosPorts(null), window.location.origin)', 'window.open(address.href', 'probeRoute(route, route.UseHost ? address.href'],
     '../components/hostnameSuggestions.jsx': ['shownAddress(externalAddress(name, domain), ports)', '<ExternalPortNote config={config}'],
-    '../components/appLinks.jsx': ['shownAddress(host, ports)'],
+    '../components/appLinks.jsx': ['<ExternalPortNote config={config}'],
     '../components/routerPorts.jsx': ['shownAddress(web.route.Host, ports', 'portAddress(mapping, host)'],
     '../pages/config/internetAccess.jsx': ['hostWithPort(hostname, publicPort'],
   };

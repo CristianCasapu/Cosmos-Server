@@ -82,7 +82,13 @@ export const routeAddress = (route, ports, origin) => {
   if (!route || !route.UseHost || !route.Host) {
     return { label: own + path, href: own + path };
   }
-  const host = shownAddress(String(route.Host).trim(), ports, scheme);
+  let host = shownAddress(String(route.Host).trim(), ports, scheme);
+  if (!ports) {
+    // nothing known about the router (the viewer may not read the settings):
+    // the port the panel itself is open on, which is where Cosmos listens
+    const panel = own.match(/^https?:\/\/[^/]+?:(\d+)$/);
+    host = hostWithPort(host, panel ? panel[1] : 0, scheme);
+  }
   return { label: host + path, href: scheme + '://' + host + path };
 };
 

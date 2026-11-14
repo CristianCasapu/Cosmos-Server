@@ -6,11 +6,11 @@ import { getFaviconURL, getContainersRoutes } from '../../../utils/routes';
 import HostChip from '../../../components/hostChip';
 import AppLinks, { AppDomains } from '../../../components/appLinks'; // Fork addition
 import { ReachPanel } from '../../../components/reachability'; // Fork addition
-import { RouterPortLinks } from '../../../components/routerPorts'; // Fork addition
 import { portsFromInspect } from '../../../utils/reachability'; // Fork addition
 import { GlobalOutlined } from '@ant-design/icons'; // Fork addition
 import ExposeModal from '../exposeModal';
 import * as API from '../../../api';
+import { RouterPortLinks } from '../../../components/routerPorts'; // Fork addition: the app's ports the router forwards
 import GetActions from '../actionBar';
 import { ServAppIcon } from '../../../utils/servapp-icon';
 import MiniPlotComponent from '../../dashboard/components/mini-plot';

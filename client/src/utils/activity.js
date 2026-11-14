@@ -51,8 +51,7 @@ const IGNORED = [
   /^\/api\/(login|logout|sudo|mfa|register|password-reset|me|status|newInstall|setup-join)\b/,
   /^\/api\/(metrics|events|notifications|list-dir|dns-check|_logs|_memory)\b/,
   /^\/api\/jobs\/(get|running)\b/,
-  /^\/api\/(config\/test-email|server-update|force-server-update)\b/,
-  /^\/api\/upnp$/, // the Internet access card says how "Check now" went; opening and closing a port are commands, below
+  /^\/api\/(config\/test-email|upnp|server-update|force-server-update)\b/,
   /^\/api\/telegram\b/, // the Telegram card shows what a test message gave, in words, where it was asked for
   /^\/api\/servapps\/[^/]+\/(logs|terminal|export|check-update)\b/,
   /^\/api\/constellation\/(ping|devices\/[^/]+\/ping)\b/,
@@ -100,6 +99,9 @@ const COMMANDS = [
   [null, /^\/api\/openid/, byMethod({ POST: ['activity.openid.create', 'Create the OpenID client'], PUT: ['activity.openid.update', 'Save the OpenID client'], DELETE: ['activity.openid.delete', 'Delete the OpenID client'] })],
   [null, /^\/api\/alerts/, byMethod({ POST: ['activity.alert.save', 'Save the alert'], PUT: ['activity.alert.save', 'Save the alert'], DELETE: ['activity.alert.delete', 'Delete the alert'] })],
   ['POST', /^\/api\/shield\/unban$/, () => ['activity.shield.unban', 'Lift the ban']],
+  // router port forwarding (src/upnp): a port of an app, or one of Cosmos' own
+  ['POST', /^\/api\/upnp\/apps$/, () => ['activity.upnp.appPort', 'Change the port on the router']],
+  ['POST', /^\/api\/upnp\/close$/, () => ['activity.upnp.close', 'Close the port on the router']],
 
   ['POST', /^\/api\/jobs\/run$/, () => ['activity.job.run', 'Start the job']],
   ['POST', /^\/api\/jobs\/stop$/, () => ['activity.job.stop', 'Stop the job']],
@@ -108,10 +110,6 @@ const COMMANDS = [
 
   // internet reachability (src/reach): GET is a read and never followed
   ['POST', /^\/api\/reachability$/, () => ['activity.reachability.check', 'Check internet reachability']],
-
-  // router port forwarding (src/upnp): a port of an app, or one of Cosmos' own
-  ['POST', /^\/api\/upnp\/apps$/, () => ['activity.upnp.appPort', 'Change the port on the router']],
-  ['POST', /^\/api\/upnp\/close$/, () => ['activity.upnp.close', 'Close the port on the router']],
 
   // incremental snapshots (src/snapshots); their status is read with GET, which is never followed
   ['POST', /^\/api\/snapshots\/run$/, () => ['activity.snapshots.run', 'Start the incremental backup']],
@@ -151,7 +149,8 @@ export const describe = (url, method) => {
     return null;
   }
   const rest = m[1];
-  if (IGNORED.some((re) => re.test(rest))) {
+  // (opening and closing a port on the router are commands; only the status under /api/upnp itself is not)
+  if (IGNORED.some((re) => re.test(rest)) && !/^\/api\/upnp\/./.test(rest)) {
     return null;
   }
   for (const [commandMethod, re, label] of COMMANDS) {
