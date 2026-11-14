@@ -55,8 +55,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 //   mock: [[path, body]]  answer the API calls under `path` with `body` instead of asking the server
 // A step that cannot be done is reported in the summary, not fatal.
 // ---------------------------------------------------------------------------
-const button = (page, name) => page.getByRole('button', { name }).first();
-const firstRow = (page) => page.locator('main tbody tr').first();
+// the page's main action ("Create", "New ..."): the first filled button with a plus, above the list
+const create = async (page) => { await page.locator('main button.MuiButton-contained:has(.anticon-plus-circle), main button.MuiButton-contained:has(.anticon-plus)').first().click({ timeout: 8000 }); };
 
 const anonymousViews = [
   { id: 'auth-login', path: '/cosmos-ui/login', core: true, captures: [
@@ -79,6 +79,7 @@ const views = [
   { id: 'servapps', path: '/cosmos-ui/servapps', core: true, wait: 1200, captures: [
     {},
     { id: 'keyboard-focus', open: async (page) => { for (let i = 0; i < 9; i++) await page.keyboard.press('Tab'); }, close: async () => {} },
+    { id: 'new-url', open: async (page) => { await page.locator('main .MuiChip-clickable.MuiChip-colorPrimary').first().click({ timeout: 8000 }); } },
     { id: 'volumes', tab: 1 },
     { id: 'networks', tab: 2 },
   ] },
@@ -109,6 +110,7 @@ const views = [
   { id: 'trust', path: '/cosmos-ui/trust' },
   { id: 'urls', path: '/cosmos-ui/config-url', core: true, captures: [
     {},
+    { id: 'new', open: create },
     { id: 'shield', tab: 1 },
     { id: 'whitelist', tab: 2 },
   ] },
@@ -127,9 +129,9 @@ const views = [
     { id: 'parity', tab: 5 },
     { id: 'raid', tab: 6 },
   ] },
-  { id: 'users', path: '/cosmos-ui/config-users', core: true },
-  { id: 'openid', path: '/cosmos-ui/openid-manage' },
-  { id: 'cron', path: '/cosmos-ui/cron' },
+  { id: 'users', path: '/cosmos-ui/config-users', core: true, captures: [{}, { id: 'new', open: create }] },
+  { id: 'openid', path: '/cosmos-ui/openid-manage', captures: [{}, { id: 'new', open: create }] },
+  { id: 'cron', path: '/cosmos-ui/cron', captures: [{}, { id: 'new', open: create }] },
   { id: 'config', path: '/cosmos-ui/config-general/general', core: true, captures: [
     {},
     { id: 'unsaved', open: async (page) => { const f = page.locator('input[name=MaintenanceTime]'); await f.scrollIntoViewIfNeeded(); await f.fill('03:30'); await f.blur(); }, close: async () => {} },
