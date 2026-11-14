@@ -16,8 +16,7 @@ upstream 0.23.4 unless noted and may have moved.
    geo-blocking default no longer holds the admin's own country), the URL
    Security tab (one "protection" choice in
    place of six numbers), the container wizard (it silently drops User, the
-   limits and the network mode; an existing name replaces the app; a port
-   without ":" crashes the create handler), storage (`mkfs` reports success
+   limits, the network mode and "use as VPN"), storage (`mkfs` reports success
    when it failed), the alerts editor, the Domains dialog by hand, API
    tokens, OpenID.
 2. **App links and reachability: done** (a local address always, an external
@@ -146,6 +145,25 @@ security record.
   block runs out of its box on a phone; a favicon of an unreachable app
   holds a request for ten seconds.
 - Not tried on a real phone or real Safari, only the WebKit engine.
+
+## Exposing apps: left for later (2026-11-14)
+
+- The "New URL" dialog still has the old domain picker (direct copies
+  without the shield choice); the URL tab's port proposal does not see the
+  Network tab.
+- Ports forwarded by hand (without UPnP) cannot be given a name; no AAAA
+  records for direct names; the records use the public-IP lookup services,
+  not the address the router reports (the owner's to decide).
+- The Market does not check the image's architecture before pulling; compose
+  import turns number ports (`- 8080`) into a broken port string.
+- Two "Failed to fetch" page errors were seen in the install check while the
+  server reloaded after creation (probably upstream's list refresh; unproven).
+- The "give apps a local address" banner on ServApps is squeezed on a phone.
+- The owner's to change if wanted: the `<app>-direct.<domain>` naming rule,
+  the dangerous-port and sign-in default lists (`src/cloudflare/expose.go`,
+  `client/src/utils/exposure.js`), `expose.opened` being high severity (one
+  Telegram message per exposure), the Internet dialog needing administrator
+  rights (it can open router ports).
 
 ## Certificates: left for later (2026-11-14)
 
