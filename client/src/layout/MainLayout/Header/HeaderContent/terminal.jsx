@@ -9,8 +9,11 @@ import { useClientInfos } from "../../../../utils/hooks";
 import { PERM_ADMIN } from "../../../../utils/permissions";
 import PermissionGuard from "../../../../components/permissionGuard";
 
-const TerminalHeader = () => {
-	const [open, setOpen] = React.useState(false);
+// Fork addition: `open`/`onClose` let the phone header's "More" menu open the dialog (components/headerMore.jsx); `sx` hides the button there
+const TerminalHeader = ({ open: openFromMenu, onClose, sx }) => {
+	const [openHere, setOpenHere] = React.useState(false);
+	const open = openHere || Boolean(openFromMenu);
+	const setOpen = (value) => { setOpenHere(typeof value === 'function' ? value(openHere) : value); if (!value && onClose) onClose(); };
 	const [status, setStatus] = React.useState(false);
   const { t, Trans } = useTranslation();
 	const { hasPermission } = useClientInfos();
@@ -29,9 +32,9 @@ const TerminalHeader = () => {
 		<>
 		<Tooltip title={t('mgmt.servapps.containers.terminal.enabled')}>
 			<IconButton
+					sx={{ color: 'text.primary', ...(sx || {}) }} /* Fork addition: sx */
 					disableRipple
 					color="secondary"
-					sx={{ color: 'text.primary' }}
 					aria-label={t('mgmt.servapps.containers.terminal.enabled')} /* Fork addition: was "open profile" */
 					aria-haspopup="true"
 					onClick={onopen}

@@ -16,12 +16,15 @@ import TerminalHeader from './terminal';
 import SudoModal from './sudoModal';
 import ModeToggle from '../../../../components/modeToggle'; // Fork addition: the skin's light/dark switch
 import { PWAInstallButton } from '../../../../components/pwa'; // Fork addition: install the panel as an app
+import HeaderMore from '../../../../components/headerMore'; // Fork addition: on phones the terminal and the restarts are in "More"
 
 // ==============================|| HEADER - CONTENT ||============================== //
 
 const HeaderContent = () => {
     const { t } = useTranslation();
     const matchesXs = useMediaQuery((theme) => theme.breakpoints.down('md'));
+    const [terminal, setTerminal] = React.useState(false); // Fork addition: opened from "More" on a phone
+    const onPhone = { display: { xs: 'none', sm: 'inline-flex' } }; // Fork addition: in "More" below 600 px
 
     return (
         <>
@@ -29,17 +32,17 @@ const HeaderContent = () => {
             {matchesXs && <Box sx={{ width: '100%', ml: 1 }} />}
 
             <Stack direction="row" spacing={2}>
-                <TerminalHeader />
+                <TerminalHeader sx={onPhone} open={terminal} onClose={() => setTerminal(false)} />
                 <Jobs />
                 <Notification />
                 <ModeToggle sx={{ display: { xs: 'none', sm: 'inline-flex' } }} />{/* Fork addition: on phones it is in the menu's footer */}
                 <PWAInstallButton sx={{ display: { xs: 'none', sm: 'inline-flex' } }} />{/* Fork addition: only while the browser can install it; on phones in the menu's footer */}
 
                 <SudoModal />
-                <Link href="/cosmos-ui/logout" underline="none">
-                    <Chip label={t('global.logout')} style={{height: '36px'}} />
-                </Link>
-                <RestartMenu />
+                {/* Fork addition: the chip is the link (one Tab stop; it was a chip inside a link), a finger's height on a phone */}
+                <Chip component="a" href="/cosmos-ui/logout" clickable label={t('global.logout')} sx={{ height: { xs: 44, sm: 36 } }} />
+                <Box sx={onPhone}><RestartMenu /></Box>
+                <HeaderMore sx={{ display: { xs: 'inline-flex', sm: 'none' } }} onTerminal={() => setTerminal(true)} />
             </Stack>
             {/* {!matchesXs && <Profile />}
             {matchesXs && <MobileSection />} */}
