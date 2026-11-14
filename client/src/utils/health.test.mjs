@@ -1,7 +1,7 @@
 // Fork addition: tests of health.js. Run: node --test "client/src/utils/*.test.mjs"
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { failedJobs, brokenContainers, exitCode, fullDisks, diskKeys, snapshotProblems, healthLines, calmLine } from './health.js';
+import { failedJobs, brokenContainers, exitCode, fullDisks, diskKeys, snapshotProblems, healthLines, calmLine, oomCandidates, oomKilled, isThrottled, healthState, unreadLine } from './health.js';
 
 const NEVER = '0001-01-01T00:00:00Z';
 
@@ -68,10 +68,9 @@ test('the lines: errors first, each with a link, plain text only', () => {
     containers: [{ Names: ['/crashed'], State: 'exited', Status: 'Exited (1) now' }],
     disks: [{ Key: 'cosmos.system.disk./storage', Max: 100, Values: [{ Value: 92 }] }],
     snapshots: { enabled: true, sources: [{ path: '/srv', lastError: 'disk not mounted' }] },
-    certificateAlerts: [{ severity: 'warning' }],
   });
   assert.deepEqual(lines.map((l) => [l.id, l.severity]), [
-    ['containers', 'error'], ['certificates', 'warning'], ['jobs', 'warning'], ['disk:/storage', 'warning'], ['snapshots', 'warning'],
+    ['containers', 'error'], ['jobs', 'warning'], ['disk:/storage', 'warning'], ['snapshots', 'warning'],
   ]);
   assert.equal(lines[0].link, '/cosmos-ui/servapps/containers/crashed');
   assert.deepEqual(lines[0].text[2], { name: 'crashed', code: 1 });
@@ -86,8 +85,40 @@ test('the lines: errors first, each with a link, plain text only', () => {
 });
 
 test('nothing wrong: no line, and the calm sentence counts the running apps', () => {
-  const sources = { jobs: {}, containers: [{ State: 'running' }, { State: 'running' }, { State: 'exited', Status: 'Exited (0) x' }], disks: [], snapshots: { enabled: false }, certificateAlerts: [] };
+  const sources = { jobs: {}, containers: [{ State: 'running' }, { State: 'running' }, { State: 'exited', Status: 'Exited (0) x' }], disks: [], snapshots: { enabled: false } };
   assert.deepEqual(healthLines(sources), []);
   assert.equal(calmLine(sources)[2].running, 2);
   assert.deepEqual(healthLines(undefined), []);
+});
+
+test('apps that exited with 137 are asked about, at most five; those killed for memory make an error line', () => {
+  const list = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => ({ Names: ['/' + n], State: 'exited', Status: 'Exited (137) 1 hour ago' }));
+  list.push({ Names: ['/g'], State: 'exited', Status: 'Exited (0) 1 hour ago' }, { Names: ['/h'], State: 'running', Status: 'Up' });
+  assert.deepEqual(oomCandidates(list), ['a', 'b', 'c', 'd', 'e']);
+  assert.deepEqual(oomCandidates(null), []);
+  assert.deepEqual(oomKilled({ a: { State: { OOMKilled: true } }, b: { State: { OOMKilled: false } }, c: undefined }), ['a']);
+  const one = healthLines({ oom: ['a'] });
+  assert.equal(one[0].id, 'oom');
+  assert.equal(one[0].severity, 'error');
+  assert.equal(one[0].link, '/cosmos-ui/servapps/containers/a');
+  assert.equal(healthLines({ oom: ['a', 'b'] })[0].link, '/cosmos-ui/servapps');
+  assert.deepEqual(healthLines({ oom: [] }), []);
+});
+
+test('three states: all well only when every source was read', () => {
+  assert.equal(healthState([], []), 'ok');
+  assert.equal(healthState([], ['scheduled jobs']), 'unknown');
+  assert.equal(healthState([{ id: 'jobs' }], ['disks']), 'attention');
+  assert.equal(healthState([{ id: 'jobs' }], []), 'attention');
+});
+
+test('a refusal by the request limit is named as such', () => {
+  assert.equal(isThrottled({ code: 429 }), true);
+  assert.equal(isThrottled({ code: 'HTTP003', status: 'error' }), true);
+  assert.equal(isThrottled({ message: 'Too many requests' }), true);
+  assert.equal(isThrottled({ code: 'HTTP001', message: 'Internal server error' }), false);
+  assert.equal(isThrottled(undefined), false);
+  assert.match(unreadLine(['scheduled jobs', 'disks'], true)[1], /limiting requests/);
+  assert.equal(unreadLine(['scheduled jobs', 'disks'], true)[2].what, 'scheduled jobs, disks');
+  assert.match(unreadLine(['apps'], false)[1], /did not answer/);
 });

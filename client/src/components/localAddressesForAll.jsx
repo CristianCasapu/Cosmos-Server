@@ -60,8 +60,8 @@ const planFor = (config, containers, selfName) => {
   });
 };
 
-// `wrap` puts the notice into the page's grid; nothing is rendered when no app can be helped.
-const LocalAddressesForAll = ({ config, containers, selfName, refresh, wrap }) => {
+// Gives the line for the page's notice area (none when no app can be helped) and the dialog to render.
+export const useLocalAddressNotice = ({ config, containers, selfName, refresh }) => {
   const { t } = useTranslation();
   const homeSuffixes = activeSuffixes(useHomeNames()); // Fork addition: names for use at home
   const [plan, setPlan] = React.useState(null); // the list while the dialog is open
@@ -73,7 +73,7 @@ const LocalAddressesForAll = ({ config, containers, selfName, refresh, wrap }) =
   const ready = current.filter((entry) => entry.state === 'ready');
 
   if (ready.length === 0 && !plan) {
-    return null;
+    return { items: [], dialog: null };
   }
 
   const open = () => {
@@ -133,28 +133,25 @@ const LocalAddressesForAll = ({ config, containers, selfName, refresh, wrap }) =
   }[entry.state] || entry.state);
 
   const names = ready.map((entry) => entry.name);
-  const notice = <Alert
-    severity="info"
-    sx={{ textAlign: 'left', alignItems: 'center', '& .MuiAlert-message': { overflowWrap: 'anywhere', minWidth: 0 }, '& .MuiAlert-action': { alignItems: 'center', pt: 0 } }}
-    action={<PermissionGuard permission={PERM_RESOURCES}>
-      <Button color="inherit" size="small" variant="outlined" startIcon={<HomeOutlined />} onClick={open} sx={{ whiteSpace: 'nowrap' }}>
-        {ready.length === 1
-          ? t('mgmt.urls.all.buttonOne', 'Give it a local address')
-          : t('mgmt.urls.all.button', 'Give them a local address')}
-      </Button>
-    </PermissionGuard>}
-  >
-    {ready.length === 1
+  const items = ready.length === 0 ? [] : [{
+    id: 'local-addresses',
+    severity: 'info',
+    text: ready.length === 1
       ? t('mgmt.urls.all.noticeOne', '{{name}} has no address yet.', { name: names[0] })
       : t('mgmt.urls.all.notice', '{{number}} apps have no address yet: {{names}}.', {
         number: ready.length,
         names: names.slice(0, 6).join(', ') + (names.length > 6 ? '…' : ''),
-      })}
-  </Alert>;
+      }),
+    actions: <PermissionGuard permission={PERM_RESOURCES}>
+      <Button color="inherit" size="small" variant="outlined" startIcon={<HomeOutlined />} onClick={open}>
+        {ready.length === 1
+          ? t('mgmt.urls.all.buttonOne', 'Give it a local address')
+          : t('mgmt.urls.all.button', 'Give them a local address')}
+      </Button>
+    </PermissionGuard>,
+  }];
 
-  return <>
-    {ready.length > 0 && (wrap ? wrap(notice) : notice)}
-
+  const dialog = <>
     {plan && <Dialog open onClose={keepOnBackdrop(close)} fullWidth maxWidth="sm">
       <DialogTitle>{t('mgmt.urls.all.title', 'A local address for the apps that have none')}</DialogTitle>
       <DialogContent>
@@ -229,6 +226,8 @@ const LocalAddressesForAll = ({ config, containers, selfName, refresh, wrap }) =
       </DialogActions>
     </Dialog>}
   </>;
+
+  return { items, dialog };
 };
 
-export default LocalAddressesForAll;
+export default useLocalAddressNotice;

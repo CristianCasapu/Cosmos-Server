@@ -26,10 +26,12 @@ import { useTheme } from '@mui/material/styles';
 // third-party
 import Chart from 'react-apexcharts';
 import { FormaterForMetric, toUTC } from './utils';
+import { useTranslation } from 'react-i18next'; // Fork addition
 
 
 const PlotComponent = ({ title, slot, data, SimpleDesign, withSelector, xAxis, zoom, setZoom, zoomDisabled }) => {
   const theme = useTheme();
+  const { t } = useTranslation(); // Fork addition
   const { primary, secondary } = theme.palette.text;
   const line = theme.palette.divider;
   const [series, setSeries] = useState([]);
@@ -64,6 +66,8 @@ const PlotComponent = ({ title, slot, data, SimpleDesign, withSelector, xAxis, z
     }
   };
   const [options, setOptions] = useState(areaChartOptions);
+  // Fork addition: on a phone only the first series has its scale drawn; the others get theirs written under the chart
+  const [scaleNotes, setScaleNotes] = useState([]);
 
   useEffect(() => {
     let toProcess = data;
@@ -161,6 +165,18 @@ const PlotComponent = ({ title, slot, data, SimpleDesign, withSelector, xAxis, z
       }
     }));
 
+    // Fork addition: the range each series without a drawn axis covers in this view, in its own unit
+    setScaleNotes(phone && toProcess.length > 1 ? toProcess.slice(1).filter(Boolean).map((thisdata, i) => {
+      const values = (dataSeries[i + 1] ? dataSeries[i + 1].dataAxis : []).filter((v) => typeof v === 'number' && isFinite(v));
+      const format = FormaterForMetric(thisdata);
+      const show = (v) => { try { return String(format(v)); } catch (e) { return String(v); } };
+      return {
+        name: thisdata.Label,
+        range: values.length ? show(Math.min(...values)) + ' – ' + show(Math.max(...values)) : '–',
+        top: thisdata.Max ? show(thisdata.Max) : '',
+      };
+    }) : []);
+
     setSeries(dataSeries.map((serie) => {
       return {
         name: serie.name,
@@ -197,6 +213,7 @@ const PlotComponent = ({ title, slot, data, SimpleDesign, withSelector, xAxis, z
           <TextField
               id="standard-select-currency"
               size="small"
+              SelectProps={{ SelectDisplayProps: { 'aria-label': t('metrics.seriesPicker', 'Series shown') } }} /* Fork addition: a name */
               select
               value={selected}
               onChange={(e) => setSelected(e.target.value)}
@@ -215,6 +232,14 @@ const PlotComponent = ({ title, slot, data, SimpleDesign, withSelector, xAxis, z
 
         <Chart options={options} series={series} type="area" height={450} />
       </Box>
+      {/* Fork addition: the scale of the series whose axis is not drawn on a phone */}
+      {scaleNotes.length > 0 && <Box component="ul" className="ct-chart-scales" sx={{ m: 0, px: 2, pb: 1.5, pt: 0, listStyle: 'none' }}>
+        {scaleNotes.map((note) => <Typography component="li" variant="caption" color="text.secondary" key={note.name}>
+          {note.top
+            ? t('metrics.scaleNoteMax', '{{name}}: {{range}} here, on a scale of 0 – {{top}} (axis not drawn)', { ...note, interpolation: { escapeValue: false } })
+            : t('metrics.scaleNote', '{{name}}: {{range}} here, on a scale of its own (axis not drawn)', { ...note, interpolation: { escapeValue: false } })}
+        </Typography>)}
+      </Box>}
     </MainCard>
   </>
 }

@@ -539,7 +539,8 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
 
             {!ymlError && (<><FormLabel>{t('mgmt.servApps.newContainer.serviceNameInput')}</FormLabel>
 
-              <TextField label="" value={serviceName} onChange={(e) => setServiceName(e.target.value)} />
+              <TextField label="" value={serviceName} onChange={(e) => setServiceName(e.target.value)}
+                inputProps={{ 'aria-label': t('mgmt.servApps.newContainer.serviceNameInput') }} /* Fork addition: a name */ />
 
               {service['cosmos-installer'] && service['cosmos-installer'].form && service['cosmos-installer'].form.map((formElement) => {
                 return formElement.type === 'checkbox' ?
@@ -637,7 +638,7 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
                   const hostname = service[hostIndex];
                   return <>
                     <FormLabel>{t('mgmt.servApps.newContainer.chooseUrl')} {hostname.name}</FormLabel>
-                    <div style={{ opacity: 0.9, fontSize: '0.8em', textDecoration: 'italic' }}
+                    <div style={{ fontSize: 'var(--ct-text-xs, 0.75rem)', color: 'var(--ct-muted)' }} /* Fork addition: the skin's smallest size (it was 11.2 px) */
                     >{hostname.description}</div>
                     <TextField key={serviceIndex + hostIndex} label="Hostname" value={hostname.host} onChange={(e) => {
                       hostnames[serviceIndex][hostname.name].host = e.target.value;

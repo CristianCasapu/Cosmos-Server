@@ -98,6 +98,13 @@ export const RouteSecurity = ({route}) => {
   const { t } = useTranslation();
 
   return <div style={{fontWeight: 'bold', fontSize: '110%'}}>
+    {/* Fork addition: the icons' meaning as text for screen readers (the table cell is a link that had no text) */}
+    <span className="ct-visually-hidden">{[
+      route.SmartShield && route.SmartShield.Enabled ? t('tooltip.route.SmartShield.enabled') : t('tooltip.route.SmartShield.disabled'),
+      route.AuthEnabled ? t('tooltip.route.authentication.enabled') : t('tooltip.route.authentication.disabled'),
+      route.ThrottlePerMinute ? t('tooltip.route.throttling.enabled') : t('tooltip.route.throttling.disabled'),
+      route.Timeout ? t('tooltip.route.timeout.enabled') : t('tooltip.route.timeout.disabled'),
+    ].join(', ')}</span>
     <Tooltip title={route.SmartShield && route.SmartShield.Enabled ? t('tooltip.route.SmartShield.enabled') : t('tooltip.route.SmartShield.disabled')}>
       <div style={{display: 'inline-block'}}>
         {route.SmartShield && route.SmartShield.Enabled ? 

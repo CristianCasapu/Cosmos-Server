@@ -77,7 +77,55 @@ const anonymousViews = [
   ] },
   { id: 'auth-forgot-password', path: '/cosmos-ui/forgot-password' },
   { id: 'auth-register', path: '/cosmos-ui/register?t=0000000000000000&nickname=newuser' },
+  // the links an invitation and a password reset e-mail open
+  { id: 'auth-invite', path: '/cosmos-ui/register?t=2&nickname=newuser&key=0000000000000000' },
+  { id: 'auth-reset-link', path: '/cosmos-ui/register?t=0&nickname=admin&key=0000000000000000' },
+  // what the app gate and an ended session send a visitor to
+  { id: 'auth-login-notlogged', path: '/cosmos-ui/login?notlogged=1&redirect=%2Fcosmos-ui%2Fservapps' },
+  { id: 'auth-login-notadmin', path: '/cosmos-ui/login?notlogged=2' },
+  { id: 'auth-login-invalid', path: '/cosmos-ui/login?invalid=1' },
+  // the two-factor pages: the session waits for its code (the server answers "me" with a refusal then)
+  { id: 'auth-loginmfa', path: '/cosmos-ui/loginmfa?redirect=%2Fcosmos-ui%2F', mock: [['/cosmos/api/me', { status: 'error', message: 'User requires MFA', code: 'HTTP006' }, 401]] },
+  { id: 'auth-newmfa', path: '/cosmos-ui/newmfa', mock: [['/cosmos/api/me', { status: 'error', message: 'User requires MFA', code: 'HTTP006' }, 401], ['/cosmos/api/mfa', { status: 'OK', data: { key: 'otpauth://totp/Cosmos:admin?secret=JBSWY3DPEHPK3PXP&issuer=Cosmos' } }]] },
+  // the first-run wizard, as a fresh server shows it
+  { id: 'setup-wizard', path: '/cosmos-ui/newInstall', mock: [['/cosmos/api/status', { status: 'OK', data: { newInstall: true, database: true, docker: true, letsencrypt: false, hostmode: true, hostname: '0.0.0.0', containerized: false } }]], captures: [
+    {},
+    { id: 'step-2', open: async (page) => { await page.locator('main button, button').filter({ hasText: /^(Start|Next)/ }).last().click(); }, close: async () => {} },
+  ] },
+  // the panel when the server does not answer at all
+  { id: 'server-unreachable', path: '/cosmos-ui/', abort: ['/cosmos/api/'], wait: 2500 },
+  { id: 'offline-page', path: '/cosmos-ui/offline.html' },
+  { id: 'not-found-anonymous', path: '/cosmos-ui/nothing-here' },
 ];
+
+// the Market, from a stand-in answer (the test instance has no way out): pictures as SVG data: URLs,
+// the install review with a name the server cannot look up (a server without DNS)
+const svg = (a, b, text) => 'data:image/svg+xml;base64,' + Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="1280" height="720" fill="url(#g)"/><rect x="60" y="60" width="1160" height="70" rx="12" fill="#fff" opacity=".35"/><rect x="60" y="170" width="360" height="480" rx="16" fill="#fff" opacity=".25"/><rect x="460" y="170" width="760" height="220" rx="16" fill="#fff" opacity=".25"/><rect x="460" y="430" width="760" height="220" rx="16" fill="#fff" opacity=".25"/><text x="80" y="110" font-family="sans-serif" font-size="36" fill="#fff">${text}</text></svg>`).toString('base64');
+const icon = (c) => 'data:image/svg+xml;base64,' + Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" rx="14" fill="${c}"/><circle cx="32" cy="32" r="14" fill="#fff"/></svg>`).toString('base64');
+const compose = (name) => 'data:text/plain;base64,' + Buffer.from(JSON.stringify({
+  'cosmos-installer': {},
+  name: '{ServiceName}',
+  services: { '{ServiceName}': { image: 'jellyfin/jellyfin:latest', container_name: '{ServiceName}', restart: 'unless-stopped',
+    volumes: [{ type: 'volume', source: '{ServiceName}-config', target: '/config' }],
+    routes: [{ name: '{ServiceName}', description: 'Web UI', useHost: true, target: 'http://{ServiceName}:8096', mode: 'SERVAPP', Timeout: 14400000, ThrottlePerMinute: 10000, BlockCommonBots: true, SmartShield: { Enabled: true } }] } },
+  volumes: { '{ServiceName}-config': {} },
+})).toString('base64');
+const marketApp = (name, colours, tags, description) => ({
+  name, description, tags, icon: icon(colours[0]), compose: compose(name), supported_architectures: ['amd64', 'arm64'],
+  screenshots: [svg(colours[0], colours[1], name + ' — library'), svg(colours[1], colours[0], name + ' — settings')],
+  longDescription: '<p>' + description + ' It runs on your own server: your files stay at home, and every device in the house can use it.</p>',
+  repository: 'https://example.org/' + name.toLowerCase(), image: 'https://example.org/r/' + name.toLowerCase(),
+});
+const marketApps = [
+  marketApp('Jellyfin', ['#5b2a86', '#00a4dc'], ['media', 'films', 'music'], 'Your films, series and music, streamed to every screen.'),
+  marketApp('Nextcloud', ['#0b5cad', '#38a3f1'], ['files', 'calendar', 'office'], 'Files, calendars and contacts, synchronised between your devices.'),
+  marketApp('Vaultwarden', ['#175ddc', '#0b2a63'], ['passwords', 'security'], 'A password manager compatible with the Bitwarden apps.'),
+  marketApp('Immich', ['#4250af', '#fa2921'], ['photos', 'backup'], 'Photos and videos from your phone, backed up automatically.'),
+  marketApp('Home Assistant', ['#18bcf2', '#0b6a8c'], ['home', 'automation'], 'Lights, heating and sensors in one place, without a cloud account.'),
+];
+const marketMock = [['/cosmos/api/markets', { status: 'OK', data: { all: { 'cosmos-cloud': marketApps, 'community': marketApps.slice(0, 2).map((a) => ({ ...a, name: a.name })) }, showcase: marketApps.slice(0, 3) } }]];
+const noDnsMock = [['/cosmos/api/dns', { status: 'error', message: 'Internal server error: lookup jellyfin.polish.test on 127.0.0.11:53: server misbehaving', code: 'DNS001' }, 500],
+  ['/cosmos/api/dns-check', { status: 'error', message: 'DNS Check error: lookup jellyfin.polish.test on 127.0.0.11:53: server misbehaving', code: 'DNS002' }, 500]];
 
 const views = [
   { id: 'home', path: '/cosmos-ui/', core: true, captures: [
@@ -85,6 +133,8 @@ const views = [
     { id: 'keyboard-focus', open: async (page) => { for (let i = 0; i < 4; i++) await page.keyboard.press('Tab'); }, close: async () => {} },
     { id: 'menu', phoneOnly: true, open: async (page) => { await page.locator('header button').first().click(); }, close: async (page) => { await page.keyboard.press('Escape'); } },
     { id: 'notifications', open: async (page) => { await page.locator('header button:has(.anticon-bell)').first().click(); } },
+    // the phone header's "More" menu (terminal, restarts)
+    { id: 'more', phoneOnly: true, open: async (page) => { await page.locator('header button:has(.anticon-more)').first().click(); } },
     { id: 'tooltip', desktopOnly: true, open: async (page) => { await page.locator('header button').nth(1).hover(); await page.waitForTimeout(900); }, close: async (page) => { await page.mouse.move(600, 500); } },
   ] },
   { id: 'servapps', path: '/cosmos-ui/servapps', core: true, wait: 1200, captures: [
@@ -183,6 +233,33 @@ const views = [
   ] },
   // the "updates are available" line on ServApps (the test images have no newer version)
   { id: 'servapps-updates', path: '/cosmos-ui/servapps', wait: 1200, patch: [['/cosmos/api/config', (j) => ({ ...j, updates: { '/jellyfin': true, '/radarr': true } })]] },
+  // every ServApps notice at once: updates, leftovers of interrupted edits, apps without an address
+  { id: 'servapps-notices', path: '/cosmos-ui/servapps', core: true, wait: 1500, patch: [['/cosmos/api/config', (j) => ({ ...j, updates: { '/jellyfin': true, '/radarr': true } })]], mock: [['/cosmos/api/servapps-leftovers', { status: 'OK', data: [
+    { name: 'jellyfin-cosmos-old-0123456789ab', app: 'jellyfin', finished: '2026-11-14T09:12:00Z', running: false, appExists: true, appRunning: true },
+    { name: 'sonarr-cosmos-old-ba9876543210', app: 'sonarr', finished: '2026-11-13T21:40:00Z', running: false, appExists: false, appRunning: false },
+  ] }]], captures: [
+    {},
+    { id: 'expanded', open: async (page) => { await page.locator('main [data-notices] button[aria-expanded=false]').first().click(); }, close: async () => {} },
+  ] },
+  // the home page while the server throttles some answers: what could not be checked is said, with a retry
+  { id: 'home-partial', path: '/cosmos-ui/', core: true, wait: 1500, mock: [['/cosmos/api/jobs', { status: 'error', message: 'Too many requests', code: 'HTTP429' }, 429]], patch: [
+    ['/cosmos/api/servapps', (j) => ({ ...j, data: (j.data || []).filter((c) => c.State !== 'exited' || !/Exited \((?!0|137|143)\d+\)/.test(c.Status)) })],
+  ] },
+  { id: 'market-showcase', path: '/cosmos-ui/market-listing', core: true, wait: 1500, mock: marketMock, captures: [
+    {},
+    { id: 'search', open: async (page) => { await page.locator('main input[placeholder^="Search"]').first().fill('nextcloud'); }, close: async (page) => { await page.locator('main input[placeholder^="Search"]').first().fill(''); } },
+    { id: 'sources', open: async (page) => { await page.locator('main button').filter({ has: page.locator('.anticon-file-text, .anticon-container, .anticon-profile') }).first().click(); } },
+  ] },
+  { id: 'market-app', path: '/cosmos-ui/market-listing/cosmos-cloud/Jellyfin', core: true, wait: 1500, mock: [...marketMock, ...noDnsMock], captures: [
+    {},
+    { id: 'review', wait: 2500, open: async (page) => { await page.getByRole('button', { name: /Install$/ }).first().click(); /* the app's page is drawn over the list: its button comes first */ } },
+    // an address under a domain on a server that cannot look names up (the stand-in answers like Go's resolver)
+    { id: 'review-no-dns', wait: 2500, open: async (page) => { await page.getByRole('button', { name: /Install$/ }).first().click(); await page.locator('[role=dialog] .MuiChip-root', { hasText: 'polish.test' }).first().click(); }, close: async (page) => { await page.keyboard.press('Escape'); } },
+  ] },
+  { id: 'new-container-steps', path: '/cosmos-ui/servapps/new-service', captures: [
+    {},
+    { id: 'step-2', open: async (page) => { await page.locator('input[name=name]').first().fill('demo'); await page.locator('input[name=image]').first().fill('busybox:1.36'); await page.locator('button').filter({ hasText: /^Next$/ }).last().click(); }, close: async () => {} },
+  ] },
   // upstream's licence-only pages: one picture each, for the record
   { id: 'paid-backups', path: '/cosmos-ui/backups' },
   { id: 'paid-constellation', path: '/cosmos-ui/constellation' },
@@ -427,6 +504,42 @@ const audit = () => {
       add(result.overlaps, { a: describe(a.el), b: describe(b.el) });
     }
   }
+
+  // --- one Tab stop per control: a focusable element inside another (a button in a link) is two
+  const focusable = 'a[href], button:not([disabled]), input:not([type=hidden]):not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
+  result.nestedFocus = { count: 0, samples: [] };
+  for (const el of document.querySelectorAll(focusable)) {
+    if (!visible(el) || el.closest('[aria-hidden="true"]')) continue;
+    const inner = [...el.querySelectorAll(focusable)].find((child) => visible(child) && child.tabIndex >= 0);
+    if (el.tabIndex >= 0 && inner) add(result.nestedFocus, { text: short(el.innerText || el.getAttribute('aria-label') || ''), at: describe(inner) });
+  }
+
+  // --- heading levels: a jump of more than one level down (h1 -> h4) loses the outline
+  result.headingSkips = { count: 0, samples: [] };
+  let previous = 0;
+  for (const h of document.querySelectorAll('h1, h2, h3, h4, h5, h6, [role=heading][aria-level]')) {
+    if (!visible(h) || h.closest('[aria-hidden="true"]')) continue;
+    const level = h.getAttribute('aria-level') ? Number(h.getAttribute('aria-level')) : Number(h.tagName.slice(1));
+    if (previous && level > previous + 1) add(result.headingSkips, { text: short(h.innerText || ''), from: previous, to: level, at: describe(h) });
+    previous = level;
+  }
+
+  // --- the header's controls on a phone: size and the gap between neighbours
+  const bar = document.querySelector('header.MuiAppBar-root .MuiToolbar-root');
+  if (bar) {
+    const items = [...bar.querySelectorAll('button, a[href]')].filter((el) => visible(el) && !el.parentElement.closest('button, a[href]'))
+      .map((el) => ({ r: el.getBoundingClientRect(), name: short(el.innerText || el.getAttribute('aria-label') || '') }))
+      .sort((a, b) => a.r.left - b.r.left);
+    let minGap = Infinity;
+    for (let i = 1; i < items.length; i++) minGap = Math.min(minGap, items[i].r.left - items[i - 1].r.right);
+    result.header = {
+      controls: items.length,
+      smallest: items.length ? Math.round(Math.min(...items.map((i) => Math.min(i.r.width, i.r.height)))) : null,
+      minGap: Number.isFinite(minGap) ? Math.round(minGap) : null,
+      fitsWindow: items.every((i) => i.r.right <= vw + 1 && i.r.left >= -1),
+      names: items.map((i) => i.name),
+    };
+  }
   return result;
 };
 
@@ -582,7 +695,8 @@ const run = async (engineName, viewport, mode) => {
     if (smallSet && !view.core) return;
     await room(perLoad);
     const before = stamps.length;
-    for (const [part, body] of view.mock || []) await page.route((url) => url.pathname.startsWith(part), (route) => route.fulfill({ json: body }));
+    for (const [part, body, status] of view.mock || []) await page.route((url) => url.pathname.startsWith(part), (route) => route.fulfill({ status: status || 200, json: body }));
+    for (const part of view.abort || []) await page.route((url) => url.pathname.startsWith(part), (route) => route.abort('connectionrefused'));
     for (const [part, change] of view.patch || []) {
       await page.route((url) => url.pathname === part || url.pathname.startsWith(part + '?'), async (route) => {
         try {
@@ -614,11 +728,13 @@ const run = async (engineName, viewport, mode) => {
         }
       } catch (e) { /* the next step reports what is in its way */ }
     }
-    if (view.mock || view.patch) await page.unrouteAll({ behavior: 'ignoreErrors' });
+    if (view.mock || view.patch || view.abort) await page.unrouteAll({ behavior: 'ignoreErrors' });
   };
 
-  // the pages that need no session, then the login through its form
-  for (const view of anonymousViews) await visit(view);
+  // the pages that need no session, then the login through its form (with a pause between them: the
+  // server limits the requests of a visitor without a session, and a refused style sheet spoils a picture)
+  const anonPause = Number(process.env.ANON_PAUSE || 6000);
+  for (const view of anonymousViews) { await visit(view); if (!only || only.test(view.id)) await sleep(anonPause); }
   await room(perLoad);
   await page.goto(base + '/cosmos-ui/login', { waitUntil: 'domcontentloaded' });
   await page.locator('#nickname-login').fill(admin.nickname);
@@ -650,14 +766,18 @@ const summarise = () => {
         cutOff: s.cutOff ? s.cutOff.count : null, truncated: s.truncated ? s.truncated.count : null,
         overlaps: s.overlaps ? s.overlaps.count : null, unnamed: s.unnamed ? s.unnamed.count : null,
         targetsBelow24: s.targets ? s.targets.below24 : null, targetsBelow44: s.targets ? s.targets.below44 : null,
+        nestedFocus: s.nestedFocus ? s.nestedFocus.count : null, headingSkips: s.headingSkips ? s.headingSkips.count : null,
+        headerMinGap: s.header ? s.header.minGap : null, headerSmallest: s.header ? s.header.smallest : null,
       });
     }
   }
   const totals = {};
   for (const row of rows) {
-    const t = totals[row.run] || (totals[row.run] = { captures: 0, errors: 0, problems: 0, sidewaysScroll: 0, contrast: 0, smallText: 0, cutOff: 0, truncated: 0, overlaps: 0, unnamed: 0, targetsBelow24: 0, targetsBelow44: 0 });
+    const t = totals[row.run] || (totals[row.run] = { captures: 0, errors: 0, problems: 0, sidewaysScroll: 0, contrast: 0, smallText: 0, cutOff: 0, truncated: 0, overlaps: 0, unnamed: 0, targetsBelow24: 0, targetsBelow44: 0, nestedFocus: 0, headingSkips: 0, headerMinGap: null, headerSmallest: null });
     t.captures++;
-    for (const key of Object.keys(t)) if (key !== 'captures') t[key] += Number(row[key]) || 0;
+    for (const key of Object.keys(t)) if (key !== 'captures' && key !== 'headerMinGap' && key !== 'headerSmallest') t[key] += Number(row[key]) || 0;
+    // the header: the worst seen in the run
+    for (const key of ['headerMinGap', 'headerSmallest']) if (row[key] !== null && (t[key] === null || row[key] < t[key])) t[key] = row[key];
   }
   writeFileSync(join(out, 'summary.json'), JSON.stringify({ totals, captures: rows }, null, 1));
   note('\nsummary:', join(out, 'summary.json'));

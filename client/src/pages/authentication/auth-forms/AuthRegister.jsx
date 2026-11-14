@@ -107,7 +107,7 @@ const AuthRegister = ({nickname, isRegister, isInviteLink, regkey}) => {
                             </Grid> : ''}
                             {isInviteLink ? <Grid item xs={12}>
                                 <Stack spacing={1}>
-                                    <InputLabel htmlFor="nickname-signup">{t('global.nicknameLabel')}</InputLabel>
+                                    <InputLabel htmlFor="nickname-login">{t('global.nicknameLabel')}</InputLabel>{/* Fork addition: points at the field (it named an id that does not exist) */}
                                     <OutlinedInput
                                         id="nickname-login"
                                         type="nickname"

@@ -1,4 +1,6 @@
 import { Link } from 'react-router-dom';
+import i18next from 'i18next'; // Fork addition
+import { hostCheckText } from '../../utils/hostCheck'; // Fork addition
 import * as Yup from 'yup';
 import { Trans, useTranslation } from 'react-i18next';
 
@@ -38,7 +40,7 @@ const debounce = (func, wait) => {
         setHostError(null)
         setHostIp(data.data)
       }).catch((err) => {
-        setHostError(err.message)
+        setHostError(i18next.t(...hostCheckText(host, err.message))) // Fork addition: in plain words, not the resolver's error
         setHostIp(null)
       });
     } else {
@@ -142,7 +144,10 @@ const NewInstall = () => {
             component: <div>
                 <span style={{margin: '5px'}}><LanguagesSelect /></span> {t('newInstall.welcomeText')}
                 <br /><br />
-                <Checkbox checked={cleanInstall} onChange={(e) => setCleanInstall(e.target.checked)} />{t('newInstall.cleanInstallCheckbox')}
+                {/* Fork addition: the sentence is the checkbox's label and stays beside it (it wrapped under it) */}
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 4, cursor: 'pointer' }}>
+                    <Checkbox checked={cleanInstall} onChange={(e) => setCleanInstall(e.target.checked)} sx={{ mt: -1 }} /><span>{t('newInstall.cleanInstallCheckbox')}</span>
+                </label>
                 <br /><br />
                 <Stack spacing={2} style={{marginBottom: '20px'}}>
                     <div>{t('newInstall.join.text')}</div>
@@ -166,11 +171,10 @@ const NewInstall = () => {
                         </Button>
                     </>}
                 </Stack>
-                <a style={{color: 'white', textDecoration: 'none'}} target='_blank' rel="noopener noreferrer" href="https://cosmos-cloud.io/doc/2%20setup">
-                    <Button variant="outlined" color="inherit" startIcon={<QuestionCircleOutlined />}>
-                     {t('newInstall.linkToDocs')}
-                    </Button>
-                </a>
+                {/* Fork addition: a link styled as a button (one Tab stop; it was a button inside a link) */}
+                <Button component="a" target='_blank' rel="noopener noreferrer" href="https://cosmos-cloud.io/doc/2%20setup" variant="outlined" color="inherit" startIcon={<QuestionCircleOutlined />}>
+                    {t('newInstall.linkToDocs')}
+                </Button>
             </div>,
             nextButtonLabel: () => {
                 return 'Start';
@@ -348,10 +352,10 @@ const NewInstall = () => {
                         )}
                         
                         {hostError && <Grid item xs={12}>
-                          <Alert color='error'>{hostError}</Alert>
+                          <Alert severity='warning' /* Fork addition: a warning with its own icon (color alone showed the success icon); the setup goes on */>{hostError}</Alert>
                         </Grid>}
                         {hostIp && <Grid item xs={12}>
-                            <Alert color='info'><Trans i18nKey="newInstall.hostnamePointsToInfo" values={{hostIp: hostIp}} /></Alert>
+                            <Alert severity='info' /* Fork addition */><Trans i18nKey="newInstall.hostnamePointsToInfo" values={{hostIp: hostIp}} /></Alert>
                         </Grid>}
 
                         {formik.values.HTTPSCertificateMode === "LETSENCRYPT" && formik.values.UseWildcardCertificate && (!formik.values.DNSChallengeProvider || formik.values.DNSChallengeProvider == '') && (
@@ -524,7 +528,7 @@ const NewInstall = () => {
                 {/*JSON.stringify(status)*/}
                 
                 <br />
-                <Stack direction="row" spacing={2} sx={{ '& > *': { flexGrow: 1 } }}>
+                <Stack direction="row" spacing={2} sx={{ '& > *': { flex: '1 1 0', minWidth: 0 } }}>{/* Fork addition: equal widths (was flexGrow: their text decided) */}
                     <Button 
                         variant="contained"
                         startIcon={<LeftOutlined />}

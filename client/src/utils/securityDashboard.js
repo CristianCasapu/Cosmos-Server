@@ -483,10 +483,6 @@ export const BAN_TEXT = {
   strike: ['security.ban.strike', 'Blocked until {{until}}'],
 };
 
-// The page's English texts that are not built from the tables above, for
-// the translation file (see the test).
-export const OTHER_TEXT = {};
-
 // Every [key, English] pair this module can return, for the translation
 // file.
 export const allTexts = () => {

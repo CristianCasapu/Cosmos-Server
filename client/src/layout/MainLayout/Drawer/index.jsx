@@ -43,6 +43,7 @@ const MainDrawer = ({ open, handleDrawerToggle, window }) => {
             component="a"
             href="/"
             clickable
+            aria-label={'Cosmos ' + version.replace('unstable', '') + forkBuild} /* Fork addition: a name for the link (the version alone read as nothing) */
         />
     </div>;
 

@@ -123,15 +123,6 @@ export const useLocalNamesTitle = (hosts) => {
   }).join(' · ');
 };
 
-// The state of every name at once (the bulk dialog).
-export const LocalNamesSummary = ({ help }) => {
-  const status = useLocalNames();
-  if (!status) return null;
-  return <StateLine state={summary(status)}>
-    {help && <> <LocalNamesHelp /></>}
-  </StateLine>;
-};
-
 // Which devices can use the names, the alternatives, the certificate.
 export const LocalNamesNote = ({ status }) => {
   const { t } = useTranslation();

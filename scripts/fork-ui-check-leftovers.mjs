@@ -1,5 +1,6 @@
 // Fork addition: checks the notices about containers left behind by an
-// interrupted change (components/leftovers.jsx, src/docker/fork_leftovers.go)
+// interrupted change (components/leftovers.jsx in the page's notice area,
+// components/servappsNotices.jsx; src/docker/fork_leftovers.go)
 // in headless Chromium, Firefox and WebKit at 1366x900 and 390x844, against a
 // throwaway Cosmos. Never the production instance.
 //
@@ -107,6 +108,9 @@ const servApps = async (page) => {
   await page.goto(base + '/cosmos-ui/servapps', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-leftover]').first().waitFor({ timeout: 30000 }).catch(() => {});
   await page.waitForTimeout(1500);
+  // the page's notice area shows two lines and folds the rest (components/noticeArea.jsx): open it
+  const more = page.locator('[data-notices] button[aria-expanded=false]');
+  if (await more.count()) { await more.first().click(); await page.waitForTimeout(300); }
 };
 
 // --- what is shown, everywhere

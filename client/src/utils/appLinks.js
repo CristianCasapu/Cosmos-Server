@@ -50,33 +50,6 @@ export const groupAppRoutes = (routes, ownHost) => {
   return [{ local: true, routes: local }, { local: false, routes: external }].filter((group) => group.routes.length > 0);
 };
 
-// The route an app's external addresses are copies of: its local one, else
-// the first that is not named like an external copy, else the first.
-export const baseRoute = (routes, domains) => {
-  const list = routes || [];
-  return list.find((route) => isLocalHost(routeHost(route)))
-    || list.find((route) => !(domains || []).some((domain) => String(route.Name || '').endsWith('-' + domain)))
-    || list[0]
-    || null;
-};
-
-// True when the base route itself is the app's address under the domain.
-export const baseIsUnderDomain = (base, domain, labels) => !!base
-  && (labels || []).some((label) => label && routeHost(base) === label + '.' + domain);
-
-// The routes, among an app's own, that are its external address under one
-// domain: the copy named "<base name>-<domain>" (as long as its host is still
-// under that domain), or any whose host is "<label>.<domain>". Never the base
-// route, never a local link: these are the only routes detaching may delete.
-export const domainRoutes = (routes, base, domain, labels) => (routes || []).filter((route) => {
-  const host = routeHost(route);
-  if (!base || !domain || route === base || !host || isLocalHost(host)) {
-    return false;
-  }
-  return (route.Name === base.Name + '-' + domain && host.endsWith('.' + domain))
-    || (labels || []).some((label) => label && host === label + '.' + domain);
-});
-
 // The address a route's chip opens. Upstream opened "https://<host>" for a
 // route with a host of its own, without a port: wrong whenever Cosmos is not
 // on the standard port, and on a server that shares its public address with

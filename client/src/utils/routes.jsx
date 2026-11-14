@@ -1,4 +1,6 @@
 import Folder from '../assets/images/icons/folder(1).svg';
+import i18next from 'i18next'; // Fork addition
+import { hostCheckText, skipLookup } from './hostCheck'; // Fork addition: the host check's answer in plain words
 import demoicons from './icons.demo.json';
 import logogray from '../assets/images/icons/cosmos_gray.png';
 
@@ -169,12 +171,12 @@ export const getContaienrsJobs = (config, containerName) => {
 }
 
 const checkHost = debounce((host, setHostError, setHostIp) => {
-  if (isDomain(host)) {
+  if (isDomain(host) && !skipLookup(host)) { // Fork addition: .local names are not looked up (multicast names)
     API.getDNS(host).then((data) => {
       setHostError(null)
       setHostIp(data.data)
     }).catch((err) => {
-      setHostError(err.message)
+      setHostError(i18next.t(...hostCheckText(host, err.message))) // Fork addition: in plain words, not the resolver's error
       setHostIp(null)
     });
   } else {
@@ -193,9 +195,9 @@ export const HostnameChecker = ({hostname}) => {
     }
   }, [hostname]);
 
-  return <>{hostError && <Alert color='error'>{hostError}</Alert>}
+  return <>{hostError && <Alert severity='warning'>{hostError}</Alert>/* Fork addition: a warning (its icon too): the install goes on */}
 
-    {hostIp && <Alert color='info'><Trans i18nKey="newInstall.hostnamePointsToInfo" values={{hostIp: hostIp}} /></Alert>}
+    {hostIp && <Alert severity='info' /* Fork addition: severity (color alone showed the success icon) */><Trans i18nKey="newInstall.hostnamePointsToInfo" values={{hostIp: hostIp}} /></Alert>}
   </>
 };
 

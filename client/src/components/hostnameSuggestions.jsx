@@ -8,8 +8,7 @@ import { GlobalOutlined, HomeOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { getHostnameFromName, IsRouteSocketProxy } from '../utils/routes';
 import { isLocalHost } from '../utils/appLinks';
-import { ExternalPortNote, useCosmosPorts } from './routerPorts';
-import { shownAddress } from '../utils/routerPorts';
+import { ExternalPortNote } from './routerPorts';
 import { LocalNameState } from './localNames'; // Fork addition
 import { isLocalName } from '../utils/localNames';
 import { useHomeNames } from './homeNames'; // Fork addition: names for use at home
@@ -171,66 +170,6 @@ const HostnameSuggestions = ({ name, value, config, onPick, disabled, inline }) 
       </Typography>}
     </Stack>
   </Cell>;
-};
-
-// One line on what the router has to do while Cosmos does not ask it to.
-// `port` is the HTTPS port in use when the caller knows it (the environment
-// can set another one than the settings hold).
-export const PortForwardHint = ({ config, port }) => {
-  const { t } = useTranslation();
-  const http = (config && config.HTTPConfig) || {};
-  if (http.UPnP && http.UPnP.Enabled) {
-    return null;
-  }
-  return <Typography variant="caption" color="textSecondary">
-    {t('mgmt.urls.external.forwardByHand',
-      'Automatic port forwarding is off: forward port {{port}} (HTTPS) to this server on your router by hand, or switch it on under Configuration > HTTP > Internet access.',
-      { port: port || http.HTTPSPort || '443' })}
-  </Typography>;
-};
-
-// DomainPicker attaches domains to an app that is getting its local address:
-// each selected domain adds an external address. None is selected by default.
-export const DomainPicker = ({ name, config, selected, onChange }) => {
-  const { t } = useTranslation();
-  const domains = configuredDomains(config);
-  const ports = useCosmosPorts(config); // the external port the addresses are reached on
-
-  if (domains.length === 0) {
-    return <Typography variant="caption" color="textSecondary">
-      {t('mgmt.urls.external.noDomain',
-        'This address works on the local network. To also give the app an address reachable from the internet, add a domain in Configuration > Domains.')}
-    </Typography>;
-  }
-
-  const toggle = (domain) => onChange(selected.includes(domain) ? selected.filter((d) => d !== domain) : [...selected, domain]);
-
-  return <Stack spacing={1}>
-    <Typography variant="subtitle2">
-      {t('mgmt.urls.external.title', 'Also reachable from the internet through (optional):')}
-    </Typography>
-    <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
-      {domains.map((domain) => (
-        <Chip
-          key={domain}
-          clickable
-          icon={<GlobalOutlined />}
-          color={selected.includes(domain) ? 'primary' : 'default'}
-          variant={selected.includes(domain) ? 'filled' : 'outlined'}
-          label={hostLabel(name) ? shownAddress(externalAddress(name, domain), ports) : domain}
-          onClick={() => toggle(domain)}
-          sx={{ maxWidth: '100%' }}
-        />
-      ))}
-    </Stack>
-    <Typography variant="caption" color="textSecondary">
-      {selected.length === 0
-        ? t('mgmt.urls.external.none', 'Nothing selected: the app gets its local address only.')
-        : t('mgmt.urls.external.selected',
-          'One more address is created per selected domain. For it to work from outside, the name must point to this server in DNS and the router must forward the port (Configuration > HTTP > Internet access).')}
-    </Typography>
-    {selected.length > 0 && <PortForwardHint config={config} />}
-  </Stack>;
 };
 
 export default HostnameSuggestions;

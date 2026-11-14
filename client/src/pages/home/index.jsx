@@ -3,7 +3,6 @@ import Back from "../../components/back";
 import { Alert, Box, CircularProgress, Grid, Stack, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { lazy, useEffect, useState } from "react";
 import * as API from "../../api";
-import { ServerUpdateAlert } from '../../components/serverUpdate';
 import wallpaper from '../../assets/images/wallpaper2.jpg';
 import wallpaperLight from '../../assets/images/wallpaper2_light.jpg';
 import Grid2 from "@mui/material/Unstable_Grid2/Grid2";
@@ -21,8 +20,7 @@ import { metricsByKey, percentOf, hasMeasurements } from '../../utils/metricsSta
 import { NoMeasurements } from '../../components/emptyState';
 import Migrate014 from "./migrate014";
 import MyActivity from '../securityAudit/myActivity'; // Fork addition: recent activity on the own account
-import { CertificateAlerts } from '../../components/certificates'; // Fork addition
-import HealthCard from '../../components/healthCard'; // Fork addition
+import HomeNotices from '../../components/homeNotices'; // Fork addition: every notice of the page and the health lines in one area
 import { Trans, useTranslation } from 'react-i18next';
 
 
@@ -370,60 +368,9 @@ const HomePage = () => {
         <TransparentHeader />
 
         <Stack style={{ zIndex: 2, padding: '0px 8px'}} spacing={1}>
-            {isAdmin && coStatus && !coStatus.database && (
-                <Alert severity="error">
-                    {t('navigation.home.dbCantConnectError')}
-                </Alert>
-            )}
-
-            {/* Fork addition: what is wrong with a certificate, for which domain, and what to do (components/certificates.jsx);
-                upstream showed navigation.home.LetsEncryptEmailError when no email address was set, which no order needs */}
-            {isAdmin && coStatus && <CertificateAlerts />}
-
-            {isAdmin && coStatus && (coStatus.backup_status != "") && (
-                <Alert severity="error">
-                    {coStatus.backup_status}
-                </Alert>
-            )}
-
-            {/* Fork addition: said per domain by CertificateAlerts above; upstream listed every error since the last restart, also once the certificate had arrived */}
-            {false && isAdmin && coStatus && coStatus.LetsEncryptErrors && coStatus.LetsEncryptErrors.length > 0 && (
-                <Alert severity="error">
-                    {t('navigation.home.LetsEncryptError')}
-                    {coStatus.LetsEncryptErrors.map((err) => {
-                        return <div> - {err}</div>
-                    })}
-                </Alert>
-            )}
-
-            {/* Fork addition: names the version and offers to install it (upstream: a plain notice) */}
-            {isAdmin && coStatus && coStatus.newVersionAvailable && <ServerUpdateAlert />}
-
-            {isAdmin && coStatus && !coStatus.hostmode && config && (
-                <Alert severity="warning">
-                    {t('navigation.home.cosmosNotDockerHostError')} <br />
-                    <Migrate014 config={config} />
-                </Alert>
-            )}
-
-            {isAdmin && coStatus && coStatus.needsRestart && (
-                <Alert severity="warning">
-                    {t('navigation.home.configChangeRequiresRestartError')}
-                </Alert>
-            )}
-
-            {isAdmin && coStatus && coStatus.domain && (
-                <Alert severity="error">
-                    {t('navigation.home.localhostnotRecommendedError')}
-                </Alert>
-            )}
-
-            {isAdmin && coStatus && !coStatus.docker && (
-                <Alert severity="error"><Trans i18nKey="newInstall.dockerNotConnected" /></Alert>
-            )}
-
-            {/* Fork addition: what needs attention (jobs, apps, disks, snapshots, certificates), or one calm line */}
-            {isAdmin && coStatus && <HealthCard docker={!!coStatus.docker} />}
+            {/* Fork addition: the database, certificate, backup, update, install mode, restart, host name and Docker
+                notices and the health lines in one notice area (components/homeNotices.jsx); they were separate alerts */}
+            {isAdmin && coStatus && <HomeNotices coStatus={coStatus} config={config} />}
         </Stack>
 
         {/* Metrics */}

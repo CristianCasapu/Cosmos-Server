@@ -13,6 +13,7 @@ import ActivityIndicator from './components/activityIndicator';
 import { notify } from './utils/activity';
 import { DisconnectOutlined } from '@ant-design/icons';
 import ThrottledNotice from './components/throttledNotice'; // Fork addition
+import UnreachableNotice from './components/unreachableNotice'; // Fork addition
 import { throttledRecently } from './utils/sessionCheck'; // Fork addition
 import { PWAUpdateNotice } from './components/pwa'; // Fork addition: the installable app, see components/pwa.jsx
 import SkinAccent from './components/skinAccent'; // Fork addition
@@ -108,10 +109,8 @@ const App = () => {
                 {!timeoutError && <LoadingAnimation />}
                 {/* Fork addition: refused for "too many requests" is said in words, with a retry */}
                 {timeoutError && throttledRecently() && <ThrottledNotice />}
-                {timeoutError && !throttledRecently() && <DisconnectOutlined style={{
-                    fontSize: '200px',
-                    color: 'red',
-                }}/>}
+                {/* Fork addition: no answer at all is said in words, with a retry (was a red icon) */}
+                {timeoutError && !throttledRecently() && <UnreachableNotice />}
             </Box>
         </div>
 
