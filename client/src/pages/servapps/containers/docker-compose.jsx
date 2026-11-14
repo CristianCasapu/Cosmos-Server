@@ -40,6 +40,7 @@ import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_RESOURCES } from '../../../utils/permissions';
 import { ComposePortConflicts } from '../../../components/portConflicts'; // Fork addition
 // Fork addition: local address by default, external ones per attached domain
+import { keepOnBackdrop } from '../../../components/formHelpers'; // Fork addition
 import HostnameSuggestions, { DomainPicker, addressName, installerRouteHasAddress, localAddress, withExternalRoutes } from '../../../components/hostnameSuggestions';
 
 function checkIsOnline() {
@@ -617,8 +618,7 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
       // Apply env substitution
       const envMap = parseEnvContent(envContent);
       const envSubstitutedCompose = applyEnvSubstitution(dockerCompose, envMap);
-
-      console.log('envSubstitutedCompose', envSubstitutedCompose);
+      // Fork addition: not printed to the console: it holds the generated passwords
 
       let isJson = envSubstitutedCompose && envSubstitutedCompose.trim().startsWith('{') && envSubstitutedCompose.trim().endsWith('}');
 
@@ -633,15 +633,14 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
         RootHostname: (config && config.HTTPConfig && config.HTTPConfig.Hostname) || window.location.hostname,
         RootProtocol: rootProtocol,
       });
-
-      console.log('rendered', rendered);
+      // Fork addition: not printed to the console: it holds the generated passwords
 
       let jsoned;
       if(isJson) {
         jsoned = JSON.parse(rendered);
       } else {
         jsoned = convertDockerCompose(config, serviceName, rendered, setYmlError);
-        console.log('jsoned', jsoned);
+      // Fork addition: not printed to the console: it holds the generated passwords
       }
       
       if(!serviceName && !Object.keys(service).length) {
@@ -815,7 +814,7 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
   }
 
   return <>
-    <Dialog open={openModal} onClose={() => setOpenModal(false)} fullWidth maxWidth={'sm'}>
+    <Dialog open={openModal} onClose={keepOnBackdrop(() => setOpenModal(false)) /* Fork addition: a click beside it no longer throws the form away */} fullWidth maxWidth={'sm'}>
       <DialogTitle>{installer ? t('mgmt.servapps.compose.installTitle') : t('mgmt.servapps.importComposeFileButton')}</DialogTitle>
       <DialogContent style={{ width: '100%' }}>
         <DialogContentText>
@@ -1012,17 +1011,10 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
                 })
               })}
 
-              {/* Fork addition: attach domains; each adds an external route per hostname above */}
-              {(() => {
-                const named = Object.keys(hostnames).flatMap((serviceIndex) =>
-                  Object.values(hostnames[serviceIndex]).filter(installerRouteHasAddress).map((route) => addressName(serviceIndex, route)));
-                return named.length > 0 && <DomainPicker
-                  name={named.length === 1 ? named[0] : ''}
-                  config={config}
-                  selected={domains}
-                  onChange={setDomains}
-                />;
-              })()}
+              {/* Fork addition: the internet (domains, Cloudflare or direct, ports) is proposed on the last step, see components/exposure.jsx */}
+              {Object.keys(hostnames).length > 0 && <Typography variant="caption" color="textSecondary" component="div">
+                {t('mgmt.expose.install.later', 'Reaching the app from the internet as well is proposed on the next step.')}
+              </Typography>}
 
               {service && service.services && Object.values(service.services).map((value) => {
                 return <CosmosCollapse title={t('mgmt.servApps.newContainer.customize', {container_name: value.container_name})}>
