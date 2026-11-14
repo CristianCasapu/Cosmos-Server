@@ -147,6 +147,8 @@ WebKit does not keep the session cookie on a test hostname without a dot: give t
 
 The form checks are `scripts/fork-ui-check-url-form.mjs`, `-all-addresses`, `-users`, `-cron-job`, `-port-chips`, `-requests`, `-throttled` and `-url-wizard` (each header lists the containers it expects; `ENGINES=chromium,firefox,webkit SIZES=d,m`). A gotcha when writing forms: Formik computes each change from the last render's values, so two `setFieldValue` calls made in one go lose the first: set several values with one `setValues`.
 
+For the origin-pulls part the Cloudflare browser check needs the test Cosmos started with `--cap-add NET_ADMIN`, a Cloudflare address added inside its own network namespace, and the stand-in's `edge` role (the script header has the commands; `PART=pulls` is repeatable, the rest needs a fresh instance); the Fail2ban check has `PHASE=cloudflare`. The built-in Cloudflare shared origin-pull CA expires on 2029-11-01 and must be replaced in the source before then (a test fails when it has expired).
+
 `scripts/fork-ui-check.mjs` logs in, confirms the password (`/api/sudo`: most
 admin actions need it), visits the main pages in three engines and at phone
 width, and reports script errors. Look at the screenshots it writes. Errors

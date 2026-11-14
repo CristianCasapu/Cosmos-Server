@@ -101,17 +101,16 @@ security record.
 
 ## Cloudflare and email: left for later (2026-11-14)
 
-- **Authenticated Origin Pulls** (the owner's decision, recommended before
-  relying on the shield): Cloudflare's network is shared, so a request can
-  come from Cloudflare's addresses without passing the owner's zone; it
-  passes the "shielded names answer Cloudflare only" guard and can name any
-  public visitor address. Closing it needs a client-certificate check in
-  the TLS configuration.
-- The Fail2ban installer reads `TrustedProxies` only: with shielded names it
-  should put Cloudflare's ranges into `ignoreip` and say that a ban stops
-  direct connections only.
-- Reachability does not check the panel's own hostname; an Origin CA
-  certificate on a shielded name shows as "not trusted".
+- Authenticated Origin Pulls are built (off until switched on). To confirm on
+  the real setup: that Cloudflare accepts the certificate Cosmos makes, that
+  its proxy presents it on port 2053, and how long a change takes; the
+  owner's choices: shared or own certificate (own is the one that proves the
+  request passed the owner's zone), one-time token or manual upload.
+- A SmartShield strike has no Fail2ban line when a proxy reported that
+  address within the last day (accepted trade-off); `access.origin.denied`
+  does not count towards a ban.
+- An Origin CA certificate on a shielded name shows as "not trusted" in the
+  reachability check.
 - Unverified against the real Cloudflare: the "may this token edit?" check,
   the public-address lookup used by the preview, and whether the "Edit zone
   DNS" template alone is enough.
