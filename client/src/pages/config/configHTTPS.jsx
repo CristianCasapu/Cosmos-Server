@@ -75,10 +75,10 @@ const ConfigHTTPS = ({ formik, config, serverCertificate }) => {
         {formik.values.HTTPSCertificateMode !== "DISABLED" && (
             <CosmosInputText
               name="SSLEmail"
-              onChange={(e) => {
-                formik.setFieldValue("ForceHTTPSCertificateRenewal", true);
-              }}
+              /* Fork addition: a changed address no longer orders every certificate again (upstream set ForceHTTPSCertificateRenewal here):
+                 the account exists already, and an order for the same names counts against Let's Encrypt's weekly limit */
               label={t('mgmt.config.security.encryption.sslLetsEncryptEmailInput.sslLetsEncryptEmailLabel')}
+              helperText={/* Fork addition */ t('mgmt.certs.emailOptional', 'Optional. Certificates are issued without an address: Let\'s Encrypt no longer sends expiry emails (since June 2025) and does not keep the address. Cosmos tells you itself when a certificate could not be renewed.')}
               formik={formik}
             />
           )

@@ -9,8 +9,11 @@ import (
 	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/gorilla/mux"
 
 	"github.com/azukaar/cosmos-server/src/utils"
 )
@@ -216,6 +219,85 @@ func TestKeepServerCertificatesIgnoresWhatTheRequestCarries(t *testing.T) {
 		// everything else is the request's
 		if kept.Hostname != "changed-by-the-request" {
 			t.Errorf("%s request: a setting of the request was overwritten", name)
+		}
+	}
+}
+
+// What the certificate orders may use is not the settings page's to change.
+func TestSettingsSaveKeepsTheCertificateSettings(t *testing.T) {
+	stored := utils.Config{}
+	stored.HTTPConfig.Certificates.HTTPChallenge = "no"
+	request := utils.Config{}
+	request.HTTPConfig.Certificates.HTTPChallenge = "yes"
+	keepServerCertificates(&request, stored)
+	if request.HTTPConfig.Certificates.HTTPChallenge != "no" {
+		t.Errorf("a settings save changed it to %q", request.HTTPConfig.Certificates.HTTPChallenge)
+	}
+}
+
+// A domain is checked by the fork's rules before it is stored: the
+// variables are the provider's own, and a challenge handed to another
+// domain names a domain that can answer it.
+func TestSavingADomainChecksWhatTheOrderWillUse(t *testing.T) {
+	settingsTestServer(t)
+	config := utils.DefaultConfig
+	config.NewInstall = false
+	config.HTTPConfig.Hostname = "192.168.1.10"
+	config.HTTPConfig.HTTPSCertificateMode = "LETSENCRYPT"
+	config.HTTPConfig.DNSZones = []utils.DNSZoneConfig{{
+		Zone: "example.org", HTTPSCertificateMode: "LETSENCRYPT", DNSChallengeProvider: "cloudflare",
+		DNSChallengeConfig: map[string]string{"CF_DNS_API_TOKEN": "cfut_Zm9ya3Rlc3R0b2tlbl9mb3JrdGVzdHRva2VuXzAxMjM0NQ12345678"},
+	}}
+	utils.SetBaseMainConfig(config)
+
+	put := func(zone string, config utils.DNSZoneConfig) (int, string) {
+		body, _ := json.Marshal(config)
+		req := asAdmin(httptest.NewRequest("PUT", "https://192.168.1.10:2053/cosmos/api/zones/"+zone, bytes.NewReader(body)))
+		req = mux.SetURLVars(req, map[string]string{"zone": zone})
+		w := httptest.NewRecorder()
+		ZonesApiSet(w, req)
+		return w.Code, w.Body.String()
+	}
+
+	refused := map[string]utils.DNSZoneConfig{
+		"a moved API address with the kept token": {HTTPSCertificateMode: "LETSENCRYPT", DNSChallengeProvider: "cloudflare",
+			DNSChallengeConfig: map[string]string{"CF_DNS_API_TOKEN": utils.MaskedSecret, "CLOUDFLARE_BASE_URL": "https://203.0.113.9/client/v4"}},
+		"a variable of the process": {HTTPSCertificateMode: "LETSENCRYPT", DNSChallengeProvider: "cloudflare",
+			DNSChallengeConfig: map[string]string{"CF_DNS_API_TOKEN": utils.MaskedSecret, "HTTPS_PROXY": "http://203.0.113.9:3128"}},
+		"the provider that runs a program": {HTTPSCertificateMode: "LETSENCRYPT", DNSChallengeProvider: "exec",
+			DNSChallengeConfig: map[string]string{"EXEC_PATH": "/bin/sh"}},
+	}
+	for name, zone := range refused {
+		code, body := put("example.org", zone)
+		if code != http.StatusBadRequest || !strings.Contains(body, "ZN010") {
+			t.Errorf("%s: status %d %s", name, code, body)
+		}
+	}
+	for name, zone := range map[string]utils.DNSZoneConfig{
+		"a challenge handed to a domain not set up": {HTTPSCertificateMode: "LETSENCRYPT", ChallengeVia: "unknown.example", UseWildcardCertificate: true},
+		"a challenge handed to itself":              {HTTPSCertificateMode: "LETSENCRYPT", ChallengeVia: "example.net"},
+	} {
+		code, body := put("example.net", zone)
+		if code != http.StatusBadRequest || !strings.Contains(body, "ZN010") {
+			t.Errorf("%s: status %d %s", name, code, body)
+		}
+	}
+	after := utils.ReadConfigFromFile().HTTPConfig.DNSZones
+	if len(after) != 1 || len(after[0].DNSChallengeConfig) != 1 {
+		t.Fatalf("a refused save changed the domains: %+v", after)
+	}
+
+	// a wildcard certificate needs a DNS challenge: a delegated one counts
+	code, body := put("example.net", utils.DNSZoneConfig{HTTPSCertificateMode: "LETSENCRYPT", ChallengeVia: "Example.org", UseWildcardCertificate: true, ManageRecords: true})
+	if code == http.StatusBadRequest {
+		t.Fatalf("a delegated challenge with a wildcard certificate is refused: %s", body)
+	}
+	if code != http.StatusOK {
+		t.Skipf("the domain could not be saved in this test set-up (status %d)", code)
+	}
+	for _, zone := range utils.ReadConfigFromFile().HTTPConfig.DNSZones {
+		if zone.Zone == "example.net" && (zone.ChallengeVia != "example.org" || !zone.UseWildcardCertificate || zone.ManageRecords) {
+			t.Errorf("the delegated domain as stored: %+v", zone)
 		}
 	}
 }

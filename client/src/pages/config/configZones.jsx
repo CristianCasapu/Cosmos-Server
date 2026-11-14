@@ -29,6 +29,7 @@ import { useTranslation } from "react-i18next";
 import { ConfirmModalDirect } from "../../components/confirmModal";
 import CloudflareOverview, { CloudflareConnect, loadCloudflare, useCloudflare } from "../../components/cloudflare"; // Fork addition
 import { CloudOutlined } from "@ant-design/icons"; // Fork addition
+import CertificatesOverview, { AnotherDomain, HttpChallengeNote, followCertificates } from "../../components/certificates"; // Fork addition
 
 // one line saying which certificate serves a hostname, reused by the route and hostname views
 export const HostCertificateLine = ({ cert }) => {
@@ -120,6 +121,7 @@ const ZoneDialog = ({ zone, onClose, onSaved }) => {
       DisablePropagationChecks: !!zone.DisablePropagationChecks,
       ManageRecords: isNew ? true : !!zone.ManageRecords,
       WildcardRecord: isNew ? true : !!zone.WildcardRecord,
+      ChallengeVia: zone.ChallengeVia || "", // Fork addition: kept when the domain is saved from this form (components/certificates.jsx sets it)
     },
     validateOnChange: false,
     validate: (values) => {
@@ -140,7 +142,9 @@ const ZoneDialog = ({ zone, onClose, onSaved }) => {
           TLSCert: provided ? values.TLSCert : "",
           TLSKey: provided ? values.TLSKey : "",
           DNSChallengePropagationWait: parseInt(values.DNSChallengePropagationWait, 10) || 0,
-          UseWildcardCertificate: hasProvider && values.HTTPSCertificateMode === "LETSENCRYPT" && values.UseWildcardCertificate,
+          // Fork addition: a proof written in another domain is a DNS proof too; a provider of its own replaces it
+          ChallengeVia: hasProvider || values.HTTPSCertificateMode !== "LETSENCRYPT" ? "" : values.ChallengeVia,
+          UseWildcardCertificate: (hasProvider || !!values.ChallengeVia) && values.HTTPSCertificateMode === "LETSENCRYPT" && values.UseWildcardCertificate,
           ManageRecords: canManage && values.ManageRecords,
           WildcardRecord: canManage && values.ManageRecords && values.WildcardRecord,
         });
@@ -219,7 +223,10 @@ const ZoneDialog = ({ zone, onClose, onSaved }) => {
               >
                 {!hasProvider && letsEncrypt && (
                   <Grid item xs={12}>
-                    <Alert severity="info">{t('mgmt.config.zones.noProviderInfo')}</Alert>
+                    {/* Fork addition: what a domain without a provider gets here, said as it is (upstream: noProviderInfo always) */}
+                    {formik.values.ChallengeVia
+                      ? <Alert severity="info">{t('mgmt.certs.zone.delegatedInfo', 'The proof for this domain is written in {{via}}, through one record at this domain\'s own DNS provider. Choosing a provider here replaces that.', { via: formik.values.ChallengeVia })}</Alert>
+                      : <Stack spacing={1}><Alert severity="info">{t('mgmt.config.zones.noProviderInfo')}</Alert><HttpChallengeNote /></Stack>}
                   </Grid>
                 )}
 
@@ -311,6 +318,7 @@ const ConfigZones = () => {
   // Fork addition: the guided set-up for a domain at Cloudflare
   const [connectCloudflare, setConnectCloudflare] = useState(false);
   const cloudflare = useCloudflare();
+  const [anotherDomain, setAnotherDomain] = useState(false); // Fork addition: the guided dialog for a domain that is not at Cloudflare
 
   const refresh = async () => {
     try {
@@ -337,6 +345,9 @@ const ConfigZones = () => {
     }
     if (z.HTTPSCertificateMode !== "LETSENCRYPT") {
       return z.HTTPSCertificateMode || "-";
+    }
+    if (z.ChallengeVia) { // Fork addition
+      return t('mgmt.certs.zone.delegated', 'Let\'s Encrypt (proven in {{via}})', { via: z.ChallengeVia });
     }
     return z.DNSChallengeProvider
       ? t('mgmt.config.zones.https.dns', { provider: z.DNSChallengeProvider })
@@ -373,6 +384,7 @@ const ConfigZones = () => {
             onSaved={() => {
               setEditZone(null);
               refresh();
+              followCertificates(); // Fork addition: the certificates card follows the order a saved domain starts
             }}
           />
         )}
@@ -397,7 +409,20 @@ const ConfigZones = () => {
             onManual={() => { setConnectCloudflare(false); setEditZone({}); }}
             onClose={(changed) => {
               setConnectCloudflare(false);
-              if (changed) { refresh(); loadCloudflare(true); }
+              if (changed) { refresh(); loadCloudflare(true); followCertificates(); /* Fork addition */ }
+            }}
+          />
+        )}
+
+        {/* Fork addition: a domain whose DNS is somewhere else */}
+        {anotherDomain && (
+          <AnotherDomain
+            zones={zones || []}
+            onCloudflare={() => { setAnotherDomain(false); setConnectCloudflare(true); }}
+            onManual={() => { setAnotherDomain(false); setEditZone({}); }}
+            onClose={(changed) => {
+              setAnotherDomain(false);
+              if (changed) { refresh(); }
             }}
           />
         )}
@@ -406,6 +431,11 @@ const ConfigZones = () => {
           <PermissionGuard permission={PERM_CONFIGURATION}>
             <ResponsiveButton variant="contained" startIcon={<CloudOutlined />} onClick={() => setConnectCloudflare(true)}>
               {t('mgmt.cloudflare.connect.button', 'Connect Cloudflare')}
+            </ResponsiveButton>
+          </PermissionGuard>
+          <PermissionGuard permission={PERM_CONFIGURATION}>
+            <ResponsiveButton variant="outlined" startIcon={<PlusOutlined />} onClick={() => setAnotherDomain(true)}>
+              {t('mgmt.certs.add.title', 'Add another domain')}
             </ResponsiveButton>
           </PermissionGuard>
           <PermissionGuard permission={PERM_CONFIGURATION}>
@@ -514,6 +544,7 @@ const ConfigZones = () => {
 // Fork addition: the domains, and below them what is connected to Cloudflare
 const ConfigZonesWithCloudflare = () => <Stack spacing={3}>
   <ConfigZones />
+  <CertificatesOverview />
   <CloudflareOverview />
 </Stack>;
 

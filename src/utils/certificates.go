@@ -233,6 +233,11 @@ var dnsChallengeEnvLock sync.Mutex
 // DoLetsEncrypt obtains a certificate for the domains: through the DNS
 // provider of the zone when one is given, through HTTP-01/TLS-ALPN-01 otherwise.
 func DoLetsEncrypt(domains []string, zone *DNSZoneConfig) (string, string) {
+	// Fork addition: the order is the fork's (src/certs): chosen CA, key type, bounds, reasons. See fork_certs.go
+	if ForkObtain != nil {
+		return ForkObtain(domains, zone)
+	}
+
 	config := GetMainConfig()
 	ctx := context.Background()
 

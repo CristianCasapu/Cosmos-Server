@@ -245,6 +245,8 @@ const (
 	titleUPnPFailed         = "header.notification.title.upnpFailed"
 	titleSnapshotsFailed    = "header.notification.title.snapshotsFailed"
 	titleContainerUpdate    = "header.notification.title.containerUpdate"
+	titleCertExpiring       = "header.notification.title.certificateExpiring"  // src/certs/notify.go
+	titleCertUntrusted      = "header.notification.title.certificateUntrusted" // src/certs/notify.go
 	// raised by src/cloudflare/originpulls.go
 	titleOriginPullExpiring = "header.notification.title.originPullExpiring"
 	titleOriginPullStopped  = "header.notification.title.originPullStopped"
@@ -319,6 +321,16 @@ func noticeFromNotification(n utils.Notification, config utils.Config) (notice, 
 	case titleCertificateRenewed:
 		return notice{category: CategorySystem, key: "certificate.renewed", label: "Certificate renewed", priority: priorityLow,
 			title: "A certificate was renewed.", details: withVars("For ", "")}, true
+
+	case titleCertExpiring:
+		return notice{category: CategorySystem, key: "certificate.expiring", label: "Certificate not renewed", priority: priorityNormal,
+			title:   "A certificate is close to its end and could not be renewed. See Configuration > Domains > Certificates.",
+			details: withVars("", "")}, true
+
+	case titleCertUntrusted:
+		return notice{category: CategorySystem, key: "certificate.untrusted", label: "Address without a trusted certificate", priority: priorityNormal,
+			title:   "Addresses served directly are answered with a certificate browsers do not trust: visitors get a warning. See Configuration > Domains > Certificates.",
+			details: withVars("", "")}, true
 
 	case titleUPnPFailed:
 		return notice{category: CategorySystem, key: "upnp.failed", label: "Router port forwarding failed", priority: priorityNormal,

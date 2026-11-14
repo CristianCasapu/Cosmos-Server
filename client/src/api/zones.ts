@@ -13,6 +13,7 @@ export interface DNSZoneConfig {
   DisablePropagationChecks: boolean;
   ManageRecords: boolean;
   WildcardRecord: boolean;
+  ChallengeVia?: string; // Fork addition: the DNS challenge is answered in this other domain (src/certs)
 }
 
 export interface HostCertificate {
