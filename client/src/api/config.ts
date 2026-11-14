@@ -205,6 +205,8 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
   const cloudflareShield = (hostname: string, shielded: boolean) => cloudflareCall('/shield', 'POST', { hostname, shielded });
   const cloudflarePanel = (hostname: string) => cloudflareCall('/panel', 'POST', { hostname });
   const cloudflareRanges = (action: string) => cloudflareCall('/ranges', 'POST', { action });
+  // Authenticated Origin Pulls: one route, the step is the body's "action"
+  const cloudflareOriginPulls = (body: any) => cloudflareCall('/origin-pulls', 'POST', body);
 
   // Fork addition: is there a newer server release? GET = last known answer,
   // POST = ask again. Neither installs anything.
@@ -465,6 +467,7 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     cloudflareShield,
     cloudflarePanel,
     cloudflareRanges,
+    cloudflareOriginPulls,
     snapshotsStatus,
     snapshotsRun,
     snapshotsRestore,
