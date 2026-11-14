@@ -145,6 +145,8 @@ A browser check that loads full pages one after another has to pace itself (abou
 
 `scripts/fork-ui-check-cloudflare.mjs` (with `scripts/fork-fake-cloudflare.go` answering as Cloudflare's API) and `scripts/fork-ui-check-email.mjs` (with `scripts/fork-fake-mail` as name server and mail server) run on an `--internal` Docker network; their headers list what they expect. Nothing is ever sent to the real Cloudflare or to real mail servers.
 
+`scripts/fork-ui-check-upnp.mjs` runs against `scripts/fork-fake-igd.go`, a stand-in router; the test Cosmos needs `--cap-add NET_ADMIN` and `ip route replace default via <stand-in>` because the UPnP client only talks to the default gateway (the script's header has the details). The live tests against a real router are opt-in: `UPNP_LIVE=1 go test ./src/upnp/ -run TestLiveRouter$ -v` (read only) and `UPNP_LIVE_WRITE=1 … -run TestLiveRouterMapping` (maps port 39999 for a minute); run them only when the owner asks.
+
 `scripts/fork-ui-check.mjs` logs in, confirms the password (`/api/sudo`: most
 admin actions need it), visits the main pages in three engines and at phone
 width, and reports script errors. Look at the screenshots it writes. Errors

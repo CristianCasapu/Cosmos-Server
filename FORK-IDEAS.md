@@ -113,6 +113,21 @@ security record.
 - The panel on the domain's own name shares its session cookie with every
   port and subdomain of that name (the owner chose it knowingly).
 
+## Router ports for apps: left for later (2026-11-14)
+
+- Not yet run against the owner's router: whether it lists forwards made by
+  hand (80, 443, mail), what it answers for a taken port, how it treats
+  leases (`/storage/dev/plans/14-upnp-apps.md`, section 8, has the list).
+- Chips outside the app card (URL list, route editor, home tiles) carry the
+  port the panel is browsed on, which is wrong only when the router forwards
+  another external port for Cosmos itself.
+- The switch is on the container page's "Internet" section, not on its
+  Network tab; IPv6 pinholes and NAT-PMP/PCP are not done; a renamed
+  container loses its choice; nothing is tested from outside.
+- The owner's choices to review: the reserved list holds 443 by default; a
+  stopped container's port is closed and reopened; a choice is forgotten 15
+  minutes after its container is gone; at most 32 app ports.
+
 ## Usability gaps found in the code
 
 | # | Gap | Where |
