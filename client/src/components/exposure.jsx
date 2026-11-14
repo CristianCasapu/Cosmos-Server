@@ -225,7 +225,11 @@ const afterChange = async (reloaded, refresh) => {
   }
   loadCloudflare(true);
   API.config.upnpStatus(true).then((res) => setRouterStatus(res && res.data)).catch(() => {});
-  if (refresh) await refresh();
+  try {
+    if (refresh) await refresh();
+  } catch (e) {
+    // the page reads again on its own; a server that is still reloading is not an error here
+  }
 };
 
 // The dialog for an app that exists. `containerName` without "/".
