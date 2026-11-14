@@ -146,6 +146,22 @@ security record.
   holds a request for ten seconds.
 - Not tried on a real phone or real Safari, only the WebKit engine.
 
+## Installable app: left for later (2026-11-14)
+
+- Never tried on real devices (iPhone notch and status-bar colours, the
+  Android install banner, the desktop install dialog were simulated); the
+  update flow was not run in WebKit across a browser restart.
+- With a certificate the device does not trust, browsers refuse the service
+  worker (seen in Chromium): the panel still works as a page. The owner's
+  public name has a recognised certificate; `.local` names need Cosmos'
+  authority installed on the device.
+- Left out on purpose: push notifications, background sync, offline viewing
+  of data, manifest screenshots, the window-controls-overlay title bar.
+- Seen, not fixed: the "SA" chip on URL pages has low contrast (1.98:1);
+  some header icon buttons are 36-40 px on phones (44 px is the target).
+- The owner's to change if wanted: "Not now" lasting 30 days, the four
+  shortcuts.
+
 ## Exposing apps: left for later (2026-11-14)
 
 - The "New URL" dialog still has the old domain picker (direct copies
