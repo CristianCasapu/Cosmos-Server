@@ -175,6 +175,7 @@ const views = [
     ['/cosmos/api/list-metrics', (j) => ({ ...j, data: { ...(j.data || {}), 'cosmos.system.disk./storage': 'Disk /storage' } })],
     ['/cosmos/api/metrics', (j, url) => (/cosmos\.system\.disk\./.test(decodeURIComponent(url)) ? { status: 'OK', data: [{ Key: 'cosmos.system.disk./storage', Max: 4000e9, Values: [{ Value: 3880e9 }] }] } : j)],
     ['/cosmos/api/snapshots', () => ({ status: 'OK', data: { enabled: true, sources: [{ path: '/storage/photos', lastError: 'The folder was empty: is the disk mounted?' }] } })],
+    ['/cosmos/api/jobs', (j) => ({ ...j, data: { ...(j.data || {}), Custom: { ...((j.data || {}).Custom || {}), 'nightly-cleanup': { Name: 'nightly-cleanup', Scheduler: 'Custom', LastRun: '2026-11-14T03:00:00Z', LastRunSuccess: false } } } })],
   ] },
   { id: 'home-calm', path: '/cosmos-ui/', wait: 1500, patch: [
     ['/cosmos/api/jobs', () => ({ status: 'OK', data: { Custom: {} } })],
