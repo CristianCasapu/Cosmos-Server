@@ -157,6 +157,19 @@ security record.
   a device that never opened the panel (needs the colours in an answer
   visitors can read); the icon timings (2 s wait, 5 minutes for a failure).
 
+## Seen with the day's work together, left as it is (2026-11-14)
+
+- The three ServApps notices (updates, apps without an address, leftovers)
+  can stack, each an alert inside a white card; on a phone the header icon
+  buttons touch each other; "Previous" and "Next" on the new-container form
+  have different widths on a phone.
+- The Market review on a network without DNS shows "Internal server error:
+  lookup …"; while the server is throttling, the home health card says "All
+  is well" next to "could not be checked".
+- Not run in that pass: the installable app's script phases, and the
+  certificates, home-names, Cloudflare, e-mail, Telegram, Fail2ban and UPnP
+  checks (each needs a set-up of its own).
+
 ## Creating apps: left for later (2026-11-14)
 
 - An image's declared volumes and ports are known only when the image is

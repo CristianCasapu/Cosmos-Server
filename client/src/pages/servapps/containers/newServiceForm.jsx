@@ -1,7 +1,7 @@
 import * as React from 'react';
 import MainCard from '../../../components/MainCard';
 import RestartModal from '../../config/users/restart';
-import { Alert, Button, Checkbox, Chip, Divider, Stack, useMediaQuery } from '@mui/material';
+import { Alert, Button, Checkbox, Chip, Divider, Stack, Typography, useMediaQuery } from '@mui/material';
 import HostChip from '../../../components/hostChip';
 import { RouteMode, RouteSecurity } from '../../../components/routeComponents';
 import { getFaviconURL, getHostnameFromName } from '../../../utils/routes';
@@ -105,9 +105,9 @@ const NewDockerServiceForm = () => {
     >
       {t('mgmt.servapps.creation.quick', 'Review and create')}
     </Button>
-    <div style={{ fontSize: '0.8em', opacity: 0.8 }}>
+    <Typography variant="caption" color="text.secondary" component="div">{/* the skin's smallest size (12px), in its secondary text colour */}
       {t('mgmt.servapps.creation.quickHint', 'Cosmos proposes the rest (a local address, the restart policy, where the data goes) and shows everything on one page before anything is created. The other tabs stay open for changes.')}
-    </div>
+    </Typography>
   </Stack>;
 
   const nav = () => <Stack

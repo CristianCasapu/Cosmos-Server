@@ -200,13 +200,13 @@ func TestSecurityNotFoundRecordsProbesAndUnknownHostnames(t *testing.T) {
 		recordNotFound(req)
 	}
 
-	request("172.16.0.14:2053", "/.env")
-	request("172.16.0.14:2053", "/wp-login.php?redirect=1&token=cosmos_secret")
+	request("172.16.0.21:2053", "/.env")
+	request("172.16.0.21:2053", "/wp-login.php?redirect=1&token=cosmos_secret")
 	request("scanner.example", "/phpmyadmin/")         // a probe first, whatever the hostname
 	request("scanner.example", "/favicon.ico")         // a hostname that is not served
-	request("172.16.0.14:2053", "/favicon.ico")        // an ordinary 404
+	request("172.16.0.21:2053", "/favicon.ico")        // an ordinary 404
 	request("media.home.lan", "/apple-touch-icon.png") // an ordinary 404 on a route's hostname
-	request("172.16.0.14:2053", "/.well-known/security.txt")
+	request("172.16.0.21:2053", "/.well-known/security.txt")
 
 	events := recorded()
 	got := []string{}
@@ -217,8 +217,8 @@ func TestSecurityNotFoundRecordsProbesAndUnknownHostnames(t *testing.T) {
 		}
 	}
 	want := []string{
-		utils.SecScanProbe + " 172.16.0.14:2053 /.env dotfile",
-		utils.SecScanProbe + " 172.16.0.14:2053 /wp-login.php wordpress",
+		utils.SecScanProbe + " 172.16.0.21:2053 /.env dotfile",
+		utils.SecScanProbe + " 172.16.0.21:2053 /wp-login.php wordpress",
 		utils.SecScanProbe + " scanner.example /phpmyadmin/ phpmyadmin",
 		utils.SecShieldHostname + " scanner.example /favicon.ico ",
 	}

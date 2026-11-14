@@ -100,7 +100,7 @@ type ContainerCreateRequestContainer struct {
 
 	PostInstall []string `json:"post_install,omitempty"`
 
-	forkServiceExtras // Fork addition: shm_size, tmpfs, init, read_only (fork_compose_types.go)
+	forkServiceExtras `yaml:",inline"` // Fork addition: shm_size, tmpfs, init, read_only (fork_compose_types.go); inline, so that the YAML export of Cosmos' own container (export.go) can read it
 }
 
 type ContainerCreateRequestVolume struct {

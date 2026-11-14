@@ -150,9 +150,18 @@ func portState(port int, current []int, containers map[int]string) portFinding {
 	return finding
 }
 
+// runningHTTPConfig: the settings Cosmos runs with, COSMOS_HTTP_PORT and
+// COSMOS_HTTPS_PORT applied (the stored settings do not have them).
+var runningHTTPConfig = func() utils.HTTPConfig {
+	return utils.GetMainConfig().HTTPConfig
+}
+
+// currentPorts: the ports Cosmos listens on now, those of the stored settings
+// and those it runs with when the environment overrides them.
 func currentPorts(config utils.Config) []int {
 	ports := []int{}
-	for _, value := range []string{config.HTTPConfig.HTTPPort, config.HTTPConfig.HTTPSPort} {
+	running := runningHTTPConfig()
+	for _, value := range []string{config.HTTPConfig.HTTPPort, config.HTTPConfig.HTTPSPort, running.HTTPPort, running.HTTPSPort} {
 		if port, ok := httpPort(value); ok {
 			ports = append(ports, port)
 		}

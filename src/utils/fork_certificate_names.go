@@ -4,7 +4,7 @@ package utils
 //
 // A certificate lists what it is valid for as DNS names and, separately, as
 // IP addresses. Upstream put every hostname into the DNS names, an address
-// like 172.16.0.14 included, and browsers do not accept an address there: a
+// like 172.16.0.21 included, and browsers do not accept an address there: a
 // server reached by its address showed a certificate warning for good, even
 // on a device that trusts Cosmos' own certificate authority. The addresses
 // are now also listed as addresses (the DNS names stay as they were), so

@@ -6,10 +6,10 @@ import { DEVICES, avahiAdvice, blocker, isLocalName, isMultiLabel, lanAddress, n
 
 const base = (names = [], extra = {}) => ({
   enabled: true, avahi: 'running', hostName: 'server.local',
-  interfaces: [{ name: 'eno1', address: '172.16.0.14', auto: true }],
+  interfaces: [{ name: 'eno1', address: '172.16.0.21', auto: true }],
   problems: [], names, avahiConf: { read: true, allowInterfaces: [], denyInterfaces: [] }, ...extra,
 });
-const own = { interface: 'eno1', address: '172.16.0.14', from: '172.16.0.14', own: true };
+const own = { interface: 'eno1', address: '172.16.0.21', from: '172.16.0.21', own: true };
 const other = { interface: 'eno1', address: '172.16.0.50', from: '172.16.0.50', own: false };
 
 test('local names and multi-label names', () => {
@@ -35,7 +35,7 @@ test('the state of one name', () => {
   assert.equal(nameState(base(), 'radarr.local').text[0], 'mgmt.localNames.notYet');
   const answered = nameState(base([{ name: 'radarr.local', state: 'published', checked: true, answered: true, answers: [own] }]), 'Radarr.local');
   assert.equal(answered.level, 'success');
-  assert.equal(answered.text[2].where, 'eno1 (172.16.0.14)');
+  assert.equal(answered.text[2].where, 'eno1 (172.16.0.21)');
   assert.equal(nameState(base([{ name: 'radarr.local', state: 'published', checked: true, answered: false, answers: [] }]), 'radarr.local').level, 'warning');
   assert.equal(nameState(base([{ name: 'radarr.local', state: 'registering', checked: false, answers: [] }]), 'radarr.local').text[0], 'mgmt.localNames.registering');
   const conflict = nameState(base([{ name: 'radarr.local', state: 'conflict', checked: true, answers: [other] }]), 'radarr.local');
@@ -63,7 +63,7 @@ test('the advice about Avahi\'s own interfaces', () => {
   assert.equal(avahiAdvice(base())[2].names, 'eno1');
   assert.equal(avahiAdvice(base([], { avahiConf: { read: true, allowInterfaces: ['eno1'] } })), null);
   assert.equal(avahiAdvice(base([], { avahiConf: { read: false } })), null);
-  assert.equal(lanAddress(base()), '172.16.0.14');
+  assert.equal(lanAddress(base()), '172.16.0.21');
 });
 
 test('every text is in the English translation file with the same words', () => {

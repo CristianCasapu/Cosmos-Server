@@ -21,6 +21,12 @@ const PermissionGuard = ({ children, permission, alwaysShow }) => {
   const { hasPermission, hasRolePermission } = useClientInfos();
   const hasPerm = hasPermission(permission);
   const hasRole = hasRolePermission(permission);
+  // Fork addition: the tooltip closes when the click opens the password
+  // prompt and stays closed until the pointer leaves: a tooltip left open (a
+  // tap on a phone opens it with the click, after its delay) lies above the
+  // prompt and can cover its Submit button.
+  const [tipOpen, setTipOpen] = React.useState(false);
+  const tipHeld = React.useRef(false);
 
   if (!hasRole && !alwaysShow) return null;
   if (hasPerm) return children;
@@ -30,8 +36,8 @@ const PermissionGuard = ({ children, permission, alwaysShow }) => {
   // sending the admin to the button at the top; see utils/sudoPrompt.js.
   if (hasRole) {
     return (
-      <Tooltip title={t('sudo.requiredClick', 'Confirm your password to use this function: click here')}>
-        <span style={{ cursor: 'pointer' }} onClick={(event) => { event.preventDefault(); event.stopPropagation(); askForPassword('guard'); }}>
+      <Tooltip title={t('sudo.requiredClick', 'Confirm your password to use this function: click here')} open={tipOpen} onOpen={() => { if (!tipHeld.current) setTipOpen(true); }} onClose={() => setTipOpen(false)}>
+        <span style={{ cursor: 'pointer' }} onMouseLeave={() => { tipHeld.current = false; }} onClick={(event) => { event.preventDefault(); event.stopPropagation(); tipHeld.current = true; setTipOpen(false); askForPassword('guard'); }}>
           <span style={{ pointerEvents: 'none', filter: 'grayscale(0.5)', opacity: 0.65 }}>
             {disarm(children)}
           </span>

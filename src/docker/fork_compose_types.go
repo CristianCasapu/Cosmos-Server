@@ -80,6 +80,19 @@ func (s forkStringList) MarshalJSON() ([]byte, error) {
 }
 
 // Given tells whether the value was set (and not empty).
+// MarshalYAML: the same value as MarshalJSON, for the YAML export of Cosmos'
+// own container (export.go); without it the struct's fields are unexported
+// and the value would be lost.
+func (s forkStringList) MarshalYAML() (interface{}, error) {
+	if s.fromString {
+		return s.raw, nil
+	}
+	if s.list == nil {
+		return nil, nil
+	}
+	return s.list, nil
+}
+
 func (s forkStringList) Given() bool { return s.given }
 
 // Args returns the words.

@@ -8,7 +8,7 @@ import (
 )
 
 func TestIsLocalAddress(t *testing.T) {
-	local := []string{"jellyfin.local", "Jellyfin.LOCAL", "jellyfin.local:2053", "172.16.0.14:7200", "192.168.1.10", "10.0.0.5:80", "127.0.0.1", "[fe80::1]:443", "app.local."}
+	local := []string{"jellyfin.local", "Jellyfin.LOCAL", "jellyfin.local:2053", "172.16.0.21:7200", "192.168.1.10", "10.0.0.5:80", "127.0.0.1", "[fe80::1]:443", "app.local."}
 	for _, host := range local {
 		if !isLocalAddress(host) {
 			t.Errorf("%q should be a local address", host)
