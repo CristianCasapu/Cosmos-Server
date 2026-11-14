@@ -621,6 +621,9 @@ type Status struct {
 	Address string `json:"address,omitempty"`
 	// Hostname is the panel's own address now
 	Hostname string `json:"hostname"`
+	// OriginPulls: whether Cloudflare's proxy must prove itself with a
+	// client certificate, see originpulls.go
+	OriginPulls OriginPullsState `json:"originPulls"`
 }
 
 // GetStatus gathers what the screens show. Nothing is asked of Cloudflare.
@@ -636,6 +639,7 @@ func GetStatus(withAddresses bool) Status {
 		AllowedPorts: utils.CloudflareHTTPSPorts,
 		Ranges:       rangesStatus(cf, withAddresses),
 		Hostname:     utils.CloudflareHostname(config.HTTPConfig.Hostname),
+		OriginPulls:  originPullsStatus(config),
 	}
 	status.PortOK = utils.IsCloudflareHTTPSPort(status.PublicPort)
 	if withAddresses {
@@ -732,6 +736,7 @@ const rangesMaxAge = 7 * 24 * time.Hour
 // Cloudflare and its addresses are not trusted.
 func Start() {
 	startOnce.Do(func() {
+		startOriginPullWatch()
 		go func() {
 			for {
 				time.Sleep(24 * time.Hour)

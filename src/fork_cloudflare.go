@@ -37,5 +37,6 @@ func registerCloudflareRoutes(router *mux.Router) {
 	router.HandleFunc("/api/cloudflare/shield", cloudflare.ShieldRoute)
 	router.HandleFunc("/api/cloudflare/panel", cloudflare.PanelRoute)
 	router.HandleFunc("/api/cloudflare/ranges", cloudflare.RangesRoute)
+	router.HandleFunc("/api/cloudflare/origin-pulls", cloudflare.OriginPullsRoute)
 	cloudflare.Start()
 }

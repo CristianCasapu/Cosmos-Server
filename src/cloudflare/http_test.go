@@ -14,18 +14,19 @@ import (
 )
 
 var writeRoutes = map[string]http.HandlerFunc{
-	"check":    CheckRoute,
-	"preview":  PreviewRoute,
-	"takeover": TakeOverRoute,
-	"shield":   ShieldRoute,
-	"panel":    PanelRoute,
-	"ranges":   RangesRoute,
+	"check":        CheckRoute,
+	"preview":      PreviewRoute,
+	"takeover":     TakeOverRoute,
+	"shield":       ShieldRoute,
+	"panel":        PanelRoute,
+	"ranges":       RangesRoute,
+	"origin-pulls": OriginPullsRoute,
 }
 
 func TestRoutesNeedThePermissionToChangeTheConfiguration(t *testing.T) {
 	env := setup(t, nil)
 	stored := utils.ReadConfigFromFile()
-	body := `{"hostname":"radarr.example.org","shielded":true,"token":"` + goodToken + `","zone":"example.org","names":["radarr.example.org"],"action":"trust"}`
+	body := `{"hostname":"radarr.example.org","shielded":true,"token":"` + goodToken + `","zone":"example.org","names":["radarr.example.org"],"action":"trust","kind":"own","mode":"test"}`
 
 	callers := map[string]*http.Request{
 		"nobody":                 httptest.NewRequest("POST", "/x", nil),
@@ -61,7 +62,8 @@ func TestRoutesNeedThePermissionToChangeTheConfiguration(t *testing.T) {
 		t.Errorf("a refused request reached Cloudflare: %+v", calls)
 	}
 	after := utils.ReadConfigFromFile()
-	if len(after.HTTPConfig.Cloudflare.Shielded) != 0 || after.HTTPConfig.Cloudflare.TrustRanges || after.HTTPConfig.Hostname != stored.HTTPConfig.Hostname {
+	if len(after.HTTPConfig.Cloudflare.Shielded) != 0 || after.HTTPConfig.Cloudflare.TrustRanges || after.HTTPConfig.Hostname != stored.HTTPConfig.Hostname ||
+		after.HTTPConfig.Cloudflare.OriginPulls.Mode != "" || after.HTTPConfig.Cloudflare.OriginPulls.Kind != "" || len(after.HTTPConfig.Cloudflare.OriginPulls.Own) != 0 {
 		t.Errorf("a refused request changed the configuration: %+v", after.HTTPConfig.Cloudflare)
 	}
 
@@ -85,7 +87,7 @@ func (nopCloser) Close() error { return nil }
 
 func TestBodiesAreBounded(t *testing.T) {
 	env := setup(t, nil)
-	limits := map[string]int{"check": maxCheckBody, "preview": maxPreviewBody, "takeover": maxPreviewBody, "shield": maxSmallBody, "panel": maxSmallBody, "ranges": maxSmallBody}
+	limits := map[string]int{"check": maxCheckBody, "preview": maxPreviewBody, "takeover": maxPreviewBody, "shield": maxSmallBody, "panel": maxSmallBody, "ranges": maxSmallBody, "origin-pulls": maxPullsBody}
 	for name, handler := range writeRoutes {
 		large := `{"token":"` + strings.Repeat("a", limits[name]) + `"}`
 		code, _ := do(t, handler, admin(httptest.NewRequest("POST", "/x", strings.NewReader(large))))

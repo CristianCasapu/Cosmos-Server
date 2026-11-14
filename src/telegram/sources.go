@@ -245,6 +245,9 @@ const (
 	titleUPnPFailed         = "header.notification.title.upnpFailed"
 	titleSnapshotsFailed    = "header.notification.title.snapshotsFailed"
 	titleContainerUpdate    = "header.notification.title.containerUpdate"
+	// raised by src/cloudflare/originpulls.go
+	titleOriginPullExpiring = "header.notification.title.originPullExpiring"
+	titleOriginPullStopped  = "header.notification.title.originPullStopped"
 	// TitleDeliveryFailed is this package's own notification. It is never
 	// forwarded: Telegram is what does not work.
 	TitleDeliveryFailed   = "header.notification.title.telegramFailed"
@@ -326,6 +329,15 @@ func noticeFromNotification(n utils.Notification, config utils.Config) (notice, 
 		return notice{category: CategorySystem, key: "snapshots.failed", label: "Incremental backup: problems", priority: priorityNormal,
 			title:   "The incremental backup did not go cleanly.",
 			details: withVars("", "")}, true
+
+	case titleOriginPullExpiring:
+		return notice{category: CategorySystem, key: "originpull.expiring", label: "Cloudflare certificate expires", priority: priorityNormal,
+			title:   "The certificate Cloudflare's proxy presents to this server expires soon. After that, requests through Cloudflare are refused while the check is enforced.",
+			details: withVars("Expires in ", "")}, true
+
+	case titleOriginPullStopped:
+		return notice{category: CategorySystem, key: "originpull.stopped", label: "Cloudflare certificate check not confirmed", priority: priorityNormal,
+			title: "Requiring a certificate from Cloudflare's proxy was not confirmed in time and is back to testing: nothing is refused."}, true
 
 	case titleContainerUpdate:
 		return notice{category: CategoryApps, key: "container.updated", label: "Container updated", priority: priorityLow,
