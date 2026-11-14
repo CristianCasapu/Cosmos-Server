@@ -3289,5 +3289,9 @@
 	"securityAudit.summary.sinceNote": "The record keeps 180 days; nothing before its first entry is known.",
 	"securityAudit.summary.lastActions": "Last actions",
 	"securityAudit.summary.noActions": "Nothing in the record",
-	"securityAudit.summary.floodNote": "Failed attempts that come too fast from one address are summed up without the name tried, so these counts can be lower than the real number. Times are those of this browser."
+	"securityAudit.summary.floodNote": "Failed attempts that come too fast from one address are summed up without the name tried, so these counts can be lower than the real number. Times are those of this browser.",
+	"skin.mode.toLight": "Switch to the light theme",
+	"skin.mode.toDark": "Switch to the dark theme",
+	"skin.mode.followsSystem": "Now: following the device",
+	"skin.mode.backToSystem": "Right click: follow the device again"
 }

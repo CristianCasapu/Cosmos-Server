@@ -33,7 +33,8 @@ const Logo = () => {
             />
             <span style={{fontWeight: 500, fontSize: '160%', paddingLeft:'10px'}}>
                 Cosmos{' '}
-                <span style={{
+                {/* Fork addition: the class lets the skin colour the word where the theme has no colours yet (the sign-in pages) */}
+                <span className="ct-logo-accent" style={{
                     background: `linear-gradient(to right, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
                     WebkitBackgroundClip: 'text',
                     WebkitTextFillColor: 'transparent',

@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_RESOURCES } from '../../../utils/permissions';
 
+// Fork addition: className="ct-readonly" on the values below lets the skin give them its own surface and wrap long ids
 const info = {
   backgroundColor: 'rgba(0, 0, 0, 0.1)',
   padding: '10px',
@@ -135,15 +136,15 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
               />
             </Stack>
             <strong><ContainerOutlined /> {t('mgmt.servApps.container.overview.imageTitle')}</strong>
-            <div style={info}>{Image}</div>
+            <div style={info} className="ct-readonly">{Image}</div>
             <strong><DesktopOutlined /> ID</strong>
-            <div style={info}>{containerInfo.Id}</div>
+            <div style={info} className="ct-readonly">{containerInfo.Id}</div>
             <strong><InfoCircleOutlined /> {t('mgmt.servApps.container.overview.ipAddressTitle')}</strong>
-            <div style={info}>{IPAddress}</div>
+            <div style={info} className="ct-readonly">{IPAddress}</div>
             <strong>
               <SafetyCertificateOutlined/> {t('mgmt.servApps.container.overview.healthTitle')}
             </strong>
-            <div style={info}>{healthStatus}</div>
+            <div style={info} className="ct-readonly">{healthStatus}</div>
             <strong><SettingOutlined /> {t('mgmt.servApps.container.overview.settingsTitle')} {State.Status !== 'running' ? t('mgmt.servApps.startToEditInfo') : ''}</strong>
             {/* <Stack style={{ fontSize: '80%' }} direction={"row"} alignItems="center">
               <Checkbox

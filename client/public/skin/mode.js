@@ -55,7 +55,22 @@
     light: SVG_OPEN + '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2' +
       'M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>'
   };
-  var NAME = { dark: 'întunecată', light: 'luminoasă' };
+  // The panel is English; a browser set to Romanian gets the words the skin
+  // was first written with.
+  var ro = /^ro\b/i.test((window.navigator && window.navigator.language) || '');
+  var TEXT = ro ? {
+    name: { dark: 'Temă întunecată', light: 'Temă luminoasă' },
+    to: { dark: 'Schimbă pe tema întunecată', light: 'Schimbă pe tema luminoasă' },
+    auto: ' (automat, după sistem)',
+    click: { dark: 'Clic: tema întunecată', light: 'Clic: tema luminoasă' },
+    back: 'Clic dreapta: automat, după sistem'
+  } : {
+    name: { dark: 'Dark theme', light: 'Light theme' },
+    to: { dark: 'Switch to the dark theme', light: 'Switch to the light theme' },
+    auto: ' (following the device)',
+    click: { dark: 'Click: dark theme', light: 'Click: light theme' },
+    back: 'Right click: follow the device again'
+  };
 
   function choose(next) {
     try {
@@ -65,6 +80,11 @@
     window.location.reload();
   }
 
+  // For the panel's own button (client/src/components/modeToggle.jsx): inside
+  // the panel the switch is in the header, and this script's floating button
+  // is left to the pages without one (sign-in), see theme.css.
+  window.ctMode = { mode: mode, resolved: resolved, choose: choose };
+
   function addButton() {
     if (document.getElementById('ct-mode-toggle')) return;
     var other = resolved === 'dark' ? 'light' : 'dark';
@@ -73,10 +93,10 @@
     button.type = 'button';
     button.className = 'ct-mode-toggle' + (mode === 'auto' ? ' ct-mode-auto' : '');
     button.innerHTML = ICON[resolved];
-    button.setAttribute('aria-label', 'Schimbă pe tema ' + NAME[other]);
-    button.title = 'Temă ' + NAME[resolved] + (mode === 'auto' ? ' (automat, după sistem)' : '') +
-      '\nClic: tema ' + NAME[other] +
-      (mode === 'auto' ? '' : '\nClic dreapta: automat, după sistem');
+    button.setAttribute('aria-label', TEXT.to[other]);
+    button.title = TEXT.name[resolved] + (mode === 'auto' ? TEXT.auto : '') +
+      '\n' + TEXT.click[other] +
+      (mode === 'auto' ? '' : '\n' + TEXT.back);
     button.addEventListener('click', function () { choose(other); });
     button.addEventListener('contextmenu', function (event) {
       event.preventDefault();
