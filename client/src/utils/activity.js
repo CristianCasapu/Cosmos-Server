@@ -216,19 +216,28 @@ const addToast = (severity, text, raw) => {
   set({ toasts: [...state.toasts, toast].slice(-MAX_TOASTS) });
 };
 
+// The server's answer when it holds an address back (429, src/httpServer.go),
+// said in words that tell the admin what to do.
+export const THROTTLED = 'Too many requests';
+export const explain = (message) => (message === THROTTLED
+  ? tr('activity.throttled', 'The server is holding this browser back for a moment (too many requests within a minute). Wait a minute, then reload the page.')
+  : message);
+
 // notify shows a message that did not come from a followed command (the API
 // layer's own error reports). The same error is not shown twice.
 export const notify = (message, severity = 'error') => {
   if (!message) return;
   const now = Date.now();
-  if (state.toasts.some((toast) => toast.raw === message && now - toast.at < 3000)) {
+  // one notice while the server holds the browser back, not one per refused request
+  const repeatWithin = message === THROTTLED ? FAILURE_FOR : 3000;
+  if (state.toasts.some((toast) => toast.raw === message && now - toast.at < repeatWithin)) {
     return;
   }
   // a page's own "saved" message right after the command's "done": one is enough
   if (severity === 'success' && state.toasts.some((toast) => toast.severity === 'success' && !toast.raw && now - toast.at < 2000)) {
     return;
   }
-  addToast(severity, String(message), String(message));
+  addToast(severity, String(explain(message)), String(message));
 };
 
 const finish = (call, ok, message) => {
@@ -244,7 +253,7 @@ const finish = (call, ok, message) => {
     return;
   }
 
-  const text = tr('activity.failed', '{{action}}: failed', { action: call.label }) + (message ? ' — ' + message : '');
+  const text = tr('activity.failed', '{{action}}: failed', { action: call.label }) + (message ? ' — ' + explain(message) : '');
   const now = Date.now();
   const already = message && state.toasts.find((toast) => toast.raw === message && now - toast.at < 3000);
   if (already) {

@@ -42,6 +42,7 @@ import * as rcloneDemo from './rclone.demo';
 import wrap from './wrap';
 import { createApiClient } from './client';
 import { redirectToLocal } from '../utils/indexs';
+import { shareSessionCheck } from '../utils/sessionCheck'; // Fork addition
 
 export let CPU_ARCH = 'amd64';
 export let CPU_AVX = true;
@@ -239,6 +240,11 @@ let getStatus = (initial) => {
       }
     }
 
+    // Fork addition: only the app's first call (App.jsx) understands the word below. Every other
+    // caller reads `.data` from the answer, and a refused call (429) then ended the whole page
+    // with a script error: let them see the failure instead.
+    if (!initial) throw response;
+
     return "NOT_AVAILABLE";
   });
 }
@@ -414,6 +420,7 @@ function forceAutoUpdate() {
 const isDemo = import.meta.env.MODE === 'demo';
 
 let auth = createAuthAPI(defaultFetch);
+auth = shareSessionCheck(auth); // Fork addition: GET /api/me asked once per page load, not once per route (46 times)
 let users = createUsersAPI(defaultFetch);
 let config = createConfigAPI(defaultFetch);
 let docker = createDockerAPI(defaultFetch, defaultWs);

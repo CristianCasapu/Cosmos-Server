@@ -20,6 +20,9 @@ import { CosmosContainerPicker } from '../config/users/containerPicker';
 import * as yup from "yup";
 import { useTranslation } from 'react-i18next';
 import CronHelp, { cronFieldErrors } from '../../components/cronInput'; // Fork addition: the schedule in words, checked, with schedules to pick
+import { jobCommandProblem, jobNameProblem, jobRunsIn } from '../../utils/cronJobForm'; // Fork addition: name and command checked
+import { keepOnBackdrop } from '../../components/formHelpers'; // Fork addition
+import { serverBack } from '../../utils/appLinks'; // Fork addition
 
 const NewJobDialog = ({job, OnClose, refresh}) => {
   const { t } = useTranslation();
@@ -35,7 +38,12 @@ const NewJobDialog = ({job, OnClose, refresh}) => {
       Container: isEdit ? job.Container : '',
     },
     validateOnChange: false,
-    validate: (values) => cronFieldErrors(values, ['Crontab']), // Fork addition: a schedule the server would not run is not saved
+    // Fork addition: a schedule the server would not run is not saved; nor is a job without a name or with nothing to run
+    validate: (values) => ({
+      ...cronFieldErrors(values, ['Crontab']),
+      ...(jobNameProblem(values.Name) ? { Name: t('mgmt.cron.fork.nameRequired', 'Give the job a name, for example "Back up the photos"') } : {}),
+      ...(jobCommandProblem(values.Command) ? { Command: t('mgmt.cron.fork.commandRequired', 'Enter the command to run, for example ls -la /storage') } : {}),
+    }),
     validationSchema: yup.object({
     }),
     onSubmit: async (values, { setErrors, setStatus, setSubmitting }) => {
@@ -44,6 +52,14 @@ const NewJobDialog = ({job, OnClose, refresh}) => {
       if(!configFile.CRON) {
         configFile.CRON = {};
       }
+
+      // Fork addition: a job may not take the name of another one, which it would replace without a word
+      if (jobNameProblem(values.Name, Object.keys(configFile.CRON), isEdit ? job.Name : undefined) === 'taken') {
+        setErrors({ Name: t('mgmt.cron.fork.nameTaken', 'Another job is called "{{name}}": pick another name, or edit that job', { name: values.Name.trim() }) });
+        setSubmitting(false);
+        return;
+      }
+      values = { ...values, Name: values.Name.trim() };
 
       if(isEdit) {
         delete configFile.CRON[job.Name];
@@ -54,7 +70,9 @@ const NewJobDialog = ({job, OnClose, refresh}) => {
       return API.config.set(configFile).then((res) => {
         setStatus({ success: true });
         setSubmitting(false);
-        refresh && refresh();
+        // Fork addition: the save makes the server restart its listener; asked at once, the list of
+        // jobs was refused and kept showing the jobs from before the save
+        serverBack().then(() => refresh && refresh());
         OnClose && OnClose();
       }).catch((err) => {
         setStatus({ success: false });
@@ -79,12 +97,14 @@ const NewJobDialog = ({job, OnClose, refresh}) => {
   }, [job]);
   
 
-  return <Dialog open={job} onClose={() => {
+  // Fork addition: a click beside the form does not close it
+  return <Dialog open={job} onClose={keepOnBackdrop(() => {
       OnClose && OnClose();
-    }}>
+    })}>
       <FormikProvider value={formik}>
         <form onSubmit={formik.handleSubmit}>
-          <DialogTitle>{t('mgmt.cron.editCronTitle')}</DialogTitle>
+          {/* Fork addition: a new job is not an edit */}
+          <DialogTitle>{isEdit ? t('mgmt.cron.editCronTitle') : t('mgmt.cron.newCronTitle')}</DialogTitle>
           <DialogContent>
               <DialogContentText>
                 <Stack spacing={2} style={{ marginTop: '10px', width: '500px', maxWidth: '100%' }}>
@@ -123,7 +143,9 @@ const NewJobDialog = ({job, OnClose, refresh}) => {
                     value={formik.values.Command}
                     onChange={formik.handleChange}
                     error={formik.touched.Command && Boolean(formik.errors.Command)}
-                    helperText={formik.touched.Command && formik.errors.Command}
+                    helperText={(formik.touched.Command && formik.errors.Command) || /* Fork addition: where it runs */ (jobRunsIn(formik.values.Container) === 'container'
+                      ? t('mgmt.cron.fork.runsInContainer', 'Runs inside the container {{name}}, which has to be running at that time.', { name: formik.values.Container })
+                      : t('mgmt.cron.fork.runsOnServer', 'Runs on the server itself, with the rights of Cosmos. Pick a container below to run it inside an app instead.'))}
                   />
 
                   <CosmosContainerPicker
@@ -143,9 +165,8 @@ const NewJobDialog = ({job, OnClose, refresh}) => {
               <Button onClick={() => {
                   OnClose && OnClose();
               }}>{t('global.close')}</Button>
-              <LoadingButton color="primary" variant="contained" type="submit" onClick={() => {
-                formik.handleSubmit();
-              }}>{t('mgmt.cron.newCron.submitButton')}</LoadingButton>
+              {/* Fork addition: the button submits the form once (it also called handleSubmit itself, so every job was saved twice) */}
+              <LoadingButton color="primary" variant="contained" type="submit" loading={formik.isSubmitting}>{t('mgmt.cron.newCron.submitButton')}</LoadingButton>
           </DialogActions>
         </form>
       </FormikProvider>

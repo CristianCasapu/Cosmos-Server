@@ -29,6 +29,11 @@ import { PERM_USERS } from '../../../utils/permissions';
 import UserActivityButton from '../../securityAudit/userActivityButton'; // Fork addition: the user's activity on the audit page
 import PrettyTabbedView from '../../../components/tabbedView/tabbedView';
 import proFeatures from '../../../pro';
+import { CreateUserDialog, EditUserDialog, UserLinkDialog, Reset2FADialog } from './forkUserDialogs'; // Fork addition
+
+// Fork addition: the create, edit and link dialogs of forkUserDialogs.jsx are shown in place of the ones below,
+// which stay as they are for upstream merges.
+const FORK_DIALOGS = true;
 
 const UserManagement = () => {
     const { t } = useTranslation();
@@ -43,6 +48,7 @@ const UserManagement = () => {
     const [loadingRow, setLoadingRow] = React.useState(null);
     const [status, setStatus] = React.useState(null);
     const [roles, setRoles] = React.useState({0: 'Guest', 1: 'User', 2: 'Admin'});
+    const [reset2FA, setReset2FA] = React.useState(null); // Fork addition: the account whose two-factor reset is being asked about
 
     const [rows, setRows] = useState(null);
 
@@ -91,7 +97,15 @@ const UserManagement = () => {
     }
 
     const usersContent = <div style={{ maxWidth: "1200px", margin: "auto" }}>
-        {openInviteForm ? <Dialog open={openInviteForm} onClose={() => setOpenInviteForm(false)}>
+        {/* Fork addition: the fork's dialogs */}
+        <CreateUserDialog open={openCreateForm} onClose={() => setOpenCreateForm(false)} roles={roles} users={rows}
+            onCreated={(nickname) => { setOpenCreateForm(false); refresh(); sendlink(nickname, 2); }} />
+        <EditUserDialog user={openEditUser} onClose={() => setOpenEditUser(null)} roles={roles}
+            onSaved={() => { setOpenEditUser(null); refresh(); }} />
+        <UserLinkDialog action={openInviteForm ? toAction : null} onClose={() => { setOpenInviteForm(false); refresh(); }} />
+        <Reset2FADialog nickname={reset2FA} onClose={() => setReset2FA(null)} onDone={() => { setReset2FA(null); refresh(); }} />
+
+        {openInviteForm && !FORK_DIALOGS ? <Dialog open={openInviteForm} onClose={() => setOpenInviteForm(false)}>
             <DialogTitle>{t('mgmt.usermgmt.inviteUserTitle')}</DialogTitle>
             <DialogContent>
                 <DialogContentText>
@@ -133,7 +147,8 @@ const UserManagement = () => {
             </DialogActions>
         </Dialog>: ''}
 
-        <Dialog open={openDeleteForm} onClose={() => setOpenDeleteForm(false)}>
+        {/* Fork addition: closing without deleting gives the row its buttons back (it kept a spinner until the next refresh) */}
+        <Dialog open={openDeleteForm} onClose={() => { setOpenDeleteForm(false); setLoadingRow(null); }}>
             <DialogTitle>{t('mgmt.usermgmt.deleteUserTitle')}</DialogTitle>
             <DialogContent>
                 <DialogContentText>
@@ -141,7 +156,7 @@ const UserManagement = () => {
                 </DialogContentText>
             </DialogContent>
             <DialogActions>
-                <Button onClick={() => setOpenDeleteForm(false)}>{t('global.cancelAction')}</Button>
+                <Button onClick={() => { setOpenDeleteForm(false); setLoadingRow(null); }}>{t('global.cancelAction')}</Button>
                 <Button onClick={() => {
                     API.users.deleteUser(toAction)
                     .then(() => {
@@ -152,7 +167,7 @@ const UserManagement = () => {
             </DialogActions>
         </Dialog>
 
-        <Dialog open={!!openEditUser} onClose={() => setOpenEditUser(null)}>
+        <Dialog open={!!openEditUser && !FORK_DIALOGS} onClose={() => setOpenEditUser(null)}>
             <DialogTitle>{t('mgmt.usermgmt.editEmailTitle')}</DialogTitle>
             <DialogContent>
                 <DialogContentText>
@@ -189,7 +204,7 @@ const UserManagement = () => {
             </DialogActions>
         </Dialog>
 
-        <Dialog open={openCreateForm} onClose={() => setOpenCreateForm(false)}>
+        <Dialog open={openCreateForm && !FORK_DIALOGS} onClose={() => setOpenCreateForm(false)}>
             <DialogTitle>{t('mgmt.usermgmt.createUserTitle')}</DialogTitle>
             <DialogContent>
                 <DialogContentText>
@@ -356,10 +371,8 @@ const UserManagement = () => {
                         }>{t('global.delete')}</Button></PermissionGuard>
                         &nbsp;&nbsp;<PermissionGuard permission={PERM_USERS}><Button variant="contained" color="error" onClick={
                             () => {
-                                setLoadingRow(r.nickname);
-                                API.users.reset2FA(r.nickname).then(() => {
-                                    refresh();
-                                });
+                                // Fork addition: asked first (Reset2FADialog); upstream reset it on the click
+                                setReset2FA(r.nickname);
                             }
                         }>{t('mgmt.usermgmt.reset2faButton')}</Button></PermissionGuard></>
                     }

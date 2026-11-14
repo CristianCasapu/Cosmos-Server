@@ -28,6 +28,7 @@ import { FilePickerButton } from '../../../components/filePicker';
 import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_CONFIGURATION } from '../../../utils/permissions';
 import proFeatures from '../../../pro';
+import ForkRouteGuide, { HostSeenHint } from './forkRouteGuide'; // Fork addition: the simple view of this form
 import { PaidOnly } from '../../../components/paidVisibility'; // Fork addition
 
 const Hide = ({ children, h }) => {
@@ -58,7 +59,9 @@ const checkHost = debounce((host, setHostError) => {
 }, 500);
 
 // Fork addition: showErrors, set by a dialog whose Confirm button found the route invalid
-const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noControls = false, lockTarget = false, title, setRouteConfig, submitButton = false, newRoute, readOnly = false, showErrors }) => {
+// Fork addition: addressExtra, shown under the address (the domains of a new URL for an app);
+// onSaved, called after a save, so that the page reads the URL again (the other tab saved what it had loaded before)
+const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noControls = false, lockTarget = false, title, setRouteConfig, submitButton = false, newRoute, readOnly = false, showErrors, addressExtra, onSaved }) => {
   const { t } = useTranslation();
   const [hostError, setHostError] = React.useState(null);
 
@@ -163,6 +166,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                 setStatus({ success: true });
                 snackit(t('mgmt.urls.edit.updateSuccess'), 'success')
                 setSubmitting(false);
+                onSaved && onSaved(); // Fork addition
               } else {
                 setStatus({ success: false });
                 setErrors({ submit: res.status });
@@ -226,6 +230,19 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                     </Grid>
                   )}
 
+                  {/* Fork addition: the simple view asks for the address and proposes the rest; the fields below are its "all settings" */}
+                  <ForkRouteGuide
+                    formik={formik}
+                    config={config}
+                    routeNames={routeNames}
+                    TargetContainer={TargetContainer}
+                    lockTarget={lockTarget}
+                    isNew={noControls || newRoute}
+                    readOnly={readOnly}
+                    hostError={hostError}
+                    onHostChange={(host) => checkHost(host, setHostError)}
+                    addressExtra={addressExtra}
+                  >
                   <CosmosInputText
                     name="Name"
                     label={t('global.nameTitle')}
@@ -360,6 +377,8 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                   </Grid>}
                   </>
                   )}
+                  {/* Fork addition: the name the app will see */}
+                  <HostSeenHint values={formik.values} />
 
                   <CosmosCheckbox
                     name="UsePathPrefix"
@@ -559,6 +578,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                       {proFeatures.RouteLBSettings && <proFeatures.RouteLBSettings formik={formik} />}
                     </Stack>
                   </CosmosCollapse>
+                  </ForkRouteGuide>
                 </Grid>
               </MainCard>
               {submitButton && !readOnly && <MainCard ><PermissionGuard permission={PERM_CONFIGURATION}><Button

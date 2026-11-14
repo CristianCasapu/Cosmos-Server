@@ -13,6 +13,8 @@ import { ValidateRoute, getFaviconURL, sanitizeRoute, getContainersRoutes } from
 import HostChip from '../../components/hostChip';
 import AppLinks, { AppDomains } from '../../components/appLinks'; // Fork addition
 import { ReachChip } from '../../components/reachability'; // Fork addition
+import PortChips from '../../components/portChips'; // Fork addition
+import LocalAddressesForAll from '../../components/localAddressesForAll'; // Fork addition
 import { Link } from 'react-router-dom';
 import ExposeModal from './exposeModal';
 import GetActions from './actionBar';
@@ -299,6 +301,9 @@ const ServApps = ({stack}) => {
             <Alert severity="info">{t('mgmt.servapps.updatesAvailableFor')} {Object.keys(updatesAvailable).join(', ')}</Alert>
           </Item>
         </Grid2>}
+        {/* Fork addition: one action for the apps that have no URL at all */}
+        {!stack && <LocalAddressesForAll config={config} containers={servApps} selfName={selfName} refresh={refreshServApps}
+          wrap={(notice) => <Grid2 style={gridAnim} xs={12} item><Item>{notice}</Item></Grid2>} />}
         {servApps && Object.values(servAppsStacked)
           .filter(app => {
             if (search.length < 2) return true;
@@ -405,15 +410,8 @@ const ServApps = ({stack}) => {
                   {app.networkSettings && app.networkSettings.Networks && app.networkSettings.Networks['host'] &&
                     <Chip style={{ fontSize: '80%' }} label="Host Network" color="warning" variant='outlined' />
                   }
-                  {app.ports && app.ports.filter(p => p && p.IP != '::' && p.PublicPort).map((port) => {
-                    return <Chip
-                      style={{ fontSize: '80%', cursor: 'pointer' }}
-                      label={port.PublicPort + ":" + port.PrivatePort}
-                      color="warning"
-                      variant='outlined'
-                      onClick={() => window.open(`${window.location.protocol}//${window.location.hostname}:${port.PublicPort}`, '_blank')}
-                    />
-                  })}
+                  {/* Fork addition: each port opens the way it speaks (upstream: always the panel's protocol, so https:// to plain-HTTP ports) */}
+                  <PortChips ports={app.ports} />
                 </Stack>
               </Stack>
               {app.isUpdating ? <div>

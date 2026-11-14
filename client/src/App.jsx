@@ -12,6 +12,8 @@ import { setSnackit, snackit } from './api/wrap';
 import ActivityIndicator from './components/activityIndicator';
 import { notify } from './utils/activity';
 import { DisconnectOutlined } from '@ant-design/icons';
+import ThrottledNotice from './components/throttledNotice'; // Fork addition
+import { throttledRecently } from './utils/sessionCheck'; // Fork addition
 
 // ==============================|| APP - THEME, ROUTER, LOCAL  ||============================== //
 
@@ -100,7 +102,9 @@ const App = () => {
             <Box sx={{ position: 'fixed', top: 0, bottom: 0, left: 0, right: 0, display: 'flex', justifyContent: 'center', alignItems: 'center'}}>
                 {/* <img src={logo} style={{ display:'inline', height: '200px'}} className='pulsing' /> */}
                 {!timeoutError && <LoadingAnimation />}
-                {timeoutError && <DisconnectOutlined style={{
+                {/* Fork addition: refused for "too many requests" is said in words, with a retry */}
+                {timeoutError && throttledRecently() && <ThrottledNotice />}
+                {timeoutError && !throttledRecently() && <DisconnectOutlined style={{
                     fontSize: '200px',
                     color: 'red',
                 }}/>}

@@ -17,7 +17,8 @@ import { useTranslation } from 'react-i18next';
 import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_CONFIGURATION } from '../../../utils/permissions';
 
-const RouteSecurity = ({ routeConfig, config, readOnly = false }) => {
+// Fork addition: onSaved, called after a save, so that the page reads the URL again
+const RouteSecurity = ({ routeConfig, config, readOnly = false, onSaved }) => {
   const { t } = useTranslation();
   const isNotSocketProxy = !IsRouteSocketProxy(routeConfig);
 
@@ -76,6 +77,7 @@ const RouteSecurity = ({ routeConfig, config, readOnly = false }) => {
               setStatus({ success: true });
               snackit(t('mgmt.urls.edit.updateSuccess'), 'success');
               setSubmitting(false);
+              onSaved && onSaved(); // Fork addition
             } else {
               setStatus({ success: false });
               setErrors({ submit: res.status });
