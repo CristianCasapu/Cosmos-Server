@@ -84,14 +84,16 @@ const ServApps = ({stack}) => {
   const [selfName, setSelfName] = useState("");
 
   const refreshServApps = () => {
+    // Fork addition: the .catch: a read that fails (the server reloading after an
+    // installation that added URLs) keeps the list as it is instead of throwing
     API.docker.list().then((res) => {
       setServApps(res.data);
-    });
+    }).catch(() => {});
     API.config.get().then((res) => {
       setConfig(res.data);
       setUpdatesAvailable(res.updates);
       setSelfName(res.hostname);
-    });
+    }).catch(() => {});
     setIsUpdating({});
   };
 
