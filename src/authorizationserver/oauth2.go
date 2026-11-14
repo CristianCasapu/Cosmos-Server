@@ -193,6 +193,13 @@ func newSession(user string, req *http.Request) *openid.DefaultSession {
 	// get hostname from request
 	hostname := req.Host
 
+	// Fork addition: the port is not part of the name (utils/fork_panel_origin.go). With the
+	// server on another port than 443 the request's host never equalled the hostname setting,
+	// no session was made and the handler that uses it crashed.
+	if utils.HostWithoutPort(hostname) == utils.GetMainConfig().HTTPConfig.Hostname {
+		hostname = utils.GetMainConfig().HTTPConfig.Hostname
+	}
+
 	// external request
 	if hostname == utils.GetMainConfig().HTTPConfig.Hostname {
 		if utils.IsHTTPS {

@@ -56,3 +56,47 @@ func TestAppGateBlocksPendingMFA(t *testing.T) {
 		}
 	}
 }
+
+// Fork addition: the sign-in and the two-factor page are on the port the
+// visitor is using, not on 443 (utils/fork_panel_origin.go).
+func TestAppGateSendsTheVisitorToThePanelOnTheirPort(t *testing.T) {
+	realHTTPS := utils.IsHTTPS
+	defer func() { utils.IsHTTPS = realHTTPS }()
+	utils.IsHTTPS = true
+
+	cfg := utils.Config{}
+	cfg.HTTPConfig.Hostname = "cosmos.example"
+	cfg.HTTPConfig.HTTPSPort = "2053"
+	cfg.HTTPConfig.AuthPrivateKey = strings.Repeat("k", 80)
+	utils.LoadBaseMainConfig(cfg)
+	route := utils.ProxyRouteConfig{Name: "app", Host: "app.example", AuthEnabled: true}
+
+	for host, origin := range map[string]string{
+		"app.example:2053": "https://cosmos.example:2053",
+		"app.example:8443": "https://cosmos.example:8443",
+		"app.example":      "https://cosmos.example",
+	} {
+		// not signed in: to the sign-in page
+		w := httptest.NewRecorder()
+		if err := LoggedInOnlyWithRedirect(w, gateReq(host, &utils.AuthContext{}), route); err == nil {
+			t.Errorf("%s: the gate admitted a visitor who is not signed in", host)
+		}
+		if loc := w.Header().Get("Location"); w.Code != http.StatusFound || !strings.HasPrefix(loc, origin+"/cosmos-ui/openid?") {
+			t.Errorf("%s: sign-in redirect %d %q, want it on %s", host, w.Code, loc, origin)
+		}
+
+		// signed in, second factor pending: to the two-factor page
+		w = httptest.NewRecorder()
+		LoggedInOnlyWithRedirect(w, gateReq(host, &utils.AuthContext{Nickname: "u", MFAState: 1}), route)
+		if loc := w.Header().Get("Location"); !strings.HasPrefix(loc, origin+"/cosmos-ui/loginmfa?") {
+			t.Errorf("%s: two-factor redirect %q, want it on %s", host, loc, origin)
+		}
+	}
+
+	// on the panel's own name the visitor comes back to the page asked for, port or not
+	w := httptest.NewRecorder()
+	LoggedInOnlyWithRedirect(w, gateReq("cosmos.example:2053", &utils.AuthContext{Nickname: "u", MFAState: 1}), route)
+	if loc := w.Header().Get("Location"); !strings.HasSuffix(loc, "redirect=%2Fapp%2Fpage") {
+		t.Errorf("same name with a port: %q", loc)
+	}
+}

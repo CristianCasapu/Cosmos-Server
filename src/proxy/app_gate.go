@@ -23,12 +23,8 @@ func performLogin(w http.ResponseWriter, req *http.Request, route utils.ProxyRou
 	// Get proxy client info if this is a proxy route
 	if route.AuthEnabled {
 			client := utils.GetProxyOIDCredentials(route, false)
-			mainDomain := utils.GetMainConfig().HTTPConfig.Hostname
-			if utils.IsHTTPS {
-					mainDomain = "https://" + mainDomain
-			} else {
-					mainDomain = "http://" + mainDomain
-			}
+			// Fork addition: with the port the visitor is using (utils/fork_panel_origin.go); upstream sent them to the hostname alone, which is port 443
+			mainDomain := utils.PanelOriginFor(req)
 			
 			// The auto-provisioned client is public, so PKCE is mandatory. Derive the
 			// verifier deterministically from host+path (recomputed in detectCallbackEndpoint)
@@ -70,14 +66,16 @@ func redirectToMFA(w http.ResponseWriter, req *http.Request, mfaState int) error
 	}
 	// cross-host apps can't redirect back to themselves; bounce to the UI home
 	back := "/cosmos-ui"
-	if req.Host == mainDomain {
+	if utils.HostWithoutPort(req.Host) == mainDomain { // Fork addition: the port is not part of the name
 		back = req.URL.Path
 	}
 	page := "loginmfa"
 	if mfaState == 2 {
 		page = "newmfa"
 	}
-	http.Redirect(w, req, scheme+mainDomain+"/cosmos-ui/"+page+"?invalid=1&redirect="+url.QueryEscape(back), http.StatusTemporaryRedirect)
+	_ = scheme
+	// Fork addition: with the port the visitor is using, see performLogin
+	http.Redirect(w, req, utils.PanelOriginFor(req)+"/cosmos-ui/"+page+"?invalid=1&redirect="+url.QueryEscape(back), http.StatusTemporaryRedirect)
 	return errors.New("User requires MFA")
 }
 
