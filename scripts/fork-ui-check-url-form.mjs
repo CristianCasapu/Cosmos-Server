@@ -85,7 +85,8 @@ for (const name of names) for (const size of wanted) {
   expect(id + ': anyone may open it, as upstream', await picked(dialog, 'guide-access') === 'Anyone with the address');
   expect(id + ': it says which name the app will see', /receives its requests under the name radarr\.local\. Some apps only answer to names they know/.test(text));
   expect(id + ': the name is proposed, not asked', /Saved as "radarr"/.test(text) && await dialog.locator('#Name').count() === 0);
-  expect(id + ': the domain can be attached right there', /Also reachable from the internet through/.test(text) && /radarr\.example\.org/.test(text));
+  // (since plan 23 the dialog offers the internet choices of the Internet dialog: components/exposure.jsx)
+  expect(id + ': the domain can be attached right there', /Reach it from the internet as well\?/.test(text) && /radarr\.example\.org/.test(text));
   expect(id + ': upstream\'s fields are not shown', !/Result Target Preview|Use Path Prefix|Container Protocol/.test(text));
   expect(id + ': nothing is cut off sideways', await sideways(page) <= 0 && await cut(page, dialog) <= 0, `${await sideways(page)} / ${await cut(page, dialog)}`);
   await page.screenshot({ path: `shots/${tag}-guide-new-${id}.png` });
@@ -220,6 +221,9 @@ for (const name of names) for (const size of wanted) {
     await tab('Security');
     const admin = page.locator('input[name=AdminOnly]');
     expect(id + ': the Security tab shows what Setup saved', await admin.isChecked());
+    // (since plan 22 the switches are behind the protection level's door)
+    if (!(await page.locator('input[name=BlockAPIAbuse]').isVisible())) await page.getByRole('button', { name: 'Adjust the values myself' }).click();
+    await page.waitForTimeout(500);
     await page.locator('input[name=BlockAPIAbuse]').check();
     await page.getByRole('button', { name: /^Save$/ }).first().click();
     await page.waitForTimeout(6000);
