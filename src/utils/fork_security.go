@@ -45,6 +45,10 @@ const (
 	SecResetRejected   = "auth.reset.rejected"
 	SecPasswordChanged = "auth.password.changed"
 	SecRegisterFailed  = "auth.register.failed"
+	// Fork addition (Turnstile, src/turnstile): the check of Cloudflare on the public forms
+	SecTurnstileMissing     = "auth.turnstile.missing"
+	SecTurnstileFailed      = "auth.turnstile.failed"
+	SecTurnstileUnavailable = "auth.turnstile.unavailable"
 
 	// accounts
 	SecUserCreated       = "user.created"

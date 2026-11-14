@@ -37,6 +37,9 @@ type Token struct {
 	// EditSSL: "SSL and Certificates: Edit", which the "Edit zone DNS"
 	// template does not include
 	EditSSL bool
+	// EditTurnstile: "Account > Turnstile > Edit" (Turnstile Sites Write),
+	// which the "Edit zone DNS" template does not include either
+	EditTurnstile bool
 }
 
 // OriginPullCert is a client certificate uploaded for a zone's Authenticated
@@ -90,6 +93,8 @@ type Server struct {
 	rangesV6 []string
 	// seenAs is the address /cdn-cgi/trace reports for the caller
 	seenAs string
+	// the Turnstile widgets made through the API (turnstile.go)
+	widgets []Widget
 }
 
 // New returns an empty stand-in with Cloudflare's real ranges.
@@ -413,11 +418,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 			visible = append(visible, map[string]interface{}{
 				"id": zone.ID, "name": zone.Name, "status": "active", "paused": false, "type": "full",
-				"plan": map[string]string{"name": zone.Plan, "legacy_id": "free"},
+				"plan":    map[string]string{"name": zone.Plan, "legacy_id": "free"},
+				"account": map[string]string{"id": AccountID, "name": "Example account"},
 			})
 		}
 		from, to, info := page(req, len(visible), 20)
 		ok(w, visible[from:to], info)
+		return
+	}
+
+	if match := widgetsPath.FindStringSubmatch(path); match != nil {
+		s.serveWidgets(w, req, match[1], token, raw)
 		return
 	}
 

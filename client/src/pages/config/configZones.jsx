@@ -32,6 +32,7 @@ import { CloudOutlined } from "@ant-design/icons"; // Fork addition
 import CertificatesOverview, { AnotherDomain, HttpChallengeNote, followCertificates } from "../../components/certificates"; // Fork addition
 import HomeNamesCard from "../../components/homeNames"; // Fork addition: names for use at home
 import { ForkZoneMode, ForkZoneProvider } from "./forkZoneMode"; // Fork addition
+import TurnstileCard from "../../components/turnstile"; // Fork addition: Cloudflare's sign-in check
 
 // one line saying which certificate serves a hostname, reused by the route and hostname views
 export const HostCertificateLine = ({ cert }) => {
@@ -542,6 +543,7 @@ const ConfigZonesWithCloudflare = () => <Stack spacing={3}>
   <CertificatesOverview />
   <HomeNamesCard />
   <CloudflareOverview />
+  <TurnstileCard />{/* Fork addition */}
 </Stack>;
 
 export default ConfigZonesWithCloudflare;

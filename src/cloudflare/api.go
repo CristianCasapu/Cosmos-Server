@@ -267,6 +267,10 @@ type Zone struct {
 		Name     string `json:"name"`
 		LegacyID string `json:"legacy_id"`
 	} `json:"plan"`
+	// the account that holds the zone: where its Turnstile widgets are made
+	Account struct {
+		ID string `json:"id"`
+	} `json:"account"`
 }
 
 // ListZones lists the zones the token sees, at most 200; name narrows it to

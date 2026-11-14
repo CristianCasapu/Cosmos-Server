@@ -64,6 +64,7 @@ import (
 	"time"
 
 	"github.com/azukaar/cosmos-server/src/authorizationserver"
+	"github.com/azukaar/cosmos-server/src/turnstile"
 	"github.com/azukaar/cosmos-server/src/utils"
 	"github.com/gorilla/mux"
 )
@@ -121,7 +122,7 @@ func forkPanelPolicy(returnOrigins []string) string {
 func forkPanelHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		policy := forkPanelPolicy(forkReturnOrigins())
+		policy := forkTurnstileCSP(forkPanelPolicy(forkReturnOrigins()), turnstile.ScriptAllowed()) // Cloudflare's sign-in check, only while it is set up: see fork_turnstile_csp.go
 		if forkCSPEnforced {
 			h.Set("Content-Security-Policy", policy)
 			h.Del("Content-Security-Policy-Report-Only")

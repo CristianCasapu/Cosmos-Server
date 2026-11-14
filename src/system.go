@@ -123,6 +123,7 @@ func CanSendEmail(w http.ResponseWriter, req *http.Request) {
 			"status": "OK",
 			"data": map[string]interface{}{
 				"canSendEmail": utils.GetMainConfig().EmailConfig.Enabled,
+				"turnstile": forkTurnstilePublic(req), // Fork addition: the widget of the sign-in pages, nil when it does not apply, see fork_turnstile.go
 			},
 		})
 	} else {
