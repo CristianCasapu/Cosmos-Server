@@ -33,6 +33,8 @@ import { useTranslation } from "react-i18next";
 import EventExplorerStandalone from "../dashboard/eventsExplorerStandalone";
 import { ConfirmModalDirect } from "../../components/confirmModal";
 import { PaidOnly } from '../../components/paidVisibility'; // Fork addition
+import ForkCreateTokenDialog from './forkTokenForm'; // Fork addition: the guided form, see forkTokenForm.jsx
+import { presetOf } from '../../utils/tokenForm'; // Fork addition
 
 const CreateTokenDialog = ({ open, onClose, onCreated, t }) => {
   const formik = useFormik({
@@ -255,8 +257,9 @@ const ConfigAPITokens = () => {
 
   return (
     <Stack spacing={2}>
-      <CreateTokenDialog
+      <ForkCreateTokenDialog /* Fork addition: was CreateTokenDialog */
         t={t}
+        taken={Object.keys(tokens || {})}
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         onCreated={(data) => {
@@ -339,9 +342,10 @@ const ConfigAPITokens = () => {
               field: (r) => {
                 const labels = formatPermissions(r.permissions, t);
                 // For now, simplify to Full Access / Read Only based on whether PERM_ADMIN (1) is present
-                const hasAdmin = r.permissions && r.permissions.includes(PERM_ADMIN);
-                const displayLabel = hasAdmin ? t('mgmt.config.apiTokens.fullAccess') : t('mgmt.config.apiTokens.readOnly');
-                const displayColor = hasAdmin ? "warning" : "info";
+                // Fork addition: "Read only" only for the read-only list; a token with only some permissions was shown as read only
+                const preset = presetOf(r.permissions);
+                const displayLabel = preset === 'full' ? t('mgmt.config.apiTokens.fullAccess') : preset === 'read' ? t('mgmt.config.apiTokens.readOnly') : t('mgmt.config.apiTokens.fork.custom', 'Chosen permissions');
+                const displayColor = preset === 'read' ? "info" : "warning";
                 return (
                   <Tooltip title={labels.join(", ") || t('global.none')}>
                     <Chip
