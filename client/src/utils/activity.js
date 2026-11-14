@@ -114,6 +114,8 @@ const COMMANDS = [
 
   // internet reachability (src/reach): GET is a read and never followed
   ['POST', /^\/api\/reachability$/, () => ['activity.reachability.check', 'Check internet reachability']],
+  // the .local names (src/proxy/fork_mdns_status.go): GET is a read and never followed
+  ['POST', /^\/api\/local-names$/, () => ['activity.localNames.check', 'Check the local names on the network']],
 
   // Cloudflare (src/cloudflare): the status is read with GET, which is never followed
   ['POST', /^\/api\/cloudflare\/shield$/, () => ['activity.cloudflare.shield', 'Change how the address is served']],

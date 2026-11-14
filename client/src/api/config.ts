@@ -125,6 +125,28 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }))
   }
 
+  // Fork addition: are the .local names published and answered
+  // (src/proxy/fork_mdns_status.go). Admins only; GET stays quiet on errors,
+  // POST asks the network again.
+  function localNames() {
+    return wrap(apiFetch('/cosmos/api/local-names', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }), true)
+  }
+
+  function localNamesCheck() {
+    return wrap(apiFetch('/cosmos/api/local-names', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ check: true }),
+    }))
+  }
+
   // Fork addition: the user audit panel (src/security/useraudit*.go). All GET,
   // read only; the query is built by utils/auditFilters.js.
   function securityAudit(query: string, cursor = 0, limit = 50, quiet = false) {
@@ -457,6 +479,8 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     upnpRetry,
     reachability,
     reachabilityCheck,
+    localNames, // Fork addition: the .local names
+    localNamesCheck,
     securityAudit, // Fork addition: user audit panel
     securityUserSummary,
     securityMyActivity,

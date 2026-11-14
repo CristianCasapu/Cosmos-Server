@@ -194,6 +194,7 @@ const ConfigManagement = () => {
           AllowSearchEngine: config.HTTPConfig.AllowSearchEngine,
           AllowHTTPLocalIPAccess: config.HTTPConfig.AllowHTTPLocalIPAccess,
           PublishMDNS: config.HTTPConfig.PublishMDNS,
+          MDNSInterfaces: (config.HTTPConfig.MDNSInterfaces || []).join(', '), // Fork addition: see components/localNames.jsx
           UPnP_Enabled: Boolean(config.HTTPConfig.UPnP && config.HTTPConfig.UPnP.Enabled),
           UPnP_ForwardHTTP: Boolean(config.HTTPConfig.UPnP && config.HTTPConfig.UPnP.ForwardHTTP),
           UPnP_ExternalHTTPSPort: (config.HTTPConfig.UPnP && config.HTTPConfig.UPnP.ExternalHTTPSPort) || '',
@@ -316,6 +317,7 @@ const ConfigManagement = () => {
               AllowSearchEngine: values.AllowSearchEngine,
               AllowHTTPLocalIPAccess: values.AllowHTTPLocalIPAccess,
               PublishMDNS: values.PublishMDNS,
+              MDNSInterfaces: String(values.MDNSInterfaces || '').split(',').map((x) => x.trim()).filter(Boolean), // Fork addition
               UPnP: {
                 Enabled: Boolean(values.UPnP_Enabled),
                 ForwardHTTP: Boolean(values.UPnP_ForwardHTTP),

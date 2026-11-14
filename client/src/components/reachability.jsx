@@ -15,6 +15,7 @@ import {
   QuestionCircleOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import { LocalNameState } from './localNames'; // Fork addition
 import * as API from '../api';
 import StatusDot from './statusDot';
 import PermissionGuard from './permissionGuard';
@@ -230,6 +231,7 @@ export const ReachPanel = ({ config, routeNames, ports, hostNetwork, containerNa
             </Typography>
           </Stack>;
         })}
+        <LocalNameState host={route.host} help />{/* Fork addition: is the .local name published and answered, see localNames.jsx */}
       </Stack>;
     })}
 

@@ -30,6 +30,8 @@ import { ValidateRoute } from '../utils/routes';
 import { serverBack } from '../utils/appLinks';
 import { planLocalAddresses } from '../utils/routeGuide';
 import { localAddress } from './hostnameSuggestions';
+import { LocalNameState } from './localNames'; // Fork addition
+import { isLocalName } from '../utils/localNames';
 import { keepOnBackdrop } from './formHelpers';
 import { portSourceText } from '../pages/config/routes/forkRouteGuide';
 import defaultport from '../pages/servapps/defaultport.json';
@@ -158,6 +160,9 @@ const LocalAddressesForAll = ({ config, containers, selfName, refresh, wrap }) =
             {t('mgmt.urls.all.text',
               'Each ticked app gets the address shown. It works on the local network only: nothing becomes reachable from the internet. Every address can be changed or deleted afterwards under URLs.')}
           </Typography>
+
+          {/* Fork addition: will the .local names resolve, and on which devices, see localNames.jsx */}
+          <LocalNameState host={(offered.find((entry) => isLocalName(entry.host)) || {}).host} help />
 
           {offered.map((entry) => {
             const state = outcome[entry.name];
