@@ -84,7 +84,7 @@ cp src/update.go src/launcher/update.go
 CGO_ENABLED=0 go build -o /tmp/cosmos src/*.go
 CGO_ENABLED=0 go build -o /tmp/cosmos-launcher ./src/launcher/launcher.go ./src/launcher/update.go
 go test ./src/utils/ ./src/authorizationserver/ -count=1
-go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ ./src/telegram/ ./src/fail2ban/ ./src/forkrelease/ -count=1
+go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ ./src/telegram/ ./src/fail2ban/ ./src/maildetect/ ./src/dnsrecords/ ./src/cloudflare/... ./src/forkrelease/ -count=1
 go test ./src/ -skip TestEveryRouteIsDocumented -count=1
 go test ./src/docker/ -count=1
 go test ./src/proxy/ -count=1
@@ -142,6 +142,8 @@ WebKit does not keep the session cookie on a test hostname without a dot: give t
 `scripts/fork-ui-check-sudo.mjs` checks that the password prompt comes back mid-work without losing a form.
 
 A browser check that loads full pages one after another has to pace itself (about one page every 8 seconds from one address): each page load asks `/api/me` some 46 times and the instance allows 500 API requests a minute; beyond that pages come up empty.
+
+`scripts/fork-ui-check-cloudflare.mjs` (with `scripts/fork-fake-cloudflare.go` answering as Cloudflare's API) and `scripts/fork-ui-check-email.mjs` (with `scripts/fork-fake-mail` as name server and mail server) run on an `--internal` Docker network; their headers list what they expect. Nothing is ever sent to the real Cloudflare or to real mail servers.
 
 `scripts/fork-ui-check.mjs` logs in, confirms the password (`/api/sudo`: most
 admin actions need it), visits the main pages in three engines and at phone

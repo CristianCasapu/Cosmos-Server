@@ -91,6 +91,28 @@ security record.
 - Upstream asks `/api/me` about 47 times per page load, which eats into the
   500-requests-a-minute limit.
 
+## Cloudflare and email: left for later (2026-11-14)
+
+- **Authenticated Origin Pulls** (the owner's decision, recommended before
+  relying on the shield): Cloudflare's network is shared, so a request can
+  come from Cloudflare's addresses without passing the owner's zone; it
+  passes the "shielded names answer Cloudflare only" guard and can name any
+  public visitor address. Closing it needs a client-certificate check in
+  the TLS configuration.
+- The Fail2ban installer reads `TrustedProxies` only: with shielded names it
+  should put Cloudflare's ranges into `ignoreip` and say that a ban stops
+  direct connections only.
+- Reachability does not check the panel's own hostname; an Origin CA
+  certificate on a shielded name shows as "not trusted".
+- Unverified against the real Cloudflare: the "may this token edit?" check,
+  the public-address lookup used by the preview, and whether the "Edit zone
+  DNS" template alone is enough.
+- Email: Thunderbird's database is not asked; the less common provider
+  entries are unverified (each is probed live at first use); Microsoft's
+  retirement date for password sign-in may need updating in the hint.
+- The panel on the domain's own name shares its session cookie with every
+  port and subdomain of that name (the owner chose it knowingly).
+
 ## Usability gaps found in the code
 
 | # | Gap | Where |
