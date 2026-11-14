@@ -15,6 +15,20 @@ package proxy
 //
 // The decision reads the peer of the connection and the Host, never a header
 // about the visitor: nothing a request says about itself opens the guard.
+//
+// Cloudflare's addresses are shared by all its customers. While the admin
+// enforces Authenticated Origin Pulls (utils/fork_origin_pulls.go), a peer
+// from those addresses must also have presented the expected client
+// certificate on its connection: that is what shows Cloudflare's proxy made
+// it (and, with a certificate of the server's own, that it made it for this
+// server's zone). In "test" such requests are counted and let through.
+//
+// A peer of the local network passes without a certificate. The guard exists
+// to make visitors from the internet pass Cloudflare; a device at home can
+// already reach the panel and every application at the server's local
+// address, behind the same logins, and nothing it says about another address
+// is believed: its address is its own. Local is decided by the peer of the
+// connection alone, and an address of Cloudflare's is never local.
 
 import (
 	"net/http"
@@ -22,10 +36,29 @@ import (
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
-// originAllowed reports whether a request for a shielded hostname may be
-// answered, given the peer of its connection.
-func originAllowed(cf utils.ForkCloudflareConfig, peer string) bool {
-	return utils.IsCloudflareAddress(cf, peer) || isLocalVisitor(peer, serverNetworks())
+// Why a request for a shielded hostname is refused: one of these, or one of
+// the utils.OriginPull... reasons. Recorded with the event.
+const originNotCloudflare = "not_cloudflare"
+
+// originRefusal says why a request for a shielded hostname may not be
+// answered, "" when it may. peer is the peer of its connection.
+func originRefusal(cf utils.ForkCloudflareConfig, peer string, req *http.Request) string {
+	if utils.IsCloudflareAddress(cf, peer) {
+		mode := utils.OriginPullMode(cf)
+		if mode == utils.OriginPullOff {
+			return ""
+		}
+		problem, issuer := utils.OriginPullCheck(cf, req.TLS)
+		utils.CountOriginPull(utils.CloudflareHostname(req.Host), problem, issuer)
+		if mode == utils.OriginPullEnforce {
+			return problem
+		}
+		return ""
+	}
+	if isLocalVisitor(peer, serverNetworks()) {
+		return ""
+	}
+	return originNotCloudflare
 }
 
 // CloudflareOriginGuard is placed on the main router, in front of the panel
@@ -35,10 +68,15 @@ func CloudflareOriginGuard(next http.Handler) http.Handler {
 		cf := utils.GetMainConfig().HTTPConfig.Cloudflare
 		if len(cf.Shielded) > 0 && utils.ShieldedIn(cf.Shielded, req.Host) {
 			peer, _ := utils.SplitIP(req.RemoteAddr)
-			if !originAllowed(cf, peer) {
-				utils.RecordSecurity(req, utils.SecAccessOriginDenied, "") // security record
-				utils.Warn("An address served through Cloudflare was requested around it (" + utils.CloudflareHostname(req.Host) + " from " + peer + "): refused")
-				http.Error(w, "This address is available through Cloudflare only.", http.StatusForbidden)
+			if reason := originRefusal(cf, peer, req); reason != "" {
+				utils.RecordSecurity(req, utils.SecAccessOriginDenied, "", "reason", reason) // security record
+				if reason == originNotCloudflare {
+					utils.Warn("An address served through Cloudflare was requested around it (" + utils.CloudflareHostname(req.Host) + " from " + peer + "): refused")
+					http.Error(w, "This address is available through Cloudflare only.", http.StatusForbidden)
+				} else {
+					utils.Warn("A request for " + utils.CloudflareHostname(req.Host) + " came from Cloudflare's addresses (" + peer + ") without proof that Cloudflare's proxy made it (" + reason + "): refused")
+					http.Error(w, "This address is available through Cloudflare's proxy only.", http.StatusForbidden)
+				}
 				return
 			}
 		}

@@ -29,7 +29,11 @@ package utils
 //     last one is not documented;
 //   - the address must be a public one. Cloudflare never reports a visitor
 //     from a private network, and a claim to be one must not open what is
-//     reserved to the local network.
+//     reserved to the local network;
+//   - while the admin enforces Authenticated Origin Pulls (fork_origin_pulls.go)
+//     the header is believed only on a connection that presented the
+//     expected client certificate: Cloudflare's addresses are shared by all
+//     its customers, the certificate is what shows whose request it is.
 //
 // The header is only read at all when the peer of the connection is a
 // trusted proxy (the callers check that, as before).
@@ -51,6 +55,11 @@ func ForwardedClient(req *http.Request, trusted func(ip string) bool) string {
 	peer, _ := SplitIP(req.RemoteAddr)
 	if edge(peer) {
 		if !shielded {
+			return ""
+		}
+		if OriginPullMode(cf) == OriginPullEnforce && !OriginPullVerified(cf, req.TLS) {
+			// not shown to be Cloudflare's proxy: the guard refuses it, and
+			// nothing it says about the visitor counts
 			return ""
 		}
 		return publicVisitor(req.Header.Values("CF-Connecting-IP"))
