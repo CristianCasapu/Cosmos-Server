@@ -13,6 +13,11 @@ func authEndpoint(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Fork addition: never as the owner of an API token, see fork_token_signin.go
+	if refuseTokenSignIn(rw, req) {
+		return
+	}
+
 	nickname := utils.GetAuthContext(req).Nickname
 	
 	hostname := utils.GetMainConfig().HTTPConfig.Hostname

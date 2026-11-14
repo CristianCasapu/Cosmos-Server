@@ -59,6 +59,11 @@ func UserResendInviteLink(w http.ResponseWriter, req *http.Request) {
 			utils.HTTPError(w, "User Send Invite Error", http.StatusInternalServerError, "US001")
 			return
 		} else {
+			// Fork addition: only an account whose permissions the caller holds itself, see fork_manage_target.go
+			if refuseStrongerAccount(w, req, user) {
+				return
+			}
+
 			RegisterKeyExp := time.Now().Add(time.Hour * 24 * 7)
 			RegisterKey := utils.GenerateRandomString(48)
 

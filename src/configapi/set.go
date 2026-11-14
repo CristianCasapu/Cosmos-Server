@@ -176,6 +176,16 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 			return 
 		}
 
+		// Fork addition: what runs on the host as root, and URLs that serve a host folder, need the resources permission too, see fork_host_powers.go
+		if refuseHostPowers(w, req, request) {
+			return
+		}
+		// Fork addition: a known log level only, see fork_logging_level.go
+		if problem := loggingLevelProblem(request.LoggingLevel, utils.GetMainConfig().LoggingLevel); problem != "" {
+			utils.HTTPError(w, problem, http.StatusBadRequest, "UC023")
+			return
+		}
+
 		// Fork addition: directories named in the settings must be usable; a missing backup folder is created.
 		if errD := prepareConfigDirectories(&request, utils.GetMainConfig()); errD != nil {
 			utils.Error("SettingsUpdate: "+errD.Error(), nil)

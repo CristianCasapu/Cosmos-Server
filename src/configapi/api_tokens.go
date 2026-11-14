@@ -156,6 +156,18 @@ func createAPIToken(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Fork addition: a bounded lifetime and real addresses, see fork_api_token_inputs.go
+	if problem := tokenExpiryProblem(request.ExpiryDays); problem != "" {
+		utils.HTTPError(w, problem, http.StatusBadRequest, "AT017")
+		return
+	}
+	if kept, problem := cleanTokenWhitelist(request.IPWhitelist); problem != "" {
+		utils.HTTPError(w, problem, http.StatusBadRequest, "AT018")
+		return
+	} else {
+		request.IPWhitelist = kept
+	}
+
 	// Build permissions array
 	var permissions []utils.Permission
 	if len(request.Permissions) > 0 {
@@ -353,6 +365,14 @@ func updateAPIToken(w http.ResponseWriter, req *http.Request) {
 		utils.Error("UpdateAPIToken: Invalid request", err)
 		utils.HTTPError(w, "Invalid request", http.StatusBadRequest, "AT031")
 		return
+	}
+
+	// Fork addition: real addresses, see fork_api_token_inputs.go
+	if kept, problem := cleanTokenWhitelist(request.IPWhitelist); problem != "" {
+		utils.HTTPError(w, problem, http.StatusBadRequest, "AT018")
+		return
+	} else if request.IPWhitelist != nil {
+		request.IPWhitelist = kept
 	}
 
 	utils.ConfigLock.Lock()
