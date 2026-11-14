@@ -10,6 +10,7 @@ import * as API from '../../api';
 import { DownCircleOutlined, UpCircleOutlined } from "@ant-design/icons";
 import PermissionGuard from "../../components/permissionGuard";
 import { PERM_RESOURCES } from "../../utils/permissions";
+import { ForkMountDialog, ForkUnmountDialog } from "./forkStorageForms"; // Fork addition
 
 const MountDiskDialogInternal = ({disk, unmount, refresh, open, setOpen }) => {
   const { t } = useTranslation();
@@ -114,7 +115,9 @@ const MountDiskDialog = ({ disk, unmount, refresh, disabled }) => {
   const [open, setOpen] = useState(false);
 
   return <>
-    {open && <MountDiskDialogInternal disk={disk} unmount={unmount} refresh={refresh} open={open} setOpen={setOpen}/>}
+    {/* Fork addition: the guided dialogs, see forkStorageForms.jsx (upstream: MountDiskDialogInternal) */}
+    {open && !unmount && <ForkMountDialog disk={disk.name} onClose={() => setOpen(false)} onDone={() => { setOpen(false); refresh && refresh(); }} />}
+    {open && unmount && <ForkUnmountDialog mount={{ path: disk.mountpoint, device: disk.name }} onClose={() => setOpen(false)} onDone={() => { setOpen(false); refresh && refresh(); }} />}
     
     <PermissionGuard permission={PERM_RESOURCES}>
       <Button

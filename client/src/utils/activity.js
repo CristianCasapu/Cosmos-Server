@@ -55,6 +55,7 @@ const IGNORED = [
   /^\/api\/config\/email-detect\b/, // a lookup for the email form, which shows what was found itself
   /^\/api\/config\/http-check\b/, // Fork addition: the HTTP settings form shows what the check found itself
   /^\/api\/install\/plan\b/, // Fork addition: a lookup for the installation's review, which shows what was found itself
+  /^\/api\/storage\/unmount-check\b/, // Fork addition: a read sent as POST; the unmount dialog shows what it found
   /^\/api\/(metrics|events|notifications|list-dir|dns-check|_logs|_memory)\b/,
   /^\/api\/jobs\/(get|running)\b/,
   /^\/api\/(config\/test-email|upnp|server-update|force-server-update)\b/,

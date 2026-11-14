@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 
 import * as API from '../../api';
 import MountDeviceSuggestions from '../../components/mountDeviceSuggestions'; // Fork addition: partitions to pick from
+import { ForkMountDialog } from './forkStorageForms'; // Fork addition
 
 const MountDialogInternal = ({ unmount, refresh, open, setOpen, data }) => {
   const { t } = useTranslation();
@@ -147,7 +148,9 @@ const MountDialog = ({ disk, unmount, refresh, disabled }) => {
   const [open, setOpen] = useState(false);
 
   return <>
-    {open && <MountDialogInternal disk={disk} unmount={unmount} refresh={refresh} open={open} setOpen={setOpen}/>}
+    {/* Fork addition: the guided dialog, see forkStorageForms.jsx */}
+    {open && !unmount && <ForkMountDialog disk={disk && disk.name} onClose={() => setOpen(false)} onDone={() => { setOpen(false); refresh && refresh(); }} />}
+    {open && unmount && <MountDialogInternal disk={disk} unmount={unmount} refresh={refresh} open={open} setOpen={setOpen}/>}
     
     <Button
       disabled={disabled}

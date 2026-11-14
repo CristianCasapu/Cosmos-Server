@@ -29,6 +29,7 @@ const files = [
   ['../pages/servapps/forkSmallForms.jsx', ['mgmt.servApps.fork.']],
   ['../pages/market/sources.jsx', ['mgmt.market.fork.']],
   ['../pages/config/users/shieldWhitelist.jsx', ['mgmt.shield.fork.']],
+  ['../pages/storage/forkStorageForms.jsx', ['mgmt.storage.fork.']],
 ];
 
 // Pure modules return their texts as ['key', 'English', variables]: [file, prefixes]
@@ -41,6 +42,7 @@ const arrayFiles = [
   ['./openidForm.js', ['mgmt.openId.fork.']],
   ['./zoneMode.js', ['mgmt.config.zones.fork.']],
   ['./smallForms.js', ['mgmt.servApps.fork.', 'mgmt.market.fork.', 'mgmt.shield.fork.']],
+  ['./storageForms.js', ['mgmt.storage.fork.']],
 ];
 
 // t('key', 'English text' …) and tr('key', 'English text' …), the text in single quotes
