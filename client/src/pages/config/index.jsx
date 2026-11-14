@@ -47,10 +47,20 @@ import ConfigExternal from './configExternal';
 import ConfigAppearance from './configAppearance';
 import ConfigAPITokens from './configAPITokens';
 
-const SaveButton = ({ formik, saveLabel }) => {
+const SaveButton = ({ formik, saveLabel, sticky }) => {
+  // Fork addition: say when something was changed and not saved yet, and keep the
+  // first save bar in view while that is so (the page is long). "Saved" is what the
+  // form held when the server confirmed the last save.
+  const { t } = useTranslation();
+  const saved = React.useRef(null);
+  React.useEffect(() => {
+    if (saveLabel === t('global.savedConfirmation')) saved.current = formik.values;
+  }, [saveLabel]);
+  const unsaved = formik.dirty && formik.values !== saved.current && !formik.isSubmitting;
   return (
     <PermissionGuard permission={PERM_CONFIGURATION}>
-    <MainCard>
+    <MainCard className={'ct-savebar' + (unsaved ? ' ct-savebar-unsaved' : '') + (sticky ? ' ct-savebar-first' : '')}>
+      {unsaved && <div className="ct-savebar-note" role="status">{t('mgmt.config.unsavedChanges', 'You changed something that is not saved yet.')}</div>}
       {formik.errors.submit && (
         <Grid item xs={12}>
           <FormHelperText error>{formik.errors.submit}</FormHelperText>
@@ -142,7 +152,7 @@ const ConfigManagement = () => {
           </Alert>
         </div>}
 
-        <SaveButton formik={formik} saveLabel={saveLabel} />
+        <SaveButton formik={formik} saveLabel={saveLabel} sticky />
         {content}
         <SaveButton formik={formik} saveLabel={saveLabel} />
       </Stack>

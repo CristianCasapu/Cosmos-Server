@@ -3298,5 +3298,11 @@
 	"header.notification.empty": "Nothing to report. Updates, alerts and jobs that failed are listed here.",
 	"notFound.title": "This page does not exist",
 	"notFound.home": "Go to the home page",
-	"notFound.text": "There is nothing at {{address}}. The address may be mistyped, or the page was renamed. The menu lists every page of the panel."
+	"notFound.text": "There is nothing at {{address}}. The address may be mistyped, or the page was renamed. The menu lists every page of the panel.",
+	"monitoring.noMeasurements": "No measurements yet. The first ones arrive within a minute of the server's start; this page fills in by itself.",
+	"monitoring.noMeasurementsShort": "No measurements yet",
+	"mgmt.servapps.container.missing.title": "There is no container named {{name}}",
+	"mgmt.servapps.container.missing.text": "It may have been renamed or deleted, or the Docker service did not answer. The list of ServApps shows what exists now.",
+	"mgmt.servapps.container.missing.back": "Back to the ServApps",
+	"mgmt.config.unsavedChanges": "You changed something that is not saved yet."
 }
