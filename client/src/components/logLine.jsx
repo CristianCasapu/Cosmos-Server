@@ -13,13 +13,13 @@ const LogLine = ({ message, docker, isMobile }) => {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
     .replace(/(?:\r\n|\r|\n)/g, '<br>')
     .replace(/�/g, '')
-    .replace(/ /g, '&nbsp;')
-    .replace(/\t/g, '&nbsp;&nbsp;&nbsp;&nbsp;');
+    // Fork addition: spaces stay spaces (a line of non-breaking spaces could only break inside its
+    // words); runs of them are kept by white-space: pre-wrap on .ct-logline (skin)
+    .replace(/\t/g, '    ');
 
   // Process color codes
   let colorStack = [];
   html = html.replace(/\x1b\[([0-9]{1,2}(?:;[0-9]{1,2})*)?m/g, (match, p1) => {
-    console.log(p1)
     if (!p1 || p1 === '0') {
       // Reset code
       let i = colorStack.length;
@@ -46,7 +46,7 @@ const LogLine = ({ message, docker, isMobile }) => {
   if (docker) {
     let parts = html.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z/);
     if (!parts) {
-      return <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }} />;
+      return <div className="ct-logline" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }} />;
     }
     let restString = html.replace(parts[0], '');
    
@@ -55,12 +55,12 @@ const LogLine = ({ message, docker, isMobile }) => {
         <div style={{color:'#AAAAFF', fontStyle:'italic', whiteSpace: 'pre', background: '#393f48', padding: '0 0.5em', marginRight: '5px'}}>
           {parts[0].replace('T', ' ').split('.')[0]}
         </div>
-        <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(restString) }} />
+        <div className="ct-logline" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(restString) }} />
       </Stack>
     );
   }
    
-  return <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }} />;
+  return <div className="ct-logline" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }} />;
 };
 
 const getColor = (code) => {

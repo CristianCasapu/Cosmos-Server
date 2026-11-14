@@ -54,8 +54,11 @@ function Screenshots({ screenshots }) {
 }
 
 function Showcases({ showcase, isDark, isAdmin }) {
+  // Fork addition: the slides stay inside their frame (on a phone two half slides showed), and with
+  // "reduce motion" on the device the showcase does not turn by itself and changes without sliding
+  const still = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   return (
-    <Carousel animation="slide" navButtonsAlwaysVisible={false} fullHeightHover="true" swipe={false}>
+    <Carousel className="ct-market-showcase" animation={still ? 'fade' : 'slide'} autoPlay={!still} navButtonsAlwaysVisible={false} fullHeightHover="true" swipe={false}>
       {
         showcase.map((item, i) => <ShowcasesItem isDark={isDark} key={i} item={item} isAdmin={isAdmin} />)
       }
