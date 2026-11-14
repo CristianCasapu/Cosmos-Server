@@ -92,6 +92,17 @@ const (
 	SSLToken = "sslcerts0123456789abcdefghijklmnopqrstuvwxYZ"
 )
 
+// Turnstile (scripts/fork-ui-check-turnstile.mjs). GET /token?turnstile=1 on
+// the control port lets GoodToken make Turnstile widgets too ("Account >
+// Turnstile > Edit"), GET /widgets lists the widgets made. A second server on
+// :8090 (plain HTTP) stands in for challenges.cloudflare.com's siteverify, for
+// a test Cosmos started with COSMOS_FORK_TURNSTILE_TEST=1 and
+// COSMOS_FORK_TURNSTILE_SITEVERIFY=http://<this>:8090/turnstile/v0/siteverify:
+// it knows Cloudflare's test secrets and the secrets of the widgets made here;
+// GET /siteverify/down?mode=error|500|slow| (empty: answers again),
+// /siteverify/calls (?clear=1), /siteverify/forget?secret=<secret> on the
+// control port.
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "edge" {
 		if len(os.Args) != 5 {
@@ -159,7 +170,7 @@ func main() {
 		io.WriteString(w, "ok\n")
 	})
 	control.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
-		fake.AddToken(GoodToken, cffake.Token{Status: r.URL.Query().Get("status"), Zones: []string{"example.org"}, ReadDNS: true, EditDNS: true})
+		fake.AddToken(GoodToken, cffake.Token{Status: r.URL.Query().Get("status"), Zones: []string{"example.org"}, ReadDNS: true, EditDNS: true, EditTurnstile: r.URL.Query().Get("turnstile") == "1"})
 		io.WriteString(w, "ok\n")
 	})
 	names := &nameServer{fake: fake, extra: map[string][]cffake.Record{}}
@@ -168,6 +179,27 @@ func main() {
 		json.NewEncoder(w).Encode(names.asked(r.URL.Query().Get("clear") != ""))
 	})
 	names.start()
+	siteverify := cffake.NewSiteverify()
+	siteverify.Delay = 30 * time.Second
+	go func() { log.Fatal(http.ListenAndServe(":8090", siteverify)) }()
+	control.HandleFunc("/widgets", func(w http.ResponseWriter, r *http.Request) {
+		widgets := fake.Widgets()
+		for _, widget := range widgets {
+			siteverify.AddSecret(widget.Secret)
+		}
+		json.NewEncoder(w).Encode(widgets)
+	})
+	control.HandleFunc("/siteverify/down", func(w http.ResponseWriter, r *http.Request) {
+		siteverify.SetDown(r.URL.Query().Get("mode"))
+		io.WriteString(w, "ok\n")
+	})
+	control.HandleFunc("/siteverify/calls", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(siteverify.Calls(r.URL.Query().Get("clear") != ""))
+	})
+	control.HandleFunc("/siteverify/forget", func(w http.ResponseWriter, r *http.Request) {
+		siteverify.RemoveSecret(r.URL.Query().Get("secret"))
+		io.WriteString(w, "ok\n")
+	})
 	control.HandleFunc("/aop", func(w http.ResponseWriter, r *http.Request) {
 		certs, enabled := fake.OriginPull("example.org")
 		json.NewEncoder(w).Encode(map[string]interface{}{"enabled": enabled, "certificates": certs})

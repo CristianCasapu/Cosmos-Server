@@ -231,7 +231,9 @@ func Verify(ctx context.Context, secret string, token string, remoteIP string, w
 	if !validToken(token) {
 		return Result{Kind: ResultRefused, Reason: ReasonMalformed}
 	}
-	if spend(token) {
+	// Cloudflare's test keys hand out one and the same token every time
+	// (test mode only): its repeats are Cloudflare's test secret's to judge
+	if !(testMode && isTestKey(secret)) && spend(token) {
 		return Result{Kind: ResultRefused, Reason: ReasonUsed}
 	}
 	result := siteverify(ctx, secret, token, remoteIP)

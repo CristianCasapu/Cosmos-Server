@@ -144,7 +144,8 @@ const TurnstileWidget = ({ form }) => {
 
   const status = statusText(state, typeof window !== 'undefined' ? window.location.hostname : '');
   const problem = !['loading', 'checking', 'ready'].includes(state);
-  const refused = refusalText(refusal);
+  // "sent before the check was done" says nothing new when the line already says why the check is missing
+  const refused = problem && refusal === 'TS001' ? null : refusalText(refusal);
 
   return <Stack spacing={1} sx={{ width: '100%', minWidth: 0 }} data-turnstile={form} data-turnstile-state={state}>
     <TurnstileBox
