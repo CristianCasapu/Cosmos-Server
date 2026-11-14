@@ -81,7 +81,7 @@ test('a route as its chip shows and opens it', () => {
 // the functions above. A screen that goes back to the bare host fails here.
 test('every place that shows an address goes through this module', () => {
   const uses = {
-    '../components/hostnameSuggestions.jsx': ['shownAddress(externalAddress(name, domain), ports)', '<ExternalPortNote config={config}'],
+    '../components/hostnameSuggestions.jsx': ['<ExternalPortNote config={config}'], // the domain picker that showed shownAddress(...) was removed (unused)
     '../components/appLinks.jsx': ['route={shownRoute(route, ports, scheme)}'],
     '../components/exposure.jsx': ["'https://' + shownAddress(choice.host, outside, 'https')"],
     '../components/routerPorts.jsx': ['shownAddress(web.route.Host, ports', 'portAddress(mapping, host)'],
