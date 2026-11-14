@@ -135,9 +135,8 @@ func forkPWAStatic(next http.Handler, staticDir string) http.Handler {
 
 		case !exists(name) || name == "/index.html":
 			// the panel's page (also what a missing file is answered with): never
-			// kept by a browser, so that with the server gone it cannot open from
-			// a stale copy (WebKit answered a page from one) instead of the
-			// offline page, and so that a new release is always what opens
+			// kept by a browser, so that a new release is always what opens and
+			// a page of the panel never opens from a stale copy
 			w.Header().Set("Cache-Control", "no-store")
 
 		case name == "/offline.html":
