@@ -99,6 +99,32 @@
     window.location.reload();
   }
 
+  // The accent from Configuration > Theme, as the panel last computed it on
+  // this device (client/src/components/skinAccent.jsx): applied before the
+  // page paints. Only the known names and colour-like values are taken.
+  (function applyStoredAccent() {
+    var NAMES = ['--ct-accent', '--ct-accent-2', '--ct-accent-glow', '--ct-accent-2-glow', '--ct-gradient', '--ct-accent-fill',
+      '--ct-focus', '--ct-accent-text', '--ct-accent-soft', '--ct-accent-soft-border'];
+    var stored = null;
+    try { stored = JSON.parse(window.localStorage.getItem('ct-accent') || 'null'); } catch (e) { return; }
+    if (!stored || stored.v !== 1 || !stored.tokens || document.getElementById('ct-accent-style')) return;
+    function block(values) {
+      var out = '';
+      if (!values || typeof values !== 'object') return out;
+      for (var i = 0; i < NAMES.length; i++) {
+        var v = values[NAMES[i]];
+        if (typeof v === 'string' && /^[#(),.%\s0-9a-z-]{1,200}$/i.test(v) && !/url|expression|var\(/i.test(v)) out += NAMES[i] + ': ' + v + '; ';
+      }
+      return out;
+    }
+    var style = document.createElement('style');
+    style.id = 'ct-accent-style';
+    style.textContent = ':root:root { ' + block(stored.tokens.common) + '}\n' +
+      ':root:root[data-ct-mode="dark"] { ' + block(stored.tokens.dark) + '}\n' +
+      ':root:root[data-ct-mode="light"] { ' + block(stored.tokens.light) + '}\n';
+    (document.head || root).appendChild(style);
+  })();
+
   // For the panel's own button (client/src/components/modeToggle.jsx): inside
   // the panel the switch is in the header, and this script's floating button
   // is left to the pages without one (sign-in), see theme.css.
