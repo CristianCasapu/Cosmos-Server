@@ -15,12 +15,12 @@ import (
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
-// registerUPnPRoutes adds the routes to the admin router: behind the token
-// check, the SmartShield and the admin address restriction. Each checks its
-// permission itself: reading the status takes PERM_CONFIGURATION_READ,
-// everything that changes the router PERM_ADMIN (the confirmed password).
-func registerUPnPRoutes(admin *mux.Router) {
-	admin.HandleFunc("/api/upnp", upnp.StatusRoute)
+// registerUPnPAppRoutes adds the routes that open and close ports to the
+// admin router, beside the status route (/api/upnp, registered where it
+// always was): behind the token check, the SmartShield and the admin address
+// restriction. Each checks its permission itself: PERM_ADMIN (the confirmed
+// password); reading the status takes PERM_CONFIGURATION_READ.
+func registerUPnPAppRoutes(admin *mux.Router) {
 	admin.HandleFunc("/api/upnp/apps", upnp.AppPortRoute)
 	admin.HandleFunc("/api/upnp/close", upnp.CloseRoute)
 }

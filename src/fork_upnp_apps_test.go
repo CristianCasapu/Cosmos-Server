@@ -14,6 +14,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/azukaar/cosmos-server/src/upnp"
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
@@ -21,10 +22,11 @@ func TestUPnPHooksAreInPlace(t *testing.T) {
 	for file, hook := range map[string]string{
 		// on the admin router: behind the token check, the SmartShield and
 		// the admin address restriction
-		"httpServer.go":    "registerUPnPRoutes(srapiAdmin)",
+		"httpServer.go":    "registerUPnPAppRoutes(srapiAdmin)",
+		"httpServer.go ":   `srapiAdmin.HandleFunc("/api/upnp", upnp.StatusRoute)`,
 		"configapi/set.go": "keepUPnPAppPorts(&request, config)",
 	} {
-		source, err := os.ReadFile(file)
+		source, err := os.ReadFile(strings.TrimSpace(file))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -44,7 +46,8 @@ func TestUPnPHooksAreInPlace(t *testing.T) {
 func TestUPnPRoutesAreRegisteredAndProtected(t *testing.T) {
 	router := mux.NewRouter()
 	api := router.PathPrefix("/cosmos").Subrouter()
-	registerUPnPRoutes(api)
+	api.HandleFunc("/api/upnp", upnp.StatusRoute) // as httpServer.go does
+	registerUPnPAppRoutes(api)
 
 	serve := func(method string, path string, auth *utils.AuthContext) int {
 		req := httptest.NewRequest(method, "http://cosmos.example"+path, strings.NewReader("{}"))
