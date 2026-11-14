@@ -460,7 +460,7 @@ const HomePage = () => {
 
                 <Grid2 item xs={12} sm={6} md={4} lg={3} xl={3} xxl={3} key={route.Name}>
                     <Box className='app app-hover' style={{ padding: 25, borderRadius: 10, ...appColor, ...appBorder }}>
-                        <Link to={getFullOrigin(route)} target="_blank" style={{ textDecoration: 'none', ...appColor }}>
+                        <Link to={getFullOrigin(route)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', ...appColor }}>
                             <Stack direction="row" spacing={2} alignItems="center" style={{ overflow: 'hidden' }}>
                                 <DashboardIcon route={route} containerIcon={route.ContainerIcon} className="loading-image" width="70px" />
                                 <div style={{ minWidth: 0, overflow: 'hidden' }}>
@@ -475,7 +475,7 @@ const HomePage = () => {
                 :
                 <Grid2 item xs={6} sm={4} md={3} lg={2} xl={2} xxl={2} key={route.Name}>
                     <Box className='app app-hover' style={{ padding: 25, borderRadius: 10, ...appColor, ...appBorder }}>
-                        <Link to={getFullOrigin(route)} target="_blank" style={{ textDecoration: 'none', ...appColor }}>
+                        <Link to={getFullOrigin(route)} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', ...appColor }}>
                             <Stack direction="column" spacing={2} alignItems="center" style={{ overflow: 'hidden', width: '100%' }}>
                                 <DashboardIcon route={route} containerIcon={route.ContainerIcon} className="loading-image" width="70px" />
                                 <div style={{ minWidth: 0, overflow: 'hidden', maxWidth: '100%' }}>

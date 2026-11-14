@@ -232,7 +232,7 @@ const FilePickerModal = ({ raw, open, cb, restic, OnClose, onPick, canCreate, _s
                       ))}
                     </List>
                     <Stack alignItems="center" spacing={2}>
-                      <Button href="/cosmos-ui/storage" target="_blank" style={{width: '110px', textAlign:'center'}}>Add external storages</Button>
+                      <Button href="/cosmos-ui/storage" target="_blank" rel="noopener noreferrer" style={{width: '110px', textAlign:'center'}}>Add external storages</Button>
                     </Stack>
                     </Stack>
                 </div>}

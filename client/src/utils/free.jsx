@@ -166,7 +166,7 @@ const PremiumSalesPage = ({salesKey, extra}) => {
               />
             </ListItem>
           </List>
-          <Button variant="contained" color="primary" target='_blank' fullWidth href={isYearly ? yearlyLink : monthlyLink}>
+          <Button variant="contained" color="primary" target='_blank' rel="noopener noreferrer" fullWidth href={isYearly ? yearlyLink : monthlyLink}>
             {t('mgmt.sales.upgrade_button')}
           </Button>
         </CardContent>
@@ -217,7 +217,7 @@ const PremiumSalesPage = ({salesKey, extra}) => {
               />
             </ListItem>
           </List>
-          <Button variant="contained" color="primary" target='_blank' fullWidth href={lifeLink}>
+          <Button variant="contained" color="primary" target='_blank' rel="noopener noreferrer" fullWidth href={lifeLink}>
             {t('mgmt.sales.upgrade_button')}
           </Button>
         </CardContent>
