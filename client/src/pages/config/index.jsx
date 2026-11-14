@@ -60,7 +60,7 @@ const SaveButton = ({ formik, saveLabel, sticky }) => {
   return (
     <PermissionGuard permission={PERM_CONFIGURATION}>
     <MainCard className={'ct-savebar' + (unsaved ? ' ct-savebar-unsaved' : '') + (sticky ? ' ct-savebar-first' : '')}>
-      {unsaved && <div className="ct-savebar-note" role="status">{t('mgmt.config.unsavedChanges', 'You changed something that is not saved yet.')}</div>}
+      {unsaved && <div className="ct-savebar-note">{t('mgmt.config.unsavedChanges', 'You changed something that is not saved yet.')}</div>}
       {formik.errors.submit && (
         <Grid item xs={12}>
           <FormHelperText error>{formik.errors.submit}</FormHelperText>
