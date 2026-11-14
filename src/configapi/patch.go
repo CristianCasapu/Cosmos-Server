@@ -3,7 +3,6 @@ package configapi
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/azukaar/cosmos-server/src/utils"
 )
@@ -164,9 +163,8 @@ func ConfigApiPatch(w http.ResponseWriter, req *http.Request) {
 	if updateReq.NewRoute != nil && updateReq.NewRoute.Mode == "SERVAPP" {
 		utils.Log("RouteSettingsUpdate: Service needs update: "+updateReq.NewRoute.Target)
 
-		target := updateReq.NewRoute.Target
-		tokens := strings.Split(target, ":")
-		name := tokens[1][2:]
+		// Fork addition: a target without "://" no longer panics after the save, see fork_patch_target.go
+		name := servAppTargetName(updateReq.NewRoute.Target)
 		
 		utils.Log("RouteSettingsUpdate: Service needs update: "+name)
 
