@@ -102,6 +102,9 @@ const COMMANDS = [
   [null, /^\/api\/openid/, byMethod({ POST: ['activity.openid.create', 'Create the OpenID client'], PUT: ['activity.openid.update', 'Save the OpenID client'], DELETE: ['activity.openid.delete', 'Delete the OpenID client'] })],
   [null, /^\/api\/alerts/, byMethod({ POST: ['activity.alert.save', 'Save the alert'], PUT: ['activity.alert.save', 'Save the alert'], DELETE: ['activity.alert.delete', 'Delete the alert'] })],
   ['POST', /^\/api\/shield\/unban$/, () => ['activity.shield.unban', 'Lift the ban']],
+  // router port forwarding (src/upnp): a port of an app, or one of Cosmos' own
+  ['POST', /^\/api\/upnp\/apps$/, () => ['activity.upnp.appPort', 'Change the port on the router']],
+  ['POST', /^\/api\/upnp\/close$/, () => ['activity.upnp.close', 'Close the port on the router']],
 
   ['POST', /^\/api\/jobs\/run$/, () => ['activity.job.run', 'Start the job']],
   ['POST', /^\/api\/jobs\/stop$/, () => ['activity.job.stop', 'Stop the job']],
@@ -155,7 +158,8 @@ export const describe = (url, method) => {
     return null;
   }
   const rest = m[1];
-  if (IGNORED.some((re) => re.test(rest))) {
+  // (opening and closing a port on the router are commands; only the status under /api/upnp itself is not)
+  if (IGNORED.some((re) => re.test(rest)) && !/^\/api\/upnp\/./.test(rest)) {
     return null;
   }
   for (const [commandMethod, re, label] of COMMANDS) {

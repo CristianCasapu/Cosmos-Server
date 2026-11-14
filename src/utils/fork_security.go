@@ -106,6 +106,13 @@ const (
 	SecFail2banUnban    = "firewall.unban"
 	SecFail2banSettings = "firewall.settings.saved"
 
+	// router port forwarding (src/upnp): what an administrator asked for,
+	// and what the router was made to do
+	SecUPnPPortOpened     = "upnp.port.opened"
+	SecUPnPPortClosed     = "upnp.port.closed"
+	SecUPnPMappingCreated = "upnp.mapping.created"
+	SecUPnPMappingRemoved = "upnp.mapping.removed"
+
 	// the record about itself
 	SecRecorderDropped = "recorder.dropped"
 )

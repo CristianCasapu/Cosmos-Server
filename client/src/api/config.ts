@@ -70,12 +70,36 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
   }
 
   // Fork addition: UPnP port forwarding status; retry re-applies the saved settings now.
-  function upnpStatus() {
+  function upnpStatus(quiet = false) {
     return wrap(apiFetch('/cosmos/api/upnp', {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json'
       },
+    }), quiet)
+  }
+
+  // Fork addition: open or close a published port of a container on the
+  // router (src/upnp/apps.go). Opening is confirmed with the name of the app
+  // and the port; the answer is the new status.
+  function upnpAppPort(body: { container: string, port: number, protocol: string, enabled: boolean, externalPort?: number, scheme?: string, confirm?: string }) {
+    return wrap(apiFetch('/cosmos/api/upnp/apps', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body),
+    }))
+  }
+
+  // Fork addition: close one of Cosmos' own ports on the router ("HTTPS" or "HTTP").
+  function upnpClose(name: string) {
+    return wrap(apiFetch('/cosmos/api/upnp/close', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ name }),
     }))
   }
 
@@ -426,6 +450,8 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     serverUpdateStatus,
     checkServerUpdate,
     upnpStatus,
+    upnpAppPort,
+    upnpClose,
     upnpRetry,
     reachability,
     reachabilityCheck,

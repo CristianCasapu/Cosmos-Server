@@ -1046,6 +1046,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/zones-addresses", configapi.ZonesApiAddresses)
 	srapiAdmin.HandleFunc("/api/_memory", MemStatusRoute)
 	srapiAdmin.HandleFunc("/api/restart", configapi.ConfigApiRestart)
+	registerUPnPAppRoutes(srapiAdmin) // Fork addition: the ports of apps on the router, see fork_upnp_apps.go
 	
 	srapiAdmin.HandleFunc("/api/invite", user.UserResendInviteLink)
 	srapiAdmin.HandleFunc("/api/users/{nickname}", user.UsersIdRoute)

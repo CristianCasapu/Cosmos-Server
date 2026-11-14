@@ -68,9 +68,12 @@ func isSOAPError(err error, code int) bool {
 }
 
 const (
+	errNotAuthorized       = 606
+	errIndexInvalid        = 713
 	errNoSuchEntry         = 714
 	errConflictInMapping   = 718
 	errOnlyPermanentLeases = 725
+	errConflictWithOthers  = 729 // the port is used by something that is not a UPnP mapping
 )
 
 // defaultGateway returns the IPv4 default gateway from the kernel routing table.
@@ -332,7 +335,7 @@ func (g *gateway) soap(action string, args ...soapArg) (map[string]string, error
 
 	if resp.StatusCode != http.StatusOK {
 		if code, err := strconv.Atoi(values["errorCode"]); err == nil {
-			return nil, &soapError{Code: code, Description: values["errorDescription"]}
+			return nil, &soapError{Code: code, Description: cleanText(values["errorDescription"], maxRouterText)}
 		}
 		return nil, fmt.Errorf("router returned HTTP %d for %s", resp.StatusCode, action)
 	}
@@ -379,33 +382,122 @@ func (g *gateway) externalIP() (string, error) {
 	return ip.String(), nil
 }
 
-// mappingOwner returns the LAN address externalPort is forwarded to, or "" if
-// the port is not forwarded.
-func (g *gateway) mappingOwner(protocol string, externalPort int) (string, error) {
+// entry is one port forward as the router reports it. The texts come from
+// the router, and the description from whichever device made the mapping:
+// they are cleaned and never trusted.
+type entry struct {
+	Protocol       string
+	ExternalPort   int
+	InternalClient string
+	InternalPort   int
+	Description    string
+	Lease          int // seconds left, 0 for a permanent one
+}
+
+const (
+	maxListed     = 128 // entries read from the router's table
+	maxRouterText = 64  // characters kept of a text the router sent
+	listBudget    = 10 * time.Second
+)
+
+// cleanText makes a text from the router safe to keep and show: no control
+// or formatting characters, bounded.
+func cleanText(text string, max int) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range strings.TrimSpace(text) {
+		if n >= max {
+			break
+		}
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) || (r >= 0x200b && r <= 0x200f) || (r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069) || r == 0xfeff {
+			r = ' '
+		}
+		b.WriteRune(r)
+		n++
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func entryFrom(values map[string]string, protocol string, externalPort int) entry {
+	e := entry{Protocol: protocol, ExternalPort: externalPort}
+	if p := strings.ToUpper(strings.TrimSpace(values["NewProtocol"])); p == "TCP" || p == "UDP" {
+		e.Protocol = p
+	}
+	if port, err := strconv.Atoi(strings.TrimSpace(values["NewExternalPort"])); err == nil && port > 0 && port < 65536 {
+		e.ExternalPort = port
+	}
+	if port, err := strconv.Atoi(strings.TrimSpace(values["NewInternalPort"])); err == nil && port > 0 && port < 65536 {
+		e.InternalPort = port
+	}
+	if ip := net.ParseIP(strings.TrimSpace(values["NewInternalClient"])); ip != nil {
+		e.InternalClient = ip.String()
+	} else {
+		e.InternalClient = cleanText(values["NewInternalClient"], maxRouterText)
+	}
+	e.Description = cleanText(values["NewPortMappingDescription"], maxRouterText)
+	if lease, err := strconv.Atoi(strings.TrimSpace(values["NewLeaseDuration"])); err == nil && lease > 0 {
+		e.Lease = lease
+	}
+	return e
+}
+
+// lookup returns the forward of an external port, or nil when the router
+// forwards nothing there. An error means the router could not be asked (not
+// every router implements the lookup).
+func (g *gateway) lookup(protocol string, externalPort int) (*entry, error) {
 	values, err := g.soap("GetSpecificPortMappingEntry",
 		soapArg{"NewRemoteHost", ""},
 		soapArg{"NewExternalPort", strconv.Itoa(externalPort)},
 		soapArg{"NewProtocol", protocol},
 	)
 	if isSOAPError(err, errNoSuchEntry) {
-		return "", nil
+		return nil, nil
 	}
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return values["NewInternalClient"], nil
+	e := entryFrom(values, protocol, externalPort)
+	e.Protocol, e.ExternalPort = protocol, externalPort
+	return &e, nil
 }
 
-// addMapping forwards externalPort on the router to internalPort on this
-// machine for lease seconds. It never replaces another device's mapping.
-func (g *gateway) addMapping(protocol string, externalPort, internalPort int, description string, lease int) error {
-	// Not every router implements the lookup; a failure there is not fatal,
-	// the router still rejects a real conflict on its own.
-	if owner, err := g.mappingOwner(protocol, externalPort); err == nil && owner != "" && owner != g.localIP.String() {
-		return fmt.Errorf("external port %d is already forwarded to %s", externalPort, owner)
+// list reads the router's table of forwards, as far as it lets it be read:
+// at most maxListed entries within listBudget. listed is false when the
+// router does not answer the question at all; truncated when there may be
+// more than was read.
+func (g *gateway) list() (entries []entry, listed bool, truncated bool) {
+	deadline := time.Now().Add(listBudget)
+	seen := map[string]bool{}
+	for i := 0; ; i++ {
+		if i >= maxListed || time.Now().After(deadline) {
+			return entries, true, true
+		}
+		values, err := g.soap("GetGenericPortMappingEntry", soapArg{"NewPortMappingIndex", strconv.Itoa(i)})
+		if isSOAPError(err, errIndexInvalid) || isSOAPError(err, errNoSuchEntry) {
+			return entries, true, false
+		}
+		if err != nil {
+			// a router that does not implement the listing, or stopped answering
+			return entries, i > 0, i > 0
+		}
+		e := entryFrom(values, "", 0)
+		if e.Protocol == "" || e.ExternalPort == 0 {
+			continue
+		}
+		key := e.Protocol + "/" + strconv.Itoa(e.ExternalPort)
+		if seen[key] {
+			// some routers answer every index with the same entry
+			return entries, true, true
+		}
+		seen[key] = true
+		entries = append(entries, e)
 	}
+}
 
-	add := func(lease int) error {
+// add asks for a forward, leased; a router that only knows permanent ones
+// gets a permanent one (IGDv2 routers turn that into seven days).
+func (g *gateway) add(protocol string, externalPort, internalPort int, description string, lease int) error {
+	request := func(lease int) error {
 		_, err := g.soap("AddPortMapping",
 			soapArg{"NewRemoteHost", ""},
 			soapArg{"NewExternalPort", strconv.Itoa(externalPort)},
@@ -418,22 +510,119 @@ func (g *gateway) addMapping(protocol string, externalPort, internalPort int, de
 		)
 		return err
 	}
-
-	err := add(lease)
+	err := request(lease)
 	if isSOAPError(err, errOnlyPermanentLeases) {
-		err = add(0)
-	}
-	if isSOAPError(err, errConflictInMapping) {
-		return fmt.Errorf("external port %d is already in use on the router", externalPort)
+		err = request(0)
 	}
 	return err
 }
 
-// removeMapping deletes a forward of externalPort if it points to this machine.
-func (g *gateway) removeMapping(protocol string, externalPort int) error {
-	owner, err := g.mappingOwner(protocol, externalPort)
-	if err == nil && owner != g.localIP.String() {
-		return nil // not forwarded, or not ours to remove
+// conflictError says an external port is held by something that is not
+// Cosmos'. Holder is the mapping in the way when the router shows it; Code
+// the router's refusal when it only refused.
+type conflictError struct {
+	Port   int
+	Holder *entry
+	Code   int
+}
+
+func (e *conflictError) Error() string {
+	if e.Holder != nil {
+		return fmt.Sprintf("external port %d is already forwarded to %s", e.Port, describeHolder(e.Holder))
+	}
+	return fmt.Sprintf("external port %d is already in use on the router", e.Port)
+}
+
+// describeHolder names who holds a port: the address, its port and what the
+// mapping calls itself.
+func describeHolder(e *entry) string {
+	holder := e.InternalClient
+	if holder == "" {
+		holder = "another device"
+	}
+	if e.InternalPort != 0 {
+		holder += ":" + strconv.Itoa(e.InternalPort)
+	}
+	if e.Description != "" {
+		holder += " (" + e.Description + ")"
+	}
+	return holder
+}
+
+// The description of every mapping Cosmos creates starts with this. With the
+// internal client being this machine it marks a mapping as Cosmos' own.
+const descriptionPrefix = "Cosmos "
+
+func isOurDescription(description string) bool {
+	return strings.HasPrefix(description, descriptionPrefix) || description == strings.TrimSpace(descriptionPrefix)
+}
+
+// claim forwards externalPort to internalPort on this machine, or renews
+// that forward. It never replaces a mapping that is not Cosmos': an entry on
+// that external port is only written over when it already leads to the same
+// port of this machine (it is what is wanted), or when it is Cosmos' own
+// (known: created by this process; or by its description) pointing at an
+// older internal port. Anything else is a *conflictError.
+func (g *gateway) claim(protocol string, externalPort, internalPort int, description string, lease int, known bool) error {
+	_, err := g.claimOrRenew(protocol, externalPort, internalPort, description, lease, known)
+	return err
+}
+
+// claimOrRenew is claim, and says whether the forward was there already
+// (then nothing new was opened: it was renewed).
+func (g *gateway) claimOrRenew(protocol string, externalPort, internalPort int, description string, lease int, known bool) (renewed bool, err error) {
+	local := g.localIP.String()
+	// Not every router implements the lookup; a failure there is not fatal,
+	// the router still rejects another device's port on its own.
+	existing, lookupErr := g.lookup(protocol, externalPort)
+	if lookupErr == nil && existing != nil {
+		here := existing.InternalClient == local
+		switch {
+		case here && existing.InternalPort == internalPort:
+			renewed = true
+		case here && (known || isOurDescription(existing.Description)):
+		default:
+			return false, &conflictError{Port: externalPort, Holder: existing}
+		}
+	}
+
+	err = g.add(protocol, externalPort, internalPort, description, lease)
+	if isSOAPError(err, errConflictInMapping) {
+		return false, &conflictError{Port: externalPort, Code: errConflictInMapping}
+	}
+	if isSOAPError(err, errConflictWithOthers) {
+		return false, &conflictError{Port: externalPort, Code: errConflictWithOthers}
+	}
+	if err != nil {
+		return false, err
+	}
+
+	// A router that says "done" and then shows the port going elsewhere did
+	// not do it (a forward made by hand that wins over UPnP's).
+	if lookupErr == nil && existing == nil {
+		if now, err := g.lookup(protocol, externalPort); err == nil && now != nil && (now.InternalClient != local || now.InternalPort != internalPort) {
+			return false, &conflictError{Port: externalPort, Holder: now}
+		}
+	}
+	return renewed, nil
+}
+
+// release deletes the forward of externalPort when it is Cosmos' own: it
+// leads to this machine and either carries Cosmos' description or is known
+// (created by this process) and still leads to internalPort. It reports
+// whether something was deleted. A mapping whose owner cannot be told is
+// left alone: its lease ends it.
+func (g *gateway) release(protocol string, externalPort, internalPort int, known bool) (bool, error) {
+	existing, err := g.lookup(protocol, externalPort)
+	if err == nil {
+		if existing == nil || existing.InternalClient != g.localIP.String() {
+			return false, nil // not forwarded, or not ours to remove
+		}
+		if !isOurDescription(existing.Description) && !(known && existing.InternalPort == internalPort) {
+			return false, nil // another program on this machine made it
+		}
+	} else if !known {
+		return false, nil
 	}
 	_, err = g.soap("DeletePortMapping",
 		soapArg{"NewRemoteHost", ""},
@@ -441,7 +630,7 @@ func (g *gateway) removeMapping(protocol string, externalPort int) error {
 		soapArg{"NewProtocol", protocol},
 	)
 	if isSOAPError(err, errNoSuchEntry) {
-		return nil
+		return false, nil
 	}
-	return err
+	return err == nil, err
 }

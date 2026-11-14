@@ -63,12 +63,14 @@ function upnpStatus() {
   return new Promise((resolve, reject) => {
     resolve({
       "status": "OK",
-      "data": { "enabled": false, "mappings": [] }
+      "data": { "enabled": false, "mappings": [], "apps": [], "foreign": [], "foreignListed": false, "reserved": [25, 80, 110, 143, 443, 465, 587, 993, 995] }
     })
   });
 }
 
 const upnpRetry = upnpStatus;
+const upnpAppPort = upnpStatus; // Fork addition: the demo has no router
+const upnpClose = upnpStatus;
 
 // Fork addition: the demo has no server to check from
 function reachability() {
@@ -248,6 +250,8 @@ export {
   testEmail,
   detectEmail,
   upnpStatus,
+  upnpAppPort,
+  upnpClose,
   upnpRetry,
   reachability,
   reachabilityCheck,

@@ -11,6 +11,7 @@ import { portsFromInspect } from '../../../utils/reachability'; // Fork addition
 import { GlobalOutlined } from '@ant-design/icons'; // Fork addition
 import ExposeModal from '../exposeModal';
 import * as API from '../../../api';
+import { RouterPortLinks } from '../../../components/routerPorts'; // Fork addition: the app's ports the router forwards
 import GetActions from '../actionBar';
 import { ServAppIcon } from '../../../utils/servapp-icon';
 import MiniPlotComponent from '../../dashboard/components/mini-plot';
@@ -230,6 +231,8 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
             <div>
               {/* Fork addition: local links first, each group on its own line */}
               <AppLinks routes={routes} chipStyle={{margin: '5px'}} rows />
+              {/* Fork addition: the ports the router forwards for the app, as external addresses */}
+              <RouterPortLinks config={config} containerNames={[Name.replace('/', '')]} chipStyle={{margin: '5px'}} rows />
               <PermissionGuard permission={PERM_RESOURCES}>
                 <Chip
                   label={t('mgmt.servApps.newChip.newLabel')}
@@ -258,6 +261,7 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
               routeNames={routes.map((route) => route.Name)}
               ports={portsFromInspect(NetworkSettings.Ports)}
               hostNetwork={!!(containerInfo.HostConfig && containerInfo.HostConfig.NetworkMode === 'host')}
+              containerName={Name.replace('/', '')}
             />
             <strong><DashboardOutlined /> {t('menu-items.navigation.monitoringTitle')}</strong>
               <div style={{ width: '96%' }}>

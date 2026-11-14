@@ -148,6 +148,22 @@ func TestEvaluate(t *testing.T) {
 		{name: "route on a port of its own", route: func() utils.ProxyRouteConfig { return route("app.example.org:8443") },
 			env:   func(e Env) Env { e.UPnP = upnpOn(true, 443); return e },
 			state: StateUnverified, url: "https://app.example.org:8443", checks: map[string]string{"forward": "unknown:ownPort"}},
+		// Fork addition (router port forwarding): a host with a port only answers that port
+		{name: "host carries the external port", route: func() utils.ProxyRouteConfig { return route("app.example.org:8443") },
+			env:   func(e Env) Env { e.UPnP = upnpOn(true, 8443); return e },
+			state: StateVerified, url: "https://app.example.org:8443", checks: map[string]string{"forward": "ok:upnp"}},
+		{name: "host carries the internal port, the router forwards another", route: func() utils.ProxyRouteConfig { return route("app.example.org:2053") },
+			env:   func(e Env) Env { e.UPnP = upnpOn(true, 8443); return e },
+			state: StateProblem, checks: map[string]string{"forward": "problem:hostPort"}},
+		{name: "host carries the port, forwarded as it is", route: func() utils.ProxyRouteConfig { return route("app.example.org:2053") },
+			env:   func(e Env) Env { e.UPnP = upnpOn(true, 2053); return e },
+			state: StateVerified, url: "https://app.example.org:2053", checks: map[string]string{"forward": "ok:upnp"}},
+		{name: "an app's mapping is not Cosmos' port", route: func() utils.ProxyRouteConfig { return route("app.example.org") },
+			env: func(e Env) Env {
+				e.UPnP = upnp.Status{Enabled: false, ExternalIP: "203.0.113.7", Apps: []upnp.Mapping{{Kind: "app", Name: "x", Protocol: "TCP", InternalPort: 2053, ExternalPort: 2053, Active: true}}}
+				return e
+			},
+			state: StateUnverified, url: "https://app.example.org:2053", checks: map[string]string{"forward": "unknown:byHand"}},
 		{name: "self-signed certificate", route: func() utils.ProxyRouteConfig { return route("app.example.org") },
 			env: func(e Env) Env {
 				e.Cert = func(string) CertResult { return CertResult{Problem: "selfSigned"} }

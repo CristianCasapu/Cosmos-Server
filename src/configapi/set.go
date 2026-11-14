@@ -330,6 +330,7 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 		utils.ConfigLock.Lock()
 		config = utils.ReadConfigFromFile()
 		restoreReplicatedDomains(&request, config)
+		keepUPnPAppPorts(&request, config) // Fork addition: a settings save never opens or closes an app's port on the router, see fork_upnp.go
 		// Managed routes are owned by their materializer: keep the stored copies whatever the payload says.
 		request.HTTPConfig.ProxyConfig.Routes = utils.PreserveManagedRoutes(
 			request.HTTPConfig.ProxyConfig.Routes, config.HTTPConfig.ProxyConfig.Routes)

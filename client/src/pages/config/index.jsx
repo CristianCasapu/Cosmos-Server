@@ -188,6 +188,7 @@ const ConfigManagement = () => {
           UPnP_ForwardHTTP: Boolean(config.HTTPConfig.UPnP && config.HTTPConfig.UPnP.ForwardHTTP),
           UPnP_ExternalHTTPSPort: (config.HTTPConfig.UPnP && config.HTTPConfig.UPnP.ExternalHTTPSPort) || '',
           UPnP_ExternalHTTPPort: (config.HTTPConfig.UPnP && config.HTTPConfig.UPnP.ExternalHTTPPort) || '',
+          UPnP_ReservedPorts: (config.HTTPConfig.UPnP && config.HTTPConfig.UPnP.ReservedPorts) || '',
 
           Email_Enabled: config.EmailConfig.Enabled,
           Email_Host: config.EmailConfig.Host,
@@ -245,6 +246,8 @@ const ConfigManagement = () => {
           }),
           UPnP_ExternalHTTPSPort: optionalPort(t),
           UPnP_ExternalHTTPPort: optionalPort(t),
+          UPnP_ReservedPorts: Yup.string().max(200).matches(/^\s*(none|(\d{1,5}[\s,;]*)*)\s*$/i,
+            t('mgmt.config.internet.reserved.validation', 'Enter port numbers separated by commas, "none", or leave it empty for the usual list')),
           ...snapshotsValidation(t), // fork addition
           ...telegramValidation(t, config), // fork addition
         })}
@@ -308,6 +311,8 @@ const ConfigManagement = () => {
                 ForwardHTTP: Boolean(values.UPnP_ForwardHTTP),
                 ExternalHTTPSPort: String(values.UPnP_ExternalHTTPSPort || '').trim(),
                 ExternalHTTPPort: String(values.UPnP_ExternalHTTPPort || '').trim(),
+                ReservedPorts: String(values.UPnP_ReservedPorts || '').trim(),
+                // AppPorts (the ports of apps open on the router) are not sent: the server keeps its own list
               },
             },
             EmailConfig: {

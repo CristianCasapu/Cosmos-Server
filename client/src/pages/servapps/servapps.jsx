@@ -26,6 +26,7 @@ import { useTheme } from '@mui/material/styles';
 import { useTranslation } from 'react-i18next';
 import PermissionGuard from '../../components/permissionGuard';
 import { PERM_RESOURCES, PERM_CREDENTIALS_READ } from '../../utils/permissions';
+import { RouterPortLinks } from '../../components/routerPorts'; // Fork addition: the app's ports the router forwards
 
 // Exported: the Constellation feature pages reuse this card.
 export const Item = styled(Paper)(({ theme }) => ({
@@ -394,10 +395,13 @@ const ServApps = ({stack}) => {
                   routeNames={app.apps.flatMap((one) => getContainersRoutes(config, one.Names[0].replace('/', ''))).map((route) => route.Name)}
                   ports={app.ports}
                   hostNetwork={!!(app.networkSettings && app.networkSettings.Networks && app.networkSettings.Networks['host'])}
+                  containerNames={app.apps.map((one) => one.Names[0].replace('/', ''))}
                 />
                 <Stack style={noOver} spacing={1} direction="row" alignItems="center" >
                   {/* Fork addition: local links first, each group under its icon */}
                   <AppLinks routes={getContainersRoutes(config, app.name.replace('/', ''))} />
+                  {/* Fork addition: the ports the router forwards for the app, as external addresses */}
+                  <RouterPortLinks config={config} containerNames={app.apps.map((one) => one.Names[0].replace('/', ''))} />
                   {app.networkSettings && app.networkSettings.Networks && app.networkSettings.Networks['host'] &&
                     <Chip style={{ fontSize: '80%' }} label="Host Network" color="warning" variant='outlined' />
                   }

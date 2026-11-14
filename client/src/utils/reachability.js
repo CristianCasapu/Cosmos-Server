@@ -5,7 +5,7 @@
 // Nothing here imports the UI, so it can be exercised on its own.
 
 // Best first: what a card says is the best its routes and ports give.
-const RANK = { verified: 7, unverified: 6, problem: 5, ports: 4, limited: 3, local: 2, off: 1, none: 0 };
+const RANK = { verified: 8, unverified: 7, problem: 6, forwarded: 5, ports: 4, limited: 3, local: 2, off: 1, none: 0 };
 export const EXPOSED = ['verified', 'unverified', 'problem'];
 
 // The host ports of a container list (Docker's Ports), one per port and
@@ -36,16 +36,22 @@ export const publishedPorts = (ports) => {
 // routeNames: the container's (or stack's) routes; results: the server's
 // answer (data.routes); ports: Docker's Ports of all its containers;
 // hostNetwork: a container uses the host's network.
-export const summarize = ({ routeNames, results, ports, hostNetwork }) => {
+// mappings: the app ports the router forwards for these containers (src/upnp,
+// status.apps): with one that is active, "if forwarded" becomes "forwarded".
+export const summarize = ({ routeNames, results, ports, hostNetwork, mappings }) => {
   const byName = new Map((results || []).map((result) => [result.route, result]));
   const routes = (routeNames || []).map((name) => byName.get(name)).filter(Boolean);
   const best = routes.reduce((top, route) => (!top || (RANK[route.state] || 0) > (RANK[top.state] || 0) ? route : top), null);
   const published = publishedPorts(ports);
   const reachablePorts = published.filter((port) => port.scope !== 'server');
 
+  const forwarded = (mappings || []).filter((mapping) => mapping && mapping.active);
+
   let state = 'none';
   if (best && EXPOSED.includes(best.state)) {
     state = best.state;
+  } else if (forwarded.length > 0) {
+    state = 'forwarded';
   } else if (reachablePorts.length > 0 || hostNetwork) {
     state = 'ports';
   } else if (best) {
@@ -57,6 +63,7 @@ export const summarize = ({ routeNames, results, ports, hostNetwork }) => {
     url: best && (best.state === 'verified' || best.state === 'unverified') ? best.url || '' : '',
     routes,
     ports: published,
+    forwarded,
     hostNetwork: !!hostNetwork,
   };
 };
@@ -113,6 +120,7 @@ export const CHECK_TEXT = {
 
   'forward.upnp': ['upnp', 'The router forwards port {{external}} to Cosmos\' port {{port}} (automatic port forwarding).', null],
   'forward.byHand': ['byHand', 'Cosmos cannot tell whether your router forwards port {{port}} to this server. Forward it on the router, or switch on automatic forwarding.', 'internet'],
+  'forward.hostPort': ['hostPort', 'The address of this URL carries port {{port}}, but from the internet Cosmos is reached on port {{external}}: a request from outside does not match it. Take the port out of the address.', 'route'],
   'forward.ownPort': ['ownPort', 'This URL uses port {{port}} of its own: Cosmos cannot tell whether the router forwards it.', null],
   'forward.ipv6Firewall': ['ipv6Firewall', 'Reached over IPv6: nothing to forward, but the router\'s IPv6 firewall must let port {{port}} in, and Cosmos cannot see it.', null],
   'forward.routerNotPublic': ['routerNotPublic', 'The router\'s own internet address is not a public one (provider NAT): nothing behind it can be reached from the internet.', 'internet'],

@@ -29,6 +29,7 @@ func TestHighSeverityEventsAreCritical(t *testing.T) {
 		utils.SecMFALocked, utils.SecAccessGrantDenied, utils.SecShieldBanTemp, utils.SecShieldBanPerm,
 		utils.SecUserRoleChanged, utils.SecHostTerminal, utils.SecSnapshotRestore, utils.SecServerUpdateRejected,
 	}
+	high = append(high, moreHighKinds...) // Fork addition: kinds whose sentence lives in a file of their own (fork_upnp.go)
 	for _, kind := range high {
 		nt, tell := noticeFromEvent(eventOf(kind), st)
 		if !tell || nt.priority != priorityCritical || nt.category != CategorySecurity || nt.key != "sec:"+kind {

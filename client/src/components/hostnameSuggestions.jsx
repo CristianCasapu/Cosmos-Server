@@ -8,6 +8,8 @@ import { GlobalOutlined, HomeOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { getHostnameFromName, IsRouteSocketProxy } from '../utils/routes';
 import { isLocalHost } from '../utils/appLinks';
+import { ExternalPortNote, useCosmosPorts } from './routerPorts';
+import { shownAddress } from '../utils/routerPorts';
 
 // The app's name as a DNS label.
 export const hostLabel = (name) => (name || '')
@@ -145,6 +147,8 @@ const HostnameSuggestions = ({ name, value, config, onPick, disabled, inline }) 
           />
         ))}
       </Stack>
+      {/* the proposals are stored as they are, without a port: say which port they are reached on */}
+      {!noDomain && <ExternalPortNote config={config} example={(suggestions.find((suggestion) => !suggestion.local) || {}).host} />}
       {noDomain && <Typography variant="caption" color="textSecondary">
         {t('mgmt.urls.edit.hostSuggestions.noDomain',
           'To get addresses under your own domain, add the domain in Configuration > Domains.')}
@@ -174,6 +178,7 @@ export const PortForwardHint = ({ config, port }) => {
 export const DomainPicker = ({ name, config, selected, onChange }) => {
   const { t } = useTranslation();
   const domains = configuredDomains(config);
+  const ports = useCosmosPorts(config); // the external port the addresses are reached on
 
   if (domains.length === 0) {
     return <Typography variant="caption" color="textSecondary">
@@ -196,7 +201,7 @@ export const DomainPicker = ({ name, config, selected, onChange }) => {
           icon={<GlobalOutlined />}
           color={selected.includes(domain) ? 'primary' : 'default'}
           variant={selected.includes(domain) ? 'filled' : 'outlined'}
-          label={hostLabel(name) ? externalAddress(name, domain) : domain}
+          label={hostLabel(name) ? shownAddress(externalAddress(name, domain), ports) : domain}
           onClick={() => toggle(domain)}
           sx={{ maxWidth: '100%' }}
         />

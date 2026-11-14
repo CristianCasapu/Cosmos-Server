@@ -352,6 +352,35 @@ type UPnPConfig struct {
 	ForwardHTTP       bool
 	ExternalHTTPSPort string `validate:"omitempty,numeric,max=5"`
 	ExternalHTTPPort  string `validate:"omitempty,numeric,max=5"`
+	// ReservedPorts are external ports Cosmos never asks the router for
+	// (ports forwarded by hand in the router's own pages are often not shown
+	// to UPnP clients): numbers separated by commas or spaces. Empty means the
+	// default list (80, 443 and the mail ports), "none" means no port.
+	ReservedPorts string `validate:"omitempty,max=200"`
+	// AppPorts are the published ports of containers the router is asked to
+	// forward as well. A settings save never changes this list: it is kept by
+	// the server and changed only through POST /api/upnp/apps (src/upnp).
+	AppPorts []UPnPAppPort `json:"AppPorts,omitempty"`
+}
+
+// UPnPAppPort (fork addition) is one published port of a container that the
+// router forwards: the choice of an administrator, keyed by the container's
+// name, the container's port and the protocol.
+type UPnPAppPort struct {
+	Container string
+	Port      int    // the port inside the container
+	Protocol  string // "tcp" or "udp"
+	// ExternalPort is the external port asked for; 0 means the host port the
+	// container publishes.
+	ExternalPort int `json:"ExternalPort,omitempty"`
+	// AssignedPort is the external port the router gave last time (another
+	// one than asked for when that was taken). It is asked for first, so the
+	// address stays the same over renewals and restarts.
+	AssignedPort int `json:"AssignedPort,omitempty"`
+	// Scheme is what the administrator said is on the port: "http", "https",
+	// or "" for something that is not a web page.
+	Scheme string    `json:"Scheme,omitempty"`
+	Since  time.Time `json:"Since"`
 }
 
 // SnapshotsConfig (fork addition) sets up the incremental backup done by
