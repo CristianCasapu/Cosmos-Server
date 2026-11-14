@@ -1292,6 +1292,7 @@ func InitServer() *mux.Router {
 
 	// Fork addition: the API answers the panel's own pages, not other sites, see fork_same_origin.go
 	requireSameOrigin(srapi, srapiStrict, srapiAdmin)
+	forkAPINoStore(srapi, srapiStrict, srapiAdmin) // Fork addition: no answer of the API is kept by a browser, see fork_pwa.go
 	limitRequestBodies(maxSignInBody, srapiStrict) // Fork addition: the sign-in routes read a bounded body, see fork_api_inputs.go
 	
 	srapi.Use(proxy.CleanPathMiddleware)
@@ -1330,7 +1331,7 @@ func InitServer() *mux.Router {
 	uirouter := router.PathPrefix("/cosmos-ui").Subrouter()
 	uirouter.Use(utils.SetSecurityHeaders)
 	SecureAPI(uirouter, true, true, false)
-	uirouter.PathPrefix("/").Handler(http.StripPrefix("/cosmos-ui", utils.SPAHandler(pwd + "/static")))
+	uirouter.PathPrefix("/").Handler(http.StripPrefix("/cosmos-ui", forkPWAStatic(utils.SPAHandler(pwd + "/static"), pwd + "/static"))) // Fork addition: the installable app's worker and manifest, and cache headers, see fork_pwa.go
 	
 	if(!config.HTTPConfig.AcceptAllInsecureHostname) {
 		uirouter.Use(utils.EnsureHostname)
