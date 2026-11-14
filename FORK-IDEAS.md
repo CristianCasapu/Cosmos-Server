@@ -135,6 +135,18 @@ security record.
   stopped container's port is closed and reopened; a choice is forgotten 15
   minutes after its container is gone; at most 32 app ports.
 
+## Look of the panel: left for later (2026-11-14)
+
+- The skin does not follow the colours under Configuration > Theme.
+- On a phone: about twenty field labels are cut with "…" in the settings and
+  container forms; the container Volumes tab and the alerts table are cut
+  at the right; charts keep two columns of axis labels; log lines break
+  inside words; the Market's showcase scrolls sideways.
+- Empty tables still say "No Data To Show"; the Domains tab's public key
+  block runs out of its box on a phone; a favicon of an unreachable app
+  holds a request for ten seconds.
+- Not tried on a real phone or real Safari, only the WebKit engine.
+
 ## Usability gaps found in the code
 
 | # | Gap | Where |

@@ -149,6 +149,8 @@ The form checks are `scripts/fork-ui-check-url-form.mjs`, `-all-addresses`, `-us
 
 For the origin-pulls part the Cloudflare browser check needs the test Cosmos started with `--cap-add NET_ADMIN`, a Cloudflare address added inside its own network namespace, and the stand-in's `edge` role (the script header has the commands; `PART=pulls` is repeatable, the rest needs a fresh instance); the Fail2ban check has `PHASE=cloudflare`. The built-in Cloudflare shared origin-pull CA expires on 2029-11-01 and must be replaced in the source before then (a test fails when it has expired).
 
+For a look at everything, `scripts/fork-ui-gallery.mjs` (with `-seed.mjs` to fill a throwaway instance, `-noise.sh` to make incidents from other addresses and `-sheet.mjs` for contact sheets) captures every page, tab and main dialog in light and dark at 1920, 1366 and 390 px and writes a JSON summary per picture; run it before and after a styling change and compare (the headers hold the usage). The owner asked for styling improvements on 2026-11-13: the old rule "keep the existing styling exactly" now means "stay within the skin" (`client/public/skin/theme.css`), AA contrast in both modes, nothing below 12 px.
+
 `scripts/fork-ui-check.mjs` logs in, confirms the password (`/api/sudo`: most
 admin actions need it), visits the main pages in three engines and at phone
 width, and reports script errors. Look at the screenshots it writes. Errors
