@@ -17,6 +17,7 @@ const files = [
   ['../components/portChips.jsx', ['mgmt.servApps.port.']],
   ['../components/throttledNotice.jsx', ['throttled.']],
   ['../pages/config/users/forkUserDialogs.jsx', ['mgmt.usermgmt.fork.']],
+  ['../pages/cron/newJob.jsx', ['mgmt.cron.fork.']],
   ['./activity.js', ['activity.throttled']],
 ];
 
