@@ -7,6 +7,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/azukaar/cosmos-server/src/utils"
 )
 
 // A restore that fails takes back only the folder it created. When that
@@ -340,4 +342,32 @@ func TestDestinationMustBeForCosmosOnly(t *testing.T) {
 			t.Errorf("something was written there: %v", entries)
 		}
 	})
+}
+
+// The folders the system makes up as it runs are no folders to back up, to
+// store snapshots in or to restore.
+func TestSystemFoldersAreRefused(t *testing.T) {
+	for _, dir := range []string{"/proc", "/proc/1/root", "/sys", "/sys/fs/cgroup", "/dev", "/dev/shm", "/run", "/run/docker", "/var/run", "/var/run/docker.sock", "/proc/"} {
+		asSource := utils.SnapshotsConfig{Enabled: true, Destination: "/backups", Sources: []string{dir}}
+		if err := ValidateConfig(&asSource); err == nil || !strings.Contains(err.Error(), "made by the system") {
+			t.Errorf("%s as a folder to back up: %v", dir, err)
+		}
+		asDestination := utils.SnapshotsConfig{Enabled: true, Destination: dir, Sources: []string{"/data"}}
+		if err := ValidateConfig(&asDestination); err == nil || !strings.Contains(err.Error(), "made by the system") {
+			t.Errorf("%s as the destination: %v", dir, err)
+		}
+	}
+	for _, dir := range []string{"/procs", "/runner", "/devices", "/system", "/var/runs", "/srv/run", "/storage/proc"} {
+		cfg := utils.SnapshotsConfig{Enabled: true, Destination: "/backups", Sources: []string{dir}}
+		if err := ValidateConfig(&cfg); err != nil {
+			t.Errorf("%s: %v", dir, err)
+		}
+	}
+
+	// a restore checks the settings again: one edited by hand is refused too
+	utils.LoadBaseMainConfig(utils.Config{Snapshots: utils.SnapshotsConfig{Enabled: true, Destination: t.TempDir(), Sources: []string{"/run/app"}}})
+	defer utils.LoadBaseMainConfig(utils.Config{})
+	if err := Restore("/run/app", "2026-11-12_030000"); err == nil || !strings.Contains(err.Error(), "made by the system") {
+		t.Errorf("a restore of /run/app: %v", err)
+	}
 }
