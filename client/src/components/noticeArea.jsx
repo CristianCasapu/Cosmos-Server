@@ -5,7 +5,8 @@
 //
 // items: [{ id, severity: 'error' | 'warning' | 'unknown' | 'info' | 'success',
 //           text (node), detail (node, optional: a second, quieter sentence),
-//           actions (node, optional), attrs (data-* attributes for the line) }]
+//           actions (node, optional), attrs (data-* attributes for the line),
+//           pinned (optional: what an action just gave; first, never folded, announced) }]
 import * as React from 'react';
 import { Button, Typography } from '@mui/material';
 import {
@@ -28,9 +29,14 @@ export const NoticeIcon = ({ severity }) => {
   return <Icon className={'ct-notice-icon ct-notice-' + (ICONS[severity] ? severity : 'info')} aria-hidden="true" />;
 };
 
+// whether an area was opened, kept while the page is loaded (a refresh of the page's list can mount it again)
+const opened = new Map();
+
 const NoticeArea = ({ items, label, after = DEFAULT_AFTER, className, ...rest }) => {
   const { t } = useTranslation();
-  const [open, setOpen] = React.useState(false);
+  const memory = label || 'notices';
+  const [open, setOpenHere] = React.useState(() => opened.get(memory) || false);
+  const setOpen = (value) => { opened.set(memory, value); setOpenHere(value); };
   const listId = React.useId();
   const { shown, hidden, foldable } = foldNotices(items, open, after);
   if (!shown.length) return null;
@@ -59,7 +65,7 @@ const NoticeArea = ({ items, label, after = DEFAULT_AFTER, className, ...rest })
     <ul className="ct-notices-list" id={listId}>
       {shown.map((item) => <li key={item.id} className="ct-notice" data-notice={item.id} {...(item.attrs || {})}>
         <NoticeIcon severity={item.severity} />
-        <div className="ct-notice-body">
+        <div className="ct-notice-body" {...(item.pinned ? { role: 'status' } : {})}>
           <Typography variant="body2" component="div" className="ct-notice-text">
             <span className="ct-visually-hidden">{severityWord[item.severity] || severityWord.info} </span>
             {item.text}

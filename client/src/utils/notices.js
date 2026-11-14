@@ -26,12 +26,15 @@ export const worstSeverity = (items) => {
 // Folded, the area shows the first `after` lines and says how many more there
 // are; it folds only when that hides at least two lines (a "Show 1 more"
 // button takes the room of the line it hides).
+// A pinned line (what an action just gave) comes first and is never folded away.
 export const DEFAULT_AFTER = 2;
 export const foldNotices = (items, open, after = DEFAULT_AFTER) => {
-  const sorted = sortNotices(items);
+  const all = sortNotices(items);
+  const pinned = all.filter((item) => item.pinned);
+  const sorted = all.filter((item) => !item.pinned);
   const limit = Math.max(1, Math.floor(Number.isFinite(Number(after)) ? Number(after) : DEFAULT_AFTER));
-  if (open || sorted.length <= limit + 1) return { shown: sorted, hidden: [], foldable: sorted.length > limit + 1 };
-  return { shown: sorted.slice(0, limit), hidden: sorted.slice(limit), foldable: true };
+  if (open || sorted.length <= limit + 1) return { shown: [...pinned, ...sorted], hidden: [], foldable: sorted.length > limit + 1 };
+  return { shown: [...pinned, ...sorted.slice(0, limit)], hidden: sorted.slice(limit), foldable: true };
 };
 
 // What the hidden lines are, for the "Show N more" button: the count per severity, the most urgent first.

@@ -133,6 +133,8 @@ const views = [
     { id: 'keyboard-focus', open: async (page) => { for (let i = 0; i < 4; i++) await page.keyboard.press('Tab'); }, close: async () => {} },
     { id: 'menu', phoneOnly: true, open: async (page) => { await page.locator('header button').first().click(); }, close: async (page) => { await page.keyboard.press('Escape'); } },
     { id: 'notifications', open: async (page) => { await page.locator('header button:has(.anticon-bell)').first().click(); } },
+    // the phone header's "More" menu (terminal, restarts)
+    { id: 'more', phoneOnly: true, open: async (page) => { await page.locator('header button:has(.anticon-more)').first().click(); } },
     { id: 'tooltip', desktopOnly: true, open: async (page) => { await page.locator('header button').nth(1).hover(); await page.waitForTimeout(900); }, close: async (page) => { await page.mouse.move(600, 500); } },
   ] },
   { id: 'servapps', path: '/cosmos-ui/servapps', core: true, wait: 1200, captures: [
@@ -250,7 +252,7 @@ const views = [
   ] },
   { id: 'market-app', path: '/cosmos-ui/market-listing/cosmos-cloud/Jellyfin', core: true, wait: 1500, mock: [...marketMock, ...noDnsMock], captures: [
     {},
-    { id: 'review', wait: 2500, open: async (page) => { await page.getByRole('button', { name: /Install$/ }).last().click(); } },
+    { id: 'review', wait: 2500, open: async (page) => { await page.getByRole('button', { name: /Install$/ }).first().click(); /* the app's page is drawn over the list: its button comes first */ } },
   ] },
   { id: 'new-container-steps', path: '/cosmos-ui/servapps/new-service', captures: [
     {},

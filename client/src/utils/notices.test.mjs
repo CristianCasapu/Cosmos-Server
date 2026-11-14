@@ -41,3 +41,11 @@ test('the hidden lines are counted per severity', () => {
   assert.deepEqual(hiddenSummary([line('a', 'info'), line('b', 'warning'), line('c', 'info')]), [{ severity: 'warning', count: 1 }, { severity: 'info', count: 2 }]);
   assert.deepEqual(hiddenSummary([]), []);
 });
+
+test('a pinned line comes first and is never folded away', () => {
+  const items = [line('a', 'warning'), line('b', 'warning'), line('c', 'warning'), line('d', 'info'), { id: 'done', severity: 'success', pinned: true }];
+  const folded = foldNotices(items, false);
+  assert.deepEqual(folded.shown.map((i) => i.id), ['done', 'a', 'b']);
+  assert.deepEqual(folded.hidden.map((i) => i.id), ['c', 'd']);
+  assert.deepEqual(foldNotices(items, true).shown.map((i) => i.id), ['done', 'a', 'b', 'c', 'd']);
+});

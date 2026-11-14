@@ -118,6 +118,7 @@ export const useLeftoverNotices = ({ servApps, refresh }) => {
   results.filter((result) => result.severity === 'success' || !listed.has(result.name)).forEach((result) => items.push({
     id: 'leftover-result:' + result.id,
     severity: result.severity,
+    pinned: true,
     text: <span style={wrapStyle}>{result.text}</span>,
     actions: <Button color="inherit" size="small" onClick={() => setResults((previous) => previous.filter((other) => other.id !== result.id))}>
       {t('global.close', 'Close')}
