@@ -859,6 +859,16 @@ pre.code {
   min-width: 0;
   max-width: 100%;
   overflow-x: auto;
+  /* one surface for keys and certificates in both modes (it was a translucent grey slab) */
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 10px 12px;
+  font-size: var(--ct-text-xs);
+  line-height: 1.5;
+  background-color: var(--ct-surface-2);
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-s);
+  color: var(--ct-text);
 }
 
 /* ==========================================================================
@@ -932,41 +942,50 @@ pre.code {
     border-left: 0 !important;
   }
   .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root:last-child { border-bottom: 0; }
+  /* a cell is a line of the card: its column's name in a narrow column at the left, the value in
+     normal flow beside it (whatever the value is made of: text, several blocks, buttons) */
   .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+    display: block;
+    position: relative;
     min-width: 0;
+    min-height: 32px;
     padding: 6px 0;
     border: 0;
     text-align: left;
     white-space: normal;
-    overflow-wrap: break-word; /* a long name breaks only when it does not fit (anywhere: "Vaultwarde|n") */
+    overflow-wrap: break-word; /* a long name breaks only when it does not fit */
   }
+  .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root[data-label] { padding-left: calc(34% + 12px); }
   .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root[data-label]::before {
     content: attr(data-label);
-    flex: 0 0 34%;
-    max-width: 34%;
+    position: absolute;
+    left: 0;
+    top: 9px;
+    width: 34%;
     font-size: var(--ct-text-xs);
     font-weight: 600;
     letter-spacing: 0.06em;
+    line-height: 1.3;
     text-transform: uppercase;
     color: var(--ct-muted);
     overflow-wrap: anywhere;
   }
-  .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root > * { min-width: 0; max-width: 100%; }
+  .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root > * { max-width: 100%; }
   /* the first cell is the card's title: no column name before it (unless it is a control, a lone box needs its name) */
+  .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root:first-child[data-label]:not(:has(input, button, [role=button])) { padding-left: 0; font-weight: 600; }
   .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root:first-child[data-label]:not(:has(input, button, [role=button]))::before { display: none; }
-  .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root:first-child:not(:has(input, button, [role=button])) { font-weight: 600; }
-  /* a cell without a name (an icon, the row's buttons) takes the whole line */
-  .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root:not([data-label]) { justify-content: flex-start; flex-wrap: wrap; }
   .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root.ct-table-empty > .MuiTableCell-root { display: block; }
-  /* fields inside a card row use the width that is left */
+  /* fields and rows of things inside a card line use the width that is left */
   .ct-table-cards .MuiInputBase-root { max-width: 100%; }
-  .ct-table-cards .MuiTableCell-root .MuiStack-root { min-width: 0; flex: 1 1 auto; }
-  .ct-table-cards .MuiFormControl-root,
-  .ct-table-cards .MuiAutocomplete-root,
-  .ct-table-cards .MuiTextField-root { flex: 1 1 auto; min-width: 0; }
+  .ct-table-cards .MuiTableCell-root .MuiStack-root { min-width: 0; flex-wrap: wrap; row-gap: 4px; }
+  .ct-table-cards .MuiTableCell-root .MuiFormControl-root,
+  .ct-table-cards .MuiTableCell-root .MuiAutocomplete-root,
+  .ct-table-cards .MuiTableCell-root .MuiTextField-root { flex: 1 1 auto; min-width: 0 !important; max-width: 100%; } /* (some carry an inline min-width of 200 px) */
+
+  /* the page's own controls: a finger's width too (the tab select of every page was 41 px, the
+     action icons of the app cards 36 px); not the small buttons inside a field */
+  main .MuiOutlinedInput-root:not(.MuiInputBase-multiline) { min-height: var(--ct-touch); }
+  main .MuiIconButton-root.MuiIconButton-root:not(.MuiInputAdornment-root .MuiIconButton-root):not(.MuiIconButton-sizeSmall) { min-width: var(--ct-touch); min-height: var(--ct-touch); }
 
   /* a row of buttons wraps instead of squeezing its buttons into two lines */
   main .MuiStack-root.MuiStack-root:has(> .MuiButton-root + .MuiButton-root) { flex-wrap: wrap; row-gap: 8px; }
