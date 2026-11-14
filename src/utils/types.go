@@ -382,6 +382,10 @@ type UPnPAppPort struct {
 	// or "" for something that is not a web page.
 	Scheme string    `json:"Scheme,omitempty"`
 	Since  time.Time `json:"Since"`
+	// Hostname (fork addition, src/cloudflare/expose.go) is the DNS-only name
+	// the port is reached at: Cosmos publishes it at the public address while
+	// the choice exists. Empty: the port has no name of its own.
+	Hostname string `json:"Hostname,omitempty"`
 }
 
 // SnapshotsConfig (fork addition) sets up the incremental backup done by

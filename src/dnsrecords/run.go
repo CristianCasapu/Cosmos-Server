@@ -157,6 +157,7 @@ func pass() {
 	if !ok {
 		return
 	}
+	hosts = ForkMoreHosts(hosts) // Fork addition: the names of ports exposed directly, see fork_hooks.go
 
 	zones := utils.GetMainConfig().HTTPConfig.DNSZones
 	for i, zone := range zones {

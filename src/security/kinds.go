@@ -177,6 +177,9 @@ var catalogue = func() map[string]Kind {
 		audit(utils.SecUPnPMappingCreated, SeverityMedium, "Router forwards a port", "Cosmos created a port mapping on the router. No user: it follows an administrator's choice. Target: the container, or Cosmos HTTPS / Cosmos HTTP. Details: external and internal port, protocol, wanted when the external port asked for was taken."),
 		audit(utils.SecUPnPMappingRemoved, SeverityLow, "Router no longer forwards a port", "Cosmos removed one of its port mappings from the router. Details: external, protocol, reason: off (no longer asked for), stopped, gone or notPublished (the container), changed (its host port), moved (to another external port), lost (the router gave the port to something else), leftover (from an earlier run)."),
 
+		audit(utils.SecExposeOpened, SeverityHigh, "App exposed to the internet", "An administrator made an app reachable from the internet: its web interface under a domain (web lists each name and whether it goes through Cloudflare or directly) and/or ports the router forwards (ports, each with the DNS-only name it is reached at). A port opened this way reaches the app directly, without Cosmos' login or SmartShield. Target: the container."),
+		audit(utils.SecExposeClosed, SeverityMedium, "App withdrawn from the internet", "An administrator withdrew internet addresses of an app: web lists the names whose URL was deleted, ports the router ports closed (their names go with them). Target: the container."),
+
 		incident(utils.SecRecorderDropped, SeverityMedium, OutcomeFailed, "Events lost", "The record could not keep up (the database did not answer): Count events were not stored."),
 	}
 	byKind := make(map[string]Kind, len(kinds))

@@ -69,6 +69,7 @@ func TestCloudflareIsWiredIn(t *testing.T) {
 		"/cosmos/api/cloudflare/panel":        "POST",
 		"/cosmos/api/cloudflare/ranges":       "POST",
 		"/cosmos/api/cloudflare/origin-pulls": "POST",
+		"/cosmos/api/expose":                  "POST",
 	} {
 		recorder := httptest.NewRecorder()
 		router.ServeHTTP(recorder, httptest.NewRequest(method, path, strings.NewReader("{}")))

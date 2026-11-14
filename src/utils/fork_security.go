@@ -115,6 +115,11 @@ const (
 	SecUPnPMappingCreated = "upnp.mapping.created"
 	SecUPnPMappingRemoved = "upnp.mapping.removed"
 
+	// "expose to the internet" (src/cloudflare/expose.go): an app's web
+	// interface under a domain and its ports on the router, in one action
+	SecExposeOpened = "expose.opened"
+	SecExposeClosed = "expose.closed"
+
 	// the record about itself
 	SecRecorderDropped = "recorder.dropped"
 )

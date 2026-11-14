@@ -1,6 +1,6 @@
 package dnsrecords
 
-// Fork addition: the three places where the fork's Cloudflare integration
+// Fork addition: the four places where the fork's Cloudflare integration
 // (src/cloudflare) takes part in a reconcile pass. That package imports this
 // one, so it fills in these variables; until it does, and for every provider
 // it does not handle, they change nothing.
@@ -23,6 +23,11 @@ var ForkWrapProvider = func(zone utils.DNSZoneConfig, provider Provider) Provide
 var ForkFilterDesired = func(zone utils.DNSZoneConfig, providerZone string, desired Desired, actual []libdns.Record) (Desired, []libdns.Record) {
 	return desired, actual
 }
+
+// ForkMoreHosts may add names to those a pass publishes, each with the
+// addresses it must resolve to: the DNS-only names of ports exposed directly
+// (src/cloudflare/expose.go). Hook of pass, after HostAddresses.
+var ForkMoreHosts = func(hosts map[string][]string) map[string][]string { return hosts }
 
 // ForkAfterReconcile is told that a pass ended well: the records of desired
 // are in place at the provider. wrote says whether the pass changed anything.
