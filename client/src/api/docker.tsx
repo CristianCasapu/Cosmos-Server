@@ -246,7 +246,8 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
     return createWs('/cosmos/api/servapps/' + containerId + '/terminal/new');
   }
 
-  function createService(serviceData: any, onProgress: (line: string) => void): Promise<ReadableStream> {
+  // Fork addition: replace — an edit of existing containers; without it the server refuses a name that exists
+  function createService(serviceData: any, onProgress: (line: string) => void, replace = false): Promise<ReadableStream> {
     const requestOptions: RequestInit = {
       method: 'POST',
       headers: {
@@ -255,7 +256,7 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
       body: JSON.stringify(serviceData)
     };
 
-    return apiFetch('/cosmos/api/docker-service', requestOptions)
+    return apiFetch('/cosmos/api/docker-service' + (replace ? '?replace=1' : ''), requestOptions)
       .then(response => {
         if (!response.ok) {
           throw new Error(response.statusText);
