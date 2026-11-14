@@ -1,6 +1,6 @@
 // Fork addition: tells the admin whether a newer release of the server exists
 // and lets them install it. Used in the general settings (ServerUpdate) and on
-// the home page (ServerUpdateAlert). Checking never installs anything;
+// the home page (useServerUpdateNotice, a line of its notice area). Checking never installs anything;
 // "Update now" asks for confirmation first.
 import * as React from 'react';
 import * as API from '../api';

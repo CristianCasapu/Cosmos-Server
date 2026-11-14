@@ -1,4 +1,4 @@
-// Fork addition: the home page's health card (components/healthCard.jsx).
+// Fork addition: the home page's health lines (components/healthNotices.jsx, shown in components/homeNotices.jsx).
 // What needs the admin's attention, from answers the API already gives:
 //   failed scheduled jobs        GET /api/jobs
 //   apps stopped by an error     GET /api/servapps (a crash or a restart loop)
