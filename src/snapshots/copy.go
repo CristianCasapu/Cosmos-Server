@@ -8,8 +8,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
 	"strconv"
+	"strings"
 	"syscall"
 )
 
@@ -113,65 +113,94 @@ func (w *walker) isSkipped(path string, info os.FileInfo) bool {
 // dir copies the content of one folder. src is that folder, dst the folder
 // it is copied to (it exists), prev the same folder in the previous snapshot
 // (nil when there is none) and rel its path below the top ("" for the top).
+// The folder is listed a batch at a time, so one that holds millions of
+// entries is never held in memory at once; the entries come in the order
+// the file system gives them.
 func (w *walker) dir(src *os.Root, dst *os.Root, prev *os.Root, rel string) {
-	var entries []os.DirEntry
 	list, err := src.Open(".")
-	if err == nil {
-		entries, err = list.ReadDir(-1)
-		list.Close()
-	}
 	if err != nil {
-		if rel == "" {
-			w.fatal = fmt.Errorf("the folder cannot be read (%s)", reason(err))
-		} else {
-			w.fail(rel, err)
+		w.unreadable(rel, err)
+		return
+	}
+	defer list.Close()
+
+	for w.fatal == nil {
+		entries, err := list.ReadDir(listBatch)
+		for _, entry := range entries {
+			if w.fatal != nil {
+				return
+			}
+			w.entry(src, dst, prev, rel, entry.Name())
+		}
+		if err == io.EOF {
+			return
+		}
+		if err != nil {
+			w.unreadable(rel, err)
+			return
+		}
+	}
+}
+
+// listBatch is how many entries of a folder are read at a time.
+const listBatch = 1024
+
+// maxDepth is how many folders deep the walk goes. A folder below that is
+// counted as a problem, and what it holds is not copied: no real tree is
+// that deep, and each level costs memory and open files until it is done.
+const maxDepth = 512
+
+// unreadable records that the folder rel cannot be listed.
+func (w *walker) unreadable(rel string, err error) {
+	if rel == "" {
+		w.fatal = fmt.Errorf("the folder cannot be read (%s)", reason(err))
+	} else {
+		w.fail(rel, err)
+	}
+}
+
+// entry copies the entry called name of the folder src (rel below the top).
+func (w *walker) entry(src *os.Root, dst *os.Root, prev *os.Root, rel string, name string) {
+	relPath := filepath.Join(rel, name)
+
+	// left out on purpose: not copied, and not a problem
+	if excluded(w.excludes, relPath, name) {
+		return
+	}
+
+	// the snapshot's own record lives under this name
+	if rel == "" && name == metaName {
+		if !w.strict {
+			w.fail(relPath, errors.New("this name is used by the snapshot itself, the file is not backed up"))
 		}
 		return
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 
-	for _, entry := range entries {
-		if w.fatal != nil {
+	info, err := src.Lstat(name)
+	if err != nil {
+		w.fail(relPath, err) // it vanished since the folder was listed
+		return
+	}
+	if betweenLookAndOpen != nil {
+		betweenLookAndOpen(relPath)
+	}
+
+	switch {
+	case info.IsDir():
+		if w.isSkipped(filepath.Join(w.srcRoot, relPath), info) {
 			return
 		}
-		name := entry.Name()
-		relPath := filepath.Join(rel, name)
-
-		// left out on purpose: not copied, and not a problem
-		if excluded(w.excludes, relPath, name) {
-			continue
+		if strings.Count(relPath, string(filepath.Separator))+1 > maxDepth {
+			w.fail(relPath, fmt.Errorf("it lies more than %d folders deep, so it is not copied", maxDepth))
+			return
 		}
-
-		// the snapshot's own record lives under this name
-		if rel == "" && name == metaName {
-			if !w.strict {
-				w.fail(relPath, errors.New("this name is used by the snapshot itself, the file is not backed up"))
-			}
-			continue
-		}
-
-		info, err := src.Lstat(name)
-		if err != nil {
-			w.fail(relPath, err) // it vanished since the folder was listed
-			continue
-		}
-		if betweenLookAndOpen != nil {
-			betweenLookAndOpen(relPath)
-		}
-
-		switch {
-		case info.IsDir():
-			if w.isSkipped(filepath.Join(w.srcRoot, relPath), info) {
-				continue
-			}
-			w.folder(src, dst, prev, name, relPath, info)
-		case info.Mode().IsRegular():
-			w.file(src, dst, prev, name, relPath, info)
-		case info.Mode()&os.ModeSymlink != 0:
-			w.symlink(src, dst, name, relPath, info)
-		default:
-			// sockets, devices and FIFOs are not files to keep
-		}
+		w.folder(src, dst, prev, name, relPath, info)
+	case info.Mode().IsRegular():
+		w.file(src, dst, prev, name, relPath, info)
+	case info.Mode()&os.ModeSymlink != 0:
+		w.symlink(src, dst, name, relPath, info)
+	default:
+		// sockets, devices and FIFOs are not files to keep
 	}
 }
 

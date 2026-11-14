@@ -3,6 +3,7 @@ package snapshots
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -132,5 +133,50 @@ func TestNamesOfFailedEntriesAreShownSafely(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(meta.ErrorMessages, " "), "odd?line?[2Jname.txt") {
 		t.Errorf("the odd name is not recognisable: %q", meta.ErrorMessages)
+	}
+}
+
+// A tree deeper than maxDepth is copied down to that depth; what lies below
+// is counted as one problem.
+func TestTheWalkStopsAtTheDepthLimit(t *testing.T) {
+	cfg, source := fixture(t)
+	deepest := source
+	for i := 0; i < maxDepth+5; i++ {
+		deepest = filepath.Join(deepest, "d")
+		if i == maxDepth-1 {
+			write(t, filepath.Join(deepest, "last.txt"), "kept", 0644)
+		}
+	}
+	write(t, filepath.Join(deepest, "too-deep.txt"), "not kept", 0644)
+
+	dir, meta := snap(t, cfg, source, day(12))
+	if meta.Errors != 1 || len(meta.ErrorMessages) != 1 || !strings.Contains(meta.ErrorMessages[0], "folders deep") {
+		t.Fatalf("errors %d, messages %q", meta.Errors, meta.ErrorMessages)
+	}
+	at := dir
+	for i := 0; i < maxDepth; i++ {
+		at = filepath.Join(at, "d")
+	}
+	if got := read(t, filepath.Join(at, "last.txt")); got != "kept" {
+		t.Errorf("the deepest file allowed: %q", got)
+	}
+	if exists(filepath.Join(at, "d")) {
+		t.Error("a folder below the limit was copied")
+	}
+}
+
+// A folder with more entries than are listed at a time is copied whole.
+func TestAFolderWithManyEntriesIsCopiedWhole(t *testing.T) {
+	cfg, source := fixture(t)
+	count := 2*listBatch + 7
+	for i := 0; i < count; i++ {
+		if err := os.WriteFile(filepath.Join(source, "f"+strconv.Itoa(i)), nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir, meta := snap(t, cfg, source, day(12))
+	entries, err := os.ReadDir(dir)
+	if err != nil || meta.Files != int64(count) || meta.Errors != 0 || len(entries) != count+1 { // and the record
+		t.Errorf("files %d, errors %d, entries %d, want %d (%v)", meta.Files, meta.Errors, len(entries), count, err)
 	}
 }
