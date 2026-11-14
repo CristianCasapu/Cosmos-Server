@@ -318,7 +318,7 @@ func TestHSTS(t *testing.T) {
 		{"a certificate for another name", "PROVIDED", ca.leaf(t, "other.example.com", time.Now().Add(20*time.Hour)), true, "cosmos.example.com", []string{"max-age=0"}},
 		{"an expired certificate", "PROVIDED", ca.leaf(t, "cosmos.example.com", time.Now().Add(-time.Minute)), true, "cosmos.example.com", []string{"max-age=0"}},
 		{"Cosmos' own certificate", "SELFSIGNED", "", true, "cosmos.example.com", []string{"max-age=0"}},
-		{"a .local name", "SELFSIGNED", "", true, "dpe.local", []string{"max-age=0"}},
+		{"a .local name", "SELFSIGNED", "", true, "server.local", []string{"max-age=0"}},
 		{"an IP address", "SELFSIGNED", "", true, "192.168.1.10:2053", nil},
 		{"an IPv6 address", "PROVIDED", ca.leaf(t, "cosmos.example.com", time.Now().Add(20*time.Hour)), true, "[fd00::10]:2053", nil},
 		{"no HTTPS on this server", "DISABLED", "", false, "cosmos.example.com", nil},

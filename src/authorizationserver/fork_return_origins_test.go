@@ -15,7 +15,7 @@ func TestReturnOriginSource(t *testing.T) {
 	for uri, want := range map[string]string{
 		"https://app.example.com/oauth/callback?x=1": "https://app.example.com",
 		"https://APP.example.com:8443/cb":            "https://app.example.com:8443",
-		"http://jellyfin.dpe.local:2052/cb":          "http://jellyfin.dpe.local:2052",
+		"http://jellyfin.server.local:2052/cb":          "http://jellyfin.server.local:2052",
 		"http://127.0.0.1/callback":                  "http://127.0.0.1:*",
 		"http://127.0.0.1:5000/callback":             "http://127.0.0.1:*",
 		"http://localhost:3000/cb":                   "http://localhost:*",
