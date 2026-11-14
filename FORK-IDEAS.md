@@ -147,6 +147,19 @@ security record.
   holds a request for ten seconds.
 - Not tried on a real phone or real Safari, only the WebKit engine.
 
+## Certificates: left for later (2026-11-14)
+
+- A second authority as a fallback (ZeroSSL or Google Trust Services need an
+  account with EAB); small once the owner has one.
+- DNS-PERSIST-01 when Let's Encrypt offers it; a guided HTTP-01 forward for
+  servers whose ports 80/443 are reachable; certificate profiles.
+- An order through a DNS provider other than Cloudflare was never run end to
+  end (no stand-in exists); the dialog was checked up to choosing the provider.
+- Staging is a process variable (`ACME_STAGING=true`), not a panel switch.
+- The owner's to change if wanted: the limits (10 a day, 30 a week, 3 for the
+  same names a week, "Renew now" 4 an hour) and which failures count as
+  lasting on the home page.
+
 ## Local names: left for later (2026-11-14)
 
 - Names under the owner's public domain that point at the server's private
