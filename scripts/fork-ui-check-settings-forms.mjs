@@ -32,6 +32,18 @@ const settle = async (ctx) => {
     await wait(1000);
   }
 };
+// On a phone the tabs are a select
+const openTab = async (page, title) => {
+  const tab = page.getByRole('tab', { name: title });
+  if (await tab.count() && await tab.first().isVisible()) {
+    await tab.first().click();
+  } else {
+    await page.locator('.MuiSelect-select').first().click();
+    await page.waitForTimeout(500);
+    await page.locator('[role=option]', { hasText: title }).first().click();
+  }
+  await page.waitForTimeout(1500);
+};
 const noSideways = async (page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
 
 const ROUTE = 'forms3-shield';
@@ -129,8 +141,7 @@ for (const name of names) for (const size of wanted) {
   const openSecurity = async () => {
     await page.goto(base + '/cosmos-ui/config-url/' + ROUTE, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(3500);
-    await page.getByRole('tab', { name: 'Security' }).click();
-    await page.waitForTimeout(1500);
+    await openTab(page, 'Security');
   };
   await openSecurity();
   const level = page.locator('#fork-protection');
@@ -161,8 +172,7 @@ for (const name of names) for (const size of wanted) {
   note(`--- ${id}: alerts`);
   await page.goto(base + '/cosmos-ui/monitoring', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(3000);
-  await page.getByRole('tab', { name: 'Alerts' }).click();
-  await page.waitForTimeout(2500);
+  await openTab(page, 'Alerts');
   await page.getByRole('button', { name: 'Create' }).click();
   await page.waitForTimeout(2000);
   let dialog = page.locator('[role=dialog]').last();
