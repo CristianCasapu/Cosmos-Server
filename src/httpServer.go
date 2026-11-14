@@ -1036,6 +1036,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/config/email-detect", maildetect.Route) // Fork addition: proposes SMTP settings for an email address
 	srapiAdmin.HandleFunc("/api/upnp", upnp.StatusRoute)
 	srapiAdmin.HandleFunc("/api/reachability", reach.StatusRoute) // Fork addition: can the apps be reached from the internet
+	srapiAdmin.HandleFunc("/api/local-names", proxy.LocalNamesRoute) // Fork addition: are the .local names published and answered, see proxy/fork_mdns_status.go
 	registerCloudflareRoutes(srapiAdmin) // Fork addition: the guided Cloudflare integration, see fork_cloudflare.go
 	srapiAdmin.HandleFunc("/api/snapshots", snapshots.StatusRoute) // fork addition: incremental snapshots
 	srapiAdmin.HandleFunc("/api/snapshots/run", snapshots.RunRoute) // fork addition

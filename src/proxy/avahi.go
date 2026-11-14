@@ -236,10 +236,14 @@ func stringSlicesEqual(a, b []string) bool {
 }
 
 func PublishAllMDNSFromConfig() {
+	// Fork addition: an address record per name on the LAN interfaces instead of CNAMEs, kept up to date, see fork_mdns.go
+	if forkLocalNames {
+		ForkPublishLocalNames()
+		return
+	}
+
 	config := utils.GetMainConfig()
 	utils.Log("[mDNS] Publishing routes to mDNS")
-
-	startMDNSWatch() // fork addition: republish if Avahi loses the names
 
 	publisherMu.Lock()
 	defer publisherMu.Unlock()
