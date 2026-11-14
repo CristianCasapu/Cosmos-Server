@@ -22,6 +22,8 @@ const files = [
   ['../pages/config/forkHttpSettings.jsx', ['mgmt.config.http.fork.']],
   ['../pages/config/routes/forkRouteProtection.jsx', ['mgmt.urls.protection.']],
   ['../pages/storage/forkFormatDialog.jsx', ['mgmt.storage.fork.']],
+  ['../pages/config/forkTokenForm.jsx', ['mgmt.config.apiTokens.fork.']],
+  ['../pages/dashboard/forkAlertGuide.jsx', ['mgmt.monitoring.alerts.fork.']],
 ];
 
 // Pure modules return their texts as ['key', 'English', variables]: [file, prefixes]
@@ -29,6 +31,8 @@ const arrayFiles = [
   ['./httpSettings.js', ['mgmt.config.http.fork.']],
   ['./routeProtection.js', ['mgmt.urls.protection.']],
   ['./formatDisk.js', ['mgmt.storage.fork.']],
+  ['./tokenForm.js', ['mgmt.config.apiTokens.fork.']],
+  ['./alertForm.js', ['mgmt.monitoring.alerts.fork.']],
 ];
 
 // t('key', 'English text' …) and tr('key', 'English text' …), the text in single quotes

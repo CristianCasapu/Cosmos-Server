@@ -100,8 +100,13 @@ export const MetricPicker = ({ metricsInit, name, style, value, errors, placehol
             `${option.value} - ${option.label}` : (formik && formik.values[name]);
         }}
         onChange={(event, newValue) => {
-          onChange && onChange(newValue.value);
-          return formik && formik.setFieldValue(name, newValue.value);
+          // Fork addition: a cleared field (null) crashed, a typed one (a string) was stored as undefined
+          const picked = newValue === null || newValue === undefined ? '' : (typeof newValue === 'string' ? newValue : newValue.value);
+          onChange && onChange(picked);
+          return formik && formik.setFieldValue(name, picked);
+        }}
+        onInputChange={(event, text, reason) => { // Fork addition: what is typed is kept (and checked), not dropped
+          if (reason === 'input' && formik) formik.setFieldValue(name, text);
         }}
         renderInput={(params) => <TextField {...params} />}
       />
