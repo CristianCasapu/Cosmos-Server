@@ -19,6 +19,13 @@
 //     ONLY=<regexp>                   only the views whose name matches
 //     API_PER_MINUTE=420              the instance allows 500 API calls a minute per address; the script
 //                                     counts its own and waits before it would go over
+//     STANDALONE=1                    as the installed app: the page is told it runs in its own window
+//                                     (display-mode: standalone, navigator.standalone), in every engine
+//     SAFE_AREA=47,0,34,0             top,right,bottom,left in px: the parts of the screen a phone keeps for
+//                                     itself (notch, home indicator). The skin's --ct-safe-* take these values
+//                                     and the pictures show the two zones hatched
+//     SHOT=viewport                   one screen per picture instead of the whole page (default: full), so
+//                                     that bars fixed to the bottom are where a user sees them
 //   node scripts/fork-ui-gallery.mjs summary     only rebuild <OUT>/summary.json from the .json files
 //
 // Each engine/viewport/mode combination is independent: run them as separate
@@ -39,6 +46,9 @@ const modes = (process.env.MODES || 'light,dark').split(',');
 const smallSet = process.env.SET === 'small';
 const only = process.env.ONLY ? new RegExp(process.env.ONLY) : null;
 const apiPerMinute = Number(process.env.API_PER_MINUTE || 420);
+const standalone = process.env.STANDALONE === '1';
+const safeArea = process.env.SAFE_AREA ? process.env.SAFE_AREA.split(',').map(Number) : null;
+const viewportShots = process.env.SHOT === 'viewport';
 const admin = { nickname: 'admin', password: process.env.ADMIN_PASSWORD || 'Test-Passw0rd!x' };
 const engines = { chromium, firefox, webkit };
 const note = (...a) => console.log(...a);
@@ -418,7 +428,55 @@ const run = async (engineName, viewport, mode) => {
   const context = await browser.newContext({ viewport, colorScheme: mode, reducedMotion: 'reduce', ignoreHTTPSErrors: true, locale: 'en-GB', timezoneId: 'Europe/Bucharest' });
   // the skin's own switch (client/public/skin/mode.js) reads this
   await context.addInitScript((m) => { try { window.localStorage.setItem('ct-mode', m); } catch (e) { /* no storage */ } }, mode);
+  // the installed app: the page asks the browser "am I in a window of my own?" (client/src/utils/pwaInstall.js)
+  if (standalone) {
+    await context.addInitScript(() => {
+      const real = window.matchMedia ? window.matchMedia.bind(window) : null;
+      if (real) {
+        window.matchMedia = (query) => {
+          if (!/display-mode\s*:\s*standalone/i.test(String(query))) return real(query);
+          const noop = () => {};
+          return { matches: true, media: String(query), onchange: null, addListener: noop, removeListener: noop, addEventListener: noop, removeEventListener: noop, dispatchEvent: () => false };
+        };
+      }
+      try { Object.defineProperty(window.navigator, 'standalone', { value: true, configurable: true }); } catch (e) { /* read-only here */ }
+    });
+  }
+  // the screen's reserved zones: the skin reads them from env(safe-area-inset-*) through --ct-safe-*
+  if (safeArea) {
+    await context.addInitScript(([top, right, bottom, left, hatch]) => {
+      const apply = () => {
+        const root = document.documentElement;
+        if (!root) return;
+        root.style.setProperty('--ct-safe-top', top + 'px');
+        root.style.setProperty('--ct-safe-right', right + 'px');
+        root.style.setProperty('--ct-safe-bottom', bottom + 'px');
+        root.style.setProperty('--ct-safe-left', left + 'px');
+        if (!hatch || !document.body || document.getElementById('gallery-safe-top')) return;
+        const zone = (id, css) => {
+          const el = document.createElement('div');
+          el.id = id;
+          el.setAttribute('aria-hidden', 'true');
+          el.style.cssText = 'position:fixed;left:0;right:0;z-index:2147483647;pointer-events:none;' +
+            'background:repeating-linear-gradient(45deg,rgba(255,0,90,.38) 0 5px,rgba(255,0,90,0) 5px 10px);' + css;
+          document.body.appendChild(el);
+        };
+        if (top) zone('gallery-safe-top', 'top:0;height:' + top + 'px');
+        if (bottom) zone('gallery-safe-bottom', 'bottom:0;height:' + bottom + 'px');
+      };
+      apply();
+      document.addEventListener('DOMContentLoaded', apply);
+      window.addEventListener('load', apply);
+    }, [...safeArea, viewportShots]);
+  }
   const page = await context.newPage();
+  if (standalone && engineName === 'chromium') {
+    // Chromium can be told for real, so that CSS media queries agree with the script above
+    try {
+      const cdp = await context.newCDPSession(page);
+      await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'display-mode', value: 'standalone' }] });
+    } catch (e) { note(label, 'display-mode could not be emulated through the browser:', e.message.slice(0, 120)); }
+  }
 
   // the API calls of the last minute, and those still running
   const stamps = [];
@@ -456,7 +514,9 @@ const run = async (engineName, viewport, mode) => {
 
   // the page's tab list: tabs on a desktop, a select on a phone
   const openTab = async (index) => {
-    if (!phone) { await page.locator('main [role=tablist]').first().locator('[role=tab]').nth(index).click(); return; }
+    // (a tablet in portrait gets the select too: ask the page which of the two it shows)
+    const tabs = page.locator('main [role=tablist]').first();
+    if (!phone && await tabs.isVisible().catch(() => false)) { await tabs.locator('[role=tab]').nth(index).click(); return; }
     const select = await page.evaluateHandle(() => {
       for (const s of document.querySelectorAll('main .MuiSelect-select')) {
         const root = s.closest('.MuiInputBase-root');
@@ -478,7 +538,8 @@ const run = async (engineName, viewport, mode) => {
     const height = await page.evaluate(() => document.documentElement.scrollHeight).catch(() => viewport.height);
     const limit = viewport.height * (phone ? 6 : 4);
     try {
-      if (height > limit) await page.screenshot({ path: file, fullPage: true, clip: { x: 0, y: 0, width: viewport.width, height: limit } });
+      if (viewportShots) await page.screenshot({ path: file });
+      else if (height > limit) await page.screenshot({ path: file, fullPage: true, clip: { x: 0, y: 0, width: viewport.width, height: limit } });
       else await page.screenshot({ path: file, fullPage: true });
     } catch (e) { problems.push('screenshot: ' + String(e.message).slice(0, 200)); }
     let measured = null;
