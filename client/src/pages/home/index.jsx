@@ -21,6 +21,7 @@ import { NoMeasurements } from '../../components/emptyState';
 import Migrate014 from "./migrate014";
 import MyActivity from '../securityAudit/myActivity'; // Fork addition: recent activity on the own account
 import { CertificateAlerts } from '../../components/certificates'; // Fork addition
+import { TurnstileAlert } from '../../components/turnstile'; // Fork addition
 import HealthCard from '../../components/healthCard'; // Fork addition
 import { Trans, useTranslation } from 'react-i18next';
 
@@ -378,6 +379,7 @@ const HomePage = () => {
             {/* Fork addition: what is wrong with a certificate, for which domain, and what to do (components/certificates.jsx);
                 upstream showed navigation.home.LetsEncryptEmailError when no email address was set, which no order needs */}
             {isAdmin && coStatus && <CertificateAlerts />}
+            {isAdmin && <TurnstileAlert />}{/* Fork addition: the sign-in check of Cloudflare does not work (components/turnstile.jsx) */}
 
             {isAdmin && coStatus && (coStatus.backup_status != "") && (
                 <Alert severity="error">

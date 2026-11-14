@@ -26,6 +26,7 @@ import * as Yup from 'yup';
 import { Formik } from 'formik';
 
 import * as API from '../../../api';
+import TurnstileWidget from '../../../components/turnstileWidget'; // Fork addition: Cloudflare's check for visitors from the internet
 
 // project import
 import FirebaseSocial from './FirebaseSocial';
@@ -182,6 +183,7 @@ const AuthRegister = ({nickname, isRegister, isInviteLink, regkey}) => {
                                     <FormHelperText error>{errors.submit}</FormHelperText>
                                 </Grid>
                             )}
+                            <Grid item xs={12}><TurnstileWidget form="register" /></Grid>{/* Fork addition: shows nothing unless the check applies to this visitor */}
                             <Grid item xs={12}>
                                     <LoadingButton
                                         disableElevation

@@ -246,6 +246,9 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
   const homeNames = () => forkCall('/cosmos/api/home-names', 'GET');
   const homeNamesSet = (zone: string, label: string, enabled: boolean) => forkCall('/cosmos/api/home-names', 'POST', { zone, label, enabled });
   const homeNamesCheck = (zone: string) => forkCall('/cosmos/api/home-names/check', 'POST', { zone });
+  // Fork addition: Cloudflare Turnstile on the public forms (src/turnstile); answers like the calls above
+  const turnstileStatus = () => forkCall('/cosmos/api/turnstile', 'GET');
+  const turnstileChange = (body: any) => forkCall('/cosmos/api/turnstile', 'POST', body);
 
   // Fork addition: certificates (src/certs)
   const certificatesStatus = () => certificatesCall('', 'GET');
@@ -525,6 +528,8 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     homeNames, // Fork addition: names for use at home
     homeNamesSet,
     homeNamesCheck,
+    turnstileStatus, // Fork addition: Cloudflare Turnstile
+    turnstileChange,
     cloudflareCheck,
     cloudflarePreview,
     cloudflareTakeOver,
