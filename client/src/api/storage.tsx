@@ -257,7 +257,7 @@ export default function createStorageAPI(apiFetch: ApiFetch) {
     },
     sync: (name: string): Promise<ApiResponse> => {
       return wrap(apiFetch(`/cosmos/api/snapraid/${name}/sync`, {
-        method: 'GET',
+        method: 'POST', // Fork addition: a command, sent as POST (src/fork_post_only.go)
         headers: {
             'Content-Type': 'application/json'
         },
@@ -265,7 +265,7 @@ export default function createStorageAPI(apiFetch: ApiFetch) {
     },
     fix: (name: string): Promise<ApiResponse> => {
       return wrap(apiFetch(`/cosmos/api/snapraid/${name}/fix`, {
-        method: 'GET',
+        method: 'POST', // Fork addition: a command, sent as POST (src/fork_post_only.go)
         headers: {
             'Content-Type': 'application/json'
         },
@@ -273,7 +273,7 @@ export default function createStorageAPI(apiFetch: ApiFetch) {
     },
     enable: (name: string, enable: boolean): Promise<ApiResponse> => {
       return wrap(apiFetch(`/cosmos/api/snapraid/${name}/` + (enable ? 'enable' : 'disable'), {
-        method: 'GET',
+        method: 'POST', // Fork addition: a command, sent as POST (src/fork_post_only.go)
         headers: {
             'Content-Type': 'application/json'
         },
@@ -281,7 +281,7 @@ export default function createStorageAPI(apiFetch: ApiFetch) {
     },
     scrub: (name: string): Promise<ApiResponse> => {
       return wrap(apiFetch(`/cosmos/api/snapraid/${name}/scrub`, {
-        method: 'GET',
+        method: 'POST', // Fork addition: a command, sent as POST (src/fork_post_only.go)
         headers: {
             'Content-Type': 'application/json'
         },

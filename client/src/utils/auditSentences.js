@@ -184,6 +184,13 @@ const SENTENCES = {
       unpause: '{{actor}} resumed the container {{target}}',
       recreate: '{{actor}} recreated the container {{target}}',
       update: '{{actor}} updated the container {{target}}',
+      // Fork addition: the switches of src/fork_post_only.go
+      isolate_on: '{{actor}} isolated the network of the container {{target}}',
+      isolate_off: '{{actor}} ended the network isolation of the container {{target}}',
+      auto_update_on: '{{actor}} turned on automatic updates for the container {{target}}',
+      auto_update_off: '{{actor}} turned off automatic updates for the container {{target}}',
+      lazy_on: '{{actor}} turned on start-on-demand for the container {{target}}',
+      lazy_off: '{{actor}} turned off start-on-demand for the container {{target}}',
     },
   },
   'container.deleted': { text: '{{actor}} deleted the container {{target}}', ip: true },

@@ -136,7 +136,7 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
 
   function secure(id: string, res: string): Promise<ApiResponse> {
     return wrap(apiFetch('/cosmos/api/servapps/' + id + '/secure/'+res, {
-      method: 'GET',
+      method: 'POST', // Fork addition: a command, sent as POST (src/fork_post_only.go)
       headers: {
           'Content-Type': 'application/json'
       },
@@ -154,7 +154,7 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
 
   const manageContainer = (containerId: string, action: string): Promise<ApiResponse> => {
     return wrap(apiFetch('/cosmos/api/servapps/' + containerId + '/manage/' + action, {
-      method: 'GET',
+      method: 'POST', // Fork addition: a command, sent as POST (src/fork_post_only.go)
       headers: {
         'Content-Type': 'application/json'
       }
@@ -291,7 +291,7 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
 
   function pullImage(imageName: string, onProgress: (line: string) => void, ifMissing?: boolean): Promise<ReadableStream> {
     const requestOptions: RequestInit = {
-      method: 'GET',
+      method: 'POST', // Fork addition: a command, sent as POST (src/fork_post_only.go)
       headers: {
         'Content-Type': 'application/json'
       },
@@ -334,7 +334,7 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
 
   function updateContainerImage(containerName: string, onProgress: (line: string) => void): Promise<ReadableStream> {
     const requestOptions: RequestInit = {
-      method: 'GET',
+      method: 'POST', // Fork addition: a command, sent as POST (src/fork_post_only.go)
       headers: {
         'Content-Type': 'application/json'
       },
@@ -377,7 +377,7 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
 
   function autoUpdate(id: string, toggle: string): Promise<ApiResponse> {
     return wrap(apiFetch('/cosmos/api/servapps/' + id + '/auto-update/'+toggle, {
-      method: 'GET',
+      method: 'POST', // Fork addition: a command, sent as POST (src/fork_post_only.go)
       headers: {
           'Content-Type': 'application/json'
       },
@@ -391,7 +391,7 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
     const query = params.toString() ? '?' + params.toString() : '';
 
     return wrap(apiFetch('/cosmos/api/servapps/' + id + '/lazy/' + toggle + query, {
-      method: 'GET',
+      method: 'POST', // Fork addition: a command, sent as POST (src/fork_post_only.go)
       headers: {
           'Content-Type': 'application/json'
       },

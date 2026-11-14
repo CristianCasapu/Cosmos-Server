@@ -305,6 +305,7 @@ func AuditSecurity(req *http.Request, kind string, target string, details ...str
 var securityUnlistedReads = []string{
 	"/cosmos/api/jobs/get",
 	"/cosmos/api/jobs/running",
+	"/cosmos/api/notifications/read", // marks the caller's own notifications read (a POST since fork_post_only.go): no entry each time the bell is opened
 }
 
 // SecurityAudit is the middleware behind AuditSecurity, placed innermost on

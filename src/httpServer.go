@@ -1296,6 +1296,7 @@ func InitServer() *mux.Router {
 
 	// Fork addition: the API answers the panel's own pages, not other sites, see fork_same_origin.go
 	requireSameOrigin(srapi, srapiStrict, srapiAdmin)
+	commandsOnlyByPost(srapi, srapiStrict, srapiAdmin) // Fork addition: commands take POST, never GET, see fork_post_only.go
 	forkAPINoStore(srapi, srapiStrict, srapiAdmin) // Fork addition: no answer of the API is kept by a browser, see fork_pwa.go
 	limitRequestBodies(maxSignInBody, srapiStrict) // Fork addition: the sign-in routes read a bounded body, see fork_api_inputs.go
 	
