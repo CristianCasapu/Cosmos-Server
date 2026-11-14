@@ -169,6 +169,12 @@ func TestFetchBounds(t *testing.T) {
 		w.(http.Flusher).Flush()
 		select {
 		case <-r.Context().Done():
+			// The client gave up. Returning here would end the chunked body
+			// cleanly, and a client that is between saying goodbye and
+			// closing its socket can still read that end and take "start"
+			// for the whole answer (seen once on a loaded machine): break
+			// the answer off instead, as a server that stalls does.
+			panic(http.ErrAbortHandler)
 		case <-time.After(10 * time.Second):
 		}
 	})
