@@ -17,18 +17,6 @@ const Navigation = () => {
     // Renames entries Pro overrides via `titlePro`; the group shape is set in menu-items/index.jsx.
     const isPro = useIsPro() === true;
 
-    // Fork addition: the entry of the current page is marked on every
-    // navigation. Upstream marked it only on a click, and after a page load
-    // only when the entry's id was a part of the address: Home, Monitoring,
-    // Market, URLs, Users, OpenID and Configuration never were.
-    const location = useLocation();
-    const dispatch = useDispatch();
-    useEffect(() => {
-        const entry = menuEntryFor(location.pathname, menuEntries(menuItem));
-        dispatch(activeItem({ openItem: entry ? [entry.id] : [] }));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [location.pathname]);
-
     const navGroups = menuItem.items
         .map((item) => ({
             ...item,
@@ -47,6 +35,18 @@ const Navigation = () => {
                     );
             }
         });
+
+    // Fork addition: the entry of the current page is marked on every
+    // navigation. Upstream marked it only on a click, and after a page load
+    // only when the entry's id was a part of the address: Home, Monitoring,
+    // Market, URLs, Users, OpenID and Configuration never were.
+    const location = useLocation();
+    const dispatch = useDispatch();
+    useEffect(() => {
+        const entry = menuEntryFor(location.pathname, menuEntries(menuItem));
+        dispatch(activeItem({ openItem: entry ? [entry.id] : [] }));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [location.pathname]);
 
     return <Box sx={{ pt: 2 }}>{navGroups}</Box>;
 };
