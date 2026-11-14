@@ -263,7 +263,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                   <Hide h={lockTarget}>
                     <CosmosFormDivider title={t('mgmt.urls.edit.targetTypeTitle')} />
                     <Grid item xs={12}>
-                      <Alert color='info'>{t('mgmt.urls.edit.targetTypeInfo')}</Alert>
+                      <Alert severity='info' /* Fork addition: severity (color alone showed the success icon) */>{t('mgmt.urls.edit.targetTypeInfo')}</Alert>
                     </Grid>
 
                     <CosmosSelect
@@ -328,7 +328,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                   
                   {IsRouteSocketProxy(formik.values) && <>
                     <Grid item xs={12}>
-                      <Alert color='info'>{t('mgmt.urls.edit.sourceInfoPort2')}</Alert>
+                      <Alert severity='info' /* Fork addition */>{t('mgmt.urls.edit.sourceInfoPort2')}</Alert>
                     </Grid>
                     <CosmosInputText
                       name="Host"
@@ -343,7 +343,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
 
                   {!IsRouteSocketProxy(formik.values) && <>
                   <Grid item xs={12}>
-                    <Alert color='info'>{t('mgmt.urls.edit.sourceInfo')}</Alert>
+                    <Alert severity='info' /* Fork addition */>{t('mgmt.urls.edit.sourceInfo')}</Alert>
                   </Grid>
 
                   <CosmosCheckbox
@@ -375,7 +375,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                     }}
                   />
                   {hostError && <Grid item xs={12}>
-                    <Alert color='warning'>{hostError}</Alert>
+                    <Alert severity='warning'>{hostError}</Alert>{/* Fork addition: the warning icon too */}
                   </Grid>}
                   </>
                   )}
@@ -389,7 +389,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                   />
 
                   {formik.values.UsePathPrefix && <Grid item xs={12}>
-                    <Alert color='warning'>{t('mgmt.urls.edit.sourceWarningPathPrefix')}</Alert>
+                    <Alert severity='warning'>{t('mgmt.urls.edit.sourceWarningPathPrefix')}</Alert>
                   </Grid>}
 
                   {formik.values.UsePathPrefix && <CosmosInputText

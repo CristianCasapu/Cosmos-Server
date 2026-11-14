@@ -352,10 +352,10 @@ const NewInstall = () => {
                         )}
                         
                         {hostError && <Grid item xs={12}>
-                          <Alert color='error'>{hostError}</Alert>
+                          <Alert severity='warning' /* Fork addition: a warning with its own icon (color alone showed the success icon); the setup goes on */>{hostError}</Alert>
                         </Grid>}
                         {hostIp && <Grid item xs={12}>
-                            <Alert color='info'><Trans i18nKey="newInstall.hostnamePointsToInfo" values={{hostIp: hostIp}} /></Alert>
+                            <Alert severity='info' /* Fork addition */><Trans i18nKey="newInstall.hostnamePointsToInfo" values={{hostIp: hostIp}} /></Alert>
                         </Grid>}
 
                         {formik.values.HTTPSCertificateMode === "LETSENCRYPT" && formik.values.UseWildcardCertificate && (!formik.values.DNSChallengeProvider || formik.values.DNSChallengeProvider == '') && (

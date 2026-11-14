@@ -422,7 +422,7 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
       <HostnameSuggestions inline name={appName || values.Name} value={values.Host} config={config} onPick={setHost} />
     </Grid>
     {hostError && <Grid item xs={12}>
-      <Alert color="warning">{hostError}</Alert>
+      <Alert severity="warning">{hostError}</Alert>{/* Fork addition: severity, so the icon is a warning too (color alone kept the success icon) */}
     </Grid>}
     {addressExtra && <Grid item xs={12}>{addressExtra}</Grid>}
 

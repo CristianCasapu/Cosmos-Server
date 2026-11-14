@@ -1031,8 +1031,9 @@ pre.code {
 /* ---------- the sign-in page's messages (AuthLogin) ------------------------ */
 /* "You need to be logged in", "You have been disconnected": as wide as the
    form, under the title (they sat in a centred grid with negative margins) */
-.MuiGrid-container.MuiGrid-justifyContent-xs-center > .MuiAlert-root { flex: 1 1 100%; }
-.MuiGrid-container.MuiGrid-justifyContent-xs-center:has(> .MuiAlert-root) { margin: 0 0 16px; width: 100%; }
+/* (a grid container that holds a message and no grid item: nothing else uses that) */
+.MuiGrid-container:has(> .MuiAlert-root):not(:has(> .MuiGrid-item)) { margin: 0 0 16px; width: 100%; }
+.MuiGrid-container:has(> .MuiAlert-root):not(:has(> .MuiGrid-item)) > .MuiAlert-root { flex: 1 1 100%; }
 
 /* ---------- things that need attention (components/noticeArea.jsx) -------- */
 /* One surface per page (ServApps, a stack, home), one line per item, the most

@@ -195,9 +195,9 @@ export const HostnameChecker = ({hostname}) => {
     }
   }, [hostname]);
 
-  return <>{hostError && <Alert color='warning'>{hostError}</Alert>/* Fork addition: a warning: the install goes on */}
+  return <>{hostError && <Alert severity='warning'>{hostError}</Alert>/* Fork addition: a warning (its icon too): the install goes on */}
 
-    {hostIp && <Alert color='info'><Trans i18nKey="newInstall.hostnamePointsToInfo" values={{hostIp: hostIp}} /></Alert>}
+    {hostIp && <Alert severity='info' /* Fork addition: severity (color alone showed the success icon) */><Trans i18nKey="newInstall.hostnamePointsToInfo" values={{hostIp: hostIp}} /></Alert>}
   </>
 };
 
