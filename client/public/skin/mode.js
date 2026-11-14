@@ -22,6 +22,25 @@
   var resolved = mode === 'auto' ? systemMode() : mode;
   root.setAttribute('data-ct-mode', resolved);
 
+  // The colour of the browser's bar, the installed app's title bar and the
+  // iOS status bar follow the mode too (index.html names both colours for
+  // the automatic case). On iOS the status bar's text is white over the
+  // panel ("black-translucent") in dark mode and dark on a light bar in
+  // light mode, so it stays readable.
+  var BAR = { dark: '#0a0f1d', light: '#f2f5fa' };
+  function paintBars(current) {
+    var metas = document.querySelectorAll('meta[name="theme-color"]');
+    for (var i = 0; i < metas.length; i++) {
+      if (mode !== 'auto') {
+        metas[i].removeAttribute('media');
+        metas[i].setAttribute('content', BAR[current]);
+      }
+    }
+    var ios = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+    if (ios) ios.setAttribute('content', current === 'dark' ? 'black-translucent' : 'default');
+  }
+  paintBars(resolved);
+
   if (realMatchMedia && mode !== 'auto') {
     // Only colour-scheme queries are answered here; everything else (the
     // layout's width breakpoints, for instance) goes to the browser untouched.
@@ -43,7 +62,7 @@
   } else if (realMatchMedia) {
     // Automatic: keep the skin's colours in step if the system flips while open.
     var mq = realMatchMedia('(prefers-color-scheme: dark)');
-    var follow = function () { root.setAttribute('data-ct-mode', systemMode()); };
+    var follow = function () { root.setAttribute('data-ct-mode', systemMode()); paintBars(systemMode()); };
     if (mq.addEventListener) mq.addEventListener('change', follow);
     else if (mq.addListener) mq.addListener(follow);
   }

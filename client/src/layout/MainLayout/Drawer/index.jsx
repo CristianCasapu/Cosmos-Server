@@ -15,6 +15,7 @@ import NavCard from './DrawerContent/NavCard';
 import {version} from '../../../../../package.json';
 import { LanguagesSelect } from './languages';
 import ModeToggle from '../../../components/modeToggle'; // Fork addition: the skin's light/dark switch
+import { PWAInstallButton } from '../../../components/pwa'; // Fork addition: install the panel as an app
 
 // Fork addition: the fork's build number, set when a release is built. The
 // version above stays upstream's, which is what app requirements refer to.
@@ -34,6 +35,7 @@ const MainDrawer = ({ open, handleDrawerToggle, window }) => {
     const drawerHeader = useMemo(() => <DrawerHeader open={open} />, [open]);
     const footer = <div className="ct-drawer-footer" style={{ margin: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
         <ModeToggle size="small" sx={{ display: { xs: 'inline-flex', sm: 'none' }, mr: '10px' }} />{/* Fork addition: from 600 px up it is in the header */}
+        <PWAInstallButton size="small" sx={{ display: { xs: 'inline-flex', sm: 'none' }, mr: '10px' }} />{/* Fork addition: from 600 px up it is in the header */}
         <LanguagesSelect />
         <Chip
             label={version.replace('unstable', '') + forkBuild}

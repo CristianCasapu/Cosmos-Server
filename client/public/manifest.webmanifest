@@ -1,0 +1,27 @@
+{
+  "id": "/cosmos-ui/",
+  "name": "Cosmos",
+  "short_name": "Cosmos",
+  "description": "The administration panel of your Cosmos server.",
+  "lang": "en",
+  "dir": "ltr",
+  "start_url": "/cosmos-ui/",
+  "scope": "/cosmos-ui/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0a0f1d",
+  "theme_color": "#0a0f1d",
+  "categories": ["utilities", "productivity"],
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "/cosmos-ui/pwa/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/cosmos-ui/pwa/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/cosmos-ui/pwa/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "ServApps", "short_name": "ServApps", "description": "The containers and stacks on the server", "url": "/cosmos-ui/servapps", "icons": [{ "src": "/cosmos-ui/pwa/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "URLs", "short_name": "URLs", "description": "The addresses Cosmos serves", "url": "/cosmos-ui/config-url", "icons": [{ "src": "/cosmos-ui/pwa/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Security", "short_name": "Security", "description": "Incidents, sign-ins and blocked addresses", "url": "/cosmos-ui/security", "icons": [{ "src": "/cosmos-ui/pwa/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Monitoring", "short_name": "Monitoring", "description": "Resources, requests and alerts", "url": "/cosmos-ui/monitoring", "icons": [{ "src": "/cosmos-ui/pwa/icon-192.png", "sizes": "192x192", "type": "image/png" }] }
+  ]
+}
