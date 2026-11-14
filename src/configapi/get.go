@@ -29,6 +29,7 @@ func ConfigApiGet(w http.ResponseWriter, req *http.Request) {
 	if(req.Method == "GET") {
 		config := utils.ReadConfigFromFile()
 		maskEmailPassword(&config) // Fork addition: the stored SMTP password goes to no browser, see fork_email.go
+		maskOpenIDSecrets(&config) // Fork addition: no reader gets the OpenID clients' secret hashes, see fork_openid.go
 
 		// delete private keys
 		config.HTTPConfig.AuthPrivateKey = ""

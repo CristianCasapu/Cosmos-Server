@@ -1099,6 +1099,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/routes/{name}", configapi.RoutesIdRoute)
 	srapiAdmin.HandleFunc("/api/routes", configapi.RoutesRoute)
 
+	srapiAdmin.HandleFunc("/api/openid/{id}/secret", configapi.OpenIDSecretRoute) // Fork addition: a new client secret made on the server, see configapi/fork_openid.go
 	srapiAdmin.HandleFunc("/api/openid/{id}", configapi.OpenIDIdRoute)
 	srapiAdmin.HandleFunc("/api/openid", configapi.OpenIDRoute)
 

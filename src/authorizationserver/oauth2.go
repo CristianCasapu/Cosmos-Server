@@ -208,6 +208,9 @@ func newSession(user string, req *http.Request) *openid.DefaultSession {
 		} else {
 			hostname = "http://" + hostname
 		}
+		if issuer, ok := panelIssuer(req); ok {
+			hostname = issuer // Fork addition: the same issuer as the discovery document, see fork_issuer.go
+		}
 	} else if hostname == os.Getenv("HOSTNAME") {
 		hostname = "http://" + hostname
 	} else {
