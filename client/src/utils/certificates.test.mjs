@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import {
   CHALLENGE_CHOICES, FAILURES, FAILURE_CODES, WAY_TEXT, caNotice, certificateState, challengeNote, cleanDomain, delegationText,
   domainProblem, failureSentences, hostState, howFar, issuerSentence, methodSentence, missingForSave, proposalFor, providerFields,
-  renewBlockedSentence, validitySentences, waitSentence, waysFor, zoneToSave,
+  renewBlockedSentence, validitySentences, waitSentence, waysFor, zoneToSave, homeAlerts, LASTING_FAILURES,
 } from './certificates.js';
 import { CHECK_TEXT } from './reachability.js';
 
@@ -83,7 +83,7 @@ test('every reason the server can give for a failed order has words and a next s
   assert.match(failureSentences('caa').todo[1], /letsencrypt\.org/);
 });
 
-const acme = (more) => ({ kind: 'acme', method: 'dns', provider: 'cloudflare', present: true, trust: 'public', issuer: "Let's Encrypt (E7)",
+const acme = (more) => ({ domain: 'example.org', kind: 'acme', method: 'dns', provider: 'cloudflare', present: true, trust: 'public', issuer: "Let's Encrypt (E7)",
   names: ['example.org', '*.example.org'], uncovered: [], notBefore: days(-10), notAfter: days(80), renewAt: days(50), renewSource: 'lifetime',
   expired: false, warn: false, running: false, canRenew: true, ...more });
 
@@ -140,7 +140,9 @@ test('until when, and when it is renewed', () => {
 
   assert.equal(complete(howFar(days(12.5), now), 'far'), 'in 12 days');
   assert.equal(complete(howFar(days(0.5), now), 'far'), 'in 12 hours');
-  assert.equal(complete(howFar(days(-0.01), now), 'far'), '1 hours ago');
+  assert.equal(complete(howFar(days(-0.01), now), 'far'), 'less than an hour ago');
+  assert.equal(complete(howFar(days(0.02), now), 'far'), 'within the hour');
+  assert.equal(complete(howFar(days(-0.1), now), 'far'), '2 hours ago');
   assert.equal(complete(howFar(days(-3.2), now), 'far'), '3 days ago');
 });
 
@@ -289,4 +291,47 @@ test('the record of a delegated proof: what the check found', () => {
   assert.match(text({ state: 'failed' }), /^no: The record could not be looked up/);
   assert.match(text({ state: 'something new' }), /^no: /);
   assert.equal(delegationText(null).ok, false);
+});
+
+test('the home page: an alert names the domain, what is wrong and what to do, and there is none when nothing is', () => {
+  const alerts = (status) => homeAlerts(status, format).map((alert) => {
+    const what = alert.what.map((sentence) => complete(sentence, 'home')).join(' ');
+    return alert.severity + ' ' + (alert.domain || '-') + ': ' + what + (alert.todo ? ' | ' + complete(alert.todo, 'todo') : '');
+  });
+  const status = (...certificates) => ({ ca: { kind: 'production' }, certificates });
+  assert.deepEqual(alerts(null), []);
+  assert.deepEqual(alerts(status()), []);
+  // nothing wrong: a trusted certificate, a renewal that is due and a failure that heals by itself
+  assert.deepEqual(alerts(status(acme(), acme({ renewAt: days(-1) }), acme({ last: { ok: false, code: 'caUnreachable' } }))), []);
+  // the owner's choices are not problems
+  assert.deepEqual(alerts(status({ kind: 'none', domain: 'a.test' }, { kind: 'selfsigned', domain: 'b.test', present: true, trust: 'private' })), []);
+  // an order on its way is not a problem yet
+  assert.deepEqual(alerts(status(acme({ present: false, running: true }), acme({ uncovered: ['x.example.org'], running: true }))), []);
+  // no address needed: the old "provide an email address" has no equivalent
+  assert.deepEqual(alerts({ ...status(acme()), letsencrypt: true }), []);
+
+  const [blocked] = alerts(status(acme({ domain: 'example.net', present: false, method: 'http', blocked: 'noHTTPChallenge' })));
+  assert.match(blocked, /^error example\.net: example\.net: no certificate browsers trust can be ordered.*port 80 or 443.*\| Under Configuration > Domains, "Add another domain"/);
+
+  const [failed] = alerts(status(acme({ present: false, last: { ok: false, code: 'dnsCredentials' } })));
+  assert.match(failed, /^error example\.org: example\.org has no certificate browsers trust yet: the last order failed\. The DNS provider refused the token .*\| Create a new one at the provider/);
+
+  // nothing tried yet and nothing running: the order comes, nothing to say
+  assert.deepEqual(alerts(status(acme({ present: false }))), []);
+
+  assert.match(alerts(status(acme({ expired: true, warn: true, notAfter: days(-1) })))[0], /^error example\.org: example\.org: its certificate ended on 2026-11-13 12:00.*\| Press "Renew now"/);
+  assert.match(alerts(status(acme({ warn: true, notAfter: days(6), last: { ok: false, code: 'dnsPropagation' } })))[0],
+    /^warning example\.org: example\.org: its certificate ends on 2026-11-20 12:00 and could not be renewed yet\. The record was created.*\| Check at your registrar/);
+  assert.match(alerts(status(acme({ trust: 'private', issuer: 'Somebody' })))[0], /^warning example\.org: example\.org: its certificate \(Somebody\) is not one browsers trust/);
+  assert.match(alerts(status(acme({ uncovered: ['a.b.example.org'] })))[0], /does not cover a\.b\.example\.org.*within half an hour/);
+  // a failure that does not heal is told while the certificate is still valid
+  for (const code of LASTING_FAILURES) {
+    assert.match(alerts(status(acme({ last: { ok: false, code } })))[0], /^warning example\.org: example\.org: the last renewal failed, and it fails again until this is fixed\. The certificate in use stays valid until 2027-02-02 12:00\./, code);
+  }
+  assert.match(alerts(status({ kind: 'provided', domain: 'p.test', present: true, expired: true, notAfter: days(-3), trust: 'public' }))[0], /^error p\.test: p\.test: the certificate you provided ended/);
+
+  // a staging or test authority: one alert, said once, not per domain
+  const staging = alerts({ ca: { kind: 'staging' }, certificates: [acme({ trust: 'staging' }), acme({ domain: 'other.test', trust: 'staging' })] });
+  assert.equal(staging.length, 1);
+  assert.match(staging[0], /^warning -: Orders go to Let's Encrypt's staging service/);
 });

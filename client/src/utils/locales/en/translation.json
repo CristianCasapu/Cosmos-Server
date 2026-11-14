@@ -4218,5 +4218,22 @@
 	"mgmt.localNames.device.remote": "Away from home (Tailscale, VPN, mobile data): no, the names stay on the local network.",
 	"activity.localNames.check": "Check the local names on the network",
 	"mgmt.localNames.interfaces": "Network interfaces for the .local names",
-	"mgmt.localNames.interfacesHelp": "Leave empty to use the interfaces facing the local network, chosen automatically (Docker's networks, VPNs and Tailscale never are). Otherwise names as the server spells them, separated by commas (for example eno1, wlan0)."
+	"mgmt.localNames.interfacesHelp": "Leave empty to use the interfaces facing the local network, chosen automatically (Docker's networks, VPNs and Tailscale never are). Otherwise names as the server spells them, separated by commas (for example eno1, wlan0).",
+	"mgmt.certs.home.providedExpired": "{{domain}}: the certificate you provided ended on {{date}}, and browsers refuse it.",
+	"mgmt.certs.home.providedTodo": "Replace it (the pencil on the domain's row under Configuration > Domains), or switch the domain to Let's Encrypt.",
+	"mgmt.certs.home.blocked": "{{domain}}: no certificate browsers trust can be ordered for it as it is set up. Cosmos has no access to its DNS, and Let's Encrypt cannot reach this server on port 80 or 443 to check it another way. Its addresses get the certificate this server signs itself, so visitors get a warning.",
+	"mgmt.certs.home.blockedTodo": "Under Configuration > Domains, \"Add another domain\": give Cosmos access to the domain's DNS, or create one record there that hands the proof to a domain Cosmos can already write to.",
+	"mgmt.certs.home.failed": "{{domain}} has no certificate browsers trust yet: the last order failed.",
+	"mgmt.certs.home.expired": "{{domain}}: its certificate ended on {{date}}, and browsers refuse it.",
+	"mgmt.certs.home.expiredTodo": "Press \"Renew now\" under Configuration > Domains > Certificates.",
+	"mgmt.certs.home.untrusted": "{{domain}}: its certificate ({{issuer}}) is not one browsers trust, so visitors get a warning.",
+	"mgmt.certs.home.untrustedTodo": "Press \"Renew now\" under Configuration > Domains > Certificates to replace it with one from Let's Encrypt.",
+	"mgmt.certs.home.late": "{{domain}}: its certificate ends on {{date}} and could not be renewed yet.",
+	"mgmt.certs.home.lateTodo": "Cosmos keeps trying by itself; Configuration > Domains > Certificates shows how it goes.",
+	"mgmt.certs.home.renewalFailed": "{{domain}}: the last renewal failed, and it fails again until this is fixed. The certificate in use stays valid until {{date}}.",
+	"mgmt.certs.home.uncovered": "{{domain}}: its certificate does not cover {{names}}, so visitors of these addresses get a warning.",
+	"mgmt.certs.home.uncoveredTodo": "Cosmos orders a certificate that covers them by itself, within half an hour; Configuration > Domains > Certificates shows how it goes.",
+	"mgmt.certs.home.open": "Open the certificates",
+	"mgmt.certs.ago.now": "less than an hour ago",
+	"mgmt.certs.in.soon": "within the hour"
 }

@@ -14,9 +14,9 @@ import (
 // next restart. This hands the reason of the order that just failed
 // (utils.LetsEncryptErrors, filled by utils.DoLetsEncrypt) to the notice.
 //
-// Only used for the certificates this server orders over HTTP-01
-// (issueLocalCerts): no credential takes part in those orders, so the reason
-// cannot carry one. Orders through a DNS provider are left as they are.
+// The reasons come scrubbed from src/certs (no credential, one line), for
+// the orders over HTTP-01 (issueLocalCerts) and through a DNS provider
+// (issueZoneCerts) alike.
 
 // maxLetsEncryptReason bounds the reason shown in a notice.
 const maxLetsEncryptReason = 400

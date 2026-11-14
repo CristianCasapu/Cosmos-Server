@@ -20,6 +20,7 @@ import { metricsByKey, percentOf, hasMeasurements } from '../../utils/metricsSta
 import { NoMeasurements } from '../../components/emptyState';
 import Migrate014 from "./migrate014";
 import MyActivity from '../securityAudit/myActivity'; // Fork addition: recent activity on the own account
+import { CertificateAlerts } from '../../components/certificates'; // Fork addition
 import { Trans, useTranslation } from 'react-i18next';
 
 
@@ -373,11 +374,9 @@ const HomePage = () => {
                 </Alert>
             )}
 
-            {isAdmin && coStatus && coStatus.letsencrypt && (
-                <Alert severity="error">
-                    {t('navigation.home.LetsEncryptEmailError')}
-                </Alert>
-            )}
+            {/* Fork addition: what is wrong with a certificate, for which domain, and what to do (components/certificates.jsx);
+                upstream showed navigation.home.LetsEncryptEmailError when no email address was set, which no order needs */}
+            {isAdmin && coStatus && <CertificateAlerts />}
 
             {isAdmin && coStatus && (coStatus.backup_status != "") && (
                 <Alert severity="error">
@@ -385,7 +384,8 @@ const HomePage = () => {
                 </Alert>
             )}
 
-            {isAdmin && coStatus && coStatus.LetsEncryptErrors && coStatus.LetsEncryptErrors.length > 0 && (
+            {/* Fork addition: said per domain by CertificateAlerts above; upstream listed every error since the last restart, also once the certificate had arrived */}
+            {false && isAdmin && coStatus && coStatus.LetsEncryptErrors && coStatus.LetsEncryptErrors.length > 0 && (
                 <Alert severity="error">
                     {t('navigation.home.LetsEncryptError')}
                     {coStatus.LetsEncryptErrors.map((err) => {

@@ -45,9 +45,11 @@ import { FormField, FormSelect } from './formField';
 import { PERM_CONFIGURATION } from '../utils/permissions';
 import {
   CHALLENGE_CHOICES, WAY_TEXT, caNotice, certificateState, challengeNote, cleanDomain, delegationText, domainProblem,
-  failureSentences, hostState, howFar, issuerSentence, methodSentence, missingForSave, proposalFor, providerFields,
+  failureSentences, homeAlerts, hostState, howFar, issuerSentence, methodSentence, missingForSave, proposalFor, providerFields,
   renewBlockedSentence, validitySentences, waitSentence, waysFor, zoneToSave,
 } from '../utils/certificates';
+import { FIX_LINKS } from '../utils/reachability';
+import { Link } from 'react-router-dom';
 
 // --- one status for the page, shared by the card and the dialogs
 let store = { data: null, loading: false, failed: false };
@@ -585,6 +587,29 @@ export const AnotherDomain = ({ zones, onClose, onCloudflare, onManual }) => {
       </LoadingButton>}
     </DialogActions>
   </Dialog>;
+};
+
+// On the home page, for the administrators: what is wrong with a
+// certificate, for which domain, and what to do. Nothing when nothing is
+// (this replaces upstream's "provide an email address" and its list of raw
+// errors since the last restart, see pages/home/index.jsx).
+export const CertificateAlerts = () => {
+  const { t } = useTranslation();
+  const tr = (sentence) => (sentence ? t(sentence[0], sentence[1], sentence[2]) : '');
+  const state = useCertificates();
+  // read again at every visit of the home page: what was read on another page may be old
+  React.useEffect(() => { loadCertificates(); }, []);
+  const alerts = homeAlerts(state.data, dateTime);
+  if (alerts.length === 0) return null;
+  return <>
+    {alerts.map((alert, index) => <Alert key={alert.domain + ':' + index} severity={alert.severity} sx={{ ...wrap, '& .MuiAlert-message': { minWidth: 0 } }} data-certs-home={alert.domain || 'ca'}>
+      <Stack spacing={0.5}>
+        <Typography variant="body2" sx={wrap}>{alert.what.map(tr).join(' ')}</Typography>
+        {alert.todo && <Typography variant="body2" sx={wrap}>{tr(alert.todo)}</Typography>}
+        <Typography variant="body2"><Link to={FIX_LINKS.domains()}>{t('mgmt.certs.home.open', 'Open the certificates')}</Link></Typography>
+      </Stack>
+    </Alert>)}
+  </>;
 };
 
 export default CertificatesOverview;

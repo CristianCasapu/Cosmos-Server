@@ -76,7 +76,7 @@ func obtainHook(domains []string, zone *utils.DNSZoneConfig) (string, string) {
 		store.unforce(key)
 		message := "No order for " + key + " before " + until.UTC().Format("2006-01-02 15:04 UTC") + " (" + why + ")"
 		utils.Warn("Certificates: " + message)
-		utils.LetsEncryptErrors = append(utils.LetsEncryptErrors, message)
+		recordError(message)
 		return "", ""
 	}
 
@@ -99,12 +99,28 @@ func obtainHook(domains []string, zone *utils.DNSZoneConfig) (string, string) {
 			reason += " (" + failure.Detail + ")"
 		}
 		utils.Error("Certificates: no certificate for "+strings.Join(domains, ", ")+" from "+ca.Name+": "+reason, nil)
-		utils.LetsEncryptErrors = append(utils.LetsEncryptErrors, reason)
+		recordError(strings.Join(domains, ", ") + ": " + reason)
 		return "", ""
 	}
 	utils.Log("Certificates: " + ca.Name + " issued a certificate for " + strings.Join(domains, ", ") +
 		", valid until " + result.leaf.NotAfter.UTC().Format("2006-01-02 15:04 UTC"))
 	return result.cert, result.key
+}
+
+// keptErrors bounds utils.LetsEncryptErrors: upstream emptied it at every
+// restart only, and orders now also happen between restarts (Tick).
+const keptErrors = 20
+
+// recordError adds the reason of an order that did not happen or failed to
+// utils.LetsEncryptErrors, where the notice of the failure takes it from
+// (letsEncryptFailure in fork_letsencrypt_reason.go): the last one is the
+// reason of the order that just ended. The text is already scrubbed.
+func recordError(text string) {
+	list := append(utils.LetsEncryptErrors, text)
+	if len(list) > keptErrors {
+		list = append([]string{}, list[len(list)-keptErrors:]...)
+	}
+	utils.LetsEncryptErrors = list
 }
 
 // FailureSentence says a failure code in plain English, for the log and

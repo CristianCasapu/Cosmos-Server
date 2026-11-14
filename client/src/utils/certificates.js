@@ -102,9 +102,11 @@ export const howFar = (date, now) => {
   const hours = ms / 3600000;
   if (hours < 0) {
     const past = -hours;
+    if (past < 1.5) return s('mgmt.certs.ago.now', 'less than an hour ago');
     if (past < 48) return s('mgmt.certs.ago.hours', '{{count}} hours ago', { count: Math.max(1, Math.round(past)) });
     return s('mgmt.certs.ago.days', '{{count}} days ago', { count: Math.floor(past / 24) });
   }
+  if (hours < 1.5) return s('mgmt.certs.in.soon', 'within the hour');
   if (hours < 48) return s('mgmt.certs.in.hours', 'in {{count}} hours', { count: Math.max(1, Math.round(hours)) });
   return s('mgmt.certs.in.days', 'in {{count}} days', { count: Math.floor(hours / 24) });
 };
@@ -377,4 +379,72 @@ export const missingForSave = ({ way, provider, fields, variables, via, checked 
   const filled = (fields || []).some((field) => String((variables || {})[field.name] || '').trim() !== '');
   if (!filled) return s('mgmt.certs.add.needCredential', 'Enter the token or key the provider gave you.');
   return null;
+};
+
+// ---- the home page: what is wrong, for which domain, and what to do
+
+// Failures that do not go away by themselves: the owner has to act, so they
+// are told even while the certificate in use is still valid.
+export const LASTING_FAILURES = ['dnsCredentials', 'dnsZone', 'caa', 'delegationMissing', 'noProvider', 'account', 'caRefused'];
+
+// The alerts the home page shows, from the answer of GET /api/certificates:
+// [{ severity, domain, what: [sentence, ...], todo: sentence | null }],
+// empty when nothing is wrong. An alert is what a visitor notices (no
+// certificate, an expired or untrusted one, names it does not cover) or
+// what will come to that unless the owner acts (a renewal that keeps
+// failing, a failure that does not heal). A domain the owner set to plain
+// HTTP or to the server's own certificate is the owner's choice, and an
+// order on its way is not a problem yet.
+export const homeAlerts = (status, format) => {
+  if (!status) return [];
+  const alerts = [];
+  const ca = caNotice(status.ca);
+  if (ca) alerts.push({ severity: 'warning', domain: '', what: [ca], todo: null });
+  for (const cert of status.certificates || []) {
+    const domain = cert.domain;
+    const failed = cert.last && !cert.last.ok ? failureSentences(cert.last.code) : null;
+    const push = (severity, what, todo) => alerts.push({ severity, domain, what: what.filter(Boolean), todo });
+    if (cert.kind === 'provided') {
+      if (cert.present && cert.expired) {
+        push('error', [s('mgmt.certs.home.providedExpired', '{{domain}}: the certificate you provided ended on {{date}}, and browsers refuse it.', { domain, date: format(cert.notAfter) })],
+          s('mgmt.certs.home.providedTodo', 'Replace it (the pencil on the domain\'s row under Configuration > Domains), or switch the domain to Let\'s Encrypt.'));
+      }
+      continue;
+    }
+    if (cert.kind !== 'acme' || cert.running) continue;
+    if (!cert.present) {
+      if (cert.blocked) {
+        push('error', [s('mgmt.certs.home.blocked', '{{domain}}: no certificate browsers trust can be ordered for it as it is set up. Cosmos has no access to its DNS, and Let\'s Encrypt cannot reach this server on port 80 or 443 to check it another way. Its addresses get the certificate this server signs itself, so visitors get a warning.', { domain })],
+          s('mgmt.certs.home.blockedTodo', 'Under Configuration > Domains, "Add another domain": give Cosmos access to the domain\'s DNS, or create one record there that hands the proof to a domain Cosmos can already write to.'));
+      } else if (failed) {
+        push('error', [s('mgmt.certs.home.failed', '{{domain}} has no certificate browsers trust yet: the last order failed.', { domain }), failed.what], failed.todo);
+      }
+      continue;
+    }
+    if (cert.expired) {
+      push('error', [s('mgmt.certs.home.expired', '{{domain}}: its certificate ended on {{date}}, and browsers refuse it.', { domain, date: format(cert.notAfter) }), failed && failed.what],
+        failed ? failed.todo : s('mgmt.certs.home.expiredTodo', 'Press "Renew now" under Configuration > Domains > Certificates.'));
+      continue;
+    }
+    if (cert.trust !== 'public' && !ca) {
+      push('warning', [s('mgmt.certs.home.untrusted', '{{domain}}: its certificate ({{issuer}}) is not one browsers trust, so visitors get a warning.', { domain, issuer: cert.issuer || '' })],
+        s('mgmt.certs.home.untrustedTodo', 'Press "Renew now" under Configuration > Domains > Certificates to replace it with one from Let\'s Encrypt.'));
+      continue;
+    }
+    if (cert.warn) {
+      push('warning', [s('mgmt.certs.home.late', '{{domain}}: its certificate ends on {{date}} and could not be renewed yet.', { domain, date: format(cert.notAfter) }), failed && failed.what],
+        failed ? failed.todo : s('mgmt.certs.home.lateTodo', 'Cosmos keeps trying by itself; Configuration > Domains > Certificates shows how it goes.'));
+      continue;
+    }
+    if (failed && LASTING_FAILURES.includes(cert.last.code)) {
+      push('warning', [s('mgmt.certs.home.renewalFailed', '{{domain}}: the last renewal failed, and it fails again until this is fixed. The certificate in use stays valid until {{date}}.', { domain, date: format(cert.notAfter) }), failed.what], failed.todo);
+      continue;
+    }
+    const uncovered = cert.uncovered || [];
+    if (uncovered.length > 0) {
+      push('warning', [s('mgmt.certs.home.uncovered', '{{domain}}: its certificate does not cover {{names}}, so visitors of these addresses get a warning.', { domain, names: uncovered.join(', ') }), failed && failed.what],
+        failed ? failed.todo : s('mgmt.certs.home.uncoveredTodo', 'Cosmos orders a certificate that covers them by itself, within half an hour; Configuration > Domains > Certificates shows how it goes.'));
+    }
+  }
+  return alerts;
 };
