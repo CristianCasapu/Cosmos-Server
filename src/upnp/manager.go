@@ -63,6 +63,8 @@ type Mapping struct {
 	Suggested int        `json:"suggested,omitempty"`
 	Scheme    string     `json:"scheme,omitempty"`
 	Since     *time.Time `json:"since,omitempty"`
+	// Hostname is the DNS-only name of an app port, when it has one
+	Hostname string `json:"hostname,omitempty"`
 }
 
 // Foreign is a forward on the router that Cosmos did not create. Read only:

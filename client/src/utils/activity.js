@@ -120,6 +120,7 @@ const COMMANDS = [
   ['POST', /^\/api\/local-names$/, () => ['activity.localNames.check', 'Check the local names on the network']],
 
   // Cloudflare (src/cloudflare): the status is read with GET, which is never followed
+  ['POST', /^\/api\/expose$/, () => ['activity.expose', 'Change how the app is reached from the internet']], // Fork addition: utils/exposure.js
   ['POST', /^\/api\/cloudflare\/shield$/, () => ['activity.cloudflare.shield', 'Change how the address is served']],
   ['POST', /^\/api\/cloudflare\/panel$/, () => ['activity.cloudflare.panel', 'Set the panel\'s address']],
   ['POST', /^\/api\/cloudflare\/takeover$/, () => ['activity.cloudflare.takeover', 'Let Cosmos replace the existing record']],

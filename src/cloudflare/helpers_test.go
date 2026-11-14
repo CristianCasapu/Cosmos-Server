@@ -110,6 +110,8 @@ func setup(t *testing.T, change func(config *utils.Config)) *testEnv {
 	knownAddress = func() string { return testAddress }
 	previousTrigger, previousRestart := triggerReconcile, restartServer
 	triggerReconcile, restartServer = func() {}, func() {}
+	previousRouter, previousReload, previousPublished := routerChanged, reloadRoutes, publishedAddress
+	routerChanged, reloadRoutes, publishedAddress = func([]string) {}, func() {}, func() string { return testAddress }
 	restoreRecords := dnsrecords.ForkTestSetup(func(name string, _ []string) (string, error) {
 		return "example.org", nil
 	})
@@ -123,6 +125,7 @@ func setup(t *testing.T, change func(config *utils.Config)) *testEnv {
 		apiTransport = previousTransport
 		knownAddress = previousAddress
 		triggerReconcile, restartServer = previousTrigger, previousRestart
+		routerChanged, reloadRoutes, publishedAddress = previousRouter, previousReload, previousPublished
 		restoreRecords()
 		utils.CONFIGFOLDER = previousFolder
 		utils.LoadBaseMainConfig(previousConfig)
@@ -143,6 +146,7 @@ func pass(t *testing.T) {
 	for _, host := range utils.GetAllHostnames(true) {
 		hosts[strings.ToLower(host)] = []string{config.HTTPConfig.AdvertisedAddress}
 	}
+	hosts = dnsrecords.ForkMoreHosts(hosts) // what the loop's pass adds: the names of exposed ports
 	for i, zone := range zones {
 		if zone.ManageRecords {
 			dnsrecords.Reconcile(zones, i, dnsrecords.BuildDesired(zones, i, hosts, []string{config.HTTPConfig.AdvertisedAddress}))

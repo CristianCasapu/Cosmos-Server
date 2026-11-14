@@ -104,18 +104,26 @@ export const appMappingsOf = (status, containerNames) => {
 
 const isDomainName = (host) => /^(?=.*[a-z])([a-z0-9-]+\.)+[a-z]{2,}$/i.test(String(host || '')) && !isLocalHost(host);
 
-// The name or address a forwarded port is reached at from the internet: the
-// app's own external name, else the panel's name when it is a domain, else
-// the public address the router reports, else ''.
-export const publicHost = ({ routes, config, status }) => {
+// The name or address a forwarded port is reached at from the internet: its
+// own DNS-only name when it has one (mapping.hostname, see utils/exposure.js),
+// else the app's own external name, else the panel's name when it is a
+// domain, else the public address the router reports, else ''. A name
+// served through Cloudflare's proxy is never used: Cloudflare carries web
+// pages on a few HTTPS ports only, never a forwarded port.
+export const publicHost = ({ routes, config, status, mapping }) => {
+  if (mapping && mapping.hostname) {
+    return String(mapping.hostname).trim().toLowerCase();
+  }
+  const shielded = ((config && config.HTTPConfig && config.HTTPConfig.Cloudflare && config.HTTPConfig.Cloudflare.Shielded) || [])
+    .map((name) => String(name).toLowerCase());
   const external = (routes || [])
     .map((route) => String((route && route.UseHost && route.Host) || '').trim().toLowerCase().replace(/:\d+$/, ''))
-    .find((host) => isDomainName(host));
+    .find((host) => isDomainName(host) && !shielded.includes(host));
   if (external) {
     return external;
   }
   const panel = String((config && config.HTTPConfig && config.HTTPConfig.Hostname) || '').trim().toLowerCase().replace(/:\d+$/, '');
-  if (isDomainName(panel)) {
+  if (isDomainName(panel) && !shielded.includes(panel)) {
     return panel;
   }
   return String((status && status.externalIP) || '');

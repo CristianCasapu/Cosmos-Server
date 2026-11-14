@@ -69,6 +69,7 @@ func TestCloudflareIsWiredIn(t *testing.T) {
 		"/cosmos/api/cloudflare/panel":        "POST",
 		"/cosmos/api/cloudflare/ranges":       "POST",
 		"/cosmos/api/cloudflare/origin-pulls": "POST",
+		"/cosmos/api/expose":                  "POST",
 	} {
 		recorder := httptest.NewRecorder()
 		router.ServeHTTP(recorder, httptest.NewRequest(method, path, strings.NewReader("{}")))
@@ -90,5 +91,19 @@ func TestCloudflareIsWiredIn(t *testing.T) {
 	// the guard stands in front of everything that answers for a hostname
 	if strings.Index(string(source), "router.Use(proxy.CloudflareOriginGuard)") > strings.Index(string(source), "proxy.BuildFromConfig(router") {
 		t.Error("the guard is added after the URLs")
+	}
+}
+
+// The names of ports exposed directly reach the DNS pass through one line in
+// upstream's loop (src/dnsrecords/run.go); without it they get no record.
+func TestExposedPortNamesAreHookedIntoTheDNSPass(t *testing.T) {
+	source, err := os.ReadFile("dnsrecords/run.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pass := string(source)
+	hook := strings.Index(pass, "hosts = ForkMoreHosts(hosts)")
+	if hook == -1 || hook < strings.Index(pass, "hosts, wildcard, ok := HostAddresses()") {
+		t.Error("the hook that adds the names of exposed ports to the DNS pass is gone")
 	}
 }

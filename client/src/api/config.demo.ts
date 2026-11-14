@@ -101,6 +101,7 @@ const cloudflareShield = cloudflareNone;
 const cloudflarePanel = cloudflareNone;
 const cloudflareRanges = cloudflareNone;
 const cloudflareOriginPulls = cloudflareNone;
+const expose = cloudflareNone; // Fork addition
 
 // Fork addition: the demo orders no certificate
 const certificatesStatus = () => Promise.resolve({
@@ -287,6 +288,7 @@ export {
   certificatesDelegation,
   certificatesSettings,
   cloudflareOriginPulls,
+  expose,
   serverUpdateStatus,
   checkServerUpdate,
   snapshotsStatus,

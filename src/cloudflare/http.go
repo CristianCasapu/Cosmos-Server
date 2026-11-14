@@ -228,6 +228,10 @@ func servedHostnames(config utils.Config) map[string]bool {
 			served[host] = true
 		}
 	}
+	// the DNS-only names of ports exposed directly (expose.go)
+	for host := range portHostnames(config) {
+		served[host] = true
+	}
 	return served
 }
 
@@ -330,6 +334,9 @@ func shieldProblem(config utils.Config, host string, address string) string {
 	switch {
 	case !servedHostnames(config)[host]:
 		return "not_served"
+	case len(portHostnames(config)[host]) > 0:
+		// a port that is not a web page cannot pass Cloudflare's proxy
+		return "direct_port"
 	case index == -1 || !isCloudflareZone(zones[index]):
 		return "not_cloudflare"
 	case utils.HostIsHTTPOnly(config, host):
@@ -615,6 +622,9 @@ type HostState struct {
 	CannotShield string `json:"cannotShield,omitempty"`
 	// URL is the address visitors use, with the port
 	URL string `json:"url"`
+	// DirectPorts are the ports exposed directly under this name
+	// ("25565/tcp"), see expose.go
+	DirectPorts []string `json:"directPorts,omitempty"`
 }
 
 // Status is the answer of GET /api/cloudflare.
@@ -695,6 +705,10 @@ func GetStatus(withAddresses bool) Status {
 			Managed:  managesRecord(config, name),
 			URL:      publicURL(config, name, status.PublicPort),
 		}
+		host.DirectPorts = portHostnames(config)[name]
+		if len(host.DirectPorts) > 0 && !routeHostnames(config)[name] {
+			host.URL = "" // only a port answers there, nothing of Cosmos'
+		}
 		if record, ok := RecordOf(name); ok {
 			if !withAddresses {
 				record.Message = ""
@@ -747,6 +761,7 @@ const rangesMaxAge = 7 * 24 * time.Hour
 func Start() {
 	startOnce.Do(func() {
 		startOriginPullWatch()
+		startPruning() // expose.go
 		go func() {
 			for {
 				time.Sleep(24 * time.Hour)

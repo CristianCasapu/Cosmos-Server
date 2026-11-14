@@ -274,6 +274,10 @@ func CreateServiceRoute(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
+		if !forkRefuseService(w, req, serviceRequest, flusher.Flush) { // Fork addition: checked before anything is created, see fork_service_check.go
+			return
+		}
+
 		CreateService(serviceRequest, 
 			func (msg string) {
 				fmt.Fprintf(w, "%s", msg)

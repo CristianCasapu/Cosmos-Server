@@ -122,7 +122,8 @@ export const OpenPortDialog = ({ containerName, port, routes, config, onClose, o
   const { t } = useTranslation();
   const status = useRouterStatus();
   const web = looksLikeWeb({ containerName, containerPort: port.port, protocol: port.protocol, routes });
-  const [scheme, setScheme] = React.useState(web.web ? web.scheme : '');
+  // never plain HTTP from the internet: an http port is "not a web page" here, its web page goes through Cosmos
+  const [scheme, setScheme] = React.useState(web.web && web.scheme === 'https' ? 'https' : '');
   const [external, setExternal] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
@@ -190,7 +191,6 @@ export const OpenPortDialog = ({ containerName, port, routes, config, onClose, o
             : t('mgmt.router.dialog.schemeHelp', 'A web page gets a link; anything else is shown as an address to copy.')}
         >
           <MenuItem value="">{t('mgmt.router.dialog.schemeNone', 'Not a web page')}</MenuItem>
-          <MenuItem value="http">{t('mgmt.router.dialog.schemeHttp', 'A web page (http)')}</MenuItem>
           <MenuItem value="https">{t('mgmt.router.dialog.schemeHttps', 'A web page (https)')}</MenuItem>
         </TextField>
 
@@ -285,7 +285,7 @@ export const RouterPortLine = ({ config, containerName, port, fallback }) => {
       </Typography>
     </Stack>
     {mapping && mapping.active && <div style={{ paddingLeft: 22 }}>
-      <PortAddress mapping={mapping} host={publicHost({ routes, config, status })} />
+      <PortAddress mapping={mapping} host={publicHost({ routes, config, status, mapping })} />
       {note && <Typography variant="caption" color="textSecondary" component="div" data-router-note>{say(note)}</Typography>}
     </div>}
     {status && <div style={{ paddingLeft: 22 }}>
@@ -326,7 +326,7 @@ export const RouterPortLinks = ({ config, containerNames, chipStyle, rows }) => 
   }
   const label = t('mgmt.router.links.group', 'Internet, by port (opened on the router)');
   const chips = mappings.map((mapping) => {
-    const host = publicHost({ routes: getContainersRoutes(config, mapping.container), config, status });
+    const host = publicHost({ routes: getContainersRoutes(config, mapping.container), config, status, mapping });
     const where = portAddress(mapping, host);
     const note = portNote(mapping);
     const tip = say(mappingSentence(mapping)) + (note ? ' ' + say(note) : '');

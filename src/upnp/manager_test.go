@@ -671,15 +671,22 @@ func TestAppPortRouteOpensAndCloses(t *testing.T) {
 	w.containers = []Container{container("jellyfin", true, tcp(8096, 8096))}
 	w.router.put("UDP/1900", "192.168.1.20", 1900, "tv")
 
+	// plain HTTP is never opened to the internet
+	plain := open("jellyfin", 8096, "tcp")
+	plain.Scheme = "http"
+	if code, answer := call(t, AppPortRoute, "POST", plain, admin); code != http.StatusBadRequest || answer["code"] != "UPNP005" {
+		t.Fatalf("http scheme: %d %v", code, answer)
+	}
+
 	request := open("jellyfin", 8096, "tcp")
-	request.Scheme = "http"
+	request.Scheme = "https"
 	code, answer := call(t, AppPortRoute, "POST", request, admin)
 	if code != http.StatusOK {
 		t.Fatalf("open: %d %v", code, answer)
 	}
 	data := answer["data"].(map[string]any)
 	apps := data["apps"].([]any)
-	if len(apps) != 1 || apps[0].(map[string]any)["active"] != true || apps[0].(map[string]any)["scheme"] != "http" {
+	if len(apps) != 1 || apps[0].(map[string]any)["active"] != true || apps[0].(map[string]any)["scheme"] != "https" {
 		t.Errorf("answer: %v", apps)
 	}
 	if len(data["foreign"].([]any)) != 1 {
@@ -689,7 +696,7 @@ func TestAppPortRouteOpensAndCloses(t *testing.T) {
 		t.Errorf("router: %+v", got)
 	}
 	choices := loadChoices()
-	if len(choices) != 1 || choices[0].Scheme != "http" || choices[0].Since.IsZero() || choices[0].AssignedPort != 8096 {
+	if len(choices) != 1 || choices[0].Scheme != "https" || choices[0].Since.IsZero() || choices[0].AssignedPort != 8096 {
 		t.Errorf("choices: %+v", choices)
 	}
 	w.mu.Lock()

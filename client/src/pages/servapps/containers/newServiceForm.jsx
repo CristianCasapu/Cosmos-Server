@@ -263,7 +263,8 @@ const NewDockerServiceForm = () => {
               HostConfig: {
                 ...containerInfo.HostConfig,
                 Dns: (values.networkMode || '').startsWith('container:') ? [] : (values.dns || '').split(',').map((s) => s.trim()).filter(Boolean),
-                PortBindings: values.ports.map((port) => {
+                // Fork addition: a port without a host port is not published (the form says so); "":80 published a random one
+                PortBindings: values.ports.filter((port) => String(port.hostPort === undefined || port.hostPort === null ? '' : port.hostPort).trim() !== '').map((port) => {
                   return `${port.hostPort}:${port.port}/${port.protocol}`;
                 }),
               },

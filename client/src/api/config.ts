@@ -237,6 +237,8 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
   const certificatesDomain = (domain: string) => certificatesCall('/domain', 'POST', { domain });
   const certificatesDelegation = (domain: string, via: string) => certificatesCall('/delegation', 'POST', { domain, via });
   const certificatesSettings = (httpChallenge: string) => certificatesCall('/settings', 'POST', { httpChallenge });
+  // Fork addition: expose an app to the internet, or withdraw that (src/cloudflare/expose.go); answers like the calls above
+  const expose = (body: any) => forkCall('/cosmos/api/expose', 'POST', body);
   const cloudflareCheck = (token: string, zone = '') => cloudflareCall('/check', 'POST', { token, zone });
   const cloudflarePreview = (token: string, zone: string, panel = '', takeOver: string[] = []) =>
     cloudflareCall('/preview', 'POST', { token, zone, panel, takeOver });
@@ -515,6 +517,7 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     certificatesDelegation,
     certificatesSettings,
     cloudflareOriginPulls,
+    expose,
     snapshotsStatus,
     snapshotsRun,
     snapshotsRestore,

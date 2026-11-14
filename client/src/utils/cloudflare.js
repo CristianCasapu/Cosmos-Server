@@ -75,6 +75,7 @@ export const CANNOT_SHIELD = {
   own_port: ['mgmt.cloudflare.cannot.ownPort', 'A URL answers for this name on a port of its own, which Cloudflare does not pass on. A name is either through Cloudflare for all its ports or for none.'],
   port: ['mgmt.cloudflare.cannot.port', 'Cloudflare passes HTTPS on only on ports {{ports}}, and Cosmos is published on port {{port}}.'],
   private_address: ['mgmt.cloudflare.cannot.privateAddress', 'The records of this server point at a local address, which Cloudflare cannot reach.'],
+  direct_port: ['mgmt.cloudflare.cannot.directPort', 'A port that is not a web page is reached under this name directly: Cloudflare\'s proxy would not carry it. A name is either through Cloudflare or direct, for all its ports.'],
 };
 
 export const cannotShieldText = (code) => CANNOT_SHIELD[code] || ['mgmt.cloudflare.cannot.other', 'This address cannot be served through Cloudflare.'];

@@ -254,6 +254,7 @@ func appWants(choices []utils.UPnPAppPort, cfg utils.HTTPConfig, now time.Time) 
 				Name: fmt.Sprintf("%s %d/%s", choice.Container, choice.Port, strings.ToLower(choice.Protocol)),
 				Kind: "app", Container: choice.Container, ContainerPort: choice.Port, Protocol: protocol,
 				WantedPort: choice.ExternalPort, ExternalPort: choice.ExternalPort, Scheme: choice.Scheme, State: StateWaiting,
+				Hostname: choice.Hostname,
 			},
 		}
 		gone := false
@@ -354,8 +355,9 @@ func checkAppPort(request appPortRequest, cfg utils.HTTPConfig, containers []Con
 	if request.Confirm != fmt.Sprintf("%s:%d/%s", request.Container, request.Port, request.Protocol) {
 		return bad("UPNP004", "Opening a port has to be confirmed with the name of the app and the port")
 	}
-	if request.Scheme != "" && request.Scheme != "http" && request.Scheme != "https" {
-		return bad("UPNP005", "What is on the port must be http, https or nothing")
+	// never plain HTTP from the internet: a web page goes through Cosmos' HTTPS port
+	if request.Scheme != "" && request.Scheme != "https" {
+		return bad("UPNP005", "What is on the port must be https or nothing: plain HTTP is never opened to the internet")
 	}
 	reserved, _ := reservedPorts(cfg.UPnP.ReservedPorts)
 	cosmosPorts := map[int]bool{}

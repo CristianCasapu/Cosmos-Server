@@ -21,7 +21,7 @@ import { LoadingButton } from '@mui/lab';
 import LogLine from '../../../components/logLine';
 import Highlighter from '../../../components/third-party/Highlighter';
 import { useTranslation } from 'react-i18next';
-import { InstallRouterPorts } from '../../../components/routerPorts'; // Fork addition
+import { InstallExposure } from '../../../components/exposure'; // Fork addition: the internet, proposed and optional
 
 import Editor from 'react-simple-code-editor';
 import { highlight, languages } from 'prismjs/components/prism-core';
@@ -65,6 +65,7 @@ const NewDockerService = ({service, refresh, edit}) => {
   const [container, setContainer] = React.useState(null);
   const [log, setLog] = React.useState([]);
   const [isDone, setIsDone] = React.useState(false);
+  const [failed, setFailed] = React.useState(''); // Fork addition: a failed creation gives the button back, with the reason
   const preRef = React.useRef(null);
   const screenMin = useMediaQuery((theme) => theme.breakpoints.up('sm'))
 
@@ -76,18 +77,30 @@ const NewDockerService = ({service, refresh, edit}) => {
   const [dockerCompose, setDockerCompose] = React.useState(JSON.stringify(service, null, 2));
 
   const create = () => {
+    // Fork addition: a definition that is not JSON or YAML is said, not thrown; a failure ends the wait
+    let definition;
+    try {
+      definition = JSON.parse(dockerCompose);
+    } catch (e) {
+      setFailed(t('mgmt.servapps.create.notJson', 'The definition above is not valid JSON: {{error}}', { error: e.message }));
+      return;
+    }
+    setFailed('');
     setLog([
       'Creating Service...                              ',
     ])
-    API.docker.createService(JSON.parse(dockerCompose), (newlog) => {
+    API.docker.createService(definition, (newlog) => {
       setLog((old) => smartDockerLogConcat(old, newlog));
-      preRef.current.scrollTop = preRef.current.scrollHeight;
+      if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight;
       if (newlog.includes('[OPERATION SUCCEEDED]')) {
         setIsDone(true);
 
         refresh && refresh();
+      } else if (newlog.includes('[OPERATION FAILED]')) {
+        const reason = newlog.replace(/^.*\[OPERATION FAILED\][.\s]*/, '').trim();
+        setFailed(reason && !/rolled ?back/i.test(reason) ? reason : t('mgmt.servapps.create.failed', 'The creation failed and what was made has been removed again: the reason is in the log below.'));
       }
-    });
+    }, !!edit).catch((e) => setFailed(e.message || String(e)));
   }
 
   let isJSON = false;
@@ -99,14 +112,15 @@ const NewDockerService = ({service, refresh, edit}) => {
     <MainCard title={edit ? t('mgmt.servapps.container.compose.editServiceTitle') : t('mgmt.servapps.container.compose.createServiceButton')}>
     <Stack spacing={1}>
       {/* Fork addition: optionally open published ports on the router once the app exists (off by default) */}
-      {!edit && <InstallRouterPorts service={service} definition={dockerCompose} done={isDone} />}
+      {!edit && <InstallExposure service={service} definition={dockerCompose} done={isDone} />}
+      {failed && <Alert severity="error" sx={{ overflowWrap: 'anywhere' }} data-create-failed>{failed}</Alert>}
       {!isDone && <LoadingButton 
         onClick={create}
         variant="contained"
         color="primary"
         fullWidth
         className={edit ? '' : 'shinyButton'}
-        loading={log.length && !isDone}
+        loading={!!log.length && !isDone && !failed}
         startIcon={edit ? <SyncOutlined /> : <PlusCircleOutlined />}
       >{edit ? t('global.edit'): t('global.createAction')}</LoadingButton>}
       {isDone && <Stack spacing={1}>
@@ -121,7 +135,7 @@ const NewDockerService = ({service, refresh, edit}) => {
       </Stack>}
       
 
-      {edit && !isDone && log.length ? <Button onClick={() => setLog([])}>{t('global.backAction')}</Button> : null}
+      {(edit || failed) && !isDone && log.length ? <Button onClick={() => { setLog([]); setFailed(''); }}>{t('global.backAction')}</Button> : null}
 
       {log.length ? <pre style={preStyle} ref={preRef}>
         {log.map((l) => {
