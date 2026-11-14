@@ -234,7 +234,10 @@ for (const name of names) for (const size of wanted) {
     expect(id + ': saving Setup keeps what Security saved', made.Host === 'films.local' && made.BlockAPIAbuse === true && made.AdminOnly === true, `${made.Host} ${made.BlockAPIAbuse} ${made.AdminOnly}`);
     expect(id + ': clean up', await dropRoute(ctx, 'radarr') === 200);
   }
-  expect(id + ': no script errors', errors.length === 0, [...new Set(errors)].join(' | '));
+  // (a save makes the server restart its listener; a notification poll that is under way just then
+  // fails, which WebKit reports as an error of the page: not this form's)
+  const own = [...new Set(errors)].filter((e) => !/\/cosmos\/api\/notifications/.test(e));
+  expect(id + ': no script errors', own.length === 0, own.join(' | '));
   await browser.close();
 }
 note(failures.length ? 'FAILURES: ' + failures.length + '\n' + failures.join('\n') : 'ALL OK');
