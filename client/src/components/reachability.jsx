@@ -20,7 +20,7 @@ import StatusDot from './statusDot';
 import PermissionGuard from './permissionGuard';
 import { PERM_ADMIN_READ } from '../utils/permissions';
 import {
-  EXPOSED, checkAddresses, checkSentence, firstCheck, portsText, routesStamp, safeURL, summarize,
+  EXPOSED, PANEL_ROUTE, checkAddresses, checkSentence, firstCheck, panelResults, portsText, routesStamp, safeURL, summarize,
 } from '../utils/reachability';
 import { RouterPortLine, useRouterStatus } from './routerPorts'; // ports the router forwards (src/upnp)
 import { appMappingsOf } from '../utils/routerPorts';
@@ -123,19 +123,20 @@ const useTexts = () => {
   return { t, sentence, label, explain };
 };
 
-const summaryOf = (state, routeNames, ports, hostNetwork, mappings) => (state.data
-  ? summarize({ routeNames, results: state.data.routes, ports, hostNetwork, mappings })
+// panel: the verdict on the panel's own address instead of on URLs
+const summaryOf = (state, routeNames, ports, hostNetwork, mappings, panel) => (state.data
+  ? summarize({ routeNames, results: panel ? panelResults(state.data) : state.data.routes, ports, hostNetwork, mappings })
   : null);
 
 // The chip of a card. Shows nothing until the server answered, or when the
 // visitor may not read the answer.
 // containerNames: the containers the card stands for, to find the ports the
 // router forwards for them.
-export const ReachChip = ({ config, routeNames, ports, hostNetwork, style, containerNames }) => {
+export const ReachChip = ({ config, routeNames, ports, hostNetwork, style, containerNames, panel }) => {
   const state = useReach(config);
   const { label, explain } = useTexts();
   const router = useRouterStatus();
-  const summary = summaryOf(state, routeNames, ports, hostNetwork, appMappingsOf(router, containerNames));
+  const summary = summaryOf(state, routeNames, ports, hostNetwork, appMappingsOf(router, containerNames), panel);
   if (!summary) {
     return null;
   }
@@ -167,13 +168,13 @@ const CheckIcon = ({ status }) => {
 };
 
 // The "Internet" part of a container's page.
-export const ReachPanel = ({ config, routeNames, ports, hostNetwork, containerName }) => {
+export const ReachPanel = ({ config, routeNames, ports, hostNetwork, containerName, panel }) => {
   const state = useReach(config);
   const { t, sentence, label, explain } = useTexts();
   const [notice, setNotice] = React.useState(null);
   const router = useRouterStatus();
   const containerNames = containerName ? [containerName] : [];
-  const summary = summaryOf(state, routeNames, ports, hostNetwork, appMappingsOf(router, containerNames));
+  const summary = summaryOf(state, routeNames, ports, hostNetwork, appMappingsOf(router, containerNames), panel);
 
   if (!summary) {
     return state.failed ? null : <Typography variant="caption" color="textSecondary" component="div" style={{ margin: '5px' }}>
@@ -203,7 +204,7 @@ export const ReachPanel = ({ config, routeNames, ports, hostNetwork, containerNa
   }[data.publicIPSource];
 
   return <Stack spacing={1.5} style={{ margin: '5px', maxWidth: '100%' }} data-reach-panel>
-    <div><ReachChip config={config} routeNames={routeNames} ports={ports} hostNetwork={hostNetwork} containerNames={containerNames} /></div>
+    <div><ReachChip config={config} routeNames={routeNames} ports={ports} hostNetwork={hostNetwork} containerNames={containerNames} panel={panel} /></div>
     {/* the routes below say it check by check; the sentence is for the rest */}
     {!summary.route && <Typography variant="body2">{explain(summary)}</Typography>}
 
@@ -280,6 +281,23 @@ export const ReachPanel = ({ config, routeNames, ports, hostNetwork, containerNa
         </Tooltip>
       </PermissionGuard>}
     </Stack>
+  </Stack>;
+};
+
+// Whether the panel itself can be reached from the internet at its own
+// address: does the name lead to this server, is the port forwarded, does the
+// certificate fit. The same checks, states and words as for an application.
+// Shows nothing while the panel has no address, or to who may not read it.
+const noRoutes = {};
+export const PanelReach = () => {
+  const state = useReach(noRoutes);
+  const { t } = useTranslation();
+  if (!state.data || panelResults(state.data).length === 0) {
+    return null;
+  }
+  return <Stack spacing={0.5} data-reach-own-panel>
+    <Typography variant="subtitle2">{t('mgmt.reach.panel.title', 'Can the panel be reached from the internet at this address?')}</Typography>
+    <ReachPanel config={noRoutes} routeNames={[PANEL_ROUTE]} ports={[]} panel />
   </Stack>;
 };
 

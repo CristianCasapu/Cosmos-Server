@@ -17,6 +17,7 @@ import { isDomain } from '../../utils/indexs';
 import { Trans, useTranslation } from 'react-i18next';
 import InternetAccess from './internetAccess';
 import { PaidOnly } from '../../components/paidVisibility'; // Fork addition
+import { PanelReach } from '../../components/reachability'; // Fork addition
 
 const ConfigHTTP = ({ formik }) => {
   const { t } = useTranslation();
@@ -44,6 +45,7 @@ const ConfigHTTP = ({ formik }) => {
                   {formik.errors.Hostname}
                 </FormHelperText>
               )}
+              <PanelReach />{/* Fork addition: the saved address as the internet sees it, see components/reachability.jsx */}
             </Stack>
           </Grid>
 

@@ -3862,5 +3862,8 @@
 	"securityAudit.sentence.access.foreign.denied.same_domain": "a request to the panel that another application of the same domain started was refused",
 	"securityAudit.sentence.access.foreign.denied.opened_by_hand": "an address of the panel's API was opened by hand (address bar, bookmark, another program) and refused",
 	"securityAudit.sentence.access.foreign.denied.another_origin": "a request to the panel that names another site as its origin was refused",
-	"securityAudit.sentence.access.foreign.denied.application_port": "a request to the panel's API on the port of an application was refused"
+	"securityAudit.sentence.access.foreign.denied.application_port": "a request to the panel's API on the port of an application was refused",
+	"mgmt.reach.check.access.panel": "The Cosmos panel answers at this address; everything in it needs a login.",
+	"mgmt.reach.check.access.panelLocal": "The panel's address is a local one: it is reached on your local network only.",
+	"mgmt.reach.panel.title": "Can the panel be reached from the internet at this address?"
 }

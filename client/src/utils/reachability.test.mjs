@@ -98,3 +98,41 @@ test('portsFromInspect', async () => {
     [{ IP: '0.0.0.0', PublicPort: 8080, PrivatePort: 80, Type: 'tcp' }, { IP: '::', PublicPort: 8080, PrivatePort: 80, Type: 'tcp' }]);
   assert.deepEqual(portsFromInspect(undefined), []);
 });
+
+test('the panel\'s own address is summarised like a URL, from the answer\'s "panel"', async () => {
+  const { PANEL_ROUTE, panelResults } = await import('./reachability.js');
+  assert.deepEqual(panelResults(null), []);
+  assert.deepEqual(panelResults({ routes: [] }), [], 'a server that sent no verdict on the panel');
+  const data = {
+    routes: [{ route: 'radarr', state: 'verified', url: 'https://radarr.example.org:2053', checks: [] }],
+    panel: {
+      route: '', host: 'example.org', state: 'problem', url: 'https://example.org:2053',
+      checks: [{ id: 'access', status: 'note', code: 'panel' }, { id: 'dns', status: 'problem', code: 'pointsElsewhere', params: { address: '198.51.100.9' } }],
+    },
+  };
+  const results = panelResults(data);
+  assert.equal(results.length, 1);
+  assert.equal(results[0].route, PANEL_ROUTE);
+  const summary = summarize({ routeNames: [PANEL_ROUTE], results, ports: [] });
+  assert.equal(summary.state, 'problem');
+  assert.equal(summary.routes[0].host, 'example.org');
+  // the URLs are not part of it
+  assert.equal(summarize({ routeNames: [PANEL_ROUTE], results: data.routes, ports: [] }).state, 'none');
+
+  // its sentences, and where a problem is fixed: never a URL's settings
+  assert.match(checkSentence({ id: 'access', code: 'panel' }, PANEL_ROUTE).text, /everything in it needs a login/);
+  assert.match(checkSentence({ id: 'access', code: 'panelLocal' }, PANEL_ROUTE).text, /local network only/);
+  assert.equal(checkSentence({ id: 'dns', code: 'pointsElsewhere' }, PANEL_ROUTE).fix, '/cosmos-ui/config-general/https');
+  assert.equal(checkSentence({ id: 'dns', code: 'ipElsewhere' }, PANEL_ROUTE).fix, '/cosmos-ui/config-general/http-server');
+  assert.equal(checkSentence({ id: 'dns', code: 'ipElsewhere' }, 'radarr').fix, '/cosmos-ui/config-url/radarr');
+});
+
+test('the panel\'s sentences are in the English translation file, word for word', async () => {
+  const { readFileSync } = await import('node:fs');
+  const translations = JSON.parse(readFileSync(new URL('./locales/en/translation.json', import.meta.url), 'utf8'));
+  for (const code of ['panel', 'panelLocal']) {
+    const sentence = checkSentence({ id: 'access', code }, '');
+    assert.equal(translations[sentence.key], sentence.text, sentence.key);
+  }
+  assert.equal(translations['mgmt.reach.panel.title'], 'Can the panel be reached from the internet at this address?');
+});
