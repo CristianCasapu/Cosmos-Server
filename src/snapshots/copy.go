@@ -1,6 +1,7 @@
 package snapshots
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -415,6 +416,9 @@ func copyFile(src *os.Root, dst *os.Root, name string, looked os.FileInfo, buffe
 	if !info.Mode().IsRegular() || !os.SameFile(info, looked) {
 		return 0, errors.New("it was replaced while it was being read"), nil
 	}
+	if whileOpen != nil {
+		whileOpen(name)
+	}
 
 	out, tmp, err := createTemp(dst)
 	if err != nil {
@@ -427,13 +431,25 @@ func copyFile(src *os.Root, dst *os.Root, name string, looked os.FileInfo, buffe
 		}
 	}()
 
-	for {
-		n, err := in.Read(buffer)
+	// The copy stops at the size the file had when it was opened: a file that
+	// keeps growing is not followed, the next run catches what was added. A
+	// file that shrank meanwhile is copied as far as it goes.
+	limit := info.Size()
+	sparse := isSparse(info)
+	position := int64(0)
+	for position < limit {
+		chunk := buffer
+		if rest := limit - position; rest < int64(len(chunk)) {
+			chunk = chunk[:rest]
+		}
+		n, err := in.Read(chunk)
 		if n > 0 {
-			if _, err := out.Write(buffer[:n]); err != nil {
+			stored, err := writeData(out, chunk[:n], position, sparse)
+			written += stored
+			if err != nil {
 				return written, nil, err
 			}
-			written += int64(n)
+			position += int64(n)
 		}
 		if err == io.EOF {
 			break
@@ -441,6 +457,10 @@ func copyFile(src *os.Root, dst *os.Root, name string, looked os.FileInfo, buffe
 		if err != nil {
 			return written, err, nil
 		}
+	}
+	// the length, holes at the end included
+	if err := out.Truncate(position); err != nil {
+		return written, nil, err
 	}
 
 	// owner before mode: changing the owner clears the set-user-ID bits
@@ -461,4 +481,47 @@ func copyFile(src *os.Root, dst *os.Root, name string, looked os.FileInfo, buffe
 		return written, nil, err
 	}
 	return written, nil, nil
+}
+
+// whileOpen is called, by tests only, once a file to copy has been opened and
+// its size taken.
+var whileOpen func(name string)
+
+// holeBlock is the size of the pieces of a sparse file that are looked at
+// for being empty.
+const holeBlock = 64 << 10
+
+var zeros = make([]byte, holeBlock) // never written to
+
+// isSparse tells whether a file takes less room on the disk than its length:
+// it has holes (or the file system compresses it).
+func isSparse(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && stat.Blocks*512 < info.Size()
+}
+
+// writeData writes data at the offset at of out and returns how many bytes it
+// stored. For a sparse file, pieces that hold nothing but zeros are skipped,
+// so that they stay holes in the copy as well: what is read back is the same.
+// The holes are found by their content, not by asking the file system where
+// they are, so a file system that reports them wrongly cannot cost data.
+func writeData(out *os.File, data []byte, at int64, sparse bool) (int64, error) {
+	if !sparse {
+		n, err := out.WriteAt(data, at)
+		return int64(n), err
+	}
+	stored := int64(0)
+	for start := 0; start < len(data); start += holeBlock {
+		end := min(start+holeBlock, len(data))
+		piece := data[start:end]
+		if bytes.Equal(piece, zeros[:len(piece)]) {
+			continue
+		}
+		n, err := out.WriteAt(piece, at+int64(start))
+		stored += int64(n)
+		if err != nil {
+			return stored, err
+		}
+	}
+	return stored, nil
 }

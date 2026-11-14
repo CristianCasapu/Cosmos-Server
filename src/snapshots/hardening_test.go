@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -179,4 +180,91 @@ func TestAFolderWithManyEntriesIsCopiedWhole(t *testing.T) {
 	if err != nil || meta.Files != int64(count) || meta.Errors != 0 || len(entries) != count+1 { // and the record
 		t.Errorf("files %d, errors %d, entries %d, want %d (%v)", meta.Files, meta.Errors, len(entries), count, err)
 	}
+}
+
+// A file that grows while it is copied is copied at the size it had when it
+// was opened; the next snapshot has the rest.
+func TestAFileThatGrowsIsCopiedAtItsSizeWhenOpened(t *testing.T) {
+	cfg, source := fixture(t)
+	path := filepath.Join(source, "growing.log")
+	first := strings.Repeat("a", 3<<20)
+	write(t, path, first, 0644)
+	grown := false
+	whileOpen = func(name string) {
+		if name != "growing.log" || grown {
+			return
+		}
+		grown = true
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		file.WriteString(strings.Repeat("b", 2<<20))
+		file.Close()
+	}
+	defer func() { whileOpen = nil }()
+
+	dir, meta := snap(t, cfg, source, day(12))
+	if !grown {
+		t.Fatal("the file was never opened")
+	}
+	if got := read(t, filepath.Join(dir, "growing.log")); got != first {
+		t.Errorf("the copy holds %d bytes, want the %d the file had when it was opened", len(got), len(first))
+	}
+	if meta.BytesCopied != int64(len(first)) || meta.Errors != 0 {
+		t.Errorf("copied %d bytes, %d errors", meta.BytesCopied, meta.Errors)
+	}
+	dir, _ = snap(t, cfg, source, day(13))
+	if got := read(t, filepath.Join(dir, "growing.log")); len(got) != 5<<20 {
+		t.Errorf("the next snapshot holds %d bytes, want %d", len(got), 5<<20)
+	}
+}
+
+// A sparse file stays sparse in the snapshot and in what is restored from it,
+// with the same content.
+func TestSparseFilesStaySparse(t *testing.T) {
+	cfg, source := fixture(t)
+	useConfig(t, cfg)
+	path := filepath.Join(source, "disk.img")
+	const size = 256 << 20
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file.WriteAt([]byte("head"), 0)
+	file.WriteAt([]byte("middle"), size/2+12345)
+	file.Truncate(size)
+	file.Close()
+	if used := blocksUsed(t, path); used >= size/2 {
+		t.Skipf("the file system here does not keep holes (%d bytes used)", used)
+	}
+	check := func(what string, copy string) {
+		t.Helper()
+		info, err := os.Stat(copy)
+		if err != nil || info.Size() != size {
+			t.Fatalf("%s: %v, size %v", what, err, info)
+		}
+		if used := blocksUsed(t, copy); used > 4<<20 {
+			t.Errorf("%s takes %d bytes on the disk", what, used)
+		}
+		data := read(t, copy)
+		if data[:4] != "head" || data[size/2+12345:size/2+12351] != "middle" || strings.Count(data, "\x00") != size-10 {
+			t.Errorf("%s does not hold the same content", what)
+		}
+	}
+	dir, _ := snap(t, cfg, source, day(12))
+	check("the snapshot", filepath.Join(dir, "disk.img"))
+	if err := Restore(source, filepath.Base(dir)); err != nil {
+		t.Fatal(err)
+	}
+	check("the restored file", path)
+}
+
+func blocksUsed(t *testing.T, path string) int64 {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.Sys().(*syscall.Stat_t).Blocks * 512
 }
