@@ -328,6 +328,7 @@ func cosmos() {
 	docker.BootstrapAllContainersFromTags()
 
 	docker.RemoveSelfUpdater()
+	go docker.ReportLeftoversAtStart() // Fork addition: tells about containers left by an interrupted edit, see docker/fork_leftovers.go
 
 	go func() {
 		time.Sleep(180 * time.Second)

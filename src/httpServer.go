@@ -1081,6 +1081,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/network/{networkId}", docker.NetworkContainerRoutes)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/networks", docker.NetworkContainerRoutes)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/check-update", docker.CanUpdateImageRoute)
+	srapiAdmin.HandleFunc("/api/servapps-leftovers", docker.LeftoversRoute) // Fork addition: containers left by an interrupted edit, see docker/fork_leftovers.go
 	srapiAdmin.HandleFunc("/api/servapps", docker.ContainersRoute)
 	srapiAdmin.HandleFunc("/api/docker-service", docker.CreateServiceRoute)
 	
