@@ -77,14 +77,14 @@ func init() {
 	dnsrecords.ForkMoreHosts = func(hosts map[string][]string) map[string][]string {
 		address := publishedAddress()
 		if address == "" {
-			return hosts
+			return homeHosts(hosts)
 		}
 		for host := range portHostnames(utils.GetMainConfig()) {
 			if _, known := hosts[host]; !known {
 				hosts[host] = []string{address}
 			}
 		}
-		return hosts
+		return homeHosts(hosts) // the names for use at home, homenames.go
 	}
 }
 
@@ -194,6 +194,9 @@ func nameProblem(config utils.Config, host string, container string, kind string
 		return "apex", "the domain's own name is never used for an app"
 	case utils.CloudflareHostname(config.HTTPConfig.Hostname) == host:
 		return "panel", host + " is the address of the Cosmos panel"
+	}
+	if _, home := utils.HomeZoneOf(config, host); home {
+		return "home_name", host + " is under the names for use at home, which answer the local network only"
 	}
 	zone := zones[index]
 	for _, route := range config.HTTPConfig.ProxyConfig.Routes {
@@ -577,10 +580,11 @@ func pruneStale() {
 		served := servedHostnames(*config)
 		cf := &config.HTTPConfig.Cloudflare
 		shielded, takeOver := prune(cf.Shielded, served), prune(cf.TakeOver, served)
-		if len(shielded) == len(cf.Shielded) && len(takeOver) == len(cf.TakeOver) {
+		home := pruneHomeNames(*config) // homenames.go: the domain was removed
+		if len(shielded) == len(cf.Shielded) && len(takeOver) == len(cf.TakeOver) && len(home) == len(cf.HomeNames) {
 			return errors.New("unchanged")
 		}
-		cf.Shielded, cf.TakeOver = shielded, takeOver
+		cf.Shielded, cf.TakeOver, cf.HomeNames = shielded, takeOver, home
 		changed = true
 		return nil
 	})

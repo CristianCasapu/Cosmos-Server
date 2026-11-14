@@ -229,6 +229,10 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
   }
 
   const cloudflareStatus = () => cloudflareCall('', 'GET');
+  // Fork addition: names for use at home (src/cloudflare/homenames.go); answers like the calls above
+  const homeNames = () => forkCall('/cosmos/api/home-names', 'GET');
+  const homeNamesSet = (zone: string, label: string, enabled: boolean) => forkCall('/cosmos/api/home-names', 'POST', { zone, label, enabled });
+  const homeNamesCheck = (zone: string) => forkCall('/cosmos/api/home-names/check', 'POST', { zone });
 
   // Fork addition: certificates (src/certs)
   const certificatesStatus = () => certificatesCall('', 'GET');
@@ -504,6 +508,9 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     securityUserSummary,
     securityMyActivity,
     cloudflareStatus,
+    homeNames, // Fork addition: names for use at home
+    homeNamesSet,
+    homeNamesCheck,
     cloudflareCheck,
     cloudflarePreview,
     cloudflareTakeOver,

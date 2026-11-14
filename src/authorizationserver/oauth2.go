@@ -146,6 +146,7 @@ func Init() {
 			store.Clients[client.ID] = client
 		}
 	}
+	addHomeNameRedirects(store.Clients) // Fork addition: the return addresses of the apps' names for use at home, see fork_home_clients.go
 
 	utils.Log("OpenID server initialized")
 }

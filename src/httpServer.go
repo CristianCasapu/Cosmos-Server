@@ -979,6 +979,7 @@ func InitServer() *mux.Router {
 
 	router.Use(utils.Logger)
 
+	router.Use(proxy.HomeNameGuard) // Fork addition: a name for use at home answers the local network only, see proxy/fork_home_names.go
 	router.Use(proxy.CloudflareOriginGuard) // Fork addition: a hostname served through Cloudflare answers Cloudflare (and the local network) only, see proxy/fork_cloudflare.go
 
 	if config.BlockedCountries != nil && len(config.BlockedCountries) > 0 {

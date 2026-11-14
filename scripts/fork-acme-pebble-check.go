@@ -10,10 +10,15 @@
 //	fork-acme-pebble-check roots   writes /shared/roots.pem: Pebble's issuing root and intermediate
 //	                               plus the stand-in's authority, the "system" trust of the test server
 //	fork-acme-pebble-check run     the checks; exits 1 when one fails
+//	fork-acme-pebble-check home-on / foreign / home-off
+//	                               names for use at home (CHECK=home in the script): switched on
+//	                               on a fresh server, asked for from a visitor outside the local
+//	                               network (run from the "foreign" container), switched off
 package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -330,24 +335,8 @@ func restartProcess() {
 	login()
 }
 
-func main() {
-	if len(os.Args) > 1 && os.Args[1] == "roots" {
-		_, pem := pebbleRoots()
-		authority, err := os.ReadFile("/shared/ca.pem")
-		if err != nil {
-			fmt.Println("the stand-in has not written /shared/ca.pem yet")
-			os.Exit(2)
-		}
-		if err := os.WriteFile("/shared/roots.pem", append(pem, authority...), 0644); err != nil {
-			fmt.Println(err)
-			os.Exit(2)
-		}
-		fmt.Println("wrote /shared/roots.pem")
-		return
-	}
-
-	roots, _ := pebbleRoots()
-
+// setUp finishes the set-up wizard of a fresh server (once) and logs in.
+func setUp() {
 	// ---- the set-up wizard, as on the server this was written for:
 	// HTTPS with the self-signed certificate, the address as the hostname
 	fmt.Println("== set-up")
@@ -384,6 +373,39 @@ func main() {
 		os.Exit(1)
 	}
 	login()
+}
+
+func main() {
+	if len(os.Args) > 1 && os.Args[1] == "roots" {
+		_, pem := pebbleRoots()
+		authority, err := os.ReadFile("/shared/ca.pem")
+		if err != nil {
+			fmt.Println("the stand-in has not written /shared/ca.pem yet")
+			os.Exit(2)
+		}
+		if err := os.WriteFile("/shared/roots.pem", append(pem, authority...), 0644); err != nil {
+			fmt.Println(err)
+			os.Exit(2)
+		}
+		fmt.Println("wrote /shared/roots.pem")
+		return
+	}
+
+	if os.Args[len(os.Args)-1] == "foreign" {
+		// from outside: Pebble cannot be reached from there, nor is it needed
+		homeNames("foreign", nil)
+		finish()
+		return
+	}
+	roots, _ := pebbleRoots()
+	switch os.Args[len(os.Args)-1] {
+	case "home-on", "home-off":
+		homeNames(os.Args[len(os.Args)-1], roots)
+		finish()
+		return
+	}
+
+	setUp()
 
 	status := certStatus()
 	expect(text(status, "ca", "kind") == "test", "the panel says orders go to a test authority", at(status, "ca"))
@@ -651,6 +673,12 @@ func main() {
 	})
 	expect(windowed && time.Now().Before(heldCom.until), "example.com is renewed before its certificate ends", time.Until(heldCom.until).Round(time.Second), "left")
 
+	finish()
+	_ = url.QueryEscape
+}
+
+// finish says what failed and ends with 1 when anything did.
+func finish() {
 	fmt.Println()
 	if len(failures) > 0 {
 		fmt.Println(len(failures), "FAILED:")
@@ -660,5 +688,173 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Println("all checks passed")
-	_ = url.QueryEscape
+}
+
+// ---- names for use at home (src/utils/fork_home_names.go)
+
+// visit asks the server for a page under a name, the way a browser that
+// resolved the name to the server would: the name in SNI and Host, the
+// connection to the server's address. No redirect is followed.
+func visit(host string, path string) (int, string, string) {
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true, ServerName: host},
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, server+":2053")
+		},
+	}
+	client := &http.Client{Timeout: 20 * time.Second, Transport: transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	response, err := client.Get("https://" + host + ":2053" + path)
+	if err != nil {
+		return 0, err.Error(), ""
+	}
+	defer response.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(response.Body, 1<<16))
+	return response.StatusCode, string(raw), response.Header.Get("Location")
+}
+
+func fakeRecords() []object {
+	var records []object
+	json.Unmarshal([]byte(plainGet(fake+"/records")), &records)
+	return records
+}
+
+func recordsNamed(name string, kind string) []object {
+	out := []object{}
+	for _, record := range fakeRecords() {
+		if record["name"] == name && record["type"] == kind {
+			out = append(out, record)
+		}
+	}
+	return out
+}
+
+func homeNames(step string, roots *x509.CertPool) {
+	switch step {
+	case "foreign":
+		// this container is on a network of its own with a public range,
+		// routed to the server: a visitor from the internet
+		fmt.Println("== home names asked for from outside the local network")
+		code, body, _ := visit("app1.example.org", "/")
+		expect(code != 0 && code != http.StatusForbidden, "the server is reached from here (an app's public name answers)", code, body)
+		for _, host := range []string{"app1.home.example.org", "gated.home.example.org", "cosmos.home.example.org", "anything.home.example.org"} {
+			code, body, _ := visit(host, "/")
+			expect(code == http.StatusForbidden && strings.Contains(body, "local network only"), host+" is refused to a visitor from outside", code, body)
+		}
+		code, body, _ = visit("cosmos.home.example.org", "/cosmos/api/status")
+		expect(code == http.StatusForbidden, "so is the panel's API on its home name", code, body)
+		return
+
+	case "home-off":
+		setUp()
+		fmt.Println("== home names: the refusals are in the security record")
+		_, _, raw := api("GET", "/security/events?kind=access.local.denied&limit=50", nil)
+		expect(strings.Contains(raw, "home_name") && strings.Contains(raw, "198.51.100.20") && strings.Contains(raw, "app1.home.example.org"),
+			"each refusal is recorded with the visitor's address, the name and the reason", raw)
+
+		fmt.Println("== home names switched off")
+		before := handshake("app1.example.org", roots)
+		renewAt, _ := time.Parse(time.RFC3339, text(certOf(certStatus(), "example.org"), "renewAt"))
+		fakeCalls(true)
+		code, _, raw := api("POST", "/home-names", object{"zone": "example.org", "enabled": false})
+		expect(code == 200, "switched off", code, raw)
+		time.Sleep(3 * time.Second)
+		serverUp()
+		login()
+		// right after a start a writer only adds for three minutes (dnsrecords, warmUp)
+		quiet := time.Until(renewAt) > 30*time.Second
+		time.Sleep(10 * time.Second)
+		if quiet {
+			after := handshake("app1.example.org", roots)
+			expect(after.trusted && after.serial == before.serial && len(txtWrites(fakeCalls(false))) == 0,
+				"switching off orders nothing: the certificate still covers every name", txtWrites(fakeCalls(false)))
+		} else {
+			note("(the certificate is due for its renewal by its lifetime now: the check that nothing is ordered is skipped)")
+		}
+		until("the wildcard record and its marker go", 240, func() bool {
+			return len(recordsNamed("*.home.example.org", "A")) == 0 && len(recordsNamed("_cosmos-owner._wildcard.home.example.org", "TXT")) == 0
+		})
+		expect(len(recordsNamed("example.org", "A")) == 1 && len(recordsNamed("app1.example.org", "A")) == 1, "the other records stay")
+		code, body, _ := visit("app1.home.example.org", "/records")
+		expect(code != http.StatusOK && !strings.Contains(body, "example.org"), "the home name no longer leads to the app", code)
+		return
+	}
+
+	// home-on, on a fresh server
+	setUp()
+	fmt.Println("== home names 1. a domain through Cloudflare, and apps")
+	code, _, raw := api("PUT", "/zones/example.org", object{
+		"HTTPSCertificateMode": "LETSENCRYPT", "DNSChallengeProvider": "cloudflare",
+		"DNSChallengeConfig": object{"CF_DNS_API_TOKEN": goodToken}, "UseWildcardCertificate": true,
+		"ManageRecords": true, "WildcardRecord": false, "DNSChallengeResolvers": fakeDNS,
+	})
+	expect(code == 200, "the domain example.org is stored", code, raw)
+	time.Sleep(3 * time.Second)
+	serverUp()
+	login()
+	gated := route("gated", "gated.local")
+	gated["AuthEnabled"] = true
+	setRoutes(func(routes []interface{}) []interface{} {
+		return append(routes, route("app1", "app1.local"), route("app1-example.org", "app1.example.org"), gated)
+	})
+	until("the certificate for example.org", 150, func() bool { return handshake("app1.example.org", roots).trusted })
+
+	fmt.Println("== home names 2. switched on")
+	fakeCalls(true)
+	code, _, raw = api("POST", "/home-names", object{"zone": "example.org", "label": "nothere", "enabled": false})
+	expect(code == 200, "switching off what is not on is harmless", code, raw)
+	code, _, raw = api("POST", "/home-names", object{"zone": "example.org", "label": "Bad_Label", "enabled": true})
+	expect(code == 400 && strings.Contains(raw, `"reason":"label"`), "a label that is not one is refused", code, raw)
+	code, _, raw = api("POST", "/home-names", object{"zone": "example.org", "label": "home", "enabled": true})
+	expect(code == 200, "switched on with the label home", code, raw)
+	time.Sleep(3 * time.Second)
+	serverUp()
+	login()
+
+	trusted := until("app1.home.example.org is served with a certificate browsers trust", 150, func() bool {
+		return handshake("app1.home.example.org", roots).trusted
+	})
+	cert := handshake("app1.home.example.org", roots)
+	sorted := append([]string{}, cert.names...)
+	sort.Strings(sorted)
+	expect(trusted && strings.Join(sorted, " ") == "*.example.org *.home.example.org example.org",
+		"one wildcard name was added to the certificate, no app's name", sorted)
+	expect(len(txtWrites(fakeCalls(false))) == 3, "one order: the domain, its wildcard and the home wildcard were proven", txtWrites(fakeCalls(false)))
+	panelCert := handshake("cosmos.home.example.org", roots)
+	expect(panelCert.trusted && panelCert.serial == cert.serial, "the panel's home name has the same certificate")
+
+	until("the wildcard record is written", 90, func() bool {
+		records := recordsNamed("*.home.example.org", "A")
+		return len(records) == 1 && records[0]["content"] == server
+	})
+	records := recordsNamed("*.home.example.org", "A")
+	expect(len(records) == 1 && records[0]["proxied"] != true, "*.home.example.org points at the server's private address, DNS only", records)
+	expect(len(recordsNamed("_cosmos-owner._wildcard.home.example.org", "TXT")) == 1, "with Cosmos' owner marker")
+	expect(len(recordsNamed("app1.home.example.org", "A")) == 0 && len(recordsNamed("gated.home.example.org", "A")) == 0, "no record of an app's own")
+
+	_, status, raw := api("GET", "/home-names", nil)
+	zone := object{}
+	for _, entry := range list(status, "data", "zones") {
+		if found, ok := entry.(object); ok && found["zone"] == "example.org" {
+			zone = found
+		}
+	}
+	expect(zone["active"] == true && zone["record"] == "ok" && zone["certificateCovered"] == true && zone["panel"] == "cosmos.home.example.org",
+		"the panel: on, record in place, certificate covers it", raw)
+
+	code, check, raw := api("POST", "/home-names/check", object{"zone": "example.org"})
+	expect(code == 200 && text(check, "data", "result") == "ok", "the server's own resolver finds the panel's home name at its private address", raw)
+
+	fmt.Println("== home names 3. asked for from the local network")
+	code, body, _ := visit("app1.home.example.org", "/records")
+	expect(code == 200 && strings.Contains(body, "example.org"), "app1.home.example.org leads to app1's target", code)
+	code, _, location := visit("gated.home.example.org", "/page")
+	expect(code == http.StatusFound && strings.HasPrefix(location, "https://cosmos.home.example.org:2053/cosmos-ui/openid?") &&
+		strings.Contains(location, url.QueryEscape("https://gated.home.example.org:2053/cosmos/oauth2/detect-callback")),
+		"the app's sign-in applies, and sends the visitor to the panel's home name and back", code, location)
+	code, body, _ = visit("cosmos.home.example.org", "/cosmos/api/status")
+	// not signed in on that name: the API itself answers (a name it does not accept gets 400 "Invalid hostname")
+	expect(code == http.StatusUnauthorized && !strings.Contains(body, "Invalid hostname"), "the panel's API answers on its home name", code, body)
+	code, body, _ = visit("cosmos.home.example.org", "/cosmos-ui/")
+	expect(code == 200, "and its pages", code)
 }

@@ -97,6 +97,7 @@ func init() {
 		if !isCloudflareZone(zone) {
 			return desired, actual
 		}
+		actual = homeHidden(zone, providerZone, actual) // homenames.go: a home wildcard whose address is not known yet stays as it is
 		kept, visible, skipped := filterDesired(providerZone, desired, actual, utils.GetMainConfig().HTTPConfig.Cloudflare.TakeOver, dnsrecords.OwnerID())
 		syncMu.Lock()
 		zoneState(zone.Zone).skipped = skipped

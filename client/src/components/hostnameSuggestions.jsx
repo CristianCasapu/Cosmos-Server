@@ -12,6 +12,8 @@ import { ExternalPortNote, useCosmosPorts } from './routerPorts';
 import { shownAddress } from '../utils/routerPorts';
 import { LocalNameState } from './localNames'; // Fork addition
 import { isLocalName } from '../utils/localNames';
+import { useHomeNames } from './homeNames'; // Fork addition: names for use at home
+import { activeSuffixes, isHomeName, proposedHomeNames } from '../utils/homeNames';
 
 // The app's name as a DNS label.
 export const hostLabel = (name) => (name || '')
@@ -81,7 +83,7 @@ export const withExternalRoutes = (routes, name, domains) => {
   return [...routes, ...extras];
 };
 
-export const hostnameSuggestions = (name, config) => {
+export const hostnameSuggestions = (name, config, homeSuffixes) => {
   const label = hostLabel(name);
   if (!label) {
     return [];
@@ -98,6 +100,8 @@ export const hostnameSuggestions = (name, config) => {
   if (config && config.HTTPConfig && config.HTTPConfig.PublishMDNS) {
     add(label + '.local', true);
   }
+  // Fork addition: a name for use at home, at home on every device (utils/homeNames.js)
+  (homeSuffixes || []).forEach((suffix) => add(label + '.' + suffix, true));
   configuredDomains(config).forEach((domain) => add(label + '.' + domain, false));
 
   let fallback = '';
@@ -115,7 +119,9 @@ export const hostnameSuggestions = (name, config) => {
 // `inline` renders the proposals without the grid cell and indent of the route form.
 const HostnameSuggestions = ({ name, value, config, onPick, disabled, inline }) => {
   const { t } = useTranslation();
-  const suggestions = React.useMemo(() => hostnameSuggestions(name, config), [name, config]);
+  const homeStatus = useHomeNames(); // Fork addition: names for use at home
+  const suggestions = React.useMemo(() => hostnameSuggestions(name, config, activeSuffixes(homeStatus)), [name, config, homeStatus]);
+  const homeLater = isHomeName(homeStatus, value) ? [] : proposedHomeNames(homeStatus, value || hostLabel(name));
 
   if (disabled || suggestions.length === 0) {
     return null;
@@ -141,7 +147,9 @@ const HostnameSuggestions = ({ name, value, config, onPick, disabled, inline }) 
             variant={value === suggestion.host ? 'filled' : 'outlined'}
             icon={suggestion.local ? <HomeOutlined /> : <GlobalOutlined />}
             label={suggestion.host}
-            title={suggestion.local
+            title={isHomeName(homeStatus, suggestion.host)
+              ? t('mgmt.homeNames.link', 'At home, on every device (name for use at home)')
+              : suggestion.local
               ? t('mgmt.urls.edit.hostSuggestions.local', 'Works on the local network only')
               : t('mgmt.urls.edit.hostSuggestions.domain', 'Uses a domain from Configuration > Domains')}
             onClick={() => onPick(suggestion.host)}
@@ -151,6 +159,10 @@ const HostnameSuggestions = ({ name, value, config, onPick, disabled, inline }) 
       </Stack>
       {/* Fork addition: is the .local name (the one picked, else the proposed one) published and answered, see localNames.jsx */}
       <LocalNameState host={isLocalName(value) ? value : (suggestions.find((suggestion) => isLocalName(suggestion.host)) || {}).host} help />
+      {/* Fork addition: every URL gets its name for use at home by itself, see homeNames.jsx */}
+      {homeLater.length > 0 && <Typography variant="caption" color="textSecondary" sx={{ overflowWrap: 'anywhere' }}>
+        {t('mgmt.homeNames.suggestion', 'At home it is also reached at {{names}}, by itself (names for use at home).', { names: homeLater.join(', ') })}
+      </Typography>}
       {/* the proposals are stored as they are, without a port: say which port they are reached on */}
       {!noDomain && <ExternalPortNote config={config} example={(suggestions.find((suggestion) => !suggestion.local) || {}).host} />}
       {noDomain && <Typography variant="caption" color="textSecondary">

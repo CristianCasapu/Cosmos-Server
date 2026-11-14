@@ -312,6 +312,25 @@ func (n *nameServer) answer(message *dns.Msg, name string, kind uint16, own net.
 			}
 		}
 	}
+	if !exists {
+		// a wildcard answers a name that does not exist, from the closest
+		// one above it (*.home.example.org for the names for use at home)
+		for parent := name; strings.Contains(parent, ".") && parent != zone; {
+			parent = parent[strings.Index(parent, ".")+1:]
+			found := false
+			for _, record := range records {
+				if strings.ToLower(record.Name) == "*."+parent {
+					found, exists = true, true
+					if ip := net.ParseIP(record.Content).To4(); record.Type == "A" && kind == dns.TypeA && ip != nil {
+						message.Answer = append(message.Answer, &dns.A{Hdr: header(dns.TypeA), A: ip})
+					}
+				}
+			}
+			if found {
+				break
+			}
+		}
+	}
 	return exists
 }
 

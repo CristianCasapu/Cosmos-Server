@@ -334,6 +334,9 @@ func shieldProblem(config utils.Config, host string, address string) string {
 	switch {
 	case !servedHostnames(config)[host]:
 		return "not_served"
+	case isHomeName(config, host):
+		// answers the local network only, at a private address
+		return "home_name"
 	case len(portHostnames(config)[host]) > 0:
 		// a port that is not a web page cannot pass Cloudflare's proxy
 		return "direct_port"

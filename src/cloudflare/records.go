@@ -377,11 +377,23 @@ func buildPreview(zoneName string, hosts []string, panel string, records []Recor
 
 	hasWildcard := false
 	caaIssue, caaAllows := false, false
+	// the names Cosmos itself wrote (a wildcard for the names for use at
+	// home, homenames.go) are no reason for the wildcard warning
+	ownMarked := map[string]bool{}
+	for _, record := range records {
+		if record.Type == "TXT" {
+			if owned := dnsrecords.OwnedName(dnsrecords.RelativeName(record.Name, zoneName)); owned != "" {
+				if marker := dnsrecords.MarkerOwner(strings.Trim(strings.TrimSpace(record.Content), `"`)); marker == owner || marker == "" {
+					ownMarked[fqdnOf(owned, zoneName)] = true
+				}
+			}
+		}
+	}
 	for _, record := range records {
 		if record.Type == "TXT" && dnsrecords.OwnedName(dnsrecords.RelativeName(record.Name, zoneName)) != "" {
 			continue // Cosmos' own markers
 		}
-		if strings.HasPrefix(record.Name, "*.") && (record.Type == "A" || record.Type == "AAAA" || record.Type == "CNAME") {
+		if strings.HasPrefix(record.Name, "*.") && !ownMarked[record.Name] && (record.Type == "A" || record.Type == "AAAA" || record.Type == "CNAME") {
 			hasWildcard = true
 		}
 		if record.Type == "CAA" && record.Name == zoneName {

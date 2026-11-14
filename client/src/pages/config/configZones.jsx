@@ -30,6 +30,7 @@ import { ConfirmModalDirect } from "../../components/confirmModal";
 import CloudflareOverview, { CloudflareConnect, loadCloudflare, useCloudflare } from "../../components/cloudflare"; // Fork addition
 import { CloudOutlined } from "@ant-design/icons"; // Fork addition
 import CertificatesOverview, { AnotherDomain, HttpChallengeNote, followCertificates } from "../../components/certificates"; // Fork addition
+import HomeNamesCard from "../../components/homeNames"; // Fork addition: names for use at home
 
 // one line saying which certificate serves a hostname, reused by the route and hostname views
 export const HostCertificateLine = ({ cert }) => {
@@ -545,6 +546,7 @@ const ConfigZones = () => {
 const ConfigZonesWithCloudflare = () => <Stack spacing={3}>
   <ConfigZones />
   <CertificatesOverview />
+  <HomeNamesCard />
   <CloudflareOverview />
 </Stack>;
 

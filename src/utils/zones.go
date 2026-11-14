@@ -351,6 +351,10 @@ func IssuesZoneCert(zone DNSZoneConfig) bool {
 // hostnames filed under it: the wildcard pair plus anything deeper than one
 // level, or just the hostnames.
 func ZoneCertHostnames(zone DNSZoneConfig, hosts []string) []string {
+	return ForkHomeCertNames(zone, zoneCertHostnames(zone, hosts)) // Fork addition: one wildcard for the names for use at home, see fork_home_names.go
+}
+
+func zoneCertHostnames(zone DNSZoneConfig, hosts []string) []string {
 	name := zoneHost(zone.Zone)
 	names := []string{}
 

@@ -125,6 +125,8 @@ const COMMANDS = [
   ['POST', /^\/api\/cloudflare\/panel$/, () => ['activity.cloudflare.panel', 'Set the panel\'s address']],
   ['POST', /^\/api\/cloudflare\/takeover$/, () => ['activity.cloudflare.takeover', 'Let Cosmos replace the existing record']],
   ['POST', /^\/api\/cloudflare\/ranges$/, () => ['activity.cloudflare.ranges', 'Update Cloudflare\'s addresses']],
+  ['POST', /^\/api\/home-names$/, () => ['activity.homeNames.set', 'Change the names for use at home']], // Fork addition: utils/homeNames.js
+  ['POST', /^\/api\/home-names\/check$/, () => ['activity.homeNames.check', 'Check the name for use at home from the server']],
 
   // certificates (src/certs): the status is read with GET, which is never followed
   ['POST', /^\/api\/certificates\/renew$/, () => ['activity.certificates.renew', 'Start the renewal of the certificate']],

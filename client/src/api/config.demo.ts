@@ -95,6 +95,10 @@ const cloudflareStatus = () => Promise.resolve({
   data: { zones: [], hosts: [], publicPort: 443, portOK: true, allowedPorts: [443], ranges: { trusted: false, builtin: true, date: '', count: 0 } },
 });
 const cloudflareCheck = cloudflareNone;
+// Fork addition: no names for use at home in the demo
+const homeNames = () => Promise.resolve({ ok: true, status: 200, reason: '', detail: '', message: '', data: { zones: [], names: [], skipped: [], addressKnown: false, addressFresh: false } });
+const homeNamesSet = cloudflareNone;
+const homeNamesCheck = cloudflareNone;
 const cloudflarePreview = cloudflareNone;
 const cloudflareTakeOver = cloudflareNone;
 const cloudflareShield = cloudflareNone;
@@ -275,6 +279,9 @@ export {
   localNames,
   localNamesCheck,
   cloudflareStatus,
+  homeNames,
+  homeNamesSet,
+  homeNamesCheck,
   cloudflareCheck,
   cloudflarePreview,
   cloudflareTakeOver,

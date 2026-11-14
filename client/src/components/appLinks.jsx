@@ -10,8 +10,9 @@ import { shownRoute } from '../utils/routerPorts';
 import PermissionGuard from './permissionGuard';
 import { PERM_ADMIN } from '../utils/permissions';
 import { ExposeChip } from './exposure';
-import { groupAppRoutes, routeHost } from '../utils/appLinks';
+import { groupAppRoutes, routeHost, withHomeRoutes } from '../utils/appLinks';
 import { useLocalNamesTitle } from './localNames'; // Fork addition
+import { useHomeRoutes } from './homeNames'; // Fork addition: names for use at home
 
 // The chips of an app's routes, local links first. In a row of chips each
 // group starts with its icon; with `rows` each group gets a line of its own,
@@ -23,13 +24,19 @@ const AppLinks = ({ routes, chipStyle, rows }) => {
   const scheme = window.location.protocol === 'http:' ? 'http' : 'https';
   // Fork addition: whether the .local names are published and answered, see localNames.jsx
   const localTitle = useLocalNamesTitle((routes || []).map(routeHost));
+  // Fork addition: the app's names for use at home lead the local group, see homeNames.jsx
+  const homeRoutes = useHomeRoutes(routes);
 
-  return groupAppRoutes(routes, window.location.host).map((group) => {
+  return withHomeRoutes(groupAppRoutes(routes, window.location.host), homeRoutes).map((group) => {
     const Icon = group.local ? HomeOutlined : GlobalOutlined;
     const label = group.local
       ? t('mgmt.urls.links.local', 'Local network')
       : t('mgmt.urls.links.external', 'Internet');
-    const chips = group.routes.map((route) => <HostChip key={route.Name} route={shownRoute(route, ports, scheme)} settings style={chipStyle} />);
+    const chips = group.routes.map((route) => {
+      const chip = <HostChip key={route.Name + (route.homeName ? '@' + route.Host : '')} route={shownRoute(route, ports, scheme)} settings style={chipStyle} />;
+      // Fork addition: a name for use at home says what it is for
+      return route.homeName ? <Tooltip key={'home@' + route.Host} title={t('mgmt.homeNames.link', 'At home, on every device (name for use at home)')}><span>{chip}</span></Tooltip> : chip;
+    });
 
     if (rows) {
       return <div key={label}>
