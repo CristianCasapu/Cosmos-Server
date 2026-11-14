@@ -35,6 +35,8 @@ import { useNavigate } from 'react-router';
 import NewRouteCreate from '../config/routes/newRoute';
 import { DeleteButton } from '../../components/delete';
 import OpenIdEditModal from './openid-edit';
+import { ForkOpenidDialog, ForkOpenidValues, ForkResetSecret } from './forkOpenidForm'; // Fork addition: the guided dialog and the values to copy
+import { redirectList } from '../../utils/openidForm'; // Fork addition
 import bcrypt from 'bcryptjs';
 import { useTranslation } from 'react-i18next';
 import PermissionGuard from '../../components/permissionGuard';
@@ -67,6 +69,8 @@ const OpenIdList = () => {
   const [clientId, setClientId] = React.useState(false);
   const [openNewModal, setOpenNewModal] = React.useState(false);
   const [newSecret, setNewSecret] = React.useState(null);
+  const [result, setResult] = React.useState(null); // Fork addition: what the app needs, after a create or a new secret
+  const [confirmReset, setConfirmReset] = React.useState(null); // Fork addition
 
   function updateRoutes(routes) {
     let con = {
@@ -93,10 +97,11 @@ const OpenIdList = () => {
     return getOpenIDClientFaviconURL(client.id);
   }
 
-  function deleteClient(event, key) {
-    event.stopPropagation();
-    clients.splice(key, 1);
-    save(updateRoutes(clients));
+  function deleteClient(event, client) {
+    event && event.stopPropagation && event.stopPropagation();
+    // Fork addition: deleted by its ID on the server (upstream removed the row's index of the
+    // possibly filtered table from the list and saved the whole settings)
+    API.openid.remove(client.id).then(() => refresh()).catch(() => refresh());
     return false;
   }
 
@@ -104,7 +109,16 @@ const OpenIdList = () => {
     refresh();
   }, []);
 
+  // Fork addition: the secret is made on the server and shown once with every value the app
+  // needs (upstream made it in the browser and saved its hash with the whole settings)
   const generateNewSecret = (clientIdToUpdate) => {
+    const client = clients.find((r) => r.id === clientIdToUpdate) || {};
+    API.openid.newSecret(clientIdToUpdate).then((res) => {
+      setResult({ id: clientIdToUpdate, secret: res.data.secret, redirects: redirectList(client.redirect), public: false });
+      refresh();
+    }).catch(() => {});
+  }
+  const upstreamGenerateNewSecret = (clientIdToUpdate) => {
     let newSecretSeed = window.crypto.getRandomValues(new Uint32Array(4));
     let newSecret = "";
     newSecretSeed.forEach((r) => {
@@ -131,33 +145,20 @@ const OpenIdList = () => {
     </Stack>
 
     {config && <>
-      <OpenIdEditModal
+      {/* Fork addition: the guided dialog, see forkOpenidForm.jsx (upstream: OpenIdEditModal, saving the whole settings with an empty secret) */}
+      {openNewModal && <ForkOpenidDialog
         clientId={clientId}
-        openNewModal={openNewModal}
-        setOpenNewModal={setOpenNewModal}
         config={config}
-        onSubmit={(values) => {
-          if (clientId) {
-            let index = clients.findIndex((r) => r.id === clientId);
-            const prev = clients[index] || {};
-            // Preserve the existing secret on edit; public clients have no secret.
-            clients[index] = {
-              ...prev,
-              ...values,
-              secret: values.public ? '' : (prev.secret || ''),
-            };
-          } else {
-            clients.push({
-              ...values,
-              secret: '',
-            });
-          }
-
-          save(updateRoutes(clients));
+        onClose={() => { setOpenNewModal(false); setClientId(null); }}
+        onDone={(done) => {
           setOpenNewModal(false);
           setClientId(null);
+          refresh();
+          if (done.created || done.secret) setResult(done);
         }}
-      />
+      />}
+      {result && <ForkOpenidValues result={result} config={config} onClose={() => setResult(null)} />}
+      {confirmReset && <ForkResetSecret id={confirmReset} onConfirm={() => generateNewSecret(confirmReset)} onClose={() => setConfirmReset(null)} />}
 
       {newSecret && <Dialog open={newSecret} onClose={() => setNewSecret(false)}>
         <DialogTitle>{t('mgmt.openId.newSecret')}</DialogTitle>
@@ -222,9 +223,9 @@ const OpenIdList = () => {
           {
             title: '', clickable: true, field: (r, k) => <>
               {!r.public && <><PermissionGuard permission={PERM_CONFIGURATION}><Button variant="contained" color="primary" startIcon={<ArrowRightOutlined />} onClick={() => {
-                generateNewSecret(r.id)
+                setConfirmReset(r.id) // Fork addition: confirmed first
               }}>{t('mgmt.openId.resetSecret')}</Button></PermissionGuard>&nbsp;&nbsp;</>}
-              <PermissionGuard permission={PERM_CONFIGURATION}><DeleteButton onDelete={(event) => deleteClient(event, k)} /></PermissionGuard>
+              <PermissionGuard permission={PERM_CONFIGURATION}><DeleteButton onDelete={(event) => deleteClient(event, r)} /></PermissionGuard>
             </>,
           },
         ]}

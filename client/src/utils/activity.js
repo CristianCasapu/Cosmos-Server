@@ -106,6 +106,7 @@ const COMMANDS = [
   ['DELETE', /^\/api\/users\/(.+)$/, (m) => ['activity.user.delete', 'Delete user {{name}}', { name: decode(m[1]) }]],
   [null, /^\/api\/groups/, byMethod({ POST: ['activity.group.create', 'Create the group'], PUT: ['activity.group.update', 'Save the group'], DELETE: ['activity.group.delete', 'Delete the group'] })],
   [null, /^\/api\/api-tokens/, byMethod({ POST: ['activity.token.create', 'Create the API token'], PUT: ['activity.token.update', 'Save the API token'], DELETE: ['activity.token.delete', 'Delete the API token'] })],
+  ['POST', /^\/api\/openid\/[^/]+\/secret$/, () => ['activity.openid.secret', 'Make a new client secret']], // Fork addition
   [null, /^\/api\/openid/, byMethod({ POST: ['activity.openid.create', 'Create the OpenID client'], PUT: ['activity.openid.update', 'Save the OpenID client'], DELETE: ['activity.openid.delete', 'Delete the OpenID client'] })],
   [null, /^\/api\/alerts/, byMethod({ POST: ['activity.alert.save', 'Save the alert'], PUT: ['activity.alert.save', 'Save the alert'], DELETE: ['activity.alert.delete', 'Delete the alert'] })],
   ['POST', /^\/api\/shield\/unban$/, () => ['activity.shield.unban', 'Lift the ban']],
