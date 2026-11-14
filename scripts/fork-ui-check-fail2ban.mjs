@@ -31,7 +31,8 @@ const base = process.env.BASE || 'http://cosmos-smoke:18080';
 const phase = process.env.PHASE || 'active';
 const banned = process.env.BANNED || '';
 const password = process.env.PASSWORD || 'Test-Passw0rd!x';
-const url = base + '/cosmos-ui/config-url/fail2ban';
+// the panel is a section of the security dashboard
+const url = base + (process.env.PAGE || '/cosmos-ui/security');
 const errors = [];
 const failures = [];
 const note = (...a) => console.log(...a);
@@ -85,7 +86,7 @@ if (phase === 'stopped' || phase === 'notinstalled') {
       await browser.close();
     }
   }
-} else {
+} else if (phase === 'active') {
   // --- desktop Chromium: the whole walk
   {
     const { browser, ctx, page } = await open(chromium, 'chromium', { width: 1366, height: 900 });
