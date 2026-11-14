@@ -27,6 +27,8 @@ import PlotComponent from './components/plot';
 import TableComponent from './components/table';
 import { HomeBackground, TransparentHeader } from '../home';
 import { formatDate } from './components/utils';
+import { hasMeasurements } from '../../utils/metricsState'; // Fork addition: nothing measured yet
+import { NoMeasurements } from '../../components/emptyState';
 import { useTranslation } from 'react-i18next';
 
 // avatar style
@@ -102,8 +104,8 @@ const RouteMetrics = ({routeName}) => {
                 res.data.forEach((metric) => {
                     finalMetrics[metric.Key] = metric;
                 });
-                setMetrics(finalMetrics);
             }
+            setMetrics(finalMetrics); // Fork addition: also when the answer is empty (the page span forever)
             setTimeout(refreshMetrics, 10000);
         });
     };
@@ -158,6 +160,7 @@ const RouteMetrics = ({routeName}) => {
           />
         </Box>}
         {metrics && <div style={{zIndex:2, maxWidth: "1000px", margin: "auto"}}>
+            {!hasMeasurements(metrics) && <NoMeasurements sx={{ mb: 3 }} />}{/* Fork addition */}
             <Grid container rowSpacing={4.5} columnSpacing={2.75} >
                 <Grid item xs={12} xl={12} sx={{ mb: -2.25 }}>
                     <Typography variant="h4">{routeName} Monitoring</Typography>

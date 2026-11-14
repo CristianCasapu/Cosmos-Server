@@ -333,7 +333,7 @@ const ServApps = ({stack}) => {
                       })[app.state]
                     }
                   </Typography>
-                  <Stack direction="row" spacing={2} alignItems="center">
+                  <Stack direction="row" spacing={2} alignItems="center" className="ct-app-title">{/* Fork addition: the class lets the name shrink to the card (see ct-app-name below) */}
                     {app.type === 'app' && <ServAppIcon container={app.app} route={getFirstRoute(app.app)} className="loading-image" width="40px"/>}
                     {app.type === 'stack' && <StyledBadge  overlap="circular"
                       anchorOrigin={{
@@ -345,10 +345,11 @@ const ServApps = ({stack}) => {
                     </StyledBadge>}
 
                     <Stack direction="column" spacing={0} alignItems="flex-start" style={{height: '40px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'no-wrap'}}>
-                      <Typography  variant="h5" color="text.secondary">
+                      {/* Fork addition: class and title. A long name was cut in the middle of its second line; now one line, whole in the tooltip */}
+                      <Typography  variant="h5" color="text.secondary" className="ct-app-name" title={app.name.replace('/', '')}>
                       {app.name.replace('/', '')}&nbsp; {app.type === 'stack' && <Chip label="Stack" color="primary" size="small" style={{fontSize: '55%'}}/>}
                       </Typography>
-                      <Typography color="text.secondary" style={{fontSize: '80%', whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '100%', textOverflow: 'ellipsis'}}>
+                      <Typography color="text.secondary" title={app.app.Image} style={{fontSize: '80%', whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '100%', textOverflow: 'ellipsis'}}>
                         {app.app.Image}
                       </Typography>
                     </Stack>

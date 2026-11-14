@@ -145,7 +145,7 @@ const Jobs = () => {
                 disableRipple
                 color="secondary"
                 sx={{ color: 'text.primary', bgcolor: open ? iconBackColorOpen : iconBackColor }}
-                aria-label="open profile"
+                aria-label={t('tooltip.jobs', 'Jobs')} /* Fork addition: was "open profile" */
                 ref={anchorRef}
                 aria-controls={open ? 'profile-grow' : undefined}
                 aria-haspopup="true"

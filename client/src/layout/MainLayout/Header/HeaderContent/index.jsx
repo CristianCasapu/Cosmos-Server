@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import RestartMenu from './restartMenu';
 import TerminalHeader from './terminal';
 import SudoModal from './sudoModal';
+import ModeToggle from '../../../../components/modeToggle'; // Fork addition: the skin's light/dark switch
 
 // ==============================|| HEADER - CONTENT ||============================== //
 
@@ -30,6 +31,7 @@ const HeaderContent = () => {
                 <TerminalHeader />
                 <Jobs />
                 <Notification />
+                <ModeToggle sx={{ display: { xs: 'none', sm: 'inline-flex' } }} />{/* Fork addition: on phones it is in the menu's footer */}
 
                 <SudoModal />
                 <Link href="/cosmos-ui/logout" underline="none">

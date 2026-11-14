@@ -42,13 +42,13 @@ const Timeline = ({ overview }) => {
     colors: series.map((s) => groupColour(theme, s.id)),
     xaxis: {
       categories,
-      labels: { style: { colors: secondary, fontSize: '11px' }, hideOverlappingLabels: true, rotate: 0 },
+      labels: { style: { colors: secondary, fontSize: '12px' }, hideOverlappingLabels: true, rotate: 0 },
       tickAmount: Math.min(categories.length, 8),
       axisBorder: { color: line },
       axisTicks: { color: line },
     },
     yaxis: {
-      labels: { style: { colors: [secondary], fontSize: '11px' }, formatter: (v) => Math.round(v) },
+      labels: { style: { colors: [secondary], fontSize: '12px' }, formatter: (v) => Math.round(v) },
       forceNiceScale: true,
       min: 0,
     },

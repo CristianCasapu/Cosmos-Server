@@ -22,6 +22,8 @@ import ProxyDashboard from './proxyDashboard';
 import AlertPage from './AlertPage';
 import EventsExplorer from './eventsExplorer';
 import MetricHeaders from './MetricHeaders';
+import { metricsByKey, hasMeasurements } from '../../utils/metricsState'; // Fork addition: a server that has measured nothing yet
+import { NoMeasurements } from '../../components/emptyState';
 
 const DashboardDefault = () => {
     const { t } = useTranslation();
@@ -56,16 +58,8 @@ const DashboardDefault = () => {
 
         if (t < 2)
             API.metrics.get(todo[t]).then((res) => {
-                setMetrics(prevMetrics => {
-                    let finalMetrics = prevMetrics ? { ...prevMetrics } : {};
-                    if(res.data) {
-                        res.data.forEach((metric) => {
-                            finalMetrics[metric.Key] = metric;
-                        });
-                        
-                        return finalMetrics;
-                    }
-                });
+                // Fork addition: an answer with nothing in it is "nothing measured yet", not "still loading" (the page span forever)
+                setMetrics(prevMetrics => metricsByKey(res.data, prevMetrics));
             });
     };
 
@@ -132,6 +126,7 @@ const DashboardDefault = () => {
           />
         </Box>}
         {metrics && <div style={{zIndex:2, position: 'relative'}}>
+            {currentTab <= 1 && !hasMeasurements(metrics) && <NoMeasurements sx={{ mb: 3 }} />}{/* Fork addition */}
             <Grid container rowSpacing={4.5} columnSpacing={2.75} >
                 <Grid item xs={12} sx={{ mb: -2.25 }}>
                     <Typography variant="h4">{t('navigation.monitoringTitle')}</Typography>

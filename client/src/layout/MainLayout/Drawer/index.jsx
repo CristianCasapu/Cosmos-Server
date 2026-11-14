@@ -14,6 +14,7 @@ import NavCard from './DrawerContent/NavCard';
 
 import {version} from '../../../../../package.json';
 import { LanguagesSelect } from './languages';
+import ModeToggle from '../../../components/modeToggle'; // Fork addition: the skin's light/dark switch
 
 // Fork addition: the fork's build number, set when a release is built. The
 // version above stays upstream's, which is what app requirements refer to.
@@ -31,7 +32,8 @@ const MainDrawer = ({ open, handleDrawerToggle, window }) => {
     // header content
     const drawerContent = useMemo(() => <DrawerContent />, []);
     const drawerHeader = useMemo(() => <DrawerHeader open={open} />, [open]);
-    const footer = <div style={{ margin: '10px', display: 'flex', justifyContent: 'center' }}>
+    const footer = <div className="ct-drawer-footer" style={{ margin: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+        <ModeToggle size="small" sx={{ display: { xs: 'inline-flex', sm: 'none' }, mr: '10px' }} />{/* Fork addition: from 600 px up it is in the header */}
         <LanguagesSelect />
         <Chip
             label={version.replace('unstable', '') + forkBuild}
@@ -43,7 +45,8 @@ const MainDrawer = ({ open, handleDrawerToggle, window }) => {
     </div>;
 
     return (
-        <Box component="nav" sx={{ flexShrink: { md: 0 }, zIndex: 1300 }} aria-label="mailbox folders">
+        // Fork addition: the class tells the skin whether the menu is open: closed, it is taken out of sight and out of the keyboard's way
+        <Box component="nav" className={open ? 'ct-drawer ct-drawer-open' : 'ct-drawer ct-drawer-closed'} sx={{ flexShrink: { md: 0 }, zIndex: 1300 }} aria-label="mailbox folders">
             {!matchDownMD ? (
                 <MiniDrawerStyled
                     variant="permanent" open={open}>
