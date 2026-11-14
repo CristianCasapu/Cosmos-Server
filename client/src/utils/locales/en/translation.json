@@ -4983,5 +4983,6 @@
 	"mgmt.storage.fork.parityDisk": "Parity disk",
 	"mgmt.storage.fork.parityHelpSize": "At least as large as the largest data disk ({{size}}) and on a disk of its own. It holds only the parity: do not use it for files.",
 	"mgmt.storage.fork.parityHelp": "Pick the data disks first: the parity disk must be at least as large as the largest of them.",
-	"mgmt.storage.fork.parityProposed": "Proposed: {{path}}, the smallest disk that is large enough (the larger ones stay free for data)."
+	"mgmt.storage.fork.parityProposed": "Proposed: {{path}}, the smallest disk that is large enough (the larger ones stay free for data).",
+	"mgmt.openId.fork.noHttps": "This server serves its apps without HTTPS: an app cannot be sent back to a plain http address (only to one on the same device), so sign-in with Cosmos will not work until HTTPS is on (Configuration > Domains)."
 }

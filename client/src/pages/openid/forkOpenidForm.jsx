@@ -120,6 +120,9 @@ export const ForkOpenidDialog = ({ clientId, config, onClose, onDone }) => {
           {t('mgmt.openId.fork.intro', 'An app registered here lets its users sign in with their Cosmos account. The app needs an ID, the addresses it is sent back to after signing in, and (for most apps) a secret that Cosmos makes.')}
         </Typography>
 
+        {!where.https && <Alert severity="warning" sx={{ '& .MuiAlert-message': { minWidth: 0 } }}>
+          {t('mgmt.openId.fork.noHttps', 'This server serves its apps without HTTPS: an app cannot be sent back to a plain http address (only to one on the same device), so sign-in with Cosmos will not work until HTTPS is on (Configuration > Domains).')}
+        </Alert>}
         {!existing && <ChoiceChips
           id="fork-openid-app"
           label={t('mgmt.openId.fork.whichApp', 'Which app')}

@@ -129,7 +129,8 @@ for (const name of names) for (const size of wanted) {
   const id = name + '-' + size;
   const phone = size === 'm';
   const browser = await engines[name].launch();
-  const ctx = await browser.newContext({ viewport: sizes[size], ignoreHTTPSErrors: true });
+  // no service worker: the panel's own would fetch past page.route (Firefox), and no storage request may reach a server
+  const ctx = await browser.newContext({ viewport: sizes[size], ignoreHTTPSErrors: true, serviceWorkers: 'block' });
   await ctx.request.post(base + '/cosmos/api/login', { data: { nickname: 'admin', password: PASSWORD } });
   await ctx.request.post(base + '/cosmos/api/sudo', { data: { password: PASSWORD } });
   const page = await ctx.newPage();
@@ -199,7 +200,7 @@ for (const name of names) for (const size of wanted) {
   await openTab(page, 'Mounts');
   await page.getByRole('button', { name: 'New Mount' }).first().click();
   await page.waitForTimeout(1200);
-  await dialog(page).getByRole('button', { name: /sdb1/ }).click();
+  await dialog(page).getByRole('button', { name: /sdb1/ }).click({ timeout: 10000 }).catch(async (e) => { await shot(page, id, 'mount-failed'); throw e; });
   await page.waitForTimeout(400);
   expect('mount: the folder proposed from the label', (await page.locator('#fork-storage-path').inputValue()) === '/mnt/Media');
   expect('mount: fstab said in words with the UUID', await dialog(page).getByText(/1b2c3d4e-0000/).isVisible());
