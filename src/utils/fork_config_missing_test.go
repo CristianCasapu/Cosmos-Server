@@ -41,7 +41,7 @@ func TestMissingConfigWhileRunningKeepsTheSettings(t *testing.T) {
 func TestMissingConfigBesideInstallDatabasesRefusesToStart(t *testing.T) {
 	dir := configFolderForTest(t)
 	installedConfigLoaded.Store(false)
-	if err := os.WriteFile(dir+"auth.db", []byte("x"), 0600); err != nil {
+	if err := os.WriteFile(dir+"database.db", []byte("x"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	var said string
@@ -90,4 +90,23 @@ func TestFailedConfigWriteKeepsRunning(t *testing.T) {
 		os.WriteFile(file+"/x", nil, 0600)
 	}
 	SaveConfigTofile(Config{}) // must return, not end the process
+}
+
+// The setup wizard's clean-up leaves a new user store and no configuration:
+// that is a setup in progress, not an install that lost its configuration.
+func TestSetupInProgressIsNotRefused(t *testing.T) {
+	dir := configFolderForTest(t)
+	installedConfigLoaded.Store(false)
+	if err := os.WriteFile(dir+"auth.db", []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	previous := configFatal
+	configFatal = func(message string, err error) { t.Errorf("refused a setup in progress: %s", message); panic("fatal") }
+	t.Cleanup(func() { configFatal = previous })
+	func() {
+		defer func() { recover() }()
+		if _, refused := refuseDefaultConfig(dir + "cosmos.config.json"); refused {
+			t.Error("a setup in progress must get the default configuration")
+		}
+	}()
 }

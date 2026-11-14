@@ -40,9 +40,12 @@ func noticeConfigLoaded(config Config) {
 	}
 }
 
-// installDatabases are the files an install leaves in the configuration
-// folder.
-var installDatabases = []string{"auth.db", "database.db"}
+// installDatabases are the files only a finished install leaves in the
+// configuration folder. Not auth.db: the setup wizard's clean-up removes the
+// configuration and opens a new, empty user store, so auth.db without a
+// configuration is what a setup in progress looks like. The monitoring
+// database is made only once the wizard has finished.
+var installDatabases = []string{"database.db"}
 
 var (
 	missingConfigMu       sync.Mutex
@@ -71,7 +74,7 @@ func refuseDefaultConfig(configFile string) (Config, bool) {
 	}
 	for _, name := range installDatabases {
 		if _, err := os.Stat(CONFIGFOLDER + name); err == nil {
-			configFatal("The configuration file "+configFile+" is missing, but the folder "+CONFIGFOLDER+" holds the databases of an install ("+name+"). Cosmos does not start as a new install over them: restore the configuration file, or, for a new install, move the folder's content away first.", nil)
+			configFatal("The configuration file "+configFile+" is missing, but the folder "+CONFIGFOLDER+" holds the monitoring database of a finished install ("+name+"). Cosmos does not start as a new install over them: restore the configuration file, or, for a new install, move the folder's content away first.", nil)
 		}
 	}
 	return Config{}, false
