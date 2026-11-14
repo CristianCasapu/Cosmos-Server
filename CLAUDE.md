@@ -151,6 +151,8 @@ For the origin-pulls part the Cloudflare browser check needs the test Cosmos sta
 
 For a look at everything, `scripts/fork-ui-gallery.mjs` (with `-seed.mjs` to fill a throwaway instance, `-noise.sh` to make incidents from other addresses and `-sheet.mjs` for contact sheets) captures every page, tab and main dialog in light and dark at 1920, 1366 and 390 px and writes a JSON summary per picture; run it before and after a styling change and compare (the headers hold the usage). The owner asked for styling improvements on 2026-11-13: the old rule "keep the existing styling exactly" now means "stay within the skin" (`client/public/skin/theme.css`), AA contrast in both modes, nothing below 12 px.
 
+`MDNS_E2E=new|old go test ./src/proxy/ -run MDNSE2E` runs only inside a container that has its own Avahi and dbus (Debian 13's systemd-resolved needs a drop-in with `MulticastDNS=yes` to act as a client); never against the host's Avahi. The sign-in in front of an app can be tried end to end on a throwaway instance with `httpsCertificateMode: SELFSIGNED`, a port other than 443 and Playwright's `ignoreHTTPSErrors` (a route with `AuthEnabled`, then open the app's address as a visitor).
+
 `scripts/fork-ui-check.mjs` logs in, confirms the password (`/api/sudo`: most
 admin actions need it), visits the main pages in three engines and at phone
 width, and reports script errors. Look at the screenshots it writes. Errors

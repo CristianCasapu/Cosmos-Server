@@ -147,6 +147,23 @@ security record.
   holds a request for ten seconds.
 - Not tried on a real phone or real Safari, only the WebKit engine.
 
+## Local names: left for later (2026-11-14)
+
+- Names under the owner's public domain that point at the server's private
+  address (for example `radarr.home.<domain>`), with the wildcard Let's
+  Encrypt certificate: every device resolves them and no certificate warning
+  appears. Costs: the private address is in public DNS, and a router's
+  rebinding protection may need an allow-list entry. The owner's decision.
+- The host's Avahi announces the server's own name on Docker's interfaces
+  too (`allow-interfaces=eno1` in `/etc/avahi/avahi-daemon.conf` would stop
+  that; Cosmos' own names are right either way). Proposed to the owner.
+- `.local` does not resolve on Android 11 and older, most smart TVs, Linux
+  with only systemd-resolved, or over Tailscale; names with a dot before
+  `.local` fail on Windows and most Linux machines.
+- The Cosmos sign-in in front of an app uses the server's configured HTTPS
+  port for the return address: if the router forwards another external port
+  for Cosmos itself, the return address is wrong.
+
 ## Usability gaps found in the code
 
 | # | Gap | Where |
