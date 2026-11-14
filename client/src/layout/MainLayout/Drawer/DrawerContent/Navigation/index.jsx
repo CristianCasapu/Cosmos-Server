@@ -1,5 +1,10 @@
 // material-ui
 import { Box, Typography } from '@mui/material';
+import { useEffect } from 'react';
+import { useDispatch } from 'react-redux';
+import { useLocation } from 'react-router-dom';
+import { activeItem } from '../../../../../store/reducers/menu';
+import { menuEntries, menuEntryFor } from '../../../../../utils/wayfinding'; // Fork addition: mark the current page
 
 // project import
 import NavGroup from './NavGroup';
@@ -11,6 +16,18 @@ import { useIsPro } from '../../../../../utils/pro';
 const Navigation = () => {
     // Renames entries Pro overrides via `titlePro`; the group shape is set in menu-items/index.jsx.
     const isPro = useIsPro() === true;
+
+    // Fork addition: the entry of the current page is marked on every
+    // navigation. Upstream marked it only on a click, and after a page load
+    // only when the entry's id was a part of the address: Home, Monitoring,
+    // Market, URLs, Users, OpenID and Configuration never were.
+    const location = useLocation();
+    const dispatch = useDispatch();
+    useEffect(() => {
+        const entry = menuEntryFor(location.pathname, menuEntries(menuItem));
+        dispatch(activeItem({ openItem: entry ? [entry.id] : [] }));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [location.pathname]);
 
     const navGroups = menuItem.items
         .map((item) => ({

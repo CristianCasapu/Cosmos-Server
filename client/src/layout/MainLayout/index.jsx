@@ -12,6 +12,7 @@ import Drawer from './Drawer';
 import Header from './Header';
 import navigation from '../../menu-items';
 import Breadcrumbs from '../../components/@extended/Breadcrumbs';
+import PageTitle from '../../components/pageTitle'; // Fork addition: the browser tab names the page
 
 // types
 import { openDrawer } from '../../store/reducers/menu';
@@ -48,6 +49,7 @@ const MainLayout = () => {
 
     return (
         <Box sx={{ display: 'flex', width: '100%' }}>
+            <PageTitle navigation={navigation} />{/* Fork addition */}
             <Header open={open} handleDrawerToggle={handleDrawerToggle} />
             <Drawer open={open} handleDrawerToggle={handleDrawerToggle} />
             <Box component="main" sx={{ width: '100%', flexGrow: 1, p: { xs: 2, sm: 3 } }}>

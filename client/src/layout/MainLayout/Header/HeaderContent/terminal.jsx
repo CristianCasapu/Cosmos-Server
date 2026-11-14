@@ -32,7 +32,7 @@ const TerminalHeader = () => {
 					disableRipple
 					color="secondary"
 					sx={{ color: 'text.primary' }}
-					aria-label="open profile"
+					aria-label={t('mgmt.servapps.containers.terminal.enabled')} /* Fork addition: was "open profile" */
 					aria-haspopup="true"
 					onClick={onopen}
 			>
