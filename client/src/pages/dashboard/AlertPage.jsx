@@ -1,3 +1,4 @@
+import { unansweredError } from '../../utils/serverAnswer'; // Fork addition
 import * as React from 'react';
 import * as API from '../../api';
 import MainCard from '../../components/MainCard';
@@ -236,7 +237,7 @@ const AlertPage = () => {
     let again = false;
     const retry = (error) => {
       // only when the server did not answer at all: an error it answered with has been shown
-      if (retries > 0 && !again && !(error && error.status)) {
+      if (retries > 0 && !again && unansweredError(error)) { // also when a proxy answered in the server's place (utils/serverAnswer.js)
         again = true;
         setTimeout(() => refresh(retries - 1), 1000);
       }

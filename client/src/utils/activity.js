@@ -5,6 +5,7 @@
 // itself is never altered or delayed.
 import i18n from 'i18next';
 import { watchForRefusal } from './sudoPrompt';
+import { ERROR_PAGE_MESSAGE, NO_ANSWER_MESSAGE, plainFailure } from './serverAnswer';
 
 // Translated when the translations are loaded, the English text otherwise.
 const tr = (key, text, vars) => {
@@ -220,9 +221,19 @@ const addToast = (severity, text, raw) => {
 // The server's answer when it holds an address back (429, src/httpServer.go),
 // said in words that tell the admin what to do.
 export const THROTTLED = 'Too many requests';
-export const explain = (message) => (message === THROTTLED
-  ? tr('activity.throttled', 'The server is holding this browser back for a moment (too many requests within a minute). Wait a minute, then reload the page.')
-  : message);
+export const explain = (message) => {
+  if (message === THROTTLED) {
+    return tr('activity.throttled', 'The server is holding this browser back for a moment (too many requests within a minute). Wait a minute, then reload the page.');
+  }
+  // a proxy answered in the server's place, or with a page of its own (utils/serverAnswer.js)
+  if (message === NO_ANSWER_MESSAGE) {
+    return tr('activity.noAnswer', 'The server did not answer: it is restarting or cannot be reached right now. Wait a few seconds and try again.');
+  }
+  if (typeof message === 'string' && message.startsWith(ERROR_PAGE_MESSAGE)) {
+    return tr('activity.errorPage', 'The server answered with an error page instead of a result{{status}}. Reload the page and try again.', { status: message.slice(ERROR_PAGE_MESSAGE.length) });
+  }
+  return message;
+};
 
 // notify shows a message that did not come from a followed command (the API
 // layer's own error reports). The same error is not shown twice.
@@ -230,7 +241,7 @@ export const notify = (message, severity = 'error') => {
   if (!message) return;
   const now = Date.now();
   // one notice while the server holds the browser back, not one per refused request
-  const repeatWithin = message === THROTTLED ? FAILURE_FOR : 3000;
+  const repeatWithin = (message === THROTTLED || message === NO_ANSWER_MESSAGE) ? FAILURE_FOR : 3000;
   if (state.toasts.some((toast) => toast.raw === message && now - toast.at < repeatWithin)) {
     return;
   }
@@ -307,7 +318,7 @@ const follow = async (call, response) => {
     try {
       message = JSON.parse(text).message || '';
     } catch (e) {
-      message = isJSON ? '' : lastLine(text);
+      message = isJSON ? '' : plainFailure(response.status, text); // never a proxy's error page as it is
     }
     finish(call, false, message);
   } else if (text.includes('[OPERATION FAILED]')) {

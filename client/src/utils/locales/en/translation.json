@@ -859,6 +859,8 @@
 	"activity.cron.update": "Save the scheduled job",
 	"activity.done": "{{action}}: done",
 	"activity.failed": "{{action}}: failed",
+	"activity.errorPage": "The server answered with an error page instead of a result{{status}}. Reload the page and try again.",
+	"activity.noAnswer": "The server did not answer: it is restarting or cannot be reached right now. Wait a few seconds and try again.",
 	"activity.throttled": "The server is holding this browser back for a moment (too many requests within a minute). Wait a minute, then reload the page.",
 	"throttled.title": "The server is holding this browser back for a moment",
 	"throttled.text": "More requests came from your address within one minute than the server accepts, so it refuses new ones for a short while. Your applications keep running. This page tries again by itself in {{seconds}} s.",
