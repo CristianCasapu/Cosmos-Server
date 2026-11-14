@@ -253,6 +253,8 @@ const views = [
   { id: 'market-app', path: '/cosmos-ui/market-listing/cosmos-cloud/Jellyfin', core: true, wait: 1500, mock: [...marketMock, ...noDnsMock], captures: [
     {},
     { id: 'review', wait: 2500, open: async (page) => { await page.getByRole('button', { name: /Install$/ }).first().click(); /* the app's page is drawn over the list: its button comes first */ } },
+    // an address under a domain on a server that cannot look names up (the stand-in answers like Go's resolver)
+    { id: 'review-no-dns', wait: 2500, open: async (page) => { await page.getByRole('button', { name: /Install$/ }).first().click(); await page.locator('[role=dialog] .MuiChip-root', { hasText: 'polish.test' }).first().click(); }, close: async (page) => { await page.keyboard.press('Escape'); } },
   ] },
   { id: 'new-container-steps', path: '/cosmos-ui/servapps/new-service', captures: [
     {},
