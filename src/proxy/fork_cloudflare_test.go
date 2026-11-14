@@ -398,3 +398,35 @@ func TestApplicationsGetCloudflareVisitorHeadersOnlyWithTheCertificate(t *testin
 		}
 	}
 }
+
+// SmartShield counts an address whatever way its requests came. A strike
+// against an address that a proxy reported lately is recorded as such, so
+// that it is not acted on at the firewall.
+func TestStrikesKnowWhetherTheAddressWasReported(t *testing.T) {
+	previous := utils.GetBaseMainConfig()
+	t.Cleanup(func() { utils.LoadBaseMainConfig(previous) })
+	config := utils.Config{}
+	config.HTTPConfig.Cloudflare = utils.ForkCloudflareConfig{Shielded: []string{"radarr.example.org"}, TrustRanges: true}
+	utils.LoadBaseMainConfig(config)
+	events := captureSecurity(t)
+
+	// a visitor of the shielded name, as Cloudflare reports it
+	req := httptest.NewRequest("GET", "https://radarr.example.org:2053/", nil)
+	req.Host = "radarr.example.org:2053"
+	req.RemoteAddr = "173.245.48.9:40000"
+	req.Header.Set("CF-Connecting-IP", "86.120.7.7")
+	if got := GetClientID(req, utils.ProxyRouteConfig{Name: "radarr"}); got != "86.120.7.7" {
+		t.Fatalf("the visitor is %q", got)
+	}
+
+	recordShieldBan(&UserBan{ClientID: "86.120.7.7", BanType: STRIKE})
+	recordShieldBan(&UserBan{ClientID: "198.51.100.66", BanType: TEMP})
+	recordShieldBan(&UserBan{ClientID: "user:alice", BanType: STRIKE})
+	got := events()
+	if len(got) != 3 || !got[0].Forwarded || got[0].IP != "86.120.7.7" {
+		t.Fatalf("a strike against a reported address: %+v", got)
+	}
+	if got[1].Forwarded || got[1].IP != "198.51.100.66" || got[2].Forwarded || got[2].Actor != "alice" {
+		t.Errorf("a ban of a direct visitor, a strike against a user: %+v", got[1:])
+	}
+}

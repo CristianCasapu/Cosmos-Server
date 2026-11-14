@@ -79,6 +79,7 @@ type sourceState struct {
 	bucket
 	kind       string
 	ip         string // of the last suppressed event
+	forwarded  bool   // that address was reported by a proxy
 	actor      string
 	suppressed int
 	since      time.Time // first suppressed event not yet summarised
@@ -115,12 +116,19 @@ func newLimiter() *limiter {
 func sourceOf(event Event) string {
 	if event.IP != "" {
 		if addr, err := netip.ParseAddr(event.IP); err == nil {
+			// an address a proxy reported and the same address connecting
+			// itself are two sources: their summaries go different ways
+			// (only the second belongs in the Fail2ban file)
+			via := ""
+			if event.Forwarded {
+				via = " via proxy"
+			}
 			if addr.Is6() {
 				if prefix, err := addr.Prefix(64); err == nil {
-					return prefix.Addr().String() + "/64"
+					return prefix.Addr().String() + "/64" + via
 				}
 			}
-			return addr.String()
+			return addr.String() + via
 		}
 	}
 	if event.Actor != "" {
@@ -179,7 +187,7 @@ func (l *limiter) allow(event Event, kind Kind, now time.Time) bool {
 			state.since = now
 		}
 		state.suppressed += event.Count
-		state.ip, state.actor = event.IP, event.Actor
+		state.ip, state.actor, state.forwarded = event.IP, event.Actor, event.Forwarded
 		return false
 	}
 
@@ -263,12 +271,13 @@ func (l *limiter) summaries(now time.Time, all bool) []Event {
 		} else {
 			perKind[key.kind]++
 			rows = append(rows, Event{
-				Kind:    key.kind,
-				Time:    now,
-				IP:      state.ip,
-				Actor:   state.actor,
-				Count:   state.suppressed,
-				Details: map[string]string{"summary": "1"},
+				Kind:      key.kind,
+				Time:      now,
+				IP:        state.ip,
+				Forwarded: state.forwarded,
+				Actor:     state.actor,
+				Count:     state.suppressed,
+				Details:   map[string]string{"summary": "1"},
 			})
 		}
 		state.suppressed = 0

@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -292,5 +293,86 @@ func TestOriginPullCounts(t *testing.T) {
 	ResetOriginPullCounts()
 	if counts = OriginPullSnapshot(); counts.Verified != 0 || counts.Failed != 0 || len(counts.Hosts) != 0 || len(counts.Problems) != 0 || counts.FailedLastMinute != 0 {
 		t.Errorf("after a reset: %+v", counts)
+	}
+}
+
+// An event about a request knows whether its address is the peer's or
+// somebody's report, and reported addresses are remembered for what is
+// decided without a request at hand.
+func TestEventsKnowWhetherTheirAddressWasReported(t *testing.T) {
+	previous := GetBaseMainConfig()
+	t.Cleanup(func() { LoadBaseMainConfig(previous) })
+	config := Config{}
+	config.HTTPConfig.Cloudflare = ForkCloudflareConfig{Shielded: []string{"radarr.example.org"}, TrustRanges: true}
+	config.HTTPConfig.TrustedProxies = []string{"192.0.2.10"}
+	LoadBaseMainConfig(config)
+	events := captureSecurity(t)
+	// what earlier tests left
+	forwardedClients.Lock()
+	forwardedClients.seen = map[string]int64{}
+	forwardedClients.Unlock()
+
+	request := func(host string, peer string, headers map[string]string) *http.Request {
+		req := httptest.NewRequest("GET", "https://"+host+"/", nil)
+		req.Host = host
+		req.RemoteAddr = peer
+		for name, value := range headers {
+			req.Header.Set(name, value)
+		}
+		return req
+	}
+	cases := []struct {
+		name      string
+		req       *http.Request
+		ip        string
+		forwarded bool
+	}{
+		{"through Cloudflare, shielded name", request("radarr.example.org", "173.245.48.9:40000", map[string]string{"CF-Connecting-IP": "86.120.1.1"}), "86.120.1.1", true},
+		{"from Cloudflare's addresses, direct name", request("jellyfin.example.org", "173.245.48.9:40000", map[string]string{"CF-Connecting-IP": "86.120.1.2"}), "173.245.48.9", false},
+		{"a direct visitor writing the headers", request("jellyfin.example.org", "198.51.100.66:50000", map[string]string{"CF-Connecting-IP": "86.120.1.3", "X-Forwarded-For": "86.120.1.3"}), "198.51.100.66", false},
+		{"through a trusted proxy", request("jellyfin.example.org", "192.0.2.10:50000", map[string]string{"X-Forwarded-For": "86.120.1.4"}), "86.120.1.4", true},
+		{"a device at home", request("radarr.example.org", "192.168.1.23:51000", nil), "192.168.1.23", false},
+	}
+	for _, c := range cases {
+		RecordSecurity(c.req, SecLoginFailed, "admin")
+	}
+	got := events()
+	if len(got) != len(cases) {
+		t.Fatalf("%d events, want %d", len(got), len(cases))
+	}
+	for i, c := range cases {
+		if got[i].IP != c.ip || got[i].Forwarded != c.forwarded {
+			t.Errorf("%s: address %q reported %v, want %q %v", c.name, got[i].IP, got[i].Forwarded, c.ip, c.forwarded)
+		}
+	}
+
+	for address, want := range map[string]bool{
+		"86.120.1.1": true, "86.120.1.4": true,
+		"86.120.1.2": false, "86.120.1.3": false, "198.51.100.66": false, "173.245.48.9": false, "192.168.1.23": false, "": false,
+	} {
+		if WasForwardedClient(address) != want {
+			t.Errorf("%q remembered as reported: %v, want %v", address, !want, want)
+		}
+	}
+
+	// what is remembered is bounded
+	for i := 0; i < forwardedClientsMax+500; i++ {
+		noteForwardedClient("198.18." + strconv.Itoa(i/256) + "." + strconv.Itoa(i%256))
+	}
+	forwardedClients.Lock()
+	kept := len(forwardedClients.seen)
+	forwardedClients.Unlock()
+	if kept > forwardedClientsMax {
+		t.Errorf("%d reported addresses are remembered, more than %d", kept, forwardedClientsMax)
+	}
+
+	// Cloudflare's own addresses are never acted on while a name is served through it
+	if !CloudflareNeverBan("173.245.48.9") || !CloudflareNeverBan("2606:4700::9") || CloudflareNeverBan("198.51.100.66") {
+		t.Error("CloudflareNeverBan with a shielded name")
+	}
+	config.HTTPConfig.Cloudflare.Shielded = nil
+	LoadBaseMainConfig(config)
+	if CloudflareNeverBan("173.245.48.9") {
+		t.Error("with nothing served through Cloudflare its addresses are still left out")
 	}
 }
