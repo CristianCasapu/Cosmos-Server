@@ -143,22 +143,28 @@ security record.
 
 ## Look of the panel: left for later (2026-11-14)
 
-- On a phone the Market showcase's text panel still overlaps its screenshot
-  (upstream's carousel); the other chart series keep their own scale without
-  a drawn axis (legend and tooltip give the values).
-- A button wrapped in a link ("Start ServApp") is two Tab stops (upstream's
-  pattern on many pages); a few controls still have no name (container
-  Source/Target fields outside the card layout, the countries field on the
-  HTTP tab); heading levels inside pages still skip; some targets on a phone
-  are still under 44 px.
-- Not tried on a real phone, real Safari or a screen reader, only the
-  engines; log lines were never seen with real output.
-- The owner's to change if wanted: the health card's thresholds (disks 90 %
-  and 95 %; exit codes 0, 137 and 143 count as stopped on purpose) and
-  whether stopped apps that should run count (needs the restart policy,
-  which Docker's list does not give); Theme colours on the sign-in pages of
-  a device that never opened the panel (needs the colours in an answer
-  visitors can read); the icon timings (2 s wait, 5 minutes for a failure).
+- Phone targets still under 44 px, on purpose: the chips on the app cards
+  (24 to 32 px with 8 px between them; 44 px would double the card), table
+  row icon buttons (30 px), date-picker icons, the security audit's filter
+  selects, the sign-in logo link.
+- Five heading jumps remain (two raw `<h4>` on the HTTPS tab and the
+  scheduler, three small titles under a page title). On a phone the Market
+  showcase's description is cut after three lines.
+- A signed-in non-admin opening an admin-only app still gets upstream's
+  JSON "User not Authorized". The guards' 403 pages stay plain text (fixed
+  English sentences; styling them would mean HTML from the proxy on every
+  app's hostname).
+- Not tried on a real phone, real Safari or a screen reader; the setup
+  wizard and the two-factor pages were seen with mocked answers only; log
+  lines were never seen with real output.
+- "Apps that should run but are stopped" was decided against for the health
+  lines: a stopped container with a restart policy was stopped by someone,
+  and Docker does not say who.
+- The owner's to change if wanted: how many lines show before a notice area
+  folds (2 on ServApps, 3 on home); what the phone's "More" holds; the
+  out-of-memory health line; the health thresholds (disks 90 % and 95 %);
+  Theme colours on the sign-in pages of a device that never opened the
+  panel; the icon timings (2 s wait, 5 minutes for a failure).
 
 ## What a stranger can still learn (2026-11-14)
 
@@ -174,18 +180,11 @@ security record.
 - The ownership markers Cosmos writes in DNS say "managed by cosmos";
   `/cosmos/api/can-send-email` answers anyone (the sign-in page needs it).
 
-## Seen with the day's work together, left as it is (2026-11-14)
+## Checks not run on the combined tree (2026-11-14)
 
-- The three ServApps notices (updates, apps without an address, leftovers)
-  can stack, each an alert inside a white card; on a phone the header icon
-  buttons touch each other; "Previous" and "Next" on the new-container form
-  have different widths on a phone.
-- The Market review on a network without DNS shows "Internal server error:
-  lookup …"; while the server is throttling, the home health card says "All
-  is well" next to "could not be checked".
-- Not run in that pass: the installable app's script phases, and the
-  certificates, home-names, Cloudflare, e-mail, Telegram, Fail2ban and UPnP
-  checks (each needs a set-up of its own).
+- The installable app's script phases, and the certificates, home-names,
+  Cloudflare, e-mail, Telegram, Fail2ban and UPnP checks, were each run on
+  their own branch only (each needs a set-up of its own).
 
 ## Creating apps: left for later (2026-11-14)
 
