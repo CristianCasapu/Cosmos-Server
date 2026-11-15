@@ -85,10 +85,13 @@ var (
 		regexp.MustCompile(`(?i:set the )` + name + `(?i: (?:environment )?variable)`),
 		regexp.MustCompile(`\b` + name + `(?i: (?:environment variable |env var |variable |setting )?(?:is |must be |has to be )?(?:required|mandatory|not set|not defined|missing|empty|unset|must be set|must be defined|cannot be empty|must not be empty|needs to be set))\b`),
 		regexp.MustCompile(`(?i:(?:missing|required|undefined|unset) (?:required )?(?:environment variable|env var|variable|setting)s?:?\s+['"]?)` + name + `\b`),
+		regexp.MustCompile(`(?i:(?:via|with|using|in) the (?:environment )?variable )` + name + `\b`),
 	}
 	// "You need to specify one of A, B and C": the first that is a value, not a switch
-	oneOfPattern      = regexp.MustCompile(`(?i)(?:need to|must) (?:specify|set|provide) one of(?: the following)?(?: as an environment variable)?:?\s*(.*)$`)
-	listedName        = regexp.MustCompile(`\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b`)
+	oneOfPattern = regexp.MustCompile(`(?i)(?:need to|must) (?:specify|set|provide) one of(?: the following)?(?: as an environment variable)?:?\s*(.*)$`)
+	listedName   = regexp.MustCompile(`\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b`)
+	// "You need to define the A and B (or B_FILE) environment variables": every one named
+	allOfPattern      = regexp.MustCompile(`(?i)(?:need|have) to (?:define|set|provide) (?:the )?(.*)variables?`)
 	permissionPattern = regexp.MustCompile(`(?i)(permission denied|operation not permitted|cannot create directory|not writable|read-only file system)`)
 	processorPattern  = regexp.MustCompile(`(?i)(illegal instruction|requires a cpu with avx|avx support|exec format error)`)
 )
@@ -209,6 +212,12 @@ func recogniseNeeds(lines []string, have map[string]string) []StartNeed {
 					add(n, line)
 					break
 				}
+			}
+			continue
+		}
+		if m := allOfPattern.FindStringSubmatch(line); m != nil {
+			for _, n := range listedName.FindAllString(m[1], -1) {
+				add(n, line)
 			}
 			continue
 		}

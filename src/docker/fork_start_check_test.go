@@ -49,6 +49,10 @@ func TestRecognisedNeeds(t *testing.T) {
 		"generic-required.log":   {"SECRET_KEY_BASE"},
 		"no-variable.log":        {},
 		"permission.log":         {},
+		"percona-server.log":     {"MYSQL_ROOT_PASSWORD"},
+		"pgadmin4.log":           {"PGADMIN_DEFAULT_EMAIL", "PGADMIN_DEFAULT_PASSWORD"},
+		"opensearch.log":         {"OPENSEARCH_INITIAL_ADMIN_PASSWORD"},
+		"bitnami-mongodb.log":    {"MONGODB_ROOT_PASSWORD"},
 	}
 	for file, want := range cases {
 		data, err := os.ReadFile("testdata/startlogs/" + file)
