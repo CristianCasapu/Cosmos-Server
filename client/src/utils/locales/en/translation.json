@@ -5630,5 +5630,7 @@
 	"notif.turnstile.doing": "Cosmos keeps checking with Cloudflare and marks this resolved when the sign-in check works again.",
 	"notif.step.turnstile.open": "Open Configuration > Domains > Sign-in check",
 	"notif.edgeblock.means": "Until the token works, Cosmos adds no blocks at Cloudflare's edge and lifts none: SmartShield and Fail2ban still block here.",
-	"notif.step.edgeblock.open": "Open Configuration > Domains and check the Cloudflare token of that domain"
+	"notif.step.edgeblock.open": "Open Configuration > Domains and check the Cloudflare token of that domain",
+	"notif.state.upnp.configBad": "Right now the settings still cannot be applied: {{answer}}",
+	"notif.state.upnp.configOk": "Right now the settings can be applied: Cosmos asks the router for its forwards."
 }

@@ -214,6 +214,16 @@ func upnpState(d utils.NotificationDetails) *contextState {
 		state.Sentence = line("notif.state.upnp.paused", "at", at)
 		return state
 	}
+	if d.Kind == "upnp.config.invalid" {
+		if st.Error != "" && !st.Paused && len(st.Mappings) == 0 {
+			state.OK = flag(false)
+			state.Sentence = line("notif.state.upnp.configBad", "answer", st.Error)
+		} else {
+			state.OK = flag(true)
+			state.Sentence = line("notif.state.upnp.configOk")
+		}
+		return state
+	}
 	key := strings.TrimPrefix(d.NotificationView.Thread, "upnp:")
 	if key == "router" || d.Kind == "upnp.router.unreachable" || d.Kind == "upnp.router.restored" {
 		state.OK = flag(true)

@@ -314,6 +314,8 @@ var notificationTexts = map[string]string{
 	"notif.state.col.port":              "Port",
 	"notif.state.col.to":                "Forwarded to",
 	"notif.state.col.what":              "For",
+	"notif.state.upnp.configBad":        "Right now the settings still cannot be applied: {{answer}}",
+	"notif.state.upnp.configOk":         "Right now the settings can be applied: Cosmos asks the router for its forwards.",
 	"notif.state.upnp.off":              "Forwarding ports over UPnP is switched off now.",
 	"notif.state.upnp.paused":           "Right now the router does not answer. Cosmos asks it again at {{at}}.",
 	"notif.state.upnp.routerOk":         "Right now the router answers (last asked at {{at}}).",
