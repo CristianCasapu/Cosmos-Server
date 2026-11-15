@@ -8,7 +8,19 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Nothing has been merged into `custom` since `0.24.0-fork.24`. Work in progress on a separate branch (not released, and may change before it is): dependency updates.
+Nothing has been merged into `custom` since `0.24.0-fork.25`. Work in progress on separate branches (not released, and may change before it is): the major versions of the frontend's build tool and libraries, and a watch of whether the server can be reached from the internet.
+
+## Fork 0.24.0-fork.25 — 2026-11-15
+
+### Security
+- Dependencies brought up to date inside their major versions: the Go modules (the OpenID provider library, SQLite, the ACME client, the rate limiter and others), every package of the panel (React 18.3, MUI 5.18, the charts, the terminal, the sanitiser), the build on Node 26, the checks on current GitHub actions.
+- A weekly check opens an issue when a dependency has a known vulnerability nobody has looked at yet.
+
+### Changed
+- An OpenID app that sends no `redirect_uri` is refused, as the standard asks.
+
+### Fixed
+- The Disks and job trees and the monitoring charts keep working with the newer libraries.
 
 ## Fork 0.24.0-fork.24 — 2026-11-15
 
