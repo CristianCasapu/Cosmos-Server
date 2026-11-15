@@ -139,7 +139,10 @@ export const NOTIFICATIONS = Array.from({ length: 30 }, (_, i) => {
   const [Level, Title, Message, Link] = notes[i % notes.length];
   return { ID: 1000 - i, Title, Message, Vars: '', Icon: '', Link, Date: new Date(Date.now() - (i * 97 + 3) * minute).toISOString(), Level, Read: i > 4, Recipient: 'admin', Actions: null };
 });
-export const notificationsMock = [['/cosmos/api/notifications', ok(NOTIFICATIONS)]];
+export const notificationsMock = [['/cosmos/api/notifications', ok(NOTIFICATIONS)],
+  // the bell asks the notifications page's list since 36-notifications: the same rows in that shape
+  ['/cosmos/api/notifications/list', ok({ items: NOTIFICATIONS.map((n) => ({ id: n.ID, ref: '', kind: '', source: 'other', level: n.Level === 'warn' ? 'warning' : n.Level, read: n.Read, date: n.Date,
+    firstSeen: null, count: 1, resolved: null, subject: null, link: n.Link, legacy: true, title: { key: '', text: n.Title, vars: {} }, message: { key: '', text: n.Message, vars: {} } })), next: '', unread: 5, sources: ['other'] })]];
 
 // the events list: many rows, long objects and labels (src/metrics/events.go answers status, total, data)
 const eventKinds = [
@@ -154,3 +157,209 @@ export const EVENTS = Array.from({ length: 60 }, (_, i) => {
   return { id: 5000 - i, label, application: 'Cosmos', eventId, date: new Date(Date.now() - (i * 13 + 1) * minute).toISOString(), level, data: { source: '192.0.2.' + (10 + (i % 40)), details: 'made-up event for the gallery' }, object };
 });
 export const eventsMock = [['/cosmos/api/events', { status: 'OK', total: 1240, data: EVENTS }]];
+
+// ---- the notifications page, the details of each kind and the bell (src/fork_notifications.go answers;
+// the shapes are those of the plan 36-notifications.md, 3.3). Made-up values, documentation addresses.
+const hour = 60 * minute;
+const at = (msAgo) => new Date(Date.now() - msAgo).toISOString();
+const s = (key, text, vars) => ({ key, text, vars: vars || {} });
+const fact = (key, text, value) => ({ key, text, value });
+const step = (key, text, vars, link, action, label) => ({ key, text, vars: vars || {}, link: link || '', action: action || '', ...(label ? { label } : {}) });
+const item = (id, fields) => ({
+  id, ref: (id.toString(16) + 'a1b2c3d4e5f60718').slice(0, 16), kind: '', source: 'other', level: 'info', read: false,
+  date: at(id * 7 * minute), firstSeen: null, count: 1, resolved: null, subject: null, link: '', legacy: false,
+  title: s('', ''), message: s('', ''), ...fields,
+});
+const ROUTER_ANSWER = 'HTTPS: Post "http://192.168.1.1:2828/upnp/control/9f2c41d0-5b7a-4c1e-8d3f-2a6b0c9e7f13/wanipconn-8": EOF';
+export const NOTIFICATION_ITEMS = [
+  item(101, {
+    kind: 'upnp.forward.failed', source: 'upnp', level: 'error', read: false, date: at(38 * minute), firstSeen: at(3 * hour + 12 * minute), count: 4, resolved: at(9 * minute),
+    subject: { type: 'port', name: 'HTTPS 2053/TCP', link: '/cosmos-ui/config-general/http-server' }, link: '/cosmos-ui/config-general/http-server',
+    title: s('notif.upnp.forward.failed.title', 'The router no longer forwards port {{port}}', { port: '2053' }),
+    message: s('notif.upnp.forward.failed.what.absent', 'The router no longer forwards port {{port}} to this server: Cosmos cannot be reached from the internet.', { port: '2053' }),
+  }),
+  item(102, {
+    kind: 'upnp.forward.restored', source: 'upnp', level: 'success', read: false, date: at(9 * minute),
+    subject: { type: 'port', name: 'HTTPS 2053/TCP', link: '/cosmos-ui/config-general/http-server' }, link: '/cosmos-ui/config-general/http-server',
+    title: s('notif.upnp.forward.restored.title', 'Port {{port}} is forwarded again', { port: '2053' }),
+    message: s('notif.upnp.forward.restored.what', 'The router forwards port {{port}} to this server again since {{at}}: Cosmos can be reached from the internet. It was not forwarded for {{minutes}} minutes.', { port: '2053', at: '08:51', minutes: '183' }),
+  }),
+  item(103, {
+    kind: 'certificate.failed', source: 'certificates', level: 'error', count: 2, firstSeen: at(26 * hour), date: at(2 * hour),
+    subject: { type: 'domain', name: 'photos.example.org', link: '/cosmos-ui/config-general/https' }, link: '/cosmos-ui/config-general/https',
+    title: s('notif.certificate.failed.title', 'The certificate of {{domain}} could not be renewed', { domain: 'photos.example.org' }),
+    message: s('notif.certificate.failed.what', 'Let\'s Encrypt refused the order for {{domain}}: the DNS provider did not accept the record Cosmos tried to write.', { domain: 'photos.example.org' }),
+  }),
+  item(104, {
+    kind: 'certificate.expiring', source: 'certificates', level: 'warning', read: true, date: at(5 * hour),
+    subject: { type: 'domain', name: 'example.org', link: '/cosmos-ui/config-general/https' }, link: '/cosmos-ui/config-general/https',
+    title: s('notif.certificate.expiring.title', 'The certificate of {{domain}} ends in {{days}} days', { domain: 'example.org', days: '12' }),
+    message: s('notif.certificate.expiring.what', 'The certificate of {{domain}} ends on {{date}} and could not be renewed yet.', { domain: 'example.org', date: '27 November 2026' }),
+  }),
+  item(105, {
+    kind: 'certificate.renewed', source: 'certificates', level: 'info', read: true, date: at(30 * hour),
+    subject: { type: 'domain', name: '*.example.org, example.org', link: '/cosmos-ui/config-general/https' }, link: '/cosmos-ui/config-general/https',
+    title: s('notif.certificate.renewed.title', 'Certificate renewed'),
+    message: s('notif.certificate.renewed.what', 'The certificate for {{domains}} was renewed; it is valid until {{until}}.', { domains: '*.example.org, example.org', until: '13 February 2027' }),
+  }),
+  item(106, {
+    kind: 'container.updated', source: 'containers', level: 'info', read: true, date: at(11 * hour),
+    subject: { type: 'container', name: 'jellyfin', link: '/cosmos-ui/servapps/containers/jellyfin' }, link: '/cosmos-ui/servapps/containers/jellyfin',
+    title: s('notif.container.updated.title', '{{name}} was updated', { name: 'jellyfin' }),
+    message: s('notif.container.updated.what', 'The app {{name}} was updated to a new image ({{image}}) and restarted.', { name: 'jellyfin', image: 'jellyfin/jellyfin:latest' }),
+  }),
+  item(107, {
+    kind: 'container.update.failed', source: 'containers', level: 'error', date: at(10 * hour + 58 * minute),
+    subject: { type: 'container', name: 'nextcloud-aio-mastercontainer-with-a-rather-long-name', link: '/cosmos-ui/servapps/containers/nextcloud-aio-mastercontainer-with-a-rather-long-name' },
+    link: '/cosmos-ui/servapps/containers/nextcloud-aio-mastercontainer-with-a-rather-long-name',
+    title: s('notif.container.updateFailed.title', '{{name}} could not be updated', { name: 'nextcloud-aio-mastercontainer-with-a-rather-long-name' }),
+    message: s('notif.container.updateFailed.what', 'The new image of {{name}} was downloaded but the app could not be recreated with it: it runs the previous one.', { name: 'nextcloud-aio-mastercontainer-with-a-rather-long-name' }),
+  }),
+  item(108, {
+    kind: 'container.dying', source: 'containers', level: 'error', count: 3, firstSeen: at(70 * minute), date: at(52 * minute),
+    subject: { type: 'container', name: 'radarr', link: '/cosmos-ui/servapps/containers/radarr' }, link: '/cosmos-ui/servapps/containers/radarr',
+    title: s('notif.container.dying.title', '{{name}} keeps stopping', { name: 'radarr' }),
+    message: s('notif.container.dying.what', 'The app {{name}} stopped with an error {{exits}} times within ten minutes (last exit code {{code}}).', { name: 'radarr', exits: '3', code: '137' }),
+  }),
+  item(109, {
+    kind: 'snapshots.failed', source: 'snapshots', level: 'error', read: true, date: at(20 * hour),
+    subject: { type: 'folder', name: '/mnt/data/photos', link: '/cosmos-ui/config-general/general' }, link: '/cosmos-ui/config-general/general',
+    title: s('notif.snapshots.failed.title', 'The incremental backup did not go cleanly'),
+    message: s('notif.snapshots.failed.what', 'The snapshot of {{source}} could not be written: {{reason}}.', { source: '/mnt/data/photos', reason: 'no space left on /mnt/backup' }),
+  }),
+  item(110, {
+    kind: 'fail2ban.down', source: 'fail2ban', level: 'warning', date: at(4 * hour),
+    subject: { type: 'setting', name: 'Fail2ban', link: '/cosmos-ui/security' }, link: '/cosmos-ui/security',
+    title: s('notif.fail2ban.down.title', 'Fail2ban is not running'),
+    message: s('notif.fail2ban.down.what', 'Fail2ban is installed and set up for Cosmos but its server does not answer: addresses that attack Cosmos are not banned at the firewall.'),
+  }),
+  item(111, {
+    kind: 'telegram.failed', source: 'telegram', level: 'error', read: true, date: at(15 * hour),
+    subject: { type: 'chat', name: 'Telegram', link: '/cosmos-ui/config-general/general' }, link: '/cosmos-ui/config-general/general',
+    title: s('notif.telegram.failed.title', 'Telegram notifications are not delivered'),
+    message: s('notif.telegram.failed.what', 'Telegram refused the messages: the bot was removed from the chat. Messages are counted and summed up once Telegram accepts them again.'),
+  }),
+  item(112, {
+    kind: 'container.leftover', source: 'containers', level: 'warning', read: true, date: at(40 * hour),
+    subject: { type: 'container', name: 'sonarr', link: '/cosmos-ui/servapps' }, link: '/cosmos-ui/servapps',
+    title: s('notif.container.leftover.title', 'A change of {{name}} was interrupted', { name: 'sonarr' }),
+    message: s('notif.container.leftover.what', 'A change of {{name}} was interrupted when Cosmos stopped: the previous container is kept, stopped, as {{kept}}. Nothing was deleted.', { name: 'sonarr', kept: 'sonarr-cosmos-old-ba9876543210' }),
+  }),
+  item(113, {
+    kind: 'alert.disk', source: 'monitoring', level: 'warning', count: 2, firstSeen: at(28 * hour), date: at(3 * hour),
+    subject: { type: 'disk', name: '/mnt/backup-of-the-family-photos', link: '/cosmos-ui/storage' }, link: '/cosmos-ui/monitoring',
+    title: s('notif.alert.disk.title', 'The disk {{disk}} is nearly full', { disk: '/mnt/backup-of-the-family-photos' }),
+    message: s('notif.alert.disk.what', 'The alert "{{alert}}" was triggered: the disk mounted on {{disk}} was {{percent}}% full.', { alert: 'Disk Full Notification (/mnt/backup-of-the-family-photos)', disk: '/mnt/backup-of-the-family-photos', percent: '96' }),
+  }),
+  // what was written before this version: the owner's morning, as the old rows hold it
+  item(114, {
+    kind: '', source: 'upnp', level: 'error', read: true, date: at(3 * hour + 12 * minute), legacy: true,
+    title: s('header.notification.title.upnpFailed', ''), message: s('header.notification.message.upnpFailed', '', { Vars: ROUTER_ANSWER }),
+  }),
+  item(115, {
+    kind: '', source: 'server', level: 'error', read: true, date: at(50 * hour), legacy: true,
+    title: s('header.notification.title.serverError', ''), message: s('', 'Backup: Error reading directory : open /var/lib/cosmos/backups: permission denied'),
+  }),
+].sort((a, b) => (a.date < b.date ? 1 : -1));
+
+const THREADS = { 101: [102], 102: [101] };
+const seenOf = (n) => (n.count > 1 ? Array.from({ length: n.count }, (_, i) => new Date(new Date(n.firstSeen).getTime() + (new Date(n.date) - new Date(n.firstSeen)) * (i / (n.count - 1))).toISOString()) : [n.date]);
+const byId = (id) => NOTIFICATION_ITEMS.find((n) => n.id === id);
+
+const EXTRA = {
+  101: {
+    what: s('notif.upnp.forward.failed.what.absent', 'The router no longer forwards port {{port}} to this server: Cosmos cannot be reached from the internet.', { port: '2053' }),
+    means: s('notif.upnp.forward.failed.means.router', 'Visitors from the internet, and you when you are away, cannot open Cosmos or its apps through port {{port}} until the router forwards it again. The router closed the connection instead of answering: this happens while it restarts its UPnP service or when it is overloaded.', { port: '2053' }),
+    doing: s('notif.upnp.forward.failed.doing.retry', 'Cosmos tries again by itself at {{at}} (attempt {{n}}), then every {{every}} minutes, and looks every five minutes whether the forward is back.', { at: '08:51', n: '5', every: '15' }),
+    steps: [
+      step('notif.step.upnp.check', 'Ask the router again now.', {}, '', 'upnp.check', s('notifications.step.checkNow', 'Check now')),
+      step('notif.step.upnp.settings', 'See the forwards and the router\'s answers under Configuration > HTTP > Internet access.', {}, '/cosmos-ui/config-general/http-server', '', s('notif.step.upnp.settingsButton', 'Open internet access')),
+      step('notif.step.upnp.router', 'Open the router\'s page ({{router}}) and check that UPnP is on and that port {{port}} is forwarded to {{local}}:{{internal}}.', { router: 'http://192.168.1.1', port: '2053', local: '192.168.1.20', internal: '2053' }),
+      step('notif.step.upnp.wait', 'If the router was restarted, wait a few minutes: Cosmos asks again by itself.'),
+    ],
+    raw: ROUTER_ANSWER,
+    facts: [
+      fact('notif.fact.port', 'Port on the router', '2053/TCP → 192.168.1.20:2053'), fact('notif.fact.router', 'Router', 'FRITZ!Box 7590 (192.168.1.1)'),
+      fact('notif.fact.server', 'This server', '192.168.1.20'), fact('notif.fact.attempts', 'Attempts', '4'), fact('notif.fact.nextTry', 'Next try', '08:51'),
+    ],
+  },
+  102: {
+    what: s('notif.upnp.forward.restored.what', 'The router forwards port {{port}} to this server again since {{at}}: Cosmos can be reached from the internet. It was not forwarded for {{minutes}} minutes.', { port: '2053', at: '08:51', minutes: '183' }),
+    doing: s('notif.upnp.forward.restored.doing', 'Cosmos renews the forward every 20 minutes and looks every five minutes whether it is still there.'),
+    facts: [fact('notif.fact.port', 'Port on the router', '2053/TCP → 192.168.1.20:2053'), fact('notif.fact.outage', 'Not forwarded for', '183 minutes')],
+  },
+  103: {
+    what: s('notif.certificate.failed.what', 'Let\'s Encrypt refused the order for {{domain}}: the DNS provider did not accept the record Cosmos tried to write.', { domain: 'photos.example.org' }),
+    means: s('notif.certificate.failed.means', 'The current certificate keeps working until {{until}}. After that, browsers warn visitors of {{domain}}.', { until: '27 November 2026', domain: 'photos.example.org' }),
+    doing: s('notif.certificate.failed.doing', 'Cosmos tries again by itself in {{hours}} hours.', { hours: '6' }),
+    steps: [step('notif.step.certificate.card', 'See the certificate and renew it now under Configuration > Domains.', {}, '/cosmos-ui/config-general/https'),
+      step('notif.step.certificate.dns', 'Check at the DNS provider that the API token may still edit the zone of {{domain}}.', { domain: 'example.org' })],
+    raw: 'acme: error: 400 :: POST :: https://acme-v02.api.letsencrypt.org/acme/finalize/123456/789 :: urn:ietf:params:acme:error:dns :: DNS problem: NXDOMAIN looking up TXT for _acme-challenge.photos.example.org',
+  },
+  108: {
+    means: s('notif.container.dying.means', 'The app {{name}} is not available while it restarts, and it may lose work each time.', { name: 'radarr' }),
+    doing: s('notif.container.dying.doing', 'Docker restarts it by itself (its restart policy). Cosmos does nothing more.'),
+    steps: [step('notif.step.container.logs', 'Read the app\'s logs on its page: the last lines before each stop say why.', {}, '/cosmos-ui/servapps/containers/radarr'),
+      step('notif.step.container.oom', 'Exit code 137 often means it ran out of memory: give it more or look for a leak.')],
+    facts: [fact('notif.fact.exitCode', 'Last exit code', '137'), fact('notif.fact.exits', 'Stops within ten minutes', '3')],
+  },
+};
+
+const CONTEXT = {
+  101: {
+    state: { ok: true, sentence: s('notif.state.upnp.forwarded', 'The router forwards port {{port}} to this server right now (since {{since}}).', { port: '2053', since: '08:51' }),
+      facts: [fact('notif.fact.router', 'Router', 'FRITZ!Box 7590 (192.168.1.1)'), fact('notif.fact.externalIP', 'Address on the internet', '203.0.113.45')],
+      header: [s('notif.state.upnp.col.port', 'Port'), s('notif.state.upnp.col.to', 'Forwarded to'), s('notif.state.upnp.col.what', 'What')],
+      rows: [{ cells: ['2053/TCP', '192.168.1.20:2053', 'Cosmos HTTPS'] }, { cells: ['51413/TCP', '192.168.1.20:51413', 'Cosmos app torrent'] }, { cells: ['3074/UDP', '192.168.1.37:3074', 'Xbox (another device)'] }],
+      link: '/cosmos-ui/config-general/http-server' },
+    security: { available: true, events: [
+      { id: 9001, time: at(9 * minute), kind: 'upnp.mapping.created', class: 'audit', severity: 'medium', actor: '', ip: '', target: 'Cosmos HTTPS', outcome: 'ok', count: 1, details: { external: '2053', internal: '2053', protocol: 'tcp' } },
+      { id: 8990, time: at(3 * hour + 12 * minute), kind: 'upnp.mapping.removed', class: 'audit', severity: 'medium', actor: '', ip: '', target: 'Cosmos HTTPS', outcome: 'ok', count: 1, details: { external: '2053', protocol: 'tcp', reason: 'lost' } },
+    ] },
+    events: { available: true, events: [{ id: 7001, label: 'Critical Error', application: 'Cosmos', eventId: 'cosmos.error', date: at(3 * hour + 12 * minute), level: 'error', data: {}, object: '' }] },
+    log: { available: true, reason: null, truncated: false, lines: [
+      '2026/11/15 05:39:02 [ERROR] UPnP: could not forward port 2053 (HTTPS) : ' + ROUTER_ANSWER,
+      '2026/11/15 05:39:02 [WARN]  UPnP: the router could not be set up; trying again by itself at 05:40',
+      '2026/11/15 08:51:07 [INFO]  UPnP: port 2053 (HTTPS) is forwarded again',
+      '2026/11/15 08:51:07 [INFO]  UPnP: router forwards port 2053 (TCP) to 192.168.1.20:2053 (HTTPS)',
+    ] },
+  },
+};
+const defaultContext = (n) => ({
+  state: n.source === 'containers'
+    ? { ok: n.kind !== 'container.dying', sentence: s('notif.state.container', 'The app {{name}} is {{state}}.', { name: n.subject ? n.subject.name : '', state: n.kind === 'container.dying' ? 'restarting (restarted 7 times)' : 'running' }), facts: [fact('notif.fact.image', 'Image', 'linuxserver/radarr:latest')], link: n.link }
+    : n.legacy ? null : { ok: null, sentence: null, facts: [] },
+  security: { available: true, events: [] },
+  events: { available: true, events: [] },
+  log: { available: false, reason: s('notif.log.none', 'No line of the log belongs to it.'), lines: [], truncated: false },
+});
+
+const filterList = (url) => {
+  const p = url.searchParams;
+  let list = NOTIFICATION_ITEMS;
+  if (p.get('level')) list = list.filter((n) => p.get('level').split(',').includes(n.level));
+  if (p.get('source')) list = list.filter((n) => n.source === p.get('source'));
+  if (p.get('read') === 'unread') list = list.filter((n) => !n.read);
+  if (p.get('read') === 'read') list = list.filter((n) => n.read);
+  if (p.get('q')) list = list.filter((n) => JSON.stringify(n).toLowerCase().includes(p.get('q').toLowerCase()));
+  const limit = Number(p.get('limit') || 30);
+  return ok({ items: list.slice(0, limit), next: list.length > limit ? '1:1' : '', unread: NOTIFICATION_ITEMS.filter((n) => !n.read).length, sources: [...new Set(NOTIFICATION_ITEMS.map((n) => n.source))] });
+};
+const details = (url) => {
+  const id = Number(url.searchParams.get('id'));
+  const n = byId(id) || NOTIFICATION_ITEMS.find((x) => x.ref === url.searchParams.get('ref'));
+  if (!n) return { status: 'error', message: 'Not found', code: 'NOT001' };
+  return ok({ ...n, what: null, means: null, doing: null, steps: [], raw: '', facts: [], ...(EXTRA[n.id] || {}), seen: seenOf(n), thread: [n, ...(THREADS[n.id] || []).map(byId)] });
+};
+const context = (url) => {
+  const n = byId(Number(url.searchParams.get('id')));
+  return n ? ok(CONTEXT[n.id] || defaultContext(n)) : { status: 'error', message: 'Not found' };
+};
+// the order matters: a later route is asked first
+export const notificationPagesMock = [
+  ['/cosmos/api/notifications/mark', ok({})],
+  ['/cosmos/api/notifications/delete', ok({})],
+  ['/cosmos/api/notifications/list', filterList],
+  ['/cosmos/api/notifications/item', details],
+  ['/cosmos/api/notifications/context', context],
+];

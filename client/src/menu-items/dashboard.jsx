@@ -1,5 +1,5 @@
 // assets
-import { HomeOutlined, AppstoreOutlined, DashboardOutlined, AppstoreAddOutlined, CheckOutlined } from '@ant-design/icons';
+import { HomeOutlined, AppstoreOutlined, DashboardOutlined, AppstoreAddOutlined, CheckOutlined, BellOutlined } from '@ant-design/icons'; // Fork addition: BellOutlined
 import { PERM_ADMIN_READ } from '../utils/permissions';
 import { isDomain } from '../utils/indexs';
 
@@ -23,6 +23,15 @@ const dashboard = {
             type: 'item',
             url: '/cosmos-ui/',
             icon: icons.HomeOutlined,
+            breadcrumbs: false
+        },
+        // Fork addition: every notification, in full (each user sees their own)
+        {
+            id: 'notifications',
+            title: 'menu-items.navigation.notifications',
+            type: 'item',
+            url: '/cosmos-ui/notifications',
+            icon: BellOutlined,
             breadcrumbs: false
         },
         {

@@ -41,7 +41,7 @@
 import { chromium, firefox, webkit } from 'playwright';
 import { mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { storageMock, usersPatch, notificationsMock, eventsMock } from './fork-ui-gallery-fixtures.mjs';
+import { storageMock, usersPatch, notificationsMock, eventsMock, notificationPagesMock, NOTIFICATION_ITEMS } from './fork-ui-gallery-fixtures.mjs';
 
 const base = process.env.BASE || 'http://polish.test:18080';
 const out = process.env.OUT || 'gallery';
@@ -309,6 +309,16 @@ const views = [
   { id: 'notifications-long', path: '/cosmos-ui/', wait: 800, mock: notificationsMock, captures: [
     { id: 'open', open: async (page) => { await page.locator('header button:has(.anticon-bell)').first().click(); }, wait: 600 },
   ] },
+  // the notifications page, the details of every kind and the bell (36-notifications), from fixtures
+  { id: 'notifications-page', path: '/cosmos-ui/notifications', core: true, guard: true, wait: 800, mock: notificationPagesMock, captures: [
+    {},
+    { id: 'unread', open: async (page) => { await page.goto(base + '/cosmos-ui/notifications?read=unread&level=error'); await page.waitForTimeout(800); }, close: async () => {} },
+    { id: 'delete-read', open: async (page) => { await page.goto(base + '/cosmos-ui/notifications'); await page.waitForTimeout(800); await page.locator('main button').filter({ hasText: /^Delete the read ones$/ }).first().click(); } },
+  ] },
+  { id: 'notifications-bell', path: '/cosmos-ui/notifications', guard: true, wait: 800, mock: notificationPagesMock, captures: [
+    { id: 'open', open: async (page) => { await page.locator('header button:has(.anticon-bell)').first().click(); }, wait: 600 },
+  ] },
+  ...NOTIFICATION_ITEMS.map((n) => ({ id: 'notification-' + n.id + '-' + (n.kind || 'legacy').replace(/\./g, '-'), path: '/cosmos-ui/notifications/' + n.id, guard: true, wait: 1200, mock: notificationPagesMock })),
   { id: 'monitoring-events-many', path: '/cosmos-ui/monitoring', wait: 1200, mock: eventsMock, captures: [{ id: 'events', tab: 2, wait: 800 }] },
   { id: 'container-events-many', path: '/cosmos-ui/servapps/containers/jellyfin', wait: 800, mock: eventsMock, captures: [{ id: 'events', tab: 3, wait: 800 }] },
   // upstream's licence-only pages: one picture each, for the record
@@ -823,7 +833,8 @@ const run = async (engineName, viewport, mode) => {
     if (smallSet && !view.core) return;
     await room(perLoad);
     const before = stamps.length;
-    for (const [part, body, status] of view.mock || []) await page.route((url) => url.pathname.startsWith(part), (route) => route.fulfill({ status: status || 200, json: body }));
+    // a body may be a function of the address asked for (answers that depend on the query)
+    for (const [part, body, status] of view.mock || []) await page.route((url) => url.pathname.startsWith(part), (route) => route.fulfill({ status: status || 200, json: typeof body === 'function' ? body(new URL(route.request().url())) : body }));
     for (const part of view.abort || []) await page.route((url) => url.pathname.startsWith(part), (route) => route.abort('connectionrefused'));
     for (const [part, change] of view.patch || []) {
       await page.route((url) => url.pathname === part || url.pathname.startsWith(part + '?'), async (route) => {
