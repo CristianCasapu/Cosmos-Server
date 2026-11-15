@@ -28,7 +28,7 @@ import (
 type SensitiveItem struct {
 	Service string `json:"service"`
 	// Kind: bind (a host folder), socket (a container runtime's socket),
-	// privileged, network-host, cap (a capability), unconfined (security_opt)
+	// privileged, network-host, cap (a capability), unconfined (security_opt), device (a device of the server)
 	Kind  string `json:"kind"`
 	Value string `json:"value"`
 }
@@ -154,6 +154,12 @@ func serviceSensitive(key string, service ContainerCreateRequestContainer, extra
 			items = append(items, SensitiveItem{Service: key, Kind: "unconfined", Value: option})
 		}
 	}
+	// Fork addition (plan 40): a device of the server (a disk, a graphics card, a USB stick) is used directly
+	for _, device := range service.Devices {
+		if host := strings.TrimSpace(strings.Split(device, ":")[0]); host != "" {
+			items = append(items, SensitiveItem{Service: key, Kind: "device", Value: cleanHostPath(host)})
+		}
+	}
 	return items
 }
 
@@ -188,6 +194,9 @@ var existingSensitive = func(service string, name string, extra []string) map[st
 		CapAdd:      existing.HostConfig.CapAdd,
 		SecurityOpt: existing.HostConfig.SecurityOpt,
 		Labels:      existing.Config.Labels,
+	}
+	for _, device := range existing.HostConfig.Devices {
+		asService.Devices = append(asService.Devices, device.PathOnHost+":"+device.PathInContainer)
 	}
 	for _, m := range existing.Mounts {
 		if m.Type == mount.TypeBind {
@@ -255,6 +264,8 @@ func sensitiveSentence(items []SensitiveItem) string {
 			parts = append(parts, item.Service+": the capability "+item.Value)
 		case "unconfined":
 			parts = append(parts, item.Service+": "+item.Value)
+		case "device":
+			parts = append(parts, item.Service+": the device "+item.Value)
 		}
 	}
 	return strings.Join(parts, "; ")

@@ -253,6 +253,23 @@ func TestSensitiveAccessNeedsAConfirmationPerItem(t *testing.T) {
 	}
 }
 
+// Fork addition (plan 40): a device of the server is sensitive access too.
+func TestADeviceNeedsAConfirmation(t *testing.T) {
+	request := DockerServiceCreateRequest{Services: map[string]ContainerCreateRequestContainer{
+		"jellyfin": {Devices: []string{"/dev/dri:/dev/dri", "/dev/sda:/dev/xvda:rwm"}},
+	}}
+	keys := []string{}
+	for _, item := range SensitiveAccess(request, nil) {
+		keys = append(keys, item.Key())
+	}
+	if !reflect.DeepEqual(keys, []string{"jellyfin|device|/dev/dri", "jellyfin|device|/dev/sda"}) {
+		t.Fatalf("%q", keys)
+	}
+	if missing := unconfirmedSensitive(request, url.Values{"confirm": keys[:1]}); len(missing) != 1 || missing[0].Value != "/dev/sda" {
+		t.Fatalf("%+v", missing)
+	}
+}
+
 func TestAnEditIsNotAskedAgainForWhatTheContainerHad(t *testing.T) {
 	withSensitiveFakes(t, map[string]bool{"cosmos|socket|/var/run/docker.sock": true})
 	request := DockerServiceCreateRequest{Services: map[string]ContainerCreateRequestContainer{
