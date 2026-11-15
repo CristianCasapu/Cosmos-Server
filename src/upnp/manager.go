@@ -105,10 +105,10 @@ type Status struct {
 	MaxAppPorts       int    `json:"maxAppPorts"`
 	Warning           string `json:"warning,omitempty"`
 	Error             string `json:"error,omitempty"`
-	// Paused is set when the router could not be reached: Cosmos does not
-	// try again by itself, only when asked to (or when the server or its
-	// settings change). A single mapping the router refused is paused on its
-	// own (Mapping.Paused).
+	// Paused is set when the router could not be reached: Cosmos tries again
+	// by itself after a pause that grows (retry.go), and at once when asked
+	// to (or when the server or its settings change). A single mapping that
+	// could not be made waits on its own (Mapping.Paused).
 	Paused      bool      `json:"paused,omitempty"`
 	LastRefresh time.Time `json:"lastRefresh"`
 }
@@ -125,7 +125,7 @@ type heldMapping struct {
 var (
 	runMu  sync.Mutex                 // one reconciliation at a time
 	held   = map[string]heldMapping{} // by key: what Cosmos holds on the router
-	paused bool                       // the router did not answer: no automatic retry
+	paused bool                       // the router did not answer: asked again after a pause (retry.go)
 	// failed: mappings the router refused, by key, with the request that was
 	// refused. Not asked again by itself while the request stays the same.
 	failed  = map[string]string{}
@@ -162,8 +162,12 @@ func tick() {
 	runMu.Lock()
 	defer runMu.Unlock()
 	if paused {
-		// A router that did not answer is not asked again until an admin
-		// says so; what was forwarded expires by itself.
+		// A router that did not answer is asked again by itself after a pause
+		// that grows (retry.go); "Check now" asks at once.
+		if clock().Before(routerRetry.next) {
+			return
+		}
+		run(makePlan(utils.GetMainConfig().HTTPConfig, clock()), false)
 		return
 	}
 	cfg := utils.GetMainConfig().HTTPConfig
@@ -171,7 +175,8 @@ func tick() {
 		return
 	}
 	p := makePlan(cfg, clock())
-	if p.signature == lastPlan && len(p.forget) == 0 && clock().Sub(lastRouterTalk) < renewInterval {
+	if p.signature == lastPlan && len(p.forget) == 0 && clock().Sub(lastRouterTalk) < renewInterval &&
+		!anyRetryDue(clock()) && !ownForwardLost(clock()) {
 		return
 	}
 	run(p, false)
@@ -375,6 +380,7 @@ func run(p plan, manual bool) Status {
 	}
 	if manual {
 		failed = map[string]string{}
+		resetRetries()
 	}
 	wasPaused := paused
 	routerFailed := false
@@ -397,9 +403,17 @@ func run(p plan, manual bool) Status {
 		}
 		paused = routerFailed && wanted
 		st.Paused = paused
+		if paused {
+			routerRetry = routerRetry.again(now, unreachablePauses)
+		} else {
+			routerRetry = retry{}
+		}
 		if paused && !wasPaused {
-			utils.Warn("UPnP: the router could not be set up; not trying again until asked to")
+			utils.Warn("UPnP: the router could not be set up; trying again by itself at " + routerRetry.next.Format("15:04"))
 			notifyFailure(st.Error)
+		}
+		if wasPaused && !paused && wanted {
+			utils.Log("UPnP: the router answers again")
 		}
 		if p.cfgErr != nil && p.cfgErr.Error() != lastConfigErr {
 			notifyFailure(p.cfgErr.Error())
@@ -447,7 +461,9 @@ func run(p plan, manual bool) Status {
 
 	g, err := discoverGateway()
 	lastRouterTalk = now
+	lastGateway, lastProbe = g, now
 	if err != nil {
+		lastGateway = nil
 		routerFailed = true
 		st.Error = err.Error()
 		for _, w := range p.wants {
@@ -562,7 +578,8 @@ func run(p plan, manual bool) Status {
 			continue
 		}
 		request := requestOf(w)
-		if refused, isFailed := failed[w.key]; isFailed && refused == request {
+		// not asked again before its pause is over (retry.go)
+		if refused, isFailed := failed[w.key]; isFailed && refused == request && !retryDue(w.key, now) {
 			if old, ok := previous[w.key]; ok && old.State == StateFailed {
 				m = old
 			} else {
@@ -635,14 +652,26 @@ func run(p plan, manual bool) Status {
 			}
 			if failed[w.key] != request {
 				notices = append(notices, m.Name+": "+m.Error)
+				delete(mappingRetry, w.key)
 			}
 			failed[w.key] = request
+			// tried again by itself: soon when the router did not answer or broke
+			// the connection, rarely when it answered with a refusal
+			pauses := refusedPauses
+			if refusal != nil && !routerAnswered(refusal) {
+				pauses = unreachablePauses
+			}
+			mappingRetry[w.key] = mappingRetry[w.key].again(now, pauses)
 			utils.Error("UPnP: could not forward port "+strconv.Itoa(m.WantedPort)+" ("+m.Name+")", errors.New(m.Error))
 			put(m)
 			continue
 		}
 
+		if _, hadFailed := failed[w.key]; hadFailed {
+			utils.Log("UPnP: port " + strconv.Itoa(got) + " (" + m.Name + ") is forwarded again")
+		}
 		delete(failed, w.key)
+		delete(mappingRetry, w.key)
 		m.Active, m.State, m.ExternalPort = true, StateActive, got
 		if got != m.WantedPort {
 			m.Code, m.Holder = "moved", holderOf(m.WantedPort)

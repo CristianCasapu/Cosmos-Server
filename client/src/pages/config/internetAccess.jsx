@@ -155,7 +155,7 @@ const InternetAccess = ({ formik }) => {
           {status && status.error && <Alert severity="error">{status.error}</Alert>}
           {status && status.paused && <Alert severity="warning">
             {t('mgmt.config.internet.status.paused',
-              'Cosmos has stopped trying. Check that UPnP is enabled on the router, then press "Check now"; or turn automatic port forwarding off.')}
+              'The router does not answer. Cosmos tries again by itself, after 1, 2, 5 and 10 minutes and then every 15. Check that UPnP is enabled on the router; press "Check now" to try at once, or turn automatic port forwarding off.')}
           </Alert>}
           {status && status.warning && <Alert severity="warning">{status.warning}</Alert>}
 

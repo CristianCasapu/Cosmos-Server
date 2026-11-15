@@ -37,6 +37,7 @@ type fakeRouter struct {
 	refuse     map[string]int // other refusals by port key (606)
 	controlURL string         // what the description advertises
 	calls      []string       // "AddPortMapping TCP/8443"
+	breakAdd   bool           // AddPortMapping ends without an answer: the router closes the connection
 }
 
 type fakeForward struct {
@@ -149,6 +150,14 @@ func (r *fakeRouter) control(w http.ResponseWriter, req *http.Request) {
 	action := strings.Trim(req.Header.Get("SOAPAction"), `"`)
 	action = action[strings.Index(action, "#")+1:]
 	r.calls = append(r.calls, action+" "+key)
+	if r.breakAdd && action == "AddPortMapping" {
+		if hijacker, ok := w.(http.Hijacker); ok {
+			if conn, _, err := hijacker.Hijack(); err == nil {
+				conn.Close()
+			}
+		}
+		return
+	}
 	switch action {
 	case "GetExternalIPAddress":
 		reply("<NewExternalIPAddress>203.0.113.7</NewExternalIPAddress>")

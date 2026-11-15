@@ -529,7 +529,7 @@ export const MappingsOverview = ({ status, onStatus, formik }) => {
         </Stack>
         {note && <Typography variant="caption" color="textSecondary" data-router-note>{say(note)}</Typography>}
         {m.paused && <Typography variant="caption" color="textSecondary">
-          {t('mgmt.router.overview.paused', 'Cosmos does not try this one again by itself: press "Check now". The other ports are renewed as usual.')}
+          {t('mgmt.router.overview.paused', 'Cosmos tries this one again by itself, after a pause that grows (an hour at most); press "Check now" to try at once. The other ports are renewed as usual.')}
         </Typography>}
         {own && !m.active && m.holder && <Typography variant="caption" color="textSecondary" sx={{ overflowWrap: 'anywhere' }}>
           {t('mgmt.router.overview.holder', 'Port {{port}} is used by {{holder}}: another device on your network. Cosmos does not take it.', { port: m.wantedPort, holder: m.holder })}

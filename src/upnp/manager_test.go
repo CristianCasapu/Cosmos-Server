@@ -61,6 +61,8 @@ func newWorld(t *testing.T) *world {
 		runMu.Lock()
 		held, failed, missing = map[string]heldMapping{}, map[string]string{}, map[string]time.Time{}
 		paused, lastPlan, lastConfigErr, lastRouterTalk = false, "", "", time.Time{}
+		resetRetries()
+		lastProbe, lastGateway = time.Time{}, nil
 		runMu.Unlock()
 		statusMu.Lock()
 		status = Status{Mappings: []Mapping{}, Apps: []Mapping{}, Foreign: []Foreign{}}
@@ -91,6 +93,8 @@ func (w *world) config(change func(*utils.Config)) {
 func (w *world) restart() {
 	runMu.Lock()
 	held, failed, missing, paused, lastPlan = map[string]heldMapping{}, map[string]string{}, map[string]time.Time{}, false, ""
+	resetRetries()
+	lastProbe, lastGateway = time.Time{}, nil
 	runMu.Unlock()
 }
 
@@ -458,13 +462,18 @@ func TestARefusedMappingIsPausedAlone(t *testing.T) {
 		t.Errorf("ExternalHTTPSPort = %d", ExternalHTTPSPort())
 	}
 
-	// by itself: the good one is renewed, the refused ones are not asked again
+	// by itself: the good one is renewed; the refused one is asked again
+	// rarely (after 15 minutes, then 30: retry.go), the port someone else
+	// holds is never asked for
 	w.minutes(41)
 	if n := w.router.count("AddPortMapping", "TCP/27015"); n != 3 {
 		t.Errorf("the working mapping was asked for %d times in 41 minutes, want 3", n)
 	}
-	if n := w.router.count("AddPortMapping", "UDP/27015"); n != 1 {
-		t.Errorf("the refused mapping was asked for %d times", n)
+	if n := w.router.count("AddPortMapping", "UDP/27015"); n != 2 {
+		t.Errorf("the refused mapping was asked for %d times in 41 minutes, want 2", n)
+	}
+	if n := w.router.count("AddPortMapping", "TCP/2053"); n != 0 {
+		t.Errorf("the port the NAS holds was asked for %d times", n)
 	}
 	if m := app(GetStatus(), "game 27015/udp"); !m.Paused || m.State != StateFailed || m.Error == "" {
 		t.Errorf("the refused mapping lost its state: %+v", m)
@@ -482,8 +491,8 @@ func TestARefusedMappingIsPausedAlone(t *testing.T) {
 	}
 }
 
-// A router that cannot be reached is reported once and not asked again
-// until someone asks for it.
+// A router that cannot be reached is reported once and asked again by
+// itself after a pause that grows (retry.go).
 func TestAnUnreachableRouterPausesEverything(t *testing.T) {
 	w := newWorld(t)
 	w.routerErr = errors.New("no UPnP router answered")
@@ -496,21 +505,24 @@ func TestAnUnreachableRouterPausesEverything(t *testing.T) {
 	if !GetStatus().Paused || own(st, "HTTPS").Active {
 		t.Error("the published status does not say that retries are paused")
 	}
+	// asked again after 1, 2, 5 and 10 minutes, then every 15: at minutes
+	// 1, 3, 8, 18, 33, 48, 63 and 78; the admins are told once
 	w.minutes(90)
-	if w.discovered != 1 {
-		t.Errorf("the router was asked again by itself: %d", w.discovered)
+	if w.discovered != 9 || len(w.notices) != 1 {
+		t.Errorf("after 90 minutes: the router was asked %d times, want 9; notices %d, want 1", w.discovered, len(w.notices))
 	}
 
-	// asked again by hand: tried again, but the admins are not told twice
+	// asked again by hand: tried at once, but the admins are not told twice
 	st = reconcile(true)
-	if !st.Paused || w.discovered != 2 || len(w.notices) != 1 {
+	if !st.Paused || w.discovered != 10 || len(w.notices) != 1 {
 		t.Errorf("manual retry: paused=%v attempts=%d notices=%d", st.Paused, w.discovered, len(w.notices))
 	}
 
-	// switched off: nothing to do, nothing paused
+	// switched off: nothing to do, nothing paused, nothing asked any more
 	w.config(func(c *utils.Config) { c.HTTPConfig.UPnP.Enabled = false })
 	st = reconcile(true)
-	if st.Paused || st.Error != "" || w.discovered != 2 {
+	w.minutes(40)
+	if st.Paused || st.Error != "" || w.discovered != 10 || GetStatus().Paused {
 		t.Errorf("after switching off: paused=%v error=%q attempts=%d", st.Paused, st.Error, w.discovered)
 	}
 
