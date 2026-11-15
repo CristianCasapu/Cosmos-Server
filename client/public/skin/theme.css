@@ -1111,6 +1111,10 @@ pre.code {
    the page sideways (the events list on a phone) */
 .MuiAccordionSummary-content { min-width: 0; }
 
+/* a page's tab panel may be narrower than its widest content: a wide table then scrolls inside its own
+   card instead of pushing the whole page sideways (a long mount path on Storage > Mounts) */
+[role=tabpanel] { min-width: 0; }
+
 /* the vertical tabs of a page (Storage, Settings): a title on one line ("Merge Disks" broke a word per line) */
 .MuiTabs-vertical .MuiTab-root { white-space: nowrap; }
 

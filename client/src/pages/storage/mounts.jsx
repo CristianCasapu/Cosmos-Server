@@ -74,11 +74,11 @@ export const StorageMounts = () => {
         columns={[
           {
             title: t('mgmt.storage.deviceTitle'),
-            field: (r) => <><FolderOutlined/>  {r.device}</>,
+            field: (r) => <span style={{ overflowWrap: 'break-word' }}><FolderOutlined/>  {r.device}</span>, // Fork addition: a merge's list of folders breaks
           },
           { 
             title: t('mgmt.storage.pathTitle'),
-            field: (r) => r.path,
+            field: (r) => <span style={{ overflowWrap: 'anywhere' }}>{r.path}</span>, // Fork addition: a long path breaks (it widened the table past the page)
           },
           { 
             title: t('mgmt.storage.typeTitle'),
@@ -86,7 +86,7 @@ export const StorageMounts = () => {
           },
           { 
             title: t('mgmt.storage.optionsTitle'),
-            field: (r) => (Array.isArray(r.opts) ? r.opts.join(', ') : JSON.stringify(r.opts)), // Fork addition: a list that wraps (was a JSON array)
+            field: (r) => <span style={{ overflowWrap: 'anywhere' }}>{Array.isArray(r.opts) ? r.opts.join(', ') : JSON.stringify(r.opts)}</span>, // Fork addition: a list that wraps (was a JSON array)
           },
           {
             title: '',
