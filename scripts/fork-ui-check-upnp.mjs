@@ -8,7 +8,7 @@
 //   http://10.213.79.2:8080): the stand-in for the router;
 // - the throwaway Cosmos (BASE, a name with a dot for WebKit), started with
 //   --cap-add NET_ADMIN and "ip route replace default via <the stand-in>",
-//   HTTPS disabled in the wizard, DOCKER_HOST pointing at a docker:27-dind;
+//   HTTPS disabled in the wizard, DOCKER_HOST pointing at a docker:29-dind;
 // - in that Docker: "jellyfin" publishing 8096/tcp and 7359/udp, "torrent"
 //   publishing 51413/tcp, 51413/udp and 127.0.0.1:9091 (busybox will do),
 //   and the image IMAGE present (default busybox:1.36) for the install step.

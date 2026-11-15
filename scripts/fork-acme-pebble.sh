@@ -42,11 +42,11 @@ PREFIX="${PREFIX:-cosmos-acme}"
 SCRATCH="${SCRATCH:-/tmp/$PREFIX}"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 GO_IMAGE="${GO_IMAGE:-golang:1.27}"
-PEBBLE_IMAGE="${PEBBLE_IMAGE:-ghcr.io/letsencrypt/pebble:latest}"
+PEBBLE_IMAGE="${PEBBLE_IMAGE:-ghcr.io/letsencrypt/pebble:2.10.3}"
 NET="$PREFIX-net"
 SUBNET="${SUBNET:-172.31.57}"
 
-ALPINE_IMAGE="${ALPINE_IMAGE:-alpine:3.20}"
+ALPINE_IMAGE="${ALPINE_IMAGE:-alpine:3.24}"
 
 clean() {
 	docker rm -f -v "$PREFIX-app" "$PREFIX-pebble" "$PREFIX-fake" "$PREFIX-check" "$PREFIX-build" "$PREFIX-router" "$PREFIX-foreign" >/dev/null 2>&1 || true

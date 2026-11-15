@@ -8,7 +8,7 @@
 //   - a network made with `docker network create --internal --subnet 172.31.53.0/24 <net>`;
 //   - the stand-in on it with the alias api.cloudflare.com (FAKE=http://<its name>:8080
 //     is its control port) and a folder mounted at /shared;
-//   - a docker:27-dind with two containers named radarr (any image) and
+//   - a docker:29-dind with two containers named radarr (any image) and
 //     jellyfin (an image named jellyfin/jellyfin), connected to that network only;
 //   - a fresh Cosmos at 172.31.53.10, run in a loop, with COSMOS_HTTP_PORT=2052,
 //     COSMOS_HTTPS_PORT=2053, SSL_CERT_FILE=/shared/ca.pem and DOCKER_HOST=tcp://<dind>:2375.

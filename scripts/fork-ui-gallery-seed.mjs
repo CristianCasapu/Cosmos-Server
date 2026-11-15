@@ -5,7 +5,7 @@
 // It expects (see CLAUDE.md, "Checking the UI in a browser"):
 //   - the instance at BASE (default http://polish.test:18080), fresh or
 //     already seeded (every step is skipped when its result exists);
-//   - a Docker of the instance's own (docker:27-dind) holding a handful of
+//   - a Docker of the instance's own (docker:29-dind) holding a handful of
 //     containers named jellyfin, radarr, sonarr, qbittorrent, vaultwarden,
 //     pihole (the last two stopped) and one with a long name.
 //

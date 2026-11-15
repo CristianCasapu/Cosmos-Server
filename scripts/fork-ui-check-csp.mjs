@@ -29,9 +29,9 @@
 // something failed.
 //
 // Run it from the Playwright image on the instance's network, with playwright
-// installed next to it (npm i playwright@1.49.1):
+// installed next to it (npm i playwright@1.65.1):
 //   docker run --rm --network <net> --ipc=host -v <scripts>:/work -w /work \
-//     -e BASE=https://csp.test -e PHASE=all mcr.microsoft.com/playwright:v1.49.1-noble \
+//     -e BASE=https://csp.test -e PHASE=all mcr.microsoft.com/playwright:v1.65.1-noble \
 //     node fork-ui-check-csp.mjs
 //
 //   BASE=https://csp.test        the instance (HTTPS with Cosmos' own certificate; WebKit needs a dot)

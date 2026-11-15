@@ -12,7 +12,7 @@
 // - scripts/fork-fake-cloudflare.go with the alias api.cloudflare.com (FAKE is
 //   its control port) and a folder at /shared (it writes /shared/ca.pem);
 // - scripts/fork-fake-igd.go at a fixed address (IGD is its control port);
-// - a docker:27-dind (DOCKER_HOST of the test Cosmos) with twelve containers
+// - a docker:29-dind (DOCKER_HOST of the test Cosmos) with twelve containers
 //   without a URL: appa-1 … appa-6 (-p 810<n>:80) and appb-1 … appb-6
 //   (-p 820<n>:80), any image (for example alpine tagged localtest/web:1)
 //   running "sleep infinity"; and appc-1 (-p 8301:80) for the refusal;
@@ -20,7 +20,7 @@
 //   COSMOS_HTTP_PORT=2052, COSMOS_HTTPS_PORT=2053, SSL_CERT_FILE=/shared/ca.pem,
 //   and its default route through the stand-in router
 //   (docker run --rm --network container:<cosmos> --cap-add NET_ADMIN
-//    --entrypoint ip docker:27-dind route replace default via <IGD address>);
+//    --entrypoint ip docker:29-dind route replace default via <IGD address>);
 // - Playwright 1.49.1 installed next to this script (the network has no way out).
 // It finishes the set-up wizard and connects example.org itself (as
 // fork-ui-check-expose.mjs does). Per engine and size n: appa-n gets a local

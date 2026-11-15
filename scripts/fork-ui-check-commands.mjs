@@ -3,7 +3,7 @@
 // commands sent with GET from a panel page are refused with 405.
 //
 // Needs a throwaway instance (CLAUDE.md, "Checking the UI in a browser") whose
-// Docker is a docker:27-dind of its own holding a running container named
+// Docker is a docker:29-dind of its own holding a running container named
 // cmd-app (busybox sleeping); admin / Test-Passw0rd!x. Never the production
 // instance.
 //

@@ -6,8 +6,8 @@
 // throwaway Cosmos with a Docker of its own. Never the production instance.
 //
 // What it needs, on one Docker network made with --internal (no way out):
-// - a docker:27-dind at DIND (its API on 2375, the DOCKER_HOST of the test
-//   Cosmos) holding: a registry (registry:2 on 5000) with
+// - a docker:29-dind at DIND (its API on 2375, the DOCKER_HOST of the test
+//   Cosmos) holding: a registry (registry:3 on 5000) with
 //   localhost:5000/jellyfin:latest and localhost:5000/whoami:latest (any
 //   amd64 image, busybox will do) and localhost:5000/armonly:latest (an
 //   arm64-only image: busybox pulled with --platform linux/arm64); a running

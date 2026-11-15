@@ -5,7 +5,7 @@
 // throwaway Cosmos. Never the production instance.
 //
 // What it needs, on one Docker network of its own:
-// - a docker:27-dind (DOCKER_HOST of the test Cosmos) holding busybox:1.36 and
+// - a docker:29-dind (DOCKER_HOST of the test Cosmos) holding busybox:1.36 and
 //   these containers, each "sleep 36000"; a leftover is made by creating the
 //   container, starting and stopping it, and renaming it
 //   "<app>-cosmos-old-<first 12 hex of its ID>":
@@ -25,7 +25,7 @@
 // sonarr leftover is removed through its confirmation dialog.
 // Run from the Playwright image on the same network:
 //   docker run --rm --network <net> --ipc=host -v <dir with this script>:/work -w /work \
-//     mcr.microsoft.com/playwright:v1.49.1-noble sh -c 'npm i playwright@1.49.1 && node fork-ui-check-leftovers.mjs'
+//     mcr.microsoft.com/playwright:v1.65.1-noble sh -c 'npm i playwright@1.65.1 && node fork-ui-check-leftovers.mjs'
 // Screenshots go to ./shots.
 import { chromium, firefox, webkit, request } from 'playwright';
 import { mkdirSync } from 'node:fs';

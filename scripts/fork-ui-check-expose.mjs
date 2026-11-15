@@ -8,16 +8,16 @@
 // - scripts/fork-fake-cloudflare.go with the alias api.cloudflare.com (FAKE is
 //   its control port) and a folder at /shared (it writes /shared/ca.pem);
 // - scripts/fork-fake-igd.go at a fixed address (IGD is its control port);
-// - a docker:27-dind (DOCKER_HOST of the test Cosmos) with three containers:
+// - a docker:29-dind (DOCKER_HOST of the test Cosmos) with three containers:
 //   sonarr (image lscr.io/linuxserver/sonarr, -p 8989:8989), minecraft (image
 //   itzg/minecraft-server, -p 25565:25565/tcp -p 25565:25565/udp -p 8123:8123
 //   -p 25575:25575), db (image postgres:16, -p 5432:5432); any image tagged so,
-//   running "sleep infinity"; and a registry in it (registry:2 on 5000) holding localhost:5000/gitea:latest for the install (the pull of a compose has to work);
+//   running "sleep infinity"; and a registry in it (registry:3 on 5000) holding localhost:5000/gitea:latest for the install (the pull of a compose has to work);
 // - the test Cosmos at SERVER_IP, fresh, run in a loop, with --cap-add NET_ADMIN,
 //   COSMOS_HTTP_PORT=2052, COSMOS_HTTPS_PORT=2053, SSL_CERT_FILE=/shared/ca.pem,
 //   and its default route through the stand-in router
 //   (docker run --rm --network container:<cosmos> --cap-add NET_ADMIN
-//    --entrypoint ip docker:27-dind route replace default via <IGD address>).
+//    --entrypoint ip docker:29-dind route replace default via <IGD address>).
 // It finishes the set-up wizard and connects example.org itself.
 // Screenshots go to ./shots.
 import { chromium, firefox, webkit, request } from 'playwright';

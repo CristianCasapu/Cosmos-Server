@@ -14,7 +14,7 @@
 //
 //   docker run --rm --network <prefix>-net --ipc=host -v <dir with node_modules and this file>:/work \
 //     -v <repository>:/repo:ro -w /work -e SERVER_IP=<subnet>.10 -e FAKE=http://<subnet>.2:8080 \
-//     mcr.microsoft.com/playwright:v1.49.1-noble node fork-ui-check-certificates.mjs
+//     mcr.microsoft.com/playwright:v1.65.1-noble node fork-ui-check-certificates.mjs
 //
 // A full run makes 18 of the 30 lookups an hour the server allows for
 // "Add another domain" (src/certs/http.go): restart the test server's

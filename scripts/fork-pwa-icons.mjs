@@ -4,8 +4,8 @@
 // client/public/skin/theme.css). Run it again only when the mark or the
 // colours change; the PNGs are committed.
 //
-//   docker run --rm -v "$PWD":/src -w /src mcr.microsoft.com/playwright:v1.49.1-noble \
-//     sh -c 'cd /tmp && npm i -s playwright@1.49.1 && NODE_PATH=/tmp/node_modules node /src/scripts/fork-pwa-icons.mjs'
+//   docker run --rm -v "$PWD":/src -w /src mcr.microsoft.com/playwright:v1.65.1-noble \
+//     sh -c 'cd /tmp && npm i -s playwright@1.65.1 && NODE_PATH=/tmp/node_modules node /src/scripts/fork-pwa-icons.mjs'
 //
 //   icon-192.png, icon-512.png   "any": a rounded tile, as Chromium shows it on a desktop
 //   icon-maskable-512.png        "maskable": the tile fills the square, the mark stays in

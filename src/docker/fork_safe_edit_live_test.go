@@ -3,7 +3,7 @@ package docker
 // Fork addition: exercises EditContainer against a real Docker daemon. It
 // creates, edits and removes containers and a network named
 // cosmos-edit-live-*, so it only runs when asked to, and only against a
-// daemon of its own (docker:27-dind), never the machine's:
+// daemon of its own (docker:29-dind), never the machine's:
 //
 //	COSMOS_FORK_LIVE_DOCKER=1 DOCKER_HOST=tcp://<dind>:2375 go test ./src/docker/ -run SafeEditLive -v
 //

@@ -7,11 +7,11 @@
 // again), with the real pages copied into the build folder the test server
 // serves (<SCRATCH>/bin/static). Run it on that --internal network, with the
 // stand-in as name server (--dns <SUBNET>.2) so that the browsers resolve
-// the home names like a device at home would, and with playwright@1.49.1
+// the home names like a device at home would, and with playwright@1.65.1
 // installed beforehand (the network has no way out):
 //
 //   docker run --rm --network <PREFIX>-net --dns <SUBNET>.2 --ipc=host -v <dir>:/work -w /work \
-//     mcr.microsoft.com/playwright:v1.49.1-noble node fork-ui-check-home-names.mjs
+//     mcr.microsoft.com/playwright:v1.65.1-noble node fork-ui-check-home-names.mjs
 //
 // SERVER=<SUBNET>.10 (default 172.31.58.10). Screenshots go to ./shots.
 // ENGINES=chromium,firefox,webkit SIZES=d,m. Nothing leaves the network.
