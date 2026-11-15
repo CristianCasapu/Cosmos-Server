@@ -130,7 +130,7 @@ for (const engine of names) {
     // the URL form proposes the home name and says every URL gets one
     await page.goto(base + '/cosmos-ui/config-url', { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: /Create/ }).first().click();
-    const dialog = page.locator('[role=dialog]').last();
+    const dialog = page.locator('[role=dialog]:visible').last();
     await dialog.waitFor({ timeout: 20000 });
     await dialog.getByText('Another device or address').click();
     await dialog.locator('#Host').fill('nas.local');

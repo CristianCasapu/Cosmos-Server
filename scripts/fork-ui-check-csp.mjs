@@ -383,7 +383,7 @@ const flowsPhase = async () => {
             await install.click().catch(() => {});
             await page.waitForTimeout(6000);
             await shot(page, label, 'market-install');
-            const shown = await page.locator('[role=dialog]').first().innerText().catch(() => '');
+            const shown = await page.locator('[role=dialog]:visible').first().innerText().catch(() => '');
             check(label, 'Market: the installer read the compose file', shown.length > 50 && !/Error|error/.test(shown.slice(0, 200)), shown.slice(0, 160));
             await page.keyboard.press('Escape');
           }

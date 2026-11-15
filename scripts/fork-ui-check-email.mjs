@@ -94,7 +94,7 @@ const openCustom = async (page) => {
 };
 const check = async (page) => {
   await page.getByRole('button', { name: 'Check and send a test email' }).click();
-  await card(page).locator('.MuiAlert-standardSuccess, .MuiAlert-standardError').filter({ hasText: /It works|The check stopped|could not be sent/ })
+  await card(page).locator('.MuiAlert-standard.MuiAlert-colorSuccess, .MuiAlert-standard.MuiAlert-colorError').filter({ hasText: /It works|The check stopped|could not be sent/ })
     .waitFor({ timeout: 45000 });
   await page.waitForTimeout(300);
   return cardText(page);

@@ -42,7 +42,7 @@ for (const name of names) for (const size of wanted) {
   await page.waitForTimeout(3500);
   await page.getByRole('button', { name: /Create/ }).first().click();
   await page.waitForTimeout(800);
-  const dialog = page.locator('[role=dialog]').last();
+  const dialog = page.locator('[role=dialog]:visible').last();
   let text = await dialog.innerText();
   expect(id + ': the roles are User and Admin, each explained; no Guest the server does not know', /User/.test(text) && /Admin/.test(text) && !/Guest/.test(text) && /Cannot change anything in Cosmos/.test(text));
   expect(id + ': it says what happens next', /you get a link to pass on to the person/.test(text));
@@ -75,7 +75,7 @@ for (const name of names) for (const size of wanted) {
   const made = (await users(ctx)).find((u) => u.nickname === nick);
   expect(id + ': the user is created as User', !!made && made.role === 1, JSON.stringify(made || {}).slice(0, 120));
   // the link to pass on
-  const link = page.locator('[role=dialog]').last();
+  const link = page.locator('[role=dialog]:visible').last();
   text = await link.innerText();
   const value = await link.locator('input[readonly]').inputValue().catch(() => '');
   expect(id + ': the link is shown, to pass on', new RegExp('Invitation for ' + nick).test(text) && /No email was sent\. Pass this link on/.test(text) && value.includes('/cosmos-ui/register?t=2&nickname=' + nick + '&key='), value.slice(0, 80));
@@ -88,7 +88,7 @@ for (const name of names) for (const size of wanted) {
   if (sizes[size].width > 600) {
     await page.locator('tbody tr', { hasText: nick }).locator('td').first().click();
     await page.waitForTimeout(800);
-    const edit = page.locator('[role=dialog]').last();
+    const edit = page.locator('[role=dialog]:visible').last();
     expect(id + ': edit names the user', new RegExp('Edit ' + nick).test(await edit.innerText()));
     await edit.locator('.MuiChip-root[role=radio]', { hasText: 'Admin' }).click();
     await edit.locator('#email').fill(nick + '@example.org');
@@ -98,21 +98,21 @@ for (const name of names) for (const size of wanted) {
     expect(id + ': role and address are saved', !!edited && edited.role === 2 && edited.email === nick + '@example.org', JSON.stringify(edited || {}).slice(0, 120));
     await page.locator('tbody tr', { hasText: 'admin' }).first().locator('td').first().click();
     await page.waitForTimeout(800);
-    const own = page.locator('[role=dialog]').last();
+    const own = page.locator('[role=dialog]:visible').last();
     expect(id + ': the own account\'s role is not a choice, with the reason', /another administrator has to change its role/.test(await own.innerText()) && await own.locator('.MuiChip-root[role=radio][aria-disabled=true], .MuiChip-root.Mui-disabled').count() >= 2);
     await own.getByRole('button', { name: 'Cancel' }).click();
     await page.waitForTimeout(500);
     // the two-factor reset asks first
     await page.locator('tbody tr', { hasText: nick }).getByRole('button', { name: /Reset 2FA/i }).click();
     await page.waitForTimeout(600);
-    const ask = page.locator('[role=dialog]').last();
+    const ask = page.locator('[role=dialog]:visible').last();
     expect(id + ': the two-factor reset asks first', new RegExp('Reset the two-factor sign-in of ' + nick).test(await ask.innerText()));
     await ask.getByRole('button', { name: 'Cancel' }).click();
     await page.waitForTimeout(400);
     // cancelling a delete gives the row its buttons back
     await page.locator('tbody tr', { hasText: nick }).getByRole('button', { name: 'Delete' }).click();
     await page.waitForTimeout(500);
-    await page.locator('[role=dialog]').last().getByRole('button', { name: 'Cancel' }).click();
+    await page.locator('[role=dialog]:visible').last().getByRole('button', { name: 'Cancel' }).click();
     await page.waitForTimeout(600);
     expect(id + ': cancelling a delete gives the row its buttons back', await page.locator('tbody tr', { hasText: nick }).getByRole('button', { name: 'Delete' }).count() === 1);
   }
