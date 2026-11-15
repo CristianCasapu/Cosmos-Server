@@ -21,40 +21,30 @@ const AuthWrapper = ({ children }) => {
     return <Box sx={{ minHeight: '100vh', 
         background:  darkMode ? 'none' : '#fafafb' }}>
         <AuthBackground />
-        <Grid
-            container
-            direction="column"
-            justifyContent="flex-end"
-            sx={{
-                minHeight: '100vh'
-            }}
-        >
-            <Grid item xs={12} sx={{ ml: 3, mt: 3 }}>
+        {/* Fork addition: a flex column (MUI 9's Grid has no column direction: the page scrolled sideways); not a Stack, which would reset the margins */}
+        <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', minHeight: '100vh' }}>
+            <Box sx={{ ml: 3, mt: 3 }}>
                 <Logo />
-            </Grid>
-            <Grid item xs={12}>
+            </Box>
+            <Box>
                 <Grid
-                    item
-                    xs={12}
                     container
-                    justifyContent="center"
-                    alignItems="center"
-                    sx={{ 
+                    sx={{ justifyContent: 'center', alignItems: 'center', 
                         minHeight: { 
                             xs: 'calc(100vh - 134px)',
                             md: 'calc(100vh - 112px)'
                         } 
                     }}
                 >
-                    <Grid item>
+                    <Grid>
                         <AuthCard>{children}</AuthCard>
                     </Grid>
                 </Grid>
-            </Grid>
-            <Grid item xs={12} sx={{ m: 3, mt: 1 }}>
+            </Box>
+            <Box sx={{ m: 3, mt: 1 }}>
                 <AuthFooter />
-            </Grid>
-        </Grid>
+            </Box>
+        </Box>
     </Box>
 };
 

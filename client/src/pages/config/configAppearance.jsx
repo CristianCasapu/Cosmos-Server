@@ -22,12 +22,12 @@ const ConfigAppearance = ({ formik }) => {
   return (
     <MainCard title={t('mgmt.config.appearanceTitle')}>
       <Grid container spacing={3}>
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           {!uploadingBackground && formik.values.Background && <img src=
             {formik.values.Background} alt={t('mgmt.config.appearance.uploadWallpaperButton.previewBrokenError')}
             width={285} />}
           {uploadingBackground && <Skeleton variant="rectangular" width={285} height={140} />}
-           <Stack spacing={1} direction="row" useFlexGap flexWrap="wrap" sx={{ mt: 1 }}>{/* Fork addition: wraps on a phone */}
+           <Stack spacing={1} direction="row" useFlexGap sx={{ flexWrap: 'wrap', mt: 1 }}>{/* Fork addition: wraps on a phone */}
             <UploadButtons
               accept='.jpg, .png, .gif, .jpeg, .webp, .bmp, .avif, .tiff, .svg'
               label={t('mgmt.config.appearance.uploadWallpaperButton.uploadWallpaperLabel')}
@@ -63,7 +63,7 @@ const ConfigAppearance = ({ formik }) => {
           </Stack>
         </Grid>
 
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <CosmosCheckbox
             label={t('mgmt.config.appearance.appDetailsOnHomepageCheckbox.appDetailsOnHomepageLabel')}
             name="Expanded"
@@ -72,13 +72,13 @@ const ConfigAppearance = ({ formik }) => {
         </Grid>
 
         {/* Fork addition: what the two colours change */}
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <Typography variant="body2" color="textSecondary" className="ct-theme-note">
             {t('mgmt.config.appearance.colorsNote', 'The two colours tint the whole panel: buttons, links, the selected menu entry, tabs and the keyboard focus ring, in light and dark mode, and the sign-in pages of devices that have opened the panel since. Where a colour would be hard to read, Cosmos uses a lighter or darker shade of it. The changes show at once; Save keeps them.')}
           </Typography>
         </Grid>
 
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <Stack spacing={1}>
             <InputLabel style={{marginBottom: '10px'}} htmlFor="PrimaryColor">{t('mgmt.config.appearance.primaryColorSlider')}</InputLabel>
             <SliderPicker
@@ -93,7 +93,7 @@ const ConfigAppearance = ({ formik }) => {
           </Stack>
         </Grid>
 
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <Stack spacing={1}>
             <InputLabel style={{marginBottom: '10px'}} htmlFor="SecondaryColor">{t('mgmt.config.appearance.secondaryColorSlider')}</InputLabel>
             <SliderPicker

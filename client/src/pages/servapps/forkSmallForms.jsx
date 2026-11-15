@@ -90,7 +90,7 @@ export const ForkNetworkFields = ({ formik, taken }) => {
     {macvlan && <Stack spacing={1}>
       {cards.length > 0 && <>
         <Typography variant="caption" color="textSecondary">{t('mgmt.servApps.fork.cardsFound', 'The server\'s network cards (click to use one):')}</Typography>
-        <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+        <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1}>
           {cards.map((card) => <Chip
             key={card.interface}
             size="small"

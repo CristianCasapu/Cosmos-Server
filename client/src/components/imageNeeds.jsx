@@ -35,7 +35,7 @@ export const ImageNeeds = ({ desc, recipe, declared, reference }) => {
       {' '}
       {t('mgmt.services.needs.watch', 'After the creation Cosmos watches its first start: if the image says it is missing a setting, Cosmos proposes it then.')}
     </Alert>
-    {(docs.length > 0 || desc.page) && <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap" sx={{ minWidth: 0 }}>
+    {(docs.length > 0 || desc.page) && <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap', minWidth: 0 }}>
       {desc.page && <Box component="a" href={desc.page} target="_blank" rel="noopener noreferrer" sx={{ overflowWrap: 'anywhere' }} data-image-needs-page>
         {t('mgmt.services.needs.page', 'What its publisher says it needs')}
       </Box>}

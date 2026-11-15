@@ -5,7 +5,7 @@
 // markup and never as a link.
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import dayjs from 'dayjs';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
@@ -202,28 +202,53 @@ const Incidents = forwardRef(({ catalogue, from }, ref) => {
   const rows = groupRepeats(events || []);
   const filtered = group || severity || debounced.ip || debounced.text;
 
-  return <div ref={box}>
+  return (
+    <div ref={box}>
     {open && <Details row={open} catalogue={catalogue} onClose={() => setOpen(null)} />}
     <Typography variant="h5">{t('security.list.title', 'Incidents')}</Typography>
     <Typography variant="body2" color="textSecondary" sx={{ mb: 1.5 }}>
       {t('security.list.help', 'Newest first, in the period chosen above. Repeats from the same address are folded into one row; click a row for everything that was recorded.')}
     </Typography>
-    <Stack direction={narrow ? 'column' : 'row'} spacing={2} sx={{ mb: 2 }} useFlexGap flexWrap="wrap">
-      <TextField select size="small" label={t('security.list.group', 'What')} SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }} value={group} onChange={(e) => setGroup(e.target.value)} sx={{ minWidth: 180 }}>
+    <Stack direction={narrow ? 'column' : 'row'} spacing={2} sx={{ flexWrap: 'wrap', mb: 2 }} useFlexGap>
+        <TextField
+          select
+          size="small"
+          label={t('security.list.group', 'What')}
+          value={group}
+          onChange={(e) => setGroup(e.target.value)}
+          sx={{ minWidth: 180 }}
+          slotProps={{
+            select: { displayEmpty: true },
+            inputLabel: { shrink: true }
+          }}>
         <MenuItem value="">{t('security.list.allGroups', 'Everything')}</MenuItem>
         {GROUP_ORDER.map((id) => <MenuItem key={id} value={id}>{t(...groupLabel(id))}</MenuItem>)}
       </TextField>
-      <TextField select size="small" label={t('security.list.severity', 'Severity')} SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }} value={severity} onChange={(e) => setSeverity(e.target.value)} sx={{ minWidth: 160 }}>
+        <TextField
+          select
+          size="small"
+          label={t('security.list.severity', 'Severity')}
+          value={severity}
+          onChange={(e) => setSeverity(e.target.value)}
+          sx={{ minWidth: 160 }}
+          slotProps={{
+            select: { displayEmpty: true },
+            inputLabel: { shrink: true }
+          }}>
         <MenuItem value="">{t('security.list.anySeverity', 'Any')}</MenuItem>
         <MenuItem value="medium">{t('security.list.mediumUp', 'Medium and high')}</MenuItem>
         <MenuItem value="high">{t('security.list.highOnly', 'High only')}</MenuItem>
       </TextField>
       <TextField size="small" label={t('security.list.address', 'Address')} value={ip} onChange={(e) => setIP(e.target.value)}
         error={!ipValid} helperText={!ipValid ? t('security.list.badAddress', 'Not an IP address') : undefined}
-        inputProps={{ maxLength: 45, spellCheck: false }} sx={{ minWidth: 180 }} />
+          sx={{ minWidth: 180 }} slotProps={{
+          htmlInput: { maxLength: 45, spellCheck: false }
+        }} />
       <TextField size="small" label={t('security.list.text', 'Text')} value={text} onChange={(e) => setText(e.target.value)}
         placeholder={t('security.list.textPlaceholder', 'user name, path, server name…')}
-        inputProps={{ maxLength: 100, spellCheck: false }} sx={{ flex: 1, minWidth: 180 }} />
+          sx={{ flex: 1, minWidth: 180 }} slotProps={{
+          htmlInput: { maxLength: 100, spellCheck: false }
+        }} />
       {filtered && <Button onClick={() => { setGroup(''); setSeverity(''); setIP(''); setText(''); setDebounced({ ip: '', text: '' }); }}>
         {t('security.list.clear', 'Clear the filters')}
       </Button>}
@@ -249,7 +274,8 @@ const Incidents = forwardRef(({ catalogue, from }, ref) => {
         </Button>
       </MainCard>}
     </Stack>}
-  </div>;
+    </div>
+  );
 });
 
 export default Incidents;

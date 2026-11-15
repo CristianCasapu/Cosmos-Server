@@ -34,10 +34,10 @@ runs:
         node-version: 26
         cache: npm
 
-    # GeoLite2, Nebula and restic are not in the repository; upstream's CI
-    # downloads them (GeoLite2 needs a MaxMind key). Take the exact files
-    # upstream shipped for the version this commit is based on.
-    - name: Fetch the bundled third-party files from the upstream release
+    # GeoLite2 is not in the repository; upstream's CI downloads it (it
+    # needs a MaxMind key). Take the file upstream shipped for the version
+    # this commit is based on.
+    - name: Fetch the GeoLite2 database from the upstream release
       shell: bash
       env:
         UPSTREAM_REPO: azukaar/cosmos-server
@@ -48,23 +48,57 @@ runs:
         fi
         base="https://github.com/$UPSTREAM_REPO/releases/download/v$upstream"
         mkdir upstream
-        for arch in amd64 arm64; do
-          zip="cosmos-cloud-$upstream-$arch.zip"
-          curl -fsSL --retry 3 -o "upstream/$zip" "$base/$zip"
-          curl -fsSL --retry 3 -o "upstream/$zip.md5" "$base/$zip.md5"
-          want=$(awk 'NR==1{print $1}' "upstream/$zip.md5")
-          have=$(md5sum "upstream/$zip" | awk '{print $1}')
-          if [ -z "$want" ] || [ "$want" != "$have" ]; then
-            echo "::error::$zip does not match the checksum upstream published"; exit 1
-          fi
-          unzip -q "upstream/$zip" -d "upstream/$arch"
-        done
-        amd="upstream/amd64/cosmos-cloud-$upstream"
-        arm="upstream/arm64/cosmos-cloud-$upstream-arm64"
-        cp "$amd/GeoLite2-Country.mmdb" "$amd/nebula" "$amd/nebula-cert" "$amd/restic" .
-        cp "$arm/nebula-arm" "$arm/nebula-arm-cert" .
-        cp "$arm/restic" restic-arm
+        zip="cosmos-cloud-$upstream-amd64.zip"
+        curl -fsSL --retry 3 -o "upstream/$zip" "$base/$zip"
+        curl -fsSL --retry 3 -o "upstream/$zip.md5" "$base/$zip.md5"
+        want=$(awk 'NR==1{print $1}' "upstream/$zip.md5")
+        have=$(md5sum "upstream/$zip" | awk '{print $1}')
+        if [ -z "$want" ] || [ "$want" != "$have" ]; then
+          echo "::error::$zip does not match the checksum upstream published"; exit 1
+        fi
+        unzip -q "upstream/$zip" -d upstream/amd64
+        cp "upstream/amd64/cosmos-cloud-$upstream/GeoLite2-Country.mmdb" .
         rm -rf upstream
+
+    # Nebula (Constellation) and restic (backups) from the projects' own
+    # releases, each file checked against a SHA-256 pinned here (restic's
+    # checksum list is signed with the key CF8F18F2844575973F79D4E191A6868BD3F7A907;
+    # Nebula publishes SHASUM256.txt). Nebula stays on 1.9: from 1.10 on,
+    # nebula-cert prints its JSON as a list and signs v2 certificates by
+    # default, which Constellation's code does not read. restic stays on
+    # 0.18: 0.19 stops with an error when neither HOME nor XDG_CACHE_HOME
+    # is set, which is how a server installed as a system service runs it.
+    - name: Fetch Nebula and restic from their own releases
+      shell: bash
+      env:
+        NEBULA_VERSION: v1.9.7
+        NEBULA_AMD64_SHA256: b748bd78b81e8a484ec7e35ad1c620807397c978780e8322d2148b87041e6525
+        NEBULA_ARM64_SHA256: 009d98724cb430d911cdc53ea9e16373ff7f3d98ada82ec1c09796e6168cddac
+        RESTIC_VERSION: 0.18.1
+        RESTIC_AMD64_SHA256: 680838f19d67151adba227e1570cdd8af12c19cf1735783ed1ba928bc41f363d
+        RESTIC_ARM64_SHA256: 87f53fddde38764095e9c058a3b31834052c37e5826d2acf34e18923c006bd45
+      run: |
+        mkdir thirdparty
+        fetch() { # url, file, sha256
+          curl -fsSL --retry 3 -o "thirdparty/$2" "$1"
+          echo "$3  thirdparty/$2" | sha256sum -c --quiet - || { echo "::error::$2 does not match its pinned SHA-256"; exit 1; }
+        }
+        nebula="https://github.com/slackhq/nebula/releases/download/$NEBULA_VERSION"
+        fetch "$nebula/nebula-linux-amd64.tar.gz" nebula-amd64.tar.gz "$NEBULA_AMD64_SHA256"
+        fetch "$nebula/nebula-linux-arm64.tar.gz" nebula-arm64.tar.gz "$NEBULA_ARM64_SHA256"
+        restic="https://github.com/restic/restic/releases/download/v$RESTIC_VERSION"
+        fetch "$restic/restic_${RESTIC_VERSION}_linux_amd64.bz2" restic-amd64.bz2 "$RESTIC_AMD64_SHA256"
+        fetch "$restic/restic_${RESTIC_VERSION}_linux_arm64.bz2" restic-arm64.bz2 "$RESTIC_ARM64_SHA256"
+        mkdir thirdparty/amd64 thirdparty/arm64
+        tar -xzf thirdparty/nebula-amd64.tar.gz -C thirdparty/amd64 nebula nebula-cert
+        tar -xzf thirdparty/nebula-arm64.tar.gz -C thirdparty/arm64 nebula nebula-cert
+        cp thirdparty/amd64/nebula nebula; cp thirdparty/amd64/nebula-cert nebula-cert
+        cp thirdparty/arm64/nebula nebula-arm; cp thirdparty/arm64/nebula-cert nebula-arm-cert
+        bunzip2 -c thirdparty/restic-amd64.bz2 > restic
+        bunzip2 -c thirdparty/restic-arm64.bz2 > restic-arm
+        chmod 755 nebula nebula-cert nebula-arm nebula-arm-cert restic restic-arm
+        ./nebula -version; ./nebula-cert -version; ./restic version
+        rm -rf thirdparty
 
     # package.json keeps upstream's version: the UI compares it with the
     # version an app from the market requires.

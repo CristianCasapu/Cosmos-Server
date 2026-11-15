@@ -37,7 +37,7 @@ const MountDeviceSuggestions = ({ formik, deviceField = 'device', pathField = 'p
     <Typography variant="caption" color="textSecondary">
       {t('mgmt.storage.mount.waiting', 'Partitions that are not mounted (click to use one):')}
     </Typography>
-    <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+    <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1}>
       {partitions.map((partition) => (
         <Chip
           key={partition.device}

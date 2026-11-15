@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import { Stack, CircularProgress, Card, Typography, useMediaQuery, Chip, Button } from '@mui/material';
 import { CloudServerOutlined, CalendarOutlined, FolderOutlined, ReloadOutlined, InfoCircleOutlined, CloudOutlined } from '@ant-design/icons';
 import * as API from '../../api';
@@ -60,7 +60,7 @@ export default function SingleRepoIndex({singleBackup}) {
 
   if (loading) {
     return (
-      <Stack spacing={3} alignContent={'center'} justifyContent={'center'} alignItems={'center'}>
+      <Stack spacing={3} sx={{ alignContent: 'center', justifyContent: 'center', alignItems: 'center' }}>
         <CircularProgress />
       </Stack>
     );
@@ -78,7 +78,7 @@ export default function SingleRepoIndex({singleBackup}) {
 
   return (
     <Stack spacing={3} className="p-4" style={{ maxWidth: '1000px', margin: 'auto' }}>
-    <Stack direction="row" spacing={2} justifyContent="flex-start">
+    <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-start' }}>
       <ResponsiveButton variant="outlined" startIcon={<ReloadOutlined />} onClick={fetchBackupDetails}>
         {t('global.refresh')}
       </ResponsiveButton>

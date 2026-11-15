@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link as RouterLink } from 'react-router-dom'; // Fork addition: every item opens its details
+import { Link as RouterLink } from 'react-router'; // Fork addition: every item opens its details
 import { useTranslation } from 'react-i18next';
 import dayjs from 'dayjs';
 

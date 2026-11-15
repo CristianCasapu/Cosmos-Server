@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { styled, alpha } from '@mui/material/styles';
+import { styled } from '@mui/material/styles';
 import Button from '@mui/material/Button';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
@@ -45,10 +45,7 @@ const StyledMenu = styled((props) => (
         marginRight: theme.spacing(1.5),
       },
       '&:active': {
-        backgroundColor: alpha(
-          theme.palette.primary.main,
-          theme.palette.action.selectedOpacity,
-        ),
+        backgroundColor: theme.alpha(theme.palette.primary.main, theme.palette.action.selectedOpacity),
       },
     },
   },
@@ -74,7 +71,6 @@ export default function MenuButton({children, size='large', icon=<DashOutlined  
         aria-haspopup="true"
         aria-expanded={open ? 'true' : undefined}
         variant="outlined"
-        disableElevation
         onClick={handleClick}
         size={size}
         sx={{
@@ -84,9 +80,7 @@ export default function MenuButton({children, size='large', icon=<DashOutlined  
       </IconButton></Tooltip>
       <StyledMenu
         id="demo-customized-menu"
-        MenuListProps={{
-          'aria-labelledby': 'demo-customized-button',
-        }}
+        slotProps={{ list: { 'aria-labelledby': 'demo-customized-button' } }}
         anchorEl={anchorEl}
         open={open}
         onClose={handleClose}

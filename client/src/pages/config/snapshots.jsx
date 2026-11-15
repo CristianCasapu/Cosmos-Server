@@ -19,7 +19,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { DeleteOutlined, FolderOutlined, PlayCircleOutlined, PlusOutlined, RollbackOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { CosmosCheckbox, CosmosInputText, CosmosSelect } from './users/formShortcuts';
@@ -264,7 +264,7 @@ const Snapshots = ({ formik, config }) => {
   return (
     <MainCard title={t('mgmt.config.snapshots.title', 'Incremental backup')}>
       <Grid container spacing={3}>
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <Alert severity="info">
             {t('mgmt.config.snapshots.info',
               'Cosmos keeps dated copies (snapshots) of the folders below in the destination: one folder per date, which any file manager can open. A file that did not change since the previous snapshot is stored as a link to it, so only changes take up space; the copies are not encrypted.')}
@@ -278,14 +278,14 @@ const Snapshots = ({ formik, config }) => {
         />
 
         {/* where the snapshots go */}
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           {/* the label above the row and the row aligned at its top: the folder button stays level
               with the input when an error is shown under it, and the field fits a phone */}
           <Stack spacing={1}>
             <InputLabel htmlFor="Snapshots_Destination">
               {t('mgmt.config.snapshots.destinationLabel', 'Destination: the folder the snapshots are stored in')}
             </InputLabel>
-            <Stack direction={"row"} spacing={2} alignItems="flex-start">
+            <Stack direction={"row"} spacing={2} sx={{ alignItems: 'flex-start' }}>
               <FilePickerButton canCreate onPick={(path) => {
                 if (path)
                   formik.setFieldValue('Snapshots_Destination', path);
@@ -304,10 +304,10 @@ const Snapshots = ({ formik, config }) => {
         </Grid>
 
         {/* what is backed up */}
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <Stack spacing={1}>
             <InputLabel>{t('mgmt.config.snapshots.sourcesLabel', 'Folders to back up')}</InputLabel>
-            <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
               <FilePickerButton
                 onPick={(path) => addSource(path)}
                 select="folder"
@@ -323,7 +323,7 @@ const Snapshots = ({ formik, config }) => {
                 />
               ))}
               {sources.length === 0 && (
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                   {t('mgmt.config.snapshots.noSource', 'No folder yet: add one with the button, or pick a suggestion.')}
                 </Typography>
               )}
@@ -334,7 +334,7 @@ const Snapshots = ({ formik, config }) => {
               <Typography variant="caption" color="textSecondary">
                 {t('mgmt.config.snapshots.suggested', 'Suggested (click to add):')}
               </Typography>
-              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+              <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
                 {suggestions.map((path) => (
                   <Chip
                     key={path}
@@ -419,17 +419,17 @@ const Snapshots = ({ formik, config }) => {
           inputProps={{ min: 1, max: 365, step: 1, inputMode: 'numeric' }}
           formik={formik}
         />
-        <Grid item xs={12}>
-          <Typography variant="caption" color="text.secondary">
+        <Grid size={{ xs: 12 }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
             {t('mgmt.config.snapshots.keepNote',
               'After each run the snapshots that are not kept by one of these rules are removed. Several snapshots made on the same day all stay while they are among the most recent ones; after that only the newest of that day stays.')}
           </Typography>
         </Grid>
 
         {/* what there is, and what is running (the saved settings, not the form) */}
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <Stack spacing={1.5}>
-            <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap flexWrap="wrap">
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
               <Typography variant="subtitle1">
                 {t('mgmt.config.snapshots.status.title', 'Snapshots')}
               </Typography>
@@ -476,12 +476,12 @@ const Snapshots = ({ formik, config }) => {
             ))}
 
             {status && !status.enabled && (
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                 {t('mgmt.config.snapshots.status.off', 'The incremental backup is off: no snapshot is made, on a schedule or with the button.')}
               </Typography>
             )}
             {unsaved && (
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                 {t('mgmt.config.snapshots.status.unsaved', 'The settings above were changed: save them before backing up.')}
               </Typography>
             )}
@@ -494,12 +494,12 @@ const Snapshots = ({ formik, config }) => {
                   <Typography variant="subtitle2" sx={{ overflowWrap: 'anywhere' }}>{source.path}</Typography>
                   {source.lastError && <Alert severity="warning" sx={{ overflowWrap: 'anywhere' }}>{source.lastError}</Alert>}
                   {list.length === 0 && (
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                       {t('mgmt.config.snapshots.status.none', 'No snapshot yet.')}
                     </Typography>
                   )}
                   {shown.map((snapshot) => (
-                    <Stack key={snapshot.id} direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+                    <Stack key={snapshot.id} direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
                       <Typography variant="body2" sx={{ overflowWrap: 'anywhere', flexGrow: 1, flexBasis: 0, minWidth: '12em' }}>
                         {shownDate(snapshot.finished) || snapshot.id}
                         {' · '}
@@ -509,7 +509,7 @@ const Snapshots = ({ formik, config }) => {
                           linked: simplifyNumber(snapshot.bytesLinked || 0, 'B'),
                         })}
                         {snapshot.errors > 0 && (
-                          <Typography component="span" variant="body2" color="warning.main">
+                          <Typography component="span" variant="body2" sx={{ color: 'warning.main' }}>
                             {' · '}
                             {t('mgmt.config.snapshots.status.errors', 'not backed up: {{errors}}', { errors: Number(snapshot.errors).toLocaleString() })}
                           </Typography>
@@ -539,8 +539,8 @@ const Snapshots = ({ formik, config }) => {
                   )}
                   {/* what restores kept next to the folder: never deleted without being asked */}
                   {(source.beforeRestore || []).map((kept) => (
-                    <Stack key={kept.name} direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
-                      <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere', flexGrow: 1, flexBasis: 0, minWidth: '12em' }}>
+                    <Stack key={kept.name} direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
+                      <Typography variant="body2" sx={{ color: 'text.secondary', overflowWrap: 'anywhere', flexGrow: 1, flexBasis: 0, minWidth: '12em' }}>
                         {t('mgmt.config.snapshots.kept.row', 'Kept by the restore of {{date}}: {{path}}', { date: keptDate(kept), path: keptPath(source, kept) })}
                       </Typography>
                       <PermissionGuard permission={PERM_ADMIN}>
@@ -562,7 +562,7 @@ const Snapshots = ({ formik, config }) => {
               );
             })}
 
-            <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+            <Typography variant="caption" sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }}>
               {status && status.destination
                 ? t('mgmt.config.snapshots.status.noteWhere',
                   'The list reflects the saved settings. The snapshots are in {{destination}}, one folder per folder backed up.', { destination: status.destination })

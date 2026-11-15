@@ -8,7 +8,7 @@ import { Alert, Button, Checkbox, CircularProgress, IconButton, InputLabel, List
 import { CosmosCheckbox, CosmosFormDivider, CosmosInputText } from "../config/users/formShortcuts";
 import MainCard from "../../components/MainCard";
 import { Formik } from "formik";
-import { LoadingButton } from "@mui/lab";
+import { Button as LoadingButton } from "@mui/material"; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import ApiModal from "../../components/apiModal";
 import ConfirmModal from "../../components/confirmModal";
 import { crontabToText, isDomain } from "../../utils/indexs";

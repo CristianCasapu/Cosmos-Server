@@ -6,7 +6,7 @@ import { CosmosCheckbox, CosmosFormDivider, CosmosInputText, CosmosSelect }
   from '../../config/users/formShortcuts';
 import { ApiOutlined, CheckCircleOutlined, CloseCircleOutlined, DeleteOutlined, PlusCircleOutlined } from '@ant-design/icons';
 import * as API from '../../../api';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import PrettyTableView from '../../../components/tableView/prettyTableView';
 import { NetworksColumns } from '../networks';
 import NewNetworkButton from '../createNetwork';
@@ -203,7 +203,7 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                     {formik.values.ports.map((port, idx) => (
                       <Grid container key={idx}>
                         {/* Fork addition: the address the port is bound to (not sent by the new container form) */}
-                        {!newContainer && <Grid item xs={12} md={3} style={{ padding }}>
+                        {!newContainer && <Grid size={{ xs: 12, md: 3 }} style={{ padding }}>
                           <TextField
                             fullWidth
                             label={t('mgmt.servApps.networks.hostIpInput.hostIpLabel', 'Host IP (optional)')}
@@ -217,7 +217,7 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                             }}
                           />
                         </Grid>}
-                        <Grid item xs={4} md={newContainer ? 4 : 3} style={{ padding }}>
+                        <Grid size={{ xs: 4, md: newContainer ? 4 : 3 }} style={{ padding }}>
                           <TextField
                             fullWidth
                             label="Host port"
@@ -229,7 +229,7 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                             }}
                           />
                         </Grid>
-                        <Grid item xs={4} md={newContainer ? 4 : 3} style={{ padding }}>
+                        <Grid size={{ xs: 4, md: newContainer ? 4 : 3 }} style={{ padding }}>
                           <TextField
                             label={t('mgmt.servApps.networks.containerPortInput.containerPortLabel')}
                             fullWidth
@@ -241,7 +241,7 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                             }}
                           />
                         </Grid>
-                        <Grid item xs={3} md={newContainer ? 3 : 2} style={{ padding }}>
+                        <Grid size={{ xs: 3, md: newContainer ? 3 : 2 }} style={{ padding }}>
                           <TextField
                             className="px-2 my-2"
                             variant="outlined"
@@ -259,7 +259,7 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                             <MenuItem value="udp">UDP</MenuItem>
                           </TextField>
                         </Grid>
-                        <Grid item xs={1} style={{ padding }}>
+                        <Grid size={{ xs: 1 }} style={{ padding }}>
                           <Tooltip title={t('global.delete', 'Delete')}><IconButton
                             fullWidth
                             variant="outlined"
@@ -300,7 +300,7 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                   <div>
                     <Stack direction="column" spacing={2}>
                       {formik.errors.submit && (
-                        <Grid item xs={12}>
+                        <Grid size={{ xs: 12 }}>
                           <FormHelperText error>{formik.errors.submit}</FormHelperText>
                         </Grid>
                       )}

@@ -5,7 +5,7 @@
 import * as React from 'react';
 import * as API from '../api';
 import { Alert, Button, Grid, Stack, Typography } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { CloudDownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { ConfirmModalDirect } from './confirmModal';
@@ -86,7 +86,7 @@ const ServerUpdate = () => {
 
   const checkedAt = status && status.checkedAt ? new Date(status.checkedAt).toLocaleString() : null;
 
-  return <Grid item xs={12}>
+  return <Grid size={{ xs: 12 }}>
     <Stack spacing={1.5}>
       <Typography variant="body2" color="textSecondary" sx={{ overflowWrap: 'anywhere' }}>
         {t('mgmt.config.update.running', 'Running version: {{version}}', { version: shown(status && status.currentVersion) || '…' })}
@@ -112,7 +112,7 @@ const ServerUpdate = () => {
         <Alert severity="success">{t('mgmt.config.general.updateCheck.upToDate', { version: shown(status.currentVersion) })}</Alert>
       ) : null}
 
-      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
         <PermissionGuard permission={PERM_ADMIN}>
           <LoadingButton loading={update.checking} variant="outlined" startIcon={<ReloadOutlined />}
             disabled={Boolean(update.installing)} onClick={update.check}>

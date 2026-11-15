@@ -5,7 +5,7 @@
 // none is shown.
 import * as React from 'react';
 import { Box, Chip, Stack, Tooltip, Typography } from '@mui/material';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import * as API from '../api';
 import { volumeUsers, volumeLocation } from '../utils/volumeUsage';
@@ -66,7 +66,7 @@ export const VolumeUsers = ({ volume, containers, narrow }) => {
     ? <Typography variant="body2" color="textSecondary">
         {t('mgmt.servapps.volumes.unused', 'Not used by any app')}
       </Typography>
-    : <Stack direction="row" useFlexGap flexWrap="wrap" spacing={0.75} alignItems="center">
+    : <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }} spacing={0.75}>
         {narrow && <Typography variant="caption" color="textSecondary">{t('mgmt.servapps.volumes.usedBy', 'Used by')}:</Typography>}
         {users.map((user) => {
           const vars = { path: user.target };

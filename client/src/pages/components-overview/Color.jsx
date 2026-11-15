@@ -25,17 +25,17 @@ function ColorBox({ bgcolor, title, data, dark, main }) {
                     }}
                 >
                     {title && (
-                        <Grid container justifyContent="space-around" alignItems="center">
-                            <Grid item>
+                        <Grid container sx={{ justifyContent: 'space-around', alignItems: 'center' }}>
+                            <Grid>
                                 {data && (
-                                    <Stack spacing={0.75} alignItems="center">
+                                    <Stack spacing={0.75} sx={{ alignItems: 'center' }}>
                                         <Typography variant="subtitle2">{data.label}</Typography>
                                         <Typography variant="subtitle1">{data.color}</Typography>
                                     </Stack>
                                 )}
                             </Grid>
-                            <Grid item>
-                                <Typography variant="subtitle1" color="inherit">
+                            <Grid>
+                                <Typography variant="subtitle1" sx={{ color: 'inherit' }}>
                                     {title}
                                 </Typography>
                             </Grid>
@@ -60,7 +60,7 @@ ColorBox.propTypes = {
 const ComponentColor = () => (
     <ComponentSkeleton>
         <Grid container spacing={3}>
-            <Grid item xs={12} sm={6} md={4}>
+            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                 <MainCard title="Primary Color" codeHighlight>
                     <Stack>
                         <ColorBox bgcolor="primary.lighter" data={{ label: 'Blue-1', color: '#e6f7ff' }} title="primary.lighter" dark />
@@ -76,7 +76,7 @@ const ComponentColor = () => (
                     </Stack>
                 </MainCard>
             </Grid>
-            <Grid item xs={12} sm={6} md={4}>
+            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                 <MainCard title="Secondary Color" codeHighlight>
                     <Stack>
                         <ColorBox bgcolor="secondary.lighter" data={{ label: 'Grey-1', color: '#fafafa' }} title="secondary.lighter" dark />
@@ -92,7 +92,7 @@ const ComponentColor = () => (
                     </Stack>
                 </MainCard>
             </Grid>
-            <Grid item xs={12} sm={6} md={4}>
+            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                 <MainCard title="Other Color" codeHighlight>
                     <Stack>
                         <ColorBox bgcolor="secondary.A100" data={{ label: 'Grey-A1', color: '#ffffff' }} title="secondary.A100" dark />
@@ -101,7 +101,7 @@ const ComponentColor = () => (
                     </Stack>
                 </MainCard>
             </Grid>
-            <Grid item xs={12} sm={6} md={4}>
+            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                 <MainCard title="Success Color" codeHighlight>
                     <Stack>
                         <ColorBox bgcolor="success.lighter" data={{ label: 'Green-1', color: '#f6ffed' }} title="success.lighter" dark />
@@ -112,7 +112,7 @@ const ComponentColor = () => (
                     </Stack>
                 </MainCard>
             </Grid>
-            <Grid item xs={12} sm={6} md={4}>
+            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                 <MainCard title="Error Color" codeHighlight>
                     <Stack>
                         <ColorBox bgcolor="error.lighter" data={{ label: 'Red-1', color: '#fff1f0' }} title="error.lighter" dark />
@@ -123,7 +123,7 @@ const ComponentColor = () => (
                     </Stack>
                 </MainCard>
             </Grid>
-            <Grid item xs={12} sm={6} md={4}>
+            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                 <MainCard title="Warning Color" codeHighlight>
                     <Stack>
                         <ColorBox bgcolor="warning.lighter" data={{ label: 'Gold-1', color: '#fffbe6' }} title="warning.lighter" dark />

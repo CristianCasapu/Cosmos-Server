@@ -28,7 +28,7 @@ const ConfigExternal = ({ formik }) => {
             formik={formik}
           />
 
-          <Stack direction={"row"} spacing={2} alignItems="flex-end">
+          <Stack direction={"row"} spacing={2} sx={{ alignItems: 'flex-end' }}>
             <FilePickerButton onPick={(path) => {
               if(path)
                 formik.setFieldValue('DefaultDataPath', path);
@@ -45,13 +45,13 @@ const ConfigExternal = ({ formik }) => {
 
       <MainCard title={t('mgmt.config.general.monitoringDbTitle')}>
         <Grid container spacing={3}>
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
             <Stack spacing={1}>
               <FormHelperText>{t('mgmt.config.general.monitoringDb.introHelperText')}</FormHelperText>
 
               <CosmosCollapse title={t('mgmt.config.general.monitoringDb.postgresTitle')}>
                 <Grid container spacing={3}>
-                  <Grid item xs={12}>
+                  <Grid size={{ xs: 12 }}>
                     <CosmosInputText
                       label={t('mgmt.config.general.monitoringDb.hostInput.hostLabel')}
                       name="PostgresHost"
@@ -61,7 +61,7 @@ const ConfigExternal = ({ formik }) => {
                     <FormHelperText>{t('mgmt.config.general.monitoringDb.hostInput.hostHelperText')}</FormHelperText>
                   </Grid>
 
-                  <Grid item xs={12}>
+                  <Grid size={{ xs: 12 }}>
                     <CosmosInputText
                       label={t('mgmt.config.general.monitoringDb.databaseInput.databaseLabel')}
                       name="PostgresDatabase"
@@ -84,7 +84,7 @@ const ConfigExternal = ({ formik }) => {
                     />
                   </Grid>
 
-                  <Grid item xs={12}>
+                  <Grid size={{ xs: 12 }}>
                     <CosmosInputText
                       label={t('mgmt.config.general.monitoringDb.nodeNameInput.nodeNameLabel')}
                       name="MetricsNodeName"

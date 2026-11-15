@@ -10,10 +10,12 @@ import { askForPassword } from "../utils/sudoPrompt";
 // keyboard.
 const disarm = (el) => {
   if (!React.isValidElement(el)) return el;
-  const props = { onClick: undefined, onChange: undefined };
+  // a Fragment takes no handlers (React 19 says so), and the children go back
+  // as separate arguments so that they need no keys
+  const props = el.type === React.Fragment ? {} : { onClick: undefined, onChange: undefined };
   const kids = el.props.children;
   if (kids === undefined || kids === null) return React.cloneElement(el, props);
-  return React.cloneElement(el, props, Array.isArray(kids) ? kids.map(disarm) : disarm(kids));
+  return Array.isArray(kids) ? React.cloneElement(el, props, ...kids.map(disarm)) : React.cloneElement(el, props, disarm(kids));
 };
 
 const PermissionGuard = ({ children, permission, alwaysShow }) => {

@@ -67,7 +67,7 @@ export const MetricPicker = ({ metricsInit, name, style, value, errors, placehol
       refresh();
   }, []);
   
-  return <Grid item xs={12}>
+  return <Grid size={{ xs: 12 }}>
     <Stack spacing={1} style={style}>
       {label && <InputLabel htmlFor={name}>{label}</InputLabel>}
       {/* <OutlinedInput

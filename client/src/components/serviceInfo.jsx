@@ -116,11 +116,11 @@ export const ServiceInfo = ({ containerName, classification, onInsist, insistLab
     </Alert>
     <Stack spacing={0.5} sx={{ minWidth: 0 }}>
       <Typography variant="body2">{t('mgmt.services.address', 'Other apps on this server reach it at:')}</Typography>
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
         <Box component="code" data-service-address sx={{ overflowWrap: 'anywhere', minWidth: 0, fontSize: 14 }}>{address}</Box>
         <CopyButton value={address} />
       </Stack>
-      {connection && <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+      {connection && <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
         <Box component="code" data-service-connection sx={{ overflowWrap: 'anywhere', minWidth: 0, fontSize: 12 }}>{connection}</Box>
         <CopyButton value={connection} />
       </Stack>}
@@ -137,7 +137,7 @@ export const ServiceInfo = ({ containerName, classification, onInsist, insistLab
         <Typography variant="caption" color="text.secondary">{t('mgmt.services.reachHint', 'Each app you pick gets a network of its own with {{name}}, and reaches it at {{address}}.', { name, address })}</Typography>
         {others === null && <Typography variant="body2">…</Typography>}
         {others && others.length === 0 && <Typography variant="body2">{t('mgmt.services.noOthers', 'There is no other app on this server yet.')}</Typography>}
-        {others && others.length > 0 && <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+        {others && others.length > 0 && <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1}>
           {others.map((n) => {
             const on = picked.includes(n);
             return <Chip key={n} label={n} clickable disabled={linking} color={on ? 'primary' : 'default'} variant={on ? 'filled' : 'outlined'}

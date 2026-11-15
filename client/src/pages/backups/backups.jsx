@@ -18,7 +18,7 @@ const PasswordCell = ({ password, t }) => {
   const [shown, setShown] = useState(false);
   if (!password) return null;
   return (
-    <Stack direction="row" spacing={0.5} alignItems="center" onClick={(e) => e.stopPropagation()}>
+    <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
       <span style={{ fontFamily: 'monospace', userSelect: 'all' }}>
         {shown ? password : '••••••••'}
       </span>
@@ -94,7 +94,7 @@ export const Backups = ({pathFilters}) => {
         onClose={() => setDeleteBackup(null)}
       />}
       <Stack spacing={2}>
-        {!pathFilters && <Stack direction="row" spacing={2} justifyContent="flex-start">  
+        {!pathFilters && <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-start' }}>  
           <BackupDialog refresh={refresh}/>
           <ResponsiveButton variant="outlined" startIcon={<ReloadOutlined />} onClick={refresh}>
             {t('global.refresh')}

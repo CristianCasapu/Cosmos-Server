@@ -1,7 +1,7 @@
 import PropTypes from 'prop-types';
 
 // material-ui
-import { alpha, styled } from '@mui/material/styles';
+import { styled } from '@mui/material/styles';
 import { Box } from '@mui/material';
 
 // third-party
@@ -20,7 +20,7 @@ const SimpleBarStyle = styled(SimpleBar)(({ theme }) => ({
     maxHeight: '100%',
     '& .simplebar-scrollbar': {
         '&:before': {
-            backgroundColor: alpha(theme.palette.grey[500], 0.48)
+            backgroundColor: theme.alpha(theme.palette.grey[500], 0.48)
         },
         '&.simplebar-visible:before': {
             opacity: 1

@@ -10,7 +10,7 @@ import {
   Alert, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormHelperText, IconButton,
   OutlinedInput, Stack, Tooltip, Typography,
 } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { CopyOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import * as API from '../../api';
@@ -151,7 +151,7 @@ export const ForkOpenidDialog = ({ clientId, config, onClose, onDone }) => {
           <Typography variant="subtitle1" component="div">{t('mgmt.openId.fork.redirectsLabel', 'Addresses the app is sent back to')}</Typography>
           {redirects.length === 0
             ? <FormHelperText error={tried}>{t('mgmt.openId.fork.redirectsEmpty', 'None yet: pick the app above, or add the address its documentation names.')}</FormHelperText>
-            : <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+            : <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1}>
               {redirects.map((uri) => <Chip
                 key={uri}
                 label={uri}
@@ -161,7 +161,7 @@ export const ForkOpenidDialog = ({ clientId, config, onClose, onDone }) => {
                 sx={{ maxWidth: '100%', height: 'auto', '& .MuiChip-label': { whiteSpace: 'normal', py: 0.5, overflowWrap: 'anywhere' } }}
               />)}
             </Stack>}
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'flex-start' }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { xs: 'stretch', sm: 'flex-start' } }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <FormField
                 id="fork-openid-redirect"
@@ -226,7 +226,7 @@ const CopyRow = ({ label, value, sentence, secret }) => {
   };
   return <Stack spacing={0.5}>
     <Typography variant="subtitle2" component="div">{label}</Typography>
-    <Stack direction="row" spacing={1} alignItems="center">
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
       <OutlinedInput
         inputRef={input}
         value={value}

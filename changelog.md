@@ -8,9 +8,20 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Nothing merged into `custom` since `0.24.0-fork.28` yet.
+Nothing merged into `custom` since `0.24.0-fork.30` yet.
 
-Work in progress on separate branches (not released, and may change before it is): the major versions of the frontend's build tool and libraries, and automatic dependency updates.
+Work in progress on separate branches (not released, and may change before it is): automatic dependency updates, and apps without a web interface.
+
+## Fork 0.24.0-fork.30 — 2026-11-15
+
+### Changed
+- The panel runs on the current major versions of its libraries and build tool: Vite 8, React 19, react-router 8, MUI 9, the charts, the terminal, the translation and form libraries. Nothing should look or behave differently; every step was compared in three browser engines, at desktop and phone width, light and dark.
+- Nebula and restic are taken by the build from their own projects' releases (1.9.7 and 0.18.1), each file checked against a pinned checksum, no longer from upstream's release zip.
+
+## Fork 0.24.0-fork.29 — 2026-11-15
+
+### Changed
+- The installed app (PWA) opens full screen where the device allows it: on Android without the status bar and the navigation bar. On desktop browsers and on iOS it keeps its own app window, as before.
 
 ## Fork 0.24.0-fork.28 — 2026-11-15
 

@@ -281,9 +281,9 @@ const TableComponent = ({ title, data, displayMax, render, xAxis, slot, zoom}) =
         </DialogActions>
     </Dialog>}
     
-    <Grid item xs={12} md={5} lg={4}>
-    <Grid container alignItems="center" justifyContent="space-between">
-      <Grid item>
+    <Grid size={{ xs: 12, md: 5, lg: 4 }}>
+    <Grid container sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+      <Grid>
         <Typography variant="h5">{title}</Typography>
       </Grid>
     </Grid>

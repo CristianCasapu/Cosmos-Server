@@ -6,7 +6,7 @@ import * as API from '../../api';
 import MainCard from '../../components/MainCard';
 import { Alert, Stack, Typography } from '@mui/material';
 import { ReloadOutlined } from '@ant-design/icons';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import PermissionGuard from '../../components/permissionGuard';
 import { notify } from '../../utils/activity';
 import { PERM_ADMIN } from '../../utils/permissions';
@@ -127,7 +127,7 @@ const InternetAccess = ({ formik }) => {
 
         {/* 3. what the router is doing now (saved settings, not the form) */}
         <Stack spacing={1}>
-          <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
             <Typography variant="subtitle1">
               {t('mgmt.config.internet.status.title', 'Router status')}
             </Typography>
@@ -147,7 +147,7 @@ const InternetAccess = ({ formik }) => {
           {loadError && <Alert severity="error">{loadError}</Alert>}
 
           {status && !status.enabled && !overviewRows(status).length && (
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
               {t('mgmt.config.internet.status.off', 'Automatic port forwarding is off.')}
             </Typography>
           )}
@@ -160,7 +160,7 @@ const InternetAccess = ({ formik }) => {
           {status && status.warning && <Alert severity="warning">{status.warning}</Alert>}
 
           {status && status.gatewayIP && (
-            <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+            <Typography variant="body2" sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }}>
               {t('mgmt.config.internet.status.router', 'Router: {{name}} ({{ip}})', { name: status.gateway || 'UPnP', ip: status.gatewayIP })}
               {status.externalIP
                 ? ' · ' + t('mgmt.config.internet.status.externalIP', 'internet address: {{ip}}', { ip: status.externalIP })
@@ -171,14 +171,14 @@ const InternetAccess = ({ formik }) => {
           <MappingsOverview status={status} onStatus={setStatus} formik={formik} />
 
           {status && httpsMapping && httpsMapping.active && hasDomain && (
-            <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+            <Typography variant="body2" sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }}>
               {t('mgmt.config.internet.status.reachable',
                 'Once {{hostname}} points to {{ip}} in DNS, Cosmos is reachable at https://{{address}}',
                 { hostname, ip: status.externalIP || '…', address: hostWithPort(hostname, publicPort, 'https') })}
             </Typography>
           )}
 
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
             {t('mgmt.config.internet.status.note',
               'The status reflects the saved settings. The router keeps a port open for at most one hour after Cosmos stops.')}
           </Typography>

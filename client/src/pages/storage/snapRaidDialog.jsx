@@ -1,4 +1,4 @@
-import { LoadingButton } from "@mui/lab";
+import { Button as LoadingButton } from "@mui/material"; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { Alert, Grid, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, FormHelperText, Stack, TextField, FormLabel } from "@mui/material";
 import React, {useState} from "react";
 import { CosmosCheckbox } from "../config/users/formShortcuts";
@@ -13,7 +13,6 @@ import PermissionGuard from "../../components/permissionGuard";
 import { PERM_RESOURCES } from "../../utils/permissions";
 import { crontabToText } from "../../utils/indexs";
 import { MountPickerEntry } from "./mountPickerEntry";
-import { json } from "react-router";
 import { Trans, useTranslation } from 'react-i18next';
 import { ForkParityDisks } from './forkStorageForms'; // Fork addition
 import { keepOnBackdrop } from '../../components/formHelpers'; // Fork addition
@@ -95,17 +94,17 @@ const SnapRAIDDialogInternal = ({ refresh, open, setOpen, data = {}}) => {
                       {/* Fork addition: the data disks ticked from the mounted data disks with their size, the parity disk proposed and each other disk with the reason it cannot be the parity (forkStorageForms.jsx); upstream: two pickers of every mount */}
                       <ForkParityDisks formik={formik} />
                       {formik.errors.parity && (
-                          <Grid item xs={12}>
+                          <Grid size={{ xs: 12 }}>
                               <FormHelperText error>{formik.errors.parity}</FormHelperText>
                           </Grid>
                       )}
                       {formik.errors.data && (
-                          <Grid item xs={12}>
+                          <Grid size={{ xs: 12 }}>
                               <FormHelperText error>{formik.errors.data}</FormHelperText>
                           </Grid>
                       )}
                       {formik.errors.submit && (
-                        <Grid item xs={12}>
+                        <Grid size={{ xs: 12 }}>
                           <FormHelperText error>{formik.errors.submit}</FormHelperText>
                         </Grid>
                       )}

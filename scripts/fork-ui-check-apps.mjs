@@ -76,7 +76,7 @@ await chip.scrollIntoViewIfNeeded().catch(() => {});
 await page.screenshot({ path: 'shots/new-url.png' });
 await page.getByRole('button', { name: 'Confirm' }).click();
 await page.waitForTimeout(8000);
-note('errors in dialog:', await page.locator('[role=dialog] .MuiAlert-standardError').innerText().catch(() => 'none'));
+note('errors in dialog:', await page.locator('[role=dialog] .MuiAlert-standard.MuiAlert-colorError').innerText().catch(() => 'none'));
 config = (await (await ctx.request.get(base + '/cosmos/api/config')).json()).data;
 note('routes now:', JSON.stringify((config.HTTPConfig.ProxyConfig.Routes || []).map((x) => [x.Name, x.Host, x.Target])));
 

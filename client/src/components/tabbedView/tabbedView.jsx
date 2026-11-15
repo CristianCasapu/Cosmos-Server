@@ -23,8 +23,8 @@ const TabPanel = (props) => {
       {...other}
     >
       {value === index && (
-        <Box p={isMobile ? 1 : 3} style={{paddingTop: 0}}>
-          <Typography>{children}</Typography>
+        <Box sx={{ p: isMobile ? 1 : 3 }} style={{paddingTop: 0}}>
+          <Typography component="div">{children}</Typography>{/* Fork addition: a div, as the panels hold blocks (a <p> may not) */}
         </Box>
       )}
     </div>
@@ -88,7 +88,7 @@ const PrettyTabbedView = ({ rootURL, tabs, isLoading, currentTab, setCurrentTab 
   };
 
   return (
-    <Box display="flex" height="100%" flexDirection={isMobile ? 'column' : 'row'}>
+    <Box sx={{ display: 'flex', height: '100%', flexDirection: isMobile ? 'column' : 'row' }}>
       {(isMobile) ? (
         <Select value={value} onChange={handleSelectChange} sx={{ minWidth: 120, marginBottom: '15px' }}>
           {tabs.map((tab, index) => (
@@ -121,13 +121,7 @@ const PrettyTabbedView = ({ rootURL, tabs, isLoading, currentTab, setCurrentTab 
       ))}
       {isLoading && (
         <Box
-          display="flex"
-          alignItems="center" 
-          justifyContent="center" 
-          width="100%"  
-          height="100%" 
-          color="text.primary"  
-          p={2}
+          sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', color: 'text.primary', p: 2 }}
         >
           <CircularProgress />
         </Box>

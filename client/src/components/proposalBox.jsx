@@ -10,7 +10,7 @@ import { Alert, Button, Stack, Typography } from '@mui/material';
 // the form already holds it.
 const ProposalBox = ({ severity = 'info', title, source, status, inUse, inUseText, heldText, onUse, useLabel, children }) => (
   <Alert severity={severity} sx={{ '& .MuiAlert-message': { width: '100%', minWidth: 0 } }}>
-    <Stack spacing={0.75} alignItems="flex-start" sx={{ overflowWrap: 'anywhere' }}>
+    <Stack spacing={0.75} sx={{ alignItems: 'flex-start', overflowWrap: 'anywhere' }}>
       <Typography variant="subtitle1" component="div" sx={{ fontWeight: 600 }}>{title}</Typography>
       {source && <Typography variant="body2" component="div">{source}</Typography>}
       {status && <Typography variant="body2" component="div">{status}</Typography>}

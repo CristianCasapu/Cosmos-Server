@@ -74,8 +74,8 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
         }
       />
       <MainCard name={Name} title={<div>{Name}</div>}>
-        <Stack spacing={2} direction={isMobile ? 'column' : 'row'} alignItems={isMobile ? 'center' : 'flex-start'}>
-          <Stack spacing={2} direction={'column'} justifyContent={'center'} alignItems={'center'}>
+        <Stack spacing={2} direction={isMobile ? 'column' : 'row'} sx={{ alignItems: isMobile ? 'center' : 'flex-start' }}>
+          <Stack spacing={2} direction={'column'} sx={{ justifyContent: 'center', alignItems: 'center' }}>
           <div style={{ position: 'relative' }}>
             <ServAppIcon container={Config} route={routes && routes[0]} className={"loading-image " + (isUpdating ? 'darken' : '')} width="128px" />
             {isUpdating ? (
@@ -166,7 +166,7 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
                 }}
               /> Isolate Container Network
             </Stack> */}
-            <Stack component="label" style={{ fontSize: '80%' }} direction={"row"} alignItems="center">{/* Fork addition: a label, so the box has a name */}
+            <Stack component="label" style={{ fontSize: '80%' }} direction={"row"} sx={{ alignItems: 'center' }}>{/* Fork addition: a label, so the box has a name */}
               <PermissionGuard permission={PERM_RESOURCES} alwaysShow>
                 <Checkbox
                   checked={Config.Labels['cosmos-auto-update'] === 'true'  ||
@@ -183,7 +183,7 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
                 />
               </PermissionGuard> {t('mgmt.servApps.autoUpdateCheckbox')}
             </Stack>
-            <Stack component="label" style={{ fontSize: '80%' }} direction={"row"} alignItems="center">{/* Fork addition: a label, so the box has a name */}
+            <Stack component="label" style={{ fontSize: '80%' }} direction={"row"} sx={{ alignItems: 'center' }}>{/* Fork addition: a label, so the box has a name */}
               <PermissionGuard permission={PERM_RESOURCES} alwaysShow>
                 <Checkbox
                   checked={Config.Labels['cosmos-lazy'] === 'true'}
@@ -202,7 +202,7 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
               </PermissionGuard> {t('mgmt.servApps.lazyCheckbox')}
             </Stack>
             {Config.Labels['cosmos-lazy'] === 'true' && (
-              <Stack style={{ fontSize: '80%' }} direction={"row"} alignItems="center" spacing={2}>
+              <Stack style={{ fontSize: '80%' }} direction={"row"} sx={{ alignItems: 'center' }} spacing={2}>
                 <PermissionGuard permission={PERM_RESOURCES} alwaysShow>
                   <TextField
                     select

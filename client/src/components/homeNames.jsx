@@ -16,7 +16,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
@@ -106,7 +106,7 @@ const LevelIcon = ({ level }) => {
 const StateLine = ({ state }) => {
   const { t } = useTranslation();
   if (!state) return null;
-  return <Stack direction="row" spacing={1} alignItems="flex-start">
+  return <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
     <LevelIcon level={state[0]} />
     <Typography variant="body2" color="textSecondary" component="div" sx={{ overflowWrap: 'anywhere', minWidth: 0 }}>
       {say(t, state[1])}
@@ -254,7 +254,7 @@ const HomeZone = ({ row, address }) => {
           helperText={t('mgmt.homeNames.labelHelp', 'The part between the app and the domain: {{example}}. Letters, digits and hyphens.', { example: exampleName(cleaned, row.zone) })}
           inputProps={{ maxLength: 63, autoCapitalize: 'none', spellCheck: false }}
         />}
-        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
           {!row.enabled && <LoadingButton variant="contained" size="small" loading={busy === 'on'} disabled={!!busy || !!labelError || !!row.problem} onClick={() => set(true)} data-home-action="on">
             {t('mgmt.homeNames.switchOn', 'Switch on')}
           </LoadingButton>}

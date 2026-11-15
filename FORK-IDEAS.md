@@ -99,15 +99,42 @@ administrator's address, the caps of 500 rules and 60 blocks an hour.
 
 ## Dependencies: left for later (2026-11-15)
 
-- Majors of the frontend, in progress on a branch: the build tool (Vite 4 is
-  past its end of life), React 19, react-router 7, MUI 9, then the charts,
-  the terminal, the syntax highlighter, i18n and the state library.
 - Docker client library v26 is out of support (two daemon-side advisories
-  recorded as known); v28 needs changes in upstream's files.
-- The bundled `nebula` 1.8.2 and `restic` 0.17.3 are old builds taken from
-  upstream's release zip and checked by MD5 only; they belong to paid
-  features. Nebula 1.10 and later break the paid code; 1.9.7 is the newest
-  that stays compatible.
+  recorded as known); its supported successor (moby/moby/client v29) is a
+  new module that would change about 40 of upstream's files: left for
+  upstream. Docker 29 daemons accept the v26 client.
+- Nebula stays on 1.9 (from 1.10 `print -json` prints a list, v2
+  certificates are the default and `default_local_cidr_any` is gone, all of
+  which upstream's paid code relies on) and restic on 0.18 (0.19 exits when
+  HOME is not set, as under systemd). Not proven for them: the rclone
+  backend, the arm64 binaries beyond their checksums, the real systemd
+  environment, NAT and relays.
+- The owner's to decide: removing lint and test tooling nothing runs
+  (eslint 8, prettier 2, babel 7, testing-library, jest-dom) and packages
+  nothing imports (react-number-format, react-perfect-scrollbar,
+  react-window, react-draggable, history, date-fns, xterm-addon-fit),
+  express 5 for `test-server.js`, the hold on the sponsors action, and the
+  browsers Vite 8 builds for by default (Chrome 111, Firefox 114, Safari
+  16.4 and newer).
+- Two defects seen in upstream's paid backup code, on old and new restic
+  alike (not touched): the password change runs `restic key change`, which
+  does not exist (the command is `key passwd`), and the restore-size answer
+  is not pure JSON and lacks `total_file_count`.
+- Checks to repair: `fork-ui-check-sensitive-edit.mjs` waits a fixed 3 s
+  after saving the Storage tab and can read a container that is still
+  being recreated (it should wait for the container, and tolerate an empty
+  inspect); the gallery's guard on `any-image` in Firefox trips on the app
+  probe's CORS line when the seeded app addresses do not resolve. The five
+  end-to-end checks (creation, settings-forms, users, sudo, pwa) passed in
+  three engines on the dependency majors before the last console fixes
+  (the permission guard, the tab panels, two hidden checkboxes); after
+  them the any-image and sensitive-edit checks, the gallery views and the
+  console look were run, not those five again.
+- An upstream merge will conflict in many frontend files (Grid `size`,
+  `sx`, the button's `loading`, the tree view), `package.json`, the lock
+  file, `vite.config.js`, the build action and the check scripts: take
+  upstream's file, then make the same one-line edits again (the transforms
+  used are kept outside the repository, with the plan).
 - Held: the service library (1.3.0 cannot render upstream's systemd unit
   template), modules only paid code uses, majors of upstream's own code
   behind a new import path.

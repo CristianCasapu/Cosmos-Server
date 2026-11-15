@@ -66,7 +66,7 @@ export const StartProblem = ({ report, onApply, busy, rounds = 0, applyLabel }) 
       <Typography variant="body2">
         {t('mgmt.services.start.repairIntro', 'This image says it needs these settings. Cosmos proposes them; it then creates the container again with them.')}
       </Typography>
-      {values.map((v) => <Stack key={v.name} direction="row" spacing={1} alignItems="flex-start" sx={{ minWidth: 0 }} data-repair-setting={v.name}>
+      {values.map((v) => <Stack key={v.name} direction="row" spacing={1} sx={{ alignItems: 'flex-start', minWidth: 0 }} data-repair-setting={v.name}>
         <TextField size="small" fullWidth label={v.name} value={v.value} disabled={busy}
           onChange={(e) => setValues((old) => old.map((o) => (o.name === v.name ? { ...o, value: e.target.value.slice(0, 4096) } : o)))}
           helperText={v.secret

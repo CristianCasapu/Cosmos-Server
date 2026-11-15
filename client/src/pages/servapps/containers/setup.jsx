@@ -24,7 +24,7 @@ import {
 } from "../../config/users/formShortcuts";
 import { DeleteOutlined, PlusCircleOutlined } from "@ant-design/icons";
 import * as API from "../../../api";
-import { LoadingButton } from "@mui/lab";
+import { Button as LoadingButton } from "@mui/material"; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import LogsInModal from "../../../components/logsInModal";
 import ResponsiveButton from "../../../components/responseiveButton";
 import { useTranslation } from 'react-i18next';
@@ -265,7 +265,7 @@ const DockerContainerSetup = ({
                           formik={formik}
                         />
                         {OnForceSecure && (
-                          <Grid item xs={12}>
+                          <Grid size={{ xs: 12 }}>
                             <Checkbox
                               type="checkbox"
                               as={FormControlLabel}
@@ -289,10 +289,10 @@ const DockerContainerSetup = ({
                     )}
 
                     <CosmosFormDivider title={t('mgmt.servapps.newContainer.envTitle')} />
-                    <Grid item xs={12}>
+                    <Grid size={{ xs: 12 }}>
                       {formik.values.envVars.map((envVar, idx) => (
                         <Grid container key={idx}>
-                          <Grid item xs={5} style={{ padding }}>
+                          <Grid size={{ xs: 5 }} style={{ padding }}>
                             <TextField
                               name={`envVars.${idx}.key`}
                               onChange={formik.handleChange}
@@ -301,7 +301,7 @@ const DockerContainerSetup = ({
                               value={envVar.key}
                             />
                           </Grid>
-                          <Grid item xs={6} style={{ padding }}>
+                          <Grid size={{ xs: 6 }} style={{ padding }}>
                             <TextField
                               name={`envVars.${idx}.value`}
                               onChange={formik.handleChange}
@@ -310,7 +310,7 @@ const DockerContainerSetup = ({
                               value={envVar.value}
                             />
                           </Grid>
-                          <Grid item xs={1} style={{ padding }}>
+                          <Grid size={{ xs: 1 }} style={{ padding }}>
                             <Tooltip title={t('global.delete', 'Delete')}><IconButton
                               fullWidth
                               variant="outlined"
@@ -343,10 +343,10 @@ const DockerContainerSetup = ({
                     </Grid>
 
                     <CosmosFormDivider title={t('mgmt.servapps.newContainer.labelsTitle')} />
-                    <Grid item xs={12}>
+                    <Grid size={{ xs: 12 }}>
                       {formik.values.labels.map((label, idx) => (
                         <Grid container key={idx}>
-                          <Grid item xs={5} style={{ padding }}>
+                          <Grid size={{ xs: 5 }} style={{ padding }}>
                             <TextField
                               name={`labels.${idx}.key`}
                               fullWidth
@@ -355,7 +355,7 @@ const DockerContainerSetup = ({
                               onChange={formik.handleChange}
                             />
                           </Grid>
-                          <Grid item xs={6} style={{ padding }}>
+                          <Grid size={{ xs: 6 }} style={{ padding }}>
                             <TextField
                               name={`labels.${idx}.value`}
                               label={t('mgmt.servapps.newContainer.env.envValueInput.envValueLabel')}
@@ -364,7 +364,7 @@ const DockerContainerSetup = ({
                               onChange={formik.handleChange}
                             />
                           </Grid>
-                          <Grid item xs={1} style={{ padding }}>
+                          <Grid size={{ xs: 1 }} style={{ padding }}>
                             <Tooltip title={t('global.delete', 'Delete')}><IconButton
                               fullWidth
                               variant="outlined"
@@ -396,10 +396,10 @@ const DockerContainerSetup = ({
                     </Grid>
 
                     <CosmosFormDivider title={t('mgmt.servapps.newContainer.devicesTitle')} />
-                    <Grid item xs={12}>
+                    <Grid size={{ xs: 12 }}>
                       {formik.values.devices.map((device, idx) => (
                         <Grid container key={idx}>
-                          <Grid item xs={5} style={{ padding }}>
+                          <Grid size={{ xs: 5 }} style={{ padding }}>
                             <TextField
                               name={`devices.${idx}.key`}
                               fullWidth
@@ -408,7 +408,7 @@ const DockerContainerSetup = ({
                               onChange={formik.handleChange}
                             />
                           </Grid>
-                          <Grid item xs={6} style={{ padding }}>
+                          <Grid size={{ xs: 6 }} style={{ padding }}>
                             <TextField
                               name={`devices.${idx}.value`}
                               label={t('mgmt.servapps.newContainer.devices.containerPathInput.containerPathLabel')}
@@ -417,7 +417,7 @@ const DockerContainerSetup = ({
                               onChange={formik.handleChange}
                             />
                           </Grid>
-                          <Grid item xs={1} style={{ padding }}>
+                          <Grid size={{ xs: 1 }} style={{ padding }}>
                             <Tooltip title={t('global.delete', 'Delete')}><IconButton
                               fullWidth
                               variant="outlined"
@@ -472,7 +472,7 @@ const DockerContainerSetup = ({
                 <MainCard>
                   <Stack direction="column" spacing={2}>
                     {formik.errors.submit && (
-                      <Grid item xs={12}>
+                      <Grid size={{ xs: 12 }}>
                         <FormHelperText error>
                           {formik.errors.submit}
                         </FormHelperText>

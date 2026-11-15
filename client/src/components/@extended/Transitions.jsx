@@ -6,7 +6,7 @@ import { Fade, Box, Grow } from '@mui/material';
 
 // ==============================|| TRANSITIONS ||============================== //
 
-const Transitions = forwardRef(({ children, position, type, ...others }, ref) => {
+const Transitions = forwardRef(({ children, position = 'top-left', type = 'grow', ...others }, ref) => { // Fork addition: the defaults here (React 19 ignores defaultProps on function components)
     let positionSX = {
         transformOrigin: '0 0 0'
     };
@@ -52,11 +52,6 @@ Transitions.propTypes = {
     children: PropTypes.node,
     type: PropTypes.oneOf(['grow', 'fade', 'collapse', 'slide', 'zoom']),
     position: PropTypes.oneOf(['top-left', 'top-right', 'top', 'bottom-left', 'bottom-right', 'bottom'])
-};
-
-Transitions.defaultProps = {
-    type: 'grow',
-    position: 'top-left'
 };
 
 export default Transitions;

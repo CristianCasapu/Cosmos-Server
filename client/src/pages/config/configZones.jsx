@@ -19,7 +19,7 @@ import {
 import { CosmosCheckbox, CosmosCollapse, CosmosInputText, CosmosSelect } from "./users/formShortcuts";
 import { DnsChallengeComp, recordProviders } from "../../utils/dns-challenge-comp";
 import { FormikProvider, useFormik } from "formik";
-import { LoadingButton } from "@mui/lab";
+import { Button as LoadingButton } from "@mui/material"; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import ResponsiveButton from "../../components/responseiveButton";
 import MainCard from "../../components/MainCard";
 import { PERM_CONFIGURATION } from "../../utils/permissions";
@@ -53,7 +53,7 @@ export const HostCertificateLine = ({ cert }) => {
   }[cert.source] || cert.source;
 
   return (
-    <Stack direction="row" spacing={1} alignItems="center">
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
       <Tooltip title={(cert.hosts || []).join(", ")}>
         <span>{label}{expires}</span>
       </Tooltip>
@@ -84,7 +84,7 @@ export const HostZoneInfo = ({ host }) => {
 
   return (
     <Stack spacing={1}>
-      <Stack direction="row" spacing={1} alignItems="center">
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
         <Chip size="small" label={zone.Zone} />
         {zone.derived && (
           <Tooltip title={t('mgmt.config.zones.derivedInfo')}>
@@ -174,7 +174,7 @@ const ZoneDialog = ({ zone, onClose, onSaved }) => {
           <DialogContent>
             <Grid container spacing={3} style={{ marginTop: "0px" }}>
               {zone.derived && (
-                <Grid item xs={12}>
+                <Grid size={{ xs: 12 }}>
                   <Alert severity="info">{t('mgmt.config.zones.derivedInfo')}</Alert>
                 </Grid>
               )}
@@ -219,7 +219,7 @@ const ZoneDialog = ({ zone, onClose, onSaved }) => {
                 formik={formik}
               >
                 {!hasProvider && letsEncrypt && (
-                  <Grid item xs={12}>
+                  <Grid size={{ xs: 12 }}>
                     {/* Fork addition: what a domain without a provider gets here, said as it is (upstream: noProviderInfo always) */}
                     {formik.values.ChallengeVia
                       ? <Alert severity="info">{t('mgmt.certs.zone.delegatedInfo', 'The proof for this domain is written in {{via}}, through one record at this domain\'s own DNS provider. Choosing a provider here replaces that.', { via: formik.values.ChallengeVia })}</Alert>
@@ -228,7 +228,7 @@ const ZoneDialog = ({ zone, onClose, onSaved }) => {
                 )}
 
                 {hasProvider && (letsEncrypt || !canManage) && (
-                  <Grid item xs={12}>
+                  <Grid size={{ xs: 12 }}>
                     <Alert severity={canManage ? "success" : "warning"}>
                       {canManage
                         ? t('mgmt.config.zones.providerEnables', { provider: formik.values.DNSChallengeProvider })
@@ -263,7 +263,7 @@ const ZoneDialog = ({ zone, onClose, onSaved }) => {
               </DnsChallengeComp>
 
               {hasProvider && letsEncrypt && (
-                <Grid item xs={12}>
+                <Grid size={{ xs: 12 }}>
                   <CosmosCollapse title={t('mgmt.config.zones.advanced')}>
                     <Grid container spacing={3}>
                       <CosmosInputText
@@ -289,7 +289,7 @@ const ZoneDialog = ({ zone, onClose, onSaved }) => {
               )}
 
               {formik.errors.submit && (
-                <Grid item xs={12}>
+                <Grid size={{ xs: 12 }}>
                   <Alert severity="error">{formik.errors.submit}</Alert>
                 </Grid>
               )}
@@ -424,7 +424,7 @@ const ConfigZones = () => {
           />
         )}
 
-        <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
+        <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }}>
           <PermissionGuard permission={PERM_CONFIGURATION}>
             <ResponsiveButton variant="contained" startIcon={<CloudOutlined />} onClick={() => setConnectCloudflare(true)}>
               {t('mgmt.cloudflare.connect.button', 'Connect Cloudflare')}
@@ -460,7 +460,7 @@ const ConfigZones = () => {
               {
                 title: t('mgmt.config.zones.zoneColumn'),
                 field: (z) => (
-                  <Stack direction="row" alignItems="center" spacing={1}>
+                  <Stack direction="row" sx={{ alignItems: 'center' }} spacing={1}>
                     <span>{z.Zone}</span>
                     {z.derived && (
                       <Tooltip title={t('mgmt.config.zones.derivedInfo')}>
@@ -516,7 +516,7 @@ const ConfigZones = () => {
                 clickable: true,
                 field: (z) => (
                   <PermissionGuard permission={PERM_CONFIGURATION}>
-                    <Stack direction="row" spacing={1} justifyContent="flex-end">
+                    <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
                       {/* Fork addition: tooltips on the icon-only buttons */}
                       <Tooltip title={t('global.edit', 'Edit')}><IconButton size="small" onClick={() => setEditZone(z)}>
                         <EditOutlined />

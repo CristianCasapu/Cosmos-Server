@@ -2,19 +2,18 @@
 import * as React from 'react';
 import { Alert, Box, Button, Checkbox, CircularProgress, FormControl, FormHelperText, Grid, Icon, IconButton, InputLabel, List, ListItem, ListItemButton, MenuItem, NativeSelect, Select, Stack, TextField, Typography } from '@mui/material';
 import Dialog from '@mui/material/Dialog';
-import {TreeItem, TreeView} from '@mui/x-tree-view';
+import {TreeItem, SimpleTreeView} from '@mui/x-tree-view';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { useFormik, FormikProvider } from 'formik';
 import * as Yup from 'yup';
 import { useTranslation } from 'react-i18next';
 import { FolderOpenOutlined, ClockCircleOutlined, DashboardOutlined, DeleteOutlined, DownOutlined, LockOutlined, SafetyOutlined, UpOutlined, ExpandOutlined, FolderFilled, FileFilled, FileOutlined, LoadingOutlined, FolderAddFilled, FolderViewOutlined } from "@ant-design/icons";
 import * as API from '../api';
 import { current } from '@reduxjs/toolkit';
-import { json } from 'react-router';
 
 const NewFolderModal = ({ raw, open, cb, OnClose, onPick, canCreate, storage = '', path = '/', select = 'any' }) => {
   const { t } = useTranslation();

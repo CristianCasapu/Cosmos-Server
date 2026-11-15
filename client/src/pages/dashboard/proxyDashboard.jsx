@@ -14,14 +14,14 @@ const ProxyDashboard = ({ xAxis, zoom, setZoom, slot, metrics }) => {
   return ( <div style={{ maxWidth: "1200px", margin: "auto" }}>
 
     <Grid container rowSpacing={4.5} columnSpacing={2.75} >
-      <Grid item xs={12} md={6} lg={6}>
+      <Grid size={{ xs: 12, md: 6, lg: 6 }}>
         <PlotComponent xAxis={xAxis} zoom={zoom} setZoom={setZoom} slot={slot} title={t('navigation.monitoring.resourceDashboard.requestsTitle')} data={[
           metrics["cosmos.proxy.all.time"],
           metrics["cosmos.proxy.all.bytes"],
         ]} />
       </Grid>
 
-      <Grid item xs={12} md={6} lg={6}>
+      <Grid size={{ xs: 12, md: 6, lg: 6 }}>
         <PlotComponent xAxis={xAxis} zoom={zoom} setZoom={setZoom} slot={slot} title={t('navigation.monitoring.resourceDashboard.responsesTitle')} data={[
           metrics["cosmos.proxy.all.success"],
           metrics["cosmos.proxy.all.error"],
@@ -32,7 +32,7 @@ const ProxyDashboard = ({ xAxis, zoom, setZoom, slot, metrics }) => {
         Object.keys(metrics).filter((key) => key.startsWith("cosmos.proxy.route.")).map((key) => metrics[key])
       } />
 
-      <Grid item xs={12} md={4} lg={4}>
+      <Grid size={{ xs: 12, md: 4, lg: 4 }}>
         <PlotComponent xAxis={xAxis} zoom={zoom} setZoom={setZoom} slot={slot} title={t('navigation.monitoring.resourceDashboard.blockedRequestsTitle')} data={[
           metrics["cosmos.proxy.all.blocked"],
         ]} />

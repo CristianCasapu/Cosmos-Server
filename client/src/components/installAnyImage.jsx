@@ -68,7 +68,7 @@ const SettingField = ({ setting, onChange, busy }) => {
     : setting.type === 'name' ? t('mgmt.servapps.anyImage.ui.nameHelp', 'Proposed: change it if you like.')
       : setting.type === 'declared' ? t('mgmt.servapps.anyImage.ui.declaredHelp', 'The image\'s default.')
         : setting.type === 'fixed' ? t('mgmt.servapps.anyImage.ui.fixedHelp', 'Needed by this image as it is set here.') : t('mgmt.servapps.anyImage.ui.optionalHelp', 'Optional.'));
-  return <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ minWidth: 0 }} data-setting={setting.name}>
+  return <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', minWidth: 0 }} data-setting={setting.name}>
     <TextField size="small" fullWidth label={setting.name} value={setting.value} disabled={busy}
       onChange={(e) => onChange(e.target.value)} helperText={helper} error={setting.type === 'needed' && !setting.value /* Fork addition (plan 43) */} />
     {setting.type === 'secret' && <Button size="small" variant="outlined" sx={{ flexShrink: 0, mt: 0.25, ...touch }} startIcon={<CopyOutlined />} data-copy-secret
@@ -83,7 +83,7 @@ const SettingField = ({ setting, onChange, busy }) => {
 };
 
 // Chips that pick names from a list (the apps that may reach a service).
-const PickChips = ({ options, picked, onChange, busy }) => <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+const PickChips = ({ options, picked, onChange, busy }) => <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1}>
   {options.map((name) => {
     const on = picked.includes(name);
     return <Chip key={name} label={name} clickable disabled={busy} color={on ? 'primary' : 'default'} variant={on ? 'filled' : 'outlined'}
@@ -238,7 +238,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
     <DialogTitle>{t('mgmt.servapps.anyImage.ui.title', 'Install any image')}</DialogTitle>
     <DialogContent>
       <Stack spacing={2} sx={{ minWidth: 0, pt: 1 }}>
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
           {t('mgmt.servapps.anyImage.ui.intro', 'Search Docker Hub, or type an image\'s full name from any registry (for example ghcr.io/owner/app or registry.example.org/team/app:1.2). Cosmos reads what the image declares without downloading it, proposes the rest, and shows everything before anything is created.')}
         </Typography>
         <Stack direction="row" spacing={1} sx={{ minWidth: 0 }} component="form" onSubmit={(e) => { e.preventDefault(); runSearch(query); }}>
@@ -254,28 +254,28 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
           {results.length === 0 && !searchProblem && <Typography variant="body2">{t('mgmt.servapps.anyImage.ui.noResult', 'Docker Hub has no image for these words. If the image is on another registry, type its full name.')}</Typography>}
           {results.map((r) => <Button key={r.name} variant="outlined" color="inherit" onClick={() => describe(r.name)} disabled={busy} data-result={r.name}
             sx={{ justifyContent: 'flex-start', textAlign: 'left', textTransform: 'none', minWidth: 0, display: 'block', py: 1, '&&&': { minHeight: 44 } }}>
-            <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap" sx={{ minWidth: 0 }}>
+            <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
               <Typography variant="subtitle1" component="span" sx={{ overflowWrap: 'anywhere' }}>{r.name}</Typography>
               {r.official && <Chip size="small" color="primary" label={t('mgmt.servapps.anyImage.ui.official', 'Docker official image')} />}
               {r.recipe && <Chip size="small" variant="outlined" label={t('mgmt.servapps.anyImage.ui.hasRecipe', 'Settings known to Cosmos')} />}
-              <Typography variant="caption" component="span" color="text.secondary">
+              <Typography variant="caption" component="span" sx={{ color: 'text.secondary' }}>
                 <StarOutlined /> {count(r.stars)} · {t('mgmt.servapps.anyImage.ui.pulls', '{{count}} downloads', { count: count(r.pulls) })}
               </Typography>
             </Stack>
-            {r.description && <Typography variant="body2" component="div" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{r.description}</Typography>}
+            {r.description && <Typography variant="body2" component="div" sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }}>{r.description}</Typography>}
           </Button>)}
         </Stack>}
 
-        {desc && desc.loading && !desc.declared && <Typography variant="body2" color="text.secondary">{t('mgmt.servapps.anyImage.ui.reading', 'Reading what the image declares…')}</Typography>}
+        {desc && desc.loading && !desc.declared && <Typography variant="body2" sx={{ color: 'text.secondary' }}>{t('mgmt.servapps.anyImage.ui.reading', 'Reading what the image declares…')}</Typography>}
         {problem && <Alert severity="error" sx={wrap} data-any-image-problem={desc.problem}>
           {say(problem)}
           {desc.page && <> <Box component="a" sx={touchLink} href={desc.page} target="_blank" rel="noopener noreferrer">{t('mgmt.servapps.anyImage.ui.page', 'The image\'s page')}</Box></>}
         </Alert>}
 
         {desc && !desc.problem && desc.repository && <Stack spacing={1.5} sx={{ minWidth: 0 }} data-any-image-about>
-          <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
             <Typography variant="h5" sx={{ overflowWrap: 'anywhere' }}>{recipe ? recipe.name : ref && ref.name}</Typography>
-            {recipe && <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{ref && ref.name}</Typography>}
+            {recipe && <Typography variant="body2" sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }}>{ref && ref.name}</Typography>}
             {desc.official && <Chip size="small" color="primary" label={t('mgmt.servapps.anyImage.ui.official', 'Docker official image')} />}
             {desc.page && <Box component="a" sx={touchLink} href={desc.page} target="_blank" rel="noopener noreferrer">{t('mgmt.servapps.anyImage.ui.page', 'The image\'s page')}</Box>}
             {recipe && recipe.source && recipe.source !== desc.page && <Box component="a" sx={touchLink} href={recipe.source} target="_blank" rel="noopener noreferrer">{t('mgmt.servapps.anyImage.ui.docs', 'Its documentation')}</Box>}
@@ -284,7 +284,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
           {marketApp && <Alert severity="info" sx={wrap} data-any-image-market>
             <Stack spacing={1}>
               <div>{say(aiText('market.has', { market: marketApp.name }))}</div>
-              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+              <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
                 <Button size="small" variant="contained" href={`/cosmos-ui/market-listing/${encodeURIComponent(marketApp.appstore)}/${encodeURIComponent(marketApp.name)}`}>{t('mgmt.servapps.anyImage.ui.openMarket', 'Open it in the Market')}</Button>
                 {!anyway && <Button size="small" onClick={() => setAnyway(true)}>{t('mgmt.servapps.anyImage.ui.anyway', 'Install the image anyway')}</Button>}
               </Stack>
@@ -293,8 +293,8 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
 
           <Stack spacing={0.5} sx={{ minWidth: 0 }} data-any-image-tags>
             <Typography variant="subtitle1">{t('mgmt.servapps.anyImage.ui.version', 'Version (tag): {{tag}}', { tag: desc.tag })}</Typography>
-            {tagWhy && <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{say(tagWhy)}</Typography>}
-            {tags.length > 0 && <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+            {tagWhy && <Typography variant="caption" sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }}>{say(tagWhy)}</Typography>}
+            {tags.length > 0 && <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1}>
               {shownTags.map((tag) => <Chip key={tag} size="small" label={tag} clickable disabled={busy}
                 color={tag === desc.tag ? 'primary' : 'default'} variant={tag === desc.tag ? 'filled' : 'outlined'}
                 onClick={() => { if (tag !== desc.tag) describe(`${ref.name}:${tag}`, true); }} sx={touchChip} />)}
@@ -345,13 +345,13 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
 
             {isService && others.length > 0 && <Stack spacing={1} sx={{ minWidth: 0 }} data-any-image-reach>
               <Typography variant="subtitle1">{t('mgmt.servapps.anyImage.ui.reachTitle', 'Let these apps reach it')}</Typography>
-              <Typography variant="caption" color="text.secondary">{t('mgmt.servapps.anyImage.ui.reachHint', 'Each one you pick gets a network of its own with {{name}} (Cosmos keeps apps apart otherwise). It can be done later too, with "Link containers" on the app\'s Network tab.', { name: name || 'app' })}</Typography>
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>{t('mgmt.servapps.anyImage.ui.reachHint', 'Each one you pick gets a network of its own with {{name}} (Cosmos keeps apps apart otherwise). It can be done later too, with "Link containers" on the app\'s Network tab.', { name: name || 'app' })}</Typography>
               <PickChips options={others} picked={reachers} onChange={setReachers} busy={busy} />
             </Stack>}
 
             {need && <Stack spacing={1} sx={{ minWidth: 0 }} data-any-image-db>
               <Typography variant="subtitle1"><DatabaseOutlined /> {say(aiText(need.optional ? 'db.needOptional' : 'db.need', { kinds: need.kinds.join(', ') }))}</Typography>
-              <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+              <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1}>
                 {dbRecipes.map((r) => <Chip key={r.id} clickable disabled={busy} label={say(aiText('db.new', { name: r.name }))}
                   color={db.mode === 'new' && db.recipe && db.recipe.id === r.id ? 'primary' : 'default'} variant={db.mode === 'new' && db.recipe && db.recipe.id === r.id ? 'filled' : 'outlined'}
                   onClick={() => pickDbRecipe(r)} sx={{ maxWidth: '100%', ...touchChip }} data-db-new={r.id} />)}
@@ -361,14 +361,14 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
                 <Chip clickable disabled={busy} label={say(aiText('db.none'))} color={db.mode === 'none' ? 'primary' : 'default'} variant={db.mode === 'none' ? 'filled' : 'outlined'}
                   onClick={() => setDb({ mode: 'none' })} sx={{ maxWidth: '100%', ...touchChip }} data-db-none />
               </Stack>
-              {existing.length === 0 && <Typography variant="caption" color="text.secondary">{say(aiText('db.noExisting', { kinds: need.kinds.join(', ') }))}</Typography>}
+              {existing.length === 0 && <Typography variant="caption" sx={{ color: 'text.secondary' }}>{say(aiText('db.noExisting', { kinds: need.kinds.join(', ') }))}</Typography>}
               {db.mode === 'new' && <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{say(aiText('db.newSentence', { db: `${name}-${db.recipe.id}` + (dbDesc && dbDesc.tag ? ` (${db.recipe.images[0]}:${dbDesc.tag})` : '') }))}</Typography>}
               {db.mode === 'new' && dbDesc && dbDesc.problem && <Alert severity="error" sx={wrap}>{say(problemText(dbDesc))}</Alert>}
               {db.mode === 'new' && dbSettings.map((s) => <SettingField key={s.name} setting={s} busy={busy}
                 onChange={(value) => setDbSettings((old) => old.map((o) => (o.name === s.name ? { ...o, value } : o)))} />)}
               {db.mode === 'existing' && <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{say(aiText('db.existingSentence', { db: db.container }))}</Typography>}
               {dbMasked && <Alert severity="warning" sx={wrap} data-db-masked>{say(aiText('db.masked', { db: db.container }))}</Alert>}
-              {filledNames.length > 0 && <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }} data-db-filled>{say(aiText('db.filledList', { list: filledNames.join(', ') }))}</Typography>}
+              {filledNames.length > 0 && <Typography variant="caption" sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }} data-db-filled>{say(aiText('db.filledList', { list: filledNames.join(', ') }))}</Typography>}
             </Stack>}
           </>}
         </Stack>}
@@ -410,12 +410,12 @@ export const MarketAnyImage = ({ search, noMatch }) => {
     return <Stack spacing={1} sx={{ maxWidth: 720 }} data-market-any-image-nomatch>
       <InstallAnyImageButton initial={words} variant="contained" plain
         label={t('mgmt.servapps.anyImage.ui.marketNoMatch', 'Install the image “{{words}}”', { words, interpolation: { escapeValue: false } })} />
-      <Typography variant="caption" color="text.secondary">{t('mgmt.servapps.anyImage.ui.marketNoMatchHint', 'Not in the Market: Cosmos looks for it on Docker Hub, reads what it needs and proposes the settings.')}</Typography>
+      <Typography variant="caption" sx={{ color: 'text.secondary' }}>{t('mgmt.servapps.anyImage.ui.marketNoMatchHint', 'Not in the Market: Cosmos looks for it on Docker Hub, reads what it needs and proposes the settings.')}</Typography>
     </Stack>;
   }
   return <Alert severity="info" icon={<AppstoreAddOutlined />} sx={{ ...wrap, maxWidth: 960 }} data-market-any-image
     >
-    <Stack spacing={1} alignItems="flex-start">
+    <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
       <div>{t('mgmt.servapps.anyImage.ui.marketTile', 'Not in the list? Any image from Docker Hub or another registry, databases included, installs with the same review.')}</div>
       <InstallAnyImageButton initial={words.length > 2 ? words : ''} variant="contained" plain />
     </Stack>

@@ -117,10 +117,10 @@ if (phase === 'stopped' || phase === 'notinstalled') {
     await page.screenshot({ path: 'shots/chromium-active-unban-tooltip.png' });
     await unbanButton.click();
     await page.waitForTimeout(600);
-    const dialog = await page.locator('[role=dialog]').innerText().catch(() => '');
+    const dialog = await page.locator('[role=dialog]:visible').innerText().catch(() => '');
     expect(dialog.includes(`Lift the ban of ${banned}`), `asks before lifting the ban (${dialog.replace(/\s+/g, ' ').slice(0, 110)})`);
     await page.screenshot({ path: 'shots/chromium-active-unban-confirm.png' });
-    await page.locator('[role=dialog]').getByRole('button', { name: 'Confirm' }).click();
+    await page.locator('[role=dialog]:visible').getByRole('button', { name: 'Confirm' }).click();
     await page.waitForTimeout(3500);
     await page.screenshot({ path: 'shots/chromium-active-after-unban.png', fullPage: true });
     text = await page.locator('body').innerText();

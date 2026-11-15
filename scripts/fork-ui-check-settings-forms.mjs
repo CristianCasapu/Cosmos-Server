@@ -176,7 +176,7 @@ for (const name of names) for (const size of wanted) {
   await openTab(page, 'Alerts');
   await page.getByRole('button', { name: 'Create' }).click();
   await page.waitForTimeout(2000);
-  let dialog = page.locator('[role=dialog]').last();
+  let dialog = page.locator('[role=dialog]:visible').last();
   let text = await dialog.innerText();
   expect(id + ': a new alert offers ready-made ones', /Start from a ready-made alert/.test(text) && /Memory nearly full/.test(text), text.slice(0, 200));
   await dialog.getByText('Memory nearly full', { exact: true }).click();
@@ -194,7 +194,7 @@ for (const name of names) for (const size of wanted) {
   await page.waitForTimeout(1500);
   await page.getByRole('button', { name: 'Create' }).click();
   await page.waitForTimeout(1500);
-  dialog = page.locator('[role=dialog]').last();
+  dialog = page.locator('[role=dialog]:visible').last();
   await dialog.getByText('Memory nearly full', { exact: true }).click();
   await dialog.getByRole('button', { name: 'Save' }).click();
   await page.waitForTimeout(800);
@@ -212,7 +212,7 @@ for (const name of names) for (const size of wanted) {
   await page.waitForTimeout(3500);
   await page.getByRole('button', { name: 'New Token' }).click();
   await page.waitForTimeout(2000);
-  dialog = page.locator('[role=dialog]').last();
+  dialog = page.locator('[role=dialog]:visible').last();
   text = await dialog.innerText();
   expect(id + ': read only is proposed', (await dialog.locator('#fork-token-preset [role=radio][aria-checked=true]').innerText()).includes('Read only'));
   expect(id + ': the place is proposed from the address in use', (await dialog.locator('#fork-token-place [role=radio][aria-checked=true]').innerText()).includes('This network'), await dialog.locator('#fork-token-place').innerText());
@@ -228,7 +228,7 @@ for (const name of names) for (const size of wanted) {
   await dialog.locator('#fork-token-name').fill(tokenName);
   await dialog.getByRole('button', { name: 'Create' }).click();
   await page.waitForTimeout(3000);
-  const reveal = page.locator('[role=dialog]').last();
+  const reveal = page.locator('[role=dialog]:visible').last();
   const shown = await reveal.locator('input').first().inputValue().catch(() => '');
   expect(id + ': the token is shown once, after Create', shown.length > 20);
   const tokens = (await (await ctx.request.get(base + '/cosmos/api/api-tokens')).json()).data || {};
@@ -257,7 +257,7 @@ for (const name of names) for (const size of wanted) {
   await page.waitForTimeout(4000);
   await page.getByRole('button', { name: 'Format' }).first().click();
   await page.waitForTimeout(1500);
-  dialog = page.locator('[role=dialog]').last();
+  dialog = page.locator('[role=dialog]:visible').last();
   text = await dialog.innerText();
   expect(id + ': the dialog names the disk, its size and what is on it', /Erase and format sdz/.test(text) && /Test USB/.test(text) && /exfat/.test(text), text.slice(0, 200));
   expect(id + ': exFAT is proposed for a disk that holds it', (await dialog.locator('#fork-format-fs [role=radio][aria-checked=true]').innerText()).includes('exFAT'));
@@ -280,7 +280,7 @@ for (const name of names) for (const size of wanted) {
   await page.waitForTimeout(500);
   await page.locator('li[role=treeitem]', { hasText: 'sdy' }).first().getByRole('button', { name: 'Format' }).first().click().catch(() => {});
   await page.waitForTimeout(1000);
-  const sys = await page.locator('[role=dialog]').last().innerText().catch(() => '');
+  const sys = await page.locator('[role=dialog]:visible').last().innerText().catch(() => '');
   expect(id + ': a disk with a mounted partition is refused in the dialog', /is mounted at \/: unmount it first/.test(sys), sys.slice(0, 160));
 
   expect(id + ': no script error', errors.length === 0, errors.join(' / '));

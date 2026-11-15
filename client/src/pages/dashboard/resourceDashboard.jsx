@@ -12,7 +12,7 @@ const ResourceDashboard = ({ xAxis, zoom, setZoom, slot, metrics }) => {
   return ( <div style={{ maxWidth: "1200px", margin: "auto" }}>
 
     <Grid container rowSpacing={4.5} columnSpacing={2.75} >
-      <Grid item xs={12} md={7} lg={8}>
+      <Grid size={{ xs: 12, md: 7, lg: 8 }}>
         <PlotComponent xAxis={xAxis} zoom={zoom} setZoom={setZoom} slot={slot} title={t('navigation.monitoring.resourcesTitle')} data={[metrics["cosmos.system.cpu.0"], metrics["cosmos.system.ram"]]} />
       </Grid>
 
@@ -20,7 +20,7 @@ const ResourceDashboard = ({ xAxis, zoom, setZoom, slot, metrics }) => {
         Object.keys(metrics).filter((key) => key.startsWith("cosmos.system.docker.cpu") || key.startsWith("cosmos.system.docker.ram")).map((key) => metrics[key])
       } />
 
-      <Grid item xs={12} md={7} lg={8}>
+      <Grid size={{ xs: 12, md: 7, lg: 8 }}>
         <PlotComponent xAxis={xAxis} zoom={zoom} setZoom={setZoom} slot={slot} title={t('global.network')} data={[metrics["cosmos.system.netTx"], metrics["cosmos.system.netRx"]]} />
       </Grid>
 
@@ -43,7 +43,7 @@ const ResourceDashboard = ({ xAxis, zoom, setZoom, slot, metrics }) => {
           Object.keys(metrics).filter((key) => key.startsWith("cosmos.system.disk.")).map((key) => metrics[key])
         } />
 
-      <Grid item xs={12} md={7} lg={8}>
+      <Grid size={{ xs: 12, md: 7, lg: 8 }}>
         <PlotComponent
           zoom={zoom} setZoom={setZoom}
           xAxis={xAxis}

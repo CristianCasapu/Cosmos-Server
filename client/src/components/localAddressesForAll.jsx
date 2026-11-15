@@ -20,7 +20,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { CheckCircleOutlined, HomeOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import * as API from '../api';
@@ -173,7 +173,7 @@ export const useLocalAddressNotice = ({ config, containers, selfName, refresh })
             const state = outcome[entry.name];
             const failed = state && state !== 'done' && state !== 'creating';
             return <Stack key={entry.name} spacing={0.25}>
-              <Stack direction="row" alignItems="flex-start" spacing={1}>
+              <Stack direction="row" sx={{ alignItems: 'flex-start' }} spacing={1}>
                 <FormControlLabel
                   sx={{ flexGrow: 1, minWidth: 0, alignItems: 'flex-start', mr: 0 }}
                   control={<Checkbox
@@ -192,7 +192,7 @@ export const useLocalAddressNotice = ({ config, containers, selfName, refresh })
                   </Stack>}
                 />
                 {state === 'creating' && <CircularProgress size={18} sx={{ mt: 0.75, flexShrink: 0 }} aria-label={t('mgmt.urls.all.creating', 'Creating')} />}
-                {state === 'done' && <Typography color="success.main" sx={{ mt: 0.5, flexShrink: 0 }} aria-label={t('mgmt.urls.all.done', 'Created')}><CheckCircleOutlined /></Typography>}
+                {state === 'done' && <Typography sx={{ color: 'success.main', mt: 0.5, flexShrink: 0 }} aria-label={t('mgmt.urls.all.done', 'Created')}><CheckCircleOutlined /></Typography>}
               </Stack>
               {failed && <Alert severity="error" sx={{ overflowWrap: 'anywhere' }}>
                 {t('mgmt.urls.all.failed', 'Not created: {{reason}}', { reason: state })}

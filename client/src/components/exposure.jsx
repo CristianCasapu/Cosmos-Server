@@ -15,7 +15,7 @@ import {
   Alert, Button, Checkbox, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Stack,
   TextField, Typography,
 } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { DownOutlined, GlobalOutlined, RightOutlined, WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import * as API from '../api';
@@ -67,7 +67,8 @@ export const ExposureForm = ({ name, image, web, ports, value, onChange, cloudfl
     const choice = value.ports[p.key] || {};
     const problem = problems && problems['port:' + p.key];
     const external = problems && problems['port:' + p.key + ':external'];
-    return <Stack key={p.key} spacing={1} sx={{ minWidth: 0 }} data-expose-port={p.key}>
+    return (
+      <Stack key={p.key} spacing={1} sx={{ minWidth: 0 }} data-expose-port={p.key}>
       <FormControlLabel
         sx={{ mr: 0, alignItems: 'flex-start' }}
         control={<Checkbox size="small" checked={!!choice.on} disabled={busy} onChange={(event) => setPort(p.key, { on: event.target.checked })} />}
@@ -97,7 +98,9 @@ export const ExposureForm = ({ name, image, web, ports, value, onChange, cloudfl
             error={!!problem}
             onChange={(event) => setPort(p.key, { hostname: event.target.value.trim().toLowerCase() })}
             helperText={problem ? NAME_TEXT(t, problem, { zone: p.zone, host: choice.hostname }) : say(text('port.why'))}
-            inputProps={{ 'data-expose-port-name': p.key }}
+              slotProps={{
+                htmlInput: { 'data-expose-port-name': p.key }
+              }}
           />
           : <Typography variant="caption" color="textSecondary">{say(text('port.noName'))}</Typography>}
         <TextField
@@ -107,14 +110,17 @@ export const ExposureForm = ({ name, image, web, ports, value, onChange, cloudfl
           placeholder={String(p.hostPort)}
           disabled={busy}
           error={!!external}
-          inputProps={{ inputMode: 'numeric' }}
           onChange={(event) => setPort(p.key, { externalPort: event.target.value.trim() })}
           helperText={external
             ? t('mgmt.router.dialog.externalInvalid', 'Enter a port between 1 and 65535, or leave it empty')
             : t('mgmt.expose.port.externalHelp', 'Empty: {{port}}. When the router has it taken, Cosmos takes the next free port and the address says so.', { port: p.hostPort })}
+            slotProps={{
+              htmlInput: { inputMode: 'numeric' }
+            }}
         />
       </Stack>}
-    </Stack>;
+      </Stack>
+    );
   };
 
   return <Stack spacing={2} sx={{ minWidth: 0 }} data-expose-form>

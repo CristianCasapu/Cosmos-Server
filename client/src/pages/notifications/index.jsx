@@ -2,7 +2,7 @@
 // first, with filters (in the address, so a filtered list can be linked),
 // and the commands to mark read or unread and to delete one's own copies.
 import * as React from 'react';
-import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
+import { Link as RouterLink, useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Link,
@@ -39,11 +39,11 @@ export const NotificationCard = ({ item, onRead, onDelete }) => {
     border: '1px solid var(--ct-border)', borderRadius: 'var(--ct-radius-l)', bgcolor: 'var(--ct-surface-2)', p: { xs: 1.5, sm: 2 }, minWidth: 0,
     borderLeft: item.read ? '1px solid var(--ct-border)' : '4px solid', borderLeftColor: item.read ? 'var(--ct-border)' : item.level + '.main',
   }}>
-    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }} sx={{ minWidth: 0 }}>
-    <Stack direction="row" spacing={1.5} alignItems="flex-start" sx={{ minWidth: 0, flex: 1 }}>
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { xs: 'stretch', sm: 'center' }, minWidth: 0 }}>
+    <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start', minWidth: 0, flex: 1 }}>
       <LevelIcon level={item.level} />
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
           <Link component={RouterLink} to={link} underline="hover" color="inherit" variant={item.read ? 'subtitle1' : 'h5'} sx={{ ...wrapAnywhere, fontWeight: item.read ? 500 : 700, minHeight: { xs: 44, sm: 0 }, display: 'inline-flex', alignItems: 'center' }}>
             {title}
           </Link>
@@ -52,7 +52,7 @@ export const NotificationCard = ({ item, onRead, onDelete }) => {
           {item.count > 1 && <Chip size="small" variant="outlined" label={'×' + item.count} />}
         </Stack>
         {message && <Typography variant="body2" sx={{ mt: 0.5, whiteSpace: 'pre-wrap', ...wrapAnywhere }}>{message}</Typography>}
-        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center" sx={{ mt: 1 }}>
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mt: 1 }}>
           <SourceChip source={item.source} />
           <SubjectChip subject={item.subject} />
           <When value={item.date} />
@@ -62,7 +62,7 @@ export const NotificationCard = ({ item, onRead, onDelete }) => {
         </Typography>}
       </Box>
     </Stack>
-    <Stack direction="row" spacing={1} useFlexGap flexWrap="nowrap" justifyContent="flex-end" sx={{ flexShrink: 0 }}>
+    <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'nowrap', justifyContent: 'flex-end', flexShrink: 0 }}>
       <Button component={RouterLink} to={link} size="small" variant="outlined" sx={touch}>{t(...TEXT.open)}</Button>
       <Tooltip title={t(...(item.read ? TEXT.markUnread : TEXT.markRead))}>
         <IconButton size="small" aria-label={t(...(item.read ? TEXT.markUnread : TEXT.markRead))} onClick={() => onRead(item, !item.read)} sx={touch}>
@@ -147,32 +147,62 @@ const NotificationsPage = () => {
     }).catch(() => {});
   };
 
-  return <Stack spacing={2} sx={{ maxWidth: '1200px', margin: 'auto', minWidth: 0 }}>
+  return (
+    <Stack spacing={2} sx={{ maxWidth: '1200px', margin: 'auto', minWidth: 0 }}>
     <MainCard title={t(...TEXT.pageTitle)}>
       <Stack spacing={2}>
         <Typography variant="body2">{t(...TEXT.intro)}</Typography>
         <Typography variant="caption" color="textSecondary">{t(TEXT.zone[0], TEXT.zone[1], { zone: zoneName() })}</Typography>
         <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' } }}>
-            <TextField select fullWidth size={size} label={t(...TEXT.filterLevel)} value={filters.level} SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}
-              onChange={(e) => setFilters({ level: e.target.value })}>
+              <TextField
+                select
+                fullWidth
+                size={size}
+                label={t(...TEXT.filterLevel)}
+                value={filters.level}
+                onChange={(e) => setFilters({ level: e.target.value })}
+                slotProps={{
+                  select: { displayEmpty: true },
+                  inputLabel: { shrink: true }
+                }}>
               <MenuItem value="">{t(...TEXT.filterAny)}</MenuItem>
               {LEVELS.map((l) => <MenuItem key={l} value={l}>{t(...LEVEL_TEXT[l])}</MenuItem>)}
             </TextField>
-            <TextField select fullWidth size={size} label={t(...TEXT.filterSource)} value={filters.source} SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}
-              onChange={(e) => setFilters({ source: e.target.value })}>
+              <TextField
+                select
+                fullWidth
+                size={size}
+                label={t(...TEXT.filterSource)}
+                value={filters.source}
+                onChange={(e) => setFilters({ source: e.target.value })}
+                slotProps={{
+                  select: { displayEmpty: true },
+                  inputLabel: { shrink: true }
+                }}>
               <MenuItem value="">{t(...TEXT.filterAny)}</MenuItem>
               {SOURCES.map(([id]) => <MenuItem key={id} value={id}>{t(...SOURCE_TEXT[id])}</MenuItem>)}
             </TextField>
-            <TextField select fullWidth size={size} label={t(...TEXT.filterRead)} value={filters.read} SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}
-              onChange={(e) => setFilters({ read: e.target.value })}>
+              <TextField
+                select
+                fullWidth
+                size={size}
+                label={t(...TEXT.filterRead)}
+                value={filters.read}
+                onChange={(e) => setFilters({ read: e.target.value })}
+                slotProps={{
+                  select: { displayEmpty: true },
+                  inputLabel: { shrink: true }
+                }}>
               <MenuItem value="">{t(...TEXT.filterAny)}</MenuItem>
               <MenuItem value="unread">{t(...TEXT.filterUnread)}</MenuItem>
               <MenuItem value="read">{t(...TEXT.filterReadOnly)}</MenuItem>
             </TextField>
             <TextField fullWidth size={size} label={t(...TEXT.filterText)} value={qText} onChange={(e) => setQText(e.target.value)}
-              inputProps={{ maxLength: MAX_Q }} placeholder={t(...TEXT.filterTextPlaceholder)} />
+                placeholder={t(...TEXT.filterTextPlaceholder)} slotProps={{
+                htmlInput: { maxLength: MAX_Q }
+              }} />
         </Box>
-        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
           <Button variant="outlined" startIcon={<SyncOutlined />} onClick={() => load('')}>{t(...TEXT.refresh)}</Button>
           <Button variant="outlined" startIcon={<CheckOutlined />} disabled={unread === 0} onClick={markAll}>{t(...TEXT.markAllRead)}</Button>
           <Button variant="outlined" color="error" startIcon={<DeleteOutlined />} onClick={() => setConfirm('read')}>{t(...TEXT.deleteRead)}</Button>
@@ -197,7 +227,8 @@ const NotificationsPage = () => {
 
     <Confirm open={confirm === 'read'} title={t(...TEXT.deleteReadTitle)} text={t(...TEXT.deleteReadText)} onCancel={() => setConfirm(null)} onConfirm={doDelete} />
     <Confirm open={!!confirm && confirm !== 'read'} title={t(...TEXT.deleteOneTitle)} text={t(...TEXT.deleteOneText)} onCancel={() => setConfirm(null)} onConfirm={doDelete} />
-  </Stack>;
+    </Stack>
+  );
 };
 
 export default NotificationsPage;

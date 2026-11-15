@@ -31,7 +31,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
@@ -179,8 +179,9 @@ export const AddressShield = ({ host, status, image, name, dense }) => {
     ? t('mgmt.cloudflare.switch.through', 'Through Cloudflare')
     : t('mgmt.cloudflare.switch.directly', 'Directly');
 
-  return <Stack spacing={0.5} sx={{ minWidth: 0 }} data-cloudflare-host={host.host}>
-    <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" useFlexGap flexWrap="wrap" sx={{ minWidth: 0 }}>
+  return (
+    <Stack spacing={0.5} sx={{ minWidth: 0 }} data-cloudflare-host={host.host}>
+    <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', minWidth: 0 }}>
       <Typography variant={dense ? 'body2' : 'subtitle2'} sx={{ overflowWrap: 'anywhere', minWidth: 0 }}>
         <Link href={host.url} target="_blank" rel="noopener noreferrer">{host.url}</Link>
         {host.panel && <> <Chip size="small" label={t('mgmt.cloudflare.panelChip', 'Cosmos panel')} /></>}
@@ -198,7 +199,9 @@ export const AddressShield = ({ host, status, image, name, dense }) => {
               checked={!!host.shielded}
               disabled={busy || !!blocked}
               onChange={(event) => (event.target.checked ? setAsk('on') : change(false))}
-              inputProps={{ 'aria-label': t('mgmt.cloudflare.switch.aria', 'Serve {{host}} through Cloudflare', { host: host.host }) }}
+                slotProps={{
+                  input: { 'aria-label': t('mgmt.cloudflare.switch.aria', 'Serve {{host}} through Cloudflare', { host: host.host }) }
+                }}
             />}
             label={<Typography variant="body2">{label}</Typography>}
           />
@@ -206,7 +209,7 @@ export const AddressShield = ({ host, status, image, name, dense }) => {
       </PermissionGuard>
     </Stack>
 
-    <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ minWidth: 0 }}>
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', minWidth: 0 }}>
       <LevelIcon level={record.level} />
       <Typography variant="body2" color="textSecondary" sx={{ overflowWrap: 'anywhere', minWidth: 0 }} data-record-state={host.record ? host.record.state : 'none'}>
         {t(record.key, record.text)}
@@ -253,7 +256,8 @@ export const AddressShield = ({ host, status, image, name, dense }) => {
         <LoadingButton loading={busy} onClick={stopTrusting}>{t('mgmt.cloudflare.last.stop', 'Stop believing them')}</LoadingButton>
       </DialogActions>
     </Dialog>}
-  </Stack>;
+    </Stack>
+  );
 };
 
 // The addresses of one application (by their hostnames) that are under a
@@ -356,7 +360,7 @@ export const CloudflareOverview = () => {
         </Typography>}
         {notice && <Alert severity={notice.severity} sx={{ overflowWrap: 'anywhere' }}>{notice.text}</Alert>}
         <PermissionGuard permission={PERM_CONFIGURATION}>
-          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+          <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
             <Tooltip title={t('mgmt.cloudflare.ranges.refreshTip', 'Asks api.cloudflare.com for its published address ranges and uses them if they are a list of public networks. While an address is served through Cloudflare, Cosmos also does this once a week.')}>
               <span>
                 <LoadingButton size="small" variant="outlined" loading={busy === 'refresh'} startIcon={<ReloadOutlined />} onClick={() => ranges('refresh')}>
@@ -567,7 +571,7 @@ export const CloudflareConnect = ({ zones, hostname, httpsPort, onClose, onManua
             {t('mgmt.cloudflare.connect.howToken',
               'Create the token at Cloudflare: My Profile > API Tokens > Create Token > "Edit zone DNS". Permissions: Zone > DNS > Edit and Zone > Zone > Read. Zone Resources: Include > Specific zone > your domain. A token limited to that one domain is all Cosmos needs.')}
           </Typography>
-          {connected.length > 0 && <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
+          {connected.length > 0 && <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
             <Typography variant="caption" color="textSecondary">{t('mgmt.cloudflare.connect.useStored', 'Or use the token already stored for:')}</Typography>
             {connected.map((name) => <Chip
               key={name}
@@ -618,7 +622,7 @@ export const CloudflareConnect = ({ zones, hostname, httpsPort, onClose, onManua
               { count: report.zones.length + (report.moreZones ? '+' : '') })}
           </Alert>}
           <Typography variant="subtitle2">{t('mgmt.cloudflare.connect.pick', 'Which domain should Cosmos use?')}</Typography>
-          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+          <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
             {report.zones.map((entry) => <Chip
               key={entry.name}
               clickable
@@ -648,7 +652,7 @@ export const CloudflareConnect = ({ zones, hostname, httpsPort, onClose, onManua
             </Stack>
           </Stack>}
           {zone && access && accessText[1] && <Alert severity={accessText[0]} sx={{ overflowWrap: 'anywhere' }}>{t(accessText[1], accessText[2])}</Alert>}
-          {previewing && <Stack direction="row" spacing={1} alignItems="center">
+          {previewing && <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
             <CircularProgress size={16} color="inherit" />
             <Typography variant="body2">{t('mgmt.cloudflare.connect.reading', 'Reading the records of {{zone}} at Cloudflare…', { zone })}</Typography>
           </Stack>}
@@ -659,7 +663,7 @@ export const CloudflareConnect = ({ zones, hostname, httpsPort, onClose, onManua
           <Typography variant="subtitle2" sx={{ overflowWrap: 'anywhere' }}>
             {t('mgmt.cloudflare.review.panelTitle', 'The address of the Cosmos panel')}
           </Typography>
-          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+          <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
             {panelChoices(zone, preview, currentPanel).map((host) => <Chip
               key={host}
               clickable
@@ -741,7 +745,7 @@ export const CloudflareConnect = ({ zones, hostname, httpsPort, onClose, onManua
               const canReplace = options.manageRecords && (row.action === 'conflict' || row.action === 'replace');
               const here = row.action === 'protected' && row.proxied && row.pointsHere;
               return <Stack key={row.name} spacing={0.25} sx={{ minWidth: 0 }} data-preview-row={row.name} data-preview-action={row.action}>
-                <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
                   <Typography variant="body2" sx={{ overflowWrap: 'anywhere', fontWeight: 600 }}>{row.name}</Typography>
                   {row.role === 'panel' && <Chip size="small" label={t('mgmt.cloudflare.panelChip', 'Cosmos panel')} />}
                   <Chip size="small" variant="outlined" color={action[2]} label={t(action[0], action[1])} />
@@ -851,7 +855,7 @@ export const CloudflareConnect = ({ zones, hostname, httpsPort, onClose, onManua
           </Typography>
         </>}
 
-        {working && <Stack direction="row" spacing={1} alignItems="center">
+        {working && <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           <CircularProgress size={16} color="inherit" />
           <Typography variant="body2">{working}</Typography>
         </Stack>}

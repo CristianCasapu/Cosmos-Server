@@ -205,8 +205,7 @@ const TerminalComponent = ({refresh, connectButtons}) => {
       <Stack 
         direction="row"
         spacing={1}
-        alignItems="center"
-        sx={{
+        sx={{ alignItems: 'center',
           background: '#272d36',
           color: '#fff',
           padding: '10px',

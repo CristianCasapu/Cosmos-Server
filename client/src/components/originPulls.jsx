@@ -18,7 +18,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { useTranslation } from 'react-i18next';
 import * as API from '../api';
 import ChoiceChips from './choiceChips';
@@ -50,7 +50,7 @@ const CopyBox = ({ id, label, value }) => {
     <InputLabel htmlFor={id}>{label}</InputLabel>
     <OutlinedInput id={id} value={value} fullWidth multiline minRows={3} maxRows={6}
       inputProps={{ readOnly: true, spellCheck: false, style: { fontFamily: 'monospace', fontSize: '0.8rem' } }} />
-    <Stack direction="row" spacing={1} alignItems="center">
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
       <Button size="small" variant="outlined" onClick={copy}>{t('mgmt.cloudflare.pulls.copy', 'Copy')}</Button>
       {copied && <Typography variant="caption" color="textSecondary">{t('mgmt.cloudflare.pulls.copied', 'Copied.')}</Typography>}
     </Stack>
@@ -229,7 +229,7 @@ const OriginPulls = ({ status, reload }) => {
               onChange={setToken}
               helperText={t('mgmt.cloudflare.pulls.handover.tokenHelp', 'A Cloudflare API token with the permission Zone > SSL and Certificates > Edit for {{zone}}. Used for this upload, not kept. You can delete it at Cloudflare afterwards.', { zone: target })}
             />}
-            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
               <LoadingButton size="small" variant="contained" loading={busy === 'upload'} disabled={busy !== '' || !target || (needToken && !token.trim())} onClick={upload}>
                 {needToken
                   ? t('mgmt.cloudflare.pulls.handover.uploadWith', 'Upload with this token')
@@ -273,7 +273,7 @@ const OriginPulls = ({ status, reload }) => {
         {mode === 'test' && step.why && <Typography variant="caption" color="textSecondary" sx={{ overflowWrap: 'anywhere' }}>{say(step.why)}</Typography>}
         {notice && <Alert severity={notice.severity} sx={wrap} data-origin-pulls-notice>{notice.text}</Alert>}
 
-        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
           {!mode && <LoadingButton size="small" variant="contained" loading={busy === 'test'} disabled={busy !== '' || !step.test}
             onClick={() => run('test', { action: 'mode', mode: 'test' })}>
             {t('mgmt.cloudflare.pulls.action.test', 'Start the test')}

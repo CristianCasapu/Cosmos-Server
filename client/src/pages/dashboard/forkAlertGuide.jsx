@@ -22,7 +22,7 @@ export const ForkAlertTemplates = ({ formik, metrics }) => {
     <Typography variant="subtitle1" component="div">{t('mgmt.monitoring.alerts.fork.start', 'Start from a ready-made alert')}</Typography>
     {list.length === 0
       ? <FormHelperText>{t('mgmt.monitoring.alerts.fork.noMetrics', 'The server has not collected any metric yet: ready-made alerts appear once it has (a few minutes after it starts, with monitoring on).')}</FormHelperText>
-      : <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+      : <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1}>
         {list.map((tpl) => <Chip
           key={tpl.id}
           label={tr(t, tpl.label)}
