@@ -207,6 +207,15 @@ func (s *Server) validValue(target string, value string) bool {
 	return false
 }
 
+var accountRulesPath = regexp.MustCompile(`^/client/v4/accounts/([0-9a-f]{32})/firewall/access_rules/rules(?:/([0-9a-f]{32}))?$`)
+
+// AccountRules lists the IP Access Rules of the account.
+func (s *Server) AccountRules() []AccessRule {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]AccessRule(nil), s.accountRules...)
+}
+
 // serveAccessRules runs with the lock held.
 func (s *Server) serveAccessRules(w http.ResponseWriter, req *http.Request, zoneID string, ruleID string, token Token, raw []byte) {
 	zone := s.zone(zoneID, token)
@@ -214,6 +223,23 @@ func (s *Server) serveAccessRules(w http.ResponseWriter, req *http.Request, zone
 		fail(w, http.StatusForbidden, 10000, "Authentication error")
 		return
 	}
+	s.serveRuleList(w, req, &zone.AccessRules, ruleID, token.ReadFirewall, token.EditFirewall, raw)
+}
+
+// serveAccountRules: the same at the account (every zone of it).
+func (s *Server) serveAccountRules(w http.ResponseWriter, req *http.Request, accountID string, ruleID string, token Token, raw []byte) {
+	if accountID != AccountID {
+		fail(w, http.StatusForbidden, 10000, "Authentication error")
+		return
+	}
+	s.serveRuleList(w, req, &s.accountRules, ruleID, token.ReadAccountRules, token.EditAccountRules, raw)
+}
+
+func (s *Server) serveRuleList(w http.ResponseWriter, req *http.Request, list *[]AccessRule, ruleID string, mayRead bool, mayEdit bool, raw []byte) {
+	type holder struct{ AccessRules []AccessRule }
+	zone := &holder{AccessRules: *list}
+	defer func() { *list = zone.AccessRules }()
+	token := struct{ ReadFirewall, EditFirewall bool }{mayRead, mayEdit}
 	switch {
 	case req.Method == "GET" && ruleID == "":
 		if !token.ReadFirewall && !token.EditFirewall {
@@ -299,7 +325,7 @@ func (s *Server) serveAccessRules(w http.ResponseWriter, req *http.Request, zone
 				return
 			}
 		}
-		total := 0
+		total := len(s.accountRules)
 		for _, other := range s.zones {
 			total += len(other.AccessRules)
 		}
@@ -333,4 +359,17 @@ func (s *Server) serveAccessRules(w http.ResponseWriter, req *http.Request, zone
 	default:
 		fail(w, http.StatusMethodNotAllowed, 10405, "Method not allowed for this authentication scheme")
 	}
+}
+
+// RemoveAccountRule deletes a rule of the account the way the owner would.
+func (s *Server) RemoveAccountRule(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, rule := range s.accountRules {
+		if rule.ID == id {
+			s.accountRules = append(s.accountRules[:i], s.accountRules[i+1:]...)
+			return true
+		}
+	}
+	return false
 }

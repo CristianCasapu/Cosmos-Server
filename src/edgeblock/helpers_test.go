@@ -59,11 +59,22 @@ type testEnv struct {
 // configuration of its own, an engine with a clock of its own.
 func setup(t *testing.T, dnsOnly bool, change func(config *utils.Config)) *testEnv {
 	t.Helper()
+	if dnsOnly {
+		return setupWith(t, cffake.Token{Zones: []string{"example.org"}, ReadDNS: true, EditDNS: true}, change)
+	}
+	return setupWith(t, cffakeToken(true), change)
+}
+
+// setupWith: the same, with a token of the rights given (on top of none).
+func setupWith(t *testing.T, rights cffake.Token, change func(config *utils.Config)) *testEnv {
+	t.Helper()
 	fake := cffake.New()
 	fake.AddZone("example.org")
 	fake.AddZone("example.net")
-	fake.AddToken(fwToken, cffake.Token{Zones: []string{"example.org"}, ReadDNS: true, EditDNS: true, ReadFirewall: true, EditFirewall: true})
-	fake.AddToken(dnsToken, cffake.Token{Zones: []string{"example.org"}, ReadDNS: true, EditDNS: true})
+	if rights.Zones == nil {
+		rights.Zones = []string{"example.org"}
+	}
+	fake.AddToken(fwToken, rights)
 	server := httptest.NewServer(fake)
 	target, _ := url.Parse(server.URL)
 	restoreTransport := cloudflare.ForkTestTransport(func(req *http.Request) (*http.Response, error) {
@@ -79,9 +90,6 @@ func setup(t *testing.T, dnsOnly bool, change func(config *utils.Config)) *testE
 	previousConfig := utils.GetBaseMainConfig()
 	utils.CONFIGFOLDER = t.TempDir() + "/"
 	token := fwToken
-	if dnsOnly {
-		token = dnsToken
-	}
 	config := utils.Config{}
 	config.HTTPConfig.Hostname = "cosmos.example.org"
 	config.HTTPConfig.DNSZones = []utils.DNSZoneConfig{{
