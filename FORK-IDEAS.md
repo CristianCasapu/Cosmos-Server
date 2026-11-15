@@ -277,6 +277,27 @@ administrator's address, the caps of 500 rules and 60 blocks an hour.
   owner of the data path, else 1000; "put the previous one back" has no
   confirmation and the container it sets aside becomes a leftover itself.
 
+## Installing any image: left for later (2026-11-15)
+
+No form for the credentials of a private registry (it would be a new store
+of secrets: today the server is logged in with `docker login` on the host;
+upstream's registry page is paid). The download size is shown but not
+compared with the free space before a pull. A graphics card passed through
+`runtime: nvidia` or compose's `deploy` section gets no tick (the compose
+import says it drops `deploy`). An app that names its database only in a
+configuration file cannot be wired up. Upstream's Market templates of
+Miniflux and Nextcloud are not valid JSON (their images install through
+"any image"; to report upstream if the owner wants). No recipe for MinIO
+(its community image is gone and its repository archived), Garage (needs a
+configuration file), SeaweedFS or rest-server. Docker Hub's "verified
+publisher" mark is not shown. In Firefox the gallery records one console
+error on the ServApps page behind the dialog (the reachability check of a
+test app's `.local` address, blocked by CORS; not from this flow). The
+owner's to change if wanted: databases pinned to a major version (`lts`
+for MariaDB and MySQL), 24-character passwords, Redis, Valkey and Memcached
+without a password (not published, reached through link networks), Traefik
+with the Docker socket behind a tick.
+
 ## Installable app: left for later (2026-11-14)
 
 - Never tried on real devices (iPhone notch and status-bar colours, the
