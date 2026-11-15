@@ -22,11 +22,14 @@
 // would: the instance trusts the test network as a proxy (TrustedProxies) and
 // the browser's requests to the panel carry X-Forwarded-For: 203.0.113.50.
 // Without that header the browser is on the local network.
-// The script policy of work/audit2 (script-src 'self', frame-src 'none') with
-// the allowance of src/fork_turnstile_csp.go is put on the panel's pages by the
-// harness (CSP=1, the default) to show the widget works under it.
+// The script policy (src/fork_csp.go, script-src 'self', frame-src 'none', with
+// the allowance of src/fork_turnstile_csp.go while a site key is saved) comes
+// from the server itself (CSP=server, the default): the script checks the
+// header names Cloudflare only while a site key is saved, and counts every
+// violation. CSP=1 puts the policy below on the pages instead (for a server
+// without its own), CSP=0 neither puts nor checks one.
 //
-//   SERVER_IP=172.31.231.10 ENGINES=chromium,firefox,webkit SIZES=d,m CSP=1
+//   SERVER_IP=172.31.231.10 NET=172.31.231 ENGINES=chromium,firefox,webkit SIZES=d,m MODES=light,dark CSP=server
 // Screenshots go to ./shots.
 import { chromium, firefox, webkit, request } from 'playwright';
 import { mkdirSync } from 'node:fs';
@@ -41,7 +44,11 @@ const engines = { chromium, firefox, webkit };
 const engineNames = (process.env.ENGINES || 'chromium,firefox,webkit').split(',');
 const sizes = (process.env.SIZES || 'd,m').split(',');
 const viewports = { d: { width: 1366, height: 900 }, m: { width: 390, height: 844 } };
-const withCSP = process.env.CSP !== '0';
+const cspMode = process.env.CSP || 'server';
+const withCSP = cspMode !== '0';
+const injectCSP = cspMode === '1';
+const modes = (process.env.MODES || 'light,dark').split(',');
+const testNet = process.env.NET || '172.31.231';
 const VISITOR = '203.0.113.50';
 const SITE_PASS = '1x00000000000000000000AA';
 const SITE_FAIL = '2x00000000000000000000AB';
@@ -54,6 +61,7 @@ const POLICY = "default-src 'self'; script-src 'self' https://challenges.cloudfl
 
 const note = (...a) => console.log(...a);
 const failures = [];
+const allViolations = [];
 const expect = (ok, what) => { note(ok ? '  ok  ' : '  FAIL', what); if (!ok) failures.push(what); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 mkdirSync('shots', { recursive: true });
@@ -92,7 +100,7 @@ const serverUp = () => until('the server answers over HTTPS', async () => (await
   await ctx.post(base + '/cosmos/api/sudo', { data: { password } });
   const config = (await (await ctx.get(base + '/cosmos/api/config')).json()).data;
   if (!(config.HTTPConfig.TrustedProxies || []).length) {
-    config.HTTPConfig.TrustedProxies = ['172.31.231.0/24'];
+    config.HTTPConfig.TrustedProxies = [testNet + '.0/24'];
     config.HTTPConfig.DNSZones = [{ Zone: 'example.org', HTTPSCertificateMode: 'SELFSIGNED', DNSChallengeProvider: 'cloudflare', DNSChallengeConfig: { CF_DNS_API_TOKEN: GOOD } }];
     config.HTTPConfig.ProxyConfig.Routes = [{ Name: 'app', Mode: 'PROXY', Target: 'http://fake:8080', UseHost: true, Host: 'app.example.org', AuthEnabled: true }];
     const r = await ctx.put(base + '/cosmos/api/config', { data: config });
@@ -107,7 +115,10 @@ const serverUp = () => until('the server answers over HTTPS', async () => (await
 // every browser of the run is another visitor: the server lets one visitor ask Cloudflare 6 times, then once every 30 s
 let visitors = 0;
 const nextVisitor = () => '203.0.113.' + (50 + (visitors++ % 150));
-const open = async (engineName, size, { visitor: asVisitor, mode = 'light', siteKeyOverride, blockWidget, tamperToken } = {}) => {
+// plain: the visitor's address is sent with every request by the browser itself (extraHTTPHeaders) instead of
+// by changing the requests in flight: Chromium then sends the panel's cookie along to another name (app.example.org)
+// when a request is changed, which the server rightly refuses ("token not valid for this domain")
+const open = async (engineName, size, { visitor: asVisitor, mode = 'light', siteKeyOverride, blockWidget, tamperToken, plain = false } = {}) => {
   const visitor = asVisitor ? nextVisitor() : '';
   const browser = await engines[engineName].launch();
   // the harness makes "a visitor from the internet" by changing the panel's requests; Firefox and WebKit
@@ -115,17 +126,22 @@ const open = async (engineName, size, { visitor: asVisitor, mode = 'light', site
   // out there (Chromium keeps it: the sign-in then also runs under the worker, which leaves Cloudflare's
   // requests alone, see pwaPolicy.js)
   const ctx = await browser.newContext({ viewport: viewports[size], ignoreHTTPSErrors: true, colorScheme: mode, locale: 'en-GB',
-    serviceWorkers: visitor && engineName !== 'chromium' ? 'block' : 'allow' });
+    serviceWorkers: visitor && engineName !== 'chromium' ? 'block' : 'allow', ...(plain && visitor ? { extraHTTPHeaders: { 'X-Forwarded-For': visitor } } : {}) });
   const violations = [];
   const name = `${engineName}-${size}`;
+  // the policy's own report in the page (the console wording differs per engine)
+  await ctx.exposeBinding('__turnstileCheckViolation', (source, v) => { violations.push('event ' + JSON.stringify(v)); allViolations.push(`${name}-${mode} ${JSON.stringify(v)}`); });
+  await ctx.addInitScript(() => document.addEventListener('securitypolicyviolation', (e) => {
+    try { window.__turnstileCheckViolation({ directive: e.effectiveDirective || e.violatedDirective, blocked: e.blockedURI, source: e.sourceFile, path: location.pathname }); } catch (err) { /* unloading */ }
+  }, true));
   await ctx.route('https://challenges.cloudflare.com/**', (route) => (blockWidget ? route.abort('blockedbyclient') : route.continue()));
-  await ctx.route(/https:\/\/(cosmos|app)\.example\.org:2053\/.*/, async (route) => {
+  if (!plain) await ctx.route(/https:\/\/(cosmos|app)\.example\.org:2053\/.*/, async (route) => {
     const req = route.request();
     const headers = { ...req.headers() };
     if (visitor) headers['x-forwarded-for'] = visitor;
     if (tamperToken && headers['x-cosmos-turnstile']) headers['x-cosmos-turnstile'] = 'forged-' + Date.now();
     const url = req.url();
-    if (!(siteKeyOverride && url.includes('/cosmos/api/can-send-email')) && !(withCSP && req.resourceType() === 'document' && url.includes('/cosmos-ui/'))) {
+    if (!(siteKeyOverride && url.includes('/cosmos/api/can-send-email')) && !(injectCSP && req.resourceType() === 'document' && url.includes('/cosmos-ui/'))) {
       return route.continue({ headers });
     }
     const answer = await route.fetch({ headers, maxRedirects: 0 });
@@ -136,7 +152,7 @@ const open = async (engineName, size, { visitor: asVisitor, mode = 'light', site
       if (json.data && json.data.turnstile) json.data.turnstile.siteKey = siteKeyOverride;
       body = Buffer.from(JSON.stringify(json));
     }
-    if (withCSP && req.resourceType() === 'document' && url.includes('/cosmos-ui/')) outHeaders['content-security-policy'] = POLICY;
+    if (injectCSP && req.resourceType() === 'document' && url.includes('/cosmos-ui/')) outHeaders['content-security-policy'] = POLICY;
     return route.fulfill({ status: answer.status(), headers: outHeaders, body });
   });
   const page = await ctx.newPage();
@@ -145,7 +161,7 @@ const open = async (engineName, size, { visitor: asVisitor, mode = 'light', site
     const text = m.text();
     // Cloudflare's own frame has a policy of its own that Firefox reports on (unknown directives): not the panel's
     if (/challenges\.cloudflare\.com\/cdn-cgi/.test(text) && /unknown directive/i.test(text)) return;
-    if (/Content Security Policy|Content-Security-Policy|violates|Refused to (load|execute|frame)/i.test(text)) violations.push(text.slice(0, 300));
+    if (/Content Security Policy|Content-Security-Policy|violates|Refused to (load|execute|frame)/i.test(text)) { violations.push(text.slice(0, 300)); allViolations.push(`${name}-${mode} console ${text.slice(0, 300)}`); }
   });
   return { browser, ctx, page, name, violations };
 };
@@ -162,6 +178,15 @@ const adminCall = async (body) => {
   const json = await r.json().catch(() => ({}));
   await ctx.dispose();
   return { status: r.status(), json };
+};
+// the panel's policy as the server sends it: Cloudflare's origin in script-src and frame-src only, and only while a site key is saved
+const panelPolicy = async () => {
+  const r = await api.get(base + '/cosmos-ui/login', { maxRedirects: 0 });
+  return r.headers()['content-security-policy'] || r.headers()['content-security-policy-report-only'] || '';
+};
+const policyNamesCloudflare = (policy) => {
+  const named = policy.split(';').map((d) => d.trim()).filter((d) => d.includes('challenges.cloudflare.com')).map((d) => d.split(' ')[0]);
+  return named.sort().join(',');
 };
 const widgetState = (page) => page.locator('[data-turnstile]').getAttribute('data-turnstile-state').catch(() => null);
 const statusLine = (page) => page.locator('[data-turnstile] [role=status]').innerText().catch(() => '');
@@ -188,6 +213,10 @@ const submit = (page) => page.locator('form button[type=submit]').first().click(
   await card.waitFor({ timeout: 30000 });
   await card.scrollIntoViewIfNeeded();
   expect((await card.locator('[data-turnstile-state]').getAttribute('data-turnstile-state')) === 'off', `${name}: the card says off`);
+  if (cspMode === 'server') {
+    const policy = await panelPolicy();
+    expect(/script-src 'self'(;|$)/.test(policy) && /frame-src 'none'/.test(policy) && !/cloudflare/i.test(policy), `the server's policy names no Cloudflare without a site key (${policy})`);
+  }
   await shot(page, name, 'card-off');
 
   // "create it for me" with the DNS token: Cloudflare refuses, the card says which permission
@@ -233,6 +262,10 @@ const submit = (page) => page.locator('form button[type=submit]').first().click(
   await card.locator('#turnstile-secret-key').fill(SECRET_PASS);
   await card.locator('[data-turnstile-action=keys]').click();
   await card.locator('[data-turnstile-action=try]').waitFor({ timeout: 30000 });
+  if (cspMode === 'server') {
+    const policy = await panelPolicy();
+    expect(policyNamesCloudflare(policy) === 'frame-src,script-src' && /script-src 'self' https:\/\/challenges\.cloudflare\.com(;|$)/.test(policy) && /frame-src https:\/\/challenges\.cloudflare\.com(;|$)/.test(policy) && !/unsafe-eval/.test(policy), `with a site key saved the server's policy allows Cloudflare in script-src and frame-src only (${policy})`);
+  }
   await card.locator('[data-turnstile-action=try]').click();
   await until('the trial passes', async () => (await card.locator('[data-turnstile-state]').getAttribute('data-turnstile-state')) === 'ready', 40);
   await shot(page, name, 'card-tried');
@@ -246,7 +279,7 @@ const submit = (page) => page.locator('form button[type=submit]').first().click(
 // the look of the card in the other engines and sizes, light and dark
 for (const engineName of engineNames) {
   for (const size of sizes) {
-    for (const mode of ['light', 'dark']) {
+    for (const mode of modes) {
       const { browser, page, name } = await open(engineName, size, { mode });
       await page.goto(base + '/cosmos-ui/login', { waitUntil: 'domcontentloaded' });
       await page.request.post(base + '/cosmos/api/login', { data: { nickname: 'admin', password } });
@@ -285,7 +318,7 @@ const internetLogin = async (engineName, size, mode) => {
 };
 for (const engineName of engineNames) {
   for (const size of sizes) {
-    for (const mode of (size === 'd' ? ['light', 'dark'] : ['light'])) await internetLogin(engineName, size, mode);
+    for (const mode of modes) await internetLogin(engineName, size, mode);
   }
 }
 
@@ -417,7 +450,7 @@ for (const engineName of engineNames) {
 
   // the two-factor page has no check; the app gate's round trip goes through the protected sign-in
   {
-    const { browser, page, name } = await open('chromium', 'd', { visitor: VISITOR });
+    const { browser, page, name } = await open('chromium', 'd', { visitor: VISITOR, plain: true });
     await page.goto(base + '/cosmos-ui/loginmfa', { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(3000);
     expect(await page.locator('[data-turnstile]').count() === 0, `${name}: the two-factor page asks for no check`);
@@ -428,9 +461,8 @@ for (const engineName of engineNames) {
     expect(shown, `${name}: the app's sign-in is the panel's, with the check`);
     await until(`${name}: the check passes`, async () => (await widgetState(page)) === 'ready', 40);
     await fillLogin(page);
-    // the check passes the sign-in, and the authorization sends the visitor back to the app's
-    // callback (what the callback does next is the OpenID code exchange, not this check's: on this
-    // test set-up it ends at the app's sign-in page for a local visitor just the same)
+    // the check passes the sign-in, the authorization sends the visitor back to the app's callback,
+    // which signs the visitor in on the app's name and opens the app
     let auth = null;
     page.on('response', (r) => { if (r.url().includes('/oauth2/auth') && r.request().method() === 'POST') auth = r; });
     await submit(page);
@@ -438,6 +470,12 @@ for (const engineName of engineNames) {
     const location = auth ? (auth.headers().location || '') : '';
     note('  authorization answered', auth && auth.status(), location.split('?')[0]);
     expect(!!auth && auth.status() === 303 && location.startsWith('https://app.example.org:2053/cosmos/oauth2/detect-callback?code='), `${name}: the sign-in with the check leads back to the app with a code`);
+    await page.waitForURL((url) => url.hostname === 'app.example.org' && !url.pathname.startsWith('/cosmos'), { timeout: 30000 }).catch(() => {});
+    const landed = new URL(page.url());
+    const cookies = (await page.context().cookies('https://app.example.org:2053/')).map((c) => c.name);
+    // the app behind the gate is the stand-in's control port, which has nothing at "/": its own 404 is the app answering
+    const body = await page.locator('body').innerText().catch(() => '');
+    expect(landed.hostname === 'app.example.org' && landed.pathname === '/' && cookies.includes('jwttoken') && /404 page not found/.test(body), `${name}: the round trip ends in the app, signed in on its name (${landed.href.split('?')[0]}, ${body.slice(0, 40)})`);
     await shot(page, name, 'app-gate');
     await browser.close();
   }
@@ -449,9 +487,10 @@ for (const engineName of engineNames) {
   expect(kinds.some((k) => k.startsWith('auth.turnstile.missing')) && kinds.some((k) => k.startsWith('auth.turnstile.failed')) && kinds.some((k) => k.startsWith('auth.turnstile.unavailable')), 'the three kinds are in the security record');
   const calls = await (await api.get(fake + '/siteverify/calls')).json();
   // the visitor's address as the fork determines it (the trial in the card came from the local network, the key tests carry none)
-  expect(calls.some((c) => /^203\.0\.113\./.test(c.remoteip)) && calls.every((c) => !c.remoteip || /^203\.0\.113\./.test(c.remoteip) || c.remoteip.startsWith('172.31.231.')), `siteverify got the visitor's address (${[...new Set(calls.map((c) => c.remoteip))].join(',')})`);
+  expect(calls.some((c) => /^203\.0\.113\./.test(c.remoteip)) && calls.every((c) => !c.remoteip || /^203\.0\.113\./.test(c.remoteip) || c.remoteip.startsWith(testNet + '.')), `siteverify got the visitor's address (${[...new Set(calls.map((c) => c.remoteip))].join(',')})`);
 }
 
+if (withCSP) expect(allViolations.length === 0, `no script policy violation and no policy message in any page of the run (${allViolations.slice(0, 5).join(' | ')})`);
 note(`\n${failures.length ? 'FAILED: ' + failures.length : 'all passed'}`);
 for (const f of failures) note('  - ' + f);
 process.exit(failures.length ? 1 : 0);
