@@ -307,6 +307,11 @@ for (const engine of engines) {
         await page.locator('[data-result="busybox"]').click();
         await page.locator('[data-any-image-facts]').waitFor({ timeout: 30000 });
         expect(/says nothing about itself/.test(await page.locator('[data-any-image-facts]').innerText()), `${name}: busybox: "this image says nothing about itself"`);
+        await page.locator('[data-any-image-open-fields] input').nth(0).fill('httpd -f -p 8080 -h /etc');
+        await page.locator('[data-any-image-open-fields] input').nth(2).fill('8080');
+        await page.locator('[data-any-image-review] [data-creation-review]').waitFor({ timeout: 30000 });
+        await page.waitForTimeout(800);
+        expect(/Addresses in Cosmos: busybox/.test(await page.locator('[data-any-image-review]').innerText()), `${name}: busybox with a command and a web port typed: an address`);
         await shotDialog(page, name, '10-busybox');
         await page.locator('[data-any-image-back]').click();
 
@@ -320,7 +325,7 @@ for (const engine of engines) {
         await page.locator('[data-any-image-field] input').fill('example/armonly:1');
         await page.locator('[data-any-image-search]').click();
         await page.locator('[data-any-image-platform]').waitFor({ timeout: 30000 });
-        expect(await page.locator('[data-any-image-review]').count() === 0, `${name}: no review for an image of another processor`);
+        expect(await page.locator('[data-any-image-review]').count() === 0 && await page.locator('[data-any-image-name]').count() === 0, `${name}: no review and no settings for an image of another processor`);
         await shotDialog(page, name, '12-armonly');
         await dialogFits(page, name, 'the refusals');
         await noSideScroll(page, name, 'the refusals');

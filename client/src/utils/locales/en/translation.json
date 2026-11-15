@@ -4787,6 +4787,7 @@
 	"mgmt.servapps.sensitive.network-host": "{{service}} uses the server's own network: every port it opens is open on the server, without Cosmos in front.",
 	"mgmt.servapps.sensitive.cap": "{{service}} gets the capability {{value}}, which reaches outside its container.",
 	"mgmt.servapps.sensitive.unconfined": "{{service}} turns a protection off ({{value}}).",
+	"mgmt.servapps.sensitive.device": "{{service}} gets the server's device {{value}} (a disk, a graphics card, a USB device…) and uses it directly.",
 	"mgmt.servapps.fork.sharedNetwork": "This container uses the network of {{name}}: it cannot publish ports of its own, so the ports below are not published. Publish them on {{name}} instead.",
 	"mgmt.servapps.compose.note.network.ports": "{{service}} uses the network of {{value}}, so it cannot publish ports of its own: move its ports to {{value}}.",
 	"mgmt.servapps.creation.reason.systemAsked": "The file names this folder itself, and it is on the disk the system runs from: change it if it holds much data.",
