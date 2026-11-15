@@ -9,7 +9,6 @@ GO-2026-4887  docker/docker v26: daemon-side; no fix in this module (it moved to
 GO-2025-3553  golang-jwt v3: only used by upstream's licence code (src/utils/cloud.go), which the fork never changes
 
 # npm: in the bundle
-GHSA-x7hr-w5r2-h6wg  prismjs 1.27 nested in react-syntax-highlighter 15 (refractor): DOM clobbering; refractor runs Prism without the DOM
 
 # npm: not run at all
 GHSA-w5hq-g745-h8pq  uuid 8 in @actions/core of upstream's sponsors script (sponsors.js), which nothing runs
