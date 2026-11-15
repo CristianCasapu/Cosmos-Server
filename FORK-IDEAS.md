@@ -86,9 +86,10 @@ outside host; in paid code (not touched): three routes that act on GET and
 a registry sign-in that accepts tokens without the owner check.
 
 Turnstile and the edge blocks were never tried against the real Cloudflare:
-a widget with real keys, "create the widget for me", the permission name for
-zone IP Access Rules, the answer to a test rule for a documentation address,
-paging. Until Authenticated Origin Pulls with the owner's own certificate
+a widget with real keys, "create the widget for me", the answer to a test
+rule for a documentation address, paging, and whether an account-owned token
+can be given the permission for a domain's IP Access Rules at all (the custom
+rules are the way that is documented to work with such a token). Until Authenticated Origin Pulls with the owner's own certificate
 are enforced, another Cloudflare customer could make Cosmos believe a chosen
 visitor address (bounded: shielded names, two events at least, challenges
 first, the exemptions and caps). The owner's to change if wanted: Turnstile
