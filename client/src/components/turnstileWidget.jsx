@@ -20,7 +20,7 @@ import { useTheme } from '@mui/material/styles';
 import { useTranslation } from 'react-i18next';
 import * as API from '../api';
 import {
-  SCRIPT_URL, canRetry, clearToken, refusalText, renderOptions, setToken, statusText, subscribe, widgetErrorKind,
+  SCRIPT_URL, canRetry, clearToken, policyRefusal, refusalText, renderOptions, setToken, statusText, subscribe, widgetErrorKind,
 } from '../utils/turnstile';
 
 const say = (t, text) => (text ? t(text[0], text[1], text[2] || {}) : '');
@@ -39,8 +39,14 @@ export const loadTurnstile = () => {
     script.async = true;
     // no Referer beyond the origin, no cookies of ours: it is another site
     script.referrerPolicy = 'strict-origin';
-    const timer = setTimeout(() => { scriptPromise = null; reject(new Error('blocked')); }, SCRIPT_TIMEOUT);
+    // the page's own script policy refusing it (a page opened before the keys were saved) is said apart
+    let refusedByPolicy = false;
+    const onViolation = (event) => { if (policyRefusal(event.blockedURI)) refusedByPolicy = true; };
+    document.addEventListener('securitypolicyviolation', onViolation);
+    const failure = () => new Error(refusedByPolicy ? 'policy' : 'blocked');
+    const timer = setTimeout(() => { document.removeEventListener('securitypolicyviolation', onViolation); scriptPromise = null; reject(failure()); }, SCRIPT_TIMEOUT);
     script.onload = () => {
+      document.removeEventListener('securitypolicyviolation', onViolation);
       clearTimeout(timer);
       if (window.turnstile && typeof window.turnstile.render === 'function') resolve(window.turnstile);
       else { scriptPromise = null; reject(new Error('blocked')); }
@@ -49,7 +55,8 @@ export const loadTurnstile = () => {
       clearTimeout(timer);
       scriptPromise = null;
       script.remove();
-      reject(new Error('blocked'));
+      // the violation event is queued with the error: let it arrive first
+      setTimeout(() => { document.removeEventListener('securitypolicyviolation', onViolation); reject(failure()); }, 0);
     };
     document.head.appendChild(script);
   });
@@ -89,7 +96,7 @@ export const TurnstileBox = ({ siteKey, form, appearance, onToken, onState, rese
       } catch (e) {
         state('failed');
       }
-    }).catch(() => state('blocked'));
+    }).catch((e) => state(e && e.message === 'policy' ? 'policy' : 'blocked'));
     return () => {
       gone = true;
       if (widget.current !== null && window.turnstile) {
@@ -170,6 +177,9 @@ const TurnstileWidget = ({ form }) => {
     </Button>}
     {state === 'blocked' && <Button size="small" variant="outlined" sx={{ alignSelf: 'flex-start' }} onClick={() => setResetKey((k) => k + 1)}>
       {t('turnstile.widget.reload', 'Try to load it again')}
+    </Button>}
+    {state === 'policy' && <Button size="small" variant="outlined" sx={{ alignSelf: 'flex-start' }} onClick={() => window.location.reload()}>
+      {t('turnstile.widget.reloadPage', 'Reload the page')}
     </Button>}
     {refused && <Alert severity="warning" role="alert" sx={{ overflowWrap: 'anywhere', '& .MuiAlert-message': { minWidth: 0 } }}>{say(t, refused)}</Alert>}
   </Stack>;

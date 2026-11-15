@@ -35,7 +35,7 @@ import { TurnstileBox } from './turnstileWidget';
 import { useClientInfos } from '../utils/hooks';
 import { PERM_CONFIGURATION, PERM_CONFIGURATION_READ } from '../utils/permissions';
 import {
-  APPEARANCES, DASHBOARD_URL, FORM_LABELS, MODES, manualSteps, problemText, reasonText, stateText, statusText, tryAddress, visitorSees,
+  APPEARANCES, DASHBOARD_URL, FORM_LABELS, MODES, TRY_AFTER_RELOAD, manualSteps, problemText, reasonText, stateText, statusText, tryAddress, visitorSees,
 } from '../utils/turnstile';
 
 const say = (t, text) => (text ? t(text[0], text[1], text[2] || {}) : '');
@@ -73,6 +73,13 @@ const useTurnstileStatus = () => {
   }, [allowed]);
   return allowed ? state.data : null;
 };
+
+// The server's script policy allows Cloudflare's check only while a site key is
+// saved, and this page keeps the policy it was opened with: once keys are saved
+// here where there were none, the page is opened again before the first try.
+let policyStale = false;
+const keysSaved = (before, res) => { if (res && res.ok && !before.siteKey) policyStale = true; };
+const storage = () => { try { return window.sessionStorage; } catch (e) { return null; } };
 
 const setStatus = (data) => {
   if (!data) return;
@@ -134,6 +141,7 @@ const KeysByHand = ({ status, onAnswer, busy, setBusy }) => {
     setBusy('keys');
     const res = await API.config.turnstileChange({ action: 'keys', siteKey: siteKey.trim(), secretKey: secret.trim() });
     setBusy('');
+    keysSaved(status, res);
     onAnswer(res);
   };
   const ready = siteKey.trim() !== '' && secret.trim() !== '';
@@ -174,6 +182,7 @@ const CreateWidget = ({ status, onAnswer, busy, setBusy }) => {
     setBusy('create');
     const res = await API.config.turnstileChange({ action: 'create', mode });
     setBusy('');
+    keysSaved(status, res);
     onAnswer(res);
   };
   return <Stack spacing={1.5}>
@@ -195,9 +204,30 @@ const CreateWidget = ({ status, onAnswer, busy, setBusy }) => {
 
 const TryIt = ({ status, onAnswer, busy, setBusy }) => {
   const { t } = useTranslation();
-  const [open, setOpen] = React.useState(false);
+  // opened again for the try (see policyStale): the try starts by itself
+  const [afterReload] = React.useState(() => {
+    const store = storage();
+    const asked = !!store && store.getItem(TRY_AFTER_RELOAD) === '1';
+    if (asked) store.removeItem(TRY_AFTER_RELOAD);
+    return asked;
+  });
+  const [open, setOpen] = React.useState(afterReload);
   const [widgetState, setWidgetState] = React.useState('loading');
-  const [resetKey, setResetKey] = React.useState(0);
+  const [resetKey, setResetKey] = React.useState(afterReload ? 1 : 0);
+  const trial = React.useRef(null);
+  React.useEffect(() => {
+    if (afterReload && trial.current && trial.current.scrollIntoView) trial.current.scrollIntoView({ block: 'center' });
+  }, [afterReload]);
+  const start = () => {
+    const store = storage();
+    if (policyStale && store) {
+      store.setItem(TRY_AFTER_RELOAD, '1');
+      window.location.reload();
+      return;
+    }
+    setOpen(true);
+    setResetKey((k) => k + 1);
+  };
   const elsewhere = tryAddress(status, typeof window !== 'undefined' ? window.location : null);
   if (elsewhere) {
     return <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }} data-turnstile-try="elsewhere">
@@ -214,14 +244,17 @@ const TryIt = ({ status, onAnswer, busy, setBusy }) => {
     onAnswer(res);
   };
   return <Stack spacing={1}>
-    {!open && <Button variant="outlined" size="small" sx={{ alignSelf: 'flex-start' }} disabled={!!busy} onClick={() => { setOpen(true); setResetKey((k) => k + 1); }} data-turnstile-action="try">
+    {!open && <Button variant="outlined" size="small" sx={{ alignSelf: 'flex-start' }} disabled={!!busy} onClick={start} data-turnstile-action="try">
       {t('mgmt.turnstile.try.button', 'Try the check now')}
     </Button>}
-    {open && <Stack spacing={1} data-turnstile-trial>
+    {open && <Stack spacing={1} data-turnstile-trial ref={trial}>
       <TurnstileBox siteKey={status.siteKey} form="test" appearance="always" resetKey={resetKey} onToken={send} onState={setWidgetState} />
       <Typography variant="caption" color={['loading', 'checking', 'ready'].includes(widgetState) ? 'textSecondary' : 'error'} role="status" aria-live="polite" sx={{ overflowWrap: 'anywhere' }}>
         {say(t, statusText(widgetState, typeof window !== 'undefined' ? window.location.hostname : ''))}
       </Typography>
+      {widgetState === 'policy' && <Button size="small" variant="outlined" sx={{ alignSelf: 'flex-start' }} onClick={() => window.location.reload()}>
+        {t('turnstile.widget.reloadPage', 'Reload the page')}
+      </Button>}
       <Button size="small" sx={{ alignSelf: 'flex-start' }} onClick={() => setOpen(false)}>{t('mgmt.turnstile.try.cancel', 'Cancel')}</Button>
     </Stack>}
   </Stack>;

@@ -135,6 +135,8 @@ export const statusText = (state, host) => {
       return ['turnstile.widget.expired', 'The check is too old: Cloudflare makes a new one.'];
     case 'blocked':
       return ['turnstile.widget.blocked', 'The check of Cloudflare could not load: this browser, an extension or the network blocked challenges.cloudflare.com. Allow that address, or use another browser. From the home network the panel signs in without the check.'];
+    case 'policy':
+      return ['turnstile.widget.policy', 'This page was opened before the sign-in check was set up, so it cannot load the check yet. Reload the page.'];
     case 'hostname':
       return ['turnstile.widget.hostname', 'Cloudflare does not allow its check on {{host}}. Open the panel at its public address, or sign in from the home network.', { host: host || '' }];
     case 'sitekey':
@@ -149,6 +151,20 @@ export const statusText = (state, host) => {
       return ['turnstile.widget.failed', 'Cloudflare could not confirm that this is a person. Try it again.'];
   }
 };
+
+// policyRefusal says whether a refusal by the page's script policy is about
+// Cloudflare's check. The server allows challenges.cloudflare.com in the
+// policy only while a site key is saved (src/fork_csp.go), and a page keeps
+// the policy it was opened with: a page opened before the keys were saved
+// cannot load the check until it is opened again.
+export const policyRefusal = (blockedURI) => {
+  const uri = String(blockedURI || '');
+  return uri === TURNSTILE_ORIGIN || uri.startsWith(TURNSTILE_ORIGIN + '/');
+};
+
+// The card reloads its page before the first try after keys were saved in it
+// (the page's policy predates them); this flag carries "open the try" over the reload.
+export const TRY_AFTER_RELOAD = 'ct-turnstile-try';
 
 // canRetry says whether a "try again" button makes sense in a state.
 export const canRetry = (state) => ['timeout', 'failed', 'expired', 'clock'].includes(state);

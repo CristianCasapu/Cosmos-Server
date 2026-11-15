@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  FORMS, HEADER, SCRIPT_URL, TURNSTILE_ORIGIN, canRetry, clearToken, formOfRequest, hasToken, languageFor, manualSteps,
+  FORMS, HEADER, SCRIPT_URL, TURNSTILE_ORIGIN, canRetry, policyRefusal, clearToken, formOfRequest, hasToken, languageFor, manualSteps,
   problemText, reasonText, refusalText, renderOptions, setToken, stateText, statusText, subscribe, themeFor, tryAddress,
   turnstileRequest, visitorSees, widgetErrorKind,
 } from './turnstile.js';
@@ -88,6 +88,14 @@ test('Cloudflare\'s error codes become plain states', () => {
   assert.match(statusText('hostname', 'cosmos.local')[1], /\{\{host\}\}/);
   assert.equal(statusText('hostname', 'cosmos.local')[2].host, 'cosmos.local');
   assert.equal(refusalText('UL001'), null);
+  // a page opened before the keys were saved: its policy refuses Cloudflare's script, said as such
+  assert.equal(policyRefusal('https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'), true);
+  assert.equal(policyRefusal('https://challenges.cloudflare.com'), true);
+  assert.equal(policyRefusal('https://challenges.cloudflare.com.example.org/x'), false);
+  assert.equal(policyRefusal('inline'), false);
+  assert.equal(policyRefusal(''), false);
+  assert.match(statusText('policy')[1], /Reload the page/);
+  assert.equal(canRetry('policy'), false);
   assert.ok(refusalText('TS004')[1].includes('home network'));
 });
 
