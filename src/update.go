@@ -148,6 +148,7 @@ func GetLatestVersion(includeBeta bool) (*VersionInfo, error) {
         if !includeBeta && release.PreRelease {
             continue
         }
+        if forkrelease.FailedHere(release.TagName) { continue } // Fork addition: a release that went back by itself here is neither offered nor installed again, see forkrelease/trial.go
         if latestRelease == nil {
             latestRelease = release
             continue
@@ -214,6 +215,8 @@ func cleanUpUpdateFiles() {
     if _, err := os.Stat(dlPath); err == nil {
         os.Remove(dlPath)
     }
+
+    if forkrelease.TrialPending(currentFolder) { return } // Fork addition: while a new version is on trial the old, proven launcher stays in place, see forkrelease/trial.go
 
     // if cosmos-laumcher.updated exists, rename it to cosmos-launcher
     updatedPath := currentFolder + "/cosmos-launcher.updated"

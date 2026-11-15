@@ -170,7 +170,12 @@ func TestARefusalByTheLauncherIsReportedAtStart(t *testing.T) {
 	defer os.Remove(leftover)
 
 	reportLauncherRefusal()
+	if len(*notifications) != 0 {
+		t.Error("told before the databases are open")
+	}
+	flushLauncherRefusal()
 	reportLauncherRefusal() // the note is gone: nothing more
+	flushLauncherRefusal()
 
 	if len(*notifications) != 1 || !strings.Contains((*notifications)[0], "not signed with a release key") {
 		t.Errorf("notifications: %q", *notifications)
@@ -245,5 +250,15 @@ func TestTheUpdaterBeforeSigningStillFindsTheZip(t *testing.T) {
 		if !strings.Contains(update, rule) {
 			t.Errorf("update.go no longer picks the zip by %s: look at this test again", rule)
 		}
+	}
+}
+
+// Fork addition: a refusal for want of room is told, but it is no security
+// incident.
+func TestARefusalForRoomIsToldButNotASecurityIncident(t *testing.T) {
+	notifications, events := captureRejections(t)
+	reportRejectedUpdate("", "not enough free space in /opt/cosmos: 630 MiB needed, 442 MiB free", "launcher")
+	if len(*notifications) != 1 || len(events()) != 0 {
+		t.Errorf("notifications %q, security record %+v", *notifications, events())
 	}
 }

@@ -179,6 +179,7 @@ const ConfigManagement = () => {
           Timezone: config.Timezone || '', // fork addition
           HidePaidFeatures: !config.ShowPaidFeatures, // Fork addition: stored inverted
           OfferWebApp: !config.DisableWebApp, // Fork addition: stored inverted
+          DependencyNotices: !config.DependencyNoticesOff, // Fork addition: stored inverted
 
           Licence: config.Licence,
           ServerToken: config.ServerToken,
@@ -295,6 +296,7 @@ const ConfigManagement = () => {
             Timezone: (values.Timezone || '').trim(), // fork addition
             ShowPaidFeatures: !values.HidePaidFeatures, // Fork addition
             DisableWebApp: !values.OfferWebApp, // Fork addition
+            DependencyNoticesOff: !values.DependencyNotices, // Fork addition
             BlockedCountries: values.GeoBlocking,
             CountryBlacklistIsWhitelist: values.CountryBlacklistIsWhitelist,
             MonitoringDisabled: !values.MonitoringEnabled,

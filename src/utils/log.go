@@ -195,6 +195,7 @@ func Fatal(message string, err error) {
 		RawLogMessage(FATAL, "[FATAL]", bRed, nRed, message)
 	}
 
+	forkBeforeFatal(message) // Fork addition: the trial of an update hears why the server ends, see fork_notify.go
 	RevertHostDNS()
 	os.Exit(1)
 }

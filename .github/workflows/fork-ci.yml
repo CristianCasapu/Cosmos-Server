@@ -28,3 +28,23 @@ jobs:
           persist-credentials: false
 
       - uses: ./.github/actions/fork-build
+
+      # The panel in a browser: both regressions of the manual dependency
+      # update of 2026-11-15 (an empty Storage tree, charts that threw)
+      # passed the build and every unit test. The built server runs here
+      # without Docker on a throwaway configuration; the browser is the
+      # Playwright image named in the script (the automatic update moves it
+      # there). About eight minutes.
+      - name: Check the panel in a browser
+        run: sh scripts/fork-ci-smoke.sh
+        env:
+          START: host
+          OUT: ${{ runner.temp }}/fork-ci-smoke-out
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: browser-smoke
+          path: ${{ runner.temp }}/fork-ci-smoke-out/
+          if-no-files-found: ignore
+          retention-days: 14
