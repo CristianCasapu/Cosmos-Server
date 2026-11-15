@@ -46,7 +46,7 @@ func TestDecodeBounds(t *testing.T) {
 func TestDescribeOfARefusedReference(t *testing.T) {
 	loggedIn = func(string) bool { return false }
 	for text, want := range map[string]string{"192.168.1.2:5000/app": "internal", "https://x/y": "invalid", "localhost/app": "internal"} {
-		desc := Describe(context.Background(), text)
+		desc := Describe(context.Background(), text, "user:test")
 		if desc.Problem != want || desc.Declared != nil {
 			t.Errorf("%s: %+v", text, desc)
 		}
@@ -58,17 +58,17 @@ func TestDescribeCombinesTagsAndRecipe(t *testing.T) {
 	serverPlatform = func() Platform { return amd64 }
 	loggedIn = func(host string) bool { return false }
 	// the fake registry is on 127.0.0.1: allowed for the test by name
-	desc := Describe(context.Background(), f.host()+"/team/app:18")
+	desc := Describe(context.Background(), f.host()+"/team/app:18", "user:test")
 	if desc.Problem != "internal" {
 		t.Fatalf("an IP literal registry without a login: %q", desc.Problem)
 	}
 	loggedIn = func(host string) bool { return host == f.host() }
-	desc = Describe(context.Background(), f.host()+"/team/app:18")
+	desc = Describe(context.Background(), f.host()+"/team/app:18", "user:test")
 	if desc.Problem != "" || desc.Tag != "18" || !desc.TagTyped || desc.Tags.Suggested != "18.1" || desc.Tags.Why != "newest" || desc.Declared == nil {
 		t.Fatalf("%+v", desc)
 	}
 	// without a tag, the proposal is described (here 18.1, which the fake registry does not have)
-	desc = Describe(context.Background(), f.host()+"/team/app")
+	desc = Describe(context.Background(), f.host()+"/team/app", "user:test")
 	if desc.Tag != "18.1" || desc.TagTyped || desc.Problem != "notFound" || len(desc.Tags.List) == 0 {
 		t.Fatalf("%+v", desc)
 	}

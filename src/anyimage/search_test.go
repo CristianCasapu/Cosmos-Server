@@ -18,7 +18,7 @@ func fakeHub(t *testing.T, handler http.HandlerFunc) {
 	pool.AddCert(server.Certificate())
 	testRoots = pool
 	resetClient()
-	checkAddr = func(a netip.Addr, inside bool, own []netip.Addr) bool { return !a.IsLoopback() }
+	checkAddr = func(a netip.Addr, inside bool, own []netip.Prefix) bool { return !a.IsLoopback() }
 	old := hubAPI
 	hubAPI = server.URL
 	searchMu.Lock()

@@ -188,22 +188,7 @@ var existingSensitive = func(service string, name string, extra []string) map[st
 	if err != nil || existing.HostConfig == nil || existing.Config == nil {
 		return found
 	}
-	asService := ContainerCreateRequestContainer{
-		Privileged:  existing.HostConfig.Privileged,
-		NetworkMode: string(existing.HostConfig.NetworkMode),
-		CapAdd:      existing.HostConfig.CapAdd,
-		SecurityOpt: existing.HostConfig.SecurityOpt,
-		Labels:      existing.Config.Labels,
-	}
-	for _, device := range existing.HostConfig.Devices {
-		asService.Devices = append(asService.Devices, device.PathOnHost+":"+device.PathInContainer)
-	}
-	for _, m := range existing.Mounts {
-		if m.Type == mount.TypeBind {
-			asService.Volumes = append(asService.Volumes, mount.Mount{Type: mount.TypeBind, Source: m.Source})
-		}
-	}
-	for _, item := range serviceSensitive(service, asService, extra) {
+	for _, item := range containerSensitive(service, existing, extra) { // fork_sensitive_edit.go
 		found[item.Key()] = true
 	}
 	return found

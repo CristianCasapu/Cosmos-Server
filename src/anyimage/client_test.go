@@ -25,21 +25,27 @@ type fakeRegistry struct {
 	seen     []string
 	authSeen map[string]string // path -> Authorization
 	// knobs
-	private       bool   // the token never opens the repository
-	basicOnly     bool   // Basic challenge instead of a token
-	realm         string // overrides the realm
-	blobRedirect  string // overrides where blobs are sent
-	hugeConfig    bool
-	slow          time.Duration
-	badDigest     bool
-	tagPages      bool
-	realmUser     string
-	configPayload []byte
+	private        bool   // the token never opens the repository
+	basicOnly      bool   // Basic challenge instead of a token
+	realm          string // overrides the realm
+	blobRedirect   string // overrides where blobs are sent
+	hugeConfig     bool
+	slow           time.Duration
+	badDigest      bool
+	tagPages       bool
+	realmUser      string
+	configPayload  []byte
+	claimDigest    string // what HEAD announces for the tag, instead of the truth
+	listen         string // the address the registry listens on (default loopback)
+	indexDigest    string
+	served         []string // manifests answered with a body (what Docker Hub would count)
+	manifestDigest string
+	ratelimit      string // the ratelimit-remaining header sent with manifests
 }
 
 const fakeToken = "tok" + "en-for-tests"
 
-func (f *fakeRegistry) host() string    { return strings.TrimPrefix(f.main.URL, "https://") }
+func (f *fakeRegistry) host() string      { return strings.TrimPrefix(f.main.URL, "https://") }
 func (f *fakeRegistry) storeHost() string { return strings.TrimPrefix(f.storage.URL, "https://") }
 
 func newFakeRegistry(t *testing.T, setup func(*fakeRegistry)) *fakeRegistry {
@@ -90,13 +96,25 @@ func newFakeRegistry(t *testing.T, setup func(*fakeRegistry)) *fakeRegistry {
 		}
 		w.Write(config)
 	}))
-	f.main = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	f.main = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.seen = append(f.seen, r.Method+" "+r.URL.Path)
 		f.authSeen[r.URL.Path] = r.Header.Get("Authorization")
 		f.mu.Unlock()
 		if f.slow > 0 {
 			time.Sleep(f.slow)
+		}
+		if strings.HasPrefix(r.URL.Path, "/v2/namespaces/team/repositories/app/tags/") {
+			// Docker Hub's API: a tag's platforms and their manifests' digests
+			if !strings.HasSuffix(r.URL.Path, "/18") && !strings.HasSuffix(r.URL.Path, "/18.0") {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{"digest": digestOf(index), "images": []map[string]interface{}{
+				{"architecture": "arm64", "os": "linux", "variant": "v8", "digest": "sha256:" + strings.Repeat("1", 64), "size": 99},
+				{"architecture": "amd64", "os": "linux", "variant": nil, "digest": manifestDigest, "size": 4321},
+			}})
+			return
 		}
 		if r.URL.Path == "/token" {
 			user, pass, ok := r.BasicAuth()
@@ -128,16 +146,27 @@ func newFakeRegistry(t *testing.T, setup func(*fakeRegistry)) *fakeRegistry {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		if f.ratelimit != "" && strings.Contains(r.URL.Path, "/manifests/") {
+			w.Header().Set("ratelimit-remaining", f.ratelimit)
+		}
 		switch {
-		case r.URL.Path == "/v2/team/app/manifests/18":
+		case r.URL.Path == "/v2/team/app/manifests/18" || r.URL.Path == "/v2/team/app/manifests/18.0":
 			w.Header().Set("Content-Type", "application/vnd.oci.image.index.v1+json")
-			w.Header().Set("Docker-Content-Digest", digestOf(index))
+			if f.claimDigest != "" {
+				w.Header().Set("Docker-Content-Digest", f.claimDigest)
+			} else {
+				w.Header().Set("Docker-Content-Digest", digestOf(index))
+			}
 			if r.Method == http.MethodHead {
 				return
 			}
 			w.Write(index)
+			f.served = append(f.served, r.URL.Path)
 		case r.URL.Path == "/v2/team/app/manifests/"+manifestDigest:
 			w.Write(manifest)
+			f.served = append(f.served, r.URL.Path)
+		case r.URL.Path == "/v2/team/app/blobs/"+configDigest && f.blobRedirect == "none":
+			w.Write(config)
 		case r.URL.Path == "/v2/team/app/blobs/"+configDigest:
 			target := f.blobRedirect
 			if target == "" {
@@ -155,23 +184,34 @@ func newFakeRegistry(t *testing.T, setup func(*fakeRegistry)) *fakeRegistry {
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
+	if f.listen != "" {
+		listener, err := net.Listen("tcp", f.listen)
+		if err != nil {
+			t.Skip("cannot listen on " + f.listen)
+		}
+		f.main.Listener.Close()
+		f.main.Listener = listener
+	}
+	f.main.StartTLS()
+	f.indexDigest, f.manifestDigest = digestOf(index), manifestDigest
 	pool := x509.NewCertPool()
 	pool.AddCert(f.main.Certificate())
 	pool.AddCert(f.storage.Certificate())
 	testRoots = pool
 	resetClient()
-	checkAddr = func(a netip.Addr, inside bool, own []netip.Addr) bool {
+	checkAddr = func(a netip.Addr, inside bool, own []netip.Prefix) bool {
 		if a.IsLoopback() {
 			return false // the test servers
 		}
 		return refusedAddr(a, inside, own)
 	}
-	ownAddrsF = func() []netip.Addr { return nil }
+	ownAddrsF = func() []netip.Prefix { return nil }
 	credentialsFor = func(string) (string, string) { return "", "" }
 	loggedIn = func(string) bool { return false }
-	cacheMu.Lock()
-	byReference, byDigest = map[string]cached{}, map[string]cached{}
-	cacheMu.Unlock()
+	descriptions.clear()
+	blobs.clear()
+	platformsOf.clear()
+	hubBudget = &hubAllowance{remaining: -1}
 	t.Cleanup(func() {
 		f.main.Close()
 		f.storage.Close()
@@ -191,7 +231,7 @@ var amd64 = Platform{OS: "linux", Arch: "amd64"}
 
 func TestDescribeReadsTheDeclarationWithoutAPull(t *testing.T) {
 	f := newFakeRegistry(t, nil)
-	desc := describeImage(context.Background(), f.ref(), amd64)
+	desc := describeImage(context.Background(), f.ref(), amd64, "user:test")
 	if desc.Problem != "" || desc.Declared == nil {
 		t.Fatalf("%+v", desc)
 	}
@@ -224,7 +264,7 @@ func TestDescribeReadsTheDeclarationWithoutAPull(t *testing.T) {
 	}
 	// a second look is answered from the cache
 	before := len(f.seen)
-	describeImage(context.Background(), f.ref(), amd64)
+	describeImage(context.Background(), f.ref(), amd64, "user:test")
 	if len(f.seen) != before {
 		t.Fatal("not cached")
 	}
@@ -232,7 +272,7 @@ func TestDescribeReadsTheDeclarationWithoutAPull(t *testing.T) {
 
 func TestDescribeOtherProcessorOnly(t *testing.T) {
 	f := newFakeRegistry(t, nil)
-	desc := describeImage(context.Background(), f.ref(), Platform{OS: "linux", Arch: "riscv64"})
+	desc := describeImage(context.Background(), f.ref(), Platform{OS: "linux", Arch: "riscv64"}, "user:test")
 	if desc.Fits != "no" || desc.Declared != nil || len(desc.Platforms) != 2 {
 		t.Fatalf("%+v", desc)
 	}
@@ -263,7 +303,7 @@ func TestDescribeFailures(t *testing.T) {
 			if c.ref != nil {
 				ref = c.ref(f)
 			}
-			desc := describeImage(context.Background(), ref, amd64)
+			desc := describeImage(context.Background(), ref, amd64, "user:test")
 			if desc.Problem != c.want {
 				t.Fatalf("want %s, got %q (%+v)", c.want, desc.Problem, desc)
 			}
@@ -286,7 +326,7 @@ func TestDescribeRedirectChainIsBounded(t *testing.T) {
 	pool.AddCert(loop.Certificate())
 	testRoots = pool
 	resetClient()
-	desc := describeImage(context.Background(), f.ref(), amd64)
+	desc := describeImage(context.Background(), f.ref(), amd64, "user:test")
 	if desc.Problem != "redirect" || hops > maxRedirects {
 		t.Fatalf("%q after %d hops", desc.Problem, hops)
 	}
@@ -297,7 +337,7 @@ func TestDescribeSlowRegistryTimesOut(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	start := time.Now()
-	desc := describeImage(ctx, f.ref(), amd64)
+	desc := describeImage(ctx, f.ref(), amd64, "user:test")
 	if desc.Problem != "unreachable" || time.Since(start) > 3*time.Second {
 		t.Fatalf("%q in %s", desc.Problem, time.Since(start))
 	}
@@ -311,7 +351,7 @@ func TestCredentialsGoOnlyToTheRegistryAndItsOwnRealm(t *testing.T) {
 		}
 		return "", ""
 	}
-	if desc := describeImage(context.Background(), f.ref(), amd64); desc.Problem != "" {
+	if desc := describeImage(context.Background(), f.ref(), amd64, "user:test"); desc.Problem != "" {
 		t.Fatal(desc.Problem)
 	}
 	if f.realmUser != "robot:pw-for-tests" {
@@ -325,7 +365,7 @@ func TestCredentialsGoOnlyToTheRegistryAndItsOwnRealm(t *testing.T) {
 		return []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
 	}
 	credentialsFor = func(registry string) (string, string) { return "robot", "pw" }
-	if desc := describeImage(context.Background(), g.ref(), amd64); desc.Problem != "" {
+	if desc := describeImage(context.Background(), g.ref(), amd64, "user:test"); desc.Problem != "" {
 		t.Fatalf("the anonymous token from the other host's realm: %q", desc.Problem)
 	}
 	if g.realmUser != "" {
@@ -360,7 +400,7 @@ func TestTagsAndSuggestion(t *testing.T) {
 }
 
 func TestGuardRefusesInsideAddresses(t *testing.T) {
-	own := []netip.Addr{netip.MustParseAddr("203.0.113.9")}
+	own := []netip.Prefix{netip.MustParsePrefix("203.0.113.9/32")}
 	refused := []string{"127.0.0.1", "::1", "169.254.169.254", "0.0.0.0", "224.0.0.1", "fe80::1", "::ffff:127.0.0.1", "64:ff9b::7f00:1", "203.0.113.9", "2002::1"}
 	for _, a := range refused {
 		if !refusedAddr(netip.MustParseAddr(a), true, own) {

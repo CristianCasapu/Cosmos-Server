@@ -256,6 +256,9 @@ func (c *registryClient) do(ctx context.Context, method, path string, accept []s
 		if err != nil {
 			return nil, nil, classify(err, 0)
 		}
+		if c.ref.Registry == hubRegistry {
+			hubBudget.observe(res.Header, time.Now()) // how many pulls Docker Hub says are left
+		}
 		if res.StatusCode == http.StatusUnauthorized && attempt == 0 && c.token == "" && c.basic == "" {
 			header := res.Header.Get("WWW-Authenticate")
 			res.Body.Close()

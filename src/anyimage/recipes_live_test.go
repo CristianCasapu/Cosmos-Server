@@ -58,7 +58,7 @@ func TestRecipesLive(t *testing.T) {
 				t.Run(recipe.ID+"/"+reference, func(t *testing.T) {
 					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 					defer cancel()
-					desc := Describe(ctx, reference)
+					desc := Describe(ctx, reference, "user:live")
 					if desc.Problem != "" || desc.Declared == nil {
 						t.Fatalf("describe %s: %q", reference, desc.Problem)
 					}
@@ -211,7 +211,7 @@ func startRecipe(t *testing.T, ctx context.Context, docker *client.Client, recip
 	for _, b := range recipe.Binds {
 		mounts = append(mounts, mount.Mount{Type: mount.TypeBind, Source: b.Source, Target: b.Target, ReadOnly: b.ReadOnly})
 	}
-	config := &container.Config{Image: full, Env: env, User: runAs, Cmd: recipe.Command}
+	config := &container.Config{Image: full, Env: env, User: runAs, Cmd: recipe.Command, Labels: recipe.Labels}
 	if recipe.Hostname {
 		config.Hostname = name
 	}

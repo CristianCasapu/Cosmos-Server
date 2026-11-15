@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   TEXT, buildDefinition, connectionOf, databaseNeed, declaredSettings, existingDatabases, facts, generateSecret, isDirectReference,
-  isSecretName, isShellOnly, withCustom, marketImageName, marketMatch, nameFor, parseReference, problemText, proposedSettings, recipeVolumes, webPortOf,
+  isSecretName, isShellOnly, isMasked, filledNames, withCustom, marketImageName, marketMatch, nameFor, parseReference, problemText, proposedSettings, recipeVolumes, webPortOf,
 } from './anyImage.js';
 
 const recipes = JSON.parse(readFileSync(new URL('../../../src/anyimage/recipes.json', import.meta.url), 'utf8')).recipes;
@@ -192,10 +192,51 @@ test('a recipe that keeps its data in a Docker volume freezes it', () => {
   assert.deepEqual(traefik.volumes, [{ type: 'bind', source: '/var/run/docker.sock', target: '/var/run/docker.sock', ReadOnly: true }]);
 });
 
+test('an existing database whose settings are masked fills only what it can (review F6)', () => {
+  const pg = recipe('postgres');
+  const declared = { ports: ['8080/tcp'], volumes: [], env: ['DB_HOST=', 'DB_PORT=5432', 'DB_USER=', 'DB_PASSWORD=', 'DB_NAME=', 'DATABASE_URL='] };
+  const need = databaseNeed(null, declared);
+  need.env.url = 'DATABASE_URL';
+  const masked = ['POSTGRES_USER=***', 'POSTGRES_PASSWORD=***', 'POSTGRES_DB=***'];
+  assert.ok(isMasked('***') && !isMasked('a***'));
+  const conn = connectionOf(pg, 'maindb', Object.fromEntries(masked.map((l) => l.split('='))));
+  assert.deepEqual([conn.user, conn.password, conn.database, conn.url], ['', '', '', '']);
+  assert.deepEqual(filledNames(need, conn, 'postgres').sort(), ['DB_HOST', 'DB_PORT']);
+  const settings = [{ name: 'DB_PASSWORD', type: 'name', value: 'typed-by-admin' }];
+  const app = buildDefinition({ ref: parseReference('example/app'), tag: '1', name: 'app', recipe: null, declared, settings, host: '', need,
+    database: { mode: 'existing', container: 'maindb', recipe: pg, env: masked } }).definition.services.app;
+  assert.ok(app.environment.includes('DB_HOST=maindb') && app.environment.includes('DB_PASSWORD=typed-by-admin'));
+  assert.ok(!app.environment.some((l) => l.includes('***')), 'no *** is filled in');
+});
+
+test('a secret the image sets itself is replaced by a generated one, and said (review F7)', () => {
+  const declared = { ports: [], volumes: [], env: ['ADMIN_PASSWORD=admin', 'LOG=info'] };
+  const settings = proposedSettings(null, declared, random);
+  const admin = settings.find((s) => s.name === 'ADMIN_PASSWORD');
+  assert.equal(admin.type, 'secret');
+  assert.notEqual(admin.value, 'admin');
+  assert.equal(admin.imageDefault, 'admin');
+  const lines = facts({ recipe: null, declared, name: 'x', tag: '1', host: '', settings });
+  assert.ok(lines.some((l) => l.key.endsWith('fact.declaredSecretDefault') && l.params.value === 'admin'));
+});
+
+test('tools that control the server open for administrators behind the sign-in; Traefik without its insecure mode (review F8)', () => {
+  const traefik = recipe('traefik');
+  assert.ok(!traefik.command.some((c) => /insecure/.test(c)));
+  const service = buildDefinition({ ref: parseReference('traefik'), tag: 'v3', name: 'traefik', recipe: traefik, declared: { ports: ['80/tcp'] }, settings: [], host: 't.server.local' }).definition.services.traefik;
+  assert.equal(service.routes[0].AuthEnabled, true);
+  assert.equal(service.routes[0].AdminOnly, true);
+  assert.equal(service.labels['traefik.http.routers.dashboard.service'], 'api@internal');
+  const nginx = buildDefinition({ ref: parseReference('nginx'), tag: '1', name: 'site', recipe: recipe('nginx'), declared: { ports: ['80/tcp'] }, settings: [], host: 's.server.local' }).definition.services.site;
+  assert.equal(nginx.routes[0].AuthEnabled, undefined, 'an app with a sign-in of its own is left as it is');
+});
+
 test('names and problems', () => {
   assert.equal(nameFor(parseReference('ghcr.io/owner/My_app'.toLowerCase())), 'my_app');
   assert.equal(nameFor(parseReference('postgres'), ['/postgres']), 'postgres-2');
-  assert.ok(problemText({ problem: 'unauthorized', loggedIn: false, registry: 'ghcr.io' }).key.endsWith('unauthorizedLogin'));
+  const refused = problemText({ problem: 'unauthorized', registry: 'ghcr.io' });
+  assert.ok(refused.key.endsWith('problem.unauthorized') && /docker login ghcr.io/.test(refused.text.replace(/\{\{registry\}\}/g, 'ghcr.io')), 'one sentence, whether the server is logged in or not (review F8)');
+  assert.equal(problemText({ problem: 'hubReserve', hubLeft: 25 }).params.left, 25);
   assert.ok(problemText({ problem: 'strange' }).key.endsWith('problem.unreachable'));
   assert.ok(problemText({ problem: 'busy' }).key.endsWith('problem.busy'), 'Cosmos\' own bound is not blamed on the registry');
   assert.equal(problemText({ problem: '' }), null);
