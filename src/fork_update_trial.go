@@ -4,18 +4,23 @@ package main
 // update that went back by itself is reported.
 //
 // The launcher installs an update on trial (package forkrelease, trial.go):
-// it keeps the files it replaces, counts the starts of the new version and
-// goes back to the version before when the new one has not proved itself
-// within three starts, or when one start did not prove itself within five
-// minutes. Here the new server proves itself: the configuration is loaded,
-// the database answers a query, its HTTP port answers on 127.0.0.1 (any
-// status below 500), and all of it still holds a minute later. Then the
-// trial ends and only then is the launcher that came with the update put in
-// place, so during a trial the launcher that runs is the old, proven one.
+// it keeps the files it replaces, counts the failed starts of the new
+// version and goes back to the version before after three, a failed start
+// being one that ended before the proof without a clean stop, or that did
+// not answer within the watchdog's window. Here the new server proves
+// itself with local checks only (nothing outside the machine, no Docker):
+// the configuration is loaded, the SQLite databases on this machine answer
+// a query, its HTTP port answers on 127.0.0.1 (any status below 500), and
+// all of it still holds a minute later. Then the trial ends and only then is
+// the launcher that came with the update put in place, so during a trial
+// the launcher that runs is the old, proven one. A stop that was asked for
+// (SIGTERM, SIGINT, a planned restart) is noted as clean, so it does not
+// count against the new version.
 //
 // After going back, the old server tells the administrators (notification
 // update.rolledback, which Telegram receives like every notification), and
-// its Telegram start message is not sent: it would claim an update.
+// its Telegram start message is not sent: it would claim an update. Only the
+// program files go back: data a newer version migrated stays as it is.
 
 import (
 	"errors"
@@ -35,7 +40,8 @@ import (
 var (
 	trialSettle      = 60 * time.Second // still answering this long after the first answer
 	trialPoll        = 3 * time.Second
-	trialGiveUp      = 10 * time.Minute // the launcher's watchdog ends the start long before
+	trialGiveUp      = 20 * time.Minute // the launcher's watchdog ends the start before
+	trialPruneEvery  = time.Hour
 	trialHTTPTimeout = 5 * time.Second
 )
 
@@ -66,27 +72,52 @@ func serverTrialChecks() trialChecks {
 			return nil
 		},
 		database: func() error {
-			if _, err := utils.ListUsers("admin"); err != nil {
-				return errors.New("the user database does not answer")
-			}
-			if utils.GetMainConfig().NewInstall {
-				return nil // the monitoring database opens after the setup
-			}
-			db, err := utils.MonitoringReadDB()
-			if err != nil {
-				return errors.New("the monitoring database is not open")
-			}
-			var one int
-			if err := db.QueryRow("SELECT 1").Scan(&one); err != nil || one != 1 {
-				return errors.New("the monitoring database does not answer")
-			}
-			return nil
+			return localDatabasesAnswer(trialDatabases{
+				users:      func() error { _, err := utils.ListUsers("admin"); return err },
+				dialect:    utils.MonitoringDialect,
+				newInstall: func() bool { return utils.GetMainConfig().NewInstall },
+				monitoring: func() error {
+					db, err := utils.MonitoringReadDB()
+					if err != nil {
+						return err
+					}
+					var one int
+					if err := db.QueryRow("SELECT 1").Scan(&one); err != nil || one != 1 {
+						return errors.New("no answer")
+					}
+					return nil
+				},
+			})
 		},
 		http: func() error {
 			// GetMainConfig has COSMOS_HTTP_PORT applied, like the listener
 			return checkHTTPAnswers(utils.GetMainConfig().HTTPConfig.HTTPPort)
 		},
 	}
+}
+
+// trialDatabases are the databases a start is checked against.
+type trialDatabases struct {
+	users      func() error  // auth.db, always on this machine
+	dialect    func() string // of the monitoring database
+	newInstall func() bool
+	monitoring func() error
+}
+
+// localDatabasesAnswer: the SQLite databases on this machine answer. A
+// monitoring database on another machine (Postgres) is not part of the
+// proof: a good release must not be undone because another machine is down.
+func localDatabasesAnswer(d trialDatabases) error {
+	if err := d.users(); err != nil {
+		return errors.New("the user database does not answer")
+	}
+	if d.newInstall() || d.dialect() != utils.DialectSQLite {
+		return nil // not opened before the setup, or not on this machine
+	}
+	if err := d.monitoring(); err != nil {
+		return errors.New("the monitoring database does not answer")
+	}
+	return nil
 }
 
 func trialHTTPPort(value string) (int, error) {
@@ -125,9 +156,12 @@ func checkHTTPAnswers(portValue string) error {
 // (upstream's cleanUpUpdateFiles). A variable for the tests.
 var placeUpdatedLauncher = cleanUpUpdateFiles
 
+// markAnswered tells the watchdog the start answered. A variable for the tests.
+var markAnswered = forkrelease.MarkAnswered
+
 // proveUpdateTrial waits until the checks pass, and pass again trialSettle
 // later; then the trial of version ends. False when it gave up.
-func proveUpdateTrial(folder string, version string, checks trialChecks, sleep func(time.Duration)) bool {
+func proveUpdateTrial(folder string, version string, run int, checks trialChecks, sleep func(time.Duration)) bool {
 	tries := int(trialGiveUp / trialPoll)
 	lastReason := ""
 	for try := 0; try < tries; try++ {
@@ -141,13 +175,14 @@ func proveUpdateTrial(folder string, version string, checks trialChecks, sleep f
 			}
 			continue
 		}
+		markAnswered(folder, version, run) // the watchdog now waits for the proof
 		sleep(trialSettle)
 		if err := checks.run(); err != nil {
 			utils.Warn("Update: version " + version + " answered, then not any more: " + err.Error())
 			lastReason = err.Error()
 			continue
 		}
-		if err := forkrelease.ProveTrial(folder, version); err != nil {
+		if err := forkrelease.ProveTrial(folder, version, run); err != nil {
 			utils.Error("Update: the trial of version "+version+" could not be ended", err)
 			return false
 		}
@@ -176,13 +211,31 @@ func startUpdateTrial() {
 		return
 	}
 	reportRollback(folder, GetCosmosVersion())
+	flushLauncherRefusal() // an update the launcher refused at this start, now that the databases are open
+	go pruneKept(folder)
 	trial, pending := forkrelease.PendingTrial(folder)
 	version := GetCosmosVersion()
 	if !pending || trial.NewVersion != version {
 		return
 	}
-	utils.Log("Update: version " + version + " is on trial (start " + strconv.Itoa(trial.Starts) + " of " + strconv.Itoa(forkrelease.TrialStarts) + ")")
-	go proveUpdateTrial(folder, version, serverTrialChecks(), time.Sleep)
+	run := trial.Run
+	// a stop that was asked for is not a failed start
+	cleanStop := func() { forkrelease.MarkCleanStop(folder, version, run) }
+	utils.OnExit(cleanStop)
+	utils.OnPlannedExit(cleanStop)
+	utils.Log("Update: version " + version + " is on trial (start " + strconv.Itoa(run) + "; it goes back after " + strconv.Itoa(forkrelease.TrialStarts) + " failed starts)")
+	go proveUpdateTrial(folder, version, run, serverTrialChecks(), time.Sleep)
+}
+
+// pruneKept removes the copy kept by the last update once its version has
+// proved itself forkrelease.KeptFor ago (checked every hour).
+func pruneKept(folder string) {
+	for {
+		if forkrelease.PruneKept(folder, time.Now()) {
+			utils.Log("Update: the copy of the version before the last update was removed; it proved itself long enough ago")
+		}
+		time.Sleep(trialPruneEvery)
+	}
 }
 
 // The start message of Telegram is decided when it starts, before
@@ -232,7 +285,7 @@ func rollbackNotification(note forkrelease.RollbackNote) utils.Notification {
 			Thread:  "update.rolledback:" + note.Failed,
 			Title:   utils.NText("notif.update.rolledback.title"),
 			Subject: &utils.NotificationSubject{Type: "release", Name: note.Failed, Link: link},
-			What:    utils.NText(what, "back", note.Back, "failed", note.Failed, "starts", starts, "minutes", minutes),
+			What:    utils.NText(what, "back", note.Back, "failed", note.Failed, "starts", starts, "minutes", minutes, "file", note.File),
 			Means:   means,
 			Doing:   utils.NText("notif.update.rolledback.doing"),
 			Steps:   []utils.NotificationStep{{NotificationText: *utils.NText("notif.step.update.general"), Link: link}},

@@ -15,6 +15,7 @@ package utils
 // Neither ever waits for the network, fails or panics. Never pass a secret.
 
 import (
+	"sync"
 	"sync/atomic"
 )
 
@@ -64,9 +65,36 @@ func forwardNotification(notification Notification) {
 	}
 }
 
+// exitWatchers hear NoticeExitRestart and NoticeExitUpdate besides the
+// handler: the trial of an update takes a planned exit for a clean stop
+// (src/fork_update_trial.go).
+var (
+	exitWatchersMu sync.Mutex
+	exitWatchers   []func()
+)
+
+// OnPlannedExit registers what runs, before ForkNotice returns, when the
+// process is about to end for a restart or an update it planned.
+func OnPlannedExit(watch func()) {
+	exitWatchersMu.Lock()
+	exitWatchers = append(exitWatchers, watch)
+	exitWatchersMu.Unlock()
+}
+
 // ForkNotice reports a situation by its kind, with details as key, value
 // pairs. The kinds are the Notice constants above.
 func ForkNotice(kind string, pairs ...string) {
+	if kind == NoticeExitRestart || kind == NoticeExitUpdate {
+		exitWatchersMu.Lock()
+		watchers := append([]func(){}, exitWatchers...)
+		exitWatchersMu.Unlock()
+		for _, watch := range watchers {
+			func() {
+				defer func() { recover() }()
+				watch()
+			}()
+		}
+	}
 	defer func() { recover() }()
 	handle, ok := forkNoticeHandler.Load().(func(string, map[string]string))
 	if !ok || handle == nil {

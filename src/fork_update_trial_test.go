@@ -26,7 +26,7 @@ func trialFolderWith(t *testing.T) string {
 	t.Helper()
 	folder := t.TempDir()
 	os.WriteFile(filepath.Join(folder, "meta.json"), []byte(`{"version": "`+trialVersion+`"}`), 0644)
-	raw, _ := json.Marshal(forkrelease.Trial{NewVersion: trialVersion, PreviousVersion: "0.24.0-fork.9", Starts: 1})
+	raw, _ := json.Marshal(map[string]interface{}{"state": "trial", "newVersion": trialVersion, "previousVersion": "0.24.0-fork.9", "run": 1})
 	if err := os.WriteFile(filepath.Join(folder, "cosmos-update.trial"), raw, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -38,11 +38,11 @@ func shortTrial(t *testing.T) *int {
 	settle, poll, giveUp := trialSettle, trialPoll, trialGiveUp
 	trialSettle, trialPoll, trialGiveUp = 50*time.Millisecond, 10*time.Millisecond, 2*time.Second
 	placed := 0
-	previous := placeUpdatedLauncher
+	previous, previousMark := placeUpdatedLauncher, markAnswered
 	placeUpdatedLauncher = func() { placed++ }
 	t.Cleanup(func() {
 		trialSettle, trialPoll, trialGiveUp = settle, poll, giveUp
-		placeUpdatedLauncher = previous
+		placeUpdatedLauncher, markAnswered = previous, previousMark
 	})
 	return &placed
 }
@@ -100,6 +100,13 @@ func TestANewVersionProvesItself(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
+	answered := 0
+	markAnswered = func(f string, v string, run int) {
+		if f != folder || v != trialVersion || run != 1 {
+			t.Errorf("answered for %s %s %d", f, v, run)
+		}
+		answered++
+	}
 	dbCalls := 0
 	checks := trialChecks{
 		config:   func() error { return nil },
@@ -112,21 +119,21 @@ func TestANewVersionProvesItself(t *testing.T) {
 		if len(slept) == 3 {
 			up = true // the listener answers from the fourth try on
 		}
-		if pending, _ := forkrelease.PendingTrial(folder); pending.Starts != 1 {
+		if pending, _ := forkrelease.PendingTrial(folder); pending.Run != 1 {
 			t.Error("the trial ended before the checks passed twice")
 		}
 		if *placed != 0 {
 			t.Error("the launcher was put in place during the trial")
 		}
 	}
-	if !proveUpdateTrial(folder, trialVersion, checks, sleep) {
+	if !proveUpdateTrial(folder, trialVersion, 1, checks, sleep) {
 		t.Fatal("not proven")
 	}
 	if _, err := os.Lstat(filepath.Join(folder, "cosmos-update.trial")); err == nil {
 		t.Error("the trial file is still there")
 	}
-	if *placed != 1 {
-		t.Errorf("the launcher was put in place %d times", *placed)
+	if *placed != 1 || answered != 1 {
+		t.Errorf("the launcher was put in place %d times, the answer noted %d times", *placed, answered)
 	}
 	if slept[len(slept)-1] != trialSettle || dbCalls < 2 {
 		t.Errorf("not checked again after the settling time: %v, %d database checks", slept, dbCalls)
@@ -143,7 +150,7 @@ func TestATrialIsNotProvenByHalfAnswers(t *testing.T) {
 	}
 	for name, checks := range cases {
 		folder := trialFolderWith(t)
-		if proveUpdateTrial(folder, trialVersion, checks, time.Sleep) {
+		if proveUpdateTrial(folder, trialVersion, 1, checks, time.Sleep) {
 			t.Errorf("%s: proven", name)
 		}
 		if _, err := os.Lstat(filepath.Join(folder, "cosmos-update.trial")); err != nil {
@@ -161,13 +168,13 @@ func TestATrialIsNotProvenByHalfAnswers(t *testing.T) {
 		}
 		return nil
 	}}
-	if proveUpdateTrial(folder, trialVersion, flaky, time.Sleep) {
+	if proveUpdateTrial(folder, trialVersion, 1, flaky, time.Sleep) {
 		t.Error("a server that stops answering a minute later was proven")
 	}
 	// another version on trial: not this server's to prove
 	folder = trialFolderWith(t)
 	ok := trialChecks{config: func() error { return nil }, database: func() error { return nil }, http: func() error { return nil }}
-	if proveUpdateTrial(folder, "0.24.0-fork.11", ok, time.Sleep) {
+	if proveUpdateTrial(folder, "0.24.0-fork.11", 1, ok, time.Sleep) {
 		t.Error("another version proved the trial")
 	}
 	if *placed != 0 {
@@ -193,9 +200,9 @@ func TestAReturnToTheVersionBeforeIsReported(t *testing.T) {
 		want string
 	}{
 		{forkrelease.RollbackNote{Failed: "0.24.0-fork.10", Back: "0.24.0-fork.9", Reason: forkrelease.RollbackStopped, Starts: 3, Minutes: 5, Restored: true},
-			"Cosmos went back to version 0.24.0-fork.9 by itself: version 0.24.0-fork.10 did not start properly (it stopped 3 times). 0.24.0-fork.10 is not installed again; a later release will be."},
-		{forkrelease.RollbackNote{Failed: "0.24.0-fork.10", Back: "0.24.0-fork.9", Reason: forkrelease.RollbackTimeout, Starts: 3, Minutes: 5, Restored: true},
-			"Cosmos went back to version 0.24.0-fork.9 by itself: version 0.24.0-fork.10 did not start properly (it did not answer within 5 minutes). 0.24.0-fork.10 is not installed again; a later release will be."},
+			"Cosmos went back to version 0.24.0-fork.9 by itself: version 0.24.0-fork.10 did not start properly (it stopped 3 times before it had started properly). 0.24.0-fork.10 is not installed again; a later release will be. To allow it again, remove the line 0.24.0-fork.10 from "},
+		{forkrelease.RollbackNote{Failed: "0.24.0-fork.10", Back: "0.24.0-fork.9", Reason: forkrelease.RollbackTimeout, Starts: 3, Minutes: 15, Restored: true},
+			"Cosmos went back to version 0.24.0-fork.9 by itself: version 0.24.0-fork.10 did not start properly (it did not answer within 15 minutes). 0.24.0-fork.10 is not installed again; a later release will be. To allow it again, remove the line 0.24.0-fork.10 from "},
 		{forkrelease.RollbackNote{Failed: "0.24.0-fork.10", Back: "0.24.0-fork.9", Reason: forkrelease.RollbackDamaged, Starts: 3, Minutes: 5, Restored: false},
 			"could not go back to version 0.24.0-fork.9 by itself"},
 	}
@@ -214,7 +221,7 @@ func TestAReturnToTheVersionBeforeIsReported(t *testing.T) {
 			t.Errorf("%s: %+v", c.note.Reason, n)
 			continue
 		}
-		if got := english(n.Fork.What); !strings.Contains(got, c.want) || strings.Contains(got, "{{") {
+		if got := english(n.Fork.What); !strings.Contains(got, c.want) || strings.Contains(got, "{{") || (c.note.Restored && !strings.Contains(got, filepath.Join(folder, "cosmos-update.failed"))) {
 			t.Errorf("%s: says %q, want %q", c.note.Reason, got, c.want)
 		}
 		if got := english(n.Fork.Means); got == "" || strings.Contains(got, "{{") {
@@ -269,7 +276,73 @@ func TestTheTrialIsWiredIn(t *testing.T) {
 	if hook, serve := strings.Index(index, "startUpdateTrial()"), strings.LastIndex(index, "StartServer()"); hook < 0 || hook > serve {
 		t.Error("the trial is not proven at start")
 	}
+	if !strings.Contains(readSource(t, "fork_update_trial.go"), "flushLauncherRefusal()") {
+		t.Error("a refusal by the launcher is never told")
+	}
 	if strings.Count(readSource(t, "fork_update_trial.go"), "telegram.QuietStart()") != 1 {
 		t.Error("the Telegram start message is not held back after a return")
+	}
+}
+
+// Finding 4: the proof depends on nothing outside this machine.
+func TestTheProofChecksOnlyLocalDatabases(t *testing.T) {
+	asked := 0
+	monitoring := func() error { asked++; return errors.New("no route to host") }
+	ok := func() error { return nil }
+	for _, c := range []struct {
+		dialect    string
+		newInstall bool
+		users      func() error
+		pass       bool
+		asked      int
+	}{
+		{dialect: "postgres", users: ok, pass: true, asked: 0}, // on another machine: not part of the proof
+		{dialect: utils.DialectSQLite, users: ok, pass: false, asked: 1},
+		{dialect: utils.DialectSQLite, newInstall: true, users: ok, pass: true, asked: 0},
+		{dialect: "postgres", users: func() error { return errors.New("locked") }, pass: false, asked: 0},
+	} {
+		asked = 0
+		err := localDatabasesAnswer(trialDatabases{users: c.users, dialect: func() string { return c.dialect },
+			newInstall: func() bool { return c.newInstall }, monitoring: monitoring})
+		if (err == nil) != c.pass || asked != c.asked {
+			t.Errorf("%+v: %v, monitoring asked %d times", c, err, asked)
+		}
+	}
+	if err := localDatabasesAnswer(trialDatabases{users: ok, dialect: func() string { return utils.DialectSQLite },
+		newInstall: func() bool { return false }, monitoring: ok}); err != nil {
+		t.Error(err)
+	}
+}
+
+// Finding 3: a planned restart is heard by the trial (a clean stop).
+func TestAPlannedExitIsHeard(t *testing.T) {
+	heard := 0
+	utils.OnPlannedExit(func() { heard++ })
+	utils.ForkNotice(utils.NoticeExitRestart)
+	utils.ForkNotice(utils.NoticeExitUpdate, "version", "x")
+	utils.ForkNotice(utils.NoticeContainerDying, "name", "x")
+	if heard != 2 {
+		t.Errorf("heard %d planned exits, want 2", heard)
+	}
+	source := readSource(t, "fork_update_trial.go")
+	start := source[strings.Index(source, "func startUpdateTrial()"):]
+	start = start[:strings.Index(start, "\n}\n")]
+	if !strings.Contains(start, "utils.OnExit(cleanStop)") || !strings.Contains(start, "utils.OnPlannedExit(cleanStop)") {
+		t.Error("a stop that was asked for is not noted as clean")
+	}
+}
+
+// The server's proof fits the launcher's watchdog: the settle and a check
+// after it end well inside the grace after the first answer, and the server
+// keeps trying at least as long as the watchdog waits for the first answer.
+func TestTheProofFitsTheWatchdog(t *testing.T) {
+	if trialSettle+2*trialPoll+2*trialHTTPTimeout >= forkrelease.ProofGrace {
+		t.Errorf("settle %v and checks do not fit the grace %v", trialSettle, forkrelease.ProofGrace)
+	}
+	if trialGiveUp < forkrelease.WatchdogWindow {
+		t.Errorf("the server gives up (%v) before the watchdog (%v)", trialGiveUp, forkrelease.WatchdogWindow)
+	}
+	if forkrelease.WatchdogWindow < 15*time.Minute {
+		t.Errorf("a start gets %v to answer: a migration after a reboot can take longer", forkrelease.WatchdogWindow)
 	}
 }

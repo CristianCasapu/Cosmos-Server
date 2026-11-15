@@ -170,7 +170,12 @@ func TestARefusalByTheLauncherIsReportedAtStart(t *testing.T) {
 	defer os.Remove(leftover)
 
 	reportLauncherRefusal()
+	if len(*notifications) != 0 {
+		t.Error("told before the databases are open")
+	}
+	flushLauncherRefusal()
 	reportLauncherRefusal() // the note is gone: nothing more
+	flushLauncherRefusal()
 
 	if len(*notifications) != 1 || !strings.Contains((*notifications)[0], "not signed with a release key") {
 		t.Errorf("notifications: %q", *notifications)
