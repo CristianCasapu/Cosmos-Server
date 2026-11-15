@@ -36,6 +36,7 @@ type testEnv struct {
 	now     time.Time
 	notices []utils.Notification
 	errors  []string
+	infos   []*utils.NotificationInfo
 	ca      *testAuthority
 	served  map[string]*tls.Certificate
 }
@@ -75,7 +76,7 @@ func setup(t *testing.T, change func(config *utils.Config)) *testEnv {
 		clock       func() time.Time
 		resolver    Resolver
 		notify      func(utils.Notification)
-		majorError  func(string, error)
+		majorError  func(string, error, *utils.NotificationInfo)
 		certFor     func(string) *tls.Certificate
 		roots       *x509.CertPool
 		ports       func() (int, int)
@@ -89,7 +90,8 @@ func setup(t *testing.T, change func(config *utils.Config)) *testEnv {
 	clock = func() time.Time { return env.now }
 	resolver = tableResolver{}
 	notify = func(n utils.Notification) { env.notices = append(env.notices, n) }
-	majorError = func(message string, err error) {
+	majorError = func(message string, err error, info *utils.NotificationInfo) {
+		env.infos = append(env.infos, info)
 		text := message
 		if err != nil {
 			text += " : " + err.Error()

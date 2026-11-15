@@ -166,6 +166,7 @@ more information.<br />`, alert.Severity, metric.Key))
 			Vars: alert.Name,
 			Level: alert.Severity,
 			Link: "/cosmos-ui/monitoring",
+			Fork: forkAlertInfo(alert), // Fork addition: in words, with the disk of a disk alert, see fork_alert_notify.go
 		})
 
 	} else if action.Type == "script" {

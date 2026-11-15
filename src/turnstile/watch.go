@@ -46,8 +46,16 @@ var (
 
 // replaced by the tests
 var notifyAdmins = func(title string, message string, level string) {
-	utils.WriteNotification(utils.Notification{Recipient: "admin", Title: title, Message: message, Level: level})
+	utils.WriteNotification(utils.Notification{Recipient: "admin", Title: title, Message: message, Level: level,
+		Fork: &utils.NotificationInfo{Kind: "turnstile.problem", Thread: problemThread(message), Title: utils.NText(title), What: utils.NText(message),
+			Subject:  &utils.NotificationSubject{Type: "service", Name: "Turnstile", Link: "/cosmos-ui/config-general/https"},
+			Doing:    utils.NText("notif.turnstile.doing"),
+			Steps:    []utils.NotificationStep{{NotificationText: *utils.NText("notif.step.turnstile.open"), Link: "/cosmos-ui/config-general/https"}},
+			Security: &utils.NotificationSecurity{Kinds: []string{"auth.*"}}}})
 }
+
+// problemThread is what the notice of a problem is resolved by when it is over.
+func problemThread(message string) string { return "turnstile:" + message }
 
 func noteProblem(reason string) {
 	t := now()
@@ -76,8 +84,16 @@ func noteProblem(reason string) {
 
 func clearProblem(reason string) {
 	problemsMu.Lock()
+	_, had := problems[reason]
 	delete(problems, reason)
 	problemsMu.Unlock()
+	if had {
+		message := MessageUnreachable
+		if reason == ResultKeyRefused {
+			message = MessageKeyRefused
+		}
+		go utils.ResolveThread(problemThread(message))
+	}
 }
 
 func clearProblems() {

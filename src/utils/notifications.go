@@ -26,6 +26,7 @@ type Notification struct {
 	Read      bool
 	Recipient string
 	Actions   []NotificationActions
+	Fork      *NotificationInfo `json:"-"` // Fork addition: what the details view needs, see fork_notifications.go
 }
 
 // NotifGet godoc
@@ -126,6 +127,9 @@ func MarkAsRead(w http.ResponseWriter, req *http.Request) {
 }
 
 func WriteNotification(notification Notification) {
+	if forkWriteNotification(notification) { // Fork addition: grouped and explained, sent on to Telegram once, see fork_notifications.go
+		return
+	}
 	forwardNotification(notification) // Fork addition: sent on to Telegram once, see fork_notify.go
 	notification.Date = time.Now()
 	notification.Read = false

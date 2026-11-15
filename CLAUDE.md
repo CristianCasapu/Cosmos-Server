@@ -68,8 +68,12 @@ These apply to every change, however small.
   incremental snapshots, `src/snapshots`). Keep such modules self-contained:
   their own package, their own settings and screens, nothing imported from the
   paid code and nothing of upstream's gating changed. What gets built on this
-  fork is the owner's decision: it is free, comes with no warranty, and anyone
-  (upstream included) may take from it. Do not re-argue that decision.
+  fork is the owner's decision. The fork's own code is offered under
+  `FORK-LICENCE.md`: for use with the free community edition only, no
+  commercial use by anyone (upstream included) without the owner's written
+  consent, and not a contribution to upstream; it comes with no warranty.
+  Keep that file's list of what it covers current when a package of the
+  fork's own is added. Do not re-argue these decisions.
 - **Translations.** Add new strings to `client/src/utils/locales/en/translation.json`
   and pass the English text as the `t()` default so other languages fall back.
 
@@ -84,7 +88,7 @@ cp src/update.go src/launcher/update.go
 CGO_ENABLED=0 go build -o /tmp/cosmos src/*.go
 CGO_ENABLED=0 go build -o /tmp/cosmos-launcher ./src/launcher/launcher.go ./src/launcher/update.go
 go test ./src/utils/ ./src/authorizationserver/ -count=1
-go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ ./src/telegram/ ./src/fail2ban/ ./src/maildetect/ ./src/dnsrecords/ ./src/cloudflare/... ./src/forkrelease/ ./src/market/ ./src/turnstile/ ./src/edgeblock/ -count=1
+go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ ./src/telegram/ ./src/fail2ban/ ./src/maildetect/ ./src/dnsrecords/ ./src/cloudflare/... ./src/forkrelease/ ./src/market/ ./src/turnstile/ ./src/edgeblock/ ./src/certs/ -count=1
 go test ./src/ -skip TestEveryRouteIsDocumented -count=1
 go test ./src/docker/ -count=1
 go test ./src/proxy/ -count=1
@@ -156,6 +160,8 @@ A test Cosmos container's host name must not be a single hex letter (it can matc
 `scripts/fork-ui-check-creation.mjs`, `fork-ui-check-new-url.mjs` and `fork-ui-check-leftovers.mjs` check the creation paths, the New URL dialog and the leftovers of interrupted edits (setup in each header: a test Cosmos with its own Docker in Docker, a `registry:2` inside it, a data disk on another device and a local market source on an `--internal` network; the compose files of a test market are served over HTTPS: the browser blocks `http:` ones on the HTTPS panel and the script policy refuses `data:` ones). The live Docker tests, `COSMOS_FORK_LIVE_DOCKER=1 DOCKER_HOST=tcp://<dind>:2375 go test ./src/docker/ -run "CreationLive|SafeEditLive|LeftoversLive"`, run only against a Docker in Docker of the test's own (it needs `busybox:1.36` and `hello-world`), never the host's Docker. The gallery takes a `patch` option to change API answers per view; its seed makes a failing job and points its unreachable app at a documentation address; `fork-ui-check.mjs` stops at Storage's sixth tab on a test instance without disks.
 
 The panel enforces a script policy: new code must not need eval, `new Function` or inline scripts (`forkScriptPolicy.test.mjs`), and a browser check must not use `page.waitForFunction` (Playwright evaluates it with eval; `checkScripts.test.mjs` forbids it). Commands of the API take POST only: a check script or seed that acts must send POST. `scripts/fork-ui-check-csp.mjs` (phases wizard, walk, headers, flows) walks every page under the policy; `fork-ui-check-commands.mjs` checks the POST-only commands; `fork-ui-check-turnstile.mjs` and `fork-ui-check-turnstile-interplay.mjs` check the sign-in check (setup in the header: the fake Cloudflare also serving siteverify, the test Cosmos in Turnstile test mode with Cloudflare's public test keys, the policy taken from the server); `fork-ui-check-edge-blocks.mjs` checks the edge-block card and the dashboard's "Block at Cloudflare" (the stand-in with `/token?firewall=1`, its edge role inside the test server's network). The compose files of a test market are served over HTTPS (the policy refuses `data:` addresses). The live label test is `-run ImageLabelsLive` against a Docker in Docker of the test's own.
+
+`scripts/fork-ui-check-notifications.mjs` checks the notifications page, the details and the bell as an admin and as another user (`BASE`, `ADMIN_USER`/`ADMIN_PASS`, `USER_USER`/`USER_PASS`, `ENGINES`, `SIZES`, `MODES`, `SHOTS`); run one engine at a time, since parallel runs race on the read state. The stand-in router (`scripts/fork-fake-igd.go`) takes `/break?set=1` to close the connection on every request for a forward, which is how a real failure and recovery is made on a test instance.
 
 The gallery also pictures the blocks at Cloudflare's edge (`domains-edge`, guarded, and `security-edge`, with the fixtures `edgeMock` and `edgeOverviewPatch`) and always blocks service workers. `fork-ui-check-cloudflare.mjs` stops at its per-app part (it looks for the "Domains" button the Internet section replaced: to repair). In Firefox a "dark" run of a check script can render light after the server's Cross-Origin-Opener-Policy process switch (the gallery is not affected).
 

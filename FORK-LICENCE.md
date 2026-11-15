@@ -22,11 +22,11 @@ and is not part of upstream's repository at the release the fork is based on:
 
 - the files and folders listed in `FORK.md` as the fork's own, among them every
   file named `fork_*`, the packages `src/security`, `src/reach`, `src/telegram`,
-  `src/fail2ban`, `src/forkrelease`, `src/cloudflare`, `src/dnsrecords`,
-  `src/maildetect`, `src/certs`, `src/snapshots`, `src/turnstile`,
+  `src/fail2ban`, `src/forkrelease`, `src/cloudflare`,
+  `src/maildetect`, `src/certs`, `src/snapshots`, `src/upnp`, `src/turnstile`,
   `src/edgeblock` and any other package
   `FORK.md` lists as the fork's own, the folders
-  `fork/` and `client/public/skin/`, the scripts named `scripts/fork-*`, the
+  `fork/`, `client/public/skin/`, `client/sw/` and `client/src/offline/`, the scripts named `scripts/fork-*`, the
   workflows under `.github/` named `fork-*`, and the documents `FORK.md`,
   `FORK-IDEAS.md`, `CLAUDE.md` and this file;
 - the frontend files `FORK.md` lists as new;

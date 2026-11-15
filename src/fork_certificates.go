@@ -95,3 +95,8 @@ func forkRenewZone(zone string) {
 func forkLetsEncryptEmailNeeded() bool {
 	return false
 }
+
+// forkCertificateRenewed is the info of upstream's "certificate renewed".
+func forkCertificateRenewed(zone string, names []string) *utils.NotificationInfo {
+	return certs.RenewedInfo(certs.DomainOfKey(utils.ForkZoneCertKey(zone)), names)
+}

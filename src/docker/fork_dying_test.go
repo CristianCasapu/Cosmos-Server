@@ -2,6 +2,7 @@ package docker
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,12 +91,14 @@ func TestDyingOrdinaryStopsAreNotFailures(t *testing.T) {
 func TestDyingEventsReachTheNotice(t *testing.T) {
 	resetDying(t)
 	type seen struct {
-		kind   string
-		values map[string]string
+		name  string
+		exits int
+		code  string
 	}
 	got := []seen{}
-	utils.SetForkNoticeHandler(func(kind string, values map[string]string) { got = append(got, seen{kind, values}) })
-	defer utils.SetForkNoticeHandler(nil)
+	previous := notifyDying
+	notifyDying = func(name string, exits int, code string) { got = append(got, seen{name, exits, code}) }
+	defer func() { notifyDying = previous }()
 
 	for i := 0; i < 3; i++ {
 		noteContainerEvent("container", "start", map[string]string{"name": "db"})
@@ -103,8 +106,34 @@ func TestDyingEventsReachTheNotice(t *testing.T) {
 		noteContainerEvent("container", "die", map[string]string{"name": "db", "exitCode": "2"})
 	}
 	noteContainerEvent("container", "die", map[string]string{"exitCode": "2"}) // no name: nothing to say
-	if len(got) != 1 || got[0].kind != utils.NoticeContainerDying || got[0].values["name"] != "db" || got[0].values["code"] != "2" || got[0].values["exits"] != "3" {
+	if len(got) != 1 || got[0].name != "db" || got[0].code != "2" || got[0].exits != 3 {
 		t.Fatalf("notices %+v", got)
+	}
+}
+
+// The notification about a container that keeps stopping, and the others
+// about containers, say which app, link to its page and name the security
+// record's entries of that container.
+func TestContainerNotificationsAreAboutTheApp(t *testing.T) {
+	var written []utils.Notification
+	utils.SetNotificationForwarder(nil)
+	for _, info := range []*utils.NotificationInfo{
+		containerUpdatedInfo("jellyfin", "jellyfin/jellyfin:latest"),
+		leftoverInfo(Leftover{App: "jellyfin", Name: "jellyfin-cosmos-old-1a2b3c4d5e6f"}),
+	} {
+		written = append(written, utils.Notification{Fork: info})
+	}
+	for _, n := range written {
+		info := n.Fork
+		if info.Subject == nil || info.Subject.Name != "jellyfin" || info.Security.Target != "jellyfin" || info.What == nil {
+			t.Errorf("%+v", info)
+		}
+		if utils.RenderNotificationText(*info.What) == "" || strings.Contains(utils.RenderNotificationText(*info.What), "{{") {
+			t.Errorf("%s: %q", info.Kind, utils.RenderNotificationText(*info.What))
+		}
+	}
+	if got := utils.RenderNotificationText(*written[1].Fork.What); got != "A change of jellyfin was interrupted when Cosmos stopped: the previous container is kept, stopped, as jellyfin-cosmos-old-1a2b3c4d5e6f." {
+		t.Errorf("%q", got)
 	}
 }
 

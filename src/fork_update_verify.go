@@ -61,6 +61,16 @@ var notifyRejectedUpdate = func(summary string) {
 		Message:   "header.notification.message.updateRejected",
 		Vars:      summary,
 		Level:     "error",
+		Fork: &utils.NotificationInfo{ // in words, with the security record's entries
+			Kind: "update.rejected", Thread: "update.rejected:" + summary,
+			Subject:  &utils.NotificationSubject{Type: "release", Name: summary, Link: "/cosmos-ui/security-audit"},
+			What:     utils.NText("notif.update.rejected.what", "summary", summary),
+			Means:    utils.NText("notif.update.rejected.means"),
+			Doing:    utils.NText("notif.doing.nothing"),
+			Steps:    []utils.NotificationStep{{NotificationText: *utils.NText("notif.step.audit.open"), Link: "/cosmos-ui/security-audit"}},
+			Raw:      summary,
+			Security: &utils.NotificationSecurity{Kinds: []string{utils.SecServerUpdateRejected}},
+		},
 	})
 }
 

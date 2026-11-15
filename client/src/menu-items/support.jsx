@@ -61,7 +61,7 @@ const support = {
             id: 'bug',
             title: 'menu-items.support.bugReportTitle',
             type: 'item',
-            url: 'https://github.com/azukaar/Cosmos-Server/issues/new/choose',
+            url: 'https://github.com/CristianCasapu/Cosmos-Server/issues/new', // Fork addition: a bug of this build belongs to the fork, not to upstream's tracker
             icon: BugOutlined,
             external: true,
             target: true

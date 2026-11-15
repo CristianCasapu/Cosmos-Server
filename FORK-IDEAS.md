@@ -111,8 +111,7 @@ administrator's address, the caps of 500 rules and 60 blocks an hour.
 ## Security features: left for later (2026-11-13)
 
 - Dashboard: thresholds of the status line are constants; "Under attack" does
-  not say whether the attacking addresses are already blocked; a refused
-  cross-site request is logged but not in the record.
+  not say whether the attacking addresses are already blocked.
 - Audit: where "Recent activity on your account" lives (home page for now);
   the 2000-line export cap; the own-activity view hides why a login failed.
 - Telegram: a "find my chat ID" button; the bell for "update available" and
@@ -168,6 +167,21 @@ administrator's address, the caps of 500 rules and 60 blocks an hour.
 - Nothing outside the server watches whether it can be reached from the
   internet: a watch from the owner's other machine or a small external
   service would tell them sooner than a visitor does.
+
+## Notifications: left for later (2026-11-15)
+
+- The Postgres branch of the schema upgrade is written but not tested (the
+  server runs SQLite); rotated log files are not read; notifications from
+  paid code get the generic sentence only.
+- An open router notification for a port that is no longer wanted stays
+  open until its 24-hour window ends; the retry time stored in "What Cosmos
+  did" is the one at the moment of writing (the live section has the
+  current one); times in sentences are the server's local time; the link
+  buttons of the details all read "Open the page it is about".
+- The owner's to change if wanted: the grouping window (24 h) and the
+  re-alert interval (4 h); that anyone may delete their own copies; that
+  "keeps stopping" and "Fail2ban not answering" ring the bell; that opening
+  the bell no longer marks everything read.
 
 ## Look of the panel: left for later (2026-11-14)
 

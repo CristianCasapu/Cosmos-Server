@@ -25,17 +25,19 @@ type world struct {
 	dockerErr  error
 	routerErr  error
 	discovered int
-	notices    []string
+	notices    []upnpNotice
+	resolved   []utils.Notification
 	now        time.Time
 	mu         sync.Mutex
 	events     []utils.SecurityEvent
+	open       map[string]time.Time
 }
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
 	w := &world{t: t, router: newFakeRouter(t), now: time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)}
 
-	realDiscover, realNotify, realList, realUpdate, realClock := discoverGateway, notifyFailure, ListContainers, updateUPnPConfig, clock
+	realDiscover, realNotify, realResolve, realList, realUpdate, realClock := discoverGateway, notifyUPnP, resolveUPnP, ListContainers, updateUPnPConfig, clock
 	discoverGateway = func() (*gateway, error) {
 		w.discovered++
 		if w.routerErr != nil {
@@ -43,7 +45,18 @@ func newWorld(t *testing.T) *world {
 		}
 		return w.router.gateway(t), nil
 	}
-	notifyFailure = func(reason string) { w.notices = append(w.notices, reason) }
+	notifyUPnP = func(n upnpNotice) {
+		w.notices = append(w.notices, n)
+		w.open[n.notification().Fork.Thread] = w.now
+	}
+	// a thread is open from its notice until it is resolved
+	w.open = map[string]time.Time{}
+	resolveUPnP = func(thread string, followUp func(time.Time, time.Time) utils.Notification) {
+		if since, open := w.open[thread]; open {
+			delete(w.open, thread)
+			w.resolved = append(w.resolved, followUp(since, w.now))
+		}
+	}
 	ListContainers = func() ([]Container, error) { return w.containers, w.dockerErr }
 	updateUPnPConfig = func(change func(*utils.UPnPConfig)) {
 		config := utils.GetBaseMainConfig()
@@ -70,7 +83,7 @@ func newWorld(t *testing.T) *world {
 	}
 	reset()
 	t.Cleanup(func() {
-		discoverGateway, notifyFailure, ListContainers, updateUPnPConfig, clock = realDiscover, realNotify, realList, realUpdate, realClock
+		discoverGateway, notifyUPnP, resolveUPnP, ListContainers, updateUPnPConfig, clock = realDiscover, realNotify, realResolve, realList, realUpdate, realClock
 		utils.SetSecurityRecorder(nil, nil)
 		reset()
 		utils.LoadBaseMainConfig(utils.Config{})

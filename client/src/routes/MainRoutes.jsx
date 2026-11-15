@@ -27,6 +27,8 @@ import SingleRepoIndex from '../pages/backups/single-repo-index';
 import { isDomain } from '../utils/indexs';
 import SecurityDashboard from '../pages/security'; // Fork addition: security dashboard
 import SecurityAuditPage from '../pages/securityAudit'; // Fork addition: the audit page
+import NotificationsPage from '../pages/notifications'; // Fork addition: the notifications page
+import NotificationDetails from '../pages/notifications/details'; // Fork addition: one notification in full
 import NotFound from '../pages/extra-pages/notFound'; // Fork addition: unknown addresses
 
 // ==============================|| MAIN ROUTING ||============================== //
@@ -235,6 +237,10 @@ const MainRoutes = {
             element: <SecurityDashboard />
         },
         { path: '/cosmos-ui/security-audit', element: <SecurityAuditPage /> }, // Fork addition: the audit page
+        // Fork addition: the notifications page and one notification in full (by number, or by the reference a Telegram message carries)
+        { path: '/cosmos-ui/notifications', element: <NotificationsPage /> },
+        { path: '/cosmos-ui/notifications/r/:ref', element: <NotificationDetails /> },
+        { path: '/cosmos-ui/notifications/:id', element: <NotificationDetails /> },
         { path: '/cosmos-ui/*', element: <NotFound /> }, // Fork addition: any other address under the panel (it gave an empty window)
         ].map(children => ({
             ...children,

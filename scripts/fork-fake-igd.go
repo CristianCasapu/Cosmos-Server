@@ -17,6 +17,9 @@
 //	GET /drop?key=TCP/8096          the lease of a mapping ends
 //	GET /reboot                     every mapping is gone
 //	GET /down?set=1                 stop answering (0: answer again)
+//	GET /break?set=1                close the connection on every request to
+//	                                add a mapping, as a router whose UPnP
+//	                                service restarts does (0: answer again)
 //	GET /calls                      what was asked, in order
 //
 // Like miniupnpd it updates a mapping its own client asks for again and
@@ -60,6 +63,7 @@ var (
 	hidden = map[string]int{}
 	calls  = []string{}
 	down   bool
+	broken bool
 )
 
 const service = "urn:schemas-upnp-org:service:WANIPConnection:1"
@@ -140,6 +144,14 @@ func control(w http.ResponseWriter, req *http.Request) {
 	action := strings.Trim(req.Header.Get("SOAPAction"), `"`)
 	action = action[strings.Index(action, "#")+1:]
 	calls = append(calls, action+" "+key)
+	if broken && action == "AddPortMapping" {
+		if hijacker, ok := w.(http.Hijacker); ok {
+			if conn, _, err := hijacker.Hijack(); err == nil {
+				conn.Close() // the client reads EOF
+				return
+			}
+		}
+	}
 	if len(calls) > 2000 {
 		calls = calls[len(calls)-2000:]
 	}
@@ -282,6 +294,12 @@ func main() {
 		defer mu.Unlock()
 		down = req.URL.Query().Get("set") == "1"
 		say(w, down)
+	})
+	admin.HandleFunc("/break", func(w http.ResponseWriter, req *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		broken = req.URL.Query().Get("set") == "1"
+		say(w, broken)
 	})
 	log.Println("fake IGD at", location, "- control on :8080")
 	log.Fatal(http.ListenAndServe(":8080", admin))
