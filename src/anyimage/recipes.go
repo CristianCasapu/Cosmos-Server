@@ -27,6 +27,12 @@ type RecipeVolume struct {
 	Backup     bool   `json:"backup,omitempty"`
 }
 
+// RecipeUpkeep says when the image was last published, read on the day checked.
+type RecipeUpkeep struct {
+	Checked   string `json:"checked"`
+	LastImage string `json:"lastImage"`
+}
+
 // RecipeRunAs is the uid:gid a container runs as, for tags containing a text ("" for any).
 type RecipeRunAs struct {
 	TagContains string `json:"tagContains,omitempty"`
@@ -72,6 +78,7 @@ type Recipe struct {
 	Name        string         `json:"name"`
 	Images      []string       `json:"images"`
 	Source      string         `json:"source"`
+	Maintained  RecipeUpkeep   `json:"maintained"`
 	Kind        string         `json:"kind"`
 	Provides    string         `json:"provides,omitempty"`
 	Pin         string         `json:"pin,omitempty"`

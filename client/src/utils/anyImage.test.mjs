@@ -82,7 +82,8 @@ test('PostgreSQL: the data folder follows the major, a generated password, nothi
   assert.equal(service.healthcheck.test[0], 'CMD-SHELL');
   assert.equal(service.user, '999:999', 'PostgreSQL runs as its own user, so its data folder is made its own');
   assert.equal(buildDefinition({ ref, tag: '18-alpine', name: 'pg', recipe: pg, declared: PG18, settings, host: '' }).definition.services.pg.user, '70:70');
-  const lines = facts({ recipe: pg, declared: PG18, name: 'postgres', tag: '18', host: '', settings });
+  const lines = facts({ recipe: pg, declared: PG18, name: 'postgres', tag: '18', host: '', settings, size: 162000000 });
+  assert.equal(lines[0].params.size, '162 MB');
   const reach = lines.find((l) => l.key.endsWith('fact.reach'));
   assert.deepEqual(reach.params, { host: 'postgres', port: 5432 });
   const client = lines.find((l) => l.key.endsWith('fact.reachClient'));

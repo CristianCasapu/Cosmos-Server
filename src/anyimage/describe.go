@@ -85,6 +85,8 @@ type Description struct {
 	Market string `json:"market,omitempty"`
 	// TagTyped: the administrator named the tag; otherwise Cosmos chose it (Tags.Why)
 	TagTyped bool `json:"tagTyped"`
+	// Size: what the pull downloads (the compressed layers), 0 when not known
+	Size int64 `json:"size"`
 	// Databases: the recipes of databases, for "add a database to this app"
 	Databases []Recipe `json:"databases"`
 }
@@ -104,6 +106,7 @@ type manifestDoc struct {
 	MediaType string       `json:"mediaType"`
 	Manifests []descriptor `json:"manifests"`
 	Config    *descriptor  `json:"config"`
+	Layers    []descriptor `json:"layers"`
 }
 
 type configDoc struct {
@@ -374,6 +377,11 @@ func describeImage(ctx context.Context, ref Reference, platform Platform) Descri
 		}
 	}
 	desc.Declared = declaredFrom(config)
+	for i, layer := range doc.Layers {
+		if i < 512 && layer.Size > 0 && layer.Size < 1<<40 {
+			desc.Size += layer.Size
+		}
+	}
 	cachePut(byReference, key, desc)
 	return desc
 }

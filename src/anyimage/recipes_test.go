@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.]*$`)
@@ -30,6 +31,11 @@ func TestRecipesAreValid(t *testing.T) {
 		ids[r.ID] = true
 		if u, err := url.Parse(r.Source); err != nil || u.Scheme != "https" || u.Host == "" {
 			t.Errorf("%s: the source must be the documentation's https address", r.ID)
+		}
+		checked, err1 := time.Parse("2006-01-02", r.Maintained.Checked)
+		last, err2 := time.Parse("2006-01-02", r.Maintained.LastImage)
+		if err1 != nil || err2 != nil || checked.Sub(last) > 365*24*time.Hour || last.After(checked) {
+			t.Errorf("%s: an image not published for a year when checked is not a recipe (%+v)", r.ID, r.Maintained)
 		}
 		for _, image := range r.Images {
 			ref, err := Parse(image, nil)

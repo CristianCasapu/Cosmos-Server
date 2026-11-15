@@ -7,6 +7,7 @@
 // secret anywhere but in the object it returns. Tested in anyImage.test.mjs.
 import { looksLikeWeb } from './routerPorts.js';
 import { isRiskyPort } from './exposure.js';
+import { sizeText } from './dataPlaces.js';
 
 const P = 'mgmt.servapps.anyImage.';
 
@@ -39,6 +40,7 @@ export const TEXT = {
   'fact.dataKept': 'Its data is in {{target}} and stays in a Docker volume: the app runs as its own user, and a folder made by Cosmos would not be writable for it.',
   'fact.backup': 'To back it up while it runs: {{command}}',
   'fact.memory': 'Memory: {{memory}}.',
+  'fact.size': 'The download is about {{size}} (compressed); Docker keeps it unpacked, larger, where it keeps its images.',
   'fact.healthcheck': 'Cosmos adds a health check the image does not have: {{test}}',
   'fact.declaresNothing': 'This image says nothing about itself: no port, no folder for data, no setting. Its page usually says what it needs; the fields below are open.',
   'fact.shellOnly': 'Its command is a shell ({{cmd}}): without a command of its own the container stops at once. Give it the command to run below.',
@@ -466,8 +468,9 @@ export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, ho
 // The sentences about an image and the choices, as { key, text, params }
 // (and `why`, a second text for the {{why}} of a closed port): what it is
 // reached at, what stays closed, where its data is, notes.
-export const facts = ({ recipe, declared, name, tag, host, settings }) => {
+export const facts = ({ recipe, declared, name, tag, host, settings, size }) => {
   const lines = [];
+  if (size > 0) lines.push(text('fact.size', { size: sizeText(size) }));
   const service = recipe && recipe.service;
   const web = webPortOf(recipe, declared);
   if (service) {

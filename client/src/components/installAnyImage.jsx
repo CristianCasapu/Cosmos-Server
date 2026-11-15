@@ -201,7 +201,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
     return buildDefinition({ ref, tag: desc.tag, name, recipe, declared, settings: [...settings, ...extraSettings], host, reachers, database, need, command: openFields ? custom.command : '' }).definition;
   }, [ready, desc, name, settings, host, reachers, db, dbDesc, dbSettings, dbEnv, custom]);
 
-  const lines = desc && rawDeclared ? facts({ recipe, declared: rawDeclared, name: name || 'app', tag: desc.tag, host: definition && definition.services[name] && definition.services[name].routes ? host : '', settings }) : [];
+  const lines = desc && rawDeclared ? facts({ recipe, declared: rawDeclared, name: name || 'app', tag: desc.tag, host: definition && definition.services[name] && definition.services[name].routes ? host : '', settings, size: desc.size }) : [];
   const problem = desc && desc.problem ? problemText(desc) : null;
   // the app's variables a chosen database fills in are not asked for
   const filledNames = need && (db.mode === 'new' || db.mode === 'existing') ? [...Object.values(need.env || {}), need.typeName].filter(Boolean) : [];
@@ -363,13 +363,15 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
 export default InstallAnyImage;
 
 // The button, for a toolbar (ServApps) or the Market's top.
-export const InstallAnyImageButton = ({ initial, refresh, variant = 'outlined', label }) => {
+// `plain`: a button that keeps its words on a phone (the toolbars' buttons show only their icon there).
+export const InstallAnyImageButton = ({ initial, refresh, variant = 'outlined', label, plain }) => {
   const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
+  const words = label || t('mgmt.servapps.anyImage.ui.button', 'Install any image');
   return <PermissionGuard permission={PERM_RESOURCES}>
-    <ResponsiveButton variant={variant} startIcon={<AppstoreAddOutlined />} onClick={() => setOpen(true)} data-any-image-open>
-      {label || t('mgmt.servapps.anyImage.ui.button', 'Install any image')}
-    </ResponsiveButton>
+    {plain
+      ? <Button variant={variant} startIcon={<AppstoreAddOutlined />} onClick={() => setOpen(true)} sx={{ minHeight: 44, maxWidth: '100%', overflowWrap: 'anywhere' }} data-any-image-open>{words}</Button>
+      : <ResponsiveButton variant={variant} startIcon={<AppstoreAddOutlined />} onClick={() => setOpen(true)} data-any-image-open>{words}</ResponsiveButton>}
     {open && <InstallAnyImage open={open} onClose={() => setOpen(false)} initial={initial} refresh={refresh} />}
   </PermissionGuard>;
 };
@@ -381,13 +383,16 @@ export const MarketAnyImage = ({ search, noMatch }) => {
   const words = String(search || '').trim().slice(0, 80);
   if (noMatch) {
     return <Stack spacing={1} sx={{ maxWidth: 720 }} data-market-any-image-nomatch>
-      <InstallAnyImageButton initial={words} variant="contained"
+      <InstallAnyImageButton initial={words} variant="contained" plain
         label={t('mgmt.servapps.anyImage.ui.marketNoMatch', 'Install the image “{{words}}”', { words, interpolation: { escapeValue: false } })} />
       <Typography variant="caption" color="text.secondary">{t('mgmt.servapps.anyImage.ui.marketNoMatchHint', 'Not in the Market: Cosmos looks for it on Docker Hub, reads what it needs and proposes the settings.')}</Typography>
     </Stack>;
   }
   return <Alert severity="info" icon={<AppstoreAddOutlined />} sx={{ ...wrap, maxWidth: 960 }} data-market-any-image
-    action={<InstallAnyImageButton initial={words.length > 2 ? words : ''} variant="contained" />}>
-    {t('mgmt.servapps.anyImage.ui.marketTile', 'Not in the list? Any image from Docker Hub or another registry, databases included, installs with the same review.')}
+    >
+    <Stack spacing={1} alignItems="flex-start">
+      <div>{t('mgmt.servapps.anyImage.ui.marketTile', 'Not in the list? Any image from Docker Hub or another registry, databases included, installs with the same review.')}</div>
+      <InstallAnyImageButton initial={words.length > 2 ? words : ''} variant="contained" plain />
+    </Stack>
   </Alert>;
 };

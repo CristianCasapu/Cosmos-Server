@@ -5745,5 +5745,6 @@
 	"mgmt.servapps.anyImage.ui.port": "Its web port, if it has a web interface",
 	"mgmt.servapps.anyImage.ui.portHint": "For example 8080. It gets an address in Cosmos; nothing is published on the server.",
 	"mgmt.servapps.anyImage.ui.env": "Settings (variables)",
-	"mgmt.servapps.anyImage.ui.envHint": "One per line, NAME=value, as its page lists them."
+	"mgmt.servapps.anyImage.ui.envHint": "One per line, NAME=value, as its page lists them.",
+	"mgmt.servapps.anyImage.fact.size": "The download is about {{size}} (compressed); Docker keeps it unpacked, larger, where it keeps its images."
 }

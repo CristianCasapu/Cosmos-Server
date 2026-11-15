@@ -63,6 +63,16 @@ func TestRecipesLive(t *testing.T) {
 						t.Fatalf("describe %s: %q", reference, desc.Problem)
 					}
 					full := desc.Reference
+					if ref, err := Parse(reference, nil); err == nil && ref.Registry == hubRegistry {
+						var repo struct {
+							LastUpdated string `json:"last_updated"`
+						}
+						if getJSON(ctx, hubAPI+"/v2/repositories/"+ref.Repository+"/", 64<<10, &repo) == nil {
+							if last, err := time.Parse(time.RFC3339, repo.LastUpdated); err == nil && time.Since(last) > 365*24*time.Hour {
+								t.Errorf("%s was last published on %s: is it still maintained? (recipes.json says %s)", ref.Name(), repo.LastUpdated[:10], recipe.Maintained.LastImage)
+							}
+						}
+					}
 					t.Logf("%s: proposed tag %s (%s)", reference, desc.Tag, desc.Tags.Why)
 					pull, err := docker.ImagePull(ctx, full, image.PullOptions{Platform: "linux/amd64"})
 					if err != nil {

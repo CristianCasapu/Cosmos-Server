@@ -69,6 +69,7 @@ func newFakeRegistry(t *testing.T, setup func(*fakeRegistry)) *fakeRegistry {
 	manifest, _ := json.Marshal(map[string]interface{}{
 		"mediaType": "application/vnd.oci.image.manifest.v1+json",
 		"config":    map[string]interface{}{"mediaType": "application/vnd.oci.image.config.v1+json", "digest": configDigest, "size": len(config)},
+		"layers":    []map[string]interface{}{{"digest": "sha256:" + strings.Repeat("3", 64), "size": 1000}, {"digest": "sha256:" + strings.Repeat("4", 64), "size": 2345}},
 	})
 	manifestDigest := digestOf(manifest)
 	index, _ := json.Marshal(map[string]interface{}{
@@ -197,6 +198,9 @@ func TestDescribeReadsTheDeclarationWithoutAPull(t *testing.T) {
 	d := desc.Declared
 	if strings.Join(d.Ports, ",") != "5432/tcp" || strings.Join(d.Volumes, ",") != "/var/lib/postgresql" || d.StopSignal != "SIGINT" {
 		t.Fatalf("%+v", d)
+	}
+	if desc.Size != 3345 {
+		t.Fatalf("download size %d", desc.Size)
 	}
 	if strings.Join(desc.Platforms, ",") != "linux/amd64,linux/arm64/v8" || desc.Platform != "linux/amd64" || desc.Fits != "yes" {
 		t.Fatalf("platforms %v %s %s", desc.Platforms, desc.Platform, desc.Fits)

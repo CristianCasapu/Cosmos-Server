@@ -204,12 +204,12 @@ for (const engine of engines) {
         await page.waitForTimeout(1500); // the plan (data places) answers
         const about = await page.locator('[data-any-image-about]').innerText();
         expect(/PostgreSQL/.test(about) && /Version \(tag\): 18/.test(about) && /pinned to its major/.test(about), `${name}: PostgreSQL 18 proposed, and why`);
-        expect(/reach it at postgres:5432/.test(about) && /Nothing is published/.test(about), `${name}: the address other apps use, nothing published`);
+        expect(/reach it at postgres(-\d+)?:5432/.test(about) && /Nothing is published/.test(about), `${name}: the address other apps use, nothing published`);
         const secret = await page.locator('[data-setting="POSTGRES_PASSWORD"] input').inputValue();
         expect(/^[A-Za-z0-9]{24}$/.test(secret), `${name}: a generated password is shown`);
         const review = await page.locator('[data-any-image-review]').innerText();
         expect(/Publishes no port on the server/.test(review), `${name}: the review says no port is published`);
-        expect(/\/mnt\/data\/cosmos-storage\/postgres\/postgresql/.test(review), `${name}: the data folder is proposed on the data disk`);
+        expect(/\/mnt\/data\/cosmos-storage\/postgres(-\d+)?\/postgresql/.test(review), `${name}: the data folder is proposed on the data disk`);
         expect(!review.includes(secret), `${name}: the password is not in the review's sentences`);
         expect(!page.consoleLines.some((line) => line.includes(secret)), `${name}: the password is not on the console`);
         await shotDialog(page, name, '04-postgres-review');
@@ -232,7 +232,7 @@ for (const engine of engines) {
             const good = await run('postgres', psql('select 40+2'), [`PGPASSWORD=${secret}`]);
             expect(/42/.test(good), `${name}: the password shown works (${good.trim().slice(0, 80)})`);
             const bad = await run('postgres', psql('select 1'), ['PGPASSWORD=wrong']);
-            expect(/password authentication failed/.test(bad), `${name}: a wrong password is refused`);
+            expect(/password authentication failed/.test(bad), `${name}: a wrong password is refused (${bad.trim().slice(0, 120)})`);
             const files = await run('postgres', ['ls', '/var/lib/postgresql/18/docker']);
             expect(/PG_VERSION/.test(files), `${name}: PostgreSQL 18 keeps its files in the mounted folder`);
           }
