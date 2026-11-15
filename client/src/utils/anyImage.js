@@ -6,6 +6,7 @@
 // that say what was proposed. Nothing here talks to the server or keeps a
 // secret anywhere but in the object it returns. Tested in anyImage.test.mjs.
 import { looksLikeWeb } from './routerPorts.js';
+import { proposeAccess } from './exposure.js';
 import { isRiskyPort } from './exposure.js';
 import { sizeText } from './dataPlaces.js';
 
@@ -15,10 +16,10 @@ export const TEXT = {
   'problem.invalid': 'This is not an image name. A name looks like postgres, postgres:18, ghcr.io/owner/app or registry.example.org/team/app:1.2 (no https://, no spaces).',
   'problem.internal': 'This registry is on the local network (or is an address, or a name without a dot), and the server is not logged in to it. Cosmos only reads such a registry after an administrator has logged the server in to it: run "docker login {{registry}}" on the server, as the user Cosmos runs as.',
   'problem.notFound': 'The registry has no image {{name}} with the tag {{tag}}. Check the name, or pick a tag from the list.',
-  'problem.unauthorized': 'The registry {{registry}} refused to show this image: it is private, or the name is wrong.',
-  'problem.unauthorizedLogin': 'The server is not logged in to {{registry}}. If the image is private, log the server in with "docker login {{registry}}" (as the user Cosmos runs as), then look again.',
-  'problem.unauthorizedLoggedIn': 'The server is logged in to {{registry}}, but these credentials may not read this image.',
+  'problem.unauthorized': 'The registry {{registry}} refused to show this image: it is private, or the name is wrong. For a private image the server must be logged in to {{registry}} with an account that may read it: run "docker login {{registry}}" on the server, as the user Cosmos runs as, then look again.',
   'problem.rateLimited': 'The registry asks to wait (too many requests). Docker Hub allows 100 image reads per 6 hours to a server that is not signed in. Try again in a while.',
+  'problem.hubReserve': 'Docker Hub lets this server download only {{left}} more images for now, and Cosmos keeps those for installing and updating apps. Try again in a few hours, or create the container with the new-container form.',
+  'problem.hubBudget': 'Cosmos has read many images from Docker Hub in the last hour (each read counts against the server\'s download allowance). Try again later.',
   'problem.busy': 'Cosmos has looked up many images in the last minute: wait a moment, then look again.',
   'problem.unreachable': 'The registry could not be reached or did not answer in time. Check that the server can reach the internet.',
   'problem.tooLarge': 'The registry\'s answer was larger than Cosmos reads for one image: not read.',
@@ -49,6 +50,7 @@ export const TEXT = {
   'fact.declaredVolume': 'The image keeps data in {{target}}.',
   'fact.declaredPort': 'The image listens on port {{port}}{{web}}.',
   'fact.declaredPortWeb': ' (looks like a web interface)',
+  'fact.declaredSecretDefault': 'The image sets {{name}} to "{{value}}" unless told otherwise: anyone who knows the image knows that value. Cosmos proposes a generated one instead.',
   'fact.secretsWhere': 'The generated values are shown here once. Cosmos keeps them only in the container\'s settings, which every administrator can read on its page.',
   'why.risky': 'a service other apps use, not for the house or the internet',
   'why.other': 'not needed by the app\'s users',
@@ -72,6 +74,7 @@ export const TEXT = {
   'note.cosmosIsProxy': 'Cosmos is already this server\'s reverse proxy: this one is reached through Cosmos, not on 80 and 443.',
   'note.consolePath': 'Its console opens at the address above followed by /rustfs/console/ (the bare address answers "forbidden"); sign in with the access key and the secret key.',
   'note.s3Outside': 'Apps on this server reach the S3 API at the address above on port 9000. For a machine elsewhere in the house (a backup client), add a URL to port 9000 under URLs.',
+  'note.dashboardSignIn': 'Its dashboard opens at the address above followed by /dashboard/, behind Cosmos\' sign-in, for administrators; Traefik\'s insecure mode is not used.',
   'note.socket': 'It reads the Docker socket (read-only) to find the other containers: the review asks you to accept that.',
   'db.need': 'This app needs a database ({{kinds}}).',
   'db.needOptional': 'This app can use a database ({{kinds}}).',
@@ -82,6 +85,7 @@ export const TEXT = {
   'db.existingSentence': 'The app joins {{db}} on a network of their own and gets its address; user, password and database are taken from {{db}}\'s own settings where it has them.',
   'db.noExisting': 'No container on this server looks like a {{kinds}} database.',
   'db.filledList': 'Filled in from the database: {{list}}.',
+  'db.masked': 'The settings of {{db}} cannot be read with your account\'s permissions (they are shown as ***): type its user, password and database name in the fields above.',
   'db.existingOne': '{{name}} ({{kind}}, on this server)',
   'market.has': 'The Market has {{market}}, with a form made for it.',
   'env.secret': 'Generated',
@@ -325,16 +329,25 @@ export const databaseNeed = (recipe, declared) => {
 };
 
 // The values a database gives an app: host, port, user, password, database, url.
+// A value the server masked ("***": the account may not read credentials) is not known.
+export const isMasked = (value) => /^\*{3,}$/.test(String(value || ''));
+
 export const connectionOf = (dbRecipe, host, values) => {
   const client = (dbRecipe && dbRecipe.client) || {};
   const port = dbRecipe && dbRecipe.service ? dbRecipe.service.port : '';
-  const get = (name) => (name ? (values[name] || '') : '');
+  const get = (name) => (name && !isMasked(values[name]) ? (values[name] || '') : '');
   const conn = { host, port: String(port), user: get(client.user), password: get(client.password), database: get(client.database) };
-  conn.url = String(client.url || '')
+  // an address with a credential missing would be wrong: none then
+  const needsAll = /\{(user|password|database)\}/.test(String(client.url || ''));
+  const complete = ['user', 'password', 'database'].every((role) => !new RegExp('\\{' + role + '\\}').test(String(client.url || '')) || conn[role] !== '');
+  conn.url = needsAll && !complete ? '' : String(client.url || '')
     .replace('{user}', encodeURIComponent(conn.user)).replace('{password}', encodeURIComponent(conn.password))
     .replace('{host}', host).replace('{database}', encodeURIComponent(conn.database));
   return conn;
 };
+
+// The names of the app's variables a connection fills (the others stay for the administrator).
+export const filledNames = (need, conn, dbKind) => Object.keys(fillFromConnection(need, conn, dbKind));
 
 // The app's variables filled from a connection: { NAME: value } for each role it has.
 export const fillFromConnection = (need, conn, dbKind) => {
@@ -361,11 +374,10 @@ export const proposedSettings = (recipe, declared, random) => {
       value: e.type === 'secret' ? generateSecret(random, { strong: !!e.strong }) : (e.value || ''),
     }));
   }
-  return declaredSettings(declared).map((s) => ({
-    name: s.name,
-    type: s.secret ? (s.value ? 'declared' : 'secret') : 'declared',
-    value: s.secret && !s.value ? generateSecret(random) : s.value,
-  }));
+  // a secret the image sets itself is known to everyone who knows the image: a generated one is proposed
+  return declaredSettings(declared).map((s) => (s.secret
+    ? { name: s.name, type: 'secret', value: generateSecret(random), ...(s.value ? { imageDefault: s.value } : {}) }
+    : { name: s.name, type: 'declared', value: s.value }));
 };
 
 // The uid:gid a recipe runs the container as for a tag (so that Cosmos makes
@@ -414,14 +426,18 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
   const runAs = runAsFor(recipe, tag);
   if (runAs) service.user = runAs;
   if (recipe && recipe.command) service.command = recipe.command;
+  if (recipe && recipe.labels) service.labels = { ...recipe.labels };
   if (command && String(command).trim()) service.command = String(command).trim();
   if (recipe && recipe.hostname) service.hostname = name;
   if (recipe && recipe.healthcheck && !(declared && declared.healthcheck)) service.healthcheck = healthOf(recipe.healthcheck);
   const web = webPortOf(recipe, declared);
   if (web && host) {
+    // a tool that controls the server or its data opens behind Cosmos' sign-in, for administrators (exposure.js)
+    const admins = proposeAccess(image).access === 'admins';
     service.routes = [{
       name, description: `${name} in Cosmos`, useHost: true, host, target: `http://${name}:${web}`, mode: 'SERVAPP',
       Timeout: 14400000, ThrottlePerMinute: 10000, BlockCommonBots: true, SmartShield: { Enabled: true },
+      ...(admins ? { AuthEnabled: true, AdminOnly: true } : {}),
     }];
   }
   if (links.length) service.links = [...links];
@@ -509,6 +525,7 @@ export const facts = ({ recipe, declared, name, tag, host, settings, size }) => 
       lines.push({ ...text('fact.portKept', { port: p }), why: text(isRiskyPort(port) ? 'why.risky' : 'why.other') });
     });
   }
+  (settings || []).filter((s) => s.imageDefault).forEach((s) => lines.push(text('fact.declaredSecretDefault', { name: s.name, value: String(s.imageDefault).slice(0, 40) })));
   if ((settings || []).some((s) => s.type === 'secret')) lines.push(text('fact.secretsWhere'));
   return lines;
 };
@@ -533,8 +550,7 @@ export const withCustom = (declared, custom) => {
 export const problemText = (desc) => {
   const p = desc && desc.problem;
   if (!p) return null;
-  const params = { registry: desc.registry || '', name: desc.repository ? desc.repository.replace(/^library\//, '') : desc.reference, tag: desc.tag || '' };
-  if (p === 'unauthorized') return text(desc.loggedIn ? 'problem.unauthorizedLoggedIn' : 'problem.unauthorizedLogin', params);
+  const params = { registry: desc.registry || '', name: desc.repository ? desc.repository.replace(/^library\//, '') : desc.reference, tag: desc.tag || '', left: desc.hubLeft || 0 };
   return TEXT['problem.' + p] ? text('problem.' + p, params) : text('problem.unreachable', params);
 };
 

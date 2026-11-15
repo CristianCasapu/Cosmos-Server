@@ -5790,9 +5790,6 @@
 	"mgmt.servapps.anyImage.problem.invalid": "This is not an image name. A name looks like postgres, postgres:18, ghcr.io/owner/app or registry.example.org/team/app:1.2 (no https://, no spaces).",
 	"mgmt.servapps.anyImage.problem.internal": "This registry is on the local network (or is an address, or a name without a dot), and the server is not logged in to it. Cosmos only reads such a registry after an administrator has logged the server in to it: run \"docker login {{registry}}\" on the server, as the user Cosmos runs as.",
 	"mgmt.servapps.anyImage.problem.notFound": "The registry has no image {{name}} with the tag {{tag}}. Check the name, or pick a tag from the list.",
-	"mgmt.servapps.anyImage.problem.unauthorized": "The registry {{registry}} refused to show this image: it is private, or the name is wrong.",
-	"mgmt.servapps.anyImage.problem.unauthorizedLogin": "The server is not logged in to {{registry}}. If the image is private, log the server in with \"docker login {{registry}}\" (as the user Cosmos runs as), then look again.",
-	"mgmt.servapps.anyImage.problem.unauthorizedLoggedIn": "The server is logged in to {{registry}}, but these credentials may not read this image.",
 	"mgmt.servapps.anyImage.problem.rateLimited": "The registry asks to wait (too many requests). Docker Hub allows 100 image reads per 6 hours to a server that is not signed in. Try again in a while.",
 	"mgmt.servapps.anyImage.problem.unreachable": "The registry could not be reached or did not answer in time. Check that the server can reach the internet.",
 	"mgmt.servapps.anyImage.problem.tooLarge": "The registry's answer was larger than Cosmos reads for one image: not read.",
@@ -5907,5 +5904,11 @@
 	"mgmt.servapps.sensitiveEdit.title": "This change needs your yes",
 	"mgmt.servapps.sensitiveEdit.intro": "The change gives the container access to the server that it did not have and that Cosmos never gives without asking. Tick each one you accept; without every tick nothing is changed.",
 	"mgmt.servapps.sensitiveEdit.cancel": "Do not change it",
-	"mgmt.servapps.sensitiveEdit.accept": "Accept and save"
+	"mgmt.servapps.sensitiveEdit.accept": "Accept and save",
+	"mgmt.servapps.anyImage.problem.unauthorized": "The registry {{registry}} refused to show this image: it is private, or the name is wrong. For a private image the server must be logged in to {{registry}} with an account that may read it: run \"docker login {{registry}}\" on the server, as the user Cosmos runs as, then look again.",
+	"mgmt.servapps.anyImage.problem.hubReserve": "Docker Hub lets this server download only {{left}} more images for now, and Cosmos keeps those for installing and updating apps. Try again in a few hours, or create the container with the new-container form.",
+	"mgmt.servapps.anyImage.problem.hubBudget": "Cosmos has read many images from Docker Hub in the last hour (each read counts against the server's download allowance). Try again later.",
+	"mgmt.servapps.anyImage.fact.declaredSecretDefault": "The image sets {{name}} to \"{{value}}\" unless told otherwise: anyone who knows the image knows that value. Cosmos proposes a generated one instead.",
+	"mgmt.servapps.anyImage.note.dashboardSignIn": "Its dashboard opens at the address above followed by /dashboard/, behind Cosmos' sign-in, for administrators; Traefik's insecure mode is not used.",
+	"mgmt.servapps.anyImage.db.masked": "The settings of {{db}} cannot be read with your account's permissions (they are shown as ***): type its user, password and database name in the fields above."
 }

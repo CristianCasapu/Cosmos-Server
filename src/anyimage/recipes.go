@@ -74,32 +74,33 @@ type RecipeClient struct {
 
 // Recipe is one image's settings, as Cosmos proposes them.
 type Recipe struct {
-	ID          string         `json:"id"`
-	Name        string         `json:"name"`
-	Images      []string       `json:"images"`
-	Source      string         `json:"source"`
-	Maintained  RecipeUpkeep   `json:"maintained"`
-	Kind        string         `json:"kind"`
-	Provides    string         `json:"provides,omitempty"`
-	Pin         string         `json:"pin,omitempty"`
-	Prefer      []string       `json:"prefer,omitempty"`
-	TagSuffix   string         `json:"tagSuffix,omitempty"`
-	Service     *RecipePort    `json:"service,omitempty"`
-	Web         *RecipePort    `json:"web,omitempty"`
-	Ports       []RecipePort   `json:"ports,omitempty"`
-	User        string         `json:"user,omitempty"`
-	RunAs       []RecipeRunAs  `json:"runAs,omitempty"`
-	Volumes     []RecipeVolume `json:"volumes,omitempty"`
-	Binds       []RecipeBind   `json:"binds,omitempty"`
-	Env         []RecipeEnv    `json:"env,omitempty"`
-	Command     []string       `json:"command,omitempty"`
-	Hostname    bool           `json:"hostname,omitempty"`
-	Healthcheck *RecipeHealth  `json:"healthcheck,omitempty"`
-	Needs       *RecipeNeeds   `json:"needs,omitempty"`
-	Memory      string         `json:"memory,omitempty"`
-	Backup      string         `json:"backup,omitempty"`
-	Notes       []string       `json:"notes,omitempty"`
-	Client      *RecipeClient  `json:"client,omitempty"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Images      []string          `json:"images"`
+	Source      string            `json:"source"`
+	Maintained  RecipeUpkeep      `json:"maintained"`
+	Kind        string            `json:"kind"`
+	Provides    string            `json:"provides,omitempty"`
+	Pin         string            `json:"pin,omitempty"`
+	Prefer      []string          `json:"prefer,omitempty"`
+	TagSuffix   string            `json:"tagSuffix,omitempty"`
+	Service     *RecipePort       `json:"service,omitempty"`
+	Web         *RecipePort       `json:"web,omitempty"`
+	Ports       []RecipePort      `json:"ports,omitempty"`
+	User        string            `json:"user,omitempty"`
+	RunAs       []RecipeRunAs     `json:"runAs,omitempty"`
+	Volumes     []RecipeVolume    `json:"volumes,omitempty"`
+	Binds       []RecipeBind      `json:"binds,omitempty"`
+	Env         []RecipeEnv       `json:"env,omitempty"`
+	Command     []string          `json:"command,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	Hostname    bool              `json:"hostname,omitempty"`
+	Healthcheck *RecipeHealth     `json:"healthcheck,omitempty"`
+	Needs       *RecipeNeeds      `json:"needs,omitempty"`
+	Memory      string            `json:"memory,omitempty"`
+	Backup      string            `json:"backup,omitempty"`
+	Notes       []string          `json:"notes,omitempty"`
+	Client      *RecipeClient     `json:"client,omitempty"`
 }
 
 // MarketAlias names the Market entry to prefer for some images.

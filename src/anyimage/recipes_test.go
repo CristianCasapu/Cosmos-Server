@@ -19,7 +19,7 @@ func TestRecipesAreValid(t *testing.T) {
 	kinds := map[string]bool{"database": true, "cache": true, "broker": true, "web": true, "tool": true, "proxy": true, "search": true, "storage": true}
 	evidence := regexp.MustCompile(`^(declared|workdir|docs|env:[A-Z_]+)$`)
 	notes := map[string]bool{"majorUpgrade": true, "pgdata18": true, "noAuth": true, "cpuAvx": true, "toolSignIn": true, "ownedVolume": true,
-		"hostnameKeeps": true, "maxMapCount": true, "httpsSelfSigned": true, "nothingToKeep": true, "cosmosIsProxy": true, "socket": true, "consolePath": true, "s3Outside": true}
+		"hostnameKeeps": true, "maxMapCount": true, "httpsSelfSigned": true, "nothingToKeep": true, "cosmosIsProxy": true, "socket": true, "consolePath": true, "s3Outside": true, "dashboardSignIn": true}
 	whys := map[string]bool{"xProtocol": true, "webTls": true, "tls": true, "metrics": true, "cluster": true, "cosmosProxies": true, "admin": true}
 	provides := map[string]bool{}
 	ids := map[string]bool{}
@@ -99,6 +99,16 @@ func TestRecipesAreValid(t *testing.T) {
 				if k != "postgres" && k != "mysql" && k != "mongo" {
 					t.Errorf("%s: needs %s", r.ID, k)
 				}
+			}
+		}
+		for _, c := range r.Command {
+			if strings.Contains(c, "insecure") {
+				t.Errorf("%s: no insecure mode in a recipe's command (%s)", r.ID, c)
+			}
+		}
+		for key := range r.Labels {
+			if strings.HasPrefix(key, "cosmos-") {
+				t.Errorf("%s: a recipe sets no label of Cosmos' own", r.ID)
 			}
 		}
 		if r.Pin != "" && r.Pin != "major" {

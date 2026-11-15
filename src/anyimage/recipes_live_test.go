@@ -211,7 +211,7 @@ func startRecipe(t *testing.T, ctx context.Context, docker *client.Client, recip
 	for _, b := range recipe.Binds {
 		mounts = append(mounts, mount.Mount{Type: mount.TypeBind, Source: b.Source, Target: b.Target, ReadOnly: b.ReadOnly})
 	}
-	config := &container.Config{Image: full, Env: env, User: runAs, Cmd: recipe.Command}
+	config := &container.Config{Image: full, Env: env, User: runAs, Cmd: recipe.Command, Labels: recipe.Labels}
 	if recipe.Hostname {
 		config.Hostname = name
 	}

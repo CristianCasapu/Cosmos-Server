@@ -21,7 +21,7 @@ import { PERM_RESOURCES } from '../utils/permissions';
 import { localAddress } from './hostnameSuggestions';
 import {
   browserRandom, buildDefinition, databaseNeed, databaseRecipes, existingDatabases, facts, isDirectReference, marketMatch,
-  isShellOnly, nameFor, parseReference, problemText, proposedSettings, text as aiText, withCustom,
+  connectionOf, filledNames as namesFilled, isMasked, isShellOnly, nameFor, parseReference, problemText, proposedSettings, text as aiText, withCustom,
 } from '../utils/anyImage';
 
 // "NAME=value" lines typed by the administrator, as settings.
@@ -190,7 +190,15 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
   const pickExisting = (container) => {
     setDb({ mode: 'existing', container: container.name, recipe: container.recipe });
     setDbEnv([]);
-    API.docker.get(container.name).then((res) => setDbEnv(((res && res.data && res.data.Config && res.data.Config.Env) || []))).catch(() => {});
+    API.docker.get(container.name).then((res) => {
+      const env = (res && res.data && res.data.Config && res.data.Config.Env) || [];
+      setDbEnv(env);
+      // values this account may not read come as ***: the app's matching settings are left empty for the administrator
+      if (env.some((line) => isMasked(String(line).slice(String(line).indexOf('=') + 1))) && need) {
+        const roles = Object.entries(need.env || {}).filter(([role]) => role !== 'host' && role !== 'port').map(([, name]) => name);
+        setSettings((old) => old.map((o) => (roles.includes(o.name) ? { ...o, value: '', type: 'name' } : o)));
+      }
+    }).catch(() => {});
   };
 
   const ready = ref && declared && desc.fits !== 'no' && !desc.loading && name && (!marketApp || anyway)
@@ -209,7 +217,11 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
   const lines = desc && rawDeclared ? facts({ recipe, declared: rawDeclared, name: name || 'app', tag: desc.tag, host: definition && definition.services[name] && definition.services[name].routes ? host : '', settings, size: desc.size }) : [];
   const problem = desc && desc.problem ? problemText(desc) : null;
   // the app's variables a chosen database fills in are not asked for
-  const filledNames = need && (db.mode === 'new' || db.mode === 'existing') ? [...Object.values(need.env || {}), need.typeName].filter(Boolean) : [];
+  const dbValues = Object.fromEntries((dbEnv || []).map((line) => [String(line).split('=')[0], String(line).slice(String(line).indexOf('=') + 1)]));
+  const dbMasked = db.mode === 'existing' && Object.values(dbValues).some(isMasked);
+  const filledNames = !need ? []
+    : db.mode === 'new' ? [...Object.values(need.env || {}), need.typeName].filter(Boolean)
+      : db.mode === 'existing' ? namesFilled(need, connectionOf(db.recipe, db.container, dbValues), db.recipe && db.recipe.provides) : [];
   const visible = settings.filter((s) => (s.type !== 'optional' || showOptional) && !filledNames.includes(s.name));
   const optionalCount = settings.filter((s) => s.type === 'optional').length;
   const tags = (desc && desc.tags && desc.tags.list) || [];
@@ -348,6 +360,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
               {db.mode === 'new' && dbSettings.map((s) => <SettingField key={s.name} setting={s} busy={busy}
                 onChange={(value) => setDbSettings((old) => old.map((o) => (o.name === s.name ? { ...o, value } : o)))} />)}
               {db.mode === 'existing' && <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{say(aiText('db.existingSentence', { db: db.container }))}</Typography>}
+              {dbMasked && <Alert severity="warning" sx={wrap} data-db-masked>{say(aiText('db.masked', { db: db.container }))}</Alert>}
               {filledNames.length > 0 && <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }} data-db-filled>{say(aiText('db.filledList', { list: filledNames.join(', ') }))}</Typography>}
             </Stack>}
           </>}
