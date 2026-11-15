@@ -12,7 +12,7 @@ Nothing merged into `custom` since `0.24.0-fork.29` yet.
 
 Work in progress on separate branches (not released, and may change before it is): the major versions of the frontend's build tool and libraries, automatic dependency updates, and apps without a web interface.
 
-## Fork 0.24.0-fork.29 — 2026-11-16
+## Fork 0.24.0-fork.29 — 2026-11-15
 
 ### Changed
 - The installed app (PWA) opens full screen where the device allows it: on Android without the status bar and the navigation bar. On desktop browsers and on iOS it keeps its own app window, as before.
