@@ -241,10 +241,10 @@ export const EdgeBlocksCard = () => {
         {zones.map((zone) => <Stack key={zone.name} spacing={0.5} data-edge-zone={zone.name}>
           <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
             {zone.proven
-              ? t('mgmt.edge.zone.proven', '{{zone}} ({{count}} addresses through Cloudflare): the token passed the test on {{at}}.', { zone: zone.name, count: zone.shielded, at: when(zone.provenAt) })
+              ? t('mgmt.edge.zone.proven', '{{zone}} (addresses through Cloudflare: {{count}}): the token passed the test on {{at}}.', { zone: zone.name, count: zone.shielded, at: when(zone.provenAt) })
               : (zone.tokenChanged
                 ? t('mgmt.edge.zone.changed', '{{zone}}: the token changed since its test; test it again.', { zone: zone.name })
-                : t('mgmt.edge.zone.untested', '{{zone}} ({{count}} addresses through Cloudflare): not tested yet.', { zone: zone.name, count: zone.shielded }))}
+                : t('mgmt.edge.zone.untested', '{{zone}} (addresses through Cloudflare: {{count}}): not tested yet.', { zone: zone.name, count: zone.shielded }))}
           </Typography>
           {zone.problem && <Alert severity="warning" sx={wrap} data-edge-problem={zone.problem.reason}>{say(t, problemText(zone.problem, when))}</Alert>}
         </Stack>)}

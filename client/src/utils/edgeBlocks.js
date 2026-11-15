@@ -17,7 +17,7 @@ export const REASONS = {
 
 export const MODES = {
   block: ['mgmt.edge.mode.block', 'Blocked'],
-  managed_challenge: ['mgmt.edge.mode.challenge', 'Challenged (a person can pass)'],
+  managed_challenge: ['mgmt.edge.mode.challenge', 'Challenged'],
 };
 
 export const STATES = {
@@ -49,7 +49,7 @@ export const DURATIONS = [
 
 export const MANUAL_MODES = [
   { value: 'block', label: ['mgmt.edge.mode.block', 'Blocked'], description: ['mgmt.edge.manual.blockHelp', 'Nothing from it reaches the server through Cloudflare.'] },
-  { value: 'managed_challenge', label: ['mgmt.edge.mode.challenge', 'Challenged (a person can pass)'], description: ['mgmt.edge.manual.challengeHelp', 'Cloudflare asks it to show it is a person first.'] },
+  { value: 'managed_challenge', label: ['mgmt.edge.mode.challenge', 'Challenged'], description: ['mgmt.edge.manual.challengeHelp', 'Cloudflare asks it to show it is a person first: a person passes, a program does not.'] },
 ];
 
 const PROBLEMS = {
