@@ -54,7 +54,7 @@ jobs:
     steps:
       # Nothing from the repository is executed in this job, only git and gh,
       # so the checkout may keep its credentials for the push below.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: production
           fetch-depth: 0
@@ -140,7 +140,7 @@ jobs:
       TAG: ${{ needs.candidate.outputs.tag }}
       APPROVAL_ENVIRONMENT: upstream-approval
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: production
           fetch-depth: 0
@@ -213,7 +213,7 @@ jobs:
       SHA: ${{ needs.candidate.outputs.sha }}
       TAG: ${{ needs.candidate.outputs.tag }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: production
           fetch-depth: 0
@@ -282,7 +282,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: production
           fetch-depth: 0
