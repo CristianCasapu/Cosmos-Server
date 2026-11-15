@@ -1,5 +1,7 @@
 # About this fork
 
+> **Licence of the fork's own code:** see [`FORK-LICENCE.md`](FORK-LICENCE.md). The additions listed in this file are offered for use with the free community edition of Cosmos-Server only and may not be used commercially by anyone without the copyright holder's written consent; they are not a contribution to upstream. Upstream's `LICENCE` is unchanged and governs upstream's code.
+
 This is a personal fork of [Cosmos-Server](https://github.com/azukaar/Cosmos-Server)
 by Yann Stepienik, kept for private use on one server. It is not affiliated
 with or endorsed by the original project. The original licence (`LICENCE`:
