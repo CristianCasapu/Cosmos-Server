@@ -88,7 +88,7 @@ func retryDue(key string, now time.Time) bool {
 // pause is over.
 func anyRetryDue(now time.Time) bool {
 	for key := range mappingRetry {
-		if _, stillFailed := failed[key]; stillFailed && retryDue(key, now) {
+		if retryDue(key, now) {
 			return true
 		}
 	}
@@ -139,4 +139,19 @@ func ownForwardLost(now time.Time) bool {
 func routerAnswered(err error) bool {
 	var answer *soapError
 	return errors.As(err, &answer)
+}
+
+// forwardedHere looks in the router's table, as read at the start of the
+// pass, for a forward of one of the candidate external ports to this
+// machine's internal port, and returns that external port.
+func forwardedHere(entries []entry, protocol string, local string, internalPort int, candidates []int) (int, bool) {
+	for _, port := range candidates {
+		for i := range entries {
+			e := &entries[i]
+			if e.Protocol == protocol && e.ExternalPort == port && e.InternalClient == local && e.InternalPort == internalPort {
+				return port, true
+			}
+		}
+	}
+	return 0, false
 }

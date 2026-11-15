@@ -2,6 +2,8 @@ package upnp
 
 import (
 	"errors"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -197,5 +199,100 @@ func TestLeftAlone(t *testing.T) {
 		if leftAlone(left) != want {
 			t.Errorf("a forward with %d seconds left: left alone = %v, want %v", left, !want, want)
 		}
+	}
+}
+
+// The outage, link by link. The router answers one request per connection
+// and closes it without saying so: the client must not send its next
+// request into a connection that is closed.
+func TestARouterThatAnswersOncePerConnection(t *testing.T) {
+	if transport, ok := httpClient.Transport.(*http.Transport); !ok || !transport.DisableKeepAlives || transport.Proxy != nil {
+		t.Fatal("the router client keeps connections open or goes through a proxy")
+	}
+	r := newFakeRouter(t)
+	r.oneAnswer = true
+	g := r.gateway(t)
+	for i := 0; i < 120; i++ {
+		if _, err := g.externalIP(); err != nil {
+			t.Fatalf("question %d to a router that answers once per connection: %v", i+1, err)
+		}
+	}
+	if err := g.claim("TCP", 2053, 2053, "Cosmos HTTPS", 3600, false); err != nil {
+		t.Fatalf("a forward on such a router: %v", err)
+	}
+}
+
+// A request that got no answer is sent once more before it counts as failed.
+func TestARequestWithoutAnAnswerIsSentAgain(t *testing.T) {
+	r := newFakeRouter(t)
+	r.breakNext = 1
+	g := r.gateway(t)
+	if err := g.claim("TCP", 2053, 2053, "Cosmos HTTPS", 3600, false); err != nil {
+		t.Fatalf("with one broken connection: %v", err)
+	}
+	if r.count("AddPortMapping", "TCP/2053") != 2 {
+		t.Errorf("asked %d times, want 2", r.count("AddPortMapping", "TCP/2053"))
+	}
+	r.breakNext = 2
+	if err := g.claim("TCP", 2054, 2054, "Cosmos HTTP", 3600, false); err == nil {
+		t.Error("two broken connections in a row are not a failure")
+	}
+}
+
+// A renewal the router does not answer leaves a forward that works: it is
+// kept, in Cosmos' books and on the router. Before, it was taken for lost
+// and then removed from the router as a leftover of Cosmos' own, which is
+// what closed the port the server was reached through.
+func TestAForwardThatWorksIsNeverRemovedAfterAFailedRenewal(t *testing.T) {
+	w := newWorld(t)
+	w.router.leaseLeft = "900" // forwards on this router are about to end: they are renewed
+	w.config(func(c *utils.Config) { c.HTTPConfig.UPnP.Enabled = true })
+	reconcile(true)
+	w.kinds()
+
+	w.router.breakAdd = true
+	w.minutes(21) // the renewal gets no answer
+	if _, there := w.router.get("TCP/2053"); !there {
+		t.Fatal("the forward was removed from the router after a renewal without an answer")
+	}
+	st := GetStatus()
+	if !own(st, "HTTPS").Active || st.Paused || len(w.notices) != 0 {
+		t.Errorf("status %+v, paused %v, notices %v", own(st, "HTTPS"), st.Paused, w.notices)
+	}
+	for _, kind := range w.kinds() {
+		if strings.Contains(kind, "removed") {
+			t.Errorf("recorded: %s", kind)
+		}
+	}
+	if w.router.count("DeletePortMapping", "TCP/2053") != 0 {
+		t.Error("Cosmos asked the router to delete its own forward")
+	}
+
+	// asked again after the pause, and renewed once the router answers
+	asked := w.router.count("AddPortMapping", "TCP/2053")
+	w.router.breakAdd = false
+	w.minutes(2)
+	if got := w.router.count("AddPortMapping", "TCP/2053"); got <= asked {
+		t.Errorf("not asked again after the pause: %d then, %d now", asked, got)
+	}
+	if !own(GetStatus(), "HTTPS").Active {
+		t.Errorf("after the router answers again: %+v", own(GetStatus(), "HTTPS"))
+	}
+}
+
+// What is wanted is not a leftover, even when Cosmos' books do not hold it.
+func TestAWantedForwardIsNotALeftover(t *testing.T) {
+	w := newWorld(t)
+	w.config(func(c *utils.Config) { c.HTTPConfig.UPnP.Enabled = true })
+	reconcile(true)
+	runMu.Lock()
+	held = map[string]heldMapping{} // as after a failure that dropped it from the books
+	lastPlan = ""
+	runMu.Unlock()
+	w.router.breakAdd = true
+	w.router.leaseLeft = "900"
+	w.minutes(1)
+	if _, there := w.router.get("TCP/2053"); !there || w.router.count("DeletePortMapping", "TCP/2053") != 0 {
+		t.Errorf("a forward that is wanted was removed as a leftover")
 	}
 }

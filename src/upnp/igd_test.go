@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/azukaar/cosmos-server/src/utils"
+	"time"
 )
 
 // fakeRouter is an in-process UPnP IGD: a description document and a SOAP
@@ -38,6 +39,11 @@ type fakeRouter struct {
 	controlURL string         // what the description advertises
 	calls      []string       // "AddPortMapping TCP/8443"
 	breakAdd   bool           // AddPortMapping ends without an answer: the router closes the connection
+	// breakNext is how many of the next AddPortMapping requests end without an answer.
+	breakNext int
+	// oneAnswer: the router answers one request per connection and closes it
+	// without saying so, as RouterOS does.
+	oneAnswer bool
 	// leaseLeft, when set, is what the router says a forward has left, whatever
 	// was asked for: "0" for a router that keeps no time, a small number for
 	// one whose forwards are about to end.
@@ -71,8 +77,35 @@ func newFakeRouter(t *testing.T) *fakeRouter {
 </root>`, r.controlURL)
 	})
 	mux.HandleFunc("/ctl/ipconn", r.control)
-	r.server = httptest.NewServer(mux)
+	r.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		r.mu.Lock()
+		oneAnswer := r.oneAnswer
+		r.mu.Unlock()
+		if !oneAnswer {
+			mux.ServeHTTP(w, req)
+			return
+		}
+		// answer, then close the connection without a "Connection: close"
+		answer := httptest.NewRecorder()
+		mux.ServeHTTP(answer, req)
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			return
+		}
+		conn, _, err := hijacker.Hijack()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		if answer.Body.Len() == 0 && answer.Code == http.StatusOK {
+			return // the handler broke the connection itself
+		}
+		fmt.Fprintf(conn, "HTTP/1.1 %d %s\r\nContent-Type: text/xml\r\nContent-Length: %d\r\n\r\n%s", answer.Code, http.StatusText(answer.Code), answer.Body.Len(), answer.Body.String())
+	}))
 	t.Cleanup(r.server.Close)
+	realPause := soapRetryPause
+	soapRetryPause = time.Millisecond
+	t.Cleanup(func() { soapRetryPause = realPause })
 	return r
 }
 
@@ -162,6 +195,15 @@ func (r *fakeRouter) control(w http.ResponseWriter, req *http.Request) {
 	action := strings.Trim(req.Header.Get("SOAPAction"), `"`)
 	action = action[strings.Index(action, "#")+1:]
 	r.calls = append(r.calls, action+" "+key)
+	if action == "AddPortMapping" && r.breakNext > 0 {
+		r.breakNext--
+		if hijacker, ok := w.(http.Hijacker); ok {
+			if conn, _, err := hijacker.Hijack(); err == nil {
+				conn.Close()
+			}
+		}
+		return
+	}
 	if r.breakAdd && action == "AddPortMapping" {
 		if hijacker, ok := w.(http.Hijacker); ok {
 			if conn, _, err := hijacker.Hijack(); err == nil {

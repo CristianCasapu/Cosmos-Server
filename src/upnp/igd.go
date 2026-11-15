@@ -211,8 +211,24 @@ func onGateway(rawURL string, gw net.IP) (*url.URL, error) {
 	return u, nil
 }
 
+// One connection per request. A router's UPnP server is often a small thing
+// that answers once and closes the connection without saying so (seen on a
+// MikroTik: RouterOS answers one request per connection). A client that
+// keeps connections open then sends its next request into a closed one now
+// and then, and gets "EOF" for a request the router never saw. No proxy
+// either: the router is on the local network.
+// soapRetryPause is the wait before a request without an answer is sent again.
+var soapRetryPause = 300 * time.Millisecond
+
 var httpClient = &http.Client{
 	Timeout: httpTimeout,
+	Transport: &http.Transport{
+		Proxy:                  nil,
+		DisableKeepAlives:      true,
+		DialContext:            (&net.Dialer{Timeout: httpTimeout}).DialContext,
+		ResponseHeaderTimeout:  httpTimeout,
+		MaxResponseHeaderBytes: 64 << 10,
+	},
 	// A redirect could send the request, or the reply's trust, somewhere else.
 	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 }
@@ -314,16 +330,25 @@ func (g *gateway) soap(action string, args ...soapArg) (map[string]string, error
 	}
 	body.WriteString(`</u:` + action + `></s:Body></s:Envelope>`)
 
-	req, err := http.NewRequest("POST", g.controlURL, &body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", `text/xml; charset="utf-8"`)
-	req.Header.Set("SOAPAction", `"`+g.serviceType+"#"+action+`"`)
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, err
+	// A request that got no answer at all (the connection broke, the router
+	// was busy) is sent once more: every action asked here gives the same
+	// result when it reaches the router twice.
+	var resp *http.Response
+	for attempt := 0; ; attempt++ {
+		req, err := http.NewRequest("POST", g.controlURL, bytes.NewReader(body.Bytes()))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", `text/xml; charset="utf-8"`)
+		req.Header.Set("SOAPAction", `"`+g.serviceType+"#"+action+`"`)
+		resp, err = httpClient.Do(req)
+		if err == nil {
+			break
+		}
+		if attempt >= 1 {
+			return nil, err
+		}
+		time.Sleep(soapRetryPause)
 	}
 	defer resp.Body.Close()
 

@@ -625,6 +625,19 @@ func run(p plan, manual bool) Status {
 			return ""
 		}
 
+		// The router gave no answer (not a refusal) to a forward that is in
+		// its table as it should be: the forward works. It is kept, and asked
+		// for again after a pause; taking it for lost made the pass remove it
+		// from the router as a leftover of its own, which closed the port the
+		// server was reached through.
+		if got == 0 && refusal != nil && !routerAnswered(refusal) {
+			if port, there := forwardedHere(entries, m.Protocol, local, m.InternalPort, candidates); there {
+				mappingRetry[w.key] = mappingRetry[w.key].again(now, unreachablePauses)
+				utils.Warn("UPnP: the router did not answer about port " + strconv.Itoa(port) + " (" + m.Name + "), which it still forwards; asking again later")
+				got, renewed = port, true
+			}
+		}
+
 		if got == 0 {
 			m.State, m.Paused, m.ExternalPort = StateFailed, true, m.WantedPort
 			switch {
@@ -671,7 +684,9 @@ func run(p plan, manual bool) Status {
 			utils.Log("UPnP: port " + strconv.Itoa(got) + " (" + m.Name + ") is forwarded again")
 		}
 		delete(failed, w.key)
-		delete(mappingRetry, w.key)
+		if refusal == nil {
+			delete(mappingRetry, w.key)
+		}
 		m.Active, m.State, m.ExternalPort = true, StateActive, got
 		if got != m.WantedPort {
 			m.Code, m.Holder = "moved", holderOf(m.WantedPort)
@@ -724,11 +739,29 @@ func run(p plan, manual bool) Status {
 	for _, h := range held {
 		heldPorts[portKey(h.Protocol, h.ExternalPort)] = true
 	}
+	// what this pass wants forwarded to this machine is never a leftover,
+	// whatever became of the request for it
+	wantedHere := map[string]bool{}
+	for _, w := range p.wants {
+		if w.eligible && !forgotten[w.key] {
+			for _, external := range []int{w.mapping.WantedPort, w.assigned} {
+				if external > 0 {
+					wantedHere[portKey(w.mapping.Protocol, external)+"/"+strconv.Itoa(w.mapping.InternalPort)] = true
+				}
+			}
+		}
+	}
+	// a pause for something that is no longer wanted is over
+	for key := range mappingRetry {
+		if _, wanted := wantByKey[key]; !wanted {
+			delete(mappingRetry, key)
+		}
+	}
 	for _, e := range entries {
 		if heldPorts[portKey(e.Protocol, e.ExternalPort)] || gone[portKey(e.Protocol, e.ExternalPort)] {
 			continue
 		}
-		if e.InternalClient == local && isOurDescription(e.Description) {
+		if e.InternalClient == local && isOurDescription(e.Description) && !wantedHere[portKey(e.Protocol, e.ExternalPort)+"/"+strconv.Itoa(e.InternalPort)] {
 			// left by an earlier run of Cosmos and wanted by nothing now
 			if deleted, err := g.release(e.Protocol, e.ExternalPort, e.InternalPort, false); err == nil && deleted {
 				recordMapping(utils.SecUPnPMappingRemoved, e.Description, "external", strconv.Itoa(e.ExternalPort), "protocol", strings.ToLower(e.Protocol), "reason", "leftover")
