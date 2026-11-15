@@ -26,6 +26,7 @@ export const TEXT = {
   'search.problem.rateLimited': 'Too many searches just now: wait a minute and search again.',
   'search.problem.unreachable': 'Docker Hub could not be reached. Type the image\'s full name instead, for example postgres:18 or ghcr.io/owner/app.',
   'tag.pinMajor': 'The newest major version, {{tag}}. A database is pinned to its major version: it then gets the fixes of {{tag}}, and moving to the next major (which needs its data converted) stays your decision.',
+  'tag.pinMajorApp': 'The newest major version, {{tag}}: it gets the updates of {{tag}}, and moving to the next major stays your decision.',
   'tag.newest': 'The newest version the registry lists.',
   'tag.prefer': 'The long-term support line ({{tag}}).',
   'tag.latest': 'The registry lists no version numbers: "latest" is what it offers.',
@@ -40,6 +41,7 @@ export const TEXT = {
   'fact.memory': 'Memory: {{memory}}.',
   'fact.healthcheck': 'Cosmos adds a health check the image does not have: {{test}}',
   'fact.declaresNothing': 'This image says nothing about itself: no port, no folder for data, no setting. Its page usually says what it needs; the fields below are open.',
+  'fact.shellOnly': 'Its command is a shell ({{cmd}}): without a command of its own the container stops at once. Give it the command to run below.',
   'fact.declaredVolume': 'The image keeps data in {{target}}.',
   'fact.declaredPort': 'The image listens on port {{port}}{{web}}.',
   'fact.declaredPortWeb': ' (looks like a web interface)',
@@ -73,7 +75,8 @@ export const TEXT = {
   'db.newSentence': '{{db}} is created with the app, on a network only the two share; the app\'s settings are filled in from it.',
   'db.existingSentence': 'The app joins {{db}} on a network of their own and gets its address; user, password and database are taken from {{db}}\'s own settings where it has them.',
   'db.noExisting': 'No container on this server looks like a {{kinds}} database.',
-  'db.filled': '{{name}}: from the database',
+  'db.filledList': 'Filled in from the database: {{list}}.',
+  'db.existingOne': '{{name}} ({{kind}}, on this server)',
   'market.has': 'The Market has {{market}}, with a form made for it.',
   'env.secret': 'Generated',
   'env.name': 'Proposed',
@@ -286,6 +289,9 @@ const ROLES = {
 
 const kindHint = (names, values) => {
   const all = (names.join(' ') + ' ' + values.join(' ')).toUpperCase();
+  if (values.includes('5432')) return ['postgres'];
+  if (values.includes('3306')) return ['mysql'];
+  if (values.includes('27017')) return ['mongo'];
   if (/POSTGRES|PGSQL|(^|[^A-Z])PG[A-Z_]/.test(all)) return ['postgres'];
   if (/MYSQL|MARIADB|WORDPRESS/.test(all)) return ['mysql'];
   if (/MONGO/.test(all)) return ['mongo'];
@@ -307,7 +313,9 @@ export const databaseNeed = (recipe, declared) => {
   });
   if (!env.host && !env.url) return null;
   const typeLine = settings.find((s) => /^(DB_TYPE|DB_CONNECTION|DB_ENGINE|DB_CLIENT)$/.test(s.name));
-  return { kinds: kindHint(names, typeLine ? [typeLine.value] : []), optional: false, env, typeName: typeLine ? typeLine.name : '' };
+  const portLine = env.port ? settings.find((s) => s.name === env.port) : null;
+  const hints = [typeLine ? typeLine.value : '', portLine ? portLine.value : ''].filter(Boolean);
+  return { kinds: kindHint(names, hints), optional: false, env, typeName: typeLine ? typeLine.name : '' };
 };
 
 // The values a database gives an app: host, port, user, password, database, url.
@@ -354,12 +362,20 @@ export const proposedSettings = (recipe, declared, random) => {
   }));
 };
 
+// The uid:gid a recipe runs the container as for a tag (so that Cosmos makes
+// its data folder that user's: PostgreSQL 18 mounts the folder above its
+// data, which the image's own user must be able to enter).
+export const runAsFor = (recipe, tag) => {
+  const entry = ((recipe && recipe.runAs) || []).find((r) => !r.tagContains || String(tag || '').includes(r.tagContains));
+  return entry ? entry.user : '';
+};
+
 const healthOf = (h) => (h ? { test: h.test, interval: h.interval, timeout: h.timeout, retries: h.retries } : undefined);
 
 // One service for an image. `settings` as proposedSettings gives them (changed
 // or not); a declared default the administrator left alone is not copied
 // (copying would pin it against the image's next version).
-export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, extraEnv = {}, links = [], networks = [] }) => {
+export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, extraEnv = {}, links = [], networks = [], command = '' }) => {
   const image = `${ref.name}:${tag}`;
   const env = [];
   const declaredMap = Object.fromEntries(declaredSettings(declared).map((s) => [s.name, s.value]));
@@ -389,7 +405,10 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
     if (v.keepVolume) frozen.push(source);
   });
   ((recipe && recipe.binds) || []).forEach((b) => service.volumes.push({ type: 'bind', source: b.source, target: b.target, ...(b.readOnly ? { ReadOnly: true } : {}) }));
+  const runAs = runAsFor(recipe, tag);
+  if (runAs) service.user = runAs;
   if (recipe && recipe.command) service.command = recipe.command;
+  if (command && String(command).trim()) service.command = String(command).trim();
   if (recipe && recipe.hostname) service.hostname = name;
   if (recipe && recipe.healthcheck && !(declared && declared.healthcheck)) service.healthcheck = healthOf(recipe.healthcheck);
   const web = webPortOf(recipe, declared);
@@ -407,7 +426,7 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
 // The whole definition: the image, and its new database when one is added.
 // `database`: { mode: 'new', ref, tag, recipe, name, settings } |
 // { mode: 'existing', container, recipe, env } | { mode: 'none' } | null.
-export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, host, reachers = [], database = null, need = null }) => {
+export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, host, reachers = [], database = null, need = null, command = '' }) => {
   const services = {};
   const networks = {};
   let frozen = [];
@@ -429,7 +448,7 @@ export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, ho
     const values = Object.fromEntries(((database.env || [])).map((line) => [envKey(line), envValue(line)]));
     extraEnv = fillFromConnection(need, connectionOf(database.recipe, database.container, values), database.recipe && database.recipe.provides);
   }
-  const app = serviceFor({ ref, tag, name, recipe, declared, settings, host, extraEnv, links: [...appLinks, ...reachers], networks: appNetworks });
+  const app = serviceFor({ ref, tag, name, recipe, declared, settings, host, extraEnv, links: [...appLinks, ...reachers], networks: appNetworks, command });
   services[name] = app.service;
   if (Object.keys(services).length > 1) {
     services[name].labels = { 'cosmos-stack': name, 'cosmos-stack-main': name };
@@ -455,8 +474,8 @@ export const facts = ({ recipe, declared, name, tag, host, settings }) => {
     lines.push(text('fact.reach', { host: name, port: service.port }));
     if (recipe.client && recipe.client.url) {
       const values = Object.fromEntries((settings || []).map((s) => [s.name, s.value]));
-      const conn = connectionOf(recipe, name, { ...values, [recipe.client.password]: '…' });
-      lines.push(text('fact.reachClient', { url: conn.url }));
+      const conn = connectionOf(recipe, name, { ...values, [recipe.client.password]: 'PASSWORDPLACE' });
+      lines.push(text('fact.reachClient', { url: conn.url.replace('PASSWORDPLACE', '<password>') }));
     }
   }
   if (web && host) lines.push(text('fact.web', { url: `https://${host}` }));
@@ -475,6 +494,7 @@ export const facts = ({ recipe, declared, name, tag, host, settings }) => {
     if (!ports.length && !volumes.length && !declaredSettings(declared).length) {
       lines.push(text('fact.declaresNothing'));
     }
+    if (isShellOnly(declared)) lines.push(text('fact.shellOnly', { cmd: (declared.cmd || []).join(' ') }));
     volumes.forEach((target) => lines.push(text('fact.declaredVolume', { target })));
     ports.forEach((p) => {
       const port = portNumber(p);
@@ -484,6 +504,22 @@ export const facts = ({ recipe, declared, name, tag, host, settings }) => {
   }
   if ((settings || []).some((s) => s.type === 'secret')) lines.push(text('fact.secretsWhere'));
   return lines;
+};
+
+// An image whose only command is a shell stops at once without a command of its own.
+export const isShellOnly = (declared) => !!declared && !(declared.entrypoint || []).length
+  && /^(\/bin\/|\/usr\/bin\/)?(sh|bash|ash|zsh)$/.test(String((declared.cmd || [])[0] || '')) && (declared.cmd || []).length <= 2;
+
+// What the administrator adds to an image that declares nothing: a folder for
+// its data, a web port, a command. The declaration the definition is built from.
+export const withCustom = (declared, custom) => {
+  if (!declared || !custom) return declared;
+  const out = { ...declared, volumes: [...(declared.volumes || [])], ports: [...(declared.ports || [])] };
+  const folder = String(custom.volume || '').trim();
+  if (/^\/[^\s]*$/.test(folder) && folder !== '/' && !out.volumes.includes(folder)) out.volumes.push(folder);
+  const port = Number(custom.port);
+  if (Number.isInteger(port) && port > 0 && port < 65536 && !out.ports.includes(`${port}/tcp`)) out.ports.push(`${port}/tcp`);
+  return out;
 };
 
 // The words for a problem of the describe answer.

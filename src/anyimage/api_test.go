@@ -64,7 +64,12 @@ func TestDescribeCombinesTagsAndRecipe(t *testing.T) {
 	}
 	loggedIn = func(host string) bool { return host == f.host() }
 	desc = Describe(context.Background(), f.host()+"/team/app:18")
-	if desc.Problem != "" || desc.Tags.Suggested != "18.1" || desc.Tags.Why != "newest" || desc.Declared == nil {
+	if desc.Problem != "" || desc.Tag != "18" || !desc.TagTyped || desc.Tags.Suggested != "18.1" || desc.Tags.Why != "newest" || desc.Declared == nil {
+		t.Fatalf("%+v", desc)
+	}
+	// without a tag, the proposal is described (here 18.1, which the fake registry does not have)
+	desc = Describe(context.Background(), f.host()+"/team/app")
+	if desc.Tag != "18.1" || desc.TagTyped || desc.Problem != "notFound" || len(desc.Tags.List) == 0 {
 		t.Fatalf("%+v", desc)
 	}
 	out, _ := json.Marshal(desc)

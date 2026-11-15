@@ -5695,7 +5695,6 @@
 	"mgmt.servapps.anyImage.db.newSentence": "{{db}} is created with the app, on a network only the two share; the app's settings are filled in from it.",
 	"mgmt.servapps.anyImage.db.existingSentence": "The app joins {{db}} on a network of their own and gets its address; user, password and database are taken from {{db}}'s own settings where it has them.",
 	"mgmt.servapps.anyImage.db.noExisting": "No container on this server looks like a {{kinds}} database.",
-	"mgmt.servapps.anyImage.db.filled": "{{name}}: from the database",
 	"mgmt.servapps.anyImage.market.has": "The Market has {{market}}, with a form made for it.",
 	"mgmt.servapps.anyImage.env.secret": "Generated",
 	"mgmt.servapps.anyImage.env.name": "Proposed",
@@ -5733,5 +5732,17 @@
 	"mgmt.servapps.anyImage.ui.button": "Install any image",
 	"mgmt.servapps.anyImage.ui.marketNoMatch": "Install the image “{{words}}”",
 	"mgmt.servapps.anyImage.ui.marketNoMatchHint": "Not in the Market: Cosmos looks for it on Docker Hub, reads what it needs and proposes the settings.",
-	"mgmt.servapps.anyImage.ui.marketTile": "Not in the list? Any image from Docker Hub or another registry, databases included, installs with the same review."
+	"mgmt.servapps.anyImage.ui.marketTile": "Not in the list? Any image from Docker Hub or another registry, databases included, installs with the same review.",
+	"mgmt.servapps.anyImage.db.filledList": "Filled in from the database: {{list}}.",
+	"mgmt.servapps.anyImage.db.existingOne": "{{name}} ({{kind}}, on this server)",
+	"mgmt.servapps.anyImage.tag.pinMajorApp": "The newest major version, {{tag}}: it gets the updates of {{tag}}, and moving to the next major stays your decision.",
+	"mgmt.servapps.anyImage.fact.shellOnly": "Its command is a shell ({{cmd}}): without a command of its own the container stops at once. Give it the command to run below.",
+	"mgmt.servapps.anyImage.ui.command": "Command to run",
+	"mgmt.servapps.anyImage.ui.commandHint": "Leave empty for the image's own. For example: httpd -f -p 8080",
+	"mgmt.servapps.anyImage.ui.folder": "Folder for its data, in the container",
+	"mgmt.servapps.anyImage.ui.folderHint": "For example /data. The review proposes where it goes on the server.",
+	"mgmt.servapps.anyImage.ui.port": "Its web port, if it has a web interface",
+	"mgmt.servapps.anyImage.ui.portHint": "For example 8080. It gets an address in Cosmos; nothing is published on the server.",
+	"mgmt.servapps.anyImage.ui.env": "Settings (variables)",
+	"mgmt.servapps.anyImage.ui.envHint": "One per line, NAME=value, as its page lists them."
 }

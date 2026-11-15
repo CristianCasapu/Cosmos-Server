@@ -14,6 +14,8 @@ var recipesJSON []byte
 type RecipePort struct {
 	Port int    `json:"port"`
 	Why  string `json:"why,omitempty"`
+	// Undeclared: the port is opened by the recipe's command, not declared by the image
+	Undeclared bool `json:"undeclared,omitempty"`
 }
 
 type RecipeVolume struct {
@@ -23,6 +25,12 @@ type RecipeVolume struct {
 	Evidence   string `json:"evidence"`
 	KeepVolume bool   `json:"keepVolume,omitempty"`
 	Backup     bool   `json:"backup,omitempty"`
+}
+
+// RecipeRunAs is the uid:gid a container runs as, for tags containing a text ("" for any).
+type RecipeRunAs struct {
+	TagContains string `json:"tagContains,omitempty"`
+	User        string `json:"user"`
 }
 
 type RecipeEnv struct {
@@ -73,6 +81,7 @@ type Recipe struct {
 	Web         *RecipePort    `json:"web,omitempty"`
 	Ports       []RecipePort   `json:"ports,omitempty"`
 	User        string         `json:"user,omitempty"`
+	RunAs       []RecipeRunAs  `json:"runAs,omitempty"`
 	Volumes     []RecipeVolume `json:"volumes,omitempty"`
 	Binds       []RecipeBind   `json:"binds,omitempty"`
 	Env         []RecipeEnv    `json:"env,omitempty"`
@@ -110,6 +119,16 @@ func imageName(ref Reference) string {
 	return strings.ToLower(ref.Name())
 }
 
+// runAsFor is the uid:gid of a recipe for a tag, "" when it sets none.
+func runAsFor(recipe Recipe, tag string) string {
+	for _, r := range recipe.RunAs {
+		if r.TagContains == "" || strings.Contains(tag, r.TagContains) {
+			return r.User
+		}
+	}
+	return ""
+}
+
 func recipeFor(ref Reference) *Recipe {
 	name := imageName(ref)
 	for i := range recipes.Recipes {
@@ -135,5 +154,13 @@ func marketFor(ref Reference) string {
 	return ""
 }
 
-// Recipes lists every recipe (for the panel's "attach a database").
-func Recipes() []Recipe { return recipes.Recipes }
+// databaseRecipes are the recipes of databases an app can be given.
+func databaseRecipes() []Recipe {
+	out := []Recipe{}
+	for _, r := range recipes.Recipes {
+		if r.Kind == "database" && r.Provides != "" {
+			out = append(out, r)
+		}
+	}
+	return out
+}

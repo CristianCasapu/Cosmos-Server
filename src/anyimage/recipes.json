@@ -1,5 +1,5 @@
 {
-  "about": "Fork addition (plan 40): settings Cosmos proposes for images whose own declaration is not enough. Data, not code: read by src/anyimage/recipes.go, checked by recipes_test.go and, against the real images, by recipes_live_test.go. Each recipe cites the image's documentation in 'source'. Volume 'evidence': declared (the image declares this VOLUME), workdir (its WORKDIR), env:NAME (a variable of the image points there or below), docs (only the documentation says so). Env 'type': secret (a strong random value, generated in the browser), name (a value to choose, proposed), optional (shown folded, empty unless set), fixed (set as given).",
+  "about": "Fork addition (plan 40): settings Cosmos proposes for images whose own declaration is not enough. Data, not code: read by src/anyimage/recipes.go, checked by recipes_test.go and, against the real images, by recipes_live_test.go. Each recipe cites the image's documentation in 'source'. Volume 'evidence': declared (the image declares this VOLUME), workdir (its WORKDIR), env:NAME (a variable of the image points there or below), docs (only the documentation says so). 'runAs': the uid:gid the container runs as (first entry whose tagContains is in the tag), so that Cosmos makes the data folder its own; the live test checks the image's user has that id. A port marked 'undeclared' is opened by the recipe's command, not by the image. Env 'type': secret (a strong random value, generated in the browser), name (a value to choose, proposed), optional (shown folded, empty unless set), fixed (set as given).",
   "recipes": [
     {
       "id": "postgres",
@@ -10,6 +10,7 @@
       "provides": "postgres",
       "pin": "major",
       "service": { "port": 5432 },
+      "runAs": [{ "tagContains": "alpine", "user": "70:70" }, { "user": "999:999" }],
       "volumes": [
         { "target": "/var/lib/postgresql", "from": 18, "evidence": "declared", "backup": true },
         { "target": "/var/lib/postgresql/data", "until": 17, "evidence": "declared", "backup": true }
@@ -283,7 +284,7 @@
       "source": "https://doc.traefik.io/traefik/getting-started/docker/",
       "kind": "proxy",
       "pin": "major",
-      "web": { "port": 8080 },
+      "web": { "port": 8080, "undeclared": true },
       "ports": [{ "port": 80, "why": "cosmosProxies" }],
       "command": ["--api.insecure=true", "--providers.docker=true", "--providers.docker.exposedbydefault=false", "--entrypoints.web.address=:80"],
       "binds": [{ "source": "/var/run/docker.sock", "target": "/var/run/docker.sock", "readOnly": true }],

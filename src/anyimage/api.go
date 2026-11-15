@@ -79,39 +79,64 @@ var serverPlatform = func() Platform {
 	return Platform{OS: server.OS, Arch: server.Arch}
 }
 
-// Describe is what the describe route answers for a reference.
-func Describe(ctx context.Context, text string) Description {
-	ref, err := Parse(strings.TrimSpace(text), loggedIn)
-	if err != nil {
-		return Description{Reference: clean(text, 255), Problem: codeOf(err), Platforms: []string{}, Tags: TagList{List: []string{}}}
+// typedTag tells whether the text names a tag or a digest itself.
+func typedTag(text string) bool {
+	return strings.Contains(text, "@") || strings.LastIndex(text, ":") > strings.LastIndex(text, "/")
+}
+
+// tagsFor lists the tags and the proposal for a reference.
+func tagsFor(ctx context.Context, ref Reference, recipe *Recipe) TagList {
+	tags, more := listTags(ctx, ref)
+	pin := recipe != nil && recipe.Pin == "major"
+	suffix := ""
+	if recipe != nil {
+		suffix = recipe.TagSuffix
 	}
-	desc := describeImage(ctx, ref, serverPlatform())
-	desc.Recipe = recipeFor(ref)
-	desc.Market = marketFor(ref)
-	if desc.Problem == "" || desc.Problem == "notFound" {
-		// the tags help when the tag typed does not exist
-		tags, more := listTags(ctx, ref)
-		pin := desc.Recipe != nil && desc.Recipe.Pin == "major"
-		suffix := ""
-		if desc.Recipe != nil {
-			suffix = desc.Recipe.TagSuffix
-		}
-		list := sortTags(tags)
-		if len(list) > 300 {
-			list, more = list[:300], true
-		}
-		desc.Tags = TagList{List: list, More: more}
-		desc.Tags.Suggested, desc.Tags.Why = suggestTag(tags, pin, suffix)
-		if desc.Recipe != nil {
-			for _, preferred := range desc.Recipe.Prefer {
-				for _, tag := range tags {
-					if tag == preferred {
-						desc.Tags.Suggested, desc.Tags.Why = preferred, "prefer"
-					}
+	list := sortTags(tags)
+	if len(list) > 300 {
+		list, more = list[:300], true
+	}
+	answer := TagList{List: list, More: more}
+	answer.Suggested, answer.Why = suggestTag(tags, pin, suffix)
+	if recipe != nil {
+		for _, preferred := range recipe.Prefer {
+			for _, tag := range tags {
+				if tag == preferred {
+					answer.Suggested, answer.Why = preferred, "prefer"
 				}
 			}
 		}
 	}
+	return answer
+}
+
+// Describe is what the describe route answers for a reference. A name
+// without a tag is described at the tag Cosmos proposes (the newest major
+// of a database rather than "latest"), so that the image is read once.
+func Describe(ctx context.Context, text string) Description {
+	text = strings.TrimSpace(text)
+	ref, err := Parse(text, loggedIn)
+	if err != nil {
+		return Description{Reference: clean(text, 255), Problem: codeOf(err), Platforms: []string{}, Tags: TagList{List: []string{}}}
+	}
+	recipe := recipeFor(ref)
+	tags := TagList{List: []string{}}
+	tagsRead := false
+	if !typedTag(text) {
+		tags, tagsRead = tagsFor(ctx, ref, recipe), true
+		if tags.Suggested != "" {
+			ref.Tag = tags.Suggested
+		}
+	}
+	desc := describeImage(ctx, ref, serverPlatform())
+	desc.Recipe = recipe
+	desc.Market = marketFor(ref)
+	desc.TagTyped = typedTag(text)
+	if !tagsRead && (desc.Problem == "" || desc.Problem == "notFound") {
+		tags = tagsFor(ctx, ref, recipe)
+	}
+	desc.Tags = tags
+	desc.Databases = databaseRecipes()
 	if desc.Tags.List == nil {
 		desc.Tags.List = []string{}
 	}

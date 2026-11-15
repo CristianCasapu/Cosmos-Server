@@ -83,6 +83,10 @@ type Description struct {
 	LoggedIn bool `json:"loggedIn"`
 	// Market: the name of the Market's entry for this image, when a recipe names one
 	Market string `json:"market,omitempty"`
+	// TagTyped: the administrator named the tag; otherwise Cosmos chose it (Tags.Why)
+	TagTyped bool `json:"tagTyped"`
+	// Databases: the recipes of databases, for "add a database to this app"
+	Databases []Recipe `json:"databases"`
 }
 
 type descriptor struct {

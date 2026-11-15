@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   TEXT, buildDefinition, connectionOf, databaseNeed, declaredSettings, existingDatabases, facts, generateSecret, isDirectReference,
-  isSecretName, marketImageName, marketMatch, nameFor, parseReference, problemText, proposedSettings, recipeVolumes, webPortOf,
+  isSecretName, isShellOnly, withCustom, marketImageName, marketMatch, nameFor, parseReference, problemText, proposedSettings, recipeVolumes, webPortOf,
 } from './anyImage.js';
 
 const recipes = JSON.parse(readFileSync(new URL('../../../src/anyimage/recipes.json', import.meta.url), 'utf8')).recipes;
@@ -80,11 +80,13 @@ test('PostgreSQL: the data folder follows the major, a generated password, nothi
   assert.ok(service.environment.includes('POSTGRES_USER=app'));
   assert.equal(service.restart, 'unless-stopped');
   assert.equal(service.healthcheck.test[0], 'CMD-SHELL');
+  assert.equal(service.user, '999:999', 'PostgreSQL runs as its own user, so its data folder is made its own');
+  assert.equal(buildDefinition({ ref, tag: '18-alpine', name: 'pg', recipe: pg, declared: PG18, settings, host: '' }).definition.services.pg.user, '70:70');
   const lines = facts({ recipe: pg, declared: PG18, name: 'postgres', tag: '18', host: '', settings });
   const reach = lines.find((l) => l.key.endsWith('fact.reach'));
   assert.deepEqual(reach.params, { host: 'postgres', port: 5432 });
   const client = lines.find((l) => l.key.endsWith('fact.reachClient'));
-  assert.equal(client.params.url, 'postgres://app:%E2%80%A6@postgres:5432/app');
+  assert.equal(client.params.url, 'postgres://app:<password>@postgres:5432/app');
   assert.ok(!JSON.stringify(lines).includes(password.value), 'the password is not in the sentences');
 });
 
@@ -123,9 +125,19 @@ test('an image without recipe: declared volumes, web port guessed, risky ports c
   assert.ok(closed.why.key.endsWith('why.risky'));
 });
 
-test('an image that declares nothing says so', () => {
-  const lines = facts({ recipe: null, declared: { ports: [], volumes: [], env: ['PATH=/bin'] }, name: 'x', tag: 'latest', host: '', settings: [] });
+test('an image that declares nothing says so, and takes a folder, a port and a command', () => {
+  const nothing = { ports: [], volumes: [], env: ['PATH=/bin'], cmd: ['sh'] };
+  const lines = facts({ recipe: null, declared: nothing, name: 'x', tag: 'latest', host: '', settings: [] });
   assert.ok(lines[0].key.endsWith('fact.declaresNothing'));
+  assert.ok(lines[1].key.endsWith('fact.shellOnly'));
+  assert.ok(isShellOnly(nothing) && !isShellOnly({ cmd: ['nginx', '-g', 'daemon off;'] }) && !isShellOnly({ entrypoint: ['/x'], cmd: ['sh'] }));
+  const declared = withCustom(nothing, { volume: '/srv/data', port: '8080' });
+  assert.deepEqual([declared.volumes, declared.ports], [['/srv/data'], ['8080/tcp']]);
+  assert.deepEqual(withCustom(nothing, { volume: 'relative', port: '99999' }).volumes, []);
+  const app = buildDefinition({ ref: parseReference('busybox'), tag: '1.36', name: 'box', recipe: null, declared, settings: [], host: 'box.server.local', command: 'httpd -f -p 8080' }).definition.services.box;
+  assert.equal(app.command, 'httpd -f -p 8080');
+  assert.equal(app.routes[0].target, 'http://box:8080');
+  assert.deepEqual(app.volumes.map((v) => v.target), ['/srv/data']);
   assert.deepEqual(declaredSettings({ env: ['PATH=/bin', 'PHP_VERSION=8', 'HOME=/root'] }), []);
 });
 
@@ -165,6 +177,9 @@ test('an app that needs a database: a new one with it, or one that exists', () =
   assert.ok(linked.environment.includes('DB_POSTGRESDB_HOST=maindb'));
   assert.ok(linked.environment.includes('DB_POSTGRESDB_PASSWORD=s3cret'));
   assert.equal(databaseNeed(null, { env: ['LOG=1'] }), null);
+  assert.deepEqual(databaseNeed(null, { env: ['DB_HOST=', 'DB_PORT=5432'] }).kinds, ['postgres'], 'the usual port says which database');
+  assert.deepEqual(databaseNeed(null, { env: ['DB_HOST=', 'DB_PORT=3306'] }).kinds, ['mysql']);
+  assert.deepEqual(databaseNeed(null, { env: ['DB_HOST='] }).kinds, ['postgres', 'mysql'], 'without a hint both are offered');
   assert.deepEqual(databaseNeed(recipe('phpmyadmin'), null).env, { host: 'PMA_HOST', port: 'PMA_PORT' });
   assert.equal(connectionOf(pg, 'db', { POSTGRES_USER: 'a b', POSTGRES_PASSWORD: 'p@ss', POSTGRES_DB: 'x' }).url, 'postgres://a%20b:p%40ss@db:5432/x');
 });

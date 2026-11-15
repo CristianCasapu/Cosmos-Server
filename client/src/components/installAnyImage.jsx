@@ -21,8 +21,13 @@ import { PERM_RESOURCES } from '../utils/permissions';
 import { localAddress } from './hostnameSuggestions';
 import {
   browserRandom, buildDefinition, databaseNeed, databaseRecipes, existingDatabases, facts, isDirectReference, marketMatch,
-  nameFor, parseReference, problemText, proposedSettings, text as aiText,
+  isShellOnly, nameFor, parseReference, problemText, proposedSettings, text as aiText, withCustom,
 } from '../utils/anyImage';
+
+// "NAME=value" lines typed by the administrator, as settings.
+const linesToSettings = (text) => String(text || '').split('\n').map((l) => l.trim())
+  .filter((l) => /^[A-Za-z_][A-Za-z0-9_.]*=/.test(l)).slice(0, 64)
+  .map((l) => ({ name: l.slice(0, l.indexOf('=')), value: l.slice(l.indexOf('=') + 1), type: 'fixed' }));
 
 const wrap = { overflowWrap: 'anywhere', minWidth: 0, '& .MuiAlert-message': { minWidth: 0 } };
 
@@ -100,11 +105,13 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
   const [dbDesc, setDbDesc] = React.useState(null);
   const [dbSettings, setDbSettings] = React.useState([]);
   const [dbEnv, setDbEnv] = React.useState([]);
+  const [custom, setCustom] = React.useState({ volume: '', port: '', command: '', env: '' });
   const asked = React.useRef(0);
 
   const reset = () => {
     setResults(null); setSearchProblem(''); setDesc(null); setName(''); setSettings([]); setReachers([]); setAnyway(false);
     setAllTags(false); setShowOptional(false); setDb({ mode: '' }); setDbDesc(null); setDbSettings([]); setDbEnv([]);
+    setCustom({ volume: '', port: '', command: '', env: '' });
   };
 
   const describe = (reference, keepName) => {
@@ -156,7 +163,11 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
 
   const ref = desc && desc.reference && !desc.problem ? parseReference(desc.reference) : null;
   const recipe = (desc && desc.recipe) || null;
-  const declared = (desc && desc.declared) || null;
+  const rawDeclared = (desc && desc.declared) || null;
+  // an image without recipe that says little gets the open fields: a folder, a port, a command, settings
+  const openFields = !!rawDeclared && !(desc && desc.recipe) && ((!(rawDeclared.ports || []).length && !(rawDeclared.volumes || []).length) || isShellOnly(rawDeclared));
+  const declared = openFields ? withCustom(rawDeclared, custom) : rawDeclared;
+  const extraSettings = openFields ? linesToSettings(custom.env) : [];
   const marketApp = ref ? marketMatch(market, ref.name, desc.market) : null;
   const need = desc && !desc.problem ? databaseNeed(recipe, declared) : null;
   const dbRecipes = need ? databaseRecipes(desc.databases, need.kinds) : [];
@@ -187,16 +198,19 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
     } else if (db.mode === 'existing') {
       database = { mode: 'existing', container: db.container, recipe: db.recipe, env: dbEnv };
     }
-    return buildDefinition({ ref, tag: desc.tag, name, recipe, declared, settings, host, reachers, database, need }).definition;
-  }, [ready, desc, name, settings, host, reachers, db, dbDesc, dbSettings, dbEnv]);
+    return buildDefinition({ ref, tag: desc.tag, name, recipe, declared, settings: [...settings, ...extraSettings], host, reachers, database, need, command: openFields ? custom.command : '' }).definition;
+  }, [ready, desc, name, settings, host, reachers, db, dbDesc, dbSettings, dbEnv, custom]);
 
-  const lines = desc && declared ? facts({ recipe, declared, name: name || 'app', tag: desc.tag, host: definition && definition.services[name] && definition.services[name].routes ? host : '', settings }) : [];
+  const lines = desc && rawDeclared ? facts({ recipe, declared: rawDeclared, name: name || 'app', tag: desc.tag, host: definition && definition.services[name] && definition.services[name].routes ? host : '', settings }) : [];
   const problem = desc && desc.problem ? problemText(desc) : null;
-  const visible = settings.filter((s) => s.type !== 'optional' || showOptional);
+  // the app's variables a chosen database fills in are not asked for
+  const filledNames = need && (db.mode === 'new' || db.mode === 'existing') ? [...Object.values(need.env || {}), need.typeName].filter(Boolean) : [];
+  const visible = settings.filter((s) => (s.type !== 'optional' || showOptional) && !filledNames.includes(s.name));
   const optionalCount = settings.filter((s) => s.type === 'optional').length;
   const tags = (desc && desc.tags && desc.tags.list) || [];
   const shownTags = allTags ? tags : tags.slice(0, 8);
-  const tagWhy = desc && desc.tags && (desc.tagTyped ? aiText('tag.typed') : desc.tags.why ? aiText('tag.' + desc.tags.why, { tag: desc.tags.suggested }) : null);
+  const why = desc && desc.tags && desc.tags.why === 'pinMajor' && !(recipe && recipe.kind === 'database') ? 'pinMajorApp' : desc && desc.tags && desc.tags.why;
+  const tagWhy = desc && desc.tags && (desc.tagTyped ? aiText('tag.typed') : why ? aiText('tag.' + why, { tag: desc.tags.suggested }) : null);
 
   return <Dialog open={open} onClose={(e, reason) => { if (reason !== 'backdropClick') onClose(); }} fullWidth maxWidth="md" fullScreen={phone} data-any-image>
     <DialogTitle>{t('mgmt.servapps.anyImage.ui.title', 'Install any image')}</DialogTitle>
@@ -272,7 +286,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
             {say(aiText('problem.platform', { name: ref && ref.name, platforms: (desc.platforms || []).join(', ') }))}
           </Alert>}
 
-          {declared && <>
+          {declared && desc.fits !== 'no' && <>
             <TextField size="small" label={t('mgmt.servapps.anyImage.ui.name', 'Name of the container')} value={name} disabled={busy}
               onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_.-]/g, '-').slice(0, 60))}
               helperText={t('mgmt.servapps.anyImage.ui.nameHint', 'Other apps reach it by this name.')} data-any-image-name />
@@ -280,6 +294,21 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
             <Stack spacing={0.5} sx={{ minWidth: 0 }} data-any-image-facts>
               {lines.map((line, i) => <Typography key={i} variant="body2" sx={{ overflowWrap: 'anywhere' }}>{say(line)}</Typography>)}
             </Stack>
+
+            {openFields && <Stack spacing={1.5} sx={{ minWidth: 0 }} data-any-image-open-fields>
+              <TextField size="small" label={t('mgmt.servapps.anyImage.ui.command', 'Command to run')} value={custom.command} disabled={busy}
+                onChange={(e) => setCustom({ ...custom, command: e.target.value.slice(0, 1000) })}
+                helperText={t('mgmt.servapps.anyImage.ui.commandHint', 'Leave empty for the image\'s own. For example: httpd -f -p 8080')} />
+              <TextField size="small" label={t('mgmt.servapps.anyImage.ui.folder', 'Folder for its data, in the container')} value={custom.volume} disabled={busy}
+                onChange={(e) => setCustom({ ...custom, volume: e.target.value.slice(0, 200) })}
+                helperText={t('mgmt.servapps.anyImage.ui.folderHint', 'For example /data. The review proposes where it goes on the server.')} />
+              <TextField size="small" label={t('mgmt.servapps.anyImage.ui.port', 'Its web port, if it has a web interface')} value={custom.port} disabled={busy}
+                onChange={(e) => setCustom({ ...custom, port: e.target.value.replace(/[^0-9]/g, '').slice(0, 5) })}
+                helperText={t('mgmt.servapps.anyImage.ui.portHint', 'For example 8080. It gets an address in Cosmos; nothing is published on the server.')} />
+              <TextField size="small" multiline minRows={2} label={t('mgmt.servapps.anyImage.ui.env', 'Settings (variables)')} value={custom.env} disabled={busy}
+                onChange={(e) => setCustom({ ...custom, env: e.target.value.slice(0, 8000) })}
+                helperText={t('mgmt.servapps.anyImage.ui.envHint', 'One per line, NAME=value, as its page lists them.')} />
+            </Stack>}
 
             {visible.length > 0 && <Stack spacing={1.5} sx={{ minWidth: 0 }} data-any-image-settings>
               <Typography variant="subtitle1">{t('mgmt.servapps.anyImage.ui.settings', 'Its settings')}</Typography>
@@ -302,7 +331,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
                 {dbRecipes.map((r) => <Chip key={r.id} clickable disabled={busy} label={say(aiText('db.new', { name: r.name }))}
                   color={db.mode === 'new' && db.recipe && db.recipe.id === r.id ? 'primary' : 'default'} variant={db.mode === 'new' && db.recipe && db.recipe.id === r.id ? 'filled' : 'outlined'}
                   onClick={() => pickDbRecipe(r)} data-db-new={r.id} />)}
-                {existing.map((c) => <Chip key={c.name} clickable disabled={busy} label={c.name}
+                {existing.map((c) => <Chip key={c.name} clickable disabled={busy} label={say(aiText('db.existingOne', { name: c.name, kind: c.recipe.name }))}
                   color={db.mode === 'existing' && db.container === c.name ? 'primary' : 'default'} variant={db.mode === 'existing' && db.container === c.name ? 'filled' : 'outlined'}
                   onClick={() => pickExisting(c)} data-db-existing={c.name} />)}
                 <Chip clickable disabled={busy} label={say(aiText('db.none'))} color={db.mode === 'none' ? 'primary' : 'default'} variant={db.mode === 'none' ? 'filled' : 'outlined'}
@@ -314,6 +343,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
               {db.mode === 'new' && dbSettings.map((s) => <SettingField key={s.name} setting={s} busy={busy}
                 onChange={(value) => setDbSettings((old) => old.map((o) => (o.name === s.name ? { ...o, value } : o)))} />)}
               {db.mode === 'existing' && <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{say(aiText('db.existingSentence', { db: db.container }))}</Typography>}
+              {filledNames.length > 0 && <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }} data-db-filled>{say(aiText('db.filledList', { list: filledNames.join(', ') }))}</Typography>}
             </Stack>}
           </>}
         </Stack>}
