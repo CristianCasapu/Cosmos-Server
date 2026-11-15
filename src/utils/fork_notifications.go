@@ -554,3 +554,11 @@ func ThreadOpen(thread string) bool {
 	db.QueryRow(MonitoringRebind("SELECT COUNT(*) FROM notifications WHERE fork_thread = ? AND fork_resolved = 0 AND fork_info <> ''"), thread).Scan(&n)
 	return n > 0
 }
+
+// SetNotificationRecipients replaces how a group is fanned out, for the
+// tests of other packages; it returns what puts the real one back.
+func SetNotificationRecipients(recipients func(group string) []string) func() {
+	previous := notificationRecipients
+	notificationRecipients = recipients
+	return func() { notificationRecipients = previous }
+}

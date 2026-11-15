@@ -277,3 +277,14 @@ func routerBack(gateway string) func(time.Time, time.Time) utils.Notification {
 		}}
 	}
 }
+
+// MappingByKey finds a forward in a status by the key its notifications
+// carry ("cosmos:HTTPS", "app:<container>:<port>/<protocol>").
+func MappingByKey(st Status, key string) (Mapping, bool) {
+	for _, m := range append(append([]Mapping{}, st.Mappings...), st.Apps...) {
+		if keyOf(m) == key {
+			return m, true
+		}
+	}
+	return Mapping{}, false
+}
