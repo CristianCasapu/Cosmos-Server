@@ -30,6 +30,11 @@ const linesToSettings = (text) => String(text || '').split('\n').map((l) => l.tr
   .map((l) => ({ name: l.slice(0, l.indexOf('=')), value: l.slice(l.indexOf('=') + 1), type: 'fixed' }));
 
 const wrap = { overflowWrap: 'anywhere', minWidth: 0, '& .MuiAlert-message': { minWidth: 0 } };
+// a finger's height on a phone (the skin gives it to buttons in a page's main area, not in dialogs);
+// '&&&' outweighs the skin's doubled classes
+const touch = { '&&&': { minHeight: { xs: 44, sm: 0 } } };
+const touchChip = { '&&&': { height: { xs: 'auto', sm: 32 }, minHeight: { xs: 44, sm: 0 } }, '& .MuiChip-label': { whiteSpace: 'normal' } };
+const touchLink = { display: { xs: 'inline-flex', sm: 'inline' }, alignItems: 'center', minHeight: { xs: 44, sm: 0 } };
 
 const useSay = () => {
   const { t } = useTranslation();
@@ -63,7 +68,7 @@ const SettingField = ({ setting, onChange, busy }) => {
   return <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ minWidth: 0 }} data-setting={setting.name}>
     <TextField size="small" fullWidth label={setting.name} value={setting.value} disabled={busy}
       onChange={(e) => onChange(e.target.value)} helperText={helper} />
-    {setting.type === 'secret' && <Button size="small" variant="outlined" sx={{ flexShrink: 0, mt: 0.25 }} startIcon={<CopyOutlined />} data-copy-secret
+    {setting.type === 'secret' && <Button size="small" variant="outlined" sx={{ flexShrink: 0, mt: 0.25, ...touch }} startIcon={<CopyOutlined />} data-copy-secret
       onClick={() => {
         try {
           navigator.clipboard.writeText(setting.value).then(() => setCopied(true), () => setCopied(false));
@@ -79,7 +84,7 @@ const PickChips = ({ options, picked, onChange, busy }) => <Stack direction="row
   {options.map((name) => {
     const on = picked.includes(name);
     return <Chip key={name} label={name} clickable disabled={busy} color={on ? 'primary' : 'default'} variant={on ? 'filled' : 'outlined'}
-      onClick={() => onChange(on ? picked.filter((n) => n !== name) : [...picked, name])} sx={{ maxWidth: '100%' }} />;
+      onClick={() => onChange(on ? picked.filter((n) => n !== name) : [...picked, name])} sx={{ maxWidth: '100%', ...touchChip }} />;
   })}
 </Stack>;
 
@@ -222,7 +227,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
         <Stack direction="row" spacing={1} sx={{ minWidth: 0 }} component="form" onSubmit={(e) => { e.preventDefault(); runSearch(query); }}>
           <TextField size="small" fullWidth value={query} onChange={(e) => setQuery(e.target.value)} disabled={busy}
             label={t('mgmt.servapps.anyImage.ui.field', 'Image or search words')} placeholder="postgres" data-any-image-field />
-          <Button type="submit" variant="contained" disabled={busy || !query.trim()} startIcon={<SearchOutlined />} sx={{ flexShrink: 0, minHeight: { xs: 44, sm: 0 } }} data-any-image-search>
+          <Button type="submit" variant="contained" disabled={busy || !query.trim()} startIcon={<SearchOutlined />} sx={{ flexShrink: 0, ...touch }} data-any-image-search>
             {t('mgmt.servapps.anyImage.ui.search', 'Look')}
           </Button>
         </Stack>
@@ -231,7 +236,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
         {results && !desc && <Stack spacing={1} sx={{ minWidth: 0 }} data-any-image-results>
           {results.length === 0 && !searchProblem && <Typography variant="body2">{t('mgmt.servapps.anyImage.ui.noResult', 'Docker Hub has no image for these words. If the image is on another registry, type its full name.')}</Typography>}
           {results.map((r) => <Button key={r.name} variant="outlined" color="inherit" onClick={() => describe(r.name)} disabled={busy} data-result={r.name}
-            sx={{ justifyContent: 'flex-start', textAlign: 'left', textTransform: 'none', minWidth: 0, minHeight: 44, display: 'block', py: 1 }}>
+            sx={{ justifyContent: 'flex-start', textAlign: 'left', textTransform: 'none', minWidth: 0, display: 'block', py: 1, '&&&': { minHeight: 44 } }}>
             <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap" sx={{ minWidth: 0 }}>
               <Typography variant="subtitle1" component="span" sx={{ overflowWrap: 'anywhere' }}>{r.name}</Typography>
               {r.official && <Chip size="small" color="primary" label={t('mgmt.servapps.anyImage.ui.official', 'Docker official image')} />}
@@ -247,7 +252,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
         {desc && desc.loading && !desc.declared && <Typography variant="body2" color="text.secondary">{t('mgmt.servapps.anyImage.ui.reading', 'Reading what the image declares…')}</Typography>}
         {problem && <Alert severity="error" sx={wrap} data-any-image-problem={desc.problem}>
           {say(problem)}
-          {desc.page && <> <a href={desc.page} target="_blank" rel="noopener noreferrer">{t('mgmt.servapps.anyImage.ui.page', 'The image\'s page')}</a></>}
+          {desc.page && <> <Box component="a" sx={touchLink} href={desc.page} target="_blank" rel="noopener noreferrer">{t('mgmt.servapps.anyImage.ui.page', 'The image\'s page')}</Box></>}
         </Alert>}
 
         {desc && !desc.problem && desc.repository && <Stack spacing={1.5} sx={{ minWidth: 0 }} data-any-image-about>
@@ -255,8 +260,8 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
             <Typography variant="h5" sx={{ overflowWrap: 'anywhere' }}>{recipe ? recipe.name : ref && ref.name}</Typography>
             {recipe && <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{ref && ref.name}</Typography>}
             {desc.official && <Chip size="small" color="primary" label={t('mgmt.servapps.anyImage.ui.official', 'Docker official image')} />}
-            {desc.page && <a href={desc.page} target="_blank" rel="noopener noreferrer">{t('mgmt.servapps.anyImage.ui.page', 'The image\'s page')}</a>}
-            {recipe && recipe.source && recipe.source !== desc.page && <a href={recipe.source} target="_blank" rel="noopener noreferrer">{t('mgmt.servapps.anyImage.ui.docs', 'Its documentation')}</a>}
+            {desc.page && <Box component="a" sx={touchLink} href={desc.page} target="_blank" rel="noopener noreferrer">{t('mgmt.servapps.anyImage.ui.page', 'The image\'s page')}</Box>}
+            {recipe && recipe.source && recipe.source !== desc.page && <Box component="a" sx={touchLink} href={recipe.source} target="_blank" rel="noopener noreferrer">{t('mgmt.servapps.anyImage.ui.docs', 'Its documentation')}</Box>}
           </Stack>
 
           {marketApp && <Alert severity="info" sx={wrap} data-any-image-market>
@@ -275,8 +280,8 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
             {tags.length > 0 && <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
               {shownTags.map((tag) => <Chip key={tag} size="small" label={tag} clickable disabled={busy}
                 color={tag === desc.tag ? 'primary' : 'default'} variant={tag === desc.tag ? 'filled' : 'outlined'}
-                onClick={() => { if (tag !== desc.tag) describe(`${ref.name}:${tag}`, true); }} />)}
-              {tags.length > 8 && <Button size="small" onClick={() => setAllTags(!allTags)} endIcon={allTags ? <DownOutlined /> : <RightOutlined />}>
+                onClick={() => { if (tag !== desc.tag) describe(`${ref.name}:${tag}`, true); }} sx={touchChip} />)}
+              {tags.length > 8 && <Button size="small" sx={touch} onClick={() => setAllTags(!allTags)} endIcon={allTags ? <DownOutlined /> : <RightOutlined />}>
                 {allTags ? t('mgmt.servapps.anyImage.ui.fewerTags', 'Fewer') : t('mgmt.servapps.anyImage.ui.moreTags', 'All {{count}} tags', { count: tags.length })}
               </Button>}
             </Stack>}
@@ -315,7 +320,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
               {visible.map((s) => <SettingField key={s.name} setting={s} busy={busy}
                 onChange={(value) => setSettings((old) => old.map((o) => (o.name === s.name ? { ...o, value } : o)))} />)}
             </Stack>}
-            {optionalCount > 0 && <Button size="small" sx={{ alignSelf: 'flex-start' }} onClick={() => setShowOptional(!showOptional)} endIcon={showOptional ? <DownOutlined /> : <RightOutlined />}>
+            {optionalCount > 0 && <Button size="small" sx={{ alignSelf: 'flex-start', ...touch }} onClick={() => setShowOptional(!showOptional)} endIcon={showOptional ? <DownOutlined /> : <RightOutlined />}>
               {t('mgmt.servapps.anyImage.ui.optional', 'Optional settings ({{count}})', { count: optionalCount })}
             </Button>}
 
@@ -330,12 +335,12 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
               <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
                 {dbRecipes.map((r) => <Chip key={r.id} clickable disabled={busy} label={say(aiText('db.new', { name: r.name }))}
                   color={db.mode === 'new' && db.recipe && db.recipe.id === r.id ? 'primary' : 'default'} variant={db.mode === 'new' && db.recipe && db.recipe.id === r.id ? 'filled' : 'outlined'}
-                  onClick={() => pickDbRecipe(r)} data-db-new={r.id} />)}
+                  onClick={() => pickDbRecipe(r)} sx={{ maxWidth: '100%', ...touchChip }} data-db-new={r.id} />)}
                 {existing.map((c) => <Chip key={c.name} clickable disabled={busy} label={say(aiText('db.existingOne', { name: c.name, kind: c.recipe.name }))}
                   color={db.mode === 'existing' && db.container === c.name ? 'primary' : 'default'} variant={db.mode === 'existing' && db.container === c.name ? 'filled' : 'outlined'}
-                  onClick={() => pickExisting(c)} data-db-existing={c.name} />)}
+                  onClick={() => pickExisting(c)} sx={{ maxWidth: '100%', ...touchChip }} data-db-existing={c.name} />)}
                 <Chip clickable disabled={busy} label={say(aiText('db.none'))} color={db.mode === 'none' ? 'primary' : 'default'} variant={db.mode === 'none' ? 'filled' : 'outlined'}
-                  onClick={() => setDb({ mode: 'none' })} data-db-none />
+                  onClick={() => setDb({ mode: 'none' })} sx={{ maxWidth: '100%', ...touchChip }} data-db-none />
               </Stack>
               {existing.length === 0 && <Typography variant="caption" color="text.secondary">{say(aiText('db.noExisting', { kinds: need.kinds.join(', ') }))}</Typography>}
               {db.mode === 'new' && <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{say(aiText('db.newSentence', { db: `${name}-${db.recipe.id}` + (dbDesc && dbDesc.tag ? ` (${db.recipe.images[0]}:${dbDesc.tag})` : '') }))}</Typography>}
