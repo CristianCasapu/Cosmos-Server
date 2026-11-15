@@ -8,12 +8,12 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Merged into `custom` since `0.24.0-fork.25`, to be part of the next release:
+Nothing has been merged into `custom` since `0.24.0-fork.26`. Work in progress on separate branches (not released, and may change before it is): the major versions of the frontend's build tool and libraries, installing any image, and automatic dependency updates.
+
+## Fork 0.24.0-fork.26 — 2026-11-15
 
 ### Added
 - Watch from the internet: for names served through Cloudflare's proxy the server tests every few minutes whether it can be reached from outside, tells the causes apart, and says so in a notification and on Telegram, with a follow-up when it can be reached again.
-
-Work in progress on separate branches (not released, and may change before it is): the major versions of the frontend's build tool and libraries, installing any image, and automatic dependency updates.
 
 ## Fork 0.24.0-fork.25 — 2026-11-15
 
