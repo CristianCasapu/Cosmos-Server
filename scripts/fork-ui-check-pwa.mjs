@@ -30,6 +30,18 @@
 //   PHASE=all       online + offline + back in one session without a kept profile:
 //                   for WebKit, whose kept profiles lose Cache Storage in Playwright.
 //                   Stop the instance when it says STOP, start it when it says START
+//
+// "Stopped" means the server process is gone and its port refuses connections, as on
+// a real server that is restarting or switched off behind a router. Keep the
+// container and its address: a stopped container takes its address off the network,
+// a connection to it then gets no answer at all, and Firefox waits for its TCP
+// timeout (longer than the 20 s a navigation is given here) before the worker can
+// answer with the offline page. A run loop that can be held does it:
+//   docker run ... sh -c 'while true; do if [ -e /tmp/stop ]; then sleep 1; continue; fi;
+//                         ./cosmos & echo $! > /tmp/cosmos.pid; wait; sleep 1; done'
+//   stop:  docker exec <c> sh -c 'touch /tmp/stop; kill $(cat /tmp/cosmos.pid)'
+//   start: docker exec <c> rm /tmp/stop
+// The check says so ("the instance refuses connections") when the address went away.
 //   PHASE=install   the install button (Chromium's event stood in for) at desktop and
 //                   tablet width, and the iPhone steps in the menu (WebKit, iPhone agent)
 //   PHASE=switch    the switch in Configuration > Appearance, saved (SWITCH=on: back on)
@@ -334,11 +346,16 @@ const phases = {
       console.log(`[${engine}] STOP THE INSTANCE NOW`);
       // (asked in a loop: a predicate that returns a promise is "true" at once for waitForFunction)
       let gone = false;
+      let failedAfter = null;
       for (let i = 0; i < 120 && !gone; i++) {
+        const t0 = Date.now();
         gone = await page.evaluate(() => fetch('/cosmos-ui/manifest.webmanifest', { cache: 'no-store' }).then(() => false, () => true)).catch(() => false);
+        failedAfter = Date.now() - t0;
         if (!gone) await sleep(2000);
       }
       check(engine, 'the instance was stopped', gone);
+      // a refused connection fails at once; one that gets no answer at all means the address went away (see the header)
+      check(engine, 'the instance refuses connections (its address is still there)', gone && failedAfter < 2000, { failedAfterMs: failedAfter });
       for (const size of ['phone', 'desktop']) {
         await page.setViewportSize(SIZES[size]);
         const response = await page.goto(base + '/cosmos-ui/servapps', { waitUntil: 'load', timeout: 20000 }).catch((e) => String(e));
