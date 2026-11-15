@@ -75,7 +75,7 @@ func updateCache(w http.ResponseWriter, req *http.Request) error {
 			utils.Log("MarketUpdate: Updating market " + cachedMarket.Name)
 
 			// fetch market.url
-			resp, err := http.Get(cachedMarket.Url)
+			resp, err := marketFetch(cachedMarket.Url) // Fork addition: with a time and size limit, see fork_fetch.go
 			if err != nil {
 				utils.Error("MarketUpdate: Error while fetching market" + cachedMarket.Url, err)
 				// utils.HTTPError(w, "Market Get Error " + cachedMarket.Url, http.StatusInternalServerError, "MK001")

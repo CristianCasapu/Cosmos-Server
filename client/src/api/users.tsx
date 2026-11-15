@@ -84,7 +84,7 @@ export default function createUsersAPI(apiFetch: ApiFetch) {
 
   function new2FA(nickname: string): Promise<ApiResponse> {
     return wrap(apiFetch('/cosmos/api/mfa', {
-      method: 'GET',
+      method: 'PUT', // Fork addition: a command, sent as PUT (src/fork_post_only.go)
       headers: {
         'Content-Type': 'application/json'
       },
@@ -136,7 +136,7 @@ export default function createUsersAPI(apiFetch: ApiFetch) {
 
   function readNotifs(notifs: string[]): Promise<ApiResponse> {
     return wrap(apiFetch('/cosmos/api/notifications/read?ids=' + notifs.join(','), {
-      method: 'GET',
+      method: 'POST', // Fork addition: a command, sent as POST (src/fork_post_only.go)
       headers: {
         'Content-Type': 'application/json'
       },

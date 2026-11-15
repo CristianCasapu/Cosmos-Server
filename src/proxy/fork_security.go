@@ -38,6 +38,8 @@ func recordShieldBan(ban *UserBan) {
 		// SmartShield counts an address whatever way its requests came: one
 		// that a proxy reported lately is not acted on at the firewall
 		event.Forwarded = utils.WasForwardedClient(ban.ClientID)
+		// and one that Cloudflare's proxy reported can be blocked there (src/edgeblock)
+		event.Edge = utils.WasEdgeClient(ban.ClientID)
 	}
 	utils.RecordSecurityEvent(event)
 }

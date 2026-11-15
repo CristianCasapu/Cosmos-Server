@@ -22,7 +22,7 @@ import (
 // @Failure 500 {object} utils.HTTPErrorResult
 // @Router /api/dns-check [get]
 func CheckDNSRoute(w http.ResponseWriter, req *http.Request) {
-	if utils.CheckPermissions(w, req, utils.PERM_LOGIN) != nil {
+	if utils.CheckPermissions(w, req, utils.PERM_CONFIGURATION_READ) != nil { // Fork addition: for the forms that set addresses (upstream: any account)
 		return
 	}
 
@@ -70,7 +70,7 @@ func CheckDNSRoute(w http.ResponseWriter, req *http.Request) {
 // @Failure 500 {object} utils.HTTPErrorResult
 // @Router /api/dns [get]
 func GetDNSRoute(w http.ResponseWriter, req *http.Request) {
-	if !utils.GetMainConfig().NewInstall && (utils.CheckPermissions(w, req, utils.PERM_LOGIN) != nil) {
+	if !utils.GetMainConfig().NewInstall && (utils.CheckPermissions(w, req, utils.PERM_CONFIGURATION_READ) != nil) { // Fork addition: for the forms that set addresses (upstream: any account)
 		return
 	}
 
@@ -102,7 +102,7 @@ func GetDNSRoute(w http.ResponseWriter, req *http.Request) {
 		}
 
 		utils.Error("CheckDNS: No DNS entry found. Did you point the domain to your server?", nil)
-		utils.HTTPError(w, "Internal server error: " + err.Error(), http.StatusInternalServerError, "DNS001")
+		utils.HTTPError(w, "No IPv4 address found for this name. Did you point the domain to your server?", http.StatusInternalServerError, "DNS001") // Fork addition: upstream read the error of a lookup that had succeeded
 	} else {
 		utils.Error("CheckDNS: Method not allowed" + req.Method, nil)
 		utils.HTTPError(w, "Method not allowed", http.StatusMethodNotAllowed, "HTTP001")

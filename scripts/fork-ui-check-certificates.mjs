@@ -135,7 +135,8 @@ for (const engine of engines) {
 
     await plain.get(fake + '/dns?name=_acme-challenge.example.info&type=CNAME&value=example-info._acme.example.org');
     await dialog.locator('[data-certs-check]').click();
-    await page.waitForFunction(() => document.querySelector('[data-certs-delegation]')?.getAttribute('data-certs-delegation') === 'ok', null, { timeout: 15000 }).catch(() => {});
+    // a locator, not page.waitForFunction: that one needs eval in the page, which the panel's script policy refuses
+    await dialog.locator('[data-certs-delegation="ok"]').waitFor({ timeout: 15000 }).catch(() => {});
     expect(await dialog.locator('[data-certs-delegation]').getAttribute('data-certs-delegation') === 'ok', `${name}: once the record exists the check finds it`);
     expect(!(await dialog.locator('[data-certs-save]').isDisabled()), `${name}: then the domain can be added`);
     await plain.get(fake + '/dns?clear=_acme-challenge.example.info');

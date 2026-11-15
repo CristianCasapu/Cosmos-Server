@@ -15,6 +15,7 @@ import {
 import * as API from '../../api';
 import MainCard from '../../components/MainCard';
 import { GROUP_ORDER, STOPPED_TEXT, groupLabel, groupRepeats, kindText, shorten } from '../../utils/securityDashboard';
+import { EdgeBlockButton } from '../../components/edgeBlocks'; // Fork addition: blocks at Cloudflare's edge
 
 const PAGE_SIZE = 50;
 // shown in one dialog; the rest is counted
@@ -89,7 +90,8 @@ const Details = ({ row, catalogue, onClose }) => {
         </Typography>}
       </Stack>
     </DialogContent>
-    <DialogActions>
+    <DialogActions sx={{ flexWrap: 'wrap', gap: 1 }}>
+      {row.events[0] && row.events[0].ip && <EdgeBlockButton address={row.events[0].ip} />}{/* Fork addition: block the address at Cloudflare's edge */}
       <Button onClick={onClose}>{t('global.close')}</Button>
     </DialogActions>
   </Dialog>;

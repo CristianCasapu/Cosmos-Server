@@ -26,6 +26,16 @@ func TestTokenInTheAddressIsForWebsocketsOnly(t *testing.T) {
 	}
 	utils.LoadBaseMainConfig(config)
 	t.Cleanup(func() { utils.LoadBaseMainConfig(prev) })
+	// the token's owner must exist (fork_token_owner.go)
+	prevFolder := utils.CONFIGFOLDER
+	utils.CONFIGFOLDER = t.TempDir() + "/"
+	if err := utils.InitStore(); err != nil {
+		t.Fatal("InitStore:", err)
+	}
+	t.Cleanup(func() { utils.CloseStore(); utils.CONFIGFOLDER = prevFolder })
+	if err := utils.CreateUser(utils.User{Nickname: "admin", Password: "x", Role: utils.ADMIN}); err != nil {
+		t.Fatal(err)
+	}
 
 	as := func(target string, headers map[string]string) string {
 		who := "nobody"

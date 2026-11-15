@@ -79,7 +79,7 @@ const RCloneNewServeConfig = ({ onClose, initialValues }) => {
     return (
       <>
         <Alert severity="info">
-          {t('mgmt.storage.rclone.doclink')}&nbsp;<a href={`https://rclone.org/commands/rclone_serve_${config.Name}/`} target="_blank" rel="noreferrer">link</a>
+          {t('mgmt.storage.rclone.doclink')}&nbsp;<a href={`https://rclone.org/commands/rclone_serve_${config.Name}/`} target="_blank" rel="noopener noreferrer">link</a>
         </Alert>
         <Field
           as={TextField}

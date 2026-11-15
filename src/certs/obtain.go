@@ -240,6 +240,11 @@ func dnsProvider(zone utils.DNSZoneConfig) (challenge.Provider, []string, func()
 	// order, and what was there before is put back.
 	before := map[string]*string{}
 	for name, value := range variables {
+		// never a name that changes how the server runs (utils/fork_env_names.go)
+		if !utils.SafeEnvName(name) {
+			utils.LogRefusedEnvName(name)
+			continue
+		}
 		if old, was := os.LookupEnv(name); was {
 			before[name] = &old
 		} else {

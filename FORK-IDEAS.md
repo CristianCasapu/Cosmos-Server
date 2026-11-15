@@ -62,21 +62,39 @@ The findings, with where and how, are kept outside this public repository
    protect against someone who can push to `production`; repeating a
    refused command by itself after the password; "skip this upstream
    release for good".
-6. Labels that come from an image (`cosmos-force-network-mode` and the like)
-   are obeyed: ignore them unless set by the admin.
-7. Routes that act on GET: POST only, with the UI changed to match.
+6., 7., 9. and 10. Done on the owner's decision of 2026-11-14: labels an
+   image carries are not obeyed, commands take POST only, the panel has a
+   script policy, request events are sampled (see `FORK.md`).
 8. A name for the panel instead of the bare IP address (cookies on an IP are
    shared with every HTTPS service on another port of that address).
-9. A script policy (CSP) for the panel.
-10. Upstream writes one event row per proxied request: stop or sample.
 
-Not fixed, latent today (they need a limited API token or a custom role, and
-none exists): permission checks on invitations and two-factor resets by a
-users-only role, on configuration writes by a limited token. Until fixed,
-treat any token with "Configuration" or "Users" as an admin token. The bot
-filter only ever blocks an empty User-Agent. Links to apps open without
-`noopener`. A refused cross-site request is logged but not yet written to the
-security record.
+The latent permission findings, the bot filter, `noopener` and the record of
+refused cross-site requests are fixed (see `FORK.md`). Not fixed, with the
+reason: a session obtained before two-factor is switched on survives the
+switch ("Logout" ends every session); a container's command, entrypoint and
+healthcheck are not masked for read-only callers (the edit form would save
+the mask back); a new SQLite file is world-readable until the next start;
+Tailscale's range counts as local; configuration still controls the network
+edge (URLs, hostnames, trusted proxies, the admin address list), resources
+is root through Docker and admin through the terminal, by upstream's
+design; tokens still pass the plain "logged in" checks as their owner; an
+image that bakes `cosmos-auto-update=true` cannot be switched on from the
+panel; `/oauth2/*` and the OpenID discovery document carry no security
+headers; upstream's per-URL hardening sends a year-long HSTS with
+includeSubDomains to proxied apps; the country picker loads flags from an
+outside host; in paid code (not touched): three routes that act on GET and
+a registry sign-in that accepts tokens without the owner check.
+
+Turnstile and the edge blocks were never tried against the real Cloudflare:
+a widget with real keys, "create the widget for me", the permission name for
+zone IP Access Rules, the answer to a test rule for a documentation address,
+paging. Until Authenticated Origin Pulls with the owner's own certificate
+are enforced, another Cloudflare customer could make Cosmos believe a chosen
+visitor address (bounded: shielded names, two events at least, challenges
+first, the exemptions and caps). The owner's to change if wanted: Turnstile
+on the invitation page, failing closed when Cloudflare is down, a challenge
+rather than a block for a first offence, seven days of exemption for an
+administrator's address, the caps of 500 rules and 60 blocks an hour.
 
 ## Dependencies: left for later (2026-11-13)
 
@@ -152,6 +170,15 @@ security record.
   service would tell them sooner than a visitor does.
 
 ## Look of the panel: left for later (2026-11-14)
+
+- Seen when the security release was checked, left as it is: on a phone the
+  security dashboard's icon-only buttons (Incidents, Block at Cloudflare,
+  Unban) are 36x30 px; Storage > Mounts at 820 px squeezes the mount options
+  to a word per line; the merge dialog's chip flashes briefly; the container
+  page's action icons are cut off at 390 px; WebKit does not draw the greyed
+  look of locked controls; the audit line of a manual block at Cloudflare
+  shows its end time raw; "Block at Cloudflare" is offered on a Cloudflare
+  address (trying it is refused with the reason).
 
 - Users: whether two-factor is on is shown nowhere (the server does not send
   it; a yes/no field in `/api/users` would do). The seats meter stays
