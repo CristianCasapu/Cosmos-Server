@@ -355,7 +355,7 @@ func BlockPostWithoutReferer(next http.Handler) http.Handler {
 				Error("Blocked POST request without Referer header", nil)
 				http.Error(w, "Bad Request: Invalid request.", http.StatusBadRequest)
 
-				ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+				ip := GetClientIP(r) // Fork addition: the visitor behind a trusted proxy, not the proxy (upstream: the TCP peer)
 				if ip != "" {
 					TriggerEvent(
 						"cosmos.proxy.shield.referer",
@@ -427,7 +427,7 @@ func EnsureHostname(next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusBadRequest)
 			http.Error(w, "Bad Request: Invalid hostname. Use your domain instead of your IP to access your server. Check logs if more details are needed.", http.StatusBadRequest)
 			
-			ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+			ip := GetClientIP(r) // Fork addition: the visitor behind a trusted proxy, not the proxy (upstream: the TCP peer)
 			if ip != "" {
 				TriggerEvent(
 					"cosmos.proxy.shield.hostname",
@@ -495,7 +495,7 @@ func EnsureHostnameCosmosAPI(next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusBadRequest)
 			http.Error(w, "Bad Request: Invalid hostname. Use your domain instead of your IP to access your server. Check logs if more details are needed.", http.StatusBadRequest)
 			
-			ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+			ip := GetClientIP(r) // Fork addition: the visitor behind a trusted proxy, not the proxy (upstream: the TCP peer)
 			if ip != "" {
 				TriggerEvent(
 					"cosmos.proxy.shield.hostname",

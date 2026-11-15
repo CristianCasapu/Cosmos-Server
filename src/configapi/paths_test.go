@@ -203,3 +203,41 @@ func TestPrepareConfigDirectoriesSnapshots(t *testing.T) {
 		t.Error("the new destination was not created")
 	}
 }
+
+// A destination for the snapshots that already exists must belong to the
+// user Cosmos runs as and be writable by nobody else.
+func TestSnapshotDestinationOfOthersIsRefused(t *testing.T) {
+	base := t.TempDir()
+	source := filepath.Join(base, "data")
+	os.Mkdir(source, 0755)
+	destination := filepath.Join(base, "shared")
+	os.Mkdir(destination, 0755)
+	request := func() *utils.Config {
+		return &utils.Config{Snapshots: utils.SnapshotsConfig{Enabled: true, Destination: destination, Sources: []string{source}}}
+	}
+
+	if err := prepareConfigDirectories(request(), utils.Config{}); err != nil {
+		t.Fatalf("a folder of Cosmos' user with mode 755: %v", err)
+	}
+	os.Chmod(destination, 0777)
+	err := prepareConfigDirectories(request(), utils.Config{})
+	if err == nil || !strings.HasPrefix(err.Error(), "Incremental backup, destination: "+destination+" can be changed by other users") {
+		t.Errorf("a folder with mode 777: %v", err)
+	}
+	os.Chmod(destination, 0755)
+
+	if os.Geteuid() != 0 {
+		t.Log("only root can give a folder to another user: that part is not checked")
+		return
+	}
+	os.Chown(destination, 1234, 1234)
+	err = prepareConfigDirectories(request(), utils.Config{})
+	if err == nil || !strings.Contains(err.Error(), "belongs to user 1234") {
+		t.Errorf("a folder of another user: %v", err)
+	}
+	// the backup output directory is not concerned
+	backup := utils.Config{BackupOutputDir: destination}
+	if err := prepareConfigDirectories(&backup, utils.Config{}); err != nil {
+		t.Errorf("the backup output directory: %v", err)
+	}
+}

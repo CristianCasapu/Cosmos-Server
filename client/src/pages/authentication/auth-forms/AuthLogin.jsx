@@ -34,6 +34,7 @@ import AnimateButton from '../../../components/@extended/AnimateButton';
 import { EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
 import { LoadingButton } from '@mui/lab';
 import { redirectToLocal } from '../../../utils/indexs';
+import TurnstileWidget from '../../../components/turnstileWidget'; // Fork addition: Cloudflare's check for visitors from the internet
 
 // ============================|| FIREBASE - LOGIN ||============================ //
 
@@ -208,6 +209,7 @@ const AuthLogin = () => {
                                     <FormHelperText error>{errors.submit}</FormHelperText>
                                 </Grid>
                             )}
+                            <Grid item xs={12}><TurnstileWidget form="login" /></Grid>{/* Fork addition: shows nothing unless the check applies to this visitor */}
                             <Grid item xs={12}>
                                     <LoadingButton
                                         disableElevation

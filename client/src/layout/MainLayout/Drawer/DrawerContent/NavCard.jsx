@@ -20,7 +20,7 @@ const NavCard = () => (
                 </Typography>
             </Stack>
             <AnimateButton>
-                <Button component={Link} target="_blank" href="https://mantisdashboard.io" variant="contained" color="success" size="small">
+                <Button component={Link} target="_blank" rel="noopener noreferrer" href="https://mantisdashboard.io" variant="contained" color="success" size="small">
                     Pro
                 </Button>
             </AnimateButton>

@@ -171,7 +171,7 @@ export function createClient({ baseUrl, token }) {
 
     restartServer: () => {
       return wrap(apiFetch('/cosmos/api/restart-server', {
-        method: 'GET',
+        method: 'POST', // Fork addition: a command, sent as POST (src/fork_post_only.go)
         headers: {
           'Content-Type': 'application/json'
         },
@@ -397,7 +397,7 @@ let uploadImage = (file, name) => {
 
 let restartServer = () => {
   return wrap(defaultFetch('/cosmos/api/restart-server', {
-    method: 'GET',
+    method: 'POST', // Fork addition: a command, sent as POST (src/fork_post_only.go)
     headers: {
       'Content-Type': 'application/json'
     },

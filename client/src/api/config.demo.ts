@@ -112,6 +112,9 @@ const cloudflareCheck = cloudflareNone;
 const homeNames = () => Promise.resolve({ ok: true, status: 200, reason: '', detail: '', message: '', data: { zones: [], names: [], skipped: [], addressKnown: false, addressFresh: false } });
 const homeNamesSet = cloudflareNone;
 const homeNamesCheck = cloudflareNone;
+// Fork addition: no Turnstile in the demo
+const turnstileStatus = cloudflareNone;
+const turnstileChange = cloudflareNone;
 const cloudflarePreview = cloudflareNone;
 const cloudflareTakeOver = cloudflareNone;
 const cloudflareShield = cloudflareNone;
@@ -296,6 +299,8 @@ export {
   homeNames,
   homeNamesSet,
   homeNamesCheck,
+  turnstileStatus,
+  turnstileChange,
   cloudflareCheck,
   cloudflarePreview,
   cloudflareTakeOver,

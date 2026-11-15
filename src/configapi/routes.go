@@ -157,6 +157,11 @@ func createRoute(w http.ResponseWriter, req *http.Request) {
 	}
 	newRoute = stripOwner(newRoute)
 
+	// Fork addition: a URL that serves a host folder needs the resources permission too, see fork_host_powers.go
+	if refuseFolderRoute(w, req, nil, newRoute, "RT013") {
+		return
+	}
+
 	utils.ConfigLock.Lock()
 	defer utils.ConfigLock.Unlock()
 
@@ -234,6 +239,11 @@ func updateRoute(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	updatedRoute = stripOwner(updatedRoute)
+
+	// Fork addition: a URL that serves a host folder needs the resources permission too, see fork_host_powers.go
+	if refuseFolderRoute(w, req, storedRoute(name), updatedRoute, "RT013") {
+		return
+	}
 
 	utils.ConfigLock.Lock()
 

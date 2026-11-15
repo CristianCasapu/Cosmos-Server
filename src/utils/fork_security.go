@@ -45,6 +45,10 @@ const (
 	SecResetRejected   = "auth.reset.rejected"
 	SecPasswordChanged = "auth.password.changed"
 	SecRegisterFailed  = "auth.register.failed"
+	// Fork addition (Turnstile, src/turnstile): the check of Cloudflare on the public forms
+	SecTurnstileMissing     = "auth.turnstile.missing"
+	SecTurnstileFailed      = "auth.turnstile.failed"
+	SecTurnstileUnavailable = "auth.turnstile.unavailable"
 
 	// accounts
 	SecUserCreated       = "user.created"
@@ -305,6 +309,9 @@ func AuditSecurity(req *http.Request, kind string, target string, details ...str
 var securityUnlistedReads = []string{
 	"/cosmos/api/jobs/get",
 	"/cosmos/api/jobs/running",
+	"/cosmos/api/config/http-check", // checks the HTTP settings before a save, changes nothing
+	"/cosmos/api/install/plan",      // the platforms and places for data an installation would use, changes nothing
+	"/cosmos/api/notifications/read", // marks the caller's own notifications read (a POST since fork_post_only.go): no entry each time the bell is opened
 }
 
 // SecurityAudit is the middleware behind AuditSecurity, placed innermost on

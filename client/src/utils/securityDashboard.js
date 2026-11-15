@@ -13,7 +13,7 @@ export const GROUP_ORDER = ['login', 'lockout', 'ban', 'scan', 'access', 'other'
 export const COUNTER_GROUPS = ['login', 'lockout', 'ban', 'scan', 'access'];
 
 export const GROUP_TEXT = {
-  login: ['Failed sign-ins', 'Wrong passwords or two-factor codes, bad invitation links, unknown API tokens, forged session cookies.'],
+  login: ['Failed sign-ins', 'Wrong passwords or two-factor codes, bad invitation links, unknown API tokens, forged session cookies, refused or missing sign-in checks of Cloudflare.'],
   lockout: ['Lock-outs', 'Addresses blocked for an hour by SmartShield, two-factor checks closed after wrong codes, addresses slowed down for sending too much.'],
   ban: ['Bans', 'Addresses SmartShield banned after being blocked again and again.'],
   scan: ['Scans and probes', 'Automated scanners looking for weaknesses, unknown server names, bots and blocked countries.'],
@@ -101,6 +101,25 @@ export const KIND_TEXT = {
     stopped: 'yes',
     todo: 'If a user cannot get in, make a new link for them. Many attempts mean someone is guessing links.',
     link: 'users',
+  },
+  // Fork addition: Cloudflare Turnstile on the public forms (src/turnstile)
+  'auth.turnstile.missing': {
+    label: 'Sign-in check missing',
+    what: 'A sign-in, forgot-password or invitation form was sent from the internet without Cloudflare\'s check: a program that does not run the page, or a browser that blocked the check.',
+    stopped: 'yes',
+    todo: 'Nothing to do: the form was refused before anything was looked at. If it is you, allow challenges.cloudflare.com in the browser, or sign in from the home network.',
+  },
+  'auth.turnstile.failed': {
+    label: 'Sign-in check refused',
+    what: 'Cloudflare\'s check of a sign-in, forgot-password or invitation form was refused: the token was invalid, used before, too old, or made for another address or form, or one visitor sent too many.',
+    stopped: 'yes',
+    todo: 'Nothing to do: the form was refused before anything was looked at. Many of these from one address are a program trying to get past the check.',
+  },
+  'auth.turnstile.unavailable': {
+    label: 'Sign-in check unavailable',
+    what: 'Cloudflare\'s check of the sign-in forms could not be made: Cloudflare could not be reached, answered with an error, or refused the secret key. Visitors from the internet could not sign in meanwhile; the home network is never asked.',
+    stopped: 'yes',
+    todo: 'If it lasts, look at the sign-in check in Configuration > Domains: a refused key needs a new one. Sign in from the home network to do it.',
   },
   'token.invalid': {
     label: 'Unknown API token',
