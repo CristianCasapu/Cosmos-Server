@@ -5903,5 +5903,9 @@
 	"mgmt.servapps.anyImage.problem.busy": "Cosmos has looked up many images in the last minute: wait a moment, then look again.",
 	"mgmt.servapps.anyImage.search.problem.busy": "Too many searches just now: wait a minute and search again.",
 	"mgmt.servapps.anyImage.note.consolePath": "Its console opens at the address above followed by /rustfs/console/ (the bare address answers \"forbidden\"); sign in with the access key and the secret key.",
-	"mgmt.servapps.anyImage.note.s3Outside": "Apps on this server reach the S3 API at the address above on port 9000. For a machine elsewhere in the house (a backup client), add a URL to port 9000 under URLs."
+	"mgmt.servapps.anyImage.note.s3Outside": "Apps on this server reach the S3 API at the address above on port 9000. For a machine elsewhere in the house (a backup client), add a URL to port 9000 under URLs.",
+	"mgmt.servapps.sensitiveEdit.title": "This change needs your yes",
+	"mgmt.servapps.sensitiveEdit.intro": "The change gives the container access to the server that it did not have and that Cosmos never gives without asking. Tick each one you accept; without every tick nothing is changed.",
+	"mgmt.servapps.sensitiveEdit.cancel": "Do not change it",
+	"mgmt.servapps.sensitiveEdit.accept": "Accept and save"
 }

@@ -273,7 +273,7 @@ const ServApps = ({stack}) => {
           refreshServApps();
         }}>{t('global.refresh')}</ResponsiveButton>
         <DockerComposeImport refresh={refreshServApps}/>
-        <InstallAnyImageButton refresh={refreshServApps} /> {/* Fork addition (plan 40): install any image */}
+        <InstallAnyImageButton refresh={refreshServApps} />{/* Fork addition (plan 40): install any image */}
         <PermissionGuard permission={PERM_CREDENTIALS_READ}>
           <DownloadFile
             filename={'backup.cosmos-compose.json'}

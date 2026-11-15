@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import RestartMenu from './restartMenu';
 import TerminalHeader from './terminal';
 import SudoModal from './sudoModal';
+import SensitiveEditDialog from '../../../../components/sensitiveEditDialog'; // Fork addition (plan 40): the tick for access an edit gives a container
 import ModeToggle from '../../../../components/modeToggle'; // Fork addition: the skin's light/dark switch
 import { PWAInstallButton } from '../../../../components/pwa'; // Fork addition: install the panel as an app
 import HeaderMore from '../../../../components/headerMore'; // Fork addition: on phones the terminal and the restarts are in "More"
@@ -39,6 +40,7 @@ const HeaderContent = () => {
                 <PWAInstallButton sx={{ display: { xs: 'none', sm: 'inline-flex' } }} />{/* Fork addition: only while the browser can install it; on phones in the menu's footer */}
 
                 <SudoModal />
+                <SensitiveEditDialog />{/* Fork addition (plan 40) */}
                 {/* Fork addition: the chip is the link (one Tab stop; it was a chip inside a link), a finger's height on a phone */}
                 <Chip component="a" href="/cosmos-ui/logout" clickable label={t('global.logout')} sx={{ height: { xs: 44, sm: 36 } }} />
                 <Box sx={onPhone}><RestartMenu /></Box>

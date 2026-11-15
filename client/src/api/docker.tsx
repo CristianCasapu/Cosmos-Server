@@ -1,4 +1,5 @@
 import wrap, { type ApiResponse, type ApiFetch } from './wrap';
+import { confirmQuery, sendWithConfirmation } from '../utils/sensitiveEdit'; // Fork addition (plan 40)
 
 export interface ContainerState {
   Status: string;
@@ -172,13 +173,14 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
   }
 
   function updateContainer(containerId: string, values: any): Promise<ApiResponse> {
-    return wrap(apiFetch('/cosmos/api/servapps/' + containerId + '/update', {
+    // Fork addition: access to the server the container did not have is asked for, tick by tick (utils/sensitiveEdit.js)
+    return wrap(sendWithConfirmation((confirm: string[]) => apiFetch('/cosmos/api/servapps/' + containerId + '/update' + confirmQuery(confirm), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(values),
-    }))
+    })))
   }
 
   function exportContainer(containerId: string, values: any): Promise<ApiResponse> {
