@@ -40,7 +40,7 @@ export const StartLog = ({ report }) => {
   const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
   const lines = (report && report.log) || [];
-  if (!lines.length) return null;
+  if (!lines.length) return <Typography variant="body2" sx={{ color: 'text.secondary' }} data-start-log-empty>{t('mgmt.services.start.logEmpty', 'Its log is empty: the image does not say why it stops. Its documentation, or its settings on its page, may tell.')}</Typography>;
   return <Stack spacing={1} sx={{ minWidth: 0 }}>
     <Button size="small" sx={{ alignSelf: 'flex-start' }} onClick={() => setOpen(!open)} data-start-log-door>
       {open ? t('mgmt.services.start.hideLog', 'Hide its log') : t('mgmt.services.start.showLog', 'Its log (the last {{count}} lines)', { count: lines.length })}

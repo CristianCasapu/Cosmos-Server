@@ -338,9 +338,12 @@ if (phase === 'look') {
           await shot(page, name, '03-internet-database');
           await fits(page, name, '[data-expose-dialog]', 'Internet of the database');
           await page.locator('[data-expose-dialog] button', { hasText: 'Close' }).click();
-          await card(page, 'crashing');
+          // a container that keeps stopping is listed as running for its second of life: look again until Docker says restarting
           const why = page.locator('[data-start-why="crashing"]');
-          await why.waitFor({ timeout: 20000 }).catch(() => {});
+          for (let i = 0; i < 6 && !(await why.count()); i++) {
+            await card(page, 'crashing');
+            await why.waitFor({ timeout: 4000 }).catch(() => {});
+          }
           expect(await why.count() === 1, `${name}: a container that keeps stopping has its Why?`);
           await shot(page, name, '04-tile-why');
           await why.click();

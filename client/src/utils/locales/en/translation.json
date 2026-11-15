@@ -5985,5 +5985,6 @@
 	"mgmt.services.needs.noText": "Its publisher's description could not be read for settings: its page says what it needs.",
 	"mgmt.services.needs.page": "What its publisher says it needs",
 	"mgmt.services.needs.unknown": "Cosmos has no built-in settings for this image: it does not know which settings it requires.",
-	"mgmt.services.needs.watch": "After the creation Cosmos watches its first start: if the image says it is missing a setting, Cosmos proposes it then."
+	"mgmt.services.needs.watch": "After the creation Cosmos watches its first start: if the image says it is missing a setting, Cosmos proposes it then.",
+	"mgmt.services.start.logEmpty": "Its log is empty: the image does not say why it stops. Its documentation, or its settings on its page, may tell."
 }

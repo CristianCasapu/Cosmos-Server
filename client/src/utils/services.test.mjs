@@ -178,6 +178,6 @@ test('the connection string has placeholders, never a password; publishing keeps
 
 test('Bitnami\'s description of its own build is not a setting', async () => {
   const { declaredSettings } = await import('./anyImage.js');
-  const names = declaredSettings({ env: ['OS_ARCH=amd64', 'OS_FLAVOUR=debian-12', 'OS_NAME=linux', 'BITNAMI_APP_NAME=postgresql', 'NSS_WRAPPER_LIB=/opt/x.so', 'POSTGRESQL_PORT_NUMBER=5432'] }).map((s) => s.name);
+  const names = declaredSettings({ env: ['OS_ARCH=amd64', 'OS_FLAVOUR=debian-12', 'OS_NAME=linux', 'BITNAMI_APP_NAME=postgresql', 'NSS_WRAPPER_LIB=/opt/x.so', 'IMAGE_REVISION=0', 'POSTGRESQL_PORT_NUMBER=5432'] }).map((s) => s.name);
   assert.deepEqual(names, ['POSTGRESQL_PORT_NUMBER']);
 });

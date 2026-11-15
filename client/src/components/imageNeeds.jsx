@@ -71,5 +71,5 @@ export const HintCount = ({ settings }) => {
   const { t } = useTranslation();
   const n = (settings || []).filter((s) => s.from === 'description').length;
   if (!n) return null;
-  return <Typography variant="caption" color="text.secondary">{t('mgmt.services.hint.count', '{{count}} of these settings come from its description.', { count: n })}</Typography>;
+  return <Typography variant="caption" sx={{ color: 'text.secondary' }}>{t('mgmt.services.hint.count', '{{count}} of these settings come from its description.', { count: n })}</Typography>;
 };

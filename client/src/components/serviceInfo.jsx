@@ -124,7 +124,7 @@ export const ServiceInfo = ({ containerName, classification, onInsist, insistLab
         <Box component="code" data-service-connection sx={{ overflowWrap: 'anywhere', minWidth: 0, fontSize: 12 }}>{connection}</Box>
         <CopyButton value={connection} />
       </Stack>}
-      <Typography variant="caption" color="text.secondary">
+      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
         {t('mgmt.services.addressHint', 'This name works for the apps that share a network with it. The user and password are the ones set when it was created: Cosmos does not show a password again.')}
       </Typography>
     </Stack>
@@ -134,7 +134,7 @@ export const ServiceInfo = ({ containerName, classification, onInsist, insistLab
         {t('mgmt.servapps.anyImage.ui.reachTitle', 'Let these apps reach it')}
       </Button>
       {reachOpen && <Stack spacing={1} sx={{ minWidth: 0 }} data-service-reach>
-        <Typography variant="caption" color="text.secondary">{t('mgmt.services.reachHint', 'Each app you pick gets a network of its own with {{name}}, and reaches it at {{address}}.', { name, address })}</Typography>
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>{t('mgmt.services.reachHint', 'Each app you pick gets a network of its own with {{name}}, and reaches it at {{address}}.', { name, address })}</Typography>
         {others === null && <Typography variant="body2">…</Typography>}
         {others && others.length === 0 && <Typography variant="body2">{t('mgmt.services.noOthers', 'There is no other app on this server yet.')}</Typography>}
         {others && others.length > 0 && <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1}>
@@ -163,7 +163,7 @@ export const ServiceInfo = ({ containerName, classification, onInsist, insistLab
           {t('mgmt.services.publish', 'Publish port {{port}}', { port: c.port })}
         </Button>
         {published && <Alert severity="success" sx={wrap} data-service-published>{t('mgmt.services.published', 'Done: devices on your home network reach it at this server\'s address, port {{port}}. It was created again for this.', { port: c.port })}</Alert>}
-        <Typography variant="caption" color="text.secondary">
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
           {t('mgmt.services.tcpRoute', 'Cosmos can also forward a port itself (a URL whose address carries a port and whose target has no http://), with its shield in front. For a database on the home network, publishing the port is the simpler way.')}
         </Typography>
       </Stack>}
@@ -202,7 +202,9 @@ export const OverviewServiceNotes = ({ containerInfo, hasRoutes, refresh }) => {
   if (!containerInfo || !containerInfo.Config) return null;
   const name = String(containerInfo.Name || '').replace(/^\//, '');
   const state = containerInfo.State || {};
-  const failing = state.Restarting || (!state.Running && state.Status === 'exited' && state.ExitCode !== 0);
+  // a container that restarts is "running" for a moment each time: a restart in the last two minutes counts too
+  const recentRestart = (containerInfo.RestartCount || 0) > 0 && Date.now() - Date.parse(state.StartedAt || 0) < 120000;
+  const failing = state.Restarting || recentRestart || (!state.Running && state.Status === 'exited' && state.ExitCode !== 0);
   const c = classifyServiceOf0({ image: containerInfo.Config.Image, ports: containerPorts(containerInfo) });
   return <Stack spacing={1} sx={{ minWidth: 0, my: 1 }} data-overview-service>
     {failing && <Box><StartProblemButton containerName={name} refresh={refresh} /></Box>}
