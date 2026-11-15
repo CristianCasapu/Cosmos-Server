@@ -284,12 +284,14 @@ func CreateServiceRoute(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		CreateService(serviceRequest, 
-			func (msg string) {
+		onLog := func (msg string) {
 				fmt.Fprintf(w, "%s", msg)
 				flusher.Flush()
-			},
-		)
+			}
+		// Fork addition: the new containers are watched for a moment, and one that does not start is said (fork_start_watch.go)
+		if CreateService(serviceRequest, onLog) == nil {
+			WatchCreation(req.Context(), serviceRequest, onLog)
+		}
 	} else {
 		utils.Error("CreateService: Method not allowed" + req.Method, nil)
 		utils.HTTPError(w, "Method not allowed", http.StatusMethodNotAllowed, "HTTP001")

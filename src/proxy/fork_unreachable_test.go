@@ -76,7 +76,9 @@ func TestGuardAnswersForAContainerThatIsDown(t *testing.T) {
 func TestGuardLogsOncePerURLAndMinute(t *testing.T) {
 	bareMetal(t)
 	logs := countLogs(t)
-	stubTarget(t, func(string) (string, docker.TargetState, error) { return "", docker.TargetRestarting, docker.ErrTargetDown })
+	stubTarget(t, func(string) (string, docker.TargetState, error) {
+		return "", docker.TargetRestarting, docker.ErrTargetDown
+	})
 	h := forkTargetGuard(utils.ProxyRouteConfig{Name: "pg", Mode: "SERVAPP", Target: "http://postgresql:5432"})(http.NotFoundHandler())
 	for i := 0; i < 1000; i++ {
 		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "http://pg.local/", nil))
@@ -118,7 +120,9 @@ func TestGuardPassesTheAddressToTheDirector(t *testing.T) {
 // fails without dialing (upstream gave ":8080": this server itself).
 func TestDirectorNeverDialsAnEmptyAddress(t *testing.T) {
 	bareMetal(t)
-	stubTarget(t, func(string) (string, docker.TargetState, error) { return "", docker.TargetRestarting, docker.ErrTargetDown })
+	stubTarget(t, func(string) (string, docker.TargetState, error) {
+		return "", docker.TargetRestarting, docker.ErrTargetDown
+	})
 	if got := forkDirectorHost(httptest.NewRequest("GET", "/", nil), "web", "8080"); got != "" {
 		t.Fatalf("host %q", got)
 	}

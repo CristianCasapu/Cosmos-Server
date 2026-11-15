@@ -1086,6 +1086,8 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/auto-update/{status}", docker.AutoUpdateContainerRoute)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/lazy/{status}", docker.LazyContainerRoute)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/logs", docker.GetContainerLogsRoute)
+	srapiAdmin.HandleFunc("/api/servapps/{containerId}/start-report", docker.StartReportRoute) // Fork addition: why it does not start (fork_start_check.go)
+	srapiAdmin.HandleFunc("/api/servapps/{containerId}/probe", docker.ProbeRoute) // Fork addition: does a port speak web (fork_probe.go)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/terminal/{action}", docker.TerminalRoute)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/update", docker.UpdateContainerRoute)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/export", docker.ExportContainerRoute)

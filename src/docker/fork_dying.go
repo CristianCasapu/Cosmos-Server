@@ -96,3 +96,21 @@ func containerDied(name string, action string, exitCode string, now time.Time) (
 	c.exits = nil
 	return true, exitCode
 }
+
+// markDyingTold counts a container as told about (plan 43: the creation's
+// own check said it does not start; the "keeps stopping" notice would say
+// the same minutes later).
+func markDyingTold(name string, now time.Time) {
+	dyingMu.Lock()
+	defer dyingMu.Unlock()
+	c := dyingContainers[name]
+	if c == nil {
+		if len(dyingContainers) >= dyingTracked {
+			return
+		}
+		c = &dyingContainer{}
+		dyingContainers[name] = c
+	}
+	c.toldAt = now
+	c.exits = nil
+}

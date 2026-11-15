@@ -5,7 +5,9 @@ package docker
 // and the links to its page.
 
 import (
+	"context"
 	"strconv"
+	"time"
 
 	"github.com/azukaar/cosmos-server/src/utils"
 )
@@ -71,8 +73,8 @@ var notifyDying = func(name string, exits int, code string) {
 		Means:   utils.NText("notif.container.dying.means"),
 		Doing:   utils.NText("notif.container.dying.doing"),
 		Steps:   []utils.NotificationStep{appStep(name), {NotificationText: *utils.NText("notif.step.app.logs")}},
-		Facts: []utils.NotificationFact{{Key: "notif.fact.container", Value: name}, {Key: "notif.fact.exits", Value: strconv.Itoa(exits)},
-			{Key: "notif.fact.exitCode", Value: code}},
+		Facts: append([]utils.NotificationFact{{Key: "notif.fact.container", Value: name}, {Key: "notif.fact.exits", Value: strconv.Itoa(exits)},
+			{Key: "notif.fact.exitCode", Value: code}}, dyingReason(name)...),
 		Security: &utils.NotificationSecurity{Kinds: []string{"container.*"}, Target: name},
 	}})
 }
@@ -96,4 +98,34 @@ func leftoverInfo(entry Leftover) *utils.NotificationInfo {
 		Facts:    []utils.NotificationFact{{Key: "notif.fact.container", Value: app}, {Key: "notif.fact.kept", Value: name}},
 		Security: &utils.NotificationSecurity{Kinds: []string{"container.*"}, Target: app},
 	}
+}
+
+// dyingReason is why a container keeps stopping, when its log says (plan 43):
+// the reason in words, never the log itself (it may hold what the image printed).
+func dyingReason(name string) []utils.NotificationFact {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	report, err := StartReportOf(ctx, name, nil)
+	if err != nil || report.Reason == "" {
+		return nil
+	}
+	return []utils.NotificationFact{{Key: "notif.fact.reason", Value: reasonWords(report)}}
+}
+
+// writeStartFailedNotice tells the administrators that a container just
+// created does not run (plan 43). The reason in words; the log is on the
+// app's page, for those who may read it.
+func writeStartFailedNotice(r StartReport) {
+	reason := reasonWords(r)
+	utils.WriteNotification(utils.Notification{Recipient: "admin", Level: "error", Fork: &utils.NotificationInfo{
+		Kind:     "container.startFailed",
+		Subject:  &utils.NotificationSubject{Type: "container", Name: r.Name, Link: appLink(r.Name)},
+		Title:    utils.NText("notif.container.startFailed.title", "name", r.Name),
+		What:     utils.NText("notif.container.startFailed.what", "name", r.Name, "reason", reason),
+		Means:    utils.NText("notif.container.startFailed.means"),
+		Doing:    utils.NText("notif.container.startFailed.doing"),
+		Steps:    []utils.NotificationStep{appStep(r.Name)},
+		Facts:    []utils.NotificationFact{{Key: "notif.fact.container", Value: r.Name}, {Key: "notif.fact.image", Value: r.Image}, {Key: "notif.fact.reason", Value: reason}},
+		Security: &utils.NotificationSecurity{Kinds: []string{"container.*"}, Target: r.Name},
+	}})
 }
