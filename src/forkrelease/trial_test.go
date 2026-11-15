@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -941,8 +944,9 @@ func TestStaleAndUnreadableTrials(t *testing.T) {
 	if launcherTrial(folder, f.env()) {
 		t.Error("started with an unreadable state and nothing kept")
 	}
-	if !strings.Contains(readme(folder), "Or delete "+trialPath(folder)+" to start the files as they are now") {
-		t.Errorf("no way out:\n%s", readme(folder))
+	if !strings.Contains(readme(folder), "so nothing can be put back; only this applies: start the files as they are now: rm -f '"+trialPath(folder)+"'") ||
+		strings.Contains(readme(folder), "run: sh") || strings.Contains(readme(folder), "Fix the cause") {
+		t.Errorf("not only the way that applies:\n%s", readme(folder))
 	}
 }
 
@@ -1294,16 +1298,42 @@ func readme(folder string) string {
 	return string(raw)
 }
 
-// R1: a restore that can never finish by itself says what is wrong and the
-// ways out, at every attempt, in the journal and in the README; following
-// the printed way out ends with the old version.
+// runSh runs a command line with sh, as an administrator would.
+func runSh(t *testing.T, dir string, line string) string {
+	t.Helper()
+	cmd := exec.Command("sh", "-c", line)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s: %v\n%s", line, err, out)
+	}
+	return string(out)
+}
+
+// wayLine is the line of the README that starts with "<n>. ".
+func wayLine(t *testing.T, folder string, n int) string {
+	t.Helper()
+	for _, line := range strings.Split(readme(folder), "\n") {
+		if strings.HasPrefix(line, strconv.Itoa(n)+". ") {
+			return line
+		}
+	}
+	t.Fatalf("no way %d in:\n%s", n, readme(folder))
+	return ""
+}
+
+// R1, F2: a restore that can never finish by itself says what is wrong and
+// the ways out, at every attempt, in the journal and in the README, and the
+// ways are literally right: followed with sh, they end with the old version
+// and no state, and the update file does not come back.
 func TestAStuckRestoreExplainsTheWayOut(t *testing.T) {
 	folder := oldInstall(t, newReleaseZip(t))
 	before := snapshot(t, folder)
 	f := &fakeEnv{}
 	keepReplaced(folder, newVersion, &f.out)
-	os.WriteFile(filepath.Join(folder, "cosmos"), []byte("new ser"), 0755) // cut short
+	os.WriteFile(filepath.Join(folder, "cosmos"), []byte("new ser"), 0755) // cut short; the zip is still there
 	os.WriteFile(filepath.Join(folder, previousFolder, "static", "app.js"), []byte("rotten"), 0600)
+	os.WriteFile(filepath.Join(folder, StagedSignature), []byte("sig"), 0600)
 
 	for attempt := 0; attempt < 2; attempt++ {
 		f.out.Reset()
@@ -1312,10 +1342,10 @@ func TestAStuckRestoreExplainsTheWayOut(t *testing.T) {
 		}
 		for _, want := range []string{"What is wrong: the kept copy of static/app.js is missing or does not have its SHA-256",
 			"Cosmos is NOT started", "Take that file from the release " + oldVersion,
-			"cp -p " + filepath.Join(folder, previousFolder, "cosmos") + " " + filepath.Join(folder, "cosmos"),
-			"Or delete " + trialPath(folder)} {
+			"then run: sh " + filepath.Join(folder, restoreScriptName),
+			"Or start the files as they are now: rm -f '" + trialPath(folder) + "' '" + filepath.Join(folder, StagedZip) + "' '" + filepath.Join(folder, StagedSignature) + "'"} {
 			if !strings.Contains(f.out.String(), want) || !strings.Contains(readme(folder), want) {
-				t.Errorf("attempt %d: %q is not printed and in the README:\n%s", attempt, want, f.out.String())
+				t.Errorf("attempt %d: %q is not printed and in the README:\n%s", attempt, want, readme(folder))
 			}
 		}
 	}
@@ -1329,53 +1359,61 @@ func TestAStuckRestoreExplainsTheWayOut(t *testing.T) {
 		t.Errorf("stayDown said %q", f.out.String())
 	}
 
-	// the administrator follows way 2: the files by hand, then the state goes
-	manifest, _ := readKept(folder)
-	for _, k := range manifest.Replaced {
-		content, _ := os.ReadFile(filepath.Join(folder, previousFolder, k.Path))
-		if k.Path == "static/app.js" {
-			content = []byte("old app") // from the release
-		}
-		os.WriteFile(filepath.Join(folder, k.Path), content, os.FileMode(k.Mode))
-		os.Chmod(filepath.Join(folder, k.Path), os.FileMode(k.Mode))
+	// way 2 stops at the damaged kept file: its SHA-256 is checked
+	script := filepath.Join(folder, restoreScriptName)
+	cmd := exec.Command("sh", script)
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Errorf("the script copied a damaged file back:\n%s", out)
 	}
-	for _, rel := range manifest.Added {
-		os.Remove(filepath.Join(folder, rel))
-	}
-	os.Remove(trialPath(folder))
+	// way 1, then way 2, as written
+	os.WriteFile(filepath.Join(folder, previousFolder, "static", "app.js"), []byte("old app"), 0600) // from the release
+	runSh(t, folder, "sh "+script)
 	if !launcherTrial(folder, f.env()) {
 		t.Fatal("not started after the way out")
 	}
-	os.Remove(filepath.Join(folder, StagedZip))
-	if _, err := os.Lstat(filepath.Join(folder, readmeName)); err == nil {
-		t.Error("the README stays after it was resolved")
-	}
-	after := snapshot(t, folder)
-	for name, was := range before {
-		if name != "cosmos-update.zip" && after[name] != was {
-			t.Errorf("%s: %q, was %q", name, after[name], was)
-		}
+	sameAs(t, "after way 2", folder, before)
+	if present(folder, StagedZip) || present(folder, trialName) || present(folder, readmeName) || present(folder, restoreScriptName) || failedIn(folder, newVersion) {
+		t.Error("the zip, the state or the README is back, or the version that was being installed is noted as failed")
 	}
 
-	// an obstacle is named, and removing it is enough
+	// a rollback stuck on an obstacle: removing it is enough; way 2 also
+	// notes the failed version, way 3 says how
 	folder = oldInstall(t, newReleaseZip(t))
+	before = snapshot(t, folder)
 	installNew(t, folder, newVersion, f)
 	os.Remove(filepath.Join(folder, "static", "app.js"))
-	os.Mkdir(filepath.Join(folder, "static", "app.js"), 0755)
-	os.WriteFile(filepath.Join(folder, "static", "app.js", "x"), []byte("x"), 0644)
+	os.MkdirAll(filepath.Join(folder, "static", "app.js", "x"), 0755)
 	for i := 0; i < TrialStarts-1; i++ {
 		launcherTrial(folder, f.env())
 	}
-	f.out.Reset()
 	if launcherTrial(folder, f.env()) {
 		t.Fatal("started with an obstacle")
 	}
-	if !strings.Contains(readme(folder), "Remove or rename "+filepath.Join(folder, "static", "app.js")) {
-		t.Errorf("the obstacle is not named:\n%s", readme(folder))
+	if !strings.Contains(wayLine(t, folder, 1), "Remove or rename "+filepath.Join(folder, "static", "app.js")) ||
+		!strings.Contains(wayLine(t, folder, 2), "adds "+newVersion+" to "+filepath.Join(folder, failedName)) ||
+		!strings.Contains(wayLine(t, folder, 3), "echo '"+newVersion+"' >> '"+filepath.Join(folder, failedName)+"'") {
+		t.Errorf("the ways:\n%s", readme(folder))
 	}
-	os.RemoveAll(filepath.Join(folder, "static", "app.js"))
+	runSh(t, folder, "rm -r "+filepath.Join(folder, "static", "app.js")) // way 1
 	if !launcherTrial(folder, f.env()) || !failedIn(folder, newVersion) {
 		t.Error("not finished once the obstacle is gone")
+	}
+	sameAs(t, "after way 1", folder, before)
+}
+
+// F2: way 3, as written, starts the files as they are and nothing comes back.
+func TestWayThreeAsWritten(t *testing.T) {
+	folder := oldInstall(t, newReleaseZip(t))
+	f := &fakeEnv{}
+	keepReplaced(folder, newVersion, &f.out)
+	os.WriteFile(filepath.Join(folder, StagedSignature), []byte("sig"), 0600)
+	os.WriteFile(filepath.Join(folder, previousFolder, "static", "app.js"), []byte("rotten"), 0600)
+	launcherTrial(folder, f.env())
+	line := wayLine(t, folder, 3)
+	command := line[strings.Index(line, "rm -f "):strings.Index(line, " . They may be")]
+	runSh(t, folder, command)
+	if !launcherTrial(folder, f.env()) || present(folder, StagedZip) || present(folder, StagedSignature) || present(folder, trialName) {
+		t.Error("way 3 did not end the update, or the update file comes back")
 	}
 }
 
@@ -1496,8 +1534,8 @@ func TestAStartThatCannotBeRecordedGoesBack(t *testing.T) {
 	}
 	unblock()
 	sameAs(t, "after an unrecorded start", folder, before)
-	if f.spawned != spawned || failedIn(folder, newVersion) {
-		t.Error("ran unwatched, or noted as failed")
+	if f.spawned != spawned || failedIn(folder, newVersion) || !noTrial(folder) {
+		t.Error("ran unwatched, noted as failed, or the state of the update is left")
 	}
 	note, _ := TakeRollbackNote(folder)
 	if note.Reason != RollbackUnrecorded || !note.Restored || note.Cause == "" {
@@ -1618,5 +1656,244 @@ func TestTheStateFormatRule(t *testing.T) {
 	writeTrial(folder, Trial{State: stateTrial, NewVersion: newVersion, PreviousVersion: oldVersion})
 	if trial, _ := readTrial(folder); trial.Format != trialFormat {
 		t.Errorf("written as format %d", trial.Format)
+	}
+}
+
+// ------------------------------------------------ third review (F1-F5)
+
+// F1, the reviewer's reproduction: the count cannot be recorded, the state
+// cannot be written, and the restore stops on an obstacle. No later start
+// runs the half-restored folder, the "trial is over" check never drops the
+// state, and the restore finishes once the obstacle is gone.
+func TestAnUnrecordedRestoreCutShortIsNeverStarted(t *testing.T) {
+	folder := oldInstall(t, newReleaseZip(t))
+	before := snapshot(t, folder)
+	f := &fakeEnv{}
+	installNew(t, folder, newVersion, f)
+	unblock := blockState(t, folder)
+	os.MkdirAll(filepath.Join(folder, "static", "app.js.rollback", "x"), 0755)
+	if launcherTrial(folder, f.env()) {
+		t.Fatal("the first start may run")
+	}
+	if !hasMark(folder, trialID(folder), 0, markRestore) {
+		t.Fatal("the restore is not owed on disk")
+	}
+	if got, _ := os.ReadFile(filepath.Join(folder, "meta.json")); !strings.Contains(string(got), oldVersion) {
+		t.Fatalf("meta.json is not back yet (%s): the case is not the one of the review", got)
+	}
+	for _, lifted := range []bool{false, true} {
+		if lifted {
+			unblock()
+		}
+		if launcherTrial(folder, f.env()) {
+			t.Fatalf("a start ran the half-restored folder (state writes lifted: %v)", lifted)
+		}
+		if TrialPending(folder) == false || noTrial(folder) {
+			t.Fatal("the state was dropped")
+		}
+	}
+	os.RemoveAll(filepath.Join(folder, "static", "app.js.rollback"))
+	if !launcherTrial(folder, f.env()) {
+		t.Fatal(f.out.String())
+	}
+	sameAs(t, "after the restore", folder, before)
+	if !noTrial(folder) || failedIn(folder, newVersion) || present(folder, readmeName) {
+		t.Error("the state, a failed entry or the README is left")
+	}
+}
+
+// F1: the same with a restore cut after some files (a kill during putBack),
+// at every number of files.
+func TestARestoreKilledDuringPutBackIsFinished(t *testing.T) {
+	previous := afterPutBack
+	defer func() { afterPutBack = previous }()
+	for cut := 1; cut <= 3; cut++ {
+		folder := oldInstall(t, newReleaseZip(t))
+		before := snapshot(t, folder)
+		f := &fakeEnv{}
+		installNew(t, folder, newVersion, f)
+		unblock := blockState(t, folder) // the unrecorded path: the state says "trial" throughout
+		done := 0
+		afterPutBack = func(string) error {
+			done++
+			if done == cut {
+				return errors.New("killed")
+			}
+			return nil
+		}
+		launcherTrial(folder, f.env())
+		afterPutBack = previous
+		unblock()
+		if !launcherTrial(folder, f.env()) {
+			t.Fatalf("cut after %d: %s", cut, f.out.String())
+		}
+		sameAs(t, "cut after "+strconv.Itoa(cut)+" files", folder, before)
+		if !noTrial(folder) {
+			t.Errorf("cut after %d: the state is left", cut)
+		}
+	}
+}
+
+// F1: when not even the empty mark can be made, no file is touched.
+func TestNoFileIsTouchedWhenTheRestoreCannotBeOwed(t *testing.T) {
+	folder := oldInstall(t, newReleaseZip(t))
+	f := &fakeEnv{}
+	installNew(t, folder, newVersion, f)
+	during := snapshot(t, folder)
+	unblock := blockState(t, folder)
+	os.MkdirAll(filepath.Join(markPath(folder, trialID(folder), 0, markRestore), "x"), 0755) // the mark cannot be made
+	if launcherTrial(folder, f.env()) {
+		t.Fatal("started")
+	}
+	sameAs(t, "nothing touched", folder, during)
+	if !strings.Contains(readme(folder), "the restore could not be noted as owed") || !strings.Contains(readme(folder), "nothing was changed") {
+		t.Errorf("README:\n%s", readme(folder))
+	}
+	unblock()
+	os.RemoveAll(markPath(folder, trialID(folder), 0, markRestore))
+}
+
+// F1: a README left from an earlier attempt is never reported after the
+// update ended cleanly.
+func TestAStaleREADMEIsRemovedAtTheNextStart(t *testing.T) {
+	folder := oldInstall(t, nil)
+	os.WriteFile(filepath.Join(folder, readmeName), []byte("Cosmos is NOT started"), 0600)
+	os.WriteFile(filepath.Join(folder, restoreScriptName), []byte("#!/bin/sh"), 0600)
+	if !launcherTrial(folder, (&fakeEnv{}).env()) || present(folder, readmeName) || present(folder, restoreScriptName) || Attention(folder) != "" {
+		t.Error("a stale README stays")
+	}
+	folder = oldInstall(t, newReleaseZip(t))
+	f := &fakeEnv{}
+	installNew(t, folder, newVersion, f)
+	os.WriteFile(filepath.Join(folder, readmeName), []byte("Cosmos is NOT started"), 0600)
+	launcherTrial(folder, f.env()) // a start of the trial: nothing stuck
+	if present(folder, readmeName) {
+		t.Error("a stale README stays during a trial")
+	}
+}
+
+// F5: the notice of a rollback is sent once even when the state can never
+// be removed.
+func TestTheRollbackNoticeIsSentOnce(t *testing.T) {
+	folder := oldInstall(t, newReleaseZip(t))
+	f := &fakeEnv{}
+	installNew(t, folder, newVersion, f)
+	previous := removeState
+	removeState = func(path string) error {
+		if path == trialPath(folder) {
+			return errors.New("read-only file system")
+		}
+		return previous(path)
+	}
+	defer func() { removeState = previous }()
+	notes := 0
+	for i := 0; i < TrialStarts+5; i++ {
+		if !launcherTrial(folder, f.env()) {
+			t.Fatalf("start %d: %s", i, f.out.String())
+		}
+		if _, found := TakeRollbackNote(folder); found {
+			notes++
+		}
+	}
+	if notes != 1 {
+		t.Errorf("the notice was sent %d times", notes)
+	}
+	if !strings.Contains(Attention(folder), "could not be removed") {
+		t.Errorf("attention: %q", Attention(folder))
+	}
+}
+
+// F3: any HTTP answer at Docker's address is "Docker answers", a 400 of a
+// Docker that speaks TLS to the plain request included.
+func TestAnyHTTPAnswerMeansDockerAnswers(t *testing.T) {
+	tlsDocker := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("OK")) }))
+	defer tlsDocker.Close()
+	t.Setenv("DOCKER_HOST", "tcp://"+strings.TrimPrefix(tlsDocker.URL, "https://"))
+	if !dockerAnswers() {
+		t.Error("a TLS Docker was taken for unreachable")
+	}
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusForbidden) }))
+	defer plain.Close()
+	t.Setenv("DOCKER_HOST", "tcp://"+strings.TrimPrefix(plain.URL, "http://"))
+	if !dockerAnswers() {
+		t.Error("a 403 was taken for unreachable")
+	}
+	silent, _ := net.Listen("tcp", "127.0.0.1:0")
+	defer silent.Close()
+	go func() {
+		for {
+			conn, err := silent.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close() // accepts, never answers
+		}
+	}()
+	t.Setenv("DOCKER_HOST", "tcp://"+silent.Addr().String())
+	begun := time.Now()
+	if dockerAnswers() || time.Since(begun) > 5*time.Second {
+		t.Error("a Docker that never answers was taken for reachable, or the wait was not bounded")
+	}
+	closed, _ := net.Listen("tcp", "127.0.0.1:0")
+	address := closed.Addr().String()
+	closed.Close()
+	t.Setenv("DOCKER_HOST", "tcp://"+address)
+	if dockerAnswers() {
+		t.Error("a closed port answers")
+	}
+}
+
+// F5, with a state that can be neither written nor removed: the noted mark
+// keeps the notice from being sent again.
+func TestTheNoticeIsSentOnceWhenTheStateCannotBeWritten(t *testing.T) {
+	folder := oldInstall(t, newReleaseZip(t))
+	f := &fakeEnv{}
+	installNew(t, folder, newVersion, f)
+	unblock := blockState(t, folder)
+	defer unblock()
+	previous := removeState
+	removeState = func(path string) error {
+		if path == trialPath(folder) {
+			return errors.New("read-only file system")
+		}
+		return previous(path)
+	}
+	defer func() { removeState = previous }()
+	notes := 0
+	for i := 0; i < 4; i++ {
+		if !launcherTrial(folder, f.env()) {
+			t.Fatalf("start %d: %s", i, f.out.String())
+		}
+		if note, found := TakeRollbackNote(folder); found {
+			notes++
+			if note.Reason != RollbackUnrecorded {
+				t.Errorf("note %+v", note)
+			}
+		}
+	}
+	if notes != 1 {
+		t.Errorf("the notice was sent %d times", notes)
+	}
+}
+
+// F1: even without the restore mark, a state "trial" whose kept files are
+// of the version on trial while meta.json is back to the version before is
+// a restore cut short, never "installed by other means".
+func TestATrialWithMetaJSONBackIsARestoreNotAnEnd(t *testing.T) {
+	folder := oldInstall(t, newReleaseZip(t))
+	before := snapshot(t, folder)
+	f := &fakeEnv{}
+	installNew(t, folder, newVersion, f)
+	kept, _ := os.ReadFile(filepath.Join(folder, previousFolder, "meta.json"))
+	os.WriteFile(filepath.Join(folder, "meta.json"), kept, 0644)
+	if !TrialPending(folder) {
+		t.Fatal("the server drops the state")
+	}
+	if !launcherTrial(folder, f.env()) {
+		t.Fatal(f.out.String())
+	}
+	sameAs(t, "after the restore", folder, before)
+	if !noTrial(folder) {
+		t.Error("the state is left")
 	}
 }

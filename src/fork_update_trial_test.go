@@ -93,7 +93,7 @@ func TestTheServerCheckOfATrial(t *testing.T) {
 			asked = append(asked, r.Host+r.URL.Path)
 			handler(w, r)
 		}))
-		err := checkServerAnswers(listener{port: portOf(t, server.URL), host: "cosmos.server.local"})
+		err := checkServerAnswers(listener{port: portOf(t, server.URL), host: "cosmos.server.local", apiOnName: true})
 		server.Close()
 		if (err == nil) != c.passes {
 			t.Errorf("status %d, page %d: %v", c.status, c.page, err)
@@ -107,7 +107,7 @@ func TestTheServerCheckOfATrial(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte("{}"))
 	}))
-	if err := checkServerAnswers(listener{port: portOf(t, server.URL), host: "cosmos.server.local"}); err == nil {
+	if err := checkServerAnswers(listener{port: portOf(t, server.URL), host: "cosmos.server.local", apiOnName: true}); err == nil {
 		t.Error("a JSON answer was taken for the panel")
 	}
 	server.Close()
@@ -115,7 +115,7 @@ func TestTheServerCheckOfATrial(t *testing.T) {
 	closed, _ := net.Listen("tcp", "127.0.0.1:0")
 	port := closed.Addr().(*net.TCPAddr).Port
 	closed.Close()
-	if err := checkServerAnswers(listener{port: port, host: "x"}); err == nil {
+	if err := checkServerAnswers(listener{port: port, host: "x", apiOnName: true}); err == nil {
 		t.Error("a closed port passed")
 	}
 }
@@ -131,7 +131,7 @@ func TestTheHTTPSCheckOfATrial(t *testing.T) {
 	}}
 	server.StartTLS()
 	defer server.Close()
-	target := listener{https: true, port: portOf(t, server.URL), host: "cosmos.server.local"}
+	target := listener{https: true, port: portOf(t, server.URL), host: "cosmos.server.local", apiOnName: true}
 	if err := checkServerAnswers(target); err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestTheHTTPSCheckOfATrial(t *testing.T) {
 	// plain HTTP on the HTTPS port: no handshake, no proof
 	plain := httptest.NewServer(panelLike(200, 200))
 	defer plain.Close()
-	if err := checkServerAnswers(listener{https: true, port: portOf(t, plain.URL), host: "x"}); err == nil {
+	if err := checkServerAnswers(listener{https: true, port: portOf(t, plain.URL), host: "x", apiOnName: true}); err == nil {
 		t.Error("a listener without TLS passed the HTTPS check")
 	}
 
@@ -157,12 +157,12 @@ func TestTheHTTPSCheckOfATrial(t *testing.T) {
 		{utils.HTTPConfig{HTTPSCertificateMode: modes["SELFSIGNED"], HTTPPort: "8080", HTTPSPort: "8443"}, false, 8080},
 		{utils.HTTPConfig{HTTPSCertificateMode: modes["LETSENCRYPT"], TLSCert: "c", TLSKey: "k", HTTPPort: "80", HTTPSPort: "443"}, true, 443},
 	} {
-		got, err := listenerOf(c.config)
+		got, err := listenerOf(utils.Config{HTTPConfig: c.config})
 		if err != nil || got.https != c.https || got.port != c.port {
 			t.Errorf("%+v: %+v %v", c.config.HTTPSCertificateMode, got, err)
 		}
 	}
-	if _, err := listenerOf(utils.HTTPConfig{HTTPPort: "80; rm"}); err == nil {
+	if _, err := listenerOf(utils.Config{HTTPConfig: utils.HTTPConfig{HTTPPort: "80; rm"}}); err == nil {
 		t.Error("a port that is no port")
 	}
 }
@@ -191,7 +191,9 @@ func TestANewVersionProvesItself(t *testing.T) {
 	checks := trialChecks{
 		config:   func() error { return nil },
 		database: func() error { dbCalls++; return nil },
-		http:     func() error { return checkServerAnswers(listener{port: portOf(t, server.URL), host: "x"}) },
+		http: func() error {
+			return checkServerAnswers(listener{port: portOf(t, server.URL), host: "x", apiOnName: true})
+		},
 	}
 	slept := []time.Duration{}
 	sleep := func(d time.Duration) {
@@ -411,8 +413,8 @@ func TestAPlannedExitIsHeard(t *testing.T) {
 	source := readSource(t, "fork_update_trial.go")
 	arm := source[strings.Index(source, "func armUpdateTrialStop()"):]
 	arm = arm[:strings.Index(arm, "\n}\n")]
-	if !strings.Contains(arm, "utils.OnExit(cleanStop)") || !strings.Contains(arm, "utils.OnPlannedExit(cleanStop)") || !strings.Contains(arm, "utils.OnFatal(") {
-		t.Error("a stop that was asked for, or a Docker fatal, is not noted")
+	if !strings.Contains(arm, "trialHooks{onExit: utils.OnExit, onPlannedExit: utils.OnPlannedExit, onFatal: utils.OnFatal}") {
+		t.Error("the marks are not registered with the process's exit hooks")
 	}
 	// the very first thing main does, before any other exit hook exists
 	index := readSource(t, "index.go")
@@ -473,5 +475,113 @@ func TestTheProofFitsTheWatchdog(t *testing.T) {
 	}
 	if forkrelease.WatchdogWindow < 15*time.Minute {
 		t.Errorf("a start gets %v to answer: a migration after a reboot can take longer", forkrelease.WatchdogWindow)
+	}
+}
+
+// At run time: nothing is armed without a trial of the installed version
+// or for a command of the binary; with one, the clean stop goes to the
+// first exit hook and marks this start.
+func TestArmingAtRunTime(t *testing.T) {
+	count := 0
+	var exit func()
+	var fatal func(string)
+	hooks := trialHooks{onExit: func(f func()) { count++; exit = f }, onPlannedExit: func(func()) { count++ }, onFatal: func(f func(string)) { count++; fatal = f }}
+	if run := armTrialStop([]string{"cosmos"}, t.TempDir(), hooks); run != nil || count != 0 {
+		t.Fatalf("armed without a trial: %+v, %d hooks", run, count)
+	}
+	folder := trialFolderWith(t)
+	if run := armTrialStop([]string{"cosmos", "install"}, folder, hooks); run != nil || count != 0 {
+		t.Fatal("armed for a command")
+	}
+	os.WriteFile(filepath.Join(folder, "meta.json"), []byte(`{"version": "0.24.0-fork.9"}`), 0644)
+	if run := armTrialStop([]string{"cosmos"}, folder, hooks); run != nil || count != 0 {
+		t.Fatal("armed for a version that is not the one on trial")
+	}
+	os.WriteFile(filepath.Join(folder, "meta.json"), []byte(`{"version": "`+trialVersion+`"}`), 0644)
+	run := armTrialStop([]string{"cosmos"}, folder, hooks)
+	if run == nil || *run != trialStart || count != 3 {
+		t.Fatalf("not armed: %+v, %d hooks", run, count)
+	}
+	exit()
+	fatal("Docker connection died, couldn't recover... Restarting")
+	for _, kind := range []string{"clean", "docker"} {
+		if _, err := os.Stat(filepath.Join(folder, "cosmos"+"-update.mark."+trialID+".1."+kind)); err != nil {
+			t.Errorf("no %s mark: %v", kind, err)
+		}
+	}
+}
+
+// F4: the proof against the server's own host checks (the middlewares of
+// the API and the panel, configured as InitServer does), for every form of
+// hostname. The whole router is not built here: InitServer needs the
+// static folder, Docker and the databases.
+func TestTheProofPassesTheServersHostChecks(t *testing.T) {
+	previous := utils.GetBaseMainConfig()
+	defer utils.LoadBaseMainConfig(previous)
+	for _, c := range []struct {
+		hostname  string
+		acceptAll bool
+		setup     bool
+	}{
+		{hostname: "cosmos.server.local"}, {hostname: "cosmos.server.local:8443"}, {hostname: "192.0.2.10"}, {hostname: "192.0.2.10:8080"},
+		{hostname: "[2001:db8::1]"}, {hostname: "[2001:db8::1]:8443"}, {hostname: "0.0.0.0"}, {hostname: "", acceptAll: true},
+		{hostname: "cosmos.server.local", setup: true},
+	} {
+		config := utils.Config{}
+		config.NewInstall = c.setup
+		config.HTTPConfig.Hostname = c.hostname
+		config.HTTPConfig.AcceptAllInsecureHostname = c.acceptAll
+		config.HTTPConfig.HTTPSCertificateMode = utils.HTTPSCertModeList["DISABLED"]
+		utils.LoadBaseMainConfig(config)
+
+		var api, ui http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusUnauthorized) }), panelLike(200, 200)
+		if !c.acceptAll { // as InitServer adds them
+			api = utils.EnsureHostname(utils.EnsureHostnameCosmosAPI(api))
+			ui = utils.EnsureHostname(ui)
+		}
+		mux := http.NewServeMux()
+		mux.Handle("/cosmos/api/status", api)
+		mux.Handle("/cosmos-ui/", ui)
+		server := httptest.NewServer(mux)
+		config.HTTPConfig.HTTPPort = strconv.Itoa(portOf(t, server.URL))
+		target, err := listenerOf(config)
+		if err == nil {
+			err = checkServerAnswers(target)
+		}
+		server.Close()
+		if err != nil {
+			t.Errorf("%q (accept all %v, setup %v): %v", c.hostname, c.acceptAll, c.setup, err)
+		}
+	}
+	// a server that answers the API with 400 on a plain name is not healthy
+	config := utils.Config{}
+	config.HTTPConfig.Hostname = "cosmos.server.local"
+	broken := httptest.NewServer(panelLike(400, 200))
+	defer broken.Close()
+	config.HTTPConfig.HTTPPort = strconv.Itoa(portOf(t, broken.URL))
+	target, _ := listenerOf(config)
+	if checkServerAnswers(target) == nil {
+		t.Error("a 400 of the API on a plain name passed")
+	}
+}
+
+// A server in setup is proven by the local checks and its panel page: its
+// status route asks Docker without a time limit.
+func TestASetupIsProvenWithoutTheStatusRoute(t *testing.T) {
+	previous := trialHTTPTimeout
+	trialHTTPTimeout = time.Second
+	defer func() { trialHTTPTimeout = previous }()
+	hanging := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/cosmos/api/status" {
+			time.Sleep(3 * time.Second) // a dockerd that hangs
+		}
+		panelLike(200, 200)(w, r)
+	}))
+	defer hanging.Close()
+	if err := checkServerAnswers(listener{port: portOf(t, hanging.URL), host: "x", setup: true, apiOnName: true}); err != nil {
+		t.Errorf("a server in setup failed: %v", err)
+	}
+	if err := checkServerAnswers(listener{port: portOf(t, hanging.URL), host: "x", apiOnName: true}); err == nil {
+		t.Error("a hanging status passed after the setup")
 	}
 }

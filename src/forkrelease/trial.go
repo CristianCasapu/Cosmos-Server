@@ -98,6 +98,8 @@ const (
 	markAnswered = "answered"
 	markClean    = "clean"
 	markDocker   = "docker"
+	markRestore  = "restore" // run 0: a restore is owed although the state could not say so
+	markNoted    = "noted"   // run 0: the note of a rollback was written
 
 	failedKept       = 20
 	maxKeptFiles     = 20000
@@ -259,6 +261,9 @@ func lockState(folder string) (func(), error) {
 	}, nil
 }
 
+// removeState removes the state file. A variable so tests can make it fail.
+var removeState = os.Remove
+
 // changeTrial reads the state under the lock and lets change edit it: keep
 // writes it back, drop removes it, neither leaves it. A missing or unusable
 // state is given to change as readErr.
@@ -272,7 +277,7 @@ func changeTrial(folder string, change func(t *Trial, readErr error) (keep bool,
 	keep, drop := change(&trial, readErr)
 	switch {
 	case drop:
-		if err := os.Remove(trialPath(folder)); err != nil && !os.IsNotExist(err) {
+		if err := removeState(trialPath(folder)); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 		syncFolder(folder)
@@ -409,7 +414,7 @@ func writeMark(folder string, id string, run int, kind string) error {
 	}
 	file, err := os.OpenFile(markPath(folder, id, run, kind), os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0600)
 	if err != nil {
-		if os.IsExist(err) {
+		if os.IsExist(err) && hasMark(folder, id, run, kind) {
 			return nil
 		}
 		return err
@@ -471,9 +476,10 @@ func LauncherTrial(folder string) {
 // launcherTrial: false when the server must not be started (an owed restore
 // did not complete).
 func launcherTrial(folder string, env launcherEnv) bool {
+	resolved(folder) // what still needs a person is written again below
 	trial, err := readTrial(folder)
 	if errors.Is(err, os.ErrNotExist) {
-		resolved(folder)
+		clearMarks(folder, "")
 		return true
 	}
 	if err != nil {
@@ -503,10 +509,20 @@ func launcherTrial(folder string, env launcherEnv) bool {
 		return restoreNow(folder, trial, env)
 	}
 
-	// stateTrial
+	// stateTrial: a restore that could not be noted in the state comes first
+	if restoreOwed(folder, trial) {
+		fmt.Fprintln(env.out, "Update: putting back the files of "+SafeText(trial.PreviousVersion)+", owed since an earlier start.")
+		trial.State, trial.Purpose, trial.Touched = stateRestoring, purposeUnrecorded, true
+		if trial.Cause == "" {
+			trial.Cause = "the state of the update could not be written"
+		}
+		noteState(folder, trial, env)
+		return restoreNow(folder, trial, env)
+	}
 	if installed, err := installedVersion(folder); err == nil && installed != trial.NewVersion {
 		// installed by other means since: not this trial's business any more.
-		// A meta.json that cannot be read never ends a trial.
+		// A meta.json that cannot be read never ends a trial (restoreOwed
+		// above: neither does one put back by a restore cut short).
 		changeTrial(folder, func(t *Trial, readErr error) (bool, bool) {
 			return false, readErr == nil && t.State == stateTrial && t.NewVersion == trial.NewVersion
 		})
@@ -534,6 +550,9 @@ func launcherTrial(folder string, env launcherEnv) bool {
 		if readErr != nil || t.State != stateTrial || t.Run != last || t.ID != trial.ID {
 			return false, false
 		}
+		if t.ID == "" {
+			t.ID = newTrialID() // a state of the first form (never released) had none
+		}
 		switch {
 		case last == 0 || clean:
 		case excused:
@@ -556,7 +575,7 @@ func launcherTrial(folder string, env launcherEnv) bool {
 		// never run the new version unwatched and uncounted: go back
 		fmt.Fprintln(env.out, "[ERROR] Update: the trial of "+SafeText(trial.NewVersion)+" cannot be recorded ("+SafeText(errorText(err))+"); going back to "+SafeText(trial.PreviousVersion)+", without counting it against "+SafeText(trial.NewVersion)+".")
 		trial.State, trial.Purpose, trial.Touched, trial.Cause = stateRestoring, purposeUnrecorded, true, SafeText(errorText(err))
-		noteState(folder, trial, env)
+		noteState(folder, trial, env) // restoreNow makes sure the restore is owed on disk before it changes a file
 		return restoreNow(folder, trial, env)
 	}
 	if rollBack {
@@ -584,6 +603,44 @@ func errorText(err error) string {
 		return "the state changed meanwhile"
 	}
 	return pathless(err).Error()
+}
+
+// restoreOwed: the state on disk says "trial" but a restore was begun: the
+// restore mark is there, or the files kept are of the update on trial while
+// meta.json says another version (a restore cut short after meta.json was
+// back).
+func restoreOwed(folder string, trial Trial) bool {
+	if trial.ID != "" && hasMark(folder, trial.ID, 0, markRestore) {
+		return true
+	}
+	installed, err := installedVersion(folder)
+	if err != nil || installed == trial.NewVersion {
+		return false
+	}
+	manifest, err := readKept(folder)
+	return err == nil && manifest.NewVersion == trial.NewVersion && manifest.PreviousVersion == trial.PreviousVersion
+}
+
+// owedOnDisk makes sure that what is on disk owes the restore before the
+// first file is changed: a state "installing" or "restoring", an unreadable
+// state (always undone from the copy kept), or else the empty restore mark.
+// An error: nothing may be changed.
+func owedOnDisk(folder string) error {
+	trial, err := readTrial(folder)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return errors.New("the state of the update is gone, so a restore could not be noted as owed")
+	case err != nil:
+		return nil // unreadable: the next start undoes from the copy kept all the same
+	case trial.State == stateInstalling || trial.State == stateRestoring:
+		return nil
+	case trial.ID == "":
+		return errors.New("the restore could not be noted as owed (the state has no trial id)")
+	}
+	if err := writeMark(folder, trial.ID, 0, markRestore); err != nil {
+		return fmt.Errorf("the restore could not be noted as owed: %v", pathless(err))
+	}
+	return nil
 }
 
 // noteState writes the state when it can. A full disk must not keep a

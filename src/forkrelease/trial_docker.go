@@ -31,9 +31,11 @@ func dockerAddress(host string) (network string, address string, ok bool) {
 	return "", "", false
 }
 
-// dockerAnswers: Docker's /_ping answers 200 within 2 seconds. A form of
-// DOCKER_HOST this code does not know counts as answering (the start is
-// then counted).
+// dockerAnswers: something answers HTTP at Docker's address within 2
+// seconds. Any answer counts, a 400 of a Docker that speaks TLS to this
+// plain request included: only no connection or no answer is "Docker
+// cannot be reached". That errs towards counting the start. A form of
+// DOCKER_HOST this code does not know counts as answering too.
 var dockerAnswers = func() bool {
 	network, address, ok := dockerAddress(os.Getenv("DOCKER_HOST"))
 	if !ok {
@@ -49,5 +51,5 @@ var dockerAnswers = func() bool {
 		return false
 	}
 	line, err := bufio.NewReader(conn).ReadString('\n')
-	return err == nil && strings.HasPrefix(line, "HTTP/") && strings.Contains(line, " 200")
+	return err == nil && strings.HasPrefix(line, "HTTP/")
 }

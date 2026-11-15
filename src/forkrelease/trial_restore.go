@@ -44,6 +44,12 @@ func restoreNow(folder string, trial Trial, env launcherEnv) bool {
 			trial.Touched = true
 			noteState(folder, trial, env)
 		}
+		// before the first file changes, the restore must be owed on disk:
+		// a start after a cut is never let run a half-restored folder
+		if err := owedOnDisk(folder); err != nil {
+			explain(folder, trial, fmt.Errorf("%v; nothing was changed", err), env)
+			return false
+		}
 		if err := putBack(folder, manifest); err != nil {
 			explain(folder, trial, err, env)
 			return false
@@ -61,18 +67,13 @@ func restoreNow(folder string, trial Trial, env launcherEnv) bool {
 			if err := addFailed(folder, trial.NewVersion); err != nil {
 				// while the state stays, no update is staged or unpacked: the
 				// failed version cannot come back meanwhile
-				if !trial.Noted && writeNote(folder, rollbackNote(trial)) == nil {
-					trial.Noted = true
-					noteState(folder, trial, env)
-				}
+				noteOnce(folder, &trial, env)
 				attention(folder, "Cosmos went back to version "+trial.PreviousVersion+" and runs it, but "+trial.NewVersion+" could not be noted as failed in "+
 					filepath.Join(folder, failedName)+" ("+SafeText(pathless(err).Error())+"). Until that file can be written, no update is installed; the launcher tries again at every start. Fix the cause (a folder or a read-only file system in the way, a full disk).", env)
 				return true
 			}
 		}
-		if !trial.Noted {
-			writeNote(folder, rollbackNote(trial))
-		}
+		noteOnce(folder, &trial, env)
 		if trial.Purpose == purposeRollback {
 			fmt.Fprintln(env.out, "Update: back on "+SafeText(trial.PreviousVersion)+"; "+SafeText(trial.NewVersion)+" is not installed again. To allow it again, remove the line "+SafeText(trial.NewVersion)+" from "+filepath.Join(folder, failedName)+".")
 		} else {
@@ -94,7 +95,9 @@ func restoreNow(folder string, trial Trial, env launcherEnv) bool {
 		fmt.Fprintln(env.out, "[ERROR] Update NOT installed: "+reason+".")
 	}
 	if err := changeTrial(folder, func(t *Trial, readErr error) (bool, bool) {
-		return false, readErr == nil && (t.State == stateRestoring || t.State == stateInstalling)
+		// the state of this update, whatever it could say (it may still say
+		// "trial" when it could not be written, or be unreadable)
+		return false, readErr != nil || (t.NewVersion == trial.NewVersion && t.PreviousVersion == trial.PreviousVersion)
 	}); err != nil {
 		attention(folder, "Cosmos went back to version "+trial.PreviousVersion+" and runs it, but "+trialPath(folder)+" could not be removed ("+
 			SafeText(pathless(err).Error())+"). Until it can, no update is installed; the launcher tries again at every start. Fix the cause (a read-only file system, a full disk), or remove that file by hand.", env)
@@ -103,6 +106,22 @@ func restoreNow(folder string, trial Trial, env launcherEnv) bool {
 	clearMarks(folder, "")
 	resolved(folder)
 	return true
+}
+
+// noteOnce writes the note for the server once: that it was written is
+// kept in the state and, for a state that cannot be written, in a mark.
+func noteOnce(folder string, trial *Trial, env launcherEnv) {
+	if trial.Noted || (trial.ID != "" && hasMark(folder, trial.ID, 0, markNoted)) {
+		return
+	}
+	if writeNote(folder, rollbackNote(*trial)) != nil {
+		return
+	}
+	trial.Noted = true
+	if trial.ID != "" {
+		writeMark(folder, trial.ID, 0, markNoted)
+	}
+	noteState(folder, *trial, env)
 }
 
 func rollbackNote(trial Trial) RollbackNote {
@@ -153,6 +172,10 @@ func verifyKept(folder string, manifest keptManifest) error {
 	}
 	return nil
 }
+
+// afterPutBack runs after each replaced file is back. A variable so tests
+// can cut a restore short after a number of files.
+var afterPutBack = func(path string) error { return nil }
 
 // putBack removes what the update added and puts every replaced file back.
 // A file already back is left as it is.
@@ -232,6 +255,9 @@ func putBack(folder string, manifest keptManifest) error {
 		}
 		if err := os.Rename(tmp, target); err != nil {
 			os.Remove(tmp)
+			return err
+		}
+		if err := afterPutBack(f.Path); err != nil {
 			return err
 		}
 	}

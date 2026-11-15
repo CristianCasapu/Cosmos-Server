@@ -25,7 +25,7 @@ func TrialPending(folder string) bool {
 		return true // the launcher decides at the next start
 	}
 	installed, err := installedVersion(folder)
-	if err != nil || installed == trial.NewVersion {
+	if err != nil || installed == trial.NewVersion || restoreOwed(folder, trial) {
 		return true
 	}
 	dropped := false

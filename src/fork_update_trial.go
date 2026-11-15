@@ -76,7 +76,7 @@ func (c trialChecks) run() error {
 func serverTrialChecks() trialChecks {
 	return trialChecks{
 		config: func() error {
-			_, err := listenerOf(utils.GetMainConfig().HTTPConfig)
+			_, err := listenerOf(utils.GetMainConfig())
 			return err
 		},
 		database: func() error {
@@ -99,7 +99,7 @@ func serverTrialChecks() trialChecks {
 		},
 		http: func() error {
 			// GetMainConfig has COSMOS_HTTP_PORT / COSMOS_HTTPS_PORT applied, like the listener
-			target, err := listenerOf(utils.GetMainConfig().HTTPConfig)
+			target, err := listenerOf(utils.GetMainConfig())
 			if err != nil {
 				return err
 			}
@@ -132,11 +132,22 @@ func localDatabasesAnswer(d trialDatabases) error {
 	return nil
 }
 
-// listener is where this server is asked on 127.0.0.1.
+// listener is where this server is asked on 127.0.0.1, and how.
 type listener struct {
 	https bool
 	port  int
-	host  string // the configured hostname: Host header and TLS server name
+	host  string // the configured hostname without port or brackets: Host header and TLS server name
+	// apiOnName: the server's host check of the API (EnsureHostnameCosmosAPI)
+	// can let this hostname through, so /cosmos/api/status must answer as a
+	// healthy server does. False for a hostname with a port or an IPv6
+	// literal: that check compares the whole configured hostname with the
+	// request's host before its first ":", which never matches them, so a
+	// healthy server answers 400 there to everyone.
+	apiOnName bool
+	// setup: the setup is not finished. Its status route asks Docker without
+	// a time limit, so it is not asked: the local checks and the panel's page
+	// prove a server that serves nobody yet.
+	setup bool
 }
 
 func trialPort(value string) (int, error) {
@@ -147,8 +158,10 @@ func trialPort(value string) (int, error) {
 	return port, nil
 }
 
-// listenerOf decides, as StartServer does, whether the server serves HTTPS.
-func listenerOf(config utils.HTTPConfig) (listener, error) {
+// listenerOf decides, as StartServer does, whether the server serves HTTPS,
+// and takes the hostname apart as the server's host checks do.
+func listenerOf(main utils.Config) (listener, error) {
+	config := main.HTTPConfig
 	mode := config.HTTPSCertificateMode
 	cert, key := config.TLSCert, config.TLSKey
 	if mode == utils.HTTPSCertModeList["SELFSIGNED"] {
@@ -164,14 +177,19 @@ func listenerOf(config utils.HTTPConfig) (listener, error) {
 	if err != nil {
 		return listener{}, errors.New("the configuration holds no usable port to listen on")
 	}
-	host := config.Hostname
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
+	configured := config.Hostname
+	host := configured
+	if h, _, err := net.SplitHostPort(configured); err == nil {
+		host = h // name:port, IPv4:port, [IPv6]:port
+	} else if strings.HasPrefix(configured, "[") && strings.HasSuffix(configured, "]") {
+		host = configured[1 : len(configured)-1] // [IPv6]
 	}
-	if host == "" {
-		host = "localhost"
+	anyHost := main.NewInstall || configured == "0.0.0.0" || config.AcceptAllInsecureHostname
+	if host == "" || host == "0.0.0.0" {
+		host = "localhost" // any name is let through then
 	}
-	return listener{https: https, port: port, host: host}, nil
+	return listener{https: https, port: port, host: host, setup: main.NewInstall,
+		apiOnName: anyHost || !strings.Contains(configured, ":")}, nil
 }
 
 // checkServerAnswers asks the server as a browser would, on 127.0.0.1:
@@ -199,12 +217,18 @@ func checkServerAnswers(target listener) error {
 	base := scheme + "://" + net.JoinHostPort(target.host, strconv.Itoa(target.port))
 	where := scheme + " on port " + strconv.Itoa(target.port)
 
-	status, _, _, err := ask(client, base+"/cosmos/api/status")
-	if err != nil {
-		return errors.New("the server does not answer (" + where + ")")
-	}
-	if !(status >= 200 && status < 300) && status != http.StatusUnauthorized && status != http.StatusForbidden {
-		return errors.New("the server answers /cosmos/api/status with status " + strconv.Itoa(status) + " (" + where + ")")
+	if !target.setup {
+		status, _, _, err := ask(client, base+"/cosmos/api/status")
+		if err != nil {
+			return errors.New("the server does not answer (" + where + ")")
+		}
+		healthy := (status >= 200 && status < 300) || status == http.StatusUnauthorized || status == http.StatusForbidden
+		if !target.apiOnName {
+			healthy = status < 500 // its own host check refuses this hostname form to everyone
+		}
+		if !healthy {
+			return errors.New("the server answers /cosmos/api/status with status " + strconv.Itoa(status) + " (" + where + ")")
+		}
 	}
 	status, kind, body, err := ask(client, base+"/cosmos-ui/")
 	if err != nil {
@@ -288,32 +312,46 @@ var armedRun *forkrelease.TrialRun
 // on, a planned restart, and a Docker that cannot be reached are noted for
 // the launcher, the stop first, before the other exit hooks run.
 func armUpdateTrialStop() {
-	if len(os.Args) != 1 { // a command of the binary, not the server
-		return
-	}
 	folder, err := trialFolder()
 	if err != nil {
 		return
 	}
+	armedRun = armTrialStop(os.Args, folder, trialHooks{onExit: utils.OnExit, onPlannedExit: utils.OnPlannedExit, onFatal: utils.OnFatal})
+}
+
+// trialHooks are where the stop marks are registered. Fields for the tests.
+type trialHooks struct {
+	onExit        func(func())
+	onPlannedExit func(func())
+	onFatal       func(func(string))
+}
+
+// armTrialStop registers the marks when folder holds a trial of the
+// installed version and args are those of the server (no command). The
+// start on trial, or nil.
+func armTrialStop(args []string, folder string, hooks trialHooks) *forkrelease.TrialRun {
+	if len(args) != 1 { // a command of the binary, not the server
+		return nil
+	}
 	run, ok := forkrelease.TrialOf(folder)
 	if !ok {
-		return
+		return nil
 	}
-	armedRun = &run
 	cleanStop := func() {
 		if err := forkrelease.MarkCleanStop(folder, run); err != nil {
 			utils.Error("Update: the clean stop of the version on trial could not be noted; the launcher counts this start as failed", err)
 		}
 	}
-	utils.OnExit(cleanStop) // the first exit hook: it runs before rclone, DNS and Telegram
-	utils.OnPlannedExit(cleanStop)
-	utils.OnFatal(func(message string) {
+	hooks.onExit(cleanStop) // the first exit hook: it runs before rclone, DNS and Telegram
+	hooks.onPlannedExit(cleanStop)
+	hooks.onFatal(func(message string) {
 		if dockerFatal(message) {
 			if err := forkrelease.MarkDockerUnreachable(folder, run); err != nil {
 				utils.Error("Update: that Docker could not be reached could not be noted", err)
 			}
 		}
 	})
+	return &run
 }
 
 // dockerFatal: the fatal error is about Docker not being reachable.
