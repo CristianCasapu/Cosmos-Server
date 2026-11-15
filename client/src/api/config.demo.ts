@@ -115,6 +115,9 @@ const homeNamesCheck = cloudflareNone;
 // Fork addition: no Turnstile in the demo
 const turnstileStatus = cloudflareNone;
 const turnstileChange = cloudflareNone;
+// Fork addition: no blocks at Cloudflare in the demo
+const edgeBlocks = cloudflareNone;
+const edgeBlocksChange = cloudflareNone;
 const cloudflarePreview = cloudflareNone;
 const cloudflareTakeOver = cloudflareNone;
 const cloudflareShield = cloudflareNone;
@@ -301,6 +304,8 @@ export {
   homeNamesCheck,
   turnstileStatus,
   turnstileChange,
+  edgeBlocks,
+  edgeBlocksChange,
   cloudflareCheck,
   cloudflarePreview,
   cloudflareTakeOver,

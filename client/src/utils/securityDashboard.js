@@ -37,6 +37,7 @@ export const LINKS = {
   users: { url: '/cosmos-ui/config-users', label: ['security.link.users', 'Open the users'] },
   shield: { url: '/cosmos-ui/config-url/shield', label: ['security.link.shield', 'Open SmartShield'] },
   urls: { url: '/cosmos-ui/config-url', label: ['security.link.urls', 'Open the URLs'] },
+  domains: { url: '/cosmos-ui/config-general/https', label: ['security.link.domains', 'Open the domains'] }, // Fork addition: blocks at Cloudflare
 };
 
 // stopped: 'yes' Cosmos refused or blocked it; 'no' it was let through (not
@@ -254,6 +255,14 @@ export const KIND_TEXT = {
     what: 'Someone asked for a file that attack tools look for (/.env, /wp-login.php, /.git/config and the like). It does not exist here.',
     stopped: 'yes',
     todo: 'Nothing to do: automated scanners try this on every server on the internet.',
+  },
+  // Fork addition: blocks at Cloudflare's edge (src/edgeblock)
+  'edge.blocked': {
+    label: 'Blocked at Cloudflare',
+    what: 'An address that came through Cloudflare kept offending: Cloudflare now blocks or challenges it before it reaches the server, for a limited time.',
+    stopped: 'yes',
+    todo: 'Nothing to do. If it is one of your own devices, lift the block in the list of the card "Block abusers at Cloudflare".',
+    link: 'domains',
   },
   'recorder.dropped': {
     label: 'Security events lost',

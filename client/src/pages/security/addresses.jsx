@@ -13,6 +13,7 @@ import { ConfirmModalDirect } from '../../components/confirmModal';
 import PermissionGuard from '../../components/permissionGuard';
 import { PERM_CONFIGURATION } from '../../utils/permissions';
 import { BAN_TEXT, banOf, kindText, shorten } from '../../utils/securityDashboard';
+import { EdgeBlockButton, EdgeBlockedChip } from '../../components/edgeBlocks'; // Fork addition: blocks at Cloudflare's edge
 
 const Text = ({ value, max }) => {
   const s = shorten(value, max);
@@ -80,6 +81,7 @@ const Addresses = ({ overview, bans, bansKnown, catalogue, onShowAddress, onUnba
               <Typography variant="caption" color="textSecondary">{where(a)}</Typography>
               {narrow && <Typography variant="body2" sx={{ overflowWrap: 'break-word' }}>{did(a)}</Typography>}
               {narrow && bansKnown && banOf(bans, a.ip) && <Box>{blocked(a)}</Box>}
+              {narrow && <EdgeBlockedChip address={a.ip} />}
             </Stack>,
           },
           {
@@ -101,7 +103,7 @@ const Addresses = ({ overview, bans, bansKnown, catalogue, onShowAddress, onUnba
           bansKnown ? {
             title: t('security.addresses.now', 'Now'),
             screenMin: 'sm',
-            field: (a) => blocked(a),
+            field: (a) => <Stack spacing={0.5} alignItems="flex-start">{blocked(a)}<EdgeBlockedChip address={a.ip} /></Stack>, // Fork addition: and Cloudflare's block
           } : null,
           {
             title: '',
@@ -119,6 +121,7 @@ const Addresses = ({ overview, bans, bansKnown, catalogue, onShowAddress, onUnba
                     {!narrow && t('security.addresses.show', 'Incidents')}
                   </Button>
                 </Tooltip>
+                {!a.local && <EdgeBlockButton address={a.ip} narrow={narrow} />}{/* Fork addition: block at Cloudflare's edge */}
                 {ban && <PermissionGuard permission={PERM_CONFIGURATION}>
                   <Tooltip title={unbanLabel}>
                     <Button size="small" variant="outlined" color="error" sx={compact} startIcon={<DeleteOutlined />} onClick={() => setConfirmUnban(a.ip)} aria-label={narrow ? unbanLabel : undefined}>
