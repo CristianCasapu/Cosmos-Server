@@ -59,30 +59,7 @@ func at(t time.Time) string {
 }
 
 // duration says how long, in words.
-func duration(d time.Duration) string {
-	if d < time.Minute {
-		return "less than a minute"
-	}
-	minutes := int(d.Round(time.Minute) / time.Minute)
-	if minutes < 60 {
-		if minutes == 1 {
-			return "1 minute"
-		}
-		return strconv.Itoa(minutes) + " minutes"
-	}
-	hours, rest := minutes/60, minutes%60
-	text := strconv.Itoa(hours) + " hour"
-	if hours > 1 {
-		text += "s"
-	}
-	if rest > 0 {
-		text += " " + strconv.Itoa(rest) + " minute"
-		if rest > 1 {
-			text += "s"
-		}
-	}
-	return text
-}
+func duration(d time.Duration) string { return utils.NotificationDuration(d) }
 
 func portName(m Mapping) string {
 	return m.Name + " " + strconv.Itoa(m.WantedPort) + "/" + m.Protocol

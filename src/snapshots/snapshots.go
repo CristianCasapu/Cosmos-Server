@@ -135,8 +135,30 @@ var notifyFailure = func(summary string) {
 		Message:   "header.notification.message.snapshotsFailed",
 		Vars:      summary,
 		Level:     "error",
+		Fork:      failureInfo(summary),
 	})
 }
+
+// failureThread is what a run's notice is resolved by: the next clean run.
+const failureThread = "snapshots"
+
+// failureInfo says a run that did not go cleanly in words.
+func failureInfo(summary string) *utils.NotificationInfo {
+	return &utils.NotificationInfo{
+		Kind: "snapshots.failed", Thread: failureThread,
+		Subject:  &utils.NotificationSubject{Type: "service", Name: "Incremental backup", Link: "/cosmos-ui/config-general/general"},
+		What:     utils.NText("notif.snapshots.failed.what", "summary", summary),
+		Means:    utils.NText("notif.snapshots.failed.means"),
+		Doing:    utils.NText("notif.snapshots.failed.doing"),
+		Steps:    []utils.NotificationStep{{NotificationText: *utils.NText("notif.step.snapshots.open"), Link: "/cosmos-ui/config-general/general"}},
+		Raw:      summary,
+		Facts:    []utils.NotificationFact{{Key: "notif.fact.summary", Value: summary}},
+		Security: &utils.NotificationSecurity{Kinds: []string{"snapshot.*"}},
+	}
+}
+
+// resolveFailure ends the notice of an earlier run. A variable for the tests.
+var resolveFailure = func() { utils.ResolveThread(failureThread) }
 
 // GetStatus returns what is running and the outcome of the last run.
 func GetStatus() Status {
@@ -677,5 +699,7 @@ func runAll(cfg utils.SnapshotsConfig) {
 			summary = string(runes[:maxSummaryLength]) + "…"
 		}
 		notifyFailure(summary)
+	} else {
+		resolveFailure()
 	}
 }

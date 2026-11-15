@@ -570,3 +570,28 @@ func SetNotificationRecipients(recipients func(group string) []string) func() {
 	notificationRecipients = recipients
 	return func() { notificationRecipients = previous }
 }
+
+// NotificationDuration says how long, in words: "14 minutes", "1 hour 5 minutes".
+func NotificationDuration(d time.Duration) string {
+	if d < time.Minute {
+		return "less than a minute"
+	}
+	minutes := int(d.Round(time.Minute) / time.Minute)
+	plural := func(n int, word string) string {
+		if n == 1 {
+			return "1 " + word
+		}
+		return strconv.Itoa(n) + " " + word + "s"
+	}
+	if minutes < 60 {
+		return plural(minutes, "minute")
+	}
+	if minutes < 48*60 {
+		text := plural(minutes/60, "hour")
+		if minutes%60 > 0 {
+			text += " " + plural(minutes%60, "minute")
+		}
+		return text
+	}
+	return plural(minutes/(24*60), "day")
+}

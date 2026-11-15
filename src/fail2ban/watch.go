@@ -58,6 +58,7 @@ func look(previous map[banKey]bool) map[banKey]bool {
 		return nil // nothing to compare with once Fail2ban appears
 	}
 	banned, err := bannedNow()
+	noteAnswer(err == nil, configInstalled(), time.Now())
 	if err != nil {
 		// not running, or no answer: keep what was known, so that bans are
 		// not recorded a second time when it answers again

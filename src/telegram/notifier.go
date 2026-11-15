@@ -578,6 +578,7 @@ func (n *notifier) succeeded() {
 	n.mu.Unlock()
 	if wasFailing {
 		n.logf("Telegram: messages are delivered again")
+		go resolveInPanel()
 	}
 }
 

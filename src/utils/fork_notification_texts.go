@@ -298,6 +298,8 @@ var notificationTexts = map[string]string{
 	"notif.fact.release":   "Release",
 	"notif.fact.job":       "Job",
 	"notif.fact.downFor":   "Down for",
+	"notif.fact.metric":    "Metric",
+	"notif.fact.condition": "Condition",
 	// --- the state now (details view)
 	"notif.state.col.port":              "Port",
 	"notif.state.col.to":                "Forwarded to",
