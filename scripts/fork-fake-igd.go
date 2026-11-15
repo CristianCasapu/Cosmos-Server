@@ -22,6 +22,12 @@
 //	                                service restarts does (0: answer again)
 //	GET /calls                      what was asked, in order
 //
+// With IGD_NAT_CHAIN=<chain> (in a router container with NET_ADMIN, the
+// chain made in the nat table and jumped to from PREROUTING on the WAN side)
+// the table is also applied: every TCP mapping becomes a DNAT rule in that
+// chain, so a mapping that goes away really stops the forward
+// (scripts/fork-reach-watch-e2e.sh).
+//
 // Like miniupnpd it updates a mapping its own client asks for again and
 // refuses one another client holds with 718. The public address it reports
 // is 203.0.113.7 (a documentation address).
@@ -44,10 +50,12 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 type forward struct {
@@ -199,7 +207,44 @@ func control(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// syncNAT applies the table to the chain: one DNAT rule per TCP mapping.
+// The values are checked as a port and an address before they are passed.
+func syncNAT(chain string) {
+	applied := "-"
+	for range time.Tick(500 * time.Millisecond) {
+		mu.Lock()
+		rules := [][2]string{}
+		for _, key := range keys() {
+			f := table[key]
+			parts := strings.SplitN(key, "/", 2)
+			ext, err1 := strconv.Atoi(parts[len(parts)-1])
+			port, err2 := strconv.Atoi(f.Port)
+			client := net.ParseIP(f.Client)
+			if parts[0] != "TCP" || err1 != nil || err2 != nil || client == nil || ext < 1 || ext > 65535 || port < 1 || port > 65535 {
+				continue
+			}
+			rules = append(rules, [2]string{strconv.Itoa(ext), client.String() + ":" + strconv.Itoa(port)})
+		}
+		mu.Unlock()
+		signature := fmt.Sprint(rules)
+		if signature == applied {
+			continue
+		}
+		exec.Command("iptables", "-t", "nat", "-F", chain).Run()
+		for _, rule := range rules {
+			if err := exec.Command("iptables", "-t", "nat", "-A", chain, "-p", "tcp", "--dport", rule[0], "-j", "DNAT", "--to-destination", rule[1]).Run(); err != nil {
+				log.Println("nat:", err)
+			}
+		}
+		log.Println("nat: forwards applied:", signature)
+		applied = signature
+	}
+}
+
 func main() {
+	if chain := os.Getenv("IGD_NAT_CHAIN"); chain != "" {
+		go syncNAT(chain)
+	}
 	ip := ownAddress()
 	location := "http://" + ip + ":5000/desc.xml"
 
