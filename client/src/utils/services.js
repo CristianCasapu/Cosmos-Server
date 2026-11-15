@@ -165,10 +165,10 @@ export const reasonWords = (report) => {
     case 'processor': return { key: 'mgmt.services.start.processor', text: '{{name}} does not start: this server\'s processor cannot run this image (a newer instruction set, or another architecture).', params: p };
     case 'memory': return { key: 'mgmt.services.start.memory', text: '{{name}} does not start: it ran out of memory.', params: p };
     case 'unhealthy': return { key: 'mgmt.services.start.unhealthy', text: '{{name}} runs, but its own health check fails.', params: p };
-    case 'restarting': return { key: 'mgmt.services.start.restarting', text: '{{name}} keeps stopping and Docker starts it again. Its log below says why.', params: p };
+    case 'restarting': return { key: 'mgmt.services.start.restarting', text: '{{name}} keeps stopping and Docker starts it again.', params: p };
     case 'missing': return { key: 'mgmt.services.start.gone', text: '{{name}} was not found.', params: p };
   }
-  return { key: 'mgmt.services.start.exited', text: '{{name}} stopped with exit code {{code}}. Its log below says why.', params: p };
+  return { key: 'mgmt.services.start.exited', text: '{{name}} stopped with exit code {{code}}.', params: p };
 };
 
 const VAR = /^[A-Z_][A-Z0-9_]{0,63}$/;
