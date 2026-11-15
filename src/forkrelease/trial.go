@@ -628,13 +628,25 @@ func errorText(err error) string {
 // the state, the copy kept and the marks go, no file of the folder is
 // touched.
 func endedByHand(folder string, trial Trial, installed string, env launcherEnv) {
+	if !endTrialByHand(folder, trial) {
+		return
+	}
+	fmt.Fprintln(env.out, "Update: "+SafeText(installed)+" was installed by other means while "+SafeText(trial.NewVersion)+" was on trial: the trial is over, nothing was put back, and the copy of "+SafeText(trial.PreviousVersion)+" is removed. Nothing watches "+SafeText(installed)+": if it does not start, another version has to be installed by hand.")
+}
+
+// endTrialByHand drops the state of a trial whose version is no longer the
+// installed one, with everything that belonged to the trial: the copy kept,
+// the proof, the launcher of the version that was on trial (it must never be
+// put in place now) and the marks. The launcher and the server (TrialPending)
+// both end such a trial through here, so that neither leaves a part behind.
+func endTrialByHand(folder string, trial Trial) bool {
 	ended := false
 	changeTrial(folder, func(t *Trial, readErr error) (bool, bool) {
 		ended = readErr == nil && t.State == stateTrial && t.NewVersion == trial.NewVersion
 		return false, ended
 	})
 	if !ended {
-		return
+		return false
 	}
 	os.RemoveAll(filepath.Join(folder, previousFolder))
 	for _, name := range []string{provenName, pendingLauncher, "cosmos-launcher-arm64.updated"} { // the launcher of the trial version too
@@ -642,7 +654,7 @@ func endedByHand(folder string, trial Trial, installed string, env launcherEnv) 
 	}
 	clearMarks(folder, "")
 	syncFolder(folder)
-	fmt.Fprintln(env.out, "Update: "+SafeText(installed)+" was installed by other means while "+SafeText(trial.NewVersion)+" was on trial: the trial is over, nothing was put back, and the copy of "+SafeText(trial.PreviousVersion)+" is removed.")
+	return true
 }
 
 // restoreOwed: the state on disk says "trial" but this code began a restore

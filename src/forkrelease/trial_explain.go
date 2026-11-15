@@ -71,10 +71,26 @@ func quote(word string) string {
 // signature, and after a rollback notes the version as failed.
 func endCommand(folder string, trial Trial) string {
 	command := "rm -f " + quote(trialPath(folder)) + " " + quote(folder) + "/" + markPrefix + "* " + quote(filepath.Join(folder, StagedZip)) + " " + quote(filepath.Join(folder, StagedSignature))
-	if (trial.Purpose == purposeRollback || trial.Purpose == purposeUnrecorded) && trial.NewVersion != "" && trial.NewVersion != trial.PreviousVersion {
-		command += " && echo " + quote(trial.NewVersion) + " >> " + quote(filepath.Join(folder, failedName))
+	if failed := failedCommand(folder, trial); failed != "" {
+		command += " && " + failed
 	}
 	return command
+}
+
+// endRemoval and failedCommand are endCommand's two steps, each on its own
+// line for a block run by `sh -e` (which ignores a failure that is not the
+// last command of an "&&" list). Only a rollback notes the version as
+// failed: after an unrecorded go-back the version is installed again, as the
+// launcher itself does.
+func endRemoval(folder string) string {
+	return "rm -f " + quote(trialPath(folder)) + " " + quote(folder) + "/" + markPrefix + "* " + quote(filepath.Join(folder, StagedZip)) + " " + quote(filepath.Join(folder, StagedSignature))
+}
+
+func failedCommand(folder string, trial Trial) string {
+	if trial.Purpose == purposeRollback && trial.NewVersion != "" && trial.NewVersion != trial.PreviousVersion {
+		return "echo " + quote(trial.NewVersion) + " >> " + quote(filepath.Join(folder, failedName))
+	}
+	return ""
 }
 
 // reinstallKeys are the keys the hand reinstall checks the signature file
@@ -86,38 +102,53 @@ var reinstallKeys = compiledKeys
 const ed25519DERPrefix = `\060\052\060\005\006\003\053\145\160\003\041\000`
 
 // reinstallCommands put the release back by hand as the launcher would. They
-// are run as one block by `sh -e`, so the first step that fails stops all:
-// the zip and its signature file from the fork's releases; the signature
-// file verified with the release keys of this installation (as the launcher
-// does) and its version line checked; the zip checked against its signed
-// line; unpacked over the folder without its start.sh, the root folder of
-// the zip left out. Nothing is copied before all of that passed.
+// are run as one block by `sh -e`. Every step is a line of its own, because
+// `sh -e` does not stop at a failure that is not the last command of an "&&"
+// or "||" list; where a list is used, its last command is the one that must
+// stop the block. The steps: a fresh work folder of root's own (mktemp); the
+// zip and its signature file from the fork's releases; the signature file
+// verified with the release keys of this installation (as the launcher does)
+// and its version line checked; the zip checked against its signed line;
+// unpacked, then copied over the folder without its start.sh, the root
+// folder of the zip left out. Nothing is copied before all of that passed.
 func reinstallCommands(folder string, trial Trial, version string) []string {
 	zip, sig := ZipName(version, runtime.GOARCH), SignatureName(version)
 	base := "https://github.com/" + releaseRepo + "/releases/download/v" + version + "/"
-	work := "/tmp/cosmos-reinstall"
 	commands := []string{
-		"command -v curl >/dev/null && command -v unzip >/dev/null && command -v openssl >/dev/null || apt-get install -y curl unzip openssl",
-		"rm -rf " + work + " && mkdir " + work + " && cd " + work,
-		"curl -fLO " + base + zip + " && curl -fLO " + base + sig,
+		"if ! command -v curl >/dev/null || ! command -v unzip >/dev/null || ! command -v openssl >/dev/null; then apt-get update; apt-get install -y curl unzip openssl; fi",
+		"W=$(mktemp -d)",
+		"cd \"$W\"",
+		"curl -fLO " + base + zip,
+		"curl -fLO " + base + sig,
 		"grep -v '^signature ' " + sig + " > signed",
 		"grep -qx " + quote("version "+version) + " signed",
+		"grep '^signature ' " + sig + " > signatures",
 	}
 	for i, key := range reinstallKeys() {
 		pem := "key-" + strconv.Itoa(i+1) + ".pem"
-		commands = append(commands, "printf '"+ed25519DERPrefix+"' > key.der && printf '%s' "+quote(base64.StdEncoding.EncodeToString(key))+
-			" | base64 -d >> key.der && openssl pkey -pubin -inform DER -in key.der -out "+pem)
+		commands = append(commands,
+			"printf '"+ed25519DERPrefix+"' > key.der",
+			"printf '%s' "+quote(base64.StdEncoding.EncodeToString(key))+" | base64 -d >> key.der",
+			"openssl pkey -pubin -inform DER -in key.der -out "+pem)
 	}
 	commands = append(commands,
-		"grep '^signature ' "+sig+" | while read -r _ s; do printf '%s' \"$s\" | base64 -d > s.bin; for k in key-*.pem; do openssl pkeyutl -verify -pubin -inkey \"$k\" -rawin -in signed -sigfile s.bin >/dev/null 2>&1 && touch verified || true; done; done",
-		"test -f verified",
+		// verified is decided from openssl's own answer, in this shell (no file a stranger could plant)
+		"verified=no",
+		"while read -r _ s; do if printf '%s' \"$s\" | base64 -d > s.bin; then for k in key-*.pem; do if openssl pkeyutl -verify -pubin -inkey \"$k\" -rawin -in signed -sigfile s.bin >/dev/null 2>&1; then verified=yes; fi; done; fi; done < signatures",
+		"test \"$verified\" = yes",
+		"grep -q ' "+zip+"$' signed",
 		"grep ' "+zip+"$' signed | sed 's/^sha256 \\([0-9a-f]*\\) /\\1  /' | sha256sum -c",
-		"unzip -q "+zip+" -d unpacked && rm -f unpacked/*/start.sh",
+		"unzip -q "+zip+" -d unpacked",
+		"rm -f unpacked/*/start.sh",
 		"cp -a unpacked/*/. "+quote(folder)+"/",
 		"rm -f "+quote(filepath.Join(folder, pendingLauncher))+" "+quote(filepath.Join(folder, "cosmos-launcher-arm64.updated")),
-		endCommand(folder, trial),
+		endRemoval(folder),
 	)
-	return commands
+	if failed := failedCommand(folder, trial); failed != "" {
+		commands = append(commands, failed)
+	}
+	// the work folder (the zip and its unpacked copy) is not left on the disk
+	return append(commands, "cd /", "rm -rf \"$W\"")
 }
 
 // reinstallEnd ends the block the README prints the commands in, one block
@@ -158,7 +189,7 @@ func explain(folder string, trial Trial, problem error, env launcherEnv) {
 		add("Fix the cause above. A full disk: df -h " + folder + ". A read-only file system: findmnt -T " + folder + " (or, without findmnt: df " + folder + ", and look for \"ro\" in mount's line for that file system). The next start finishes the restore by itself.")
 	}
 	if trial.PreviousVersion != "" && releaseRepo != "" {
-		add("Install " + trial.PreviousVersion + " again by hand, as the launcher does (needs the internet). Paste the whole block below, from its first line to " + reinstallEnd + ", into a root shell: it stops at the first step that fails, and copies nothing before the release's signature file verified with the release keys of this installation and the zip matched it:")
+		add("Install " + trial.PreviousVersion + " again by hand, as the launcher does (needs the internet, and OpenSSL 3 or newer). Paste the whole block below, from its first line to " + reinstallEnd + ", into a root shell: it stops at the first step that fails, and copies nothing before the release's signature file verified with the release keys of this installation and the zip matched it:")
 		lines = append(lines, "sh -e <<'"+reinstallEnd+"'")
 		lines = append(lines, reinstallCommands(folder, trial, trial.PreviousVersion)...)
 		lines = append(lines, reinstallEnd)

@@ -1360,9 +1360,9 @@ func TestAStuckRestoreExplainsTheWayOut(t *testing.T) {
 			"curl -fLO https://github.com/example-owner/Cosmos-Server/releases/download/v" + oldVersion + "/" + zip,
 			"sh -e <<'COSMOS_REINSTALL'",
 			"grep -qx 'version " + oldVersion + "' signed",
-			"test -f verified",
+			"W=$(mktemp -d)", "verified=no", "test \"$verified\" = yes",
 			"grep ' " + zip + "$' signed | sed 's/^sha256 \\([0-9a-f]*\\) /\\1  /' | sha256sum -c",
-			"unzip -q " + zip + " -d unpacked && rm -f unpacked/*/start.sh",
+			"unzip -q " + zip + " -d unpacked", "rm -f unpacked/*/start.sh", "rm -rf \"$W\"",
 			"cp -a unpacked/*/. '" + folder + "'/",
 			"rm -f '" + trialPath(folder) + "' '" + folder + "'/cosmos-update.mark.* '" + filepath.Join(folder, StagedZip) + "' '" + filepath.Join(folder, StagedSignature) + "' && echo '" + newVersion + "' >> '" + filepath.Join(folder, failedName) + "'",
 			"3. Or start the files as they are now"} {
@@ -1430,17 +1430,22 @@ func TestTheReinstallAsWritten(t *testing.T) {
 		}
 		return []byte(manifest + "signature " + base64.StdEncoding.EncodeToString(ed25519.Sign(key, []byte(manifest))) + "\n")
 	}
+	// an unzip that writes one file and then fails, as on a full disk
+	halfUnzip := "#!/bin/sh\nmkdir -p unpacked/cosmos-cloud-" + oldVersion + " && printf 'old server' > unpacked/cosmos-cloud-" + oldVersion + "/cosmos\nexit 50\n"
 	cases := []struct {
-		name string
-		zip  []byte
-		sig  []byte
-		ok   bool
+		name  string
+		zip   []byte
+		sig   []byte
+		unzip string // a stand-in for unzip, or "" for the real one
+		ok    bool
 	}{
-		{"signed by a release key", oldZip, signed(oldVersion, oldZip, private), true},
-		{"signed by a key it does not trust", oldZip, signed(oldVersion, oldZip, stranger), false},
-		{"a zip that is not the signed one", append(append([]byte{}, oldZip...), 0), signed(oldVersion, oldZip, private), false},
-		{"the signature file of another version", oldZip, signed(newVersion, oldZip, private), false},
-		{"no signature at all", oldZip, signed(oldVersion, oldZip, nil), false},
+		{"signed by a release key", oldZip, signed(oldVersion, oldZip, private), "", true},
+		{"signed by a key it does not trust", oldZip, signed(oldVersion, oldZip, stranger), "", false},
+		{"a zip that is not the signed one", append(append([]byte{}, oldZip...), 0), signed(oldVersion, oldZip, private), "", false},
+		{"the signature file of another version", oldZip, signed(newVersion, oldZip, private), "", false},
+		{"no signature at all", oldZip, signed(oldVersion, oldZip, nil), "", false},
+		{"no signature file to download", oldZip, nil, "", false},
+		{"an unzip that fails halfway", oldZip, signed(oldVersion, oldZip, private), halfUnzip, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -1452,10 +1457,15 @@ func TestTheReinstallAsWritten(t *testing.T) {
 			launcherTrial(folder, f.env())
 			release := t.TempDir()
 			os.WriteFile(filepath.Join(release, zip), c.zip, 0644)
-			os.WriteFile(filepath.Join(release, SignatureName(oldVersion)), c.sig, 0644)
+			if c.sig != nil {
+				os.WriteFile(filepath.Join(release, SignatureName(oldVersion)), c.sig, 0644)
+			}
 			// curl stands in for GitHub: it takes the file of that name from the release folder
 			bin := t.TempDir()
-			os.WriteFile(filepath.Join(bin, "curl"), []byte("#!/bin/sh\nfor a in \"$@\"; do case \"$a\" in http*) cp "+quote(release)+"/\"${a##*/}\" .;; esac; done\n"), 0755)
+			os.WriteFile(filepath.Join(bin, "curl"), []byte("#!/bin/sh\nfor a in \"$@\"; do case \"$a\" in http*) cp "+quote(release)+"/\"${a##*/}\" . || exit 22;; esac; done\n"), 0755)
+			if c.unzip != "" {
+				os.WriteFile(filepath.Join(bin, "unzip"), []byte(c.unzip), 0755)
+			}
 			text := readme(folder)
 			start := strings.Index(text, "sh -e <<'"+reinstallEnd+"'\n")
 			end := strings.Index(text, "\n"+reinstallEnd+"\n")
@@ -1463,10 +1473,11 @@ func TestTheReinstallAsWritten(t *testing.T) {
 				t.Fatalf("no block to paste in:\n%s", text)
 			}
 			block := text[start : end+len(reinstallEnd)+2]
-			block = strings.ReplaceAll(block, "/tmp/cosmos-reinstall", filepath.Join(t.TempDir(), "reinstall"))
+			work := t.TempDir() // mktemp -d makes the block's own folder in here
 			cmd := exec.Command("sh", "-c", block)
-			cmd.Dir = folder
-			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"))
+			cmd.Dir = t.TempDir() // a folder where a stranger's files could lie: the block must not work in it
+			os.WriteFile(filepath.Join(cmd.Dir, "verified"), nil, 0644)
+			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "TMPDIR="+work)
 			out, err := cmd.CombinedOutput()
 			got, _ := os.ReadFile(filepath.Join(folder, "cosmos"))
 			if !c.ok {
@@ -1487,10 +1498,57 @@ func TestTheReinstallAsWritten(t *testing.T) {
 			if present(folder, trialName) || present(folder, StagedZip) || present(folder, pendingLauncher) {
 				t.Error("the state, the zip or a pending launcher is left")
 			}
+			if left, _ := os.ReadDir(work); len(left) != 0 {
+				t.Errorf("the work folder is left behind: %v", left)
+			}
 			if !launcherTrial(folder, f.env()) || present(folder, StagedZip) {
 				t.Error("the next start did not run the folder, or the zip came back")
 			}
 		})
+	}
+}
+
+// R1 of the fifth review: `sh -e` does not stop at a failure that is not the
+// last command of an "&&" or "||" list, so no line of the reinstall block
+// may chain steps; and an unrecorded go-back does not note the version as
+// failed in it (the launcher installs it again).
+func TestNoStepOfTheReinstallHidesBehindAList(t *testing.T) {
+	releaseRepo = "example-owner/Cosmos-Server"
+	defer func() { releaseRepo = "" }()
+	for _, purpose := range []string{purposeRollback, purposeUnrecorded, purposeUndo} {
+		lines := reinstallCommands("/opt/cosmos", Trial{Purpose: purpose, NewVersion: newVersion, PreviousVersion: oldVersion}, oldVersion)
+		for _, line := range lines {
+			if strings.Contains(line, "&&") || (strings.Contains(line, "||") && !strings.HasPrefix(line, "if ")) {
+				t.Errorf("%s: a step is chained: %s", purpose, line)
+			}
+			if strings.Contains(line, "/tmp/") {
+				t.Errorf("%s: a fixed path under /tmp: %s", purpose, line)
+			}
+		}
+		noted := strings.Contains(strings.Join(lines, "\n"), failedName)
+		if noted != (purpose == purposeRollback) {
+			t.Errorf("%s: the version noted as failed: %v", purpose, noted)
+		}
+	}
+}
+
+// R5 of the fifth review: when the server, not the launcher, is the one that
+// ends a trial of a version no longer installed, it removes what the
+// launcher would: the launcher of the version that was on trial is never
+// put in place afterwards, and the copy kept does not stay behind.
+func TestTheServerEndsATrialByHandLikeTheLauncher(t *testing.T) {
+	folder := oldInstall(t, newReleaseZip(t))
+	f := &fakeEnv{}
+	installNew(t, folder, newVersion, f)
+	os.WriteFile(filepath.Join(folder, pendingLauncher), []byte("the launcher of the version on trial"), 0755)
+	os.WriteFile(filepath.Join(folder, "meta.json"), []byte(`{"version": "`+laterVersion+`"}`), 0644) // unpacked by hand
+	if TrialPending(folder) {
+		t.Fatal("a trial of a version that is not installed any more is still pending")
+	}
+	for _, name := range []string{trialName, previousFolder, pendingLauncher} {
+		if present(folder, name) {
+			t.Errorf("%s is left behind", name)
+		}
 	}
 }
 

@@ -28,12 +28,9 @@ func TrialPending(folder string) bool {
 	if err != nil || installed == trial.NewVersion || restoreOwed(folder, trial) {
 		return true
 	}
-	dropped := false
-	changeTrial(folder, func(t *Trial, readErr error) (bool, bool) {
-		dropped = readErr == nil && t.State == stateTrial && t.NewVersion == trial.NewVersion
-		return false, dropped
-	})
-	return !dropped
+	// the same end as the launcher's (endedByHand): the launcher of the
+	// version that was on trial goes too, so that it is not put in place
+	return !endTrialByHand(folder, trial)
 }
 
 // PendingTrial returns the trial of this folder, if one is running.
