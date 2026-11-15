@@ -120,6 +120,16 @@ administrator's address, the caps of 500 rules and 60 blocks an hour.
   alike (not touched): the password change runs `restic key change`, which
   does not exist (the command is `key passwd`), and the restore-size answer
   is not pure JSON and lacks `total_file_count`.
+- Checks to repair: `fork-ui-check-sensitive-edit.mjs` waits a fixed 3 s
+  after saving the Storage tab and can read a container that is still
+  being recreated (it should wait for the container, and tolerate an empty
+  inspect); the gallery's guard on `any-image` in Firefox trips on the app
+  probe's CORS line when the seeded app addresses do not resolve. The five
+  end-to-end checks (creation, settings-forms, users, sudo, pwa) passed in
+  three engines on the dependency majors before the last console fixes
+  (the permission guard, the tab panels, two hidden checkboxes); after
+  them the any-image and sensitive-edit checks, the gallery views and the
+  console look were run, not those five again.
 - An upstream merge will conflict in many frontend files (Grid `size`,
   `sx`, the button's `loading`, the tree view), `package.json`, the lock
   file, `vite.config.js`, the build action and the check scripts: take
