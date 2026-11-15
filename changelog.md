@@ -8,7 +8,24 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Nothing has been merged into `custom` since `0.24.0-fork.22`. Work in progress on separate branches (not released, and may change before it is): further security hardening, notifications with details, dependency upgrades.
+Nothing has been merged into `custom` since `0.24.0-fork.23`. Work in progress on separate branches (not released, and may change before it is): a notifications page with details per notification, and dependency updates.
+
+## Fork 0.24.0-fork.23 — 2026-11-15
+
+### Security
+- Commands that change something are accepted by POST only, and the panel sends them that way.
+- The panel and its API carry a script policy and security headers; the panel's pages run no inline or evaluated scripts. HSTS is sent for a year only on names with a publicly trusted certificate, without includeSubDomains.
+- Labels that come from an image are no longer obeyed.
+- Request events are written once a minute per URL outcome and per API token instead of once per request.
+- Wrong passwords at the password confirmation are limited per account; API tokens are cut to what their owner holds now; permission fixes for accounts, host folders, the host terminal, remote storage settings and name lookups.
+- The configuration file loses group and other permissions when saved; system folders are refused for snapshots; what is typed in the host terminal stays out of the log.
+
+### Added
+- Cloudflare Turnstile on the sign-in, forgot-password and invitation forms (off until set up), checked on the server, never asked on the home network.
+- Blocks at Cloudflare's edge for visitors who abuse through its proxy (off until switched on), with a card on the Domains tab and "Block at Cloudflare" on the security dashboard.
+
+### Fixed
+- The bot filter matches the words of the User-Agent (it only ever blocked an empty one).
 
 ## Fork 0.24.0-fork.22 — 2026-11-15
 

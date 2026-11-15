@@ -111,8 +111,7 @@ administrator's address, the caps of 500 rules and 60 blocks an hour.
 ## Security features: left for later (2026-11-13)
 
 - Dashboard: thresholds of the status line are constants; "Under attack" does
-  not say whether the attacking addresses are already blocked; a refused
-  cross-site request is logged but not in the record.
+  not say whether the attacking addresses are already blocked.
 - Audit: where "Recent activity on your account" lives (home page for now);
   the 2000-line export cap; the own-activity view hides why a login failed.
 - Telegram: a "find my chat ID" button; the bell for "update available" and

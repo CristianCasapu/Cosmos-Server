@@ -68,8 +68,12 @@ These apply to every change, however small.
   incremental snapshots, `src/snapshots`). Keep such modules self-contained:
   their own package, their own settings and screens, nothing imported from the
   paid code and nothing of upstream's gating changed. What gets built on this
-  fork is the owner's decision: it is free, comes with no warranty, and anyone
-  (upstream included) may take from it. Do not re-argue that decision.
+  fork is the owner's decision. The fork's own code is offered under
+  `FORK-LICENCE.md`: for use with the free community edition only, no
+  commercial use by anyone (upstream included) without the owner's written
+  consent, and not a contribution to upstream; it comes with no warranty.
+  Keep that file's list of what it covers current when a package of the
+  fork's own is added. Do not re-argue these decisions.
 - **Translations.** Add new strings to `client/src/utils/locales/en/translation.json`
   and pass the English text as the `t()` default so other languages fall back.
 
@@ -84,7 +88,7 @@ cp src/update.go src/launcher/update.go
 CGO_ENABLED=0 go build -o /tmp/cosmos src/*.go
 CGO_ENABLED=0 go build -o /tmp/cosmos-launcher ./src/launcher/launcher.go ./src/launcher/update.go
 go test ./src/utils/ ./src/authorizationserver/ -count=1
-go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ ./src/telegram/ ./src/fail2ban/ ./src/maildetect/ ./src/dnsrecords/ ./src/cloudflare/... ./src/forkrelease/ ./src/market/ ./src/turnstile/ ./src/edgeblock/ -count=1
+go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ ./src/telegram/ ./src/fail2ban/ ./src/maildetect/ ./src/dnsrecords/ ./src/cloudflare/... ./src/forkrelease/ ./src/market/ ./src/turnstile/ ./src/edgeblock/ ./src/certs/ -count=1
 go test ./src/ -skip TestEveryRouteIsDocumented -count=1
 go test ./src/docker/ -count=1
 go test ./src/proxy/ -count=1
