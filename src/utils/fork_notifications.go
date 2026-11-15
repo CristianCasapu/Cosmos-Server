@@ -305,6 +305,7 @@ type writeOutcome struct {
 	alert bool
 	ref   string
 	count int
+	first int64
 }
 
 // forkWriteNotification is the hook of WriteNotification. It writes every
@@ -358,6 +359,7 @@ func forkWriteNotification(n Notification) bool {
 		if explicit {
 			copyInfo := info
 			copyInfo.Ref, copyInfo.Count, copyInfo.Repeat = outcome.ref, outcome.count, outcome.count > 1
+			copyInfo.Seen = []int64{outcome.first}
 			forwarded.Fork = &copyInfo
 		} else {
 			forwarded.Fork = nil
@@ -447,6 +449,9 @@ func writeRows(db *sql.DB, n Notification, info NotificationInfo, explicit bool,
 			if outcome.count < 1 {
 				outcome.count = 1
 			}
+			if outcome.first == 0 {
+				outcome.first = nowMs
+			}
 			continue
 		}
 
@@ -486,6 +491,9 @@ func writeRows(db *sql.DB, n Notification, info NotificationInfo, explicit bool,
 		}
 		if count > outcome.count {
 			outcome.count = count
+		}
+		if first > 0 && (outcome.first == 0 || first < outcome.first) {
+			outcome.first = first
 		}
 	}
 	return outcome, tx.Commit()

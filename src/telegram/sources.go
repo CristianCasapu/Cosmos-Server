@@ -292,8 +292,12 @@ func noticeFromNotification(n utils.Notification, config utils.Config) (notice, 
 	if n.Recipient != "admin" && n.Recipient != "all" {
 		return notice{}, false
 	}
-	if n.Title == TitleDeliveryFailed {
+	if n.Title == TitleDeliveryFailed || (n.Fork != nil && n.Fork.Kind == "telegram.failed") {
 		return notice{}, false
+	}
+	// a notification that carries its sentences is told with them
+	if n.Fork != nil && n.Fork.What != nil {
+		return noticeFromInfo(n, config), true
 	}
 
 	vars := n.Vars
