@@ -127,7 +127,8 @@ const PlotComponent = ({ title, slot, data, SimpleDesign, withSelector, xAxis, z
         min: zoom.xaxis && zoom.xaxis.min,
         max: zoom.xaxis && zoom.xaxis.max,
       },
-      yaxis: toProcess.map((thisdata, ida) => ({
+      // Fork addition: one axis per series actually drawn (a missing series left an axis without a series, which apexcharts 3.54 fails on)
+      yaxis: toProcess.filter(Boolean).map((thisdata, ida) => ({
         opposite: ida % 2 === 1, 
         show: !(phone && ida > 0), // Fork addition: the other series keep their own scale, the legend names them
         labels: {
