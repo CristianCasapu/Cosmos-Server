@@ -77,7 +77,7 @@ const Addresses = ({ overview, bans, bansKnown, catalogue, onShowAddress, onUnba
             search: (a) => a.ip,
             field: (a) => <Stack spacing={0.25}>
               <strong style={{ overflowWrap: 'break-word' }}><Text value={a.ip} max={40} /></strong>
-              <Typography variant="caption" color="textSecondary">{where(a)}</Typography>
+              <Typography variant="caption" color="textSecondary" sx={{ whiteSpace: 'nowrap' }}>{where(a)}</Typography>{/* Fork addition: "Local network" on one line (it broke a word per line under the address) */}
               {narrow && <Typography variant="body2" sx={{ overflowWrap: 'break-word' }}>{did(a)}</Typography>}
               {narrow && bansKnown && banOf(bans, a.ip) && <Box>{blocked(a)}</Box>}
             </Stack>,
