@@ -637,7 +637,9 @@ func endedByHand(folder string, trial Trial, installed string, env launcherEnv) 
 		return
 	}
 	os.RemoveAll(filepath.Join(folder, previousFolder))
-	os.Remove(filepath.Join(folder, provenName))
+	for _, name := range []string{provenName, pendingLauncher, "cosmos-launcher-arm64.updated"} { // the launcher of the trial version too
+		os.Remove(filepath.Join(folder, name))
+	}
 	clearMarks(folder, "")
 	syncFolder(folder)
 	fmt.Fprintln(env.out, "Update: "+SafeText(installed)+" was installed by other means while "+SafeText(trial.NewVersion)+" was on trial: the trial is over, nothing was put back, and the copy of "+SafeText(trial.PreviousVersion)+" is removed.")

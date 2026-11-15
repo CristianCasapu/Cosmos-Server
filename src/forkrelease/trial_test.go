@@ -1947,13 +1947,14 @@ func TestAVersionInstalledByHandEndsTheTrial(t *testing.T) {
 		os.WriteFile(filepath.Join(folder, "meta.json"), []byte(`{"version": "`+hand+`"}`), 0644)
 		os.WriteFile(filepath.Join(folder, "static", "app.js"), []byte("app "+hand), 0644)
 		during := snapshot(t, folder)
+		delete(during, pendingLauncher)
 		f.out.Reset()
 		if !launcherTrial(folder, f.env()) {
 			t.Fatalf("%s: not started", hand)
 		}
 		sameAs(t, hand+" by hand", folder, during)
-		if !noTrial(folder) || present(folder, previousFolder) || failedIn(folder, newVersion) || RollbackNoted(folder) {
-			t.Errorf("%s: the state, the copy kept, a failed entry or a note is left", hand)
+		if !noTrial(folder) || present(folder, previousFolder) || present(folder, pendingLauncher) || failedIn(folder, newVersion) || RollbackNoted(folder) {
+			t.Errorf("%s: the state, the copy kept, the trial version's launcher, a failed entry or a note is left", hand)
 		}
 		if matches, _ := filepath.Glob(filepath.Join(folder, markPrefix+"*")); len(matches) != 0 {
 			t.Errorf("%s: marks left %v", hand, matches)
