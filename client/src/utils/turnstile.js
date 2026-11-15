@@ -213,8 +213,10 @@ export const stateText = (status) => {
 };
 
 // problemText says what is wrong now.
-export const problemText = (problem) => {
+// `elsewhere`: said away from the card (the home page's notice area), where the keys are not "below".
+export const problemText = (problem, elsewhere = false) => {
   if (!problem) return null;
+  if (problem.reason === 'key_refused' && elsewhere) return ['mgmt.turnstile.problem.keyElsewhere', 'Cloudflare refuses the secret key (it was deleted or rotated at Cloudflare). Visitors from the internet cannot sign in until a working key is saved in the settings.'];
   if (problem.reason === 'key_refused') return ['mgmt.turnstile.problem.key', 'Cloudflare refuses the secret key (it was deleted or rotated at Cloudflare). Visitors from the internet cannot sign in until a working key is saved: paste the new keys below.'];
   return ['mgmt.turnstile.problem.unreachable', 'Cloudflare\'s check could not be reached ({{count}} times since {{since}}). Visitors from the internet cannot sign in meanwhile; the home network can.', { count: problem.count, since: problem.since }];
 };

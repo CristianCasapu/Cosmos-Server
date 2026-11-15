@@ -102,34 +102,16 @@ const Door = ({ open, onClick, children, id }) => <Button
 
 const problemValues = (problem) => (problem ? { ...problem, since: problem.since ? dayjs(problem.since).format('YYYY-MM-DD HH:mm') : '' } : problem);
 
-// The home page's warning for administrators: Cloudflare refuses the key,
-// cannot be reached, or the check was switched off from the console.
-export const TurnstileAlert = () => {
-  const { t } = useTranslation();
-  const status = useTurnstileStatus();
-  if (!status) return null;
-  const alerts = [];
-  if (status.enabled && status.consoleOff) {
-    alerts.push(['warning', 'console', say(t, stateText(status)[1])]);
-  }
-  if (status.enabled && !status.consoleOff) {
-    (status.problems || []).forEach((problem) => alerts.push(['error', problem.reason, say(t, problemText(problemValues(problem)))]));
-  }
-  if (alerts.length === 0) return null;
-  return <>{alerts.map(([severity, key, text]) => <Alert key={key} severity={severity} sx={wrap} data-turnstile-alert={key}>
-    {t('mgmt.turnstile.alert.title', 'Sign-in check of Cloudflare:')} {text}{' '}
-    <Link href="/cosmos-ui/config-general/https">{t('mgmt.turnstile.alert.open', 'Open the settings')}</Link>
-  </Alert>)}</>;
-};
-
-// The same warnings as lines of the home page's notice area (components/homeNotices.jsx).
+// The home page's warning for administrators (Cloudflare refuses the key, cannot
+// be reached, or the check was switched off from the console), as lines of
+// its notice area (components/homeNotices.jsx).
 export const useTurnstileNotices = () => {
   const { t } = useTranslation();
   const status = useTurnstileStatus();
   if (!status || !status.enabled) return { items: [] };
   const found = status.consoleOff
     ? [['warning', 'console', say(t, stateText(status)[1])]]
-    : (status.problems || []).map((problem) => ['error', problem.reason, say(t, problemText(problemValues(problem)))]);
+    : (status.problems || []).map((problem) => ['error', problem.reason, say(t, problemText(problemValues(problem), true))]);
   return {
     items: found.map(([severity, key, text]) => ({
       id: 'turnstile:' + key,

@@ -100,6 +100,10 @@ test('the card says what is in force', () => {
   assert.equal(stateText({ active: true, forms: {} })[0], 'warning');
   assert.equal(stateText({ consoleOff: true, active: true, consoleFile: '/var/lib/cosmos/turnstile.off' })[1][2].file, '/var/lib/cosmos/turnstile.off');
   assert.equal(problemText({ reason: 'key_refused' })[0], 'mgmt.turnstile.problem.key');
+  // away from the card (the home page) the keys are not "below"
+  assert.equal(problemText({ reason: 'key_refused' }, true)[0], 'mgmt.turnstile.problem.keyElsewhere');
+  assert.ok(!problemText({ reason: 'key_refused' }, true)[1].includes('below'));
+  assert.equal(problemText({ reason: 'unreachable', count: 3 }, true)[2].count, 3);
   assert.equal(problemText({ reason: 'unreachable', count: 3 })[2].count, 3);
   assert.ok(reasonText('permission')[1].includes('Account > Turnstile > Edit'));
   assert.equal(reasonText('something new')[0], 'mgmt.turnstile.reason.other');
