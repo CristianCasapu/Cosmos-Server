@@ -335,7 +335,7 @@ const UserManagement = () => {
                     screenMin: 'lg',
                     field: (r) => {
                         const hasLastLogin = new Date(r.lastLogin).getTime() > 0;
-                        return <span style={{ whiteSpace: 'nowrap' }}>{hasLastLogin ? dayjs(new Date(r.lastLogin)).format('L, LT') : t('global.never')}</span>{/* Fork addition: on one line */}
+                        return <span style={{ whiteSpace: 'nowrap' }}>{hasLastLogin ? dayjs(new Date(r.lastLogin)).format('L, LT') : t('global.never')}</span>; // Fork addition: on one line
                     },
                 },
                 {

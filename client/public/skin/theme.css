@@ -979,6 +979,8 @@ pre.code {
     overflow-wrap: anywhere;
   }
   .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root > * { max-width: 100%; }
+  /* a line of a card that is the row's link (the URL list's protection icons): a finger's height */
+  .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > a.MuiTableCell-root { min-height: var(--ct-touch); box-sizing: border-box; }
   /* the first cell is the card's title: no column name before it (unless it is a control, a lone box needs its name) */
   .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root:first-child[data-label]:not(:has(input, button, [role=button])) { padding-left: 0; font-weight: 600; }
   .ct-table-cards > .MuiTableBody-root > .MuiTableRow-root > .MuiTableCell-root:first-child[data-label]:not(:has(input, button, [role=button]))::before { display: none; }
@@ -1104,6 +1106,10 @@ pre.code {
 /* a link inside a message: the message's own text colour, underlined (the
    accent on a tinted message was below 4.5:1) */
 .MuiAlert-message a:not(.MuiButton-root) { color: inherit; text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
+
+/* a folding section's title may shrink to its box: a long word in it breaks there instead of pushing
+   the page sideways (the events list on a phone) */
+.MuiAccordionSummary-content { min-width: 0; }
 
 /* the vertical tabs of a page (Storage, Settings): a title on one line ("Merge Disks" broke a word per line) */
 .MuiTabs-vertical .MuiTab-root { white-space: nowrap; }
