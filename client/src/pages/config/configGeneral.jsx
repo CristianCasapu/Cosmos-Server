@@ -103,6 +103,13 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
               label={t('mgmt.config.general.betaupdate')}
               name="BetaUpdates"
               formik={formik}
+            />
+
+            {/* Fork addition: the notices about the automatic dependency updates */}
+            <CosmosCheckbox
+              label={t('mgmt.config.general.dependencyNotices', 'Tell me about the automatic dependency updates (in the notifications and through Telegram)')}
+              name="DependencyNotices"
+              formik={formik}
             /></>}
 
           {/* Fork addition: the time zone given to new containers that ask for the server's (TZ=auto) */}
