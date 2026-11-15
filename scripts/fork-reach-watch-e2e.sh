@@ -42,7 +42,7 @@ clean() {
 	for c in app router edge telegram ctl browser; do docker rm -f -v "$PREFIX-$c" >/dev/null 2>&1 || true; done
 	docker network rm "$HOME_NET" "$WAN_NET" >/dev/null 2>&1 || true
 	if [ -d "$SCRATCH" ]; then
-		docker run --rm -v "$(dirname "$SCRATCH"):/scratch" "$BOX_IMAGE" rm -rf "/scratch/$(basename "$SCRATCH")" >/dev/null 2>&1 || true
+		docker run --rm -v "$(dirname "$SCRATCH"):/scratch" --entrypoint rm "$BOX_IMAGE" -rf "/scratch/$(basename "$SCRATCH")" >/dev/null 2>&1 || true
 	fi
 }
 
