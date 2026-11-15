@@ -85,7 +85,7 @@ export const StorageMerges = () => {
             { 
               title: t('mgmt.storage.optionsTitle'),
               screenMin: 'md',
-              field: (r) => JSON.stringify(r.opts),
+              field: (r) => (Array.isArray(r.opts) ? r.opts.join(', ') : JSON.stringify(r.opts)), // Fork addition: a list that wraps (was a JSON array)
 
             },
             {

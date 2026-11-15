@@ -1026,6 +1026,9 @@ pre.code {
   }
   /* the close button of a message */
   .MuiAlert-action > .MuiIconButton-root { width: var(--ct-touch); height: var(--ct-touch); }
+  /* small text buttons in dialogs ("Not offered (3)") and an empty list's action ("Clear the search") */
+  .MuiDialog-paper .MuiButton-root.MuiButton-root.MuiButton-sizeSmall,
+  .ct-empty .MuiButton-root.MuiButton-root { min-height: var(--ct-touch); }
 }
 
 /* ---------- the sign-in page's messages (AuthLogin) ------------------------ */
@@ -1101,3 +1104,117 @@ pre.code {
 /* a link inside a message: the message's own text colour, underlined (the
    accent on a tinted message was below 4.5:1) */
 .MuiAlert-message a:not(.MuiButton-root) { color: inherit; text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
+
+/* the vertical tabs of a page (Storage, Settings): a title on one line ("Merge Disks" broke a word per line) */
+.MuiTabs-vertical .MuiTab-root { white-space: nowrap; }
+
+/* ---------- the disks' tree (Storage > Disks, pages/storage/forkDiskCard.jsx) ---------
+   A card per disk, partition and volume: who it is, its identifiers, its commands. The three
+   blocks wrap: side by side when there is room, stacked on a phone with the commands as the
+   card's footer. Nested items hang off a thin line, indented a little (three levels must fit
+   390 px). */
+.ct-disk-tree .ct-disk-node { margin: 0 0 10px; }
+.ct-disk-tree .ct-disk-node > .MuiTreeItem-content {
+  padding: 0;
+  gap: 4px;
+  align-items: center;
+  background: transparent;
+  border-radius: var(--ct-radius-l);
+}
+.ct-disk-tree .ct-disk-node > .MuiTreeItem-content:hover,
+.ct-disk-tree .ct-disk-node > .MuiTreeItem-content.Mui-selected,
+.ct-disk-tree .ct-disk-node > .MuiTreeItem-content.Mui-focused,
+.ct-disk-tree .ct-disk-node > .MuiTreeItem-content.Mui-selected.Mui-focused { background: transparent; }
+.ct-disk-tree .ct-disk-node > .MuiTreeItem-content.Mui-focused .ct-disk-card { outline: 2px solid var(--ct-focus); outline-offset: 2px; }
+.ct-disk-tree .ct-disk-node > .MuiTreeItem-content > .MuiTreeItem-iconContainer { width: 18px; margin-right: 0; color: var(--ct-muted); }
+.ct-disk-tree .ct-disk-node > .MuiTreeItem-content > .MuiTreeItem-iconContainer svg { font-size: 18px; }
+.ct-disk-tree .ct-disk-node > .MuiTreeItem-content > .MuiTreeItem-label { padding: 0; min-width: 0; }
+.ct-disk-tree .ct-disk-node > .MuiTreeItem-group,
+.ct-disk-tree .ct-disk-node > .MuiCollapse-root { margin: 10px 0 0 8px; padding-left: 12px; border-left: 1px solid var(--ct-border-strong); }
+
+.ct-disk-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 24px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--ct-border);
+  border-left: 4px solid var(--ct-disk-health, var(--ct-border-strong));
+  border-radius: var(--ct-radius-l);
+  background: var(--ct-surface-2);
+  color: var(--ct-text);
+  font-size: var(--ct-text-m);
+}
+.ct-disk-main { display: flex; align-items: center; gap: 14px; flex: 1 1 250px; min-width: 0; }
+.ct-disk-icon { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 0 0 auto; }
+.ct-disk-icon img { display: block; }
+.ct-disk-temp {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border-radius: var(--ct-radius-s);
+  background: var(--ct-chip);
+  color: var(--ct-text);
+  font-size: var(--ct-text-xs);
+  white-space: nowrap;
+}
+.ct-disk-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.ct-disk-name { font-weight: 600; font-size: 0.9375rem; overflow-wrap: anywhere; }
+.ct-disk-facts { color: var(--ct-muted); font-size: var(--ct-text-s); overflow-wrap: anywhere; }
+.ct-disk-facts > span + span::before { content: "·"; margin: 0 6px; }
+.ct-disk-usage { display: flex; flex-direction: column; gap: 4px; }
+.ct-disk-usage > .MuiLinearProgress-root { max-width: 220px; }
+.ct-disk-usage > span, .ct-disk-size { font-variant-numeric: tabular-nums; }
+.ct-disk-details {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 10px;
+  flex: 1 1 230px;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--ct-text-xs);
+  line-height: 1.5;
+  user-select: text; /* the tree is not selectable: an identifier must be */
+}
+.ct-disk-details dt { color: var(--ct-muted); }
+.ct-disk-details dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.ct-disk-actions { display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; }
+.ct-disk-actions .MuiButton-root { justify-content: flex-start; white-space: nowrap; }
+
+@media (max-width: 599.95px) {
+  .ct-disk-tree .ct-disk-node > .MuiTreeItem-content > .MuiTreeItem-iconContainer { width: 16px; }
+  .ct-disk-tree .ct-disk-node > .MuiTreeItem-group,
+  .ct-disk-tree .ct-disk-node > .MuiCollapse-root { margin-left: 7px; padding-left: 6px; }
+  .ct-disk-card { padding: 10px 12px; gap: 10px; }
+  .ct-disk-main { flex-basis: 100%; gap: 12px; }
+  .ct-disk-details { flex-basis: 100%; }
+  /* the commands: the card's footer, a row of whole buttons a finger's height */
+  .ct-disk-actions { flex: 1 1 100%; flex-direction: row; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--ct-border); }
+  .ct-disk-actions .MuiButton-root.MuiButton-root { flex: 1 1 auto; justify-content: center; min-height: var(--ct-touch); }
+}
+
+/* ---------- the users list (pages/config/users/usermanagement.jsx) ---------
+   The toolbar: Create and Refresh of one height, the seats meter beside them (on a phone on a line
+   of its own). A user's commands: one row, the two that remove something set apart; on a phone the
+   card's footer, the removing ones on a row of their own under a thin line. */
+.ct-users-toolbar.ct-users-toolbar { flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+.ct-users-toolbar.ct-users-toolbar > * { margin-left: 0; }
+.ct-users-seats { display: flex; flex-direction: column; gap: 6px; min-width: 140px; }
+.ct-users-seats > .MuiLinearProgress-root { width: 140px; }
+.ct-user-actions, .ct-user-actions-main, .ct-user-actions-danger { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ct-user-actions { column-gap: 20px; } /* the two groups further apart than the buttons inside them */
+.ct-user-actions .MuiButton-root { white-space: nowrap; }
+@media (max-width: 599.95px) {
+  .ct-users-toolbar.ct-users-toolbar > .MuiButton-root { flex: 1 1 0; min-height: var(--ct-touch); }
+  .ct-users-seats { flex: 1 1 100%; }
+  .ct-users-seats > .MuiLinearProgress-root { width: 100%; }
+  .ct-table-cards .ct-user-actions { flex-direction: column; align-items: stretch; gap: 10px; padding-top: 4px; }
+  .ct-table-cards .ct-user-actions-main > .MuiButton-root { flex: 1 1 auto; }
+  .ct-table-cards .ct-user-actions-danger { padding-top: 10px; border-top: 1px solid var(--ct-border); }
+  .ct-table-cards .ct-user-actions-danger > .MuiButton-root { flex: 1 1 0; }
+  .ct-table-cards .ct-user-actions .MuiButton-root.MuiButton-root { min-height: var(--ct-touch); }
+}
