@@ -141,6 +141,16 @@ security record.
   stopped container's port is closed and reopened; a choice is forgotten 15
   minutes after its container is gone; at most 32 app ports.
 
+## Router ports: after the outage of 2026-11-15
+
+- A router that gives no remaining time for a forward (it answers 0) is
+  taken to keep it until removed. If such a router does end forwards by
+  itself, the forward is missing for up to five minutes (the interval of
+  the look) each time; a shorter look for Cosmos' own ports would narrow it.
+- Nothing outside the server watches whether it can be reached from the
+  internet: a watch from the owner's other machine or a small external
+  service would tell them sooner than a visitor does.
+
 ## Look of the panel: left for later (2026-11-14)
 
 - Phone targets still under 44 px, on purpose: the chips on the app cards

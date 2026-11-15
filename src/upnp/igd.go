@@ -580,6 +580,12 @@ func (g *gateway) claimOrRenew(protocol string, externalPort, internalPort int, 
 		switch {
 		case here && existing.InternalPort == internalPort:
 			renewed = true
+			if leftAlone(existing.Lease) {
+				// It is there and stays there: asking again would only write
+				// over it, and some routers drop the forward and break the
+				// connection when asked to (retry.go).
+				return true, nil
+			}
 		case here && (known || isOurDescription(existing.Description)):
 		default:
 			return false, &conflictError{Port: externalPort, Holder: existing}

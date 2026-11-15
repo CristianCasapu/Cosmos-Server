@@ -147,3 +147,55 @@ func TestPausesGrowAndStop(t *testing.T) {
 		t.Error("the pauses after a refusal")
 	}
 }
+
+// A forward the router shows as it should be is not written over: on a real
+// router that dropped the forward and closed the connection. The router is
+// only asked whether it is still there.
+func TestAForwardThatIsThereIsLeftAlone(t *testing.T) {
+	for name, left := range map[string]string{"a router that gives no time": "0", "a router with plenty of time left": "3000"} {
+		w := newWorld(t)
+		w.router.leaseLeft = left
+		if left == "0" {
+			w.router.onlyPermanent = true // forwards without an end are all it knows
+		}
+		w.config(func(c *utils.Config) { c.HTTPConfig.UPnP.Enabled = true })
+		if st := reconcile(true); !own(st, "HTTPS").Active {
+			t.Fatalf("%s, at the start: %+v", name, own(st, "HTTPS"))
+		}
+		asked := w.router.count("AddPortMapping", "TCP/2053")
+		w.minutes(125)
+		if got := w.router.count("AddPortMapping", "TCP/2053"); got != asked {
+			t.Errorf("%s: the forward was written over %d times in two hours", name, got-asked)
+		}
+		if !own(GetStatus(), "HTTPS").Active || len(w.notices) != 0 {
+			t.Errorf("%s: status %+v, notices %v", name, own(GetStatus(), "HTTPS"), w.notices)
+		}
+		// and when it goes away it is made again
+		w.router.expire("TCP/2053")
+		w.minutes(6)
+		if _, there := w.router.get("TCP/2053"); !there {
+			t.Errorf("%s: a forward that went away was not made again", name)
+		}
+	}
+}
+
+// A forward whose time on the router is running out is asked for again.
+func TestAForwardAboutToEndIsRenewed(t *testing.T) {
+	w := newWorld(t)
+	w.router.leaseLeft = "900"
+	w.config(func(c *utils.Config) { c.HTTPConfig.UPnP.Enabled = true })
+	reconcile(true)
+	asked := w.router.count("AddPortMapping", "TCP/2053")
+	w.minutes(41)
+	if got := w.router.count("AddPortMapping", "TCP/2053"); got != asked+2 {
+		t.Errorf("renewed %d times in 41 minutes, want 2", got-asked)
+	}
+}
+
+func TestLeftAlone(t *testing.T) {
+	for left, want := range map[int]bool{0: true, 3600: true, 2401: true, 2400: false, 1200: false, 1: false} {
+		if leftAlone(left) != want {
+			t.Errorf("a forward with %d seconds left: left alone = %v, want %v", left, !want, want)
+		}
+	}
+}

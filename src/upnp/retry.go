@@ -35,6 +35,18 @@ var (
 	probeInterval = 5 * time.Minute
 )
 
+// leftAlone reports whether a forward that is already what Cosmos wants is
+// left as it is instead of being asked for again. left is the time the
+// router says it still has, in seconds. A router that gives no time (0)
+// keeps a forward until it is removed, or does not count at all; one that
+// gives more than two renewal periods has time enough. Either way the look
+// every probeInterval notices a forward that went away. Writing over a
+// forward that is there is what broke on a real router: it dropped the
+// forward and closed the connection.
+func leftAlone(left int) bool {
+	return left == 0 || time.Duration(left)*time.Second > 2*renewInterval
+}
+
 // retry is when something that failed is tried again.
 type retry struct {
 	attempts int

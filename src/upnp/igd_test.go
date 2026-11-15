@@ -38,6 +38,10 @@ type fakeRouter struct {
 	controlURL string         // what the description advertises
 	calls      []string       // "AddPortMapping TCP/8443"
 	breakAdd   bool           // AddPortMapping ends without an answer: the router closes the connection
+	// leaseLeft, when set, is what the router says a forward has left, whatever
+	// was asked for: "0" for a router that keeps no time, a small number for
+	// one whose forwards are about to end.
+	leaseLeft string
 }
 
 type fakeForward struct {
@@ -87,6 +91,14 @@ func (r *fakeRouter) get(key string) (fakeForward, bool) {
 		return fakeForward{}, false
 	}
 	return *f, true
+}
+
+// left is what the router says a forward has left of its time.
+func (r *fakeRouter) left(f *fakeForward) string {
+	if r.leaseLeft != "" && f.lease != "0" {
+		return r.leaseLeft
+	}
+	return f.lease
 }
 
 // reboot is what a power cut does to a router: every UPnP mapping is gone.
@@ -144,7 +156,7 @@ func (r *fakeRouter) control(w http.ResponseWriter, req *http.Request) {
 		parts := strings.SplitN(key, "/", 2)
 		return "<NewRemoteHost></NewRemoteHost><NewExternalPort>" + parts[1] + "</NewExternalPort><NewProtocol>" + parts[0] + "</NewProtocol>" +
 			"<NewInternalPort>" + f.port + "</NewInternalPort><NewInternalClient>" + f.client + "</NewInternalClient><NewEnabled>1</NewEnabled>" +
-			"<NewPortMappingDescription>" + text.String() + "</NewPortMappingDescription><NewLeaseDuration>" + f.lease + "</NewLeaseDuration>"
+			"<NewPortMappingDescription>" + text.String() + "</NewPortMappingDescription><NewLeaseDuration>" + r.left(f) + "</NewLeaseDuration>"
 	}
 
 	action := strings.Trim(req.Header.Get("SOAPAction"), `"`)

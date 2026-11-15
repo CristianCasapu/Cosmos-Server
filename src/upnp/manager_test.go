@@ -166,6 +166,7 @@ func own(st Status, name string) Mapping {
 
 func TestAppPortIsForwardedRenewedAndWithdrawn(t *testing.T) {
 	w := newWorld(t)
+	w.router.leaseLeft = "900" // forwards on this router are about to end: they are renewed
 	w.containers = []Container{container("jellyfin", true, tcp(8096, 8096), udp(7359, 7359))}
 	w.choices(choose("jellyfin", 8096, "tcp"), choose("jellyfin", 7359, "udp"))
 
@@ -428,6 +429,7 @@ func TestReservedPortsAreNeverAskedFor(t *testing.T) {
 // One refused mapping is paused alone; the others go on being renewed.
 func TestARefusedMappingIsPausedAlone(t *testing.T) {
 	w := newWorld(t)
+	w.router.leaseLeft = "900" // forwards on this router are about to end: they are renewed
 	w.router.put("TCP/2053", "192.168.1.99", 443, "NAS")
 	w.router.refuse["UDP/27015"] = 606
 	w.containers = []Container{container("game", true, udp(27015, 27015), tcp(27015, 27015))}
