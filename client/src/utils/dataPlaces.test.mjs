@@ -155,6 +155,11 @@ test('sensitive access of a definition, named as the server names it', () => {
   ]);
 });
 
+test('a device of the server needs a tick (plan 40)', () => {
+  const items = sensitiveAccess({ services: { jellyfin: { image: 'jellyfin', devices: ['/dev/dri:/dev/dri', '/dev/sda:/dev/xvda:rwm'] } } });
+  assert.deepEqual(items.map((i) => i.id), ['jellyfin|device|/dev/dri', 'jellyfin|device|/dev/sda']);
+});
+
 test('every sentence is in the English translation file, word for word', () => {
   const translations = JSON.parse(readFileSync(new URL('./locales/en/translation.json', import.meta.url), 'utf8'));
   for (const code of Object.keys(TEXT)) {

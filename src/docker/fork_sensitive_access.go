@@ -28,7 +28,7 @@ import (
 type SensitiveItem struct {
 	Service string `json:"service"`
 	// Kind: bind (a host folder), socket (a container runtime's socket),
-	// privileged, network-host, cap (a capability), unconfined (security_opt)
+	// privileged, network-host, cap (a capability), unconfined (security_opt), device (a device of the server)
 	Kind  string `json:"kind"`
 	Value string `json:"value"`
 }
@@ -154,6 +154,12 @@ func serviceSensitive(key string, service ContainerCreateRequestContainer, extra
 			items = append(items, SensitiveItem{Service: key, Kind: "unconfined", Value: option})
 		}
 	}
+	// Fork addition (plan 40): a device of the server (a disk, a graphics card, a USB stick) is used directly
+	for _, device := range service.Devices {
+		if host := strings.TrimSpace(strings.Split(device, ":")[0]); host != "" {
+			items = append(items, SensitiveItem{Service: key, Kind: "device", Value: cleanHostPath(host)})
+		}
+	}
 	return items
 }
 
@@ -182,19 +188,7 @@ var existingSensitive = func(service string, name string, extra []string) map[st
 	if err != nil || existing.HostConfig == nil || existing.Config == nil {
 		return found
 	}
-	asService := ContainerCreateRequestContainer{
-		Privileged:  existing.HostConfig.Privileged,
-		NetworkMode: string(existing.HostConfig.NetworkMode),
-		CapAdd:      existing.HostConfig.CapAdd,
-		SecurityOpt: existing.HostConfig.SecurityOpt,
-		Labels:      existing.Config.Labels,
-	}
-	for _, m := range existing.Mounts {
-		if m.Type == mount.TypeBind {
-			asService.Volumes = append(asService.Volumes, mount.Mount{Type: mount.TypeBind, Source: m.Source})
-		}
-	}
-	for _, item := range serviceSensitive(service, asService, extra) {
+	for _, item := range containerSensitive(service, existing, extra) { // fork_sensitive_edit.go
 		found[item.Key()] = true
 	}
 	return found
@@ -255,6 +249,8 @@ func sensitiveSentence(items []SensitiveItem) string {
 			parts = append(parts, item.Service+": the capability "+item.Value)
 		case "unconfined":
 			parts = append(parts, item.Service+": "+item.Value)
+		case "device":
+			parts = append(parts, item.Service+": the device "+item.Value)
 		}
 	}
 	return strings.Join(parts, "; ")

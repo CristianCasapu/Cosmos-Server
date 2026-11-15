@@ -20,6 +20,7 @@ import ExposeModal from './exposeModal';
 import GetActions from './actionBar';
 import ResponsiveButton from '../../components/responseiveButton';
 import DockerComposeImport from './containers/docker-compose';
+import { InstallAnyImageButton } from '../../components/installAnyImage'; // Fork addition (plan 40)
 import { ContainerNetworkWarning } from '../../components/containers';
 import { ServAppIcon } from '../../utils/servapp-icon';
 import MiniPlotComponent from '../dashboard/components/mini-plot';
@@ -272,6 +273,7 @@ const ServApps = ({stack}) => {
           refreshServApps();
         }}>{t('global.refresh')}</ResponsiveButton>
         <DockerComposeImport refresh={refreshServApps}/>
+        <InstallAnyImageButton refresh={refreshServApps} />{/* Fork addition (plan 40): install any image */}
         <PermissionGuard permission={PERM_CREDENTIALS_READ}>
           <DownloadFile
             filename={'backup.cosmos-compose.json'}

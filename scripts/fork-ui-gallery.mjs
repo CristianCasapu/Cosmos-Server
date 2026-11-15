@@ -43,7 +43,7 @@
 import { chromium, firefox, webkit } from 'playwright';
 import { mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { storageMock, usersPatch, notificationsMock, eventsMock, notificationPagesMock, NOTIFICATION_ITEMS, edgeMock, edgeOverviewPatch } from './fork-ui-gallery-fixtures.mjs';
+import { storageMock, usersPatch, notificationsMock, eventsMock, notificationPagesMock, NOTIFICATION_ITEMS, edgeMock, edgeOverviewPatch, anyImageMock } from './fork-ui-gallery-fixtures.mjs';
 
 const base = process.env.BASE || 'http://polish.test:18080';
 const out = process.env.OUT || 'gallery';
@@ -81,6 +81,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 //   patch: [[path, fn]]   ask the server, then change its JSON answer with fn(json, url) before the page gets it
 // A step that cannot be done is reported in the summary, not fatal.
 // ---------------------------------------------------------------------------
+// "Install any image": open the dialog from the page's button and look an image up
+const anyImageLook = async (page, text) => {
+  await page.locator('[data-any-image-open]').first().click();
+  await page.locator('[data-any-image-field] input').fill(text);
+  await page.locator('[data-any-image-search]').click();
+};
 // the page's main action ("Create", "New ..."): the first filled button with a plus, above the list
 const create = async (page) => { await page.locator('main button.MuiButton-contained:has(.anticon-plus-circle), main button.MuiButton-contained:has(.anticon-plus)').first().click({ timeout: 8000 }); };
 
@@ -328,6 +334,19 @@ const views = [
     { id: 'review', wait: 2500, open: async (page) => { await page.getByRole('button', { name: /Install$/ }).first().click(); /* the app's page is drawn over the list: its button comes first */ } },
     // an address under a domain on a server that cannot look names up (the stand-in answers like Go's resolver)
     { id: 'review-no-dns', wait: 2500, open: async (page) => { await page.getByRole('button', { name: /Install$/ }).first().click(); await page.locator('[role=dialog] .MuiChip-root', { hasText: new URL(base).hostname }).first().click(); }, close: async (page) => { await page.keyboard.press('Escape'); } },
+  ] },
+  // "Install any image" (plan 40), answered by fixtures: Docker Hub's search, PostgreSQL to its review, an app that
+  // needs a database, an image that says nothing, a private registry; guarded by CHECK=1
+  { id: 'any-image', path: '/cosmos-ui/servapps', guard: true, wait: 1200, mock: [...anyImageMock, ...marketMock], captures: [
+    { id: 'search', open: async (page) => { await anyImageLook(page, 'postgres'); await page.locator('[data-result="postgres"]').waitFor({ timeout: 8000 }); } },
+    { id: 'postgres', wait: 1500, open: async (page) => { await anyImageLook(page, 'postgres'); await page.locator('[data-result="postgres"]').click(); await page.locator('[data-creation-review]').waitFor({ timeout: 8000 }); } },
+    { id: 'database', wait: 1500, open: async (page) => { await anyImageLook(page, 'example/dbapp:1'); await page.locator('[data-db-new="postgres"]').click(); await page.locator('[data-creation-review]').waitFor({ timeout: 8000 }); } },
+    { id: 'nothing', open: async (page) => { await anyImageLook(page, 'busybox:1.36'); await page.locator('[data-any-image-open-fields]').waitFor({ timeout: 8000 }); } },
+    { id: 'private', open: async (page) => { await anyImageLook(page, 'private.example.org/team/app:1'); await page.locator('[data-any-image-problem]').waitFor({ timeout: 8000 }); } },
+  ] },
+  { id: 'market-any-image', path: '/cosmos-ui/market-listing', guard: true, wait: 1500, mock: [...anyImageMock, ...marketMock], captures: [
+    {},
+    { id: 'nomatch', open: async (page) => { await page.locator('main input[placeholder^="Search"]').first().fill('postgres'); }, close: async (page) => { await page.locator('main input[placeholder^="Search"]').first().fill(''); } },
   ] },
   { id: 'new-container-steps', path: '/cosmos-ui/servapps/new-service', captures: [
     {},
@@ -949,7 +968,7 @@ const run = async (engineName, viewport, mode) => {
     await room(perLoad);
     const before = stamps.length;
     // a body may be a function of the address asked for (answers that depend on the query)
-    for (const [part, body, status, headers] of view.mock || []) await page.route((url) => url.pathname.startsWith(part), (route) => route.fulfill({ status: status || 200, json: typeof body === 'function' ? body(new URL(route.request().url())) : body, headers }));
+    for (const [part, body, status, headers] of view.mock || []) await page.route((url) => url.pathname.startsWith(part), (route) => route.fulfill({ status: status || 200, json: typeof body === 'function' ? body(new URL(route.request().url()), route.request()) : body, headers }));
     for (const part of view.abort || []) await page.route((url) => url.pathname.startsWith(part), (route) => route.abort('connectionrefused'));
     for (const [part, change] of view.patch || []) {
       await page.route((url) => url.pathname === part || url.pathname.startsWith(part + '?'), async (route) => {

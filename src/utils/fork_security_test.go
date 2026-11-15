@@ -228,6 +228,8 @@ func TestSecurityAuditRecordsChangesWithoutAHook(t *testing.T) {
 		"a change by a token":       {"PATCH", "/cosmos/api/users/bob", token, nothing, 200, SecAPIChange, "ok"},
 		"a read":                    {"GET", "/cosmos/api/cron", alice, nothing, 200, "", ""},
 		"a read sent as POST":       {"POST", "/cosmos/api/jobs/get", alice, nothing, 200, "", ""},
+		"an image search":           {"POST", "/cosmos/api/images/search", alice, nothing, 200, "", ""},
+		"an image description":      {"POST", "/cosmos/api/images/describe", alice, nothing, 200, "", ""},
 		"a change by nobody":        {"POST", "/cosmos/api/cron", nil, nothing, 401, "", ""},
 		"a change a hook recorded":  {"POST", "/cosmos/api/sudo", alice, hooked, 500, SecSudoFailed, ""},
 		"a preflight":               {"OPTIONS", "/cosmos/api/cron", alice, nothing, 200, "", ""},
