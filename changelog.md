@@ -1,3 +1,262 @@
+# Changelog
+
+This file has two parts: the history of **this fork** first, then **upstream's own history** of Cosmos-Server, unchanged.
+
+**How fork versions are named.** A fork release is `<upstream version>-fork.<build>`: `0.24.0-fork.22` is the fork's 22nd build and is based on upstream Cosmos-Server 0.24.0. The build number counts every fork release and never restarts; the server orders fork releases by build number alone, so a higher build always replaces a lower one, whatever upstream version each is based on. Builds 1 to 3 were published under an older scheme, as `0.23.4001` to `0.23.4003`, on upstream 0.23.4. Fork versions are not comparable with upstream's numbering. The panel and `package.json` keep upstream's plain version (the Market's "requires Cosmos x.y.z" refers to it); the menu shows it with the fork build appended.
+
+The full description of every change, with its files and routes, is in [`FORK.md`](FORK.md). Dates are those of the GitHub release (UTC).
+
+## Fork: Unreleased
+
+Nothing has been merged into `custom` since `0.24.0-fork.22`. Work in progress on separate branches (not released, and may change before it is): further security hardening, notifications with details, dependency upgrades.
+
+## Fork 0.24.0-fork.22 — 2026-11-15
+
+### Fixed
+- Router port forwards: Cosmos talks to the router over one connection per request and sends a request that got no answer once more. Some routers answer once per connection and close it silently; Cosmos then took a forward that was in fact made for lost, and could remove it from the router itself. A forward the router still shows is now kept, and a wanted forward is never removed as a leftover.
+
+## Fork 0.24.0-fork.21 — 2026-11-15
+
+### Changed
+- Storage on a phone: every disk, partition and logical volume is a card with its name, kind, file system, model, mount point, size, usage, temperature and identifiers, and its commands as a row of buttons. "Mount" is no longer offered on an LVM, encrypted or RAID member, nor "Unmount" on swap in use.
+- Users on a phone: one card per user with everything the desktop table shows. In every table, the columns hidden on narrow screens are shown inside the row's card instead of being dropped.
+- Notifications take the phone's width, and long labels and addresses wrap.
+
+### Fixed
+- A forward the router already shows as it should be is left alone instead of being written again (writing over it made a real router drop it).
+
+## Fork 0.24.0-fork.20 — 2026-11-15
+
+### Fixed
+- A router port forward that was lost or refused is asked for again by itself, with growing intervals, and the forwards of Cosmos' own ports are checked every five minutes. Before, a single failure stopped Cosmos from asking until an administrator pressed "Check now" — impossible from outside once the forward was gone. Administrators are told once per failure.
+
+### Licence
+- Added [`FORK-LICENCE.md`](FORK-LICENCE.md): the fork's own additions are offered for use with the free community edition only, may not be used commercially without the copyright holder's written consent, and are not a contribution to upstream. Upstream's `LICENCE` is unchanged.
+
+## Fork 0.24.0-fork.19 — 2026-11-14
+
+### Added
+- One "needs attention" area per page: on ServApps the leftovers of interrupted edits, available updates and apps without an address; on the home page the server's notices and the health lines, most urgent first.
+- Health in three states: "All is well" only when every check ran and found nothing, a line per problem, or what could not be checked and why.
+- Phone header with a "More" menu (terminal and restarts); "Cosmos cannot be reached" with automatic retry when the server does not answer.
+
+### Changed
+- The Market on phones; a failed host lookup is said in plain words with what to do; equal "Previous"/"Next" buttons; accessibility pass (one tab stop per link-button, names for unnamed controls, heading levels, 44 px targets).
+
+### Fixed
+- The server's network traffic counts only its own network cards and never goes below zero (upstream summed every interface, counting container traffic up to three times and showing negative traffic when a container was removed).
+- The OpenID consent page shows the client and the redirect address (upstream's sentence was always empty).
+
+## Fork 0.24.0-fork.18 — 2026-11-14
+
+### Added
+- OpenID clients guided and checked: the app picked from the server's URLs, client ID and redirect addresses proposed, one dialog with every value the app needs; the secret is made on the server and shown once.
+- Storage dialogs with guards on the server: mount offers the disks that can be mounted, unmount says what uses the folder, merge and parity propose disks.
+- Trusted proxies as a list with proposals; a domain added by hand gets its certificate mode and DNS provider proposed; small forms (networks, volumes, Market sources, Shield whitelist) proposed and validated on the server.
+- The home page shows one tile per app, opening the address that fits where the panel is used from, with the right port.
+
+### Security
+- The TLS listener names nothing to strangers: a peer from outside the local network and Cloudflare's ranges gets a certificate only for a name served directly, and that certificate names nothing else; other names are refused in the handshake.
+- Any mount of the host could be unmounted and dropped from `/etc/fstab` from the panel; system mounts are now always refused.
+- A new OpenID client was saved with an empty secret; redirect addresses are now checked strictly and the secret's hash is no longer sent to readers of the settings.
+
+### Fixed
+- SnapRAID: an empty data row and parity on the same disk are refused, "disable" works, and sync, scrub and fix report failure when they fail. Mounting over a mount point or a device in use is refused; a failure after mounting no longer leaves a disk half mounted.
+- OpenID discovery and tokens name the port the server is reached on (they named 443).
+
+## Fork 0.24.0-fork.17 — 2026-11-14
+
+### Added
+- One review before an app is created, for the Market, the compose import and the new-container form: what is created and published, addresses, restart policy, where the data goes (proposed from the server's real disks), what Cosmos filled in, processor problems, and a tick for each sensitive access, all checked again on the server.
+- Compose import that honours ports in every form, `environment`, `depends_on`, volume options, healthchecks, `shm_size`, `tmpfs`, `init`, `read_only`, exec-form `command`/`entrypoint`, `network_mode service:`/`container:`, labels and sysctls, and lists what it does not use.
+- Leftovers of interrupted container edits are reported and can be put back or removed from ServApps.
+- HTTP settings checked before saving (a save that would lock the administrator out is refused); a URL's protection as four levels; disk format that waits for the tool, reports failure and refuses a disk in use; guided alerts and API tokens.
+- The skin follows the two colours under Configuration > Theme with readable contrast; empty lists explain themselves; tables become cards on a phone; a health card on the home page.
+- The "New URL" dialog shows the same internet choices as the app's Internet dialog.
+
+### Fixed
+- The new-container form keeps User, the limits, the network mode, "use as VPN" and the interactive tick (upstream dropped them).
+- App icons never hold the page (upstream held one lock for every icon, up to 20 s each).
+- Cosmos running in a container starts again; the HTTP settings check counts the ports set by `COSMOS_HTTP_PORT`/`COSMOS_HTTPS_PORT` as Cosmos' own; the ServApps list is kept while the server reloads; a mail detection that ran out of time is not reported as complete.
+
+## Fork 0.24.0-fork.16 — 2026-11-14
+
+### Added
+- Names for use at home, per Cloudflare domain (off by default): every app also answers at `<app>.<label>.<domain>` at the server's private address, through one DNS-only wildcard record and one wildcard certificate name, so no app name appears in DNS or in the Certificate Transparency logs. Such names answer the local network only.
+
+## Fork 0.24.0-fork.15 — 2026-11-14
+
+### Added
+- The panel can be installed as an app on computers, phones and tablets: icons, window colours, shortcuts, an install button only when the browser can install, a notice when a new version is ready, and a switch under Configuration > Theme that removes it from every device.
+- The service worker keeps only the panel's own build files — never API answers, apps, the HTML page or login data — and shows an offline page in the panel's style. Every API answer is sent with `Cache-Control: no-store`.
+- On a notched phone the installed app keeps clear of the notch and home indicator.
+
+## Fork 0.24.0-fork.14 — 2026-11-14
+
+### Added
+- Certificates every browser trusts without an open port: Let's Encrypt through the domain's DNS (a connected Cloudflare zone, another provider's token, or one delegating CNAME). Renewal follows each certificate's lifetime and the authority's renewal window, with back-off and limits kept across restarts; orders run in the background and a failed renewal never replaces a valid certificate.
+- A "Certificates" card on the Domains tab and one home-page alert per domain with a lasting problem (replacing upstream's list of raw errors); admin notices and Telegram for failed orders.
+- "Internet" per app and at installation: the web address under a configured domain, through Cloudflare or directly with the reason, who may open it, and other ports forwarded under a name of their own; withdrawing removes everything it made.
+
+### Fixed
+- Creating services: bad ports, ranges and devices are refused before anything is created (upstream crashed half-way and left services stopped and renamed); a creation can no longer replace an existing container of the same name; deleting an app also withdraws its router ports and names.
+
+## Fork 0.24.0-fork.13 — 2026-11-14
+
+### Added
+- Proof that a request came through Cloudflare (Authenticated Origin Pulls), off until switched on, with a test first and an automatic fall-back.
+- `.local` names published as address records with the server's LAN address on the home network's interfaces only, checked every minute; the panel says whether each name is answered and which devices can open one.
+- A second pass on the skin (contrast, sizes, focus ring, sign-in pages), wayfinding (page names, breadcrumbs, a "page does not exist" page) and a gallery script that pictures the whole panel for visual checks.
+
+### Changed
+- Fail2ban and shielded names work together: Cloudflare's ranges stay on the never-ban list, and an address only a proxy reported is not handed to Fail2ban. The reachability check also judges the panel's own name. A refused cross-site request is recorded in the security record.
+
+### Fixed
+- The Cosmos sign-in in front of an app works on an HTTPS port other than 443.
+- A proxy's error page (for example Cloudflare's while Cosmos restarts) is no longer shown as raw HTML; it reads "the server did not answer".
+
+## Fork 0.24.0-fork.12 — 2026-11-14
+
+### Added
+- Guided Cloudflare set-up under Configuration > Domains, with a preview of every record before anything is written, and per address a choice between Cloudflare's proxy and a direct connection; a shielded name answers Cloudflare and the local network only.
+- The email settings form rebuilt: server, port, encryption and user name proposed from the address, provider hints, and a check that names the failed step.
+- Router port forwarding for the published ports of apps (off by default), with the next free port when one is taken, reserved ports never asked for, and mappings Cosmos did not create never changed.
+- URL form with a simple view in front of upstream's fields; a local address for every app in one action; user and scheduled-job dialogs that check while typing.
+
+### Security
+- The stored SMTP password is sent to no browser and is used only for the server it was saved for; AUTH LOGIN is never used over an unencrypted connection.
+
+### Fixed
+- "Who is signed in" is asked once per page load instead of 46 times, which ran into the server's own request limit; a throttled load shows a countdown instead of an empty page.
+- Geo-blocking's "Reset to default" leaves out the administrator's own country (upstream's list could lock the administrator out).
+- A scheduled job can no longer silently replace another of the same name; six dialogs no longer close on a click beside them.
+
+## Fork 0.24.0-fork.11 — 2026-11-14
+
+### Added
+- Signed releases: an update is installed only when its signature verifies under a key compiled into the server and the launcher, checked by both. This is the first signed release; from here on, installs refuse unsigned or wrongly signed updates.
+- Upstream releases reach `production` only after the owner's approval.
+- Without a licence, the panel hides what needs one (setting "Hide features that need a licence", on by default); no licence check is touched.
+
+### Security
+- Logging out ends every session of the account on every device; a session lasts at most 30 days; the password confirmation lasts a fixed two hours, and its prompt comes back mid-work without losing what was typed.
+
+### Fixed
+- Permanent mounts made from the panel are written by UUID with `nofail`, so a missing disk cannot stop the boot; mount and merge requests are checked on the server.
+
+## Fork 0.24.0-fork.10 — 2026-11-13
+
+### Added
+- Security dashboard (menu "Security"): status in words, counters, a timeline, busiest addresses with block and unban, searchable incidents.
+- Audit panel: what users did and what happened to each account, as sentences, with CSV export; "Recent activity on your account" on the home page.
+- Telegram notifications for security events, notices, updates, restarts and a container that keeps stopping, with quiet hours, rate caps and a test message.
+- Fail2ban: filters, jails and an installer the administrator runs; state, bans and "Unban" in the panel.
+
+## Fork 0.24.0-fork.9 — 2026-11-13
+
+### Added
+- Each app card and container page says whether the app can be reached from the internet, every check behind it and what to do about each problem.
+- The security record: every security-relevant event with who, from where, what and outcome, bounded against floods, and `cosmos.security.log` for Fail2ban.
+
+### Security
+- Fixes from a security review: the API answers the panel's own pages and clients only, on the server's own port; session cookies are SameSite=Lax and bound to their hostname, and no path skips the second factor; a session ends on the server at logout; a pending account answers like an unknown one and an administrator cannot delete or demote the own account; application icons are passed on as pictures only; applications receive the visitor's address from the server, not from the visitor; secrets in addresses are kept out of logs; sign-in bodies are bounded; accounts that may not read the configuration get a reduced one; the configuration backup is owner-only; SmartShield never bans a local address permanently; snapshots refuse folders with a disk mounted inside.
+- Dependencies brought up to date for security (Go 1.27.4, x/net, x/crypto, grpc, compression libraries, the Docker client library; UI packages within their major versions).
+
+## Fork 0.24.0-fork.8 — 2026-11-13
+
+### Added
+- Host-port conflicts are named before they fail; schedules are said in words; the Volumes page says which apps use a volume; the "New mount" dialog offers the partitions that are not mounted.
+
+### Fixed
+- Editing, updating or re-deploying a container keeps the old one until its replacement runs, and puts it back on failure (upstream removed it first).
+- A container update keeps its memory and CPU limits.
+- A busy host terminal no longer ends the whole server.
+- Failed mails are reported (invitations, password reset); a failed Let's Encrypt order says why.
+
+### Security
+- The "forgot password" form gives one answer whether or not the account exists, and sends at most one link a minute per account.
+
+## Fork 0.24.0-fork.7 — 2026-11-13
+
+### Added
+- App links grouped on the app card and the container page (local and external), and a "Domains" action to attach or detach a configured domain later.
+- Snapshots: exclude patterns; a source that is suddenly empty is not snapshotted; the folders a restore keeps can be listed and deleted.
+
+### Security
+- Five wrong two-factor codes within ten minutes lock the second step for fifteen minutes, administrators included; a verified two-factor secret can no longer be replaced by an unverified one (which switched two-factor off).
+
+### Fixed
+- Saving the settings keeps the certificate authority and the self-signed certificate (a new one was made and browsers asked again).
+- The plain-HTTP port redirects to HTTPS instead of answering 404.
+- Settings and alerts are read again once the server answers after a save; phone fixes for button rows and the alert editor.
+
+## Fork 0.24.0-fork.6 — 2026-11-12
+
+### Added
+- Incremental snapshots, a module of the fork's own: dated folders with hard links to the previous snapshot, schedule, retention, and restore from the panel.
+- Data disks mounted outside `/mnt` are listed, measured and get a "disk nearly full" alert.
+- A time zone setting for containers that ask for the host's zone (`TZ=auto`).
+- Forms that fill themselves in: addresses in the new-container form and the Market installer, help texts shown, required fields marked, "use the image's defaults", file-picker shortcuts.
+
+### Fixed
+- The configuration file is written atomically (upstream #591); the setup wizard keeps the administrator's email; "Update ports" keeps a binding's host IP (#611) and read-only mounts stay read-only; the container-updates banner shows; wildcard alerts fire and "reset to default" writes working alerts; two page crashes (Market, installer); Docker volume paths use the real location (#478).
+
+## Fork 0.24.0-fork.5 — 2026-11-12
+
+### Added
+- Every app gets a local address and, per attached domain, an external one.
+- The configuration backup runs on a schedule set in the settings.
+
+### Security
+- Local addresses (`.local` names, private IPs) are refused to visitors from outside the server's own networks, so a forwarded port does not expose them.
+
+## Fork 0.24.0-fork.4 — 2026-11-12
+
+### Changed
+- Based on upstream **Cosmos-Server 0.24.0**. Releases are now named `0.24.0-fork.<build>`, built from the `production` branch only, and the menu shows the fork build.
+- Server updates follow this fork's releases (checked after start and every six hours); the settings show running and latest version with "Check" and "Update now"; maintenance and automatic updates run at a configurable time (default 02:00); a restart no longer installs an update by itself; the running version is no longer sent to upstream's version service.
+- The Support menu links to this fork.
+
+### Added
+- A message with the outcome of every command the panel sends, and a progress line for longer ones; tooltips on icon-only buttons.
+- Address proposals when an app gets a URL.
+- The backup directory and the default data path are checked when the settings are saved; a missing backup directory is created.
+
+### Fixed
+- Containers created by Cosmos keep Docker's stop timeout instead of being killed on stop (upstream #626).
+- `.local` names are published again when Avahi loses them (upstream #507).
+- UPnP stops asking the router after a failure until asked, and says so.
+
+## Fork 0.23.4003 — 2026-11-12
+
+### Added
+- "Internet access" in the HTTP settings: which hostname Cosmos accepts, and an optional UPnP forward of Cosmos' HTTPS port on the router (off by default, default gateway only, leased for an hour and renewed).
+
+### Changed
+- A release is published only after the build has started once.
+
+## Fork 0.23.4002 — 2026-11-12
+
+- No change to the server (release automation only).
+
+## Fork 0.23.4001 — 2026-11-12
+
+First release of the fork, on upstream Cosmos-Server 0.23.4.
+
+### Added
+- "Send test email" in the SMTP settings, usable before saving, reporting each step.
+- The fork's skin (font, colours, surfaces) and a light/dark switch.
+- Updates come from this fork's releases instead of upstream's.
+
+### Fixed
+- Email delivery has connection timeouts and uses implicit TLS on port 465.
+
+---
+
+# Upstream's changelog
+
+*Upstream Cosmos-Server's history, unchanged.*
+
 ## Version 0.24.0
  - Each domain now has its own HTTPS and DynDNS settings (existing HTTPS setups are migrated automatically)
  - DynDNS: Cosmos can manage your DNS records on Cloudflare, Route53, OVH, Gandi, DigitalOcean, Hetzner, Porkbun, Namecheap, deSEC and DuckDNS
