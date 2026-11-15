@@ -5,7 +5,7 @@ import * as API from "../../api";
 import { useTheme } from "@emotion/react";
 import Grid2 from "@mui/material/Unstable_Grid2/Grid2";
 import { useParams } from "react-router";
-import Carousel from 'react-material-ui-carousel'
+import Carousel from '../../components/forkCarousel'; // Fork addition: replaces react-material-ui-carousel (unmaintained, MUI 5 only)
 import { Paper, Button, Chip } from '@mui/material'
 import { Link } from "react-router-dom";
 import { Link as LinkMUI } from '@mui/material'
@@ -22,6 +22,7 @@ import DOMPurify from 'dompurify';
 import { marketArchFits } from '../../utils/dataPlaces'; // Fork addition
 
 function Screenshots({ screenshots }) {
+  const { t } = useTranslation(); // Fork addition: the slide show's name
   const aspectRatioContainerStyle = {
     position: 'relative',
     overflow: 'hidden',
@@ -44,7 +45,7 @@ function Screenshots({ screenshots }) {
   // Fork addition: on a phone the frame is as tall as the picture (a fixed 400 px left a band of empty space under it)
   const frame = { height: { xs: 'auto', sm: '400px' } };
   return screenshots.length > 1 ? (
-    <Carousel animation="slide" navButtonsAlwaysVisible={false} fullHeightHover="true" swipe={false}>
+    <Carousel animation="slide" label={t('navigation.market.screenshots', 'Screenshots')}>
       {
         screenshots.map((item, i) => <Box sx={frame} key={i}>
           <img style={{ maxHeight: '100%', width: '100%', objectFit: 'contain' }} src={item} alt="" />
@@ -57,11 +58,12 @@ function Screenshots({ screenshots }) {
 }
 
 function Showcases({ showcase, isDark, isAdmin }) {
+  const { t } = useTranslation(); // Fork addition: the slide show's name
   // Fork addition: the slides stay inside their frame (on a phone two half slides showed), and with
   // "reduce motion" on the device the showcase does not turn by itself and changes without sliding
   const still = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   return (
-    <Carousel className="ct-market-showcase" animation={still ? 'fade' : 'slide'} autoPlay={!still} navButtonsAlwaysVisible={false} fullHeightHover="true" swipe={false}>
+    <Carousel className="ct-market-showcase" animation={still ? 'fade' : 'slide'} autoPlay={!still} label={t('navigation.market.featured', 'Featured apps')}>
       {
         showcase.map((item, i) => <ShowcasesItem isDark={isDark} key={i} item={item} isAdmin={isAdmin} />)
       }
