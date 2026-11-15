@@ -159,7 +159,8 @@ func DescribeRoute(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if !describeWindow.start(time.Now()) {
-		answer(w, Description{Reference: clean(body.Reference, 255), Problem: "rateLimited", Platforms: []string{}, Tags: TagList{List: []string{}}})
+		// Cosmos' own bound, not the registry's
+		answer(w, Description{Reference: clean(body.Reference, 255), Problem: "busy", Platforms: []string{}, Tags: TagList{List: []string{}}})
 		return
 	}
 	defer describeWindow.done()

@@ -5646,7 +5646,7 @@
 	"mgmt.servapps.anyImage.problem.notImage": "This is not a container image Cosmos can read (another kind of artifact, or an answer that does not match its checksum).",
 	"mgmt.servapps.anyImage.problem.redirect": "The registry sent Cosmos to an address it does not follow (not https, or too many hops).",
 	"mgmt.servapps.anyImage.problem.platform": "{{name}} is made for {{platforms}} only: it would not run on this server.",
-	"mgmt.servapps.anyImage.search.problem.rateLimited": "Too many searches just now: wait a minute and search again.",
+	"mgmt.servapps.anyImage.search.problem.rateLimited": "Docker Hub asks to wait (too many searches): try again in a while.",
 	"mgmt.servapps.anyImage.search.problem.unreachable": "Docker Hub could not be reached. Type the image's full name instead, for example postgres:18 or ghcr.io/owner/app.",
 	"mgmt.servapps.anyImage.tag.pinMajor": "The newest major version, {{tag}}. A database is pinned to its major version: it then gets the fixes of {{tag}}, and moving to the next major (which needs its data converted) stays your decision.",
 	"mgmt.servapps.anyImage.tag.newest": "The newest version the registry lists.",
@@ -5746,5 +5746,7 @@
 	"mgmt.servapps.anyImage.ui.portHint": "For example 8080. It gets an address in Cosmos; nothing is published on the server.",
 	"mgmt.servapps.anyImage.ui.env": "Settings (variables)",
 	"mgmt.servapps.anyImage.ui.envHint": "One per line, NAME=value, as its page lists them.",
-	"mgmt.servapps.anyImage.fact.size": "The download is about {{size}} (compressed); Docker keeps it unpacked, larger, where it keeps its images."
+	"mgmt.servapps.anyImage.fact.size": "The download is about {{size}} (compressed); Docker keeps it unpacked, larger, where it keeps its images.",
+	"mgmt.servapps.anyImage.problem.busy": "Cosmos has looked up many images in the last minute: wait a moment, then look again.",
+	"mgmt.servapps.anyImage.search.problem.busy": "Too many searches just now: wait a minute and search again."
 }

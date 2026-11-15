@@ -78,7 +78,7 @@ func TestSearchIsRateLimited(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		_, last = search(context.Background(), "q"+string(rune('a'+i)))
 	}
-	if last != errRateLimited {
+	if last != errBusy || codeOf(last) != "busy" {
 		t.Fatal(last)
 	}
 }

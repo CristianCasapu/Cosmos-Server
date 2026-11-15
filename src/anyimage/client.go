@@ -30,6 +30,8 @@ var (
 	errUnreachable  = errors.New("unreachable")
 	errNotImage     = errors.New("notImage")
 	errRedirect     = errors.New("redirect refused")
+	// errBusy: Cosmos' own bound on lookups, not the registry's
+	errBusy = errors.New("busy")
 )
 
 const maxRedirects = 3

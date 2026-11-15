@@ -197,6 +197,7 @@ test('names and problems', () => {
   assert.equal(nameFor(parseReference('postgres'), ['/postgres']), 'postgres-2');
   assert.ok(problemText({ problem: 'unauthorized', loggedIn: false, registry: 'ghcr.io' }).key.endsWith('unauthorizedLogin'));
   assert.ok(problemText({ problem: 'strange' }).key.endsWith('problem.unreachable'));
+  assert.ok(problemText({ problem: 'busy' }).key.endsWith('problem.busy'), 'Cosmos\' own bound is not blamed on the registry');
   assert.equal(problemText({ problem: '' }), null);
 });
 

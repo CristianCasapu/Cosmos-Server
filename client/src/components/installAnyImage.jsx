@@ -222,16 +222,16 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
         <Stack direction="row" spacing={1} sx={{ minWidth: 0 }} component="form" onSubmit={(e) => { e.preventDefault(); runSearch(query); }}>
           <TextField size="small" fullWidth value={query} onChange={(e) => setQuery(e.target.value)} disabled={busy}
             label={t('mgmt.servapps.anyImage.ui.field', 'Image or search words')} placeholder="postgres" data-any-image-field />
-          <Button type="submit" variant="contained" disabled={busy || !query.trim()} startIcon={<SearchOutlined />} sx={{ flexShrink: 0 }} data-any-image-search>
+          <Button type="submit" variant="contained" disabled={busy || !query.trim()} startIcon={<SearchOutlined />} sx={{ flexShrink: 0, minHeight: { xs: 44, sm: 0 } }} data-any-image-search>
             {t('mgmt.servapps.anyImage.ui.search', 'Look')}
           </Button>
         </Stack>
 
-        {searchProblem && <Alert severity="warning" sx={wrap}>{say(aiText('search.problem.' + (searchProblem === 'rateLimited' ? 'rateLimited' : 'unreachable')))}</Alert>}
+        {searchProblem && <Alert severity="warning" sx={wrap}>{say(aiText('search.problem.' + (['rateLimited', 'busy'].includes(searchProblem) ? searchProblem : 'unreachable')))}</Alert>}
         {results && !desc && <Stack spacing={1} sx={{ minWidth: 0 }} data-any-image-results>
           {results.length === 0 && !searchProblem && <Typography variant="body2">{t('mgmt.servapps.anyImage.ui.noResult', 'Docker Hub has no image for these words. If the image is on another registry, type its full name.')}</Typography>}
           {results.map((r) => <Button key={r.name} variant="outlined" color="inherit" onClick={() => describe(r.name)} disabled={busy} data-result={r.name}
-            sx={{ justifyContent: 'flex-start', textAlign: 'left', textTransform: 'none', minWidth: 0, display: 'block', py: 1 }}>
+            sx={{ justifyContent: 'flex-start', textAlign: 'left', textTransform: 'none', minWidth: 0, minHeight: 44, display: 'block', py: 1 }}>
             <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap" sx={{ minWidth: 0 }}>
               <Typography variant="subtitle1" component="span" sx={{ overflowWrap: 'anywhere' }}>{r.name}</Typography>
               {r.official && <Chip size="small" color="primary" label={t('mgmt.servapps.anyImage.ui.official', 'Docker official image')} />}

@@ -92,7 +92,7 @@ func search(ctx context.Context, query string) ([]Result, error) {
 	}
 	searchMu.Unlock()
 	if !searchWindow.start(time.Now()) {
-		return nil, errRateLimited
+		return nil, errBusy
 	}
 	defer searchWindow.done()
 

@@ -77,7 +77,7 @@ type Description struct {
 	Declared *Declared `json:"declared,omitempty"`
 	Tags     TagList   `json:"tags"`
 	Recipe   *Recipe   `json:"recipe,omitempty"`
-	// Problem: "" or a code (invalid, internal, notFound, unauthorized, rateLimited, unreachable, tooLarge, notImage, redirect)
+	// Problem: "" or a code (busy: Cosmos' own bound; invalid, internal, notFound, unauthorized, rateLimited, unreachable, tooLarge, notImage, redirect)
 	Problem string `json:"problem,omitempty"`
 	// LoggedIn: the server has credentials for this registry (said with "unauthorized")
 	LoggedIn bool `json:"loggedIn"`
@@ -394,7 +394,7 @@ func codeOf(err error) string {
 		return "invalid"
 	case ErrInternal:
 		return "internal"
-	case errNotFound, errUnauthorized, errRateLimited, errTooLarge, errNotImage:
+	case errNotFound, errUnauthorized, errRateLimited, errTooLarge, errNotImage, errBusy:
 		return err.Error()
 	case errRedirect:
 		return "redirect"
