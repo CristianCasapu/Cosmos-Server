@@ -93,7 +93,7 @@ export const ValidateRouteSchema = Yup.object().shape({
   Mode: Yup.string().required('Mode is required'),
   Target: Yup.string().required('Target is required').when('Mode', {
     is: 'SERVAPP',
-    then: Yup.string().matches(/:[0-9]+$/, <Trans i18nKey="mgmt.config.containerPicker.targetTypeValidation.noPort" />),
+    then: (schema) => schema.matches(/:[0-9]+$/, <Trans i18nKey="mgmt.config.containerPicker.targetTypeValidation.noPort" />),
   }),
 
   Host: Yup.string()
@@ -134,7 +134,7 @@ export const ValidateRouteSchema = Yup.object().shape({
 
   PathPrefix: Yup.string().when('UsePathPrefix', {
     is: true,
-    then: Yup.string().required('Path Prefix is required').matches(/^\//, 'Path Prefix must start with / (e.g. /api). Do not include a domain/subdomain in it, use the Host for this.')
+    then: (schema) => schema.required('Path Prefix is required').matches(/^\//, 'Path Prefix must start with / (e.g. /api). Do not include a domain/subdomain in it, use the Host for this.')
   }),
 
   UseHost: Yup.boolean().test('is-host-or-path', 'Source must be either Host or Path Prefix', function (value) {

@@ -24,7 +24,7 @@ import { useEffect, useState } from 'react';
 import ResponsiveButton from '../../../components/responseiveButton';
 import UploadButtons from '../../../components/fileUpload';
 import NewDockerService from './newService';
-import yaml from 'js-yaml';
+import { loadCompose } from '../../../utils/composeYaml.mjs'; // Fork addition: js-yaml 5 (merge keys added back)
 import { CosmosCollapse, CosmosFormDivider, CosmosInputPassword, CosmosInputText, CosmosSelect } from '../../config/users/formShortcuts';
 import VolumeContainerSetup from './volumes';
 import DockerContainerSetup from './setup';
@@ -95,7 +95,7 @@ const cleanUpStore = (service) => {
 // what it does not take (upstream's conversion broke a lone port and dropped unknown keys without a word).
 const convertDockerCompose = (config, serviceName, dockerCompose, setYmlError, setNotes) => {
   try {
-    const result = convertCompose(yaml.load(dockerCompose), {
+    const result = convertCompose(loadCompose(dockerCompose), {
       serviceName,
       dataPath: (config && config.DockerConfig && config.DockerConfig.DefaultDataPath) || '/cosmos-storage',
     });

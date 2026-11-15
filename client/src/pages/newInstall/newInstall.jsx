@@ -235,21 +235,21 @@ const NewInstall = () => {
                 validationSchema={Yup.object().shape({
                         SSLEmail: Yup.string().when('HTTPSCertificateMode', {
                             is: "LETSENCRYPT",
-                            then: Yup.string().email().required(),
-                            otherwise: Yup.string().email(),
+                            then: (schema) => schema.email().required(),
+                            otherwise: (schema) => schema.email(),
                         }),
                         TLSKey: Yup.string().when('HTTPSCertificateMode', {
                             is: "PROVIDED",
-                            then: Yup.string().required(),
+                            then: (schema) => schema.required(),
                         }),
                         TLSCert: Yup.string().when('HTTPSCertificateMode', {
                             is: "PROVIDED",
-                            then: Yup.string().required(),
+                            then: (schema) => schema.required(),
                         }),
                         Hostname: Yup.string().when('HTTPSCertificateMode', {
                             is: "LETSENCRYPT",
-                            then: Yup.string().required().matches(hostnameIsDomainReg, t('newInstall.letsEncryptChoiceOnlyfqdnValidation')),
-                            otherwise: Yup.string().required()
+                            then: (schema) => schema.required().matches(hostnameIsDomainReg, t('newInstall.letsEncryptChoiceOnlyfqdnValidation')),
+                            otherwise: (schema) => schema.required()
                         }),
                 })}
                 onSubmit={async (values, { setErrors, setStatus, setSubmitting }) => {
