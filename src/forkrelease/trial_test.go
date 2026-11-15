@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -1357,7 +1358,10 @@ func TestAStuckRestoreExplainsTheWayOut(t *testing.T) {
 			"1. Remove or rename " + filepath.Join(folder, "static", "app.js"),
 			"2. Install " + oldVersion + " again by hand",
 			"curl -fLO https://github.com/example-owner/Cosmos-Server/releases/download/v" + oldVersion + "/" + zip,
-			"grep ' " + zip + "$' " + SignatureName(oldVersion) + " | sed 's/^sha256 \\([0-9a-f]*\\) /\\1  /' | sha256sum -c",
+			"sh -e <<'COSMOS_REINSTALL'",
+			"grep -qx 'version " + oldVersion + "' signed",
+			"test -f verified",
+			"grep ' " + zip + "$' signed | sed 's/^sha256 \\([0-9a-f]*\\) /\\1  /' | sha256sum -c",
 			"unzip -q " + zip + " -d unpacked && rm -f unpacked/*/start.sh",
 			"cp -a unpacked/*/. '" + folder + "'/",
 			"rm -f '" + trialPath(folder) + "' '" + folder + "'/cosmos-update.mark.* '" + filepath.Join(folder, StagedZip) + "' '" + filepath.Join(folder, StagedSignature) + "' && echo '" + newVersion + "' >> '" + filepath.Join(folder, failedName) + "'",
@@ -1393,61 +1397,100 @@ func TestAStuckRestoreExplainsTheWayOut(t *testing.T) {
 	}
 }
 
-// C, way 2 run as written (where unzip is there), with the downloads
-// replaced by the release's files: the folder ends as the release, the
-// state, the marks and the update file are gone, and the next start runs it.
+// C, way 2 run as written: the block pasted as it is printed, with the
+// downloads replaced by the release's files. With a signature file signed by
+// a release key of this installation the folder ends as the release, the
+// state, the marks and the update file are gone and the next start runs it;
+// a signature by another key, a changed zip, a signature file of another
+// version or a missing signature each stop the block before anything is copied.
 func TestTheReinstallAsWritten(t *testing.T) {
-	if _, err := exec.LookPath("unzip"); err != nil {
-		t.Skip("unzip is not installed here; the real run checks the commands on Debian")
+	for _, tool := range []string{"unzip", "openssl", "sha256sum", "base64"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " is not installed here; the real run checks the commands on Debian")
+		}
 	}
 	releaseRepo = "example-owner/Cosmos-Server"
 	defer func() { releaseRepo = "" }()
-	folder := oldInstall(t, newReleaseZip(t))
-	f := &fakeEnv{}
-	keepReplaced(folder, newVersion, &f.out)
-	os.WriteFile(filepath.Join(folder, "cosmos"), []byte("new ser"), 0755)
-	os.WriteFile(filepath.Join(folder, previousFolder, "static", "app.js"), []byte("rotten"), 0600)
-	launcherTrial(folder, f.env())
-	release := t.TempDir()
+	public, private, _ := ed25519.GenerateKey(nil)
+	otherPublic, _, _ := ed25519.GenerateKey(nil) // a second trusted key, as with two slots
+	_, stranger, _ := ed25519.GenerateKey(nil)    // a key this installation does not trust
+	previousKeys := reinstallKeys
+	reinstallKeys = func() []ed25519.PublicKey { return []ed25519.PublicKey{otherPublic, public} }
+	defer func() { reinstallKeys = previousKeys }()
+
 	oldZip := zipOf(t, zipEntry{name: "cosmos-cloud-" + oldVersion + "/cosmos", content: "old server", mode: 0755},
 		zipEntry{name: "cosmos-cloud-" + oldVersion + "/start.sh", content: "not this one", mode: 0755},
 		zipEntry{name: "cosmos-cloud-" + oldVersion + "/meta.json", content: `{"version": "` + oldVersion + `"}`},
 		zipEntry{name: "cosmos-cloud-" + oldVersion + "/static/app.js", content: "old app"})
 	zip := ZipName(oldVersion, runtime.GOARCH)
-	os.WriteFile(filepath.Join(release, zip), oldZip, 0644)
-	os.WriteFile(filepath.Join(release, SignatureName(oldVersion)), []byte("cosmos-fork-release-v1\nversion "+oldVersion+"\nsha256 "+sha256Hex(oldZip)+" "+zip+"\nsignature x\n"), 0644)
-	// curl stands in for GitHub: it takes the file of that name from the release folder
-	bin := t.TempDir()
-	os.WriteFile(filepath.Join(bin, "curl"), []byte("#!/bin/sh\nfor a in \"$@\"; do case \"$a\" in http*) cp "+quote(release)+"/\"${a##*/}\" .;; esac; done\n"), 0755)
-	commands := []string{}
-	inWay := false
-	for _, line := range strings.Split(readme(folder), "\n") {
-		switch {
-		case strings.HasPrefix(line, "1. Install"):
-			inWay = true
-		case inWay && strings.HasPrefix(line, "   "):
-			commands = append(commands, strings.TrimSpace(line))
-		case inWay:
-			inWay = false
+	signed := func(version string, z []byte, key ed25519.PrivateKey) []byte {
+		manifest := "cosmos-fork-release-v1\nversion " + version + "\nsha256 " + sha256Hex(z) + " " + zip + "\n"
+		if key == nil {
+			return []byte(manifest)
 		}
+		return []byte(manifest + "signature " + base64.StdEncoding.EncodeToString(ed25519.Sign(key, []byte(manifest))) + "\n")
 	}
-	if len(commands) < 6 {
-		t.Fatalf("commands %v in:\n%s", commands, readme(folder))
+	cases := []struct {
+		name string
+		zip  []byte
+		sig  []byte
+		ok   bool
+	}{
+		{"signed by a release key", oldZip, signed(oldVersion, oldZip, private), true},
+		{"signed by a key it does not trust", oldZip, signed(oldVersion, oldZip, stranger), false},
+		{"a zip that is not the signed one", append(append([]byte{}, oldZip...), 0), signed(oldVersion, oldZip, private), false},
+		{"the signature file of another version", oldZip, signed(newVersion, oldZip, private), false},
+		{"no signature at all", oldZip, signed(oldVersion, oldZip, nil), false},
 	}
-	script := strings.Join(commands, "\n")
-	script = strings.ReplaceAll(script, "/tmp/cosmos-reinstall", filepath.Join(t.TempDir(), "reinstall"))
-	runSh(t, folder, "PATH="+quote(bin)+":$PATH; set -e; "+strings.ReplaceAll(script, "\n", "\n"))
-	if got, _ := os.ReadFile(filepath.Join(folder, "cosmos")); string(got) != "old server" {
-		t.Errorf("cosmos is %q", got)
-	}
-	if got, _ := os.ReadFile(filepath.Join(folder, "start.sh")); strings.Contains(string(got), "not this one") {
-		t.Error("the release's start.sh was copied over the folder's")
-	}
-	if present(folder, trialName) || present(folder, StagedZip) || present(folder, pendingLauncher) {
-		t.Error("the state, the zip or a pending launcher is left")
-	}
-	if !launcherTrial(folder, f.env()) || present(folder, StagedZip) {
-		t.Error("the next start did not run the folder, or the zip came back")
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			folder := oldInstall(t, newReleaseZip(t))
+			f := &fakeEnv{}
+			keepReplaced(folder, newVersion, &f.out)
+			os.WriteFile(filepath.Join(folder, "cosmos"), []byte("new ser"), 0755)
+			os.WriteFile(filepath.Join(folder, previousFolder, "static", "app.js"), []byte("rotten"), 0600)
+			launcherTrial(folder, f.env())
+			release := t.TempDir()
+			os.WriteFile(filepath.Join(release, zip), c.zip, 0644)
+			os.WriteFile(filepath.Join(release, SignatureName(oldVersion)), c.sig, 0644)
+			// curl stands in for GitHub: it takes the file of that name from the release folder
+			bin := t.TempDir()
+			os.WriteFile(filepath.Join(bin, "curl"), []byte("#!/bin/sh\nfor a in \"$@\"; do case \"$a\" in http*) cp "+quote(release)+"/\"${a##*/}\" .;; esac; done\n"), 0755)
+			text := readme(folder)
+			start := strings.Index(text, "sh -e <<'"+reinstallEnd+"'\n")
+			end := strings.Index(text, "\n"+reinstallEnd+"\n")
+			if start < 0 || end < start {
+				t.Fatalf("no block to paste in:\n%s", text)
+			}
+			block := text[start : end+len(reinstallEnd)+2]
+			block = strings.ReplaceAll(block, "/tmp/cosmos-reinstall", filepath.Join(t.TempDir(), "reinstall"))
+			cmd := exec.Command("sh", "-c", block)
+			cmd.Dir = folder
+			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"))
+			out, err := cmd.CombinedOutput()
+			got, _ := os.ReadFile(filepath.Join(folder, "cosmos"))
+			if !c.ok {
+				if err == nil || string(got) != "new ser" || !present(folder, trialName) {
+					t.Fatalf("the block went on (err %v, cosmos %q):\n%s", err, got, out)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("the block failed: %v\n%s\n%s", err, out, block)
+			}
+			if string(got) != "old server" {
+				t.Errorf("cosmos is %q", got)
+			}
+			if got, _ := os.ReadFile(filepath.Join(folder, "start.sh")); strings.Contains(string(got), "not this one") {
+				t.Error("the release's start.sh was copied over the folder's")
+			}
+			if present(folder, trialName) || present(folder, StagedZip) || present(folder, pendingLauncher) {
+				t.Error("the state, the zip or a pending launcher is left")
+			}
+			if !launcherTrial(folder, f.env()) || present(folder, StagedZip) {
+				t.Error("the next start did not run the folder, or the zip came back")
+			}
+		})
 	}
 }
 
