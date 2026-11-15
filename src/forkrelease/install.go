@@ -79,6 +79,12 @@ func (s Stager) Stage(tag string) error {
 	if _, err := os.Lstat(filepath.Join(s.Folder, pendingLauncher)); err == nil {
 		return ErrLauncherPending
 	}
+	if failedIn(s.Folder, version) {
+		return ErrFailedHere // went back by itself here: see trial.go
+	}
+	if _, err := os.Lstat(filepath.Join(s.Folder, trialName)); err == nil {
+		return ErrTrialPending
+	}
 	if len(s.trustedKeys()) == 0 {
 		return ErrNoReleaseKey // nothing could be verified: do not even ask
 	}
@@ -218,6 +224,9 @@ func checkStaged(keys []ed25519.PublicKey, folder string, arch string) (Manifest
 	if err != nil {
 		return Manifest{}, err
 	}
+	if failedIn(folder, manifest.Version) {
+		return Manifest{}, ErrFailedHere // went back by itself here: see trial.go
+	}
 
 	installed, err := installedVersion(folder)
 	if err != nil {
@@ -257,6 +266,7 @@ func launcherAccepts(keys []ed25519.PublicKey, folder string, arch string, out i
 	manifest, err := checkStaged(keys, folder, arch)
 	if err == nil {
 		fmt.Fprintln(out, "Update "+manifest.Version+" is signed with a release key of this fork.")
+		accepted = &manifest // KeepReplaced takes the version from here
 		return true
 	}
 	reason := SafeText(err.Error())
