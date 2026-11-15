@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { askSensitive, answerSensitive, confirmQuery, sendWithConfirmation, subscribeSensitiveEdit, getSensitiveEdit } from './sensitiveEdit.js';
+import { isSensitiveRefusal, askSensitive, answerSensitive, confirmQuery, sendWithConfirmation, subscribeSensitiveEdit, getSensitiveEdit } from './sensitiveEdit.js';
 
 const response = (status, body) => ({ status, clone() { return this; }, json: async () => body });
 const refusal = response(409, { status: 'error', code: 'DS010', message: 'x', data: { sensitive: [{ service: 'app', kind: 'device', value: '/dev/sda' }, { service: 'app', kind: 'bind', value: '/' }] } });
@@ -52,4 +52,11 @@ test('the dialog\'s texts are in the translation file', () => {
     n += 1;
   }
   assert.ok(n >= 4);
+});
+
+test('the refusal that becomes a question is not announced as a failure', () => {
+  assert.equal(isSensitiveRefusal(409, JSON.stringify({ code: 'DS010' })), true);
+  assert.equal(isSensitiveRefusal(409, JSON.stringify({ code: 'X' })), false);
+  assert.equal(isSensitiveRefusal(400, JSON.stringify({ code: 'DS010' })), false);
+  assert.equal(isSensitiveRefusal(409, 'not json'), false);
 });

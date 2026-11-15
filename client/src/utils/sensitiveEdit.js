@@ -58,3 +58,10 @@ export const sendWithConfirmation = async (send, ask = askSensitive) => {
 };
 
 export const confirmQuery = (ids) => (ids && ids.length ? '?' + ids.map((id) => 'confirm=' + encodeURIComponent(id)).join('&') : '');
+
+// A refusal the dialog turns into a question (409, DS010): not a failure to
+// announce (utils/activity.js); the edit sent again after the ticks is.
+export const isSensitiveRefusal = (status, text) => {
+  if (status !== 409) return false;
+  try { return JSON.parse(text).code === 'DS010'; } catch (e) { return false; }
+};
