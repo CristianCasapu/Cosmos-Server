@@ -118,7 +118,8 @@ for (const name of names) for (const size of wanted) {
   expect(id + ': the address in use is proposed for the admin whitelist', /The address you are connected from right now/.test(body), body.match(/Add \d[^\n]*/g));
   expect(id + ': and the network the admin shares with the server', /The local network you and the server are on/.test(body));
   await page.locator('#fork-whitelist-add').fill('10.0.0.0/8');
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  // the trusted proxies have an Add button of their own on the same tab: the whitelist's is next to its field
+  await page.locator('.MuiStack-root:has(#fork-whitelist-add):has(> button)').locator('> button', { hasText: /^Add$/ }).click();
   await page.waitForTimeout(2500);
   body = await page.locator('body').innerText();
   expect(id + ': a list without the address in use says it would lock the admin out', /This list would lock you out/.test(body));
