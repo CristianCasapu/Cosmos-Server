@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  ALL_TEXTS, EXEMPT, PERMISSION_NAME, blockOf, canUnblock, durationText, failureText, jailText, keyOf, looksLocal, problemText, proofText, rulesShown, stateText,
+  ALL_TEXTS, EXEMPT, PERMISSIONS, PERMISSION_NAME, offersAccount, proofNotes, blockOf, canUnblock, durationText, failureText, jailText, keyOf, looksLocal, problemText, proofText, rulesShown, stateText,
 } from './edgeBlocks.js';
 
 const en = JSON.parse(readFileSync(new URL('./locales/en/translation.json', import.meta.url), 'utf8'));
@@ -59,15 +59,38 @@ test('the state in one sentence', () => {
   assert.deepEqual(stateText({ zones: [{ name: 'example.org' }], enabled: true, live: 3 })[1][2], { count: 3 });
 });
 
-test('a missing permission is named', () => {
-  const text = problemText({ zone: 'example.org', reason: 'permission' });
-  assert.equal(text[2].permission, PERMISSION_NAME);
-  assert.equal(PERMISSION_NAME, 'Zone > Firewall Services > Edit');
-  const proof = proofText({ zone: 'example.org', ok: false, step: 'list', reason: 'permission' });
-  assert.equal(proof[0], 'mgmt.edge.proof.failed');
-  assert.equal(proof[2].problemKey, 'mgmt.edge.problem.permission');
-  assert.equal(proofText({ zone: 'example.org', ok: true, inferred: true })[0], 'mgmt.edge.proof.inferred');
-  assert.equal(proofText({ zone: 'example.org', ok: true })[0], 'mgmt.edge.proof.ok');
+test('a missing permission is named by its name in the token editor, for the way in use', () => {
+  assert.equal(PERMISSIONS.zone_rules, 'Zone > Firewall Services > Edit');
+  assert.equal(PERMISSIONS.waf, 'Zone > Zone WAF > Edit');
+  assert.equal(PERMISSIONS.account_rules, 'Account > Account Firewall Access Rules > Edit');
+  assert.equal(PERMISSION_NAME, PERMISSIONS.waf);
+  assert.equal(problemText({ zone: 'example.org', reason: 'permission', via: 'waf' })[2].permission, PERMISSIONS.waf);
+  assert.equal(problemText({ zone: 'example.org', reason: 'permission', via: 'account_rules' })[2].permission, PERMISSIONS.account_rules);
+  assert.equal(problemText({ zone: 'example.org', reason: 'permission' })[2].permission, PERMISSIONS.zone_rules);
+});
+
+test('every outcome of the test has a sentence that says what to do', () => {
+  const go = readFileSync(new URL('../../../src/edgeblock/api.go', import.meta.url), 'utf8');
+  const outcomes = [...go.matchAll(/Outcome\w+\s*=\s*(?:"(\w+)"|(Via\w+))/g)].map((m) => m[1] || { ViaZone: 'zone_rules', ViaWAF: 'waf', ViaAccount: 'account_rules' }[m[2]]);
+  assert.ok(outcomes.length >= 8, 'found the outcomes in api.go: ' + outcomes.join(' '));
+  for (const outcome of outcomes) {
+    const text = proofText({ zone: 'example.org', outcome, reason: 'unreachable' });
+    assert.ok(en[text[0]], outcome + ': ' + text[0]);
+  }
+  // the owner's case: custom rules readable, the account's rules usable
+  const owners = { zone: 'example.org', ok: false, outcome: 'waf_read_only', zoneRules: 'no', waf: 'read', accountRules: 'read' };
+  const sentence = proofText(owners);
+  assert.equal(sentence[0], 'mgmt.edge.outcome.wafRead');
+  assert.ok(sentence[1].includes('{{waf}}') && sentence[2].waf === 'Zone > Zone WAF > Edit');
+  assert.deepEqual(proofNotes(owners).map((n) => n[0]), ['mgmt.edge.outcome.alsoAccount']);
+  assert.ok(offersAccount({ zones: [{ lastTest: owners }] }));
+  assert.ok(!offersAccount({ zones: [{ lastTest: { ...owners, accountRules: 'no' } }] }));
+  assert.ok(!offersAccount({ zones: [{ lastTest: { outcome: 'waf', ok: true, accountRules: '' } }] }));
+  // the answer the card just got counts before the status is read again
+  assert.ok(offersAccount({ zones: [{}] }, [owners]));
+  // only the account: the sentence says it blocks on every domain
+  assert.ok(proofText({ zone: 'example.org', outcome: 'account_only' })[1].includes('every domain of your account'));
+  assert.equal(proofText({ zone: 'example.org', outcome: 'error', reason: 'unreachable' })[2].problemKey, 'mgmt.edge.problem.unreachable');
 });
 
 test('refusals in words', () => {

@@ -8,11 +8,15 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Merged into `custom` since `0.24.0-fork.26`, to be part of the next release:
+Nothing merged into `custom` since `0.24.0-fork.27` yet.
+
+Work in progress on separate branches (not released, and may change before it is): the major versions of the frontend's build tool and libraries, installing any image, and automatic dependency updates.
+
+## Fork 0.24.0-fork.27 — 2026-11-15
 
 ### Fixed
+- Blocks at Cloudflare's edge can be switched on with a token that may not use the domain's IP Access Rules: Cosmos then keeps the blocked addresses in at most two custom rules of its own in the domain (permission "Zone > Zone WAF > Edit"), and uses the rules of the whole account only when that is ticked. The card says per domain which permission is missing, instead of "The server did not answer".
 - The settings pages say why they cannot be changed: an administrator is asked to confirm their password, with a button, instead of being told they are not an administrator; the sentence no longer shows a `<br/>` as text. The mount dialog's sentence shows its emphasis and the mount point.
- Work in progress on separate branches (not released, and may change before it is): the major versions of the frontend's build tool and libraries, installing any image, and automatic dependency updates.
 
 ## Fork 0.24.0-fork.26 — 2026-11-15
 

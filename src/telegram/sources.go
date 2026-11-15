@@ -53,6 +53,7 @@ var detailLabels = []struct{ key, label string }{
 	{"country", "Country"},
 	{"action", "Action"},
 	{"mode", "Mode"},
+	{"via", "At Cloudflare with"}, // Fork addition: how an edge block is made (src/edgeblock)
 	{"scope", "Scope"},
 	{"snapshot", "Snapshot"},
 	{"sections", "Changed"},
@@ -257,6 +258,8 @@ const (
 	// raised by src/edgeblock/events.go (Fork addition)
 	titleEdgeBlocksProblem = "header.notification.title.edgeBlocksProblem"
 	messageEdgeBlocksToken = "header.notification.message.edgeBlocksToken"
+	messageEdgeBlocksWAF     = "header.notification.message.edgeBlocksPermissionWAF"
+	messageEdgeBlocksAccount = "header.notification.message.edgeBlocksPermissionAccount"
 	// TitleDeliveryFailed is this package's own notification. It is never
 	// forwarded: Telegram is what does not work.
 	TitleDeliveryFailed   = "header.notification.title.telegramFailed"
@@ -375,9 +378,16 @@ func noticeFromNotification(n utils.Notification, config utils.Config) (notice, 
 		nt := notice{category: CategorySystem, key: "edgeblocks.permission", label: "Blocks at Cloudflare paused", priority: priorityNormal,
 			title:   "Cosmos cannot make or lift blocks at Cloudflare: the token of the domain may not manage IP Access Rules. Add the permission Zone > Firewall Services > Edit to it in Cloudflare's dashboard.",
 			details: withVars("Domain ", "")}
-		if n.Message == messageEdgeBlocksToken {
+		switch n.Message {
+		case messageEdgeBlocksToken:
 			nt.key = "edgeblocks.token"
 			nt.title = "Cosmos cannot make or lift blocks at Cloudflare: Cloudflare refuses the token of the domain."
+		case messageEdgeBlocksWAF:
+			nt.key = "edgeblocks.permission.waf"
+			nt.title = "Cosmos cannot make or lift blocks at Cloudflare: the token of the domain may not change its custom rules. Add the permission Zone > Zone WAF > Edit to it in Cloudflare's dashboard."
+		case messageEdgeBlocksAccount:
+			nt.key = "edgeblocks.permission.account"
+			nt.title = "Cosmos cannot make or lift blocks at Cloudflare: the token may not manage the IP Access Rules of the account. Add Account > Account Firewall Access Rules > Edit, or switch the blocks on again to use the domain's custom rules (Zone > Zone WAF > Edit)."
 		}
 		return nt, true
 

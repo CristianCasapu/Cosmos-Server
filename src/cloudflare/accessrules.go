@@ -7,10 +7,14 @@ package cloudflare
 //	POST   /zones/{zone_id}/firewall/access_rules/rules {mode, configuration:{target, value}, notes}
 //	DELETE /zones/{zone_id}/firewall/access_rules/rules/{id}
 //
-// Zone level only: an account-level rule would apply to every zone of the
-// account. The permission is "Firewall Services Edit" of the zone
-// (dashboard: Zone > Firewall Services > Edit), which the "Edit zone DNS"
-// token Cosmos keeps does not include: Cloudflare then answers 403.
+// The same calls at the account (/accounts/{account_id}/…) make a rule that
+// applies to every zone of the account: the caller passes the scope
+// "account:<account id>" instead of a zone id, and only when the owner chose
+// it. Permissions (the API reference names only the account ones for this
+// shared endpoint): zone "Firewall Services Write" (token editor: Zone >
+// Firewall Services > Edit), account "Account Firewall Access Rules Write"
+// (Account > Account Firewall Access Rules > Edit). Without them Cloudflare
+// answers 403.
 
 import (
 	"context"
@@ -41,6 +45,17 @@ type AccessRule struct {
 		Value  string `json:"value"`
 	} `json:"configuration"`
 	CreatedOn time.Time `json:"created_on"`
+}
+
+// AccountScope is the scope of the rules of a whole account.
+func AccountScope(accountID string) string { return "account:" + accountID }
+
+// scopePath turns a zone id or an AccountScope into the path's start.
+func scopePath(scope string) (string, bool) {
+	if id, isAccount := strings.CutPrefix(scope, "account:"); isAccount {
+		return "/accounts/" + id, validID(id)
+	}
+	return "/zones/" + scope, validID(scope)
 }
 
 // the modes Cosmos uses
@@ -75,7 +90,8 @@ func AccessTarget(key string) (target string, value string, ok bool) {
 // whose value is value, when given), at most 2000. more is true when there
 // are others.
 func (c *Client) ListAccessRules(ctx context.Context, zoneID string, notes string, value string) (rules []AccessRule, more bool, err error) {
-	if !validID(zoneID) {
+	base, ok := scopePath(zoneID)
+	if !ok {
 		return nil, false, &APIError{Kind: "other", Message: "not a zone id"}
 	}
 	for page := 1; page <= maxAccessRulesPg; page++ {
@@ -87,7 +103,7 @@ func (c *Client) ListAccessRules(ctx context.Context, zoneID string, notes strin
 			query.Set("configuration.value", value)
 		}
 		var batch []AccessRule
-		env, err := c.call(ctx, "GET", "/zones/"+zoneID+"/firewall/access_rules/rules", query, nil, &batch)
+		env, err := c.call(ctx, "GET", base+"/firewall/access_rules/rules", query, nil, &batch)
 		if err != nil {
 			return nil, false, err
 		}
@@ -119,7 +135,8 @@ func (c *Client) ListAccessRules(ctx context.Context, zoneID string, notes strin
 
 // CreateAccessRule makes a rule for a key (an address or an IPv6 /64).
 func (c *Client) CreateAccessRule(ctx context.Context, zoneID string, key string, mode string, notes string) (AccessRule, error) {
-	if !validID(zoneID) {
+	base, ok := scopePath(zoneID)
+	if !ok {
 		return AccessRule{}, &APIError{Kind: "other", Message: "not a zone id"}
 	}
 	target, value, ok := AccessTarget(key)
@@ -132,7 +149,7 @@ func (c *Client) CreateAccessRule(ctx context.Context, zoneID string, key string
 		"notes":         notes,
 	}
 	var rule AccessRule
-	if _, err := c.call(ctx, "POST", "/zones/"+zoneID+"/firewall/access_rules/rules", nil, body, &rule); err != nil {
+	if _, err := c.call(ctx, "POST", base+"/firewall/access_rules/rules", nil, body, &rule); err != nil {
 		return AccessRule{}, err
 	}
 	if !accessRuleID.MatchString(rule.ID) {
@@ -144,10 +161,11 @@ func (c *Client) CreateAccessRule(ctx context.Context, zoneID string, key string
 // DeleteAccessRule deletes a rule by its id. A rule that is not there any
 // more is not an error.
 func (c *Client) DeleteAccessRule(ctx context.Context, zoneID string, ruleID string) error {
-	if !validID(zoneID) || !accessRuleID.MatchString(ruleID) {
+	base, ok := scopePath(zoneID)
+	if !ok || !accessRuleID.MatchString(ruleID) {
 		return &APIError{Kind: "other", Message: "not a rule id"}
 	}
-	_, err := c.call(ctx, "DELETE", "/zones/"+zoneID+"/firewall/access_rules/rules/"+ruleID, nil, nil, nil)
+	_, err := c.call(ctx, "DELETE", base+"/firewall/access_rules/rules/"+ruleID, nil, nil, nil)
 	var apiErr *APIError
 	if errors.As(err, &apiErr) && apiErr.Kind == "not_found" {
 		return nil
@@ -159,10 +177,11 @@ func (c *Client) DeleteAccessRule(ctx context.Context, zoneID string, ruleID str
 // may delete rules: it asks for the deletion of the rule id nobody has.
 // "yes" for "not found", "no" for a refusal, "unknown" otherwise.
 func (c *Client) CanDeleteAccessRules(ctx context.Context, zoneID string) string {
-	if !validID(zoneID) {
+	base, ok := scopePath(zoneID)
+	if !ok {
 		return "unknown"
 	}
-	_, err := c.call(ctx, "DELETE", "/zones/"+zoneID+"/firewall/access_rules/rules/"+noRecordID, nil, nil, nil)
+	_, err := c.call(ctx, "DELETE", base+"/firewall/access_rules/rules/"+noRecordID, nil, nil, nil)
 	var apiErr *APIError
 	if err == nil || !errors.As(err, &apiErr) {
 		return "unknown"
@@ -220,4 +239,21 @@ func EdgeZones() []EdgeZone {
 // ZoneID finds the id of a domain the token sees.
 func ZoneID(ctx context.Context, token string, name string) (string, error) {
 	return lookupZoneID(ctx, NewClient(token), name)
+}
+
+// ZoneAccount finds the id of a domain and of the account that holds it.
+func ZoneAccount(ctx context.Context, token string, name string) (zoneID string, accountID string, err error) {
+	zones, _, err := NewClient(token).ListZones(ctx, name)
+	if err != nil {
+		return "", "", err
+	}
+	for _, zone := range zones {
+		if zone.Name == name {
+			if !validID(zone.Account.ID) {
+				return zone.ID, "", nil
+			}
+			return zone.ID, zone.Account.ID, nil
+		}
+	}
+	return "", "", &APIError{Kind: "not_found", Message: "the token does not see this domain"}
 }
