@@ -117,7 +117,15 @@ remote monitoring database; an older version cannot be put back by hand
 notification (the server is down: the journal and `cosmos-update.README`
 say it); the hand reinstall of the README needs curl, unzip, openssl and
 GitHub; a notice told before the first administrator exists goes to
-nobody. The owner's to change if wanted: majors per run (6), the 7-day
+nobody. Known and left, each needing several faults in a row: a state
+read that fails for a moment just before a restore begins, while the state
+could still be written, leaves no sign that the restore is owed; a rollback
+notice can repeat at every start when the state can be neither removed nor
+synced; after an unzip that failed, one start may run the half-unpacked
+folder when the state cannot be read at that moment (the next start
+restores it); a version installed by hand is watched by nothing; a start
+the server refuses with its own 400 is reported as "did not answer in
+time". The owner's to change if wanted: majors per run (6), the 7-day
 cool-down, the 72 hours the previous files are kept, the 15-minute window.
 
 ## Dependencies: left for later (2026-11-15)
