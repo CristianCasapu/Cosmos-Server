@@ -107,6 +107,10 @@ func TestOnlyVisitorsCloudflareReportedCount(t *testing.T) {
 	// an audit entry or a kind no jail counts does nothing either
 	env.offend(utils.SecShieldBlocked, "198.51.100.8", 20)
 	env.offend(utils.SecAccessOriginDenied, "198.51.100.8", 20)
+	// nor does Cloudflare's sign-in check when Cloudflare could not be asked, or when the form came
+	// without it: only a check Cloudflare refused (auth.turnstile.failed) counts, in the auth jail
+	env.offend(utils.SecTurnstileUnavailable, "198.51.100.8", 20)
+	env.offend(utils.SecTurnstileMissing, "198.51.100.8", 20)
 	if len(env.rules()) != 0 {
 		t.Fatalf("%v", env.rules())
 	}
