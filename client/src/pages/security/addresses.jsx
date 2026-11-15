@@ -85,6 +85,7 @@ const Addresses = ({ overview, bans, bansKnown, catalogue, onShowAddress, onUnba
           {
             title: t('security.addresses.did', 'What it did'),
             screenMin: 'sm',
+            phone: false, // Fork addition: the first column says it on a phone (narrow)
             search: (a) => did(a),
             field: (a) => <Stack spacing={0.25}>
               <span style={{ overflowWrap: 'break-word' }}>{did(a)}</span>
@@ -101,6 +102,7 @@ const Addresses = ({ overview, bans, bansKnown, catalogue, onShowAddress, onUnba
           bansKnown ? {
             title: t('security.addresses.now', 'Now'),
             screenMin: 'sm',
+            phone: false, // Fork addition: the first column says it on a phone (narrow)
             field: (a) => blocked(a),
           } : null,
           {
