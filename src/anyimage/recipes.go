@@ -101,6 +101,9 @@ type Recipe struct {
 	Backup      string            `json:"backup,omitempty"`
 	Notes       []string          `json:"notes,omitempty"`
 	Client      *RecipeClient     `json:"client,omitempty"`
+	// Family: the id of the recipe of the same software from its main
+	// publisher (this one is another publisher's image of it)
+	Family string `json:"family,omitempty"`
 }
 
 // MarketAlias names the Market entry to prefer for some images.
@@ -137,7 +140,15 @@ func runAsFor(recipe Recipe, tag string) string {
 	return ""
 }
 
+// recipesDisabled turns every recipe off: recipeFor answers nil, as for an
+// image without one. Only a file compiled with a test build tag sets it (to
+// check the flow without recipes); a release build never does.
+var recipesDisabled bool
+
 func recipeFor(ref Reference) *Recipe {
+	if recipesDisabled {
+		return nil
+	}
 	name := imageName(ref)
 	for i := range recipes.Recipes {
 		for _, image := range recipes.Recipes[i].Images {

@@ -181,3 +181,11 @@ test('Bitnami\'s description of its own build is not a setting', async () => {
   const names = declaredSettings({ env: ['OS_ARCH=amd64', 'OS_FLAVOUR=debian-12', 'OS_NAME=linux', 'BITNAMI_APP_NAME=postgresql', 'NSS_WRAPPER_LIB=/opt/x.so', 'IMAGE_REVISION=0', 'POSTGRESQL_PORT_NUMBER=5432'] }).map((s) => s.name);
   assert.deepEqual(names, ['POSTGRESQL_PORT_NUMBER']);
 });
+
+test('a new database is offered once per software; other publishers still recognise existing containers', async () => {
+  const { databaseRecipes, existingDatabases } = await import('./anyImage.js');
+  const offered = databaseRecipes(recipes, ['postgres']).map((r) => r.id);
+  assert.deepEqual(offered, ['postgres']);
+  const found = existingDatabases([{ Names: ['/pg'], Image: 'bitnami/postgresql:latest', State: 'running' }], recipes, ['postgres']);
+  assert.equal(found.length, 1);
+});
