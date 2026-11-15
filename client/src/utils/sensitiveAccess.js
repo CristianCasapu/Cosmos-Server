@@ -76,6 +76,11 @@ export const sensitiveAccess = (definition, extra = []) => {
       const value = String(option).trim();
       if (/[=:]unconfined$/.test(value)) items.push({ service: key, kind: 'unconfined', value });
     });
+    // Fork addition (plan 40): a device of the server, used directly
+    (service.devices || []).forEach((device) => {
+      const host = String(device).split(':')[0].trim();
+      if (host) items.push({ service: key, kind: 'device', value: cleanPath(host) });
+    });
   });
   return items.map((item) => ({ ...item, id: item.service + '|' + item.kind + '|' + item.value }));
 };
@@ -87,6 +92,7 @@ export const TEXT = {
   'network-host': '{{service}} uses the server\'s own network: every port it opens is open on the server, without Cosmos in front.',
   cap: '{{service}} gets the capability {{value}}, which reaches outside its container.',
   unconfined: '{{service}} turns a protection off ({{value}}).',
+  device: '{{service}} gets the server\'s device {{value}} (a disk, a graphics card, a USB device…) and uses it directly.',
 };
 
 export const sentence = (item) => ({ key: 'mgmt.servapps.sensitive.' + item.kind, text: TEXT[item.kind], params: { service: item.service, value: item.value } });

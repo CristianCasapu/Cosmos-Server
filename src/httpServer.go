@@ -16,6 +16,7 @@ import (
 		"github.com/azukaar/cosmos-server/src/docker"
 		"github.com/azukaar/cosmos-server/src/authorizationserver"
 		"github.com/azukaar/cosmos-server/src/market"
+	"github.com/azukaar/cosmos-server/src/anyimage" // Fork addition: install any image
 		"github.com/azukaar/cosmos-server/src/constellation"
 		"github.com/azukaar/cosmos-server/src/metrics"
 		"github.com/azukaar/cosmos-server/src/cron"
@@ -1096,6 +1097,8 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/servapps", docker.ContainersRoute)
 	srapiAdmin.HandleFunc("/api/docker-service", docker.CreateServiceRoute)
 	srapiAdmin.HandleFunc("/api/install/plan", InstallPlanRoute) // Fork addition: the server's platform, the images' platforms and the places for data, see fork_install_plan.go
+	srapiAdmin.HandleFunc("/api/images/search", anyimage.SearchRoute)     // Fork addition: Docker Hub search, see anyimage/
+	srapiAdmin.HandleFunc("/api/images/describe", anyimage.DescribeRoute) // Fork addition: what an image declares, read without a pull
 	
 	srapiAdmin.HandleFunc("/api/markets", market.MarketGet)
 

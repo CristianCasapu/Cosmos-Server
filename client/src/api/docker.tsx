@@ -1,4 +1,5 @@
 import wrap, { type ApiResponse, type ApiFetch } from './wrap';
+import { confirmQuery, sendWithConfirmation } from '../utils/sensitiveEdit'; // Fork addition (plan 40)
 
 export interface ContainerState {
   Status: string;
@@ -172,13 +173,14 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
   }
 
   function updateContainer(containerId: string, values: any): Promise<ApiResponse> {
-    return wrap(apiFetch('/cosmos/api/servapps/' + containerId + '/update', {
+    // Fork addition: access to the server the container did not have is asked for, tick by tick (utils/sensitiveEdit.js)
+    return wrap(sendWithConfirmation((confirm: string[]) => apiFetch('/cosmos/api/servapps/' + containerId + '/update' + confirmQuery(confirm), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(values),
-    }))
+    })))
   }
 
   function exportContainer(containerId: string, values: any): Promise<ApiResponse> {
@@ -427,6 +429,23 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
     }));
   }
 
+  // Fork addition (plan 40): Docker Hub search and what an image declares, read without a pull (src/anyimage)
+  function imageSearch(query: string): Promise<ApiResponse> {
+    return wrap(apiFetch('/cosmos/api/images/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    }));
+  }
+
+  function imageDescribe(reference: string): Promise<ApiResponse> {
+    return wrap(apiFetch('/cosmos/api/images/describe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reference }),
+    }));
+  }
+
   function leftovers(): Promise<ApiResponse> {
     return wrap(apiFetch('/cosmos/api/servapps-leftovers', {
       method: 'GET',
@@ -474,6 +493,8 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
     exportContainer,
     migrateHost,
     installPlan, // Fork addition: the server's platform, the images' platforms, the places for data
+    imageSearch, // Fork addition (plan 40)
+    imageDescribe, // Fork addition (plan 40)
     leftovers, // Fork addition
     leftoverAction, // Fork addition
   };

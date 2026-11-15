@@ -8,13 +8,26 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Merged into `custom` since `0.24.0-fork.27`, to be part of the next release:
+Merged into `custom` since `0.24.0-fork.29`, to be part of the next release:
 
 ### Changed
 - The panel runs on the current major versions of its libraries and build tool: Vite 8, React 19, react-router 8, MUI 9, the charts, the terminal, the translation and form libraries. Nothing should look or behave differently; every step was compared in three browser engines, at desktop and phone width, light and dark.
 - Nebula and restic are taken by the build from their own projects' releases (1.9.7 and 0.18.1), each file checked against a pinned checksum, no longer from upstream's release zip.
 
-Work in progress on separate branches (not released, and may change before it is): installing any image, and automatic dependency updates.
+Work in progress on separate branches (not released, and may change before it is): automatic dependency updates, and apps without a web interface.
+
+## Fork 0.24.0-fork.29 — 2026-11-15
+
+### Changed
+- The installed app (PWA) opens full screen where the device allows it: on Android without the status bar and the navigation bar. On desktop browsers and on iOS it keeps its own app window, as before.
+
+## Fork 0.24.0-fork.28 — 2026-11-15
+
+### Added
+- Install any image, from the Market and from ServApps: a search of Docker Hub, or the name of an image in any registry; what the image declares is read without pulling it, and a version, the place of its data and generated passwords are proposed, with built-in settings for 18 common images (PostgreSQL, MariaDB, MySQL, Redis, MongoDB and others). A database is never published; it can be created with, or linked to, the app that needs it. Everything ends on the usual review.
+
+### Security
+- Giving a container a device of the server (a disk, a graphics card, a USB device) now needs a tick in the review; the server refuses it without. The tick also holds when a container is edited: adding a device, a system folder, the Docker socket, the host network or more privileges asks for it, once.
 
 ## Fork 0.24.0-fork.27 — 2026-11-15
 

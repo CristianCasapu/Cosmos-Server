@@ -1,0 +1,350 @@
+{
+  "about": "Fork addition (plan 40): settings Cosmos proposes for images whose own declaration is not enough. Data, not code: read by src/anyimage/recipes.go, checked by recipes_test.go and, against the real images, by recipes_live_test.go. Each recipe cites the image's documentation in 'source'. 'maintained': when the image was last published, as read on the day 'checked' (an unmaintained image gets no recipe: MinIO's community image is gone and its repository archived since April 2026). Volume 'evidence': declared (the image declares this VOLUME), workdir (its WORKDIR), env:NAME (a variable of the image points there or below), docs (only the documentation says so). 'runAs': the uid:gid the container runs as (first entry whose tagContains is in the tag), so that Cosmos makes the data folder its own; the live test checks the image's user has that id. A port marked 'undeclared' is opened by the recipe's command, not by the image. Env 'type': secret (a strong random value, generated in the browser), name (a value to choose, proposed), optional (shown folded, empty unless set), fixed (set as given).",
+  "recipes": [
+    {
+      "id": "postgres",
+      "name": "PostgreSQL",
+      "images": ["postgres"],
+      "source": "https://hub.docker.com/_/postgres",
+      "maintained": { "checked": "2026-11-15", "lastImage": "2026-11-15" },
+      "kind": "database",
+      "provides": "postgres",
+      "pin": "major",
+      "service": { "port": 5432 },
+      "runAs": [{ "tagContains": "alpine", "user": "70:70" }, { "user": "999:999" }],
+      "volumes": [
+        { "target": "/var/lib/postgresql", "from": 18, "evidence": "declared", "backup": true },
+        { "target": "/var/lib/postgresql/data", "until": 17, "evidence": "declared", "backup": true }
+      ],
+      "env": [
+        { "name": "POSTGRES_PASSWORD", "type": "secret" },
+        { "name": "POSTGRES_USER", "type": "name", "value": "app" },
+        { "name": "POSTGRES_DB", "type": "name", "value": "app" }
+      ],
+      "healthcheck": { "test": ["CMD-SHELL", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""], "interval": "10s", "timeout": "5s", "retries": 5 },
+      "memory": "256 MB to 1 GB",
+      "backup": "pg_dumpall -U app",
+      "notes": ["majorUpgrade", "pgdata18"],
+      "client": { "url": "postgres://{user}:{password}@{host}:5432/{database}", "user": "POSTGRES_USER", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB" }
+    },
+    {
+      "id": "mariadb",
+      "name": "MariaDB",
+      "images": ["mariadb"],
+      "source": "https://hub.docker.com/_/mariadb",
+      "maintained": { "checked": "2026-11-15", "lastImage": "2026-11-13" },
+      "kind": "database",
+      "provides": "mysql",
+      "pin": "major",
+      "prefer": ["lts"],
+      "service": { "port": 3306 },
+      "volumes": [{ "target": "/var/lib/mysql", "evidence": "declared", "backup": true }],
+      "env": [
+        { "name": "MARIADB_ROOT_PASSWORD", "type": "secret" },
+        { "name": "MARIADB_DATABASE", "type": "name", "value": "app" },
+        { "name": "MARIADB_USER", "type": "name", "value": "app" },
+        { "name": "MARIADB_PASSWORD", "type": "secret" },
+        { "name": "MARIADB_AUTO_UPGRADE", "type": "fixed", "value": "1" }
+      ],
+      "healthcheck": { "test": ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"], "interval": "10s", "timeout": "5s", "retries": 5 },
+      "memory": "256 MB to 1 GB",
+      "backup": "mariadb-dump --all-databases -u root -p",
+      "client": { "url": "mysql://{user}:{password}@{host}:3306/{database}", "user": "MARIADB_USER", "password": "MARIADB_PASSWORD", "database": "MARIADB_DATABASE" }
+    },
+    {
+      "id": "mysql",
+      "name": "MySQL",
+      "images": ["mysql"],
+      "source": "https://hub.docker.com/_/mysql",
+      "maintained": { "checked": "2026-11-15", "lastImage": "2026-11-03" },
+      "kind": "database",
+      "provides": "mysql",
+      "pin": "major",
+      "prefer": ["lts"],
+      "service": { "port": 3306 },
+      "ports": [{ "port": 33060, "why": "xProtocol" }],
+      "volumes": [{ "target": "/var/lib/mysql", "evidence": "declared", "backup": true }],
+      "env": [
+        { "name": "MYSQL_ROOT_PASSWORD", "type": "secret" },
+        { "name": "MYSQL_DATABASE", "type": "name", "value": "app" },
+        { "name": "MYSQL_USER", "type": "name", "value": "app" },
+        { "name": "MYSQL_PASSWORD", "type": "secret" }
+      ],
+      "healthcheck": { "test": ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"], "interval": "10s", "timeout": "5s", "retries": 5 },
+      "memory": "512 MB to 1 GB",
+      "backup": "mysqldump --all-databases -u root -p",
+      "client": { "url": "mysql://{user}:{password}@{host}:3306/{database}", "user": "MYSQL_USER", "password": "MYSQL_PASSWORD", "database": "MYSQL_DATABASE" }
+    },
+    {
+      "id": "redis",
+      "name": "Redis",
+      "images": ["redis"],
+      "source": "https://hub.docker.com/_/redis",
+      "maintained": { "checked": "2026-11-15", "lastImage": "2026-11-12" },
+      "kind": "cache",
+      "provides": "redis",
+      "pin": "major",
+      "service": { "port": 6379 },
+      "volumes": [{ "target": "/data", "evidence": "workdir", "backup": true }],
+      "command": ["redis-server", "--appendonly", "yes"],
+      "healthcheck": { "test": ["CMD", "redis-cli", "ping"], "interval": "10s", "timeout": "3s", "retries": 5 },
+      "memory": "64 MB and more, by what it holds",
+      "notes": ["noAuth"],
+      "client": { "url": "redis://{host}:6379" }
+    },
+    {
+      "id": "valkey",
+      "name": "Valkey",
+      "images": ["valkey/valkey"],
+      "source": "https://hub.docker.com/r/valkey/valkey",
+      "maintained": { "checked": "2026-11-15", "lastImage": "2026-11-15" },
+      "kind": "cache",
+      "provides": "redis",
+      "pin": "major",
+      "service": { "port": 6379 },
+      "volumes": [{ "target": "/data", "evidence": "workdir", "backup": true }],
+      "command": ["valkey-server", "--appendonly", "yes"],
+      "healthcheck": { "test": ["CMD", "valkey-cli", "ping"], "interval": "10s", "timeout": "3s", "retries": 5 },
+      "memory": "64 MB and more, by what it holds",
+      "notes": ["noAuth"],
+      "client": { "url": "redis://{host}:6379" }
+    },
+    {
+      "id": "mongo",
+      "name": "MongoDB",
+      "images": ["mongo"],
+      "source": "https://hub.docker.com/_/mongo",
+      "maintained": { "checked": "2026-11-15", "lastImage": "2026-11-12" },
+      "kind": "database",
+      "provides": "mongo",
+      "pin": "major",
+      "service": { "port": 27017 },
+      "volumes": [
+        { "target": "/data/db", "evidence": "declared", "backup": true },
+        { "target": "/data/configdb", "evidence": "declared" }
+      ],
+      "env": [
+        { "name": "MONGO_INITDB_ROOT_USERNAME", "type": "name", "value": "admin" },
+        { "name": "MONGO_INITDB_ROOT_PASSWORD", "type": "secret" }
+      ],
+      "healthcheck": { "test": ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"], "interval": "15s", "timeout": "10s", "retries": 5 },
+      "memory": "512 MB and more",
+      "backup": "mongodump",
+      "notes": ["cpuAvx"],
+      "client": { "url": "mongodb://{user}:{password}@{host}:27017/", "user": "MONGO_INITDB_ROOT_USERNAME", "password": "MONGO_INITDB_ROOT_PASSWORD" }
+    },
+    {
+      "id": "adminer",
+      "name": "Adminer",
+      "images": ["adminer"],
+      "source": "https://hub.docker.com/_/adminer",
+      "maintained": { "checked": "2026-11-15", "lastImage": "2026-11-06" },
+      "kind": "tool",
+      "web": { "port": 8080 },
+      "needs": { "kinds": ["postgres", "mysql", "mongo"], "optional": true, "env": { "host": "ADMINER_DEFAULT_SERVER" } },
+      "memory": "under 64 MB",
+      "notes": ["toolSignIn"]
+    },
+    {
+      "id": "pgadmin",
+      "name": "pgAdmin 4",
+      "images": ["dpage/pgadmin4"],
+      "source": "https://www.pgadmin.org/docs/pgadmin4/latest/container_deployment.html",
+      "maintained": { "checked": "2026-11-15", "lastImage": "2026-10-29" },
+      "kind": "tool",
+      "pin": "major",
+      "web": { "port": 80 },
+      "ports": [{ "port": 443, "why": "webTls" }],
+      "user": "5050",
+      "volumes": [{ "target": "/var/lib/pgadmin", "evidence": "declared", "keepVolume": true, "backup": true }],
+      "env": [
+        { "name": "PGADMIN_DEFAULT_EMAIL", "type": "name", "value": "admin@example.com" },
+        { "name": "PGADMIN_DEFAULT_PASSWORD", "type": "secret" }
+      ],
+      "needs": { "kinds": ["postgres"], "optional": true, "env": {} },
+      "memory": "256 MB",
+      "notes": ["ownedVolume"]
+    },
+    {
+      "id": "phpmyadmin",
+      "name": "phpMyAdmin",
+      "images": ["phpmyadmin"],
+      "source": "https://hub.docker.com/_/phpmyadmin",
+      "maintained": { "checked": "2026-11-15", "lastImage": "2026-11-14" },
+      "kind": "tool",
+      "pin": "major",
+      "web": { "port": 80 },
+      "needs": { "kinds": ["mysql"], "optional": false, "env": { "host": "PMA_HOST", "port": "PMA_PORT" } },
+      "memory": "under 128 MB",
+      "notes": ["toolSignIn"]
+    },
+    {
+      "id": "rabbitmq",
+      "name": "RabbitMQ",
+      "images": ["rabbitmq"],
+      "source": "https://hub.docker.com/_/rabbitmq",
+      "maintained": { "checked": "2026-11-15", "lastImage": "2026-11-12" },
+      "kind": "broker",
+      "provides": "amqp",
+      "pin": "major",
+      "tagSuffix": "-management",
+      "service": { "port": 5672 },
+      "web": { "port": 15672 },
+      "ports": [
+        { "port": 5671, "why": "tls" }, { "port": 15671, "why": "tls" }, { "port": 15691, "why": "metrics" },
+        { "port": 15692, "why": "metrics" }, { "port": 25672, "why": "cluster" }, { "port": 4369, "why": "cluster" }
+      ],
+      "volumes": [{ "target": "/var/lib/rabbitmq", "evidence": "declared", "backup": true }],
+      "hostname": true,
+      "env": [
+        { "name": "RABBITMQ_DEFAULT_USER", "type": "name", "value": "admin" },
+        { "name": "RABBITMQ_DEFAULT_PASS", "type": "secret" }
+      ],
+      "healthcheck": { "test": ["CMD", "rabbitmq-diagnostics", "-q", "ping"], "interval": "30s", "timeout": "10s", "retries": 5 },
+      "memory": "256 MB to 1 GB",
+      "notes": ["hostnameKeeps"],
+      "client": { "url": "amqp://{user}:{password}@{host}:5672/", "user": "RABBITMQ_DEFAULT_USER", "password": "RABBITMQ_DEFAULT_PASS" }
+    },
+    {
+      "id": "elasticsearch",
+      "name": "Elasticsearch",
+      "images": ["elasticsearch"],
+      "source": "https://www.elastic.co/docs/deploy-manage/deploy/self-managed/install-elasticsearch-docker-basic",
+      "maintained": { "checked": "2026-11-15", "lastImage": "2026-11-13" },
+      "kind": "search",
+      "provides": "elasticsearch",
+      "service": { "port": 9200 },
+      "ports": [{ "port": 9300, "why": "cluster" }],
+      "user": "1000:0",
+      "volumes": [{ "target": "/usr/share/elasticsearch/data", "evidence": "docs", "keepVolume": true, "backup": true }],
+      "env": [
+        { "name": "discovery.type", "type": "fixed", "value": "single-node" },
+        { "name": "ES_JAVA_OPTS", "type": "fixed", "value": "-Xms1g -Xmx1g" },
+        { "name": "ELASTIC_PASSWORD", "type": "secret" }
+      ],
+      "memory": "2 GB and more",
+      "notes": ["maxMapCount", "ownedVolume", "httpsSelfSigned"],
+      "client": { "url": "https://elastic:{password}@{host}:9200", "password": "ELASTIC_PASSWORD" }
+    },
+    {
+      "id": "opensearch",
+      "name": "OpenSearch",
+      "images": ["opensearchproject/opensearch"],
+      "source": "https://docs.opensearch.org/latest/install-and-configure/install-opensearch/docker/",
+      "maintained": { "checked": "2026-11-15", "lastImage": "2026-10-26" },
+      "kind": "search",
+      "provides": "elasticsearch",
+      "pin": "major",
+      "service": { "port": 9200 },
+      "ports": [{ "port": 9300, "why": "cluster" }, { "port": 9600, "why": "metrics" }, { "port": 9650, "why": "metrics" }],
+      "user": "1000",
+      "volumes": [{ "target": "/usr/share/opensearch/data", "evidence": "docs", "keepVolume": true, "backup": true }],
+      "env": [
+        { "name": "discovery.type", "type": "fixed", "value": "single-node" },
+        { "name": "OPENSEARCH_JAVA_OPTS", "type": "fixed", "value": "-Xms1g -Xmx1g" },
+        { "name": "OPENSEARCH_INITIAL_ADMIN_PASSWORD", "type": "secret", "strong": true }
+      ],
+      "memory": "2 GB and more",
+      "notes": ["maxMapCount", "ownedVolume", "httpsSelfSigned"],
+      "client": { "url": "https://admin:{password}@{host}:9200", "password": "OPENSEARCH_INITIAL_ADMIN_PASSWORD" }
+    },
+    {
+      "id": "memcached",
+      "name": "Memcached",
+      "images": ["memcached"],
+      "source": "https://hub.docker.com/_/memcached",
+      "maintained": { "checked": "2026-11-15", "lastImage": "2026-11-10" },
+      "kind": "cache",
+      "provides": "memcached",
+      "pin": "major",
+      "service": { "port": 11211 },
+      "user": "memcache",
+      "memory": "64 MB (its -m setting)",
+      "notes": ["noAuth", "nothingToKeep"],
+      "client": { "url": "{host}:11211" }
+    },
+    {
+      "id": "rustfs",
+      "name": "RustFS",
+      "images": ["rustfs/rustfs"],
+      "source": "https://docs.rustfs.com/installation/docker/",
+      "maintained": { "checked": "2026-11-15", "lastImage": "2026-11-10" },
+      "kind": "storage",
+      "provides": "s3",
+      "service": { "port": 9000 },
+      "web": { "port": 9001 },
+      "runAs": [{ "user": "10001:10001" }],
+      "user": "rustfs",
+      "volumes": [{ "target": "/data", "evidence": "declared", "backup": true }],
+      "env": [
+        { "name": "RUSTFS_ACCESS_KEY", "type": "name", "value": "cosmos-admin" },
+        { "name": "RUSTFS_SECRET_KEY", "type": "secret" }
+      ],
+      "healthcheck": { "test": ["CMD", "curl", "-fs", "http://127.0.0.1:9000/health"], "interval": "15s", "timeout": "5s", "retries": 5 },
+      "memory": "256 MB and more",
+      "notes": ["consolePath", "s3Outside"],
+      "client": { "url": "http://{host}:9000 (access key {user})", "user": "RUSTFS_ACCESS_KEY", "password": "RUSTFS_SECRET_KEY" }
+    },
+    {
+      "id": "nginx",
+      "name": "nginx",
+      "images": ["nginx"],
+      "source": "https://hub.docker.com/_/nginx",
+      "maintained": { "checked": "2026-11-15", "lastImage": "2026-11-13" },
+      "kind": "web",
+      "pin": "major",
+      "web": { "port": 80 },
+      "volumes": [{ "target": "/usr/share/nginx/html", "evidence": "docs", "backup": true }],
+      "memory": "under 32 MB"
+    },
+    {
+      "id": "caddy",
+      "name": "Caddy",
+      "images": ["caddy"],
+      "source": "https://hub.docker.com/_/caddy",
+      "maintained": { "checked": "2026-11-15", "lastImage": "2026-11-13" },
+      "kind": "web",
+      "pin": "major",
+      "web": { "port": 80 },
+      "ports": [{ "port": 443, "why": "cosmosProxies" }, { "port": 2019, "why": "admin" }],
+      "volumes": [
+        { "target": "/data", "evidence": "env:XDG_DATA_HOME", "backup": true },
+        { "target": "/config", "evidence": "env:XDG_CONFIG_HOME" }
+      ],
+      "memory": "under 64 MB",
+      "notes": ["cosmosIsProxy"]
+    },
+    {
+      "id": "traefik",
+      "name": "Traefik",
+      "images": ["traefik"],
+      "source": "https://doc.traefik.io/traefik/getting-started/docker/",
+      "maintained": { "checked": "2026-11-15", "lastImage": "2026-11-13" },
+      "kind": "proxy",
+      "pin": "major",
+      "web": { "port": 8080, "undeclared": true },
+      "ports": [{ "port": 80, "why": "cosmosProxies" }],
+      "command": ["--api.dashboard=true", "--ping=true", "--entrypoints.traefik.address=:8080", "--entrypoints.web.address=:80", "--providers.docker=true", "--providers.docker.exposedbydefault=false"],
+      "labels": {
+        "traefik.enable": "true",
+        "traefik.http.routers.dashboard.entrypoints": "traefik",
+        "traefik.http.routers.dashboard.rule": "PathPrefix(`/api`) || PathPrefix(`/dashboard`)",
+        "traefik.http.routers.dashboard.service": "api@internal"
+      },
+      "healthcheck": { "test": ["CMD", "traefik", "healthcheck", "--ping", "--entrypoints.traefik.address=:8080"], "interval": "15s", "timeout": "5s", "retries": 3 },
+      "binds": [{ "source": "/var/run/docker.sock", "target": "/var/run/docker.sock", "readOnly": true }],
+      "memory": "under 128 MB",
+      "notes": ["cosmosIsProxy", "socket", "dashboardSignIn"]
+    }
+  ],
+  "market": [
+    { "market": "InfluxDB", "images": ["influxdb"] },
+    { "market": "Mosquitto", "images": ["eclipse-mosquitto"] },
+    { "market": "WordPress", "images": ["wordpress"] },
+    { "market": "Gitea", "images": ["gitea/gitea"] },
+    { "market": "Forgejo", "images": ["codeberg.org/forgejo/forgejo"] },
+    { "market": "Uptime Kuma", "images": ["louislam/uptime-kuma"] },
+    { "market": "Vaultwarden", "images": ["vaultwarden/server"] },
+    { "market": "Home Assistant", "images": ["homeassistant/home-assistant", "ghcr.io/home-assistant/home-assistant"] }
+  ]
+}
