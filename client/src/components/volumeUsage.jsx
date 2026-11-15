@@ -5,7 +5,7 @@
 // none is shown.
 import * as React from 'react';
 import { Box, Chip, Stack, Tooltip, Typography } from '@mui/material';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import * as API from '../api';
 import { volumeUsers, volumeLocation } from '../utils/volumeUsage';

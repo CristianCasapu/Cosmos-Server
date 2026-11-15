@@ -14,7 +14,6 @@ import { useTranslation } from 'react-i18next';
 import { FolderOpenOutlined, ClockCircleOutlined, DashboardOutlined, DeleteOutlined, DownOutlined, LockOutlined, SafetyOutlined, UpOutlined, ExpandOutlined, FolderFilled, FileFilled, FileOutlined, LoadingOutlined, FolderAddFilled, FolderViewOutlined } from "@ant-design/icons";
 import * as API from '../api';
 import { current } from '@reduxjs/toolkit';
-import { json } from 'react-router';
 
 const NewFolderModal = ({ raw, open, cb, OnClose, onPick, canCreate, storage = '', path = '/', select = 'any' }) => {
   const { t } = useTranslation();

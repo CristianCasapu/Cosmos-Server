@@ -15,7 +15,6 @@ import { FolderOpenOutlined, ClockCircleOutlined, DashboardOutlined, DeleteOutli
 import * as API from '../../api';
 import {simplifyNumber} from '../dashboard/components/utils';
 import { current } from '@reduxjs/toolkit';
-import { json } from 'react-router';
 import ResponsiveButton from '../../components/responseiveButton';
 import RestoreDialog from './restoreDialog';
 

@@ -15,7 +15,7 @@ import DockerContainerSetup from './setup';
 import NetworkContainerSetup from './network';
 import VolumeContainerSetup from './volumes';
 import DockerTerminal from './terminal';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { smartDockerLogConcat, tryParseProgressLog } from '../../../utils/docker';
 import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import LogLine from '../../../components/logLine';

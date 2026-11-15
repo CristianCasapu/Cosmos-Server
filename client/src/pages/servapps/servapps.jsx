@@ -15,7 +15,7 @@ import AppLinks, { AppDomains } from '../../components/appLinks'; // Fork additi
 import { ReachChip } from '../../components/reachability'; // Fork addition
 import PortChips from '../../components/portChips'; // Fork addition
 import ServAppsNotices from '../../components/servappsNotices'; // Fork addition: leftovers, updates and apps without an address in one notice area
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import ExposeModal from './exposeModal';
 import GetActions from './actionBar';
 import ResponsiveButton from '../../components/responseiveButton';

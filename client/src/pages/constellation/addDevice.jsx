@@ -20,7 +20,6 @@ import { useClientInfos } from '../../utils/hooks';
 import { PERM_RESOURCES } from '../../utils/permissions';
 import PermissionGuard from '../../components/permissionGuard';
 import { useTranslation } from 'react-i18next';
-import { json } from 'react-router';
 
 // HA JetStream keeps every bucket at 3 replicas: it only works once 3 managers exist
 export const haManagerCount = (devices) => (devices || []).filter(d => !d.blocked && d.cosmosNode === 2).length;

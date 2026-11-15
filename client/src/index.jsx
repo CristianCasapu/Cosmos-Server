@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter } from 'react-router';
 import customParseFormat from 'dayjs/plugin/customParseFormat'; // import this if you need to parse custom formats
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import localizedFormat from 'dayjs/plugin/localizedFormat'; // import this for localized formatting

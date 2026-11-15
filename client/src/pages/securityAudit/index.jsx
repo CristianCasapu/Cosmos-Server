@@ -4,7 +4,7 @@
 import * as React from 'react';
 import { Alert, Box, Button, CircularProgress, Grid, MenuItem, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import { DownloadOutlined, SyncOutlined } from '@ant-design/icons';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import * as API from '../../api';
 import MainCard from '../../components/MainCard';

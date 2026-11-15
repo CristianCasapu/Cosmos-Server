@@ -9,7 +9,7 @@
 import * as React from 'react';
 import { Button, Link } from '@mui/material';
 import { ReloadOutlined } from '@ant-design/icons';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import * as API from '../api';
 import {

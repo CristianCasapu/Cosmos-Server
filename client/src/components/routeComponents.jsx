@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useTheme } from '@mui/material/styles';
 import { Trans, useTranslation } from 'react-i18next';
 import MenuButton from './MenuButton';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { managedRouteOwner } from '../utils/routes';
 
 // Badge linking a managed route to its owner's edit page.

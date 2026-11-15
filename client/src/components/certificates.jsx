@@ -50,7 +50,7 @@ import {
   renewBlockedSentence, validitySentences, waitSentence, waysFor, zoneToSave,
 } from '../utils/certificates';
 import { FIX_LINKS } from '../utils/reachability';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router';
 
 // --- one status for the page, shared by the card and the dialogs
 let store = { data: null, loading: false, failed: false };

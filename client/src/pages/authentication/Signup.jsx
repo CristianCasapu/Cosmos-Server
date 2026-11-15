@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 
 // material-ui
 import { Grid, Stack, Typography } from '@mui/material';

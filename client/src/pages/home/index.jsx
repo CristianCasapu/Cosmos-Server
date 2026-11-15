@@ -7,7 +7,7 @@ import wallpaper from '../../assets/images/wallpaper2.jpg';
 import wallpaperLight from '../../assets/images/wallpaper2_light.jpg';
 import Grid2 from '@mui/material/Grid';
 import { getFaviconURL, IsRouteSocketProxy } from "../../utils/routes";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { getFullOrigin } from "../../utils/routes";
 import { homeTiles } from "../../utils/homeTiles"; // Fork addition
 import { DashboardIcon } from "../../utils/servapp-icon";

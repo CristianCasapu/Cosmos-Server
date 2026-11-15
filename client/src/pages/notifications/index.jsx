@@ -2,7 +2,7 @@
 // first, with filters (in the address, so a filtered list can be linked),
 // and the commands to mark read or unread and to delete one's own copies.
 import * as React from 'react';
-import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
+import { Link as RouterLink, useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Link,

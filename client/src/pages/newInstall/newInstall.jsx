@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import i18next from 'i18next'; // Fork addition
 import { hostCheckText } from '../../utils/hostCheck'; // Fork addition
 import * as Yup from 'yup';

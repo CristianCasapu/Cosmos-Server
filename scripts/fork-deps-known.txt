@@ -9,8 +9,6 @@ GO-2026-4887  docker/docker v26: daemon-side; no fix in this module (it moved to
 GO-2025-3553  golang-jwt v3: only used by upstream's licence code (src/utils/cloud.go), which the fork never changes
 
 # npm: in the bundle
-GHSA-wrjc-x8rr-h8h6  react-router 6: open redirect via a backslash in <Link>/navigate; the panel never passes an outside path to them; fixed only in 7.18
-GHSA-337j-9hxr-rhxg  react-router 6: server-side rendering only; the panel is a client-only page
 GHSA-x7hr-w5r2-h6wg  prismjs 1.27 nested in react-syntax-highlighter 15 (refractor): DOM clobbering; refractor runs Prism without the DOM
 
 # npm: not run at all

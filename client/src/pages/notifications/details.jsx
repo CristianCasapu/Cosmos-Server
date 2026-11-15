@@ -5,7 +5,7 @@
 // events and the server's log lines around that moment. Its own address
 // (/cosmos-ui/notifications/<id>, or /r/<ref> from a Telegram message).
 import * as React from 'react';
-import { Link as RouterLink, useParams } from 'react-router-dom';
+import { Link as RouterLink, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import {
   Alert, Box, Button, Chip, CircularProgress, Divider, Link, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography, useMediaQuery,

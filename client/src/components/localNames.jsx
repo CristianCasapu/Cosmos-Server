@@ -33,7 +33,7 @@ import {
 } from '@ant-design/icons';
 import { useTheme } from '@mui/material/styles';
 import { useTranslation } from 'react-i18next';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router';
 import * as API from '../api';
 import { useClientInfos } from '../utils/hooks';
 import { PERM_ADMIN_READ } from '../utils/permissions';

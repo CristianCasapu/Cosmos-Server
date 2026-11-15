@@ -1,4 +1,4 @@
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router';
 
 // material-ui
 import { Checkbox, Grid, Stack, Typography } from '@mui/material';

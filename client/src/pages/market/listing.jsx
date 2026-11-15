@@ -7,7 +7,7 @@ import Grid2 from '@mui/material/Grid';
 import { useParams } from "react-router";
 import Carousel from '../../components/forkCarousel'; // Fork addition: replaces react-material-ui-carousel (unmaintained, MUI 5 only)
 import { Paper, Button, Chip } from '@mui/material'
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Link as LinkMUI } from '@mui/material'
 import DockerComposeImport from '../servapps/containers/docker-compose';
 import { AppstoreAddOutlined, SearchOutlined, WarningOutlined } from "@ant-design/icons";

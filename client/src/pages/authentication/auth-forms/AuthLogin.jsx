@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Link, Link as RouterLink } from 'react-router-dom';
+import { Link, Link as RouterLink } from 'react-router';
 
 // material-ui
 import {
