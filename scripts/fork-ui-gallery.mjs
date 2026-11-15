@@ -519,13 +519,24 @@ const audit = () => {
   const boxOf = (el) => {
     for (let e = el; e && e !== document.body && e !== document.documentElement; e = e.parentElement) {
       const s = getComputedStyle(e);
-      if (e !== el && /auto|scroll/.test(s.overflowX)) return null;
+      if (/auto|scroll/.test(s.overflowX)) return null;
       const bg = parseColour(s.backgroundColor);
       const filled = (bg && bg.a > 0.02) || (s.backgroundImage && s.backgroundImage !== 'none');
       const framed = parseFloat(s.borderLeftWidth) > 0 && parseFloat(s.borderRightWidth) > 0;
       if (filled || framed) return e;
     }
     return null;
+  };
+  const seenPart = (el, r) => {
+    let left = r.left, right = r.right, top = r.top, bottom = r.bottom;
+    for (let e = el; e && e !== document.body && e !== document.documentElement; e = e.parentElement) {
+      const st = getComputedStyle(e);
+      if (st.overflowX === 'visible' && st.overflowY === 'visible') continue;
+      const b = e.getBoundingClientRect();
+      if (st.overflowX !== 'visible') { left = Math.max(left, b.left); right = Math.min(right, b.right); }
+      if (st.overflowY !== 'visible') { top = Math.max(top, b.top); bottom = Math.min(bottom, b.bottom); }
+    }
+    return right - left > 0 && bottom - top > 0 ? { left, right, top, bottom, width: right - left, height: bottom - top } : null;
   };
   const lines = [];
   const textWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -537,7 +548,9 @@ const audit = () => {
     if (!visible(el) || opacityOf(el) < 0.05) continue;
     const range = document.createRange();
     range.selectNodeContents(node);
-    const rects = [...range.getClientRects()].filter((r) => r.width > 1 && r.height > 1);
+    // what is seen of each line: a box that clips (an ellipsis, a list that scrolls, lines cut at three) hides
+    // the rest, which the cut-off and truncation measures report
+    const rects = [...range.getClientRects()].map((r) => seenPart(el, r)).filter((r) => r && r.width > 1 && r.height > 1);
     if (!rects.length) continue;
     const box = boxOf(el);
     if (box) {
@@ -545,10 +558,12 @@ const audit = () => {
       const out = rects.find((r) => r.right > b.right + 2 || r.left < b.left - 2);
       if (out) add(result.cardOverflow, { text: short(text), by: Math.round(Math.max(out.right - b.right, b.left - out.left)), at: describe(el), box: describe(box) });
     }
-    // squeezed: two or more words drawn one per line in a narrow box ("32" / "TB")
+    // squeezed: words drawn one per line in a narrow box ("32" / "TB", "Send" / "password" / "reset"); a
+    // two-word label on two lines in a column of its own ("Record" / "number") is a normal wrap
     const words = text.trim().split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w));
     const tops = new Set(rects.map((r) => Math.round(r.top)));
-    if (words.length >= 2 && tops.size >= words.length && el.getBoundingClientRect().width < 160) add(result.squeezed, { text: short(text), lines: tops.size, at: describe(el) });
+    const narrow = el.getBoundingClientRect().width;
+    if (words.length >= 2 && tops.size >= words.length && narrow < 160 && (words.length >= 3 || narrow < 90)) add(result.squeezed, { text: short(text), lines: tops.size, at: describe(el) });
     for (const r of rects) lines.push({ el, r, fixed: layer(el), text });
   }
   for (let i = 0; i < lines.length; i++) {
