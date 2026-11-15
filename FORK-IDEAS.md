@@ -170,9 +170,15 @@ administrator's address, the caps of 500 rules and 60 blocks an hour.
   taken to keep it until removed. If such a router does end forwards by
   itself, the forward is missing for up to five minutes (the interval of
   the look) each time; a shorter look for Cosmos' own ports would narrow it.
-- Nothing outside the server watches whether it can be reached from the
-  internet: a watch from the owner's other machine or a small external
-  service would tell them sooner than a visitor does.
+- Names served through Cloudflare are now watched from the internet by the
+  server itself (see `FORK.md`). Names served directly cannot be tested from
+  inside the house: a small scheduled request from a machine of the owner's
+  outside it (to `/_health`, alerting after two failures) would cover them.
+  The owner's to change if wanted: the interval (5 minutes), whether an
+  outage rings through Telegram's quiet hours (it does not), whether app
+  names are watched or only the panel's. For a shielded name the certificate
+  line still says "not trusted" with a self-signed or Origin CA certificate
+  although the verdict is "reachable".
 
 ## Notifications: left for later (2026-11-15)
 

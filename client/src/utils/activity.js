@@ -65,6 +65,7 @@ const IGNORED = [
   /^\/api\/certificates\/(domain|delegation)\b/, // Fork addition: lookups for "Add another domain", which shows what was found itself
   /^\/api\/cloudflare\/origin-pulls\b/, // Fork addition: the card says what each step gave, in words, where it was asked for
   /^\/api\/turnstile\b/, // Fork addition: the sign-in check's card says what each step gave, in words
+  /^\/api\/reach-watch\/check\b/, // Fork addition: the watch's card and the notification say what "Test now" started, in words
   /^\/api\/servapps\/[^/]+\/(logs|terminal|export|check-update)\b/,
   /^\/api\/constellation\/(ping|devices\/[^/]+\/ping)\b/,
   /^\/rclone\/(config\/(dump|listremotes)|operations\/about|vfs\/stats|core\/stats)\b/,
@@ -125,6 +126,7 @@ const COMMANDS = [
 
   // internet reachability (src/reach): GET is a read and never followed
   ['POST', /^\/api\/reachability$/, () => ['activity.reachability.check', 'Check internet reachability']],
+  ['POST', /^\/api\/reach-watch\/settings$/, () => ['activity.reachWatch.settings', 'Save the watch from the internet']], // Fork addition: the watch from the internet
   // the .local names (src/proxy/fork_mdns_status.go): GET is a read and never followed
   ['POST', /^\/api\/local-names$/, () => ['activity.localNames.check', 'Check the local names on the network']],
 

@@ -13,6 +13,7 @@ import { useCertificateNotices } from './certificates';
 import { useServerUpdateNotice } from './serverUpdate';
 import { useHealthNotices } from './healthNotices';
 import { useTurnstileNotices } from './turnstile'; // the sign-in check of Cloudflare does not work
+import { useReachWatchNotices } from './reachWatch'; // Fork addition: the server cannot be reached from the internet
 import PermissionGuard from './permissionGuard';
 import { PERM_ADMIN } from '../utils/permissions';
 import Migrate014 from '../pages/home/migrate014';
@@ -24,6 +25,7 @@ const HomeNotices = ({ coStatus, config }) => {
   const certificates = useCertificateNotices();
   const update = useServerUpdateNotice();
   const turnstile = useTurnstileNotices();
+  const reachWatch = useReachWatchNotices(); // Fork addition: the server cannot be reached from the internet
   const health = useHealthNotices({ docker: Boolean(coStatus && coStatus.docker), enabled: Boolean(coStatus) });
   if (!coStatus) return null;
 
@@ -46,7 +48,7 @@ const HomeNotices = ({ coStatus, config }) => {
     own.push({ id: 'hostmode', severity: 'warning', text: t('navigation.home.cosmosNotDockerHostError'), detail: <Migrate014 config={config} /> });
   }
 
-  const items = [...own, ...turnstile.items, ...certificates.items, ...update.items, ...health.items];
+  const items = [...own, ...reachWatch.items, ...turnstile.items, ...certificates.items, ...update.items, ...health.items];
   // the certificates are a source too: when their status could not be read, that is said
   if (certificates.failed) {
     items.push({ id: 'certificates:unread', severity: 'unknown', text: t('health.certificatesUnread', 'Could not check the certificates: the server did not answer. Open the certificates to try again.') });

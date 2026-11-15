@@ -19,6 +19,7 @@ import InternetAccess from './internetAccess';
 import { PaidOnly } from '../../components/paidVisibility'; // Fork addition
 import { ownCountries, safeDefaultBlocked } from '../../utils/geoDefaults'; // Fork addition
 import { PanelReach } from '../../components/reachability'; // Fork addition
+import { ReachWatchCard } from '../../components/reachWatch'; // Fork addition: the watch from the internet
 import { LocalNamesSettings } from '../../components/localNames'; // Fork addition
 import { useHttpCheck, ForkHttpBeforeSave, ForkHostnameHint, ForkHttpPorts, ForkAdminWhitelist, ForkGeoOwnCountry, ForkTrustedProxies } from './forkHttpSettings'; // Fork addition
 
@@ -97,6 +98,7 @@ const ConfigHTTP = ({ formik }) => {
       </MainCard>
 
       <InternetAccess formik={formik} />
+      <ReachWatchCard />{/* Fork addition: the watch from the internet, see components/reachWatch.jsx */}
 
       <MainCard title={t('global.securityTitle')}>
         <Grid container spacing={3}>

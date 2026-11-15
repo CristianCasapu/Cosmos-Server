@@ -23,6 +23,7 @@ import { PERM_ADMIN_READ } from '../utils/permissions';
 import {
   EXPOSED, PANEL_ROUTE, checkAddresses, checkSentence, firstCheck, panelResults, portsText, routesStamp, safeURL, summarize,
 } from '../utils/reachability';
+import { outsideParams } from '../utils/reachWatch'; // Fork addition: the time the watch saw a name from the internet
 import { RouterPortLine, useRouterStatus } from './routerPorts'; // ports the router forwards (src/upnp)
 import { appMappingsOf } from '../utils/routerPorts';
 
@@ -66,7 +67,7 @@ const useReach = (config) => {
   return state;
 };
 
-const DOT = { verified: 'success', unverified: 'warning', problem: 'error', forwarded: 'warning', ports: 'orange' };
+const DOT = { reachable: 'success' /* Fork addition: seen from the internet (reachWatch.js) */, verified: 'success', unverified: 'warning', problem: 'error', forwarded: 'warning', ports: 'orange' };
 
 const useTexts = () => {
   const { t } = useTranslation();
@@ -75,6 +76,7 @@ const useTexts = () => {
     return t(s.key, s.text, s.params);
   };
   const label = (state) => ({
+    reachable: t('mgmt.reach.label.reachable', 'Internet: reachable'), // Fork addition: seen from the internet by the watch (reachWatch.js)
     verified: t('mgmt.reach.label.verified', 'Internet: checked'),
     unverified: t('mgmt.reach.label.unverified', 'Internet: not verified'),
     problem: t('mgmt.reach.label.problem', 'Internet: problem'),
@@ -86,6 +88,9 @@ const useTexts = () => {
   const explain = (summary) => {
     const route = summary.route;
     switch (summary.state) {
+      case 'reachable': // Fork addition: seen from the internet by the watch (src/reachwatch)
+        return t('mgmt.reach.tip.reachable', 'Seen answering from the internet at {{time}}: a test request went out through Cloudflare and came back in to this server. Click to open {{url}}.',
+          { time: outsideParams(((summary.route.checks || []).find((c) => c.id === 'outside') || {}).params).at || '', url: summary.url });
       case 'verified':
         return t('mgmt.reach.tip.verified',
           'Checked from the server: the name points here, the router forwards the port and the certificate is valid. Nobody tested it from outside. Click to open {{url}}.',
@@ -149,7 +154,7 @@ export const ReachChip = ({ config, routeNames, ports, hostNetwork, style, conta
     <Chip
       size="small"
       variant="outlined"
-      color={summary.state === 'verified' ? 'success' : summary.state === 'problem' ? 'error' : 'default'}
+      color={summary.state === 'verified' || summary.state === 'reachable' ? 'success' : summary.state === 'problem' ? 'error' : 'default'}
       icon={<GlobalOutlined />}
       label={<>{dot ? <StatusDot status={dot} size={8} style={{ marginRight: 6 }} /> : <StatusDot status="unknown" hollow size={8} style={{ marginRight: 6 }} />}{label(summary.state)}</>}
       style={{ maxWidth: '100%', ...style }}
@@ -264,8 +269,11 @@ export const ReachPanel = ({ config, routeNames, ports, hostNetwork, containerNa
           ? t('mgmt.reach.publicIPKnown', 'Cosmos knows this server\'s public address ({{source}}).', { source })
           : t('mgmt.reach.publicIPUnknown', 'Cosmos does not know this server\'s public address: it learns it from automatic port forwarding or from DynDNS.')}
       {' '}
-      {t('mgmt.reach.checkedAt', 'Checked {{time}} from the server. Nothing is tested from outside your network: only a device outside it (a phone on mobile data) can confirm.',
-        { time: new Date(data.checkedAt).toLocaleString() })}
+      {summary.routes.some((route) => route.checks.some((check) => check.id === 'outside' && check.status !== 'note')) /* Fork addition: the watch tests from the internet (reachWatch.js) */
+        ? t('mgmt.reach.checkedAtWatched', 'Checked {{time}} from the server. Names served through Cloudflare are also tested from the internet every few minutes (Configuration > HTTP, Watch from the internet).',
+          { time: new Date(data.checkedAt).toLocaleString() })
+        : t('mgmt.reach.checkedAt', 'Checked {{time}} from the server. Nothing is tested from outside your network: only a device outside it (a phone on mobile data) can confirm.',
+          { time: new Date(data.checkedAt).toLocaleString() })}
     </Typography>
     {notice && <Alert severity="info">{notice}</Alert>}
     <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1}>

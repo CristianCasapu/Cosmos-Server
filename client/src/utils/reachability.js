@@ -3,10 +3,11 @@
 // this combines the routes of a container (or of a stack) with the host
 // ports it publishes, and holds the plain-words sentence of every check.
 // Nothing here imports the UI, so it can be exercised on its own.
+import { OUTSIDE_CHECK_TEXT, outsideParams } from './reachWatch.js'; // Fork addition (reachability watch): what was seen from the internet
 
 // Best first: what a card says is the best its routes and ports give.
-const RANK = { verified: 8, unverified: 7, problem: 6, forwarded: 5, ports: 4, limited: 3, local: 2, off: 1, none: 0 };
-export const EXPOSED = ['verified', 'unverified', 'problem'];
+const RANK = { reachable: 9 /* seen from the internet, see reachWatch.js */, verified: 8, unverified: 7, problem: 6, forwarded: 5, ports: 4, limited: 3, local: 2, off: 1, none: 0 };
+export const EXPOSED = ['reachable', 'verified', 'unverified', 'problem'];
 
 // The host ports of a container list (Docker's Ports), one per port and
 // protocol: Docker lists a port once for IPv4 and once for IPv6. "all" when
@@ -60,7 +61,7 @@ export const summarize = ({ routeNames, results, ports, hostNetwork, mappings })
   return {
     state,
     route: best && EXPOSED.includes(best.state) ? best : null,
-    url: best && (best.state === 'verified' || best.state === 'unverified') ? best.url || '' : '',
+    url: best && (best.state === 'reachable' || best.state === 'verified' || best.state === 'unverified') ? best.url || '' : '',
     routes,
     ports: published,
     forwarded,
@@ -139,6 +140,7 @@ export const CHECK_TEXT = {
   'cert.none': ['none', 'No certificate is ready for this name yet.', 'domains'],
   'cert.ipAddress': ['ipAddress', 'Browsers do not trust a certificate for an IP address: give the app a name.', 'route'],
   'cert.plainHTTP': ['plainHTTP', 'Served over plain HTTP: nothing is encrypted.', null],
+  ...OUTSIDE_CHECK_TEXT, // Fork addition (reachability watch): the test from the internet
 };
 
 // The sentence of a check: { key, text, params, fix } (fix: a link or null).
@@ -146,6 +148,7 @@ export const CHECK_TEXT = {
 export const checkSentence = (check, routeName) => {
   const entry = CHECK_TEXT[check.id + '.' + check.code];
   const params = { ...(check.params || {}) };
+  if (check.id === 'outside') Object.assign(params, outsideParams(params)); // Fork addition (reachability watch)
   if (params.until) {
     const date = new Date(params.until);
     params.until = isNaN(date) ? params.until : date.toLocaleDateString();

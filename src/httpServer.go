@@ -1051,6 +1051,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/reachability", reach.StatusRoute) // Fork addition: can the apps be reached from the internet
 	srapiAdmin.HandleFunc("/api/local-names", proxy.LocalNamesRoute) // Fork addition: are the .local names published and answered, see proxy/fork_mdns_status.go
 	registerCloudflareRoutes(srapiAdmin) // Fork addition: the guided Cloudflare integration, see fork_cloudflare.go
+	registerReachWatchRoutes(srapiAdmin) // Fork addition: the watch of the server's reachability from the internet, see fork_reach_watch.go
 	registerCertificateRoutes(srapiAdmin) // Fork addition: certificates: status, renew now, other domains, see fork_certificates.go
 	srapiAdmin.HandleFunc("/api/snapshots", snapshots.StatusRoute) // fork addition: incremental snapshots
 	srapiAdmin.HandleFunc("/api/snapshots/run", snapshots.RunRoute) // fork addition

@@ -45,6 +45,12 @@ const Step = ({ step, t }) => {
         else notify(t(...TEXT.checkDone), 'success');
       }).catch(() => {}).finally(() => setBusy(false));
     }
+    if (step.action === 'reach.check') { // Fork addition: the watch from the internet tests now (src/reachwatch)
+      setBusy(true);
+      API.reachWatch.check().then((res) => {
+        notify(res && res.data && res.data.started ? t('reachWatch.checkStarted', 'Testing through Cloudflare now: the result shows here within a minute.') : t('reachWatch.tooSoon', 'A test is running or ran moments ago: try again in a few seconds.'), 'info');
+      }).catch(() => {}).finally(() => setBusy(false));
+    }
   };
   return <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between', py: 0.75 }}>
     <Typography variant="body2" sx={{ ...wrapAnywhere, flex: 1 }}>{text}</Typography>
