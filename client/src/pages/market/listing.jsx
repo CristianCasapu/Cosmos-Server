@@ -20,6 +20,7 @@ import { PersistentCheckbox } from "../../components/persistentInput";
 import { useTranslation } from 'react-i18next'; 
 import DOMPurify from 'dompurify';
 import { marketArchFits } from '../../utils/dataPlaces'; // Fork addition
+import { MarketAnyImage } from '../../components/installAnyImage'; // Fork addition (plan 40): install any image
 
 function Screenshots({ screenshots }) {
   const { t } = useTranslation(); // Fork addition: the slide show's name
@@ -374,6 +375,7 @@ const MarketPage = () => {
           <EditSourcesModal onSave={refresh} />
           <PersistentCheckbox name="filterDups" label={t('navigation.market.filterDuplicateCheckbox')} value={filterDups} onChange={setFilterDups} />
         </Stack>
+        {isAdmin && <MarketAnyImage search={search} /> /* Fork addition (plan 40): any image, from the top of the list */}
         {!loaded && (!apps || !Object.keys(apps).length) && <Box style={{
           width: '100%',
           height: '100%',
@@ -395,6 +397,7 @@ const MarketPage = () => {
         {loaded && !filteredAppList.length && search.length > 2 && <Typography variant="body2" sx={{ color: 'text.secondary' }}>
           {t('navigation.market.noMatch', 'No app matches “{{search}}”.', { search: search.slice(0, 80), interpolation: { escapeValue: false } })}
         </Typography>}
+        {loaded && !filteredAppList.length && search.length > 2 && isAdmin && <MarketAnyImage search={search} noMatch /> /* Fork addition (plan 40): the words typed, as an image */}
         {apps && Object.keys(apps).length > 0 && <Grid2 container spacing={{ xs: 1, sm: 1, md: 2 }}>
           {filteredAppList.map((app) => {
               return <Grid2

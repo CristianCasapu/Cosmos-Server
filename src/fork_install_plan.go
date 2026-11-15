@@ -23,6 +23,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/azukaar/cosmos-server/src/anyimage"
 	"github.com/azukaar/cosmos-server/src/docker"
 	"github.com/azukaar/cosmos-server/src/storage"
 	"github.com/azukaar/cosmos-server/src/utils"
@@ -130,6 +131,9 @@ var dataDisks = func() []string {
 var dockerRootForPlan = docker.ForkDockerRoot
 
 var checkImagesForPlan = docker.CheckImagePlatforms
+
+// the processor check reuses what "Install any image" read (plan 40)
+func init() { docker.KnownPlatforms = anyimage.KnownPlatforms }
 
 var protectedForPlan = docker.ForkProtectedDirs
 

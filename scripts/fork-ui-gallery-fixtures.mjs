@@ -404,3 +404,55 @@ export const edgeOverviewPatch = ['/cosmos/api/security/overview', (j) => {
   });
   return { ...j, data: { ...j.data, top } };
 }];
+
+// Fork addition (plan 40): "Install any image", as the server answers it for
+// a server that reaches Docker Hub (src/anyimage). The recipe is a copy of
+// recipes.json's PostgreSQL, trimmed; made-up counts.
+const PG_RECIPE = {
+  id: 'postgres', name: 'PostgreSQL', images: ['postgres'], source: 'https://hub.docker.com/_/postgres', kind: 'database', provides: 'postgres', pin: 'major',
+  service: { port: 5432 }, runAs: [{ tagContains: 'alpine', user: '70:70' }, { user: '999:999' }],
+  volumes: [{ target: '/var/lib/postgresql', from: 18, evidence: 'declared', backup: true }, { target: '/var/lib/postgresql/data', until: 17, evidence: 'declared', backup: true }],
+  env: [{ name: 'POSTGRES_PASSWORD', type: 'secret' }, { name: 'POSTGRES_USER', type: 'name', value: 'app' }, { name: 'POSTGRES_DB', type: 'name', value: 'app' }],
+  healthcheck: { test: ['CMD-SHELL', 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'], interval: '10s', timeout: '5s', retries: 5 },
+  memory: '256 MB to 1 GB', backup: 'pg_dumpall -U app', notes: ['majorUpgrade', 'pgdata18'],
+  client: { url: 'postgres://{user}:{password}@{host}:5432/{database}', user: 'POSTGRES_USER', password: 'POSTGRES_PASSWORD', database: 'POSTGRES_DB' },
+};
+const describe = (fields) => ({
+  registry: 'docker.io', official: false, platforms: ['linux/amd64', 'linux/arm64/v8'], platform: 'linux/amd64', fits: 'yes', tagTyped: false,
+  loggedIn: false, databases: [PG_RECIPE], tags: { list: [], suggested: '', why: '', more: false }, ...fields,
+});
+export const ANY_IMAGE = {
+  search: { results: [
+    { name: 'postgres', description: 'The PostgreSQL object-relational database system provides reliability and data integrity.', official: true, stars: 15056, pulls: 12455318364, recipe: 'postgres' },
+    { name: 'bitnami/postgresql', description: 'Bitnami container image for PostgreSQL', official: false, stars: 2400, pulls: 1000000000 },
+    { name: 'cimg/postgres', description: '', official: false, stars: 9, pulls: 869601096 },
+  ] },
+  postgres: describe({
+    reference: 'postgres:18', repository: 'library/postgres', tag: '18', official: true, page: 'https://hub.docker.com/_/postgres', recipe: PG_RECIPE,
+    declared: { ports: ['5432/tcp'], volumes: ['/var/lib/postgresql'], env: ['PATH=/usr/bin', 'PG_MAJOR=18', 'PGDATA=/var/lib/postgresql/18/docker'], user: '', entrypoint: ['docker-entrypoint.sh'], cmd: ['postgres'], labels: {}, workingDir: '', stopSignal: 'SIGINT' },
+    tags: { list: ['18.7', '18', '17.12', '17', '16', 'latest', 'alpine'], suggested: '18', why: 'pinMajor', more: false },
+  }),
+  dbapp: describe({
+    reference: 'example/dbapp:1', repository: 'example/dbapp', tag: '1', tagTyped: true, page: 'https://hub.docker.com/r/example/dbapp',
+    declared: { ports: ['8080/tcp'], volumes: [], env: ['DB_HOST=', 'DB_PORT=5432', 'DB_USER=', 'DB_PASSWORD=', 'DB_NAME=', 'APP_SECRET='], user: '', entrypoint: [], cmd: ['httpd'], labels: {}, workingDir: '/', stopSignal: '' },
+    tags: { list: ['1'], suggested: '1', why: 'newest', more: false },
+  }),
+  nothing: describe({
+    reference: 'busybox:1.36', repository: 'library/busybox', tag: '1.36', official: true, page: 'https://hub.docker.com/_/busybox',
+    declared: { ports: [], volumes: [], env: ['PATH=/bin'], user: '', entrypoint: [], cmd: ['sh'], labels: {}, workingDir: '', stopSignal: '' },
+    tags: { list: ['1.37', '1.36', 'latest'], suggested: '1.37', why: 'newest', more: false },
+  }),
+  private: { reference: 'private.example.org/team/app:1', registry: 'private.example.org', repository: 'team/app', tag: '1', page: 'https://private.example.org/team/app', problem: 'unauthorized', loggedIn: false, platforms: [], tags: { list: [] } },
+};
+// the describe answer for the reference the page asks about
+export const anyImageMock = [
+  ['/cosmos/api/images/search', ok(ANY_IMAGE.search)],
+  ['/cosmos/api/images/describe', (url, request) => {
+    let reference = '';
+    try { reference = (request && request.postDataJSON().reference) || ''; } catch (e) { /* no body */ }
+    if (/dbapp/.test(reference)) return ok(ANY_IMAGE.dbapp);
+    if (/busybox/.test(reference)) return ok(ANY_IMAGE.nothing);
+    if (/private/.test(reference)) return ok(ANY_IMAGE.private);
+    return ok(ANY_IMAGE.postgres);
+  }],
+];

@@ -77,6 +77,8 @@ func UpdateContainerRoute(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
+		before, _ := DockerClient.ContainerInspect(DockerContext, containerName) // Fork addition: what it had, for the sensitive-access tick (fork_sensitive_edit.go)
+
 		limitsSent := readSentLimits(req) // Fork addition: which limits the request carries (fork_limits.go)
 
 		var form ContainerForm
@@ -167,6 +169,11 @@ func UpdateContainerRoute(w http.ResponseWriter, req *http.Request) {
 		// docker must not auto-restart a container Cosmos put to sleep
 		if IsLazyLabels(container.Config.Labels) {
 			container.HostConfig.RestartPolicy = containerType.RestartPolicy{Name: containerType.RestartPolicyMode("no")}
+		}
+
+		// Fork addition: access to the server it did not have needs the admin's yes, as at creation
+		if forkRefuseUnconfirmedEdit(w, req, before, container) {
+			return
 		}
 
 		_, err = EditContainer(container.ID, container, false)
