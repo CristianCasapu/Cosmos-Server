@@ -282,7 +282,7 @@ const ProxyManagement = () => {
               </div>
             </>
           },
-          { title: t('global.network'), screenMin: 'lg', clickable:false, decorative: true /* Fork addition: a small chart, not a link of its own */, field: (r) => 
+          { title: t('global.network'), screenMin: 'lg', phone: false /* Fork addition: a chart 400 px wide, not for a phone's card */, clickable:false, decorative: true /* Fork addition: a small chart, not a link of its own */, field: (r) => 
             isAdmin ? <div style={{width: '400px', marginLeft: '-200px', marginBottom: '10px'}}>
               <MiniPlotComponent  metrics={[
                 "cosmos.proxy.route.bytes." + r.Name,

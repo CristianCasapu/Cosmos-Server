@@ -104,7 +104,13 @@ if (changed) {
 
 // --- a second user who finished the invitation, a third who did not
 const users = ((await call('GET', 'users')).body.data || []).map((u) => u.nickname || u.Nickname);
-for (const [nickname, email, register] of [['maria', 'maria@example.org', true], ['bunica', 'bunica@example.org', false]]) {
+// (with the admin, four: one below the five a server without a licence takes, so that "Create" stays
+// usable; the longest nickname the server accepts, 31 letters here, with a long address)
+for (const [nickname, email, register] of [
+  ['maria', 'maria@example.org', true],
+  ['bunica', 'bunica@example.org', false],
+  ['alexandruconstantinescu2026home', 'alexandru.constantinescu.family.archive@example.org', true],
+]) {
   if (users.includes(nickname)) continue;
   const made = await call('POST', 'users', { nickname, email });
   const key = made.body && made.body.data && (made.body.data.registerKey || made.body.data.RegisterKey);
@@ -117,6 +123,15 @@ for (const [nickname, email, register] of [['maria', 'maria@example.org', true],
     note('  logged in once', l.status());
     await visitor.dispose();
   }
+}
+
+// --- two API tokens (one read-only with a long description), so that the list is not empty; the
+// token values the server answers once are not kept
+const tokens = ((await call('GET', 'api-tokens')).body || {}).data || [];
+const tokenNames = (Array.isArray(tokens) ? tokens : Object.values(tokens)).map((x) => x.name);
+for (const [name, description, readOnly] of [['home-assistant', 'Reads the state of the apps for the dashboards on the wall tablet in the kitchen', true], ['backup-script', 'Nightly backup job', false]]) {
+  if (tokenNames.includes(name)) continue;
+  note('api token', name, (await call('POST', 'api-tokens', { name, description, readOnly })).status);
 }
 
 // --- a scheduled job and an API token, so that those lists are not empty

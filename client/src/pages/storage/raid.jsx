@@ -166,6 +166,7 @@ export const RAIDArrays = () => {
           {
             title: '',
             screenMin: 'md',
+            phone: false, // Fork addition: on a phone the status column above sums it up (cards show hidden columns)
             field: (r) => <div style={{maxWidth: '500px'}}>
               {{
                 error: <Alert severity="error">{cleanRAIDStatus(r)}</Alert>,

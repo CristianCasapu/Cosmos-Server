@@ -11,6 +11,7 @@ import { SearchOutlined } from '@ant-design/icons';
 import { useTheme } from '@mui/material/styles';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { tableColumns } from '../../utils/tableColumns'; // Fork addition: the columns a phone's cards show
 import { TableEmpty, TableNoMatch, cellLabel, useCellNames } from './tableEmpty'; // Fork addition: empty lists, search without a match, rows as cards on a phone
 
 // Fork addition: a cell that shows nothing (an empty description) or only a picture (a column marked
@@ -40,6 +41,12 @@ const PrettyTableView = ({ isLoading, getKey, data, columns, sort, onRowClick, l
     xl: useMediaQuery((theme) => theme.breakpoints.down('xl')),
     xxl: useMediaQuery((theme) => theme.breakpoints.down('xxl')),
   }
+
+  // Fork addition: which columns are drawn. On a phone, where rows become cards, a column the table hides on
+  // narrow screens (`screenMin`) is shown in the card with its name: the card has the room a table row does
+  // not, and the phone would otherwise lose what the desktop shows. `phone: false` keeps a column out (one that
+  // a phone-only column replaces, or a wide chart). Cards need more than two columns (see utils/tableColumns.js).
+  const { shown: isShown, cards } = tableColumns(columns, { screenMin, screenMax, phoneCards });
 
   return (
     <Stack direction="column" spacing={2} style={{width: fullWidth ? '100%': ''}}>
@@ -75,14 +82,13 @@ const PrettyTableView = ({ isLoading, getKey, data, columns, sort, onRowClick, l
       {!isLoading && <TableContainer className="ct-table-card" style={{
         width: fullWidth ? '100%': '',
       }} component={Paper} elevation={0}>
-        <Table ref={tableRef} className={phoneCards && columns.filter((c) => c && (!c.screenMin || screenMin[c.screenMin]) && (!c.screenMax || screenMax[c.screenMax])).length > 2 ? 'ct-table-cards' : undefined} role="table">{/* (a table of one or two columns fits a phone as it is) */}
+        <Table ref={tableRef} className={cards ? 'ct-table-cards' : undefined} role="table">{/* (a table of one or two columns fits a phone as it is) */}
           <TableHead>
             <TableRow role="row" sx={{
               '& .MuiTableCell-head': { fontWeight: 600 },
             }}>
               {columns.filter(c=>c).map((column) => (
-                ((!column.screenMin || screenMin[column.screenMin]) &&
-                (!column.screenMax || screenMax[column.screenMax]) &&
+                (isShown(column) &&
                 <TableCell role="columnheader">{column.title}</TableCell>)
               ))}
             </TableRow>
@@ -127,8 +133,7 @@ const PrettyTableView = ({ isLoading, getKey, data, columns, sort, onRowClick, l
                 >
                   {columns.filter(c=>c).map((column) => (
                 
-                    ((!column.screenMin || screenMin[column.screenMin]) && 
-                    (!column.screenMax || screenMax[column.screenMax]) &&
+                    (isShown(column) &&
                     <TableCell 
                       role={(linkTo && !column.clickable) ? undefined : 'cell'}
                       data-label={cellLabel(column)}

@@ -33,6 +33,7 @@ import VMWarning from "./vmWarning";
 import { useClientInfos } from "../../utils/hooks";
 import { PERM_RESOURCES } from "../../utils/permissions";
 import PermissionGuard from "../../components/permissionGuard";
+import ForkDiskCard from "./forkDiskCard"; // Fork addition
 
 const diskStyle = {
   width: "100%",
@@ -257,6 +258,7 @@ export const StorageDisks = () => {
       </div>
       <div>
       <TreeView
+        className="ct-disk-tree" /* Fork addition: the skin's tree (theme.css) */
         selected={[""]}
         style={{userSelect: 'none' }}
         aria-label="Disks"
@@ -264,7 +266,8 @@ export const StorageDisks = () => {
         defaultExpandIcon={<PlusCircleFilled />}
       >
         {disks && disks.map((disk, index) => {
-          return <Disk containerized={containerized} SetSMARTDialogOpened={SetSMARTDialogOpened} disk={disk} refresh={async () => {
+          // Fork addition: the card of forkDiskCard.jsx (fits a phone, the skin's surfaces); upstream: <Disk ...>
+          return <ForkDiskCard key={disk.name} FormatButton={FormatButton} containerized={containerized} SetSMARTDialogOpened={SetSMARTDialogOpened} disk={disk} refresh={async () => {
             await new Promise(r => setTimeout(r, 1000));
             await refresh()
           }} />

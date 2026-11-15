@@ -171,7 +171,7 @@ const EventsExplorer = ({from, to, xAxis, zoom, slot, initLevel, initSearch = ''
 					{events.map((event) => {
 						return <div key={event.id} style={eventStyle(event)}>
 							<CosmosCollapse title={
-								<Alert severity={event.level} icon={
+								<Alert severity={event.level} sx={{ minWidth: 0, width: '100%', boxSizing: 'border-box', '& .MuiAlert-message': { minWidth: 0, overflowWrap: 'break-word' } }} /* Fork addition: a long address or name breaks inside the card (it pushed the page sideways on a phone) */ icon={
 									event.level == "debug" ? <SettingOutlined /> : event.level == "important" ? <ExclamationOutlined /> : undefined
 								}>
 									<div style={{fontWeight: 'bold', fontSize: '120%'}}>{event.label}</div>

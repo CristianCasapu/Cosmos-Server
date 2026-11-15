@@ -17,6 +17,7 @@ import { useTheme } from '@mui/material/styles';
 import MiniPlotComponent from '../dashboard/components/mini-plot';
 import { useTranslation } from 'react-i18next';
 import StatusDot from '../../components/statusDot';
+import { simplifyNumber } from '../dashboard/components/utils'; // Fork addition
 
 const temperatureChip = (temperature) => {
   if (temperature < 45) {
@@ -214,17 +215,19 @@ const SMARTDialog = ({disk, OnClose}) => {
   </Dialog>;
   }
 
-  return <Dialog open={disk} onClose={() => {
+  // Fork addition: wider on a large screen, the summary above the table on a phone (they were side by side and the table ran off the screen)
+  return <Dialog open={disk} fullWidth maxWidth="md" onClose={() => {
       OnClose && OnClose();
     }}>
-      <DialogTitle>S.M.A.R.T. {t('mgmt.storage.smart.for')} {disk.name}</DialogTitle>
+      <DialogTitle>{t('mgmt.storage.smart.for')} {disk.name}{/* Fork addition: the text already starts with "S.M.A.R.T." */}</DialogTitle>
       <DialogContent>
           <DialogContentText>
-            <Stack direction="row" spacing={8}>
-              <Stack spacing={2}>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={{ xs: 3, md: 8 }}>
+              <Stack spacing={2} sx={{ minWidth: 0, flex: '0 0 auto' }}>
                 <div>
                   <InputLabel>{t('mgmt.storage.smart.health')}</InputLabel>
-                  {healthChip(disk) + ' ' + healthStatus(disk, disk.rota ? fullData : []) + '%'}
+                  {/* Fork addition: the dot and the figure (an element added to a string read "[object Object]") */}
+                  {(() => { const health = healthStatus(disk, disk.rota ? fullData : []); return <>{healthChip(disk)} {health === '--' ? '--' : health + '%'}</>; })()}
                 </div>
                 <div>
                   <InputLabel>{t('global.temperature')}</InputLabel>
@@ -249,12 +252,12 @@ const SMARTDialog = ({disk, OnClose}) => {
                   return <Stack key={key} direction="row" spacing={1}>
                     <div>
                       <InputLabel>{key}</InputLabel>
-                      <span>{key == "rota" ? (disk[key] ? 'ATA' : "NVME") : disk[key]}</span>
+                      <span style={{ overflowWrap: 'anywhere' }}>{key == "rota" ? (disk[key] ? 'ATA' : "NVME") : (key == "size" ? simplifyNumber(disk[key], 'b') /* Fork addition: was raw bytes */ : disk[key])}</span>
                     </div>
                   </Stack>
                 })}
               </Stack>
-              {fullData && <PrettyTableView 
+              {fullData && <div style={{ minWidth: 0, flex: '1 1 auto' }}>{/* Fork addition: the table takes the width that is left */}<PrettyTableView 
                 data={fullData}
                 getKey={(r) => `${r.Id}`}
                 columns={[
@@ -274,7 +277,7 @@ const SMARTDialog = ({disk, OnClose}) => {
                     }
                   },
                 ]}
-              />}
+              /></div>}
             </Stack>
           </DialogContentText>
       </DialogContent>

@@ -77,7 +77,7 @@ const Addresses = ({ overview, bans, bansKnown, catalogue, onShowAddress, onUnba
             search: (a) => a.ip,
             field: (a) => <Stack spacing={0.25}>
               <strong style={{ overflowWrap: 'break-word' }}><Text value={a.ip} max={40} /></strong>
-              <Typography variant="caption" color="textSecondary">{where(a)}</Typography>
+              <Typography variant="caption" color="textSecondary" sx={{ whiteSpace: 'nowrap' }}>{where(a)}</Typography>{/* Fork addition: "Local network" on one line (it broke a word per line under the address) */}
               {narrow && <Typography variant="body2" sx={{ overflowWrap: 'break-word' }}>{did(a)}</Typography>}
               {narrow && bansKnown && banOf(bans, a.ip) && <Box>{blocked(a)}</Box>}
             </Stack>,
@@ -85,6 +85,7 @@ const Addresses = ({ overview, bans, bansKnown, catalogue, onShowAddress, onUnba
           {
             title: t('security.addresses.did', 'What it did'),
             screenMin: 'sm',
+            phone: false, // Fork addition: the first column says it on a phone (narrow)
             search: (a) => did(a),
             field: (a) => <Stack spacing={0.25}>
               <span style={{ overflowWrap: 'break-word' }}>{did(a)}</span>
@@ -101,6 +102,7 @@ const Addresses = ({ overview, bans, bansKnown, catalogue, onShowAddress, onUnba
           bansKnown ? {
             title: t('security.addresses.now', 'Now'),
             screenMin: 'sm',
+            phone: false, // Fork addition: the first column says it on a phone (narrow)
             field: (a) => blocked(a),
           } : null,
           {

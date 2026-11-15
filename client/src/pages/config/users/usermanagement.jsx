@@ -252,7 +252,8 @@ const UserManagement = () => {
         </Dialog>
 
 
-        <Stack direction="row" spacing={2}>
+        {/* Fork addition: ct-users-toolbar (skin): the buttons of one height, the seats on a line of their own on a phone */}
+        <Stack direction="row" spacing={2} className="ct-users-toolbar">
             <PermissionGuard permission={PERM_USERS}><Button variant="contained" color="primary" startIcon={<PlusCircleOutlined />} onClick={() => {
                 setOpenCreateForm(true)
             }} disabled={(!proFeatures.isPro() && status && rows) ? (rows.length >= status.LicenceNumber) : false}>{t('global.createAction')}</Button></PermissionGuard>
@@ -262,8 +263,8 @@ const UserManagement = () => {
             }}>{t('global.refresh')}</Button>
 
             {!proFeatures.isPro() && (
-              <div>{t('mgmt.usermgmt.userSeatsUsed')} {rows ? rows.length : 0} / {status ? status.LicenceNumber : 0}
-                  <LinearProgress style={{width: '100px'}} variant="determinate" value={(status && rows) ? (rows.length / status.LicenceNumber) * 100 : 0}
+              <div className="ct-users-seats">{t('mgmt.usermgmt.userSeatsUsed')} {rows ? rows.length : 0} / {status ? status.LicenceNumber : 0}
+                  <LinearProgress aria-label={t('mgmt.usermgmt.userSeatsUsed')} variant="determinate" value={(status && rows) ? Math.min(100, (rows.length / status.LicenceNumber) * 100) : 0}
                   color={
                       (status && rows) ? (rows.length >= status.LicenceNumber ? 'error' : 'primary') : 'primary'
                   } />
@@ -327,14 +328,14 @@ const UserManagement = () => {
                 {
                     title: t('global.createdAt'),
                     screenMin: 'lg',
-                    field: (r) => dayjs(new Date(r.createdAt)).format('L, LT'),
+                    field: (r) => <span style={{ whiteSpace: 'nowrap' }}>{dayjs(new Date(r.createdAt)).format('L, LT')}</span>, // Fork addition: a date on one line
                 },
                 {
                     title: t('mgmt.usermgmt.lastLogin'),
                     screenMin: 'lg',
                     field: (r) => {
                         const hasLastLogin = new Date(r.lastLogin).getTime() > 0;
-                        return <>{hasLastLogin ? dayjs(new Date(r.lastLogin)).format('L, LT') : t('global.never')}</>
+                        return <span style={{ whiteSpace: 'nowrap' }}>{hasLastLogin ? dayjs(new Date(r.lastLogin)).format('L, LT') : t('global.never')}</span>; // Fork addition: on one line
                     },
                 },
                 {
@@ -348,7 +349,9 @@ const UserManagement = () => {
                             return <div style={{textAlign: 'center'}}><CircularProgress /></div>
                         }
 
-                        return <>{/* Fork addition: Activity */}<UserActivityButton nickname={r.nickname} />&nbsp;&nbsp;{isRegistered ?
+                        // Fork addition: ct-user-actions (skin): one row on a wide screen; on a phone the card's footer, the
+                        // two that remove something after a line of their own (were spaces between buttons that wrapped anyhow)
+                        return <div className="ct-user-actions"><div className="ct-user-actions-main">{/* Fork addition: Activity */}<UserActivityButton nickname={r.nickname} />{isRegistered ?
                             (<PermissionGuard permission={PERM_USERS}><Button variant="contained" color="primary" onClick={
                                 () => {
                                     setLoadingRow(r.nickname);
@@ -361,20 +364,20 @@ const UserManagement = () => {
                                     sendlink(r.nickname, 2);
                                 }
                             } color="primary">{t('newInstall.usermgmt.inviteUser.resendInviteButton')}</Button></PermissionGuard>)
-                        }
-                        &nbsp;&nbsp;<PermissionGuard permission={PERM_USERS}><Button variant="contained" color="error" onClick={
+                        }</div>
+                        <div className="ct-user-actions-danger"><PermissionGuard permission={PERM_USERS}><Button variant="contained" color="error" onClick={
                             () => {
                                 setLoadingRow(r.nickname);
                                 setToAction(r.nickname);
                                 setOpenDeleteForm(true);
                             }
                         }>{t('global.delete')}</Button></PermissionGuard>
-                        &nbsp;&nbsp;<PermissionGuard permission={PERM_USERS}><Button variant="contained" color="error" onClick={
+                        <PermissionGuard permission={PERM_USERS}><Button variant="contained" color="error" onClick={
                             () => {
                                 // Fork addition: asked first (Reset2FADialog); upstream reset it on the click
                                 setReset2FA(r.nickname);
                             }
-                        }>{t('mgmt.usermgmt.reset2faButton')}</Button></PermissionGuard></>
+                        }>{t('mgmt.usermgmt.reset2faButton')}</Button></PermissionGuard></div></div>
                     }
                 },
             ]}
