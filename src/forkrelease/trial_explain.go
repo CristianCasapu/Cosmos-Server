@@ -2,24 +2,22 @@ package forkrelease
 
 // Fork addition: when a restore that is owed cannot finish, the launcher
 // says, at every attempt, what is wrong and how to get out of it, in the
-// journal and in cosmos-update.README in the install folder. When the list
-// of kept files can be read, the commands of the way back by hand are
-// written out, file by file, in cosmos-update.restore.sh: an administrator
-// reads it and runs it with sh. Every way out printed is literally right for
-// the state it is printed in.
+// journal and in cosmos-update.README in the install folder. Every command
+// printed is meant to be typed as it stands on a Debian server.
 
 import (
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 )
 
-const restoreScriptName = "cosmos-update.restore.sh"
+// serviceName is the systemd unit Cosmos runs as (src/index.go).
+const serviceName = "CosmosCloud"
 
 // keptDamagedError: a file of the copy kept is missing or not what it was.
 type keptDamagedError struct{ path string }
@@ -44,10 +42,8 @@ func readmePath(folder string) string { return filepath.Join(folder, readmeName)
 
 // resolved: nothing needs a person (any more).
 func resolved(folder string) {
-	for _, name := range []string{readmeName, restoreScriptName} {
-		if _, err := os.Lstat(filepath.Join(folder, name)); err == nil {
-			os.Remove(filepath.Join(folder, name))
-		}
+	if _, err := os.Lstat(readmePath(folder)); err == nil {
+		os.Remove(readmePath(folder))
 	}
 }
 
@@ -66,90 +62,49 @@ func purposeWords(trial Trial) string {
 }
 
 // quote makes a word for sh.
-// here quotes a path relative to the install folder for the script: with
-// "./" in front, a name that starts with "-" is never taken for an option.
-func here(path string) string { return quote("./" + path) }
-
 func quote(word string) string {
 	return "'" + strings.ReplaceAll(word, "'", `'\''`) + "'"
 }
 
-// present: a file of the folder is there.
-func present(folder string, name string) bool {
-	_, err := os.Lstat(filepath.Join(folder, name))
-	return err == nil
+// endCommand removes the state, the marks and the update file and its
+// signature, and after a rollback notes the version as failed.
+func endCommand(folder string, trial Trial) string {
+	command := "rm -f " + quote(trialPath(folder)) + " " + quote(folder) + "/" + markPrefix + "* " + quote(filepath.Join(folder, StagedZip)) + " " + quote(filepath.Join(folder, StagedSignature))
+	if (trial.Purpose == purposeRollback || trial.Purpose == purposeUnrecorded) && trial.NewVersion != "" && trial.NewVersion != trial.PreviousVersion {
+		command += " && echo " + quote(trial.NewVersion) + " >> " + quote(filepath.Join(folder, failedName))
+	}
+	return command
 }
 
-// updateFiles are the update file and its signature, where they are there.
-func updateFiles(folder string) []string {
-	files := []string{}
-	for _, name := range []string{StagedZip, StagedSignature} {
-		if present(folder, name) {
-			files = append(files, name)
-		}
+// reinstallCommands put the release back by hand as the launcher would:
+// the zip and its signature file from the fork's releases, the zip checked
+// against its line of the signature file, unpacked over the folder without
+// its start.sh, the root folder of the zip left out.
+func reinstallCommands(folder string, trial Trial, version string) []string {
+	zip, sig := ZipName(version, runtime.GOARCH), SignatureName(version)
+	base := "https://github.com/" + releaseRepo + "/releases/download/v" + version + "/"
+	work := "/tmp/cosmos-reinstall"
+	return []string{
+		"command -v curl >/dev/null && command -v unzip >/dev/null || apt-get install -y curl unzip",
+		"rm -rf " + work + " && mkdir " + work + " && cd " + work,
+		"curl -fLO " + base + zip + " && curl -fLO " + base + sig,
+		"grep ' " + zip + "$' " + sig + " | sed 's/^sha256 \\([0-9a-f]*\\) /\\1  /' | sha256sum -c",
+		"unzip -q " + zip + " -d unpacked && rm -f unpacked/*/start.sh",
+		"cp -a unpacked/*/. " + quote(folder) + "/",
+		"rm -f " + quote(filepath.Join(folder, pendingLauncher)) + " " + quote(filepath.Join(folder, "cosmos-launcher-arm64.updated")),
+		endCommand(folder, trial),
 	}
-	return files
-}
-
-// restoreScript is the way back by hand, file by file: every replaced file
-// copied back from the copy kept, checked against its SHA-256 and given its
-// mode, every added file and folder removed, the update files removed, the
-// failed version noted (after a rollback), and last the state removed.
-func restoreScript(folder string, trial Trial, manifest keptManifest) string {
-	lines := []string{
-		"#!/bin/sh",
-		"# Puts back the files of Cosmos " + trial.PreviousVersion + " in " + folder + ", from " + previousFolder + ".",
-		"# Written by the launcher on " + time.Now().UTC().Format("2006-01-02 15:04 UTC") + ". Read it, then run: sh " + filepath.Join(folder, restoreScriptName),
-		"# It stops at the first error; it can be run again.",
-		"set -e",
-		"cd " + quote(folder),
-	}
-	for _, f := range manifest.Replaced {
-		if dir := filepath.Dir(f.Path); dir != "." {
-			lines = append(lines, "mkdir -p "+here(dir))
-		}
-		kept := filepath.Join(previousFolder, f.Path)
-		lines = append(lines,
-			"cp "+here(kept)+" "+here(f.Path+".restore"),
-			"echo "+quote(f.SHA256+"  ./"+f.Path+".restore")+" | sha256sum -c --quiet",
-			"chmod "+fmt.Sprintf("%04o", f.Mode&0777)+" "+here(f.Path+".restore"),
-			"mv -f "+here(f.Path+".restore")+" "+here(f.Path))
-	}
-	removed := map[string]bool{}
-	for _, rel := range append(append([]string{}, manifest.Added...), pendingLauncher, "cosmos-launcher-arm64.updated") {
-		if !removed[rel] {
-			removed[rel] = true
-			lines = append(lines, "rm -f "+here(rel))
-		}
-	}
-	dirs := append([]string{}, manifest.AddedDirs...)
-	sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
-	for _, dir := range dirs {
-		lines = append(lines, "rmdir "+here(dir)+" 2>/dev/null || true")
-	}
-	lines = append(lines, "rm -f "+here(StagedZip)+" "+here(StagedSignature))
-	if trial.Purpose == purposeRollback && trial.NewVersion != trial.PreviousVersion {
-		lines = append(lines, "grep -qx "+quote(trial.NewVersion)+" "+quote(failedName)+" 2>/dev/null || echo "+quote(trial.NewVersion)+" >> "+quote(failedName))
-	}
-	lines = append(lines,
-		"rm -f "+quote(trialName)+" "+markPrefix+"*",
-		"rm -f "+quote(readmeName)+" "+quote(restoreScriptName),
-		"echo 'The files of "+trial.PreviousVersion+" are back; the next start of the service runs it.'")
-	return strings.Join(lines, "\n") + "\n"
 }
 
 // explain prints what is wrong and the ways out, and writes them to the
 // README (overwritten at every attempt).
 func explain(folder string, trial Trial, problem error, env launcherEnv) {
-	state := trialPath(folder)
-	previous := filepath.Join(folder, previousFolder)
-	manifest, keptErr := readKept(folder)
-	if keptErr == nil && trial.PreviousVersion != "" && manifest.PreviousVersion != trial.PreviousVersion {
-		keptErr = errors.New("the files kept are of another version")
+	if trial.PreviousVersion == "" {
+		if manifest, err := readKept(folder); err == nil {
+			trial.PreviousVersion, trial.NewVersion = manifest.PreviousVersion, manifest.NewVersion
+		}
 	}
-	if trial.PreviousVersion == "" && keptErr == nil {
-		trial.PreviousVersion, trial.NewVersion = manifest.PreviousVersion, manifest.NewVersion
-	}
+	stop, start := "systemctl stop "+serviceName, "systemctl start "+serviceName
 	lines := []string{
 		"Cosmos update: a restore of the program files is owed and cannot finish (" + time.Now().UTC().Format("2006-01-02 15:04 UTC") + ").",
 		"",
@@ -157,7 +112,8 @@ func explain(folder string, trial Trial, problem error, env launcherEnv) {
 		"What is wrong: " + SafeText(problem.Error()) + ".",
 		"Cosmos is NOT started until this is resolved, so that it never runs a mix of two versions. The launcher tries again at every start (about every " + strconv.Itoa(int((RestorePause+unitRestartSec)/time.Second)) + " seconds); once the cause is gone it finishes by itself.",
 		"",
-		"Ways out, the first that applies:",
+		"First stop the service: " + stop + " . While it runs, systemd starts the launcher again every few seconds, and the launcher works in the same folder.",
+		"Then the first way out that applies, and last: " + start,
 	}
 	step := 1
 	add := func(text string) {
@@ -167,46 +123,24 @@ func explain(folder string, trial Trial, problem error, env launcherEnv) {
 	var damaged *keptDamagedError
 	var obstacle *obstacleError
 	switch {
-	case keptErr != nil:
-		// no copy to put back: only starting the files as they are applies
 	case errors.As(problem, &obstacle):
-		add("Remove or rename " + filepath.Join(folder, obstacle.path) + " (it " + obstacle.what + "). The next start then finishes the restore by itself.")
-	case errors.As(problem, &damaged):
-		add("The kept copy of " + damaged.path + " is damaged. Take that file from the release " + trial.PreviousVersion + " instead (its zip from the fork's GitHub releases, checked against its .sig file) and copy it to " + filepath.Join(previous, damaged.path) + ". The next start then finishes the restore by itself (or follow 2).")
+		add("Remove or rename " + filepath.Join(folder, obstacle.path) + " (it " + obstacle.what + "). The next start finishes the restore by itself.")
+	case errors.As(problem, &damaged), trial.PreviousVersion == "":
 	default:
-		add("Fix the cause above. A full disk: df -h " + folder + ". A read-only file system: findmnt -T " + folder + " (or, without findmnt: df " + folder + ", and look for \"ro\" in mount's line for that file system). The next start then finishes the restore by itself.")
+		add("Fix the cause above. A full disk: df -h " + folder + ". A read-only file system: findmnt -T " + folder + " (or, without findmnt: df " + folder + ", and look for \"ro\" in mount's line for that file system). The next start finishes the restore by itself.")
 	}
-	if keptErr == nil {
-		script := restoreScript(folder, trial, manifest)
-		what := "copies back the files of " + trial.PreviousVersion + " (" + count(len(manifest.Replaced), "file") + ", each checked against its SHA-256), removes what the update added (" + count(len(manifest.Added), "file") + ") and the update files"
-		if trial.Purpose == purposeRollback {
-			what += ", adds " + trial.NewVersion + " to " + filepath.Join(folder, failedName) + " (so it is not installed again)"
-		}
-		what += ", then removes the state: the next start runs " + trial.PreviousVersion + "."
-		if err := writeAtomic(filepath.Join(folder, restoreScriptName), []byte(script)); err == nil {
-			add("Put the files of " + trial.PreviousVersion + " back by hand: read " + filepath.Join(folder, restoreScriptName) + ", then run: sh " + filepath.Join(folder, restoreScriptName) + " . It " + what)
-		} else {
-			add("Put the files of " + trial.PreviousVersion + " back by hand with these commands (" + restoreScriptName + " could not be written: " + SafeText(pathless(err).Error()) + "): it " + what)
-			for _, line := range strings.Split(strings.TrimSpace(script), "\n") {
-				if !strings.HasPrefix(line, "#") {
-					lines = append(lines, "   "+line)
-				}
-			}
+	if trial.PreviousVersion != "" && releaseRepo != "" {
+		add("Install " + trial.PreviousVersion + " again by hand, as the launcher does (needs the internet; the zip is checked against the release's signature file, whose signature only the launcher checks):")
+		for _, command := range reinstallCommands(folder, trial, trial.PreviousVersion) {
+			lines = append(lines, "   "+command)
 		}
 	}
-	asIs := "start the files as they are now: rm -f " + quote(state)
-	for _, name := range updateFiles(folder) {
-		asIs += " " + quote(filepath.Join(folder, name))
+	way := "start the files as they are now: " + endCommand(folder, trial) + " . They may be a mix of " + nonEmpty(trial.NewVersion, "the new version") + " and " + nonEmpty(trial.PreviousVersion, "the version before") + " that does not start or does not work; nothing is put back any more."
+	if step == 1 {
+		add("Only this applies: " + way)
+	} else {
+		add("Or " + way)
 	}
-	asIs += " . They may be a mix of " + nonEmpty(trial.NewVersion, "the new version") + " and " + nonEmpty(trial.PreviousVersion, "the version before") + " that does not start or does not work; nothing is put back any more."
-	if trial.Purpose == purposeRollback || trial.Purpose == purposeUnrecorded {
-		asIs += " To keep " + trial.NewVersion + " from being installed again: echo " + quote(trial.NewVersion) + " >> " + quote(filepath.Join(folder, failedName))
-	}
-	way := "Or " + asIs
-	if keptErr != nil {
-		way = "There are no usable kept files (" + SafeText(keptErr.Error()) + "), so nothing can be put back; only this applies: " + asIs
-	}
-	add(way)
 	text := strings.Join(lines, "\n") + "\n"
 	for _, line := range lines {
 		if line != "" {
@@ -224,13 +158,6 @@ func attention(folder string, what string, env launcherEnv) {
 	text := "Cosmos update: needs attention (" + time.Now().UTC().Format("2006-01-02 15:04 UTC") + ").\n\n" + what + "\n"
 	fmt.Fprintln(env.out, "[ERROR] Update: "+what)
 	writeAtomic(readmePath(folder), []byte(text))
-}
-
-func count(n int, what string) string {
-	if n == 1 {
-		return "1 " + what
-	}
-	return strconv.Itoa(n) + " " + what + "s"
 }
 
 func nonEmpty(value string, otherwise string) string {

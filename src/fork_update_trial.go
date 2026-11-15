@@ -137,16 +137,9 @@ type listener struct {
 	https bool
 	port  int
 	host  string // the configured hostname without port or brackets: Host header and TLS server name
-	// apiOnName: the server's host check of the API (EnsureHostnameCosmosAPI)
-	// can let this hostname through, so /cosmos/api/status must answer as a
-	// healthy server does. False for a hostname with a port or an IPv6
-	// literal: that check compares the whole configured hostname with the
-	// request's host before its first ":", which never matches them, so a
-	// healthy server answers 400 there to everyone.
-	apiOnName bool
 	// setup: the setup is not finished. Its status route asks Docker without
-	// a time limit, so it is not asked: the local checks and the panel's page
-	// prove a server that serves nobody yet.
+	// a time limit, so it is not asked: auth.db, a usable port and the
+	// panel's page on 127.0.0.1 prove a server that serves nobody yet.
 	setup bool
 }
 
@@ -184,13 +177,15 @@ func listenerOf(main utils.Config) (listener, error) {
 	} else if strings.HasPrefix(configured, "[") && strings.HasSuffix(configured, "]") {
 		host = configured[1 : len(configured)-1] // [IPv6]
 	}
-	anyHost := main.NewInstall || configured == "0.0.0.0" || config.AcceptAllInsecureHostname
 	if host == "" || host == "0.0.0.0" {
 		host = "localhost" // any name is let through then
 	}
-	return listener{https: https, port: port, host: host, setup: main.NewInstall,
-		apiOnName: anyHost || !strings.Contains(configured, ":")}, nil
+	return listener{https: https, port: port, host: host, setup: main.NewInstall}, nil
 }
+
+// errHostRefused: the server answers its own hostname with 400. The proof
+// stops asking (the watchdog then ends the start).
+var errHostRefused = errors.New("the server refuses its own hostname (status 400 on /cosmos/api/status); not asked again in this start")
 
 // checkServerAnswers asks the server as a browser would, on 127.0.0.1:
 // /cosmos/api/status must answer as a healthy server does (2xx, 401 or
@@ -222,10 +217,12 @@ func checkServerAnswers(target listener) error {
 		if err != nil {
 			return errors.New("the server does not answer (" + where + ")")
 		}
-		healthy := (status >= 200 && status < 300) || status == http.StatusUnauthorized || status == http.StatusForbidden
-		if !target.apiOnName {
-			healthy = status < 500 // its own host check refuses this hostname form to everyone
+		if status == http.StatusBadRequest {
+			// its host check refused the name it is configured with; asking
+			// again would only fill the shield's records against 127.0.0.1
+			return errHostRefused
 		}
+		healthy := (status >= 200 && status < 300) || status == http.StatusUnauthorized || status == http.StatusForbidden
 		if !healthy {
 			return errors.New("the server answers /cosmos/api/status with status " + strconv.Itoa(status) + " (" + where + ")")
 		}
@@ -269,6 +266,10 @@ func proveUpdateTrial(folder string, run forkrelease.TrialRun, checks trialCheck
 			sleep(trialPoll)
 		}
 		if err := checks.run(); err != nil {
+			if errors.Is(err, errHostRefused) {
+				utils.Error("Update: version "+version+" did not prove itself", err)
+				return false
+			}
 			if err.Error() != lastReason {
 				utils.Log("Update: version " + version + " is on trial and has not proved itself yet: " + err.Error())
 				lastReason = err.Error()

@@ -28,7 +28,7 @@ func restoreNow(folder string, trial Trial, env launcherEnv) bool {
 			err = verifyKept(folder, manifest)
 		}
 		if err != nil {
-			if !trial.Touched && trial.Purpose == purposeRollback {
+			if !trial.Touched && trial.Purpose == purposeRollback && !restoreOwed(folder, trial) { // nothing changed: neither the state nor the mark says so
 				// nothing was changed yet: the new version is complete and stays
 				fmt.Fprintln(env.out, "[ERROR] Update: could NOT go back: "+SafeText(err.Error())+". "+SafeText(trial.NewVersion)+" stays installed.")
 				writeNote(folder, RollbackNote{Failed: trial.NewVersion, Back: trial.PreviousVersion, Reason: RollbackDamaged, Starts: trial.Failures,
@@ -111,16 +111,14 @@ func restoreNow(folder string, trial Trial, env launcherEnv) bool {
 // noteOnce writes the note for the server once: that it was written is
 // kept in the state and, for a state that cannot be written, in a mark.
 func noteOnce(folder string, trial *Trial, env launcherEnv) {
-	if trial.Noted || (trial.ID != "" && hasMark(folder, trial.ID, 0, markNoted)) {
+	if trial.Noted || isEmptyMark(filepath.Join(folder, notedName)) {
 		return
 	}
 	if writeNote(folder, rollbackNote(*trial)) != nil {
 		return
 	}
 	trial.Noted = true
-	if trial.ID != "" {
-		writeMark(folder, trial.ID, 0, markNoted)
-	}
+	writeEmpty(folder, filepath.Join(folder, notedName))
 	noteState(folder, *trial, env)
 }
 

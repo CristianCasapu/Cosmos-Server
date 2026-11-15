@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -32,9 +33,10 @@ func dockerAddress(host string) (network string, address string, ok bool) {
 }
 
 // dockerAnswers: something answers HTTP at Docker's address within 2
-// seconds. Any answer counts, a 400 of a Docker that speaks TLS to this
-// plain request included: only no connection or no answer is "Docker
-// cannot be reached". That errs towards counting the start. A form of
+// seconds with a status from 200 to 499, a 400 of a Docker that speaks TLS
+// to this plain request included. No connection, no answer, or a 5xx (a
+// socket proxy in front of a Docker that is down) is "Docker cannot be
+// reached". A form of
 // DOCKER_HOST this code does not know counts as answering too.
 var dockerAnswers = func() bool {
 	network, address, ok := dockerAddress(os.Getenv("DOCKER_HOST"))
@@ -51,5 +53,10 @@ var dockerAnswers = func() bool {
 		return false
 	}
 	line, err := bufio.NewReader(conn).ReadString('\n')
-	return err == nil && strings.HasPrefix(line, "HTTP/")
+	fields := strings.Fields(line)
+	if err != nil || len(fields) < 2 || !strings.HasPrefix(fields[0], "HTTP/") {
+		return false
+	}
+	status, err := strconv.Atoi(fields[1])
+	return err == nil && status >= 200 && status < 500 // a 5xx (a proxy before a dead Docker) is no answer of Docker
 }

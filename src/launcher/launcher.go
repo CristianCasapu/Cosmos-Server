@@ -149,7 +149,7 @@ func main() {
 	dlPath := currentFolder + "/cosmos-update.zip"
 	betaFile := currentFolder + "/.BETA"
 
-	forkrelease.LauncherTrial(currentFolder) // Fork addition: a new version on trial gets another start or goes back by itself, see src/forkrelease/trial.go
+	forkrelease.LauncherTrial(currentFolder, updateRepo) // Fork addition: a new version on trial gets another start or goes back by itself, see src/forkrelease/trial.go
 
 	// if there's no updates
 	if _, err := os.Stat(dlPath); err != nil {

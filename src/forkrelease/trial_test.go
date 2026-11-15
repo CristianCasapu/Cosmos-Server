@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -944,8 +945,8 @@ func TestStaleAndUnreadableTrials(t *testing.T) {
 	if launcherTrial(folder, f.env()) {
 		t.Error("started with an unreadable state and nothing kept")
 	}
-	if !strings.Contains(readme(folder), "so nothing can be put back; only this applies: start the files as they are now: rm -f '"+trialPath(folder)+"'") ||
-		strings.Contains(readme(folder), "run: sh") || strings.Contains(readme(folder), "Fix the cause") {
+	if !strings.Contains(readme(folder), "1. Only this applies: start the files as they are now: rm -f '"+trialPath(folder)+"'") ||
+		strings.Contains(readme(folder), "again by hand") || strings.Contains(readme(folder), "Fix the cause") {
 		t.Errorf("not only the way that applies:\n%s", readme(folder))
 	}
 }
@@ -1298,6 +1299,12 @@ func readme(folder string) string {
 	return string(raw)
 }
 
+// present: a file of the folder is there.
+func present(folder string, name string) bool {
+	_, err := os.Lstat(filepath.Join(folder, name))
+	return err == nil
+}
+
 // runSh runs a command line with sh, as an administrator would.
 func runSh(t *testing.T, dir string, line string) string {
 	t.Helper()
@@ -1322,34 +1329,44 @@ func wayLine(t *testing.T, folder string, n int) string {
 	return ""
 }
 
-// R1, F2: a restore that can never finish by itself says what is wrong and
-// the ways out, at every attempt, in the journal and in the README, and the
-// ways are literally right: followed with sh, they end with the old version
-// and no state, and the update file does not come back.
+// R1, C: a restore that can never finish by itself says what is wrong and
+// the ways out, at every attempt, in the journal and in the README: stop
+// the service first; the obstacle to remove; the release to install again
+// by hand, command by command; or the folder as it is. Way 1 followed ends
+// with the old version and no state.
 func TestAStuckRestoreExplainsTheWayOut(t *testing.T) {
+	releaseRepo = "example-owner/Cosmos-Server"
+	defer func() { releaseRepo = "" }()
 	folder := oldInstall(t, newReleaseZip(t))
 	before := snapshot(t, folder)
 	f := &fakeEnv{}
-	keepReplaced(folder, newVersion, &f.out)
-	os.WriteFile(filepath.Join(folder, "cosmos"), []byte("new ser"), 0755) // cut short; the zip is still there
-	os.WriteFile(filepath.Join(folder, previousFolder, "static", "app.js"), []byte("rotten"), 0600)
-	os.WriteFile(filepath.Join(folder, StagedSignature), []byte("sig"), 0600)
-
+	installNew(t, folder, newVersion, f)
+	os.Remove(filepath.Join(folder, "static", "app.js"))
+	os.MkdirAll(filepath.Join(folder, "static", "app.js", "x"), 0755)
+	for i := 0; i < TrialStarts-1; i++ {
+		launcherTrial(folder, f.env())
+	}
 	for attempt := 0; attempt < 2; attempt++ {
 		f.out.Reset()
 		if launcherTrial(folder, f.env()) {
-			t.Fatal("the server may start on a half folder")
+			t.Fatal("started with an obstacle")
 		}
-		for _, want := range []string{"What is wrong: the kept copy of static/app.js is missing or does not have its SHA-256",
-			"Cosmos is NOT started", "Take that file from the release " + oldVersion,
-			"then run: sh " + filepath.Join(folder, restoreScriptName),
-			"Or start the files as they are now: rm -f '" + trialPath(folder) + "' '" + filepath.Join(folder, StagedZip) + "' '" + filepath.Join(folder, StagedSignature) + "'"} {
+		zip := ZipName(oldVersion, runtime.GOARCH)
+		for _, want := range []string{"Cosmos is NOT started", "First stop the service: systemctl stop CosmosCloud",
+			"and last: systemctl start CosmosCloud",
+			"1. Remove or rename " + filepath.Join(folder, "static", "app.js"),
+			"2. Install " + oldVersion + " again by hand",
+			"curl -fLO https://github.com/example-owner/Cosmos-Server/releases/download/v" + oldVersion + "/" + zip,
+			"grep ' " + zip + "$' " + SignatureName(oldVersion) + " | sed 's/^sha256 \\([0-9a-f]*\\) /\\1  /' | sha256sum -c",
+			"unzip -q " + zip + " -d unpacked && rm -f unpacked/*/start.sh",
+			"cp -a unpacked/*/. '" + folder + "'/",
+			"rm -f '" + trialPath(folder) + "' '" + folder + "'/cosmos-update.mark.* '" + filepath.Join(folder, StagedZip) + "' '" + filepath.Join(folder, StagedSignature) + "' && echo '" + newVersion + "' >> '" + filepath.Join(folder, failedName) + "'",
+			"3. Or start the files as they are now"} {
 			if !strings.Contains(f.out.String(), want) || !strings.Contains(readme(folder), want) {
 				t.Errorf("attempt %d: %q is not printed and in the README:\n%s", attempt, want, readme(folder))
 			}
 		}
 	}
-	// the stayDown line after it
 	previousPause, previousExit := RestorePause, exitLauncher
 	RestorePause, exitLauncher = 0, func(int) {}
 	defer func() { RestorePause, exitLauncher = previousPause, previousExit }()
@@ -1358,50 +1375,83 @@ func TestAStuckRestoreExplainsTheWayOut(t *testing.T) {
 	if !strings.Contains(f.out.String(), "Cosmos is not started; the launcher tries again at the next start") {
 		t.Errorf("stayDown said %q", f.out.String())
 	}
-
-	// way 2 stops at the damaged kept file: its SHA-256 is checked
-	script := filepath.Join(folder, restoreScriptName)
-	cmd := exec.Command("sh", script)
-	if out, err := cmd.CombinedOutput(); err == nil {
-		t.Errorf("the script copied a damaged file back:\n%s", out)
-	}
-	// way 1, then way 2, as written
-	os.WriteFile(filepath.Join(folder, previousFolder, "static", "app.js"), []byte("old app"), 0600) // from the release
-	runSh(t, folder, "sh "+script)
-	if !launcherTrial(folder, f.env()) {
-		t.Fatal("not started after the way out")
-	}
-	sameAs(t, "after way 2", folder, before)
-	if present(folder, StagedZip) || present(folder, trialName) || present(folder, readmeName) || present(folder, restoreScriptName) || failedIn(folder, newVersion) {
-		t.Error("the zip, the state or the README is back, or the version that was being installed is noted as failed")
-	}
-
-	// a rollback stuck on an obstacle: removing it is enough; way 2 also
-	// notes the failed version, way 3 says how
-	folder = oldInstall(t, newReleaseZip(t))
-	before = snapshot(t, folder)
-	installNew(t, folder, newVersion, f)
-	os.Remove(filepath.Join(folder, "static", "app.js"))
-	os.MkdirAll(filepath.Join(folder, "static", "app.js", "x"), 0755)
-	for i := 0; i < TrialStarts-1; i++ {
-		launcherTrial(folder, f.env())
-	}
-	if launcherTrial(folder, f.env()) {
-		t.Fatal("started with an obstacle")
-	}
-	if !strings.Contains(wayLine(t, folder, 1), "Remove or rename "+filepath.Join(folder, "static", "app.js")) ||
-		!strings.Contains(wayLine(t, folder, 2), "adds "+newVersion+" to "+filepath.Join(folder, failedName)) ||
-		!strings.Contains(wayLine(t, folder, 3), "echo '"+newVersion+"' >> '"+filepath.Join(folder, failedName)+"'") {
-		t.Errorf("the ways:\n%s", readme(folder))
-	}
 	runSh(t, folder, "rm -r "+filepath.Join(folder, "static", "app.js")) // way 1
-	if !launcherTrial(folder, f.env()) || !failedIn(folder, newVersion) {
+	if !launcherTrial(folder, f.env()) || !failedIn(folder, newVersion) || present(folder, readmeName) {
 		t.Error("not finished once the obstacle is gone")
 	}
 	sameAs(t, "after way 1", folder, before)
+
+	// a damaged kept copy: no "fix the cause", the reinstall applies
+	folder = oldInstall(t, newReleaseZip(t))
+	keepReplaced(folder, newVersion, &f.out)
+	os.WriteFile(filepath.Join(folder, "cosmos"), []byte("new ser"), 0755)
+	os.WriteFile(filepath.Join(folder, previousFolder, "static", "app.js"), []byte("rotten"), 0600)
+	launcherTrial(folder, f.env())
+	if !strings.Contains(wayLine(t, folder, 1), "Install "+oldVersion+" again by hand") || strings.Contains(readme(folder), "Fix the cause") ||
+		strings.Contains(readme(folder), "echo '"+newVersion+"'") {
+		t.Errorf("the ways for a damaged copy of a cut-short install:\n%s", readme(folder))
+	}
 }
 
-// F2: way 3, as written, starts the files as they are and nothing comes back.
+// C, way 2 run as written (where unzip is there), with the downloads
+// replaced by the release's files: the folder ends as the release, the
+// state, the marks and the update file are gone, and the next start runs it.
+func TestTheReinstallAsWritten(t *testing.T) {
+	if _, err := exec.LookPath("unzip"); err != nil {
+		t.Skip("unzip is not installed here; the real run checks the commands on Debian")
+	}
+	releaseRepo = "example-owner/Cosmos-Server"
+	defer func() { releaseRepo = "" }()
+	folder := oldInstall(t, newReleaseZip(t))
+	f := &fakeEnv{}
+	keepReplaced(folder, newVersion, &f.out)
+	os.WriteFile(filepath.Join(folder, "cosmos"), []byte("new ser"), 0755)
+	os.WriteFile(filepath.Join(folder, previousFolder, "static", "app.js"), []byte("rotten"), 0600)
+	launcherTrial(folder, f.env())
+	release := t.TempDir()
+	oldZip := zipOf(t, zipEntry{name: "cosmos-cloud-" + oldVersion + "/cosmos", content: "old server", mode: 0755},
+		zipEntry{name: "cosmos-cloud-" + oldVersion + "/start.sh", content: "not this one", mode: 0755},
+		zipEntry{name: "cosmos-cloud-" + oldVersion + "/meta.json", content: `{"version": "` + oldVersion + `"}`},
+		zipEntry{name: "cosmos-cloud-" + oldVersion + "/static/app.js", content: "old app"})
+	zip := ZipName(oldVersion, runtime.GOARCH)
+	os.WriteFile(filepath.Join(release, zip), oldZip, 0644)
+	os.WriteFile(filepath.Join(release, SignatureName(oldVersion)), []byte("cosmos-fork-release-v1\nversion "+oldVersion+"\nsha256 "+sha256Hex(oldZip)+" "+zip+"\nsignature x\n"), 0644)
+	// curl stands in for GitHub: it takes the file of that name from the release folder
+	bin := t.TempDir()
+	os.WriteFile(filepath.Join(bin, "curl"), []byte("#!/bin/sh\nfor a in \"$@\"; do case \"$a\" in http*) cp "+quote(release)+"/\"${a##*/}\" .;; esac; done\n"), 0755)
+	commands := []string{}
+	inWay := false
+	for _, line := range strings.Split(readme(folder), "\n") {
+		switch {
+		case strings.HasPrefix(line, "1. Install"):
+			inWay = true
+		case inWay && strings.HasPrefix(line, "   "):
+			commands = append(commands, strings.TrimSpace(line))
+		case inWay:
+			inWay = false
+		}
+	}
+	if len(commands) < 6 {
+		t.Fatalf("commands %v in:\n%s", commands, readme(folder))
+	}
+	script := strings.Join(commands, "\n")
+	script = strings.ReplaceAll(script, "/tmp/cosmos-reinstall", filepath.Join(t.TempDir(), "reinstall"))
+	runSh(t, folder, "PATH="+quote(bin)+":$PATH; set -e; "+strings.ReplaceAll(script, "\n", "\n"))
+	if got, _ := os.ReadFile(filepath.Join(folder, "cosmos")); string(got) != "old server" {
+		t.Errorf("cosmos is %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(folder, "start.sh")); strings.Contains(string(got), "not this one") {
+		t.Error("the release's start.sh was copied over the folder's")
+	}
+	if present(folder, trialName) || present(folder, StagedZip) || present(folder, pendingLauncher) {
+		t.Error("the state, the zip or a pending launcher is left")
+	}
+	if !launcherTrial(folder, f.env()) || present(folder, StagedZip) {
+		t.Error("the next start did not run the folder, or the zip came back")
+	}
+}
+
+// C: way 3, as written, starts the files as they are and nothing comes back.
 func TestWayThreeAsWritten(t *testing.T) {
 	folder := oldInstall(t, newReleaseZip(t))
 	f := &fakeEnv{}
@@ -1409,8 +1459,8 @@ func TestWayThreeAsWritten(t *testing.T) {
 	os.WriteFile(filepath.Join(folder, StagedSignature), []byte("sig"), 0600)
 	os.WriteFile(filepath.Join(folder, previousFolder, "static", "app.js"), []byte("rotten"), 0600)
 	launcherTrial(folder, f.env())
-	line := wayLine(t, folder, 3)
-	command := line[strings.Index(line, "rm -f "):strings.Index(line, " . They may be")]
+	line := readme(folder)[strings.Index(readme(folder), "start the files as they are now: "):]
+	command := line[len("start the files as they are now: "):strings.Index(line, " . They may be")]
 	runSh(t, folder, command)
 	if !launcherTrial(folder, f.env()) || present(folder, StagedZip) || present(folder, StagedSignature) || present(folder, trialName) {
 		t.Error("way 3 did not end the update, or the update file comes back")
@@ -1758,8 +1808,7 @@ func TestNoFileIsTouchedWhenTheRestoreCannotBeOwed(t *testing.T) {
 func TestAStaleREADMEIsRemovedAtTheNextStart(t *testing.T) {
 	folder := oldInstall(t, nil)
 	os.WriteFile(filepath.Join(folder, readmeName), []byte("Cosmos is NOT started"), 0600)
-	os.WriteFile(filepath.Join(folder, restoreScriptName), []byte("#!/bin/sh"), 0600)
-	if !launcherTrial(folder, (&fakeEnv{}).env()) || present(folder, readmeName) || present(folder, restoreScriptName) || Attention(folder) != "" {
+	if !launcherTrial(folder, (&fakeEnv{}).env()) || present(folder, readmeName) || Attention(folder) != "" {
 		t.Error("a stale README stays")
 	}
 	folder = oldInstall(t, newReleaseZip(t))
@@ -1817,6 +1866,12 @@ func TestAnyHTTPAnswerMeansDockerAnswers(t *testing.T) {
 	t.Setenv("DOCKER_HOST", "tcp://"+strings.TrimPrefix(plain.URL, "http://"))
 	if !dockerAnswers() {
 		t.Error("a 403 was taken for unreachable")
+	}
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) }))
+	defer proxy.Close()
+	t.Setenv("DOCKER_HOST", "tcp://"+strings.TrimPrefix(proxy.URL, "http://"))
+	if dockerAnswers() {
+		t.Error("a 503 of a proxy in front of a dead Docker was taken for an answer")
 	}
 	silent, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer silent.Close()
@@ -1876,24 +1931,129 @@ func TestTheNoticeIsSentOnceWhenTheStateCannotBeWritten(t *testing.T) {
 	}
 }
 
-// F1: even without the restore mark, a state "trial" whose kept files are
-// of the version on trial while meta.json is back to the version before is
-// a restore cut short, never "installed by other means".
-func TestATrialWithMetaJSONBackIsARestoreNotAnEnd(t *testing.T) {
+// ------------------------------------------------ fourth review (A-F)
+
+// A: a newer version unzipped by hand during a trial ends the trial;
+// nothing is put back, the hand-installed version runs, the copy kept and
+// the marks go, and the words say so. The same for an older backup put back.
+func TestAVersionInstalledByHandEndsTheTrial(t *testing.T) {
+	for _, hand := range []string{laterVersion, "0.24.0-fork.5", oldVersion} {
+		folder := oldInstall(t, newReleaseZip(t))
+		f := &fakeEnv{}
+		installNew(t, folder, newVersion, f)
+		writeMark(folder, trialID(folder), 1, markClean)
+		// the administrator stops Cosmos and unpacks another release over it
+		os.WriteFile(filepath.Join(folder, "cosmos"), []byte("server "+hand), 0755)
+		os.WriteFile(filepath.Join(folder, "meta.json"), []byte(`{"version": "`+hand+`"}`), 0644)
+		os.WriteFile(filepath.Join(folder, "static", "app.js"), []byte("app "+hand), 0644)
+		during := snapshot(t, folder)
+		f.out.Reset()
+		if !launcherTrial(folder, f.env()) {
+			t.Fatalf("%s: not started", hand)
+		}
+		sameAs(t, hand+" by hand", folder, during)
+		if !noTrial(folder) || present(folder, previousFolder) || failedIn(folder, newVersion) || RollbackNoted(folder) {
+			t.Errorf("%s: the state, the copy kept, a failed entry or a note is left", hand)
+		}
+		if matches, _ := filepath.Glob(filepath.Join(folder, markPrefix+"*")); len(matches) != 0 {
+			t.Errorf("%s: marks left %v", hand, matches)
+		}
+		if want := hand + " was installed by other means while " + newVersion + " was on trial: the trial is over, nothing was put back"; !strings.Contains(f.out.String(), want) {
+			t.Errorf("%s: said %q", hand, f.out.String())
+		}
+	}
+}
+
+// A: a restore mark of another trial (a stale one) means nothing.
+func TestAStaleMarkOfAnotherTrialMeansNothing(t *testing.T) {
 	folder := oldInstall(t, newReleaseZip(t))
-	before := snapshot(t, folder)
 	f := &fakeEnv{}
 	installNew(t, folder, newVersion, f)
-	kept, _ := os.ReadFile(filepath.Join(folder, previousFolder, "meta.json"))
-	os.WriteFile(filepath.Join(folder, "meta.json"), kept, 0644)
-	if !TrialPending(folder) {
-		t.Fatal("the server drops the state")
+	writeEmpty(folder, markPath(folder, "fedcba9876543210", 0, markRestore))
+	launcherTrial(folder, f.env())
+	if trial := readTrialFile(t, folder); trial.State != stateTrial || trial.Failures != 1 {
+		t.Errorf("a stale mark changed the trial: %+v", trial)
 	}
+	if got, _ := os.ReadFile(filepath.Join(folder, "cosmos")); string(got) != "new server" {
+		t.Error("something was put back")
+	}
+}
+
+// B: a rollback whose Touched cannot be written owes its restore through the
+// mark; a later start that finds a kept file damaged never takes the half
+// folder for "nothing changed".
+func TestARollbackThatCouldNotNoteTouchedIsNeverStartedHalfDone(t *testing.T) {
+	folder := oldInstall(t, newReleaseZip(t))
+	f := &fakeEnv{}
+	installNew(t, folder, newVersion, f)
+	// the start that goes back wrote "restoring" with Touched=false and could
+	// not write Touched=true: before the first file changes the mark is made
+	trial := readTrialFile(t, folder)
+	trial.State, trial.Purpose, trial.Failures, trial.Touched = stateRestoring, purposeRollback, TrialStarts, false
+	writeTrial(folder, trial)
+	if err := owedOnDisk(folder); err != nil || !hasMark(folder, trial.ID, 0, markRestore) {
+		t.Fatalf("the restore is not owed through the mark: %v", err)
+	}
+	// then the restore was cut after cosmos, and a kept file went bad
+	kept, _ := os.ReadFile(filepath.Join(folder, previousFolder, "cosmos"))
+	os.WriteFile(filepath.Join(folder, "cosmos"), kept, 0755)
+	os.WriteFile(filepath.Join(folder, previousFolder, "static", "app.js"), []byte("rotten"), 0600)
+	if launcherTrial(folder, f.env()) {
+		t.Fatal("a half-restored folder was started as nothing changed")
+	}
+	if noTrial(folder) {
+		t.Error("the state was dropped")
+	}
+	// without the mark (nothing changed yet), the new version stays as it was
+	os.Remove(markPath(folder, trial.ID, 0, markRestore))
+	os.WriteFile(filepath.Join(folder, "cosmos"), []byte("new server"), 0755)
 	if !launcherTrial(folder, f.env()) {
-		t.Fatal(f.out.String())
+		t.Error("an untouched new version was not started")
 	}
-	sameAs(t, "after the restore", folder, before)
-	if !noTrial(folder) {
-		t.Error("the state is left")
+}
+
+// F: a mark whose folder cannot be synced is not made, and no file is
+// touched then; the notice of the unreadable-state path is sent once.
+func TestAMarkThatMayNotSurviveIsNoMark(t *testing.T) {
+	folder := oldInstall(t, newReleaseZip(t))
+	f := &fakeEnv{}
+	installNew(t, folder, newVersion, f)
+	during := snapshot(t, folder)
+	previousSync := syncFolderErr
+	syncFolderErr = func(string) error { return errors.New("input/output error") }
+	unblock := blockState(t, folder) // the unrecorded path: only the mark could owe the restore
+	if launcherTrial(folder, f.env()) {
+		t.Fatal("started")
+	}
+	syncFolderErr = previousSync
+	unblock()
+	if hasMark(folder, trialID(folder), 0, markRestore) {
+		t.Error("a mark whose folder could not be synced is left")
+	}
+	sameAs(t, "no mark, nothing touched", folder, during)
+
+	// the unreadable-state path: no id, the notice once through the fixed mark
+	folder = oldInstall(t, newReleaseZip(t))
+	installNew(t, folder, newVersion, f)
+	os.WriteFile(trialPath(folder), []byte("garbage"), 0600)
+	unblock = blockState(t, folder)
+	defer unblock()
+	previous := removeState
+	removeState = func(path string) error {
+		if path == trialPath(folder) {
+			return errors.New("read-only file system")
+		}
+		return previous(path)
+	}
+	defer func() { removeState = previous }()
+	notes := 0
+	for i := 0; i < 4; i++ {
+		launcherTrial(folder, f.env())
+		if _, found := TakeRollbackNote(folder); found {
+			notes++
+		}
+	}
+	if notes != 1 {
+		t.Errorf("the notice was sent %d times", notes)
 	}
 }

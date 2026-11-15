@@ -93,7 +93,7 @@ func TestTheServerCheckOfATrial(t *testing.T) {
 			asked = append(asked, r.Host+r.URL.Path)
 			handler(w, r)
 		}))
-		err := checkServerAnswers(listener{port: portOf(t, server.URL), host: "cosmos.server.local", apiOnName: true})
+		err := checkServerAnswers(listener{port: portOf(t, server.URL), host: "cosmos.server.local"})
 		server.Close()
 		if (err == nil) != c.passes {
 			t.Errorf("status %d, page %d: %v", c.status, c.page, err)
@@ -107,7 +107,7 @@ func TestTheServerCheckOfATrial(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte("{}"))
 	}))
-	if err := checkServerAnswers(listener{port: portOf(t, server.URL), host: "cosmos.server.local", apiOnName: true}); err == nil {
+	if err := checkServerAnswers(listener{port: portOf(t, server.URL), host: "cosmos.server.local"}); err == nil {
 		t.Error("a JSON answer was taken for the panel")
 	}
 	server.Close()
@@ -115,7 +115,7 @@ func TestTheServerCheckOfATrial(t *testing.T) {
 	closed, _ := net.Listen("tcp", "127.0.0.1:0")
 	port := closed.Addr().(*net.TCPAddr).Port
 	closed.Close()
-	if err := checkServerAnswers(listener{port: port, host: "x", apiOnName: true}); err == nil {
+	if err := checkServerAnswers(listener{port: port, host: "x"}); err == nil {
 		t.Error("a closed port passed")
 	}
 }
@@ -131,7 +131,7 @@ func TestTheHTTPSCheckOfATrial(t *testing.T) {
 	}}
 	server.StartTLS()
 	defer server.Close()
-	target := listener{https: true, port: portOf(t, server.URL), host: "cosmos.server.local", apiOnName: true}
+	target := listener{https: true, port: portOf(t, server.URL), host: "cosmos.server.local"}
 	if err := checkServerAnswers(target); err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestTheHTTPSCheckOfATrial(t *testing.T) {
 	// plain HTTP on the HTTPS port: no handshake, no proof
 	plain := httptest.NewServer(panelLike(200, 200))
 	defer plain.Close()
-	if err := checkServerAnswers(listener{https: true, port: portOf(t, plain.URL), host: "x", apiOnName: true}); err == nil {
+	if err := checkServerAnswers(listener{https: true, port: portOf(t, plain.URL), host: "x"}); err == nil {
 		t.Error("a listener without TLS passed the HTTPS check")
 	}
 
@@ -192,7 +192,7 @@ func TestANewVersionProvesItself(t *testing.T) {
 		config:   func() error { return nil },
 		database: func() error { dbCalls++; return nil },
 		http: func() error {
-			return checkServerAnswers(listener{port: portOf(t, server.URL), host: "x", apiOnName: true})
+			return checkServerAnswers(listener{port: portOf(t, server.URL), host: "x"})
 		},
 	}
 	slept := []time.Duration{}
@@ -338,7 +338,7 @@ func TestTheTrialIsWiredIn(t *testing.T) {
 		return i
 	}
 	watchdog, kill := at("forkrelease.RunWatchdog(os.Args)"), at(`exec.Command("killall", "cosmos")`)
-	trial, noUpdate := at("forkrelease.LauncherTrial(currentFolder)"), at(`fmt.Println("No updates to install, starting Cosmos...")`)
+	trial, noUpdate := at("forkrelease.LauncherTrial(currentFolder, updateRepo)"), at(`fmt.Println("No updates to install, starting Cosmos...")`)
 	accepts, md5, keep := at("forkrelease.LauncherAccepts("), at("if hash != hex.EncodeToString"), at("if !forkrelease.KeepReplaced(currentFolder) { return }")
 	unzip, undo, begin, remove := at("err = unzip(dlPath, currentFolder)"), at("forkrelease.UndoInstall(currentFolder, err)"), at("forkrelease.BeginTrial(currentFolder)"), at("os.Remove(dlPath)\n\n\t\tfmt.Println(\"Update complete")
 	if !(watchdog < kill && trial < noUpdate && accepts < md5 && md5 < keep && keep < unzip && unzip < undo && undo < begin && begin < remove) {
@@ -518,6 +518,7 @@ func TestArmingAtRunTime(t *testing.T) {
 func TestTheProofPassesTheServersHostChecks(t *testing.T) {
 	previous := utils.GetBaseMainConfig()
 	defer utils.LoadBaseMainConfig(previous)
+	abuseBefore := utils.GetIPAbuseCounter("127.0.0.1")
 	for _, c := range []struct {
 		hostname  string
 		acceptAll bool
@@ -552,6 +553,9 @@ func TestTheProofPassesTheServersHostChecks(t *testing.T) {
 		if err != nil {
 			t.Errorf("%q (accept all %v, setup %v): %v", c.hostname, c.acceptAll, c.setup, err)
 		}
+		if got := utils.GetIPAbuseCounter("127.0.0.1"); got != abuseBefore {
+			t.Errorf("%q: the proof counted abuse against 127.0.0.1 (%d)", c.hostname, got-abuseBefore)
+		}
 	}
 	// a server that answers the API with 400 on a plain name is not healthy
 	config := utils.Config{}
@@ -578,10 +582,29 @@ func TestASetupIsProvenWithoutTheStatusRoute(t *testing.T) {
 		panelLike(200, 200)(w, r)
 	}))
 	defer hanging.Close()
-	if err := checkServerAnswers(listener{port: portOf(t, hanging.URL), host: "x", setup: true, apiOnName: true}); err != nil {
+	if err := checkServerAnswers(listener{port: portOf(t, hanging.URL), host: "x", setup: true}); err != nil {
 		t.Errorf("a server in setup failed: %v", err)
 	}
-	if err := checkServerAnswers(listener{port: portOf(t, hanging.URL), host: "x", apiOnName: true}); err == nil {
+	if err := checkServerAnswers(listener{port: portOf(t, hanging.URL), host: "x"}); err == nil {
 		t.Error("a hanging status passed after the setup")
+	}
+}
+
+// D: a server that refuses its own hostname is asked once per start, not
+// every three seconds: the shield's records and the abuse count of
+// 127.0.0.1 do not grow with the polling.
+func TestARefusedHostnameIsAskedOnce(t *testing.T) {
+	shortTrial(t)
+	asked := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked++
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer server.Close()
+	folder := trialFolderWith(t)
+	checks := trialChecks{config: func() error { return nil }, database: func() error { return nil },
+		http: func() error { return checkServerAnswers(listener{port: portOf(t, server.URL), host: "x"}) }}
+	if proveUpdateTrial(folder, trialStart, checks, time.Sleep) || asked != 1 {
+		t.Errorf("proven, or asked %d times", asked)
 	}
 }
