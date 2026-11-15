@@ -29,13 +29,17 @@ type state struct {
 	Rules     []*Rule              `json:"rules"`
 	Offenders map[string]*offender `json:"offenders"`
 	Admins    map[string]time.Time `json:"admins"`
+	// WAF: per domain, the custom rules Cosmos made and what it last wrote
+	WAF map[string]*wafState `json:"waf,omitempty"`
+	// test rules of the switch-on test whose deletion failed: deleted later
+	Leftover []testRule `json:"leftoverTests,omitempty"`
 	// blocks not issued because of the caps
 	Dropped   int       `json:"dropped,omitempty"`
 	DroppedAt time.Time `json:"droppedAt,omitzero"`
 }
 
 func emptyState() state {
-	return state{Marker: newMarker(), Rules: []*Rule{}, Offenders: map[string]*offender{}, Admins: map[string]time.Time{}}
+	return state{Marker: newMarker(), Rules: []*Rule{}, Offenders: map[string]*offender{}, Admins: map[string]time.Time{}, WAF: map[string]*wafState{}}
 }
 
 func newMarker() string {
@@ -48,6 +52,22 @@ func statePath() string { return filepath.Join(utils.CONFIGFOLDER, FileName) }
 
 // markerOf is the text every note of this server carries.
 func (s state) markerText() string { return "cosmos-edge:" + s.Marker }
+
+// wafState is what Cosmos holds in a domain's custom rules.
+type wafState struct {
+	RulesetID string              `json:"rulesetId,omitempty"`
+	Rules     map[string]string   `json:"rules,omitempty"` // mode -> rule id
+	Sent      map[string][]string `json:"sent,omitempty"`  // mode -> the keys last written
+}
+
+// testRule is a rule of the switch-on test still to delete.
+type testRule struct {
+	Zone      string `json:"zone"`
+	Via       string `json:"via"`
+	Scope     string `json:"scope"`               // the zone id or the account scope (IP Access Rules)
+	RulesetID string `json:"rulesetId,omitempty"` // custom rules
+	RuleID    string `json:"ruleId"`
+}
 
 var validStates = map[string]bool{StatePending: true, StateActive: true, StateDeleting: true, StateGone: true, StateOwner: true, StateRefused: true, StateOrphaned: true}
 
@@ -95,6 +115,14 @@ func (e *Engine) load() {
 		if _, ok := prefixOfKey(key); ok {
 			st.Offenders[key] = o
 		}
+	}
+	for zone, ws := range read.WAF {
+		if ws != nil && len(st.WAF) < 64 {
+			st.WAF[zone] = ws
+		}
+	}
+	if len(read.Leftover) <= 16 {
+		st.Leftover = read.Leftover
 	}
 	for key, at := range read.Admins {
 		if len(st.Admins) < maxAdmins && now.Sub(at) < AdminFor {

@@ -44,6 +44,14 @@ type Token struct {
 	// which the IP Access Rules of a zone need (accessrules.go)
 	ReadFirewall bool
 	EditFirewall bool
+	// ReadAccountRules / EditAccountRules: "Account > Account Firewall Access
+	// Rules > Read / Edit", the IP Access Rules of the whole account
+	ReadAccountRules bool
+	EditAccountRules bool
+	// ReadWAF / EditWAF: "Zone > Zone WAF > Read / Edit", the custom rules
+	// (rulesets.go)
+	ReadWAF bool
+	EditWAF bool
 }
 
 // OriginPullCert is a client certificate uploaded for a zone's Authenticated
@@ -76,6 +84,8 @@ type Zone struct {
 	OriginPullEnabled bool
 	// IP Access Rules of the zone (accessrules.go)
 	AccessRules []AccessRule
+	// the entrypoint ruleset of the custom rules phase; nil until made
+	Entrypoint *Ruleset
 }
 
 // Call is one request the server got, without its credential.
@@ -103,6 +113,8 @@ type Server struct {
 	widgets []Widget
 	// what the access rules endpoints do (accessrules.go)
 	rules rulesState
+	// IP Access Rules of the account
+	accountRules []AccessRule
 }
 
 // New returns an empty stand-in with Cloudflare's real ranges.
@@ -446,6 +458,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	if match := accessRulesPath.FindStringSubmatch(path); match != nil {
 		s.serveAccessRules(w, req, match[1], match[2], token, raw)
+		return
+	}
+	if match := accountRulesPath.FindStringSubmatch(path); match != nil {
+		s.serveAccountRules(w, req, match[1], match[2], token, raw)
+		return
+	}
+	if strings.Contains(path, "/rulesets") {
+		s.serveRulesets(w, req, token, raw)
 		return
 	}
 

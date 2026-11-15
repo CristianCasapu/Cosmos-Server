@@ -45,6 +45,9 @@ type request struct {
 	Key      string `json:"key"`
 	Duration string `json:"duration"`
 	Mode     string `json:"mode"`
+	// AllowAccount: with "enable", the owner chooses the account's IP Access
+	// Rules for a domain whose token may do nothing narrower
+	AllowAccount bool `json:"allowAccount"`
 }
 
 func answer(w http.ResponseWriter, data interface{}) {
@@ -58,11 +61,30 @@ func failure(w http.ResponseWriter, status int, reason string, extra map[string]
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	body := map[string]interface{}{"status": "error", "code": "EB010", "message": "Edge blocks: " + reason, "reason": reason}
+	message, known := failureMessages[reason]
+	if !known {
+		message = "Edge blocks: refused (" + reason + ")"
+	}
+	body := map[string]interface{}{"status": "error", "code": "EB010", "message": message, "reason": reason}
 	for k, v := range extra {
 		body[k] = v
 	}
 	json.NewEncoder(w).Encode(body)
+}
+
+// failureMessages are the sentences of the refusals, for the panel's
+// one-line notice of a failed command (the card says more).
+var failureMessages = map[string]string{
+	"proof_failed":     "Not switched on: the card says what each domain's token needs.",
+	"off":              "Blocking at Cloudflare is off: switch it on first.",
+	"not_an_address":   "That is not an IP address.",
+	"duration":         "Pick how long.",
+	"mode":             "Pick block or challenge.",
+	"exempt":           "This address is never blocked at Cloudflare.",
+	"no_proven_zone":   "No domain has passed the test: switch the feature on again.",
+	"no_shielded_zone": "No address is served through Cloudflare's proxy yet.",
+	"full":             "Cosmos already keeps the most rules it may at Cloudflare.",
+	"not_blocked":      "This address is not blocked at Cloudflare.",
 }
 
 // ZoneState is what the card shows of a zone.
@@ -74,6 +96,10 @@ type ZoneState struct {
 	// TokenChanged: a test passed with another token
 	TokenChanged bool     `json:"tokenChanged"`
 	Problem      *Problem `json:"problem,omitempty"`
+	// Via: how its blocks are made (when proven)
+	Via string `json:"via,omitempty"`
+	// LastTest: the last switch-on test since Cosmos started
+	LastTest *ProofResult `json:"lastTest,omitempty"`
 }
 
 // RuleView is one line of the list.
@@ -88,6 +114,7 @@ type RuleView struct {
 	Until   time.Time `json:"until"`
 	Actor   string    `json:"actor,omitempty"`
 	Note    string    `json:"note,omitempty"`
+	Via     string    `json:"via"`
 }
 
 // Status is the state for the card.
@@ -110,6 +137,17 @@ func (e *Engine) Status(withAddresses bool) map[string]interface{} {
 		state := ZoneState{Name: zone.Name, Shielded: zone.Shielded, Proven: has && proof.Token == zone.TokenTag, TokenChanged: has && proof.Token != zone.TokenTag}
 		if state.Proven {
 			state.ProvenAt = proof.At
+			state.Via = proof.Mode
+			if state.Via == "" {
+				state.Via = ViaZone
+			}
+			if state.Via == ViaAccount && !config.AllowAccount {
+				state.Proven, state.Via = false, ""
+			}
+		}
+		if last, tested := e.proofs[zone.Name]; tested {
+			copy := last
+			state.LastTest = &copy
 		}
 		if problem, bad := e.problems[zone.Name]; bad {
 			copy := problem
@@ -124,7 +162,7 @@ func (e *Engine) Status(withAddresses bool) map[string]interface{} {
 		if !withAddresses || r.Reason == "test" {
 			continue
 		}
-		rules = append(rules, RuleView{Key: r.Key, Address: r.Address, Zone: r.Zone, Mode: r.Mode, Reason: r.Reason, State: r.State, Since: r.Since, Until: r.Until, Actor: r.Actor, Note: r.Note})
+		rules = append(rules, RuleView{Key: r.Key, Address: r.Address, Zone: r.Zone, Mode: r.Mode, Reason: r.Reason, State: r.State, Since: r.Since, Until: r.Until, Actor: r.Actor, Note: r.Note, Via: r.how()})
 	}
 	sort.SliceStable(rules, func(i, j int) bool { return rules[i].Since.After(rules[j].Since) })
 	leftovers := []Leftover{}
@@ -147,7 +185,9 @@ func (e *Engine) Status(withAddresses bool) map[string]interface{} {
 		"rules":         rules,
 		"counts":        counts,
 		"live":          e.liveLocked(),
-		"maxRules":      MaxRules,
+		"maxRules":      capacity(provenTargets()),
+		"maxPerAction":  MaxWAFPerAction,
+		"allowAccount":  config.AllowAccount,
 		"maxPerHour":    MaxBlocksAnHour,
 		"dropped":       e.st.Dropped,
 		"droppedAt":     map[bool]interface{}{true: e.st.DroppedAt, false: nil}[e.st.Dropped > 0],
@@ -201,7 +241,7 @@ func changeRoute(w http.ResponseWriter, req *http.Request) {
 
 	switch body.Action {
 	case "enable":
-		std.enable(w, req)
+		std.enable(w, req, body.AllowAccount)
 	case "disable":
 		updateSettings(func(c *utils.ForkEdgeBlocksConfig) { c.Enabled = false })
 		std.mu.Lock()
@@ -281,17 +321,38 @@ func updateSettings(change func(c *utils.ForkEdgeBlocksConfig)) {
 	utils.SetBaseMainConfig(config)
 }
 
+// The outcomes of the test of a domain's token.
+const (
+	OutcomeZone        = ViaZone         // IP Access Rules of the domain: used
+	OutcomeWAF         = ViaWAF          // custom rules of the domain: used
+	OutcomeAccount     = ViaAccount      // IP Access Rules of the account: used, because the owner chose it
+	OutcomeWAFRead     = "waf_read_only" // the custom rules can be read, not written
+	OutcomeWAFFull     = "waf_full"      // the domain's custom rules are full (5 on the Free plan)
+	OutcomeAccountOnly = "account_only"  // only the account's IP Access Rules: not without the owner's choice
+	OutcomeNone        = "none"          // nothing usable
+	OutcomeError       = "error"         // Cloudflare could not be asked (Reason says why)
+)
+
 // ProofResult is the outcome of the test of one zone's token.
 type ProofResult struct {
-	Zone   string `json:"zone"`
-	OK     bool   `json:"ok"`
-	Step   string `json:"step,omitempty"`   // list, create, delete: where it failed
-	Reason string `json:"reason,omitempty"` // permission, unreachable, rate_limited, server, invalid_token, other
+	Zone    string `json:"zone"`
+	OK      bool   `json:"ok"`
+	Outcome string `json:"outcome"`
+	// what each way of blocking allows: yes (read and write), read, no, "" (not asked)
+	ZoneRules    string `json:"zoneRules"`
+	WAF          string `json:"waf"`
+	AccountRules string `json:"accountRules"`
+	Step         string `json:"step,omitempty"`   // where an error stopped the test
+	Reason       string `json:"reason,omitempty"` // unreachable, rate_limited, server, invalid_token, other
 	// Inferred: Cloudflare refused the documentation address, so creation was
 	// shown by the kind of refusal and deletion by the id nobody has
 	Inferred bool `json:"inferred,omitempty"`
 	// LeftTestRule: the test rule could not be deleted; the worker will
 	LeftTestRule bool `json:"leftTestRule,omitempty"`
+	// Created: the test made the domain's (empty) list of custom rules
+	Created bool `json:"created,omitempty"`
+	// for the configuration, not shown
+	account string
 }
 
 func reasonOf(err error) string {
@@ -307,58 +368,191 @@ func reasonOf(err error) string {
 	return "other"
 }
 
-// prove tests a zone's token: may it list, create and delete IP Access Rules.
-func (e *Engine) prove(ctx context.Context, zone cloudflare.EdgeZone) ProofResult {
-	result := ProofResult{Zone: zone.Name}
-	zoneID, err := zoneIDOf(ctx, zone.Token, zone.Name)
-	if err != nil {
-		result.Step, result.Reason = "zone", reasonOf(err)
-		return result
-	}
-	e.mu.Lock()
-	e.zoneIDs[zone.Name] = zoneID
-	marker := e.st.markerText()
-	e.mu.Unlock()
-
-	api := clientOf(zone.Token)
-	if _, _, err := api.ListAccessRules(ctx, zoneID, marker, ""); err != nil {
-		result.Step, result.Reason = "list", reasonOf(err)
-		return result
-	}
-	rule, err := api.CreateAccessRule(ctx, zoneID, testAddress, ModeChallenge, "Cosmos edge block test ["+marker+"], deleted at once")
-	if err != nil {
-		kind, status, _ := cloudflare.ErrorKind(err)
-		if status != http.StatusBadRequest || kind == "forbidden" {
-			result.Step, result.Reason = "create", reasonOf(err)
-			return result
-		}
-		// the documentation address was refused (or a rule for it exists):
-		// the refusal came after the permission check; deletion is shown
-		// by the id nobody has
-		switch api.CanDeleteAccessRules(ctx, zoneID) {
-		case "yes":
-			result.OK, result.Inferred = true, true
-		case "no":
-			result.Step, result.Reason = "delete", "permission"
-		default:
-			result.Step, result.Reason = "delete", "other"
-		}
-		return result
-	}
-	if err := api.DeleteAccessRule(ctx, zoneID, rule.ID); err != nil {
-		// the worker deletes it once it can
-		e.mu.Lock()
-		e.addRuleLocked(&Rule{Key: testAddress, Zone: zone.Name, RuleID: rule.ID, Mode: ModeChallenge, Reason: "test", State: StateDeleting, Since: e.now(), Until: e.now(), Why: "test"})
-		e.dirty = true
-		e.mu.Unlock()
-		result.Step, result.Reason, result.LeftTestRule = "delete", reasonOf(err), true
-		return result
-	}
-	result.OK = true
-	return result
+// refused reports whether an error is Cloudflare refusing the permission.
+func refused(err error) bool {
+	kind, _, _ := cloudflare.ErrorKind(err)
+	return kind == "forbidden"
 }
 
-func (e *Engine) enable(w http.ResponseWriter, req *http.Request) {
+// testAccessRules makes and deletes a challenge rule for the documentation
+// address in a scope: "yes" when it may, "read" when only listing works.
+func (e *Engine) testAccessRules(ctx context.Context, api ruleAPI, zone string, scope string, via string, marker string, result *ProofResult) string {
+	rule, err := api.CreateAccessRule(ctx, scope, testAddress, ModeChallenge, "Cosmos edge block test ["+marker+"], deleted at once")
+	if err != nil {
+		kind, status, _ := cloudflare.ErrorKind(err)
+		if refused(err) {
+			return "read"
+		}
+		if status != http.StatusBadRequest || kind == "malformed_token" {
+			result.Step, result.Reason = "create", reasonOf(err)
+			return ""
+		}
+		// the documentation address was refused (or a rule for it exists):
+		// the refusal came after the permission check; deletion is shown by
+		// the id nobody has
+		switch api.CanDeleteAccessRules(ctx, scope) {
+		case "yes":
+			result.Inferred = true
+			return "yes"
+		case "no":
+			return "read"
+		}
+		result.Step, result.Reason = "delete", "other"
+		return ""
+	}
+	if err := api.DeleteAccessRule(ctx, scope, rule.ID); err != nil {
+		e.mu.Lock()
+		e.st.Leftover = append(e.st.Leftover, testRule{Zone: zone, Via: via, Scope: scope, RuleID: rule.ID})
+		e.dirty = true
+		e.mu.Unlock()
+		result.LeftTestRule = true
+		if refused(err) {
+			return "read"
+		}
+		result.Step, result.Reason = "delete", reasonOf(err)
+		return ""
+	}
+	return "yes"
+}
+
+// testWAF adds a disabled test rule to the domain's custom rules (making
+// them when there are none) and deletes it: "yes" when it may, "read" when
+// only reading works, "full" when the list is full.
+func (e *Engine) testWAF(ctx context.Context, api ruleAPI, zone string, zoneID string, set *cloudflare.Ruleset, marker string, result *ProofResult) string {
+	description := "Cosmos edge block test [" + marker + "]"
+	rule := cloudflare.RulesetRule{Action: ModeChallenge, Expression: wafExpression([]string{testAddress}), Description: description, Enabled: false}
+	before := map[string]bool{}
+	var made *cloudflare.Ruleset
+	var err error
+	if set == nil {
+		made, err = api.CreateCustomEntrypoint(ctx, zoneID, rule)
+		result.Created = err == nil
+	} else {
+		for _, r := range set.Rules {
+			before[r.ID] = true
+		}
+		made, err = api.AddCustomRule(ctx, zoneID, set.ID, rule)
+	}
+	if err != nil {
+		_, status, _ := cloudflare.ErrorKind(err)
+		switch {
+		case refused(err):
+			return "read"
+		case status == http.StatusBadRequest:
+			return "full"
+		}
+		result.Step, result.Reason = "create", reasonOf(err)
+		return ""
+	}
+	ruleID := ""
+	for _, r := range made.Rules {
+		if !before[r.ID] && r.Description == description {
+			ruleID = r.ID
+		}
+	}
+	if ruleID == "" {
+		result.Step, result.Reason = "create", "other"
+		return ""
+	}
+	if err := api.DeleteCustomRule(ctx, zoneID, made.ID, ruleID); err != nil {
+		e.mu.Lock()
+		e.st.Leftover = append(e.st.Leftover, testRule{Zone: zone, Via: ViaWAF, RulesetID: made.ID, RuleID: ruleID})
+		e.dirty = true
+		e.mu.Unlock()
+		result.LeftTestRule = true
+		result.Step, result.Reason = "delete", reasonOf(err)
+		return ""
+	}
+	return "yes"
+}
+
+// prove tests a domain's token, in the order of preference: IP Access Rules
+// of the domain, custom rules of the domain, and (only when allowAccount)
+// IP Access Rules of the account. It stops at the first that works. Writes:
+// one test rule for 192.0.2.1 made and deleted (a disabled one, for custom
+// rules) in the first way that may be written.
+func (e *Engine) prove(ctx context.Context, zone cloudflare.EdgeZone, allowAccount bool) ProofResult {
+	result := ProofResult{Zone: zone.Name}
+	done := func(outcome string) ProofResult {
+		result.Outcome = outcome
+		result.OK = outcome == OutcomeZone || outcome == OutcomeWAF || outcome == OutcomeAccount
+		return result
+	}
+	zoneID, accountID, err := zoneAccountOf(ctx, zone.Token, zone.Name)
+	if err != nil {
+		result.Step, result.Reason = "zone", reasonOf(err)
+		return done(OutcomeError)
+	}
+	result.account = accountID
+	e.mu.Lock()
+	e.zoneIDs[zone.Name], e.accountIDs[zone.Name] = zoneID, accountID
+	marker := e.st.markerText()
+	e.mu.Unlock()
+	api := clientOf(zone.Token)
+
+	// 1. IP Access Rules of the domain
+	result.ZoneRules = "no"
+	if _, _, err := api.ListAccessRules(ctx, zoneID, marker, ""); err == nil {
+		result.ZoneRules = e.testAccessRules(ctx, api, zone.Name, zoneID, ViaZone, marker, &result)
+		if result.ZoneRules == "yes" {
+			return done(OutcomeZone)
+		}
+		if result.ZoneRules == "" {
+			return done(OutcomeError)
+		}
+	} else if !refused(err) {
+		result.Step, result.Reason = "zone_rules", reasonOf(err)
+		return done(OutcomeError)
+	}
+
+	// 2. custom rules of the domain
+	result.WAF = "no"
+	if set, err := api.CustomEntrypoint(ctx, zoneID); err == nil {
+		result.WAF = e.testWAF(ctx, api, zone.Name, zoneID, set, marker, &result)
+		if result.WAF == "yes" {
+			return done(OutcomeWAF)
+		}
+		if result.WAF == "" {
+			return done(OutcomeError)
+		}
+	} else if !refused(err) {
+		result.Step, result.Reason = "waf", reasonOf(err)
+		return done(OutcomeError)
+	}
+
+	// 3. IP Access Rules of the account: asked about, used only when chosen
+	result.AccountRules = "no"
+	if accountID != "" {
+		scope := cloudflare.AccountScope(accountID)
+		if _, _, err := api.ListAccessRules(ctx, scope, marker, ""); err == nil {
+			result.AccountRules = "read"
+			if allowAccount {
+				result.AccountRules = e.testAccessRules(ctx, api, zone.Name, scope, ViaAccount, marker, &result)
+				if result.AccountRules == "yes" {
+					return done(OutcomeAccount)
+				}
+				if result.AccountRules == "" {
+					return done(OutcomeError)
+				}
+			}
+		} else if !refused(err) {
+			result.Step, result.Reason = "account_rules", reasonOf(err)
+			return done(OutcomeError)
+		}
+	}
+
+	switch {
+	case result.WAF == "full":
+		return done(OutcomeWAFFull)
+	case result.WAF == "read":
+		return done(OutcomeWAFRead)
+	case result.AccountRules == "read" && !allowAccount:
+		return done(OutcomeAccountOnly)
+	}
+	return done(OutcomeNone)
+}
+
+func (e *Engine) enable(w http.ResponseWriter, req *http.Request, allowAccount bool) {
 	zones := []cloudflare.EdgeZone{}
 	for _, zone := range edgeZones() {
 		if zone.Shielded > 0 {
@@ -375,23 +569,33 @@ func (e *Engine) enable(w http.ResponseWriter, req *http.Request) {
 	proofs := []utils.ForkEdgeProof{}
 	all := true
 	for _, zone := range zones {
-		result := e.prove(ctx, zone)
+		result := e.prove(ctx, zone, allowAccount)
 		results = append(results, result)
+		e.mu.Lock()
+		e.proofs[zone.Name] = result
+		e.mu.Unlock()
 		if result.OK {
-			proofs = append(proofs, utils.ForkEdgeProof{Zone: zone.Name, Token: zone.TokenTag, At: e.now().UTC()})
+			proof := utils.ForkEdgeProof{Zone: zone.Name, Token: zone.TokenTag, At: e.now().UTC(), Mode: result.Outcome}
+			if result.Outcome == OutcomeAccount {
+				proof.Account = result.account
+			}
+			proofs = append(proofs, proof)
 		} else {
 			all = false
 		}
 	}
 	updateSettings(func(c *utils.ForkEdgeBlocksConfig) {
 		c.Proven = proofs
+		c.AllowAccount = allowAccount
 		if all {
 			c.Enabled = true
 		}
 	})
 	e.poke()
 	if !all {
-		failure(w, http.StatusBadGateway, "proof_failed", map[string]interface{}{"results": results})
+		// a refusal is the owner's to read: never a gateway status, which the
+		// panel (and Cloudflare in front of it) takes for "no answer"
+		failure(w, http.StatusConflict, "proof_failed", map[string]interface{}{"results": results})
 		return
 	}
 	utils.AuditSecurity(req, utils.SecConfigSaved, "", "sections", "cloudflare-edge", "change", "enabled")
@@ -427,8 +631,8 @@ func (e *Engine) manualBlock(w http.ResponseWriter, req *http.Request, body requ
 		failure(w, http.StatusConflict, "exempt", map[string]interface{}{"exempt": ExemptLocal})
 		return
 	}
-	zones := provenZones()
-	if len(zones) == 0 {
+	targets := provenTargets()
+	if len(targets) == 0 {
 		failure(w, http.StatusConflict, "no_proven_zone", nil)
 		return
 	}
@@ -452,20 +656,24 @@ func (e *Engine) manualBlock(w http.ResponseWriter, req *http.Request, body requ
 			e.removeLocked(r)
 		}
 	}
-	if !e.makeRoomLocked(len(zones), now) {
+	if !e.makeRoomLocked(targets, mode, now) {
 		e.mu.Unlock()
 		failure(w, http.StatusConflict, "full", nil)
 		return
 	}
 	actor := utils.GetAuthContext(req).Nickname
 	until := now.Add(length)
-	for _, zone := range zones {
-		e.addRuleLocked(&Rule{Key: key, Zone: zone, Mode: mode, Reason: "manual", State: StatePending, Since: now, Until: until, Actor: actor, Address: address})
+	for _, t := range targets {
+		e.addRuleLocked(&Rule{Key: key, Zone: t.Zone, Via: t.Via, Mode: mode, Reason: "manual", State: StatePending, Since: now, Until: until, Actor: actor, Address: address})
 	}
 	e.dirty = true
 	e.mu.Unlock()
 	e.poke()
-	utils.AuditSecurity(req, utils.SecEdgeBlockAdded, key, "mode", mode, "until", until.UTC().Format(time.RFC3339))
+	via := []string{}
+	for _, t := range targets {
+		via = append(via, ViaWords[t.Via])
+	}
+	utils.AuditSecurity(req, utils.SecEdgeBlockAdded, key, "mode", mode, "until", until.UTC().Format(time.RFC3339), "via", strings.Join(via, "; "))
 	answer(w, e.Status(true))
 }
 

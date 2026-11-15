@@ -96,9 +96,16 @@ const (
 	SSLToken = "sslcerts0123456789abcdefghijklmnopqrstuvwxYZ"
 )
 
-// IP Access Rules (src/edgeblock, scripts/fork-ui-check-edge-blocks.mjs). GET
-// /token?firewall=1 lets GoodToken manage them too ("Zone > Firewall Services
-// > Edit"); GET /rules lists the rules of example.org, /rules/delete?id=<id>
+// IP Access Rules and custom rules (src/edgeblock,
+// scripts/fork-ui-check-edge-blocks.mjs). GET /token?firewall=1 lets GoodToken
+// manage the zone's IP Access Rules too ("Zone > Firewall Services > Edit"),
+// account=1 the account's ("Account > Account Firewall Access Rules > Edit"),
+// wafread=1 read the zone's custom rules and waf=1 change them ("Zone > Zone
+// WAF > Read / Edit"); /token?account=1&wafread=1 is a token that can do what
+// the first owner's could. GET /custom lists the zone's custom rules,
+// /custom/add?action=block&expression=<text>&description=<text> adds one the
+// way the owner would, /custom/delete?id=<id> deletes one, /accountrules
+// lists the account's IP Access Rules; GET /rules lists the rules of example.org, /rules/delete?id=<id>
 // deletes one the way the owner would in Cloudflare's dashboard,
 // /rules/add?target=ip&value=<address>&mode=block&notes=<text> adds one,
 // /rules/refuse-documentation?on=1 makes rules for documentation addresses
@@ -183,9 +190,27 @@ func main() {
 		io.WriteString(w, "ok\n")
 	})
 	control.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
-		firewall := r.URL.Query().Get("firewall") == "1"
-		fake.AddToken(GoodToken, cffake.Token{Status: r.URL.Query().Get("status"), Zones: []string{"example.org"}, ReadDNS: true, EditDNS: true, EditTurnstile: r.URL.Query().Get("turnstile") == "1", ReadFirewall: firewall, EditFirewall: firewall})
+		query := r.URL.Query()
+		on := func(name string) bool { return query.Get(name) == "1" }
+		firewall := on("firewall")
+		fake.AddToken(GoodToken, cffake.Token{Status: query.Get("status"), Zones: []string{"example.org"}, ReadDNS: true, EditDNS: true, EditTurnstile: on("turnstile"),
+			ReadFirewall: firewall, EditFirewall: firewall,
+			ReadWAF: on("wafread") || on("waf"), EditWAF: on("waf"),
+			ReadAccountRules: on("account"), EditAccountRules: on("account")})
 		io.WriteString(w, "ok\n")
+	})
+	control.HandleFunc("/custom", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(fake.Entrypoint("example.org"))
+	})
+	control.HandleFunc("/custom/add", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		io.WriteString(w, fake.AddCustomRule("example.org", query.Get("action"), query.Get("expression"), query.Get("description"))+"\n")
+	})
+	control.HandleFunc("/custom/delete", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(fake.RemoveCustomRule("example.org", r.URL.Query().Get("id")))
+	})
+	control.HandleFunc("/accountrules", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(fake.AccountRules())
 	})
 	control.HandleFunc("/rules", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(fake.AccessRules("example.org"))

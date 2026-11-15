@@ -15,7 +15,10 @@ import (
 const (
 	TitleProblem      = "header.notification.title.edgeBlocksProblem"
 	MessagePermission = "header.notification.message.edgeBlocksPermission"
-	MessageToken      = "header.notification.message.edgeBlocksToken"
+	// the permission of the custom rules (Zone WAF), and of the account's rules
+	MessagePermissionWAF     = "header.notification.message.edgeBlocksPermissionWAF"
+	MessagePermissionAccount = "header.notification.message.edgeBlocksPermissionAccount"
+	MessageToken             = "header.notification.message.edgeBlocksToken"
 )
 
 // replaced by the tests
@@ -34,7 +37,12 @@ var (
 // recordBlocked writes the incident of a block Cosmos asked for. Its address
 // came through Cloudflare's proxy: it is marked as reported, so that it never
 // reaches the Fail2ban file.
-func recordBlocked(key string, address string, reason string, mode string, until time.Time, zones []string) {
+func recordBlocked(key string, address string, reason string, mode string, until time.Time, targets []target) {
+	zones, via := []string{}, []string{}
+	for _, t := range targets {
+		zones = append(zones, t.Zone)
+		via = append(via, ViaWords[t.Via])
+	}
 	recordEvent(utils.SecurityEvent{
 		Kind:      utils.SecEdgeBlocked,
 		IP:        address,
@@ -45,6 +53,7 @@ func recordBlocked(key string, address string, reason string, mode string, until
 			"mode":   mode,
 			"until":  until.UTC().Format(time.RFC3339),
 			"zone":   strings.Join(zones, " "),
+			"via":    strings.Join(via, "; "),
 		},
 	})
 }
@@ -62,7 +71,7 @@ func recordLifted(r *Rule, why string) {
 	recordEvent(utils.SecurityEvent{
 		Kind:    utils.SecEdgeUnblocked,
 		Target:  r.Key,
-		Details: map[string]string{"reason": why, "zone": r.Zone},
+		Details: map[string]string{"reason": why, "zone": r.Zone, "via": ViaWords[r.how()]},
 	})
 }
 
@@ -72,16 +81,19 @@ var notified = struct {
 }{at: map[string]time.Time{}}
 
 // notifyProblem tells the administrators once a day per zone and cause.
-func notifyProblem(zone string, reason string, now time.Time) {
+func notifyProblem(zone string, reason string, via string, now time.Time) {
 	notified.Lock()
-	key := zone + "\x00" + reason
+	key := zone + "\x00" + reason + "\x00" + via
 	if now.Sub(notified.at[key]) < 24*time.Hour {
 		notified.Unlock()
 		return
 	}
 	notified.at[key] = now
 	notified.Unlock()
-	message := MessagePermission
+	message := map[string]string{ViaZone: MessagePermission, ViaWAF: MessagePermissionWAF, ViaAccount: MessagePermissionAccount}[via]
+	if message == "" {
+		message = MessagePermission
+	}
 	if reason == "invalid_token" {
 		message = MessageToken
 	}

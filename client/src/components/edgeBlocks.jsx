@@ -10,7 +10,7 @@
 import * as React from 'react';
 import dayjs from 'dayjs';
 import {
-  Alert, Box, Button, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Link, Stack, Tooltip, Typography, useMediaQuery,
+  Alert, Box, Button, Checkbox, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, Link, Stack, Tooltip, Typography, useMediaQuery,
 } from '@mui/material';
 import { LoadingButton } from '@mui/lab';
 import {
@@ -27,8 +27,8 @@ import { ConfirmModalDirect } from './confirmModal';
 import { useClientInfos } from '../utils/hooks';
 import { PERM_ADMIN_READ, PERM_CONFIGURATION, PERM_CONFIGURATION_READ } from '../utils/permissions';
 import {
-  DURATIONS, MANUAL_MODES, PERMISSION_NAME, PROOF_LEFT, TOKENS_URL, blockOf, canUnblock, failureText, jailText, looksLocal,
-  modeLabel, problemText, proofText, ruleLabel, rulesShown, stateLabel, stateText,
+  ACCOUNT_CHOICE, ACCOUNT_CONSEQUENCE, DURATIONS, MANUAL_MODES, PERMISSIONS, PERMISSION_NAME, TOKENS_URL, WAYS, blockOf, canUnblock, failureText, jailText, looksLocal,
+  modeLabel, offersAccount, problemText, proofNotes, proofText, ruleLabel, rulesShown, stateLabel, stateText,
 } from '../utils/edgeBlocks';
 
 const when = (value) => (value ? dayjs(value).format('L LT') : '');
@@ -40,6 +40,7 @@ const say = (t, text) => {
   if (values.whyKey) values.why = t(values.whyKey, values.why);
   if (values.stepKey) values.step = t(values.stepKey, values.step);
   if (values.problemKey) values.problem = t(values.problemKey, values.problem, values);
+  if (values.viaKey) values.via = t(values.viaKey, values.via);
   if (values.whatKey) values.what = t(values.whatKey, values.what);
   if (values.modeKey) values.mode = t(values.modeKey, values.mode).toLowerCase();
   ['window', 'length'].forEach((name) => {
@@ -107,14 +108,14 @@ const PermissionSteps = () => {
   const { t } = useTranslation();
   return <Stack component="ol" spacing={0.5} sx={{ pl: 2.5, m: 0 }}>
     <Typography component="li" variant="body2" sx={{ overflowWrap: 'anywhere' }}>
-      {t('mgmt.edge.steps.open', 'Open Cloudflare\'s dashboard at My Profile > API Tokens:')}{' '}
+      {t('mgmt.edge.steps.open2', 'Open Cloudflare\'s dashboard: My Profile > API Tokens for a token of your own, or Manage Account > Account API Tokens for a token of the account:')}{' '}
       <Link href={TOKENS_URL} target="_blank" rel="noopener noreferrer">{TOKENS_URL.replace('https://', '')}</Link>
     </Typography>
     <Typography component="li" variant="body2" sx={{ overflowWrap: 'anywhere' }}>
       {t('mgmt.edge.steps.edit', 'Edit the token Cosmos uses for the domain (the one with "Zone > DNS > Edit").')}
     </Typography>
     <Typography component="li" variant="body2" sx={{ overflowWrap: 'anywhere' }}>
-      {t('mgmt.edge.steps.add', 'Add the permission "{{permission}}", keep "Zone Resources" on this domain only, and save. The token itself stays the same.', { permission: PERMISSION_NAME })}
+      {t('mgmt.edge.steps.add2', 'Add the permission "{{permission}}", keep "Zone Resources" on this domain only, and save. The token itself stays the same. ("{{zoneRules}}" works too, for tokens of your own: Cosmos then uses IP Access Rules.)', { permission: PERMISSION_NAME, zoneRules: PERMISSIONS.zone_rules })}
     </Typography>
     <Typography component="li" variant="body2" sx={{ overflowWrap: 'anywhere' }}>
       {t('mgmt.edge.steps.test', 'Come back here and press "Test and switch on".')}
@@ -163,6 +164,7 @@ const RulesList = ({ status, busy, onAction }) => {
           search: (rule) => t(...ruleLabel(rule)),
           field: (rule) => <Stack spacing={0.5} alignItems="flex-start">
             <span style={{ overflowWrap: 'anywhere' }}>{t(...ruleLabel(rule))}{rule.actor ? ' (' + rule.actor + ')' : ''}</span>
+            {WAYS[rule.via] && <Typography variant="caption" color="textSecondary" sx={{ overflowWrap: 'anywhere' }}>{t(...WAYS[rule.via])}</Typography>}
             <Chip size="small" variant="outlined" color={rule.mode === 'block' ? 'error' : 'warning'} label={t(...modeLabel(rule))} />
           </Stack>,
         },
@@ -203,6 +205,7 @@ export const EdgeBlocksCard = () => {
   const [proofs, setProofs] = React.useState(null);
   const [rulesOpen, setRulesOpen] = React.useState(false);
   const [stepsOpen, setStepsOpen] = React.useState(false);
+  const [allowAccount, setAllowAccount] = React.useState(false);
 
   if (!status) return null;
 
@@ -224,7 +227,7 @@ export const EdgeBlocksCard = () => {
 
   const state = stateText(status);
   const zones = status.zones || [];
-  const needsPermission = zones.some((zone) => !zone.proven) || (proofs || []).some((p) => !p.ok && p.reason === 'permission');
+  const needsPermission = zones.some((zone) => !zone.proven);
 
   return <MainCard title={t('mgmt.edge.title', 'Block abusers at Cloudflare')}>
     <Stack spacing={2} data-edge-card>
@@ -241,7 +244,7 @@ export const EdgeBlocksCard = () => {
         {zones.map((zone) => <Stack key={zone.name} spacing={0.5} data-edge-zone={zone.name}>
           <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
             {zone.proven
-              ? t('mgmt.edge.zone.proven', '{{zone}} (addresses through Cloudflare: {{count}}): the token passed the test on {{at}}.', { zone: zone.name, count: zone.shielded, at: when(zone.provenAt) })
+              ? t('mgmt.edge.zone.provenVia', '{{zone}} (addresses through Cloudflare: {{count}}): the token passed the test on {{at}}; blocks are made as {{via}}.', { zone: zone.name, count: zone.shielded, at: when(zone.provenAt), via: t(...(WAYS[zone.via] || WAYS.zone_rules)) })
               : (zone.tokenChanged
                 ? t('mgmt.edge.zone.changed', '{{zone}}: the token changed since its test; test it again.', { zone: zone.name })
                 : t('mgmt.edge.zone.untested', '{{zone}} (addresses through Cloudflare: {{count}}): not tested yet.', { zone: zone.name, count: zone.shielded }))}
@@ -254,8 +257,8 @@ export const EdgeBlocksCard = () => {
         {t('mgmt.edge.pulls', 'The visitor\'s address comes from a header Cloudflare sets. Someone with an account at Cloudflare could, with paid features, send requests for your names with an address of their choosing and get that address challenged at your domain (never elsewhere). Enforcing "Proof that a request came through Cloudflare" with a certificate of your own (in the Cloudflare card) closes that. Until then, administrators\' addresses are never blocked and first offences are challenges a person passes.')}
       </Alert>}
 
-      {proofs && proofs.map((result) => <Alert key={result.zone} severity={result.ok ? 'success' : 'error'} sx={wrap} data-edge-proof={result.ok ? 'ok' : result.reason}>
-        {say(t, proofText(result))}{result.leftTestRule ? ' ' + t(PROOF_LEFT[0], PROOF_LEFT[1]) : ''}
+      {(proofs || zones.map((zone) => zone.lastTest).filter((test) => test && !test.ok)).map((result) => <Alert key={result.zone} severity={result.ok ? 'success' : 'error'} sx={wrap} data-edge-proof={result.outcome}>
+        {say(t, proofText(result))}{proofNotes(result).map((note) => ' ' + t(note[0], note[1])).join('')}
       </Alert>)}
       {notice && <Alert severity={notice.severity} sx={wrap} data-edge-notice={notice.severity}>{notice.text}</Alert>}
       {status.dropped > 0 && <Alert severity="warning" sx={wrap} data-edge-dropped>
@@ -287,13 +290,20 @@ export const EdgeBlocksCard = () => {
         <Stack spacing={1.5}>
           {needsPermission && zones.length > 0 && !status.enabled && <>
             <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }} data-edge-permission>
-              {t('mgmt.edge.permission', 'The token Cosmos keeps for a domain may edit its DNS records only. Blocking at Cloudflare needs one more permission: "{{permission}}".', { permission: PERMISSION_NAME })}
+              {t('mgmt.edge.permission2', 'The token Cosmos keeps for a domain may usually edit its DNS records only. Blocking at Cloudflare needs one more permission: "{{permission}}" lets Cosmos use custom rules of the domain, with every kind of token.', { permission: PERMISSION_NAME })}
             </Typography>
             <Door id="edge-steps" open={stepsOpen} onClick={() => setStepsOpen(!stepsOpen)}>{t('mgmt.edge.steps.door', 'How to add it')}</Door>
             <Collapse id="edge-steps" in={stepsOpen} unmountOnExit><PermissionSteps /></Collapse>
           </>}
+          {!status.enabled && offersAccount(status, proofs) && <Stack spacing={0.5} data-edge-account-choice>
+            <FormControlLabel
+              control={<Checkbox checked={allowAccount} onChange={(event) => setAllowAccount(event.target.checked)} />}
+              label={t(...ACCOUNT_CHOICE)}
+            />
+            <Typography variant="caption" color="textSecondary" sx={{ overflowWrap: 'anywhere' }}>{t(...ACCOUNT_CONSEQUENCE)}</Typography>
+          </Stack>}
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-            {!status.enabled && zones.length > 0 && <LoadingButton variant="contained" size="small" loading={busy === 'enable'} disabled={!!busy} onClick={() => act({ action: 'enable' })} data-edge-action="enable">
+            {!status.enabled && zones.length > 0 && <LoadingButton variant="contained" size="small" loading={busy === 'enable'} disabled={!!busy} onClick={() => act({ action: 'enable', allowAccount })} data-edge-action="enable">
               {t('mgmt.edge.enable', 'Test and switch on')}
             </LoadingButton>}
             {status.enabled && <LoadingButton variant="outlined" size="small" loading={busy === 'disable'} disabled={!!busy} onClick={() => act({ action: 'disable' })} data-edge-action="disable">
@@ -304,7 +314,7 @@ export const EdgeBlocksCard = () => {
             </LoadingButton>}
           </Stack>
           {!status.enabled && zones.length > 0 && <Typography variant="caption" color="textSecondary" sx={{ overflowWrap: 'anywhere' }}>
-            {t('mgmt.edge.enable.help', 'The test makes a challenge rule for the documentation address 192.0.2.1 at Cloudflare and deletes it at once.')}
+            {t('mgmt.edge.enable.help2', 'The test asks Cloudflare what the token may do, then makes one rule for the documentation address 192.0.2.1 (a switched-off one, for custom rules) and deletes it at once.')}
           </Typography>}
         </Stack>
       </PermissionGuard>
@@ -357,7 +367,7 @@ export const EdgeBlockButton = ({ address, narrow, onDone }) => {
     {open && <Dialog open onClose={() => setOpen(false)} fullWidth maxWidth="sm">
       <DialogTitle>{t('mgmt.edge.block.title', 'Block {{address}} at Cloudflare', { address })}</DialogTitle>
       <DialogContent dividers>
-        <Stack spacing={2}>
+        <Stack spacing={2} sx={{ '& .MuiChip-root': { minHeight: { xs: 44, sm: 32 } } }}>{/* chips are tapped on a phone: 44 px there */}
           <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
             {t('mgmt.edge.block.what', 'Cloudflare stops this address before it reaches the server, for every address of your domains served through Cloudflare. Direct connections are not concerned (Fail2ban\'s). An IPv6 address is blocked with its /64.')}
           </Typography>
