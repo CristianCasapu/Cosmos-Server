@@ -114,10 +114,10 @@ const ForkCarousel = ({ children, animation = 'slide', autoPlay = true, interval
               onClick={() => setIndex(i)}
               sx={{
                 width: 15, height: 15, p: 0, border: 0, borderRadius: '50%', cursor: 'pointer',
-                bgcolor: i === current ? 'text.primary' : 'text.disabled',
-                opacity: i === current ? 0.8 : 0.5,
-                transition: 'opacity 200ms, background-color 200ms',
-                '&:hover': { opacity: 0.9 },
+                // the same greys as the old carousel: seen on the Market's dark picture and on a plain page
+                bgcolor: i === current ? 'grey.800' : 'grey.500',
+                transition: 'background-color 200ms',
+                '&:hover': { bgcolor: i === current ? 'grey.800' : 'grey.700' },
                 '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
               }}
             />
