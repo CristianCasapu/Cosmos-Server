@@ -153,6 +153,14 @@ security record.
 
 ## Look of the panel: left for later (2026-11-14)
 
+- Users: whether two-factor is on is shown nowhere (the server does not send
+  it; a yes/no field in `/api/users` would do). The seats meter stays
+  visible without a licence (the five-user limit is enforced by the free
+  version); a sentence when the limit is reached would help.
+- Storage: the tree's expand icon is under 44 px (tapping the card does the
+  same); on a desktop the SnapRAID report is cut inside its box; the
+  fixtures follow the server's code, not a real controller's answers.
+
 - Phone targets still under 44 px, on purpose: the chips on the app cards
   (24 to 32 px with 8 px between them; 44 px would double the card), table
   row icon buttons (30 px), date-picker icons, the security audit's filter
