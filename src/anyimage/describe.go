@@ -11,9 +11,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -79,8 +79,8 @@ type Description struct {
 	Recipe   *Recipe   `json:"recipe,omitempty"`
 	// Problem: "" or a code (busy: Cosmos' own bound; invalid, internal, notFound, unauthorized, rateLimited, unreachable, tooLarge, notImage, redirect)
 	Problem string `json:"problem,omitempty"`
-	// LoggedIn: the server has credentials for this registry (said with "unauthorized")
-	LoggedIn bool `json:"loggedIn"`
+	// HubLeft: with "hubReserve", how many pulls Docker Hub said were left
+	HubLeft int `json:"hubLeft,omitempty"`
 	// Market: the name of the Market's entry for this image, when a recipe names one
 	Market string `json:"market,omitempty"`
 	// TagTyped: the administrator named the tag; otherwise Cosmos chose it (Tags.Why)
@@ -218,138 +218,241 @@ func normalArch(arch string) string {
 	return strings.ToLower(arch)
 }
 
-type cached struct {
-	at   time.Time
-	desc Description
-}
-
+// The caches. Every key carries the registry and the repository, and the
+// manifests and configurations are stored under the digest of their own
+// body, computed here: a registry can never make one image's answer be
+// served for another (plan 40, security review F1). A description taken
+// from the cache gets its identity (registry, repository, page …) from the
+// reference asked for, never from the cache.
 var (
-	cacheMu     sync.Mutex
-	byReference = map[string]cached{} // 30 minutes (2 for a failure)
-	byDigest    = map[string]cached{} // six hours
+	descriptions = newByteCache(cacheBytes) // 30 minutes (2 for a failure)
+	blobs        = newByteCache(cacheBytes) // manifests and configurations by digest, 24 hours
+	platformsOf  = newByteCache(1 << 20)    // the platforms of a reference, for the processor check (KnownPlatforms)
 )
 
-func cacheGet(m map[string]cached, key string, keep time.Duration) (Description, bool) {
-	cacheMu.Lock()
-	defer cacheMu.Unlock()
-	entry, ok := m[key]
-	if !ok {
-		return Description{}, false
-	}
-	if entry.desc.Problem != "" {
-		keep = 2 * time.Minute
-	}
-	if time.Since(entry.at) > keep {
-		delete(m, key)
-		return Description{}, false
-	}
-	return entry.desc, true
+func blobKey(ref Reference, digest string) string {
+	return ref.Registry + "|" + ref.Repository + "|" + digest
 }
 
-func cachePut(m map[string]cached, key string, desc Description) {
-	cacheMu.Lock()
-	defer cacheMu.Unlock()
-	if len(m) > 256 {
-		for k := range m {
-			delete(m, k)
+// identity sets what a description says about which image it is, from the reference.
+func identity(desc Description, ref Reference) Description {
+	desc.Reference, desc.Registry, desc.Repository, desc.Tag = ref.String(), ref.Registry, ref.Repository, ref.Tag
+	desc.Official = ref.Registry == hubRegistry && strings.HasPrefix(ref.Repository, "library/")
+	desc.Page = ref.Page()
+	return desc
+}
+
+// reader reads one repository for one user, counting what Docker Hub counts.
+type reader struct {
+	client *registryClient
+	ref    Reference
+	user   string
+}
+
+func (r *reader) hub() bool { return r.ref.Registry == hubRegistry }
+
+// manifest answers the manifest at a tag or digest. Known digests come from
+// the cache; a counted GET of Docker Hub needs the allowance; the body must
+// hash to the digest the registry announced (HEAD) or was asked for.
+func (r *reader) manifest(ctx context.Context, tagOrDigest string) ([]byte, string, string, error) {
+	want := ""
+	if digestPattern.MatchString(tagOrDigest) {
+		want = tagOrDigest
+	} else {
+		// a HEAD is not counted as a pull: the digest first
+		res, _, err := r.client.do(ctx, http.MethodHead, "/v2/"+r.ref.Repository+"/manifests/"+tagOrDigest, manifestTypes, 0)
+		if err != nil && (err == errNotFound || err == errUnauthorized || err == ErrInternal || err == errRateLimited) {
+			return nil, "", "", err
+		}
+		if err == nil {
+			if digest := res.Header.Get("Docker-Content-Digest"); digestPattern.MatchString(digest) {
+				want = digest
+			}
 		}
 	}
-	m[key] = cached{at: time.Now(), desc: desc}
+	if want != "" {
+		if item, ok := blobs.get(blobKey(r.ref, want), 24*time.Hour); ok {
+			return item.data, want, "", nil
+		}
+	}
+	if r.hub() {
+		if err := hubBudget.take(r.user, time.Now()); err != nil {
+			return nil, "", "", err
+		}
+	}
+	res, data, err := r.client.do(ctx, http.MethodGet, "/v2/"+r.ref.Repository+"/manifests/"+tagOrDigest, manifestTypes, manifestLimit)
+	if err != nil {
+		return nil, "", "", err
+	}
+	got := digestOf(data)
+	if want != "" && got != want {
+		return nil, "", "", errNotImage // the registry's body is not what it announced
+	}
+	if header := res.Header.Get("Docker-Content-Digest"); header != "" && header != got {
+		return nil, "", "", errNotImage
+	}
+	blobs.put(blobKey(r.ref, got), cacheItem{data: data, size: len(data) + 128})
+	return data, got, strings.Split(res.Header.Get("Content-Type"), ";")[0], nil
 }
 
-// describeImage reads the manifest and the configuration of ref for the platform.
-func describeImage(ctx context.Context, ref Reference, platform Platform) Description {
-	desc := Description{
-		Reference: ref.String(), Registry: ref.Registry, Repository: ref.Repository, Tag: ref.Tag,
-		Official: ref.Registry == hubRegistry && strings.HasPrefix(ref.Repository, "library/"),
-		Page:     ref.Page(), Platforms: []string{}, Fits: "yes",
+// config answers the configuration blob, checked against its digest.
+func (r *reader) config(ctx context.Context, digest string) ([]byte, error) {
+	if item, ok := blobs.get(blobKey(r.ref, digest), 24*time.Hour); ok {
+		return item.data, nil
 	}
-	key := ref.String() + "|" + platform.OS + "/" + platform.Arch
-	if cachedDesc, ok := cacheGet(byReference, key, 30*time.Minute); ok {
-		return cachedDesc
+	_, data, err := r.client.do(ctx, http.MethodGet, "/v2/"+r.ref.Repository+"/blobs/"+digest, nil, configLimit)
+	if err != nil {
+		return nil, err
+	}
+	if digestOf(data) != digest {
+		return nil, errNotImage
+	}
+	blobs.put(blobKey(r.ref, digest), cacheItem{data: data, size: len(data) + 128})
+	return data, nil
+}
+
+type hubTag struct {
+	Digest string `json:"digest"`
+	Images []struct {
+		Architecture string  `json:"architecture"`
+		OS           string  `json:"os"`
+		Variant      *string `json:"variant"`
+		Digest       string  `json:"digest"`
+		Size         int64   `json:"size"`
+	} `json:"images"`
+}
+
+// hubTagInfo asks Docker Hub's API for a tag's platforms and manifest
+// digests (not a pull). false when the API did not answer usefully.
+func hubTagInfo(ctx context.Context, ref Reference) (hubTag, error) {
+	parts := strings.SplitN(ref.Repository, "/", 2)
+	var tag hubTag
+	if len(parts) != 2 {
+		return tag, errUnreachable
+	}
+	err := getJSON(ctx, hubAPI+"/v2/namespaces/"+url.PathEscape(parts[0])+"/repositories/"+url.PathEscape(parts[1])+"/tags/"+url.PathEscape(ref.Tag), 512<<10, &tag)
+	return tag, err
+}
+
+func platformName(os, arch, variant string) string {
+	name := os + "/" + arch
+	if variant != "" {
+		name += "/" + variant
+	}
+	return clean(name, 64)
+}
+
+// describeImage reads the declaration of ref for the platform, for a user.
+func describeImage(ctx context.Context, ref Reference, platform Platform, user string) Description {
+	key := ref.Registry + "|" + ref.Repository + "|" + ref.Tag + "|" + ref.Digest + "|" + platform.OS + "/" + platform.Arch
+	if item, ok := descriptions.get(key, 30*time.Minute); ok && item.desc != nil && (item.desc.Problem == "" || time.Since(item.at) < 2*time.Minute) {
+		return identity(*item.desc, ref)
+	}
+	desc := identity(Description{Platforms: []string{}, Fits: "yes"}, ref)
+	finish := func(d Description) Description {
+		if d.Problem == "hubReserve" {
+			d.HubLeft = hubBudget.left()
+		}
+		size := 2048 + len(d.Platforms)*64
+		if d.Declared != nil {
+			raw, _ := json.Marshal(d.Declared)
+			size += len(raw)
+		}
+		if d.Problem != "hubBudget" && d.Problem != "hubReserve" && d.Problem != "busy" {
+			copied := d
+			descriptions.put(key, cacheItem{desc: &copied, size: size})
+		}
+		if d.Problem == "" {
+			raw, _ := json.Marshal(d.Platforms)
+			platformsOf.put(ref.String(), cacheItem{data: raw, size: len(raw) + 64})
+		}
+		return d
 	}
 	fail := func(err error) Description {
 		desc.Problem = codeOf(err)
-		if desc.Problem == "unauthorized" {
-			desc.LoggedIn = loggedIn(ref.Registry)
-		}
-		cachePut(byReference, key, desc)
-		return desc
+		return finish(desc)
 	}
-	client := &registryClient{ref: ref}
-	tagOrDigest := ref.Tag
-	if ref.Digest != "" {
-		tagOrDigest = ref.Digest
-	}
-	path := "/v2/" + ref.Repository + "/manifests/" + tagOrDigest
+	r := &reader{client: &registryClient{ref: ref}, ref: ref, user: user}
 
-	// a HEAD is not counted as a pull by Docker Hub: an unchanged image is answered from the cache
-	if res, _, err := client.do(ctx, http.MethodHead, path, manifestTypes, 0); err == nil {
-		if digest := res.Header.Get("Docker-Content-Digest"); digestPattern.MatchString(digest) {
-			if known, ok := cacheGet(byDigest, digest+"|"+platform.OS+"/"+platform.Arch, 6*time.Hour); ok {
-				known.Reference, known.Tag = desc.Reference, desc.Tag
-				cachePut(byReference, key, known)
-				return known
+	platformDigest := ""
+	if r.hub() && ref.Digest == "" {
+		// Docker Hub's API lists the platforms and their manifests' digests without a pull
+		tag, err := hubTagInfo(ctx, ref)
+		if err == errNotFound {
+			return fail(errNotFound)
+		}
+		if err == nil && len(tag.Images) > 0 {
+			for i, image := range tag.Images {
+				if i >= 64 || image.OS == "" || image.OS == "unknown" || image.Architecture == "unknown" || !digestPattern.MatchString(image.Digest) {
+					continue
+				}
+				variant := ""
+				if image.Variant != nil {
+					variant = *image.Variant
+				}
+				name := platformName(image.OS, image.Architecture, variant)
+				desc.Platforms = append(desc.Platforms, name)
+				if platformDigest == "" && image.OS == platform.OS && normalArch(image.Architecture) == platform.Arch {
+					platformDigest, desc.Platform = image.Digest, name
+					if image.Size > 0 && image.Size < 1<<40 {
+						desc.Size = image.Size
+					}
+				}
 			}
-			defer func() { cachePut(byDigest, digest+"|"+platform.OS+"/"+platform.Arch, desc) }()
+			sort.Strings(desc.Platforms)
+			if platformDigest == "" && len(desc.Platforms) > 0 {
+				desc.Fits = "no"
+				return finish(desc)
+			}
 		}
-	} else if err == errNotFound || err == errUnauthorized || err == ErrInternal {
-		return fail(err)
 	}
 
-	res, data, err := client.do(ctx, http.MethodGet, path, manifestTypes, manifestLimit)
-	if err != nil {
-		return fail(err)
-	}
-	if ref.Digest != "" && digestOf(data) != ref.Digest {
-		return fail(errNotImage)
-	}
 	var doc manifestDoc
-	if json.Unmarshal(data, &doc) != nil {
-		return fail(errNotImage)
-	}
-	mediaType := doc.MediaType
-	if mediaType == "" {
-		mediaType = strings.Split(res.Header.Get("Content-Type"), ";")[0]
-	}
-	if len(doc.Manifests) > 0 {
-		chosen := ""
-		for i, m := range doc.Manifests {
-			if i >= 64 {
-				break
-			}
-			if m.Platform == nil || m.Platform.OS == "" || m.Platform.OS == "unknown" || m.Platform.Architecture == "unknown" {
-				continue // attestations
-			}
-			name := m.Platform.OS + "/" + m.Platform.Architecture
-			if m.Platform.Variant != "" {
-				name += "/" + m.Platform.Variant
-			}
-			desc.Platforms = append(desc.Platforms, clean(name, 64))
-			if chosen == "" && m.Platform.OS == platform.OS && normalArch(m.Platform.Architecture) == platform.Arch && digestPattern.MatchString(m.Digest) {
-				chosen = m.Digest
-				desc.Platform = clean(name, 64)
-			}
+	if platformDigest == "" {
+		target := ref.Tag
+		if ref.Digest != "" {
+			target = ref.Digest
 		}
-		sort.Strings(desc.Platforms)
-		if chosen == "" {
-			desc.Fits = "no"
-			cachePut(byReference, key, desc)
-			return desc
-		}
-		_, data, err = client.do(ctx, http.MethodGet, "/v2/"+ref.Repository+"/manifests/"+chosen, manifestTypes, manifestLimit)
+		data, _, mediaType, err := r.manifest(ctx, target)
 		if err != nil {
 			return fail(err)
 		}
-		if digestOf(data) != chosen {
+		if json.Unmarshal(data, &doc) != nil {
 			return fail(errNotImage)
+		}
+		if doc.MediaType != "" {
+			mediaType = doc.MediaType
+		}
+		if len(doc.Manifests) > 0 {
+			desc.Platforms = []string{}
+			for i, m := range doc.Manifests {
+				if i >= 64 || m.Platform == nil || m.Platform.OS == "" || m.Platform.OS == "unknown" || m.Platform.Architecture == "unknown" {
+					continue // attestations
+				}
+				name := platformName(m.Platform.OS, m.Platform.Architecture, m.Platform.Variant)
+				desc.Platforms = append(desc.Platforms, name)
+				if platformDigest == "" && m.Platform.OS == platform.OS && normalArch(m.Platform.Architecture) == platform.Arch && digestPattern.MatchString(m.Digest) {
+					platformDigest, desc.Platform = m.Digest, name
+				}
+			}
+			sort.Strings(desc.Platforms)
+			if platformDigest == "" {
+				desc.Fits = "no"
+				return finish(desc)
+			}
+		} else if strings.Contains(mediaType, "index") || strings.Contains(mediaType, "list") {
+			return fail(errNotImage)
+		}
+	}
+	if platformDigest != "" {
+		data, _, _, err := r.manifest(ctx, platformDigest)
+		if err != nil {
+			return fail(err)
 		}
 		doc = manifestDoc{}
 		if json.Unmarshal(data, &doc) != nil {
 			return fail(errNotImage)
 		}
-	} else if mediaType != "" && strings.Contains(mediaType, "index") {
-		return fail(errNotImage)
 	}
 	if doc.Config == nil || !configTypes[doc.Config.MediaType] || !digestPattern.MatchString(doc.Config.Digest) {
 		return fail(errNotImage)
@@ -357,39 +460,60 @@ func describeImage(ctx context.Context, ref Reference, platform Platform) Descri
 	if doc.Config.Size > configLimit {
 		return fail(errTooLarge)
 	}
-	_, data, err = client.do(ctx, http.MethodGet, "/v2/"+ref.Repository+"/blobs/"+doc.Config.Digest, nil, configLimit)
+	data, err := r.config(ctx, doc.Config.Digest)
 	if err != nil {
 		return fail(err)
-	}
-	if digestOf(data) != doc.Config.Digest {
-		return fail(errNotImage)
 	}
 	var config configDoc
 	if json.Unmarshal(data, &config) != nil {
 		return fail(errNotImage)
 	}
 	if len(desc.Platforms) == 0 && config.OS != "" {
-		name := config.OS + "/" + config.Architecture
-		desc.Platforms = []string{clean(name, 64)}
+		desc.Platforms = []string{platformName(config.OS, config.Architecture, "")}
 		desc.Platform = desc.Platforms[0]
 		if config.OS != platform.OS || normalArch(config.Architecture) != platform.Arch {
 			desc.Fits = "no"
 		}
 	}
 	desc.Declared = declaredFrom(config)
-	for i, layer := range doc.Layers {
-		if i < 512 && layer.Size > 0 && layer.Size < 1<<40 {
-			desc.Size += layer.Size
+	if desc.Size == 0 {
+		for i, layer := range doc.Layers {
+			if i < 512 && layer.Size > 0 && layer.Size < 1<<40 {
+				desc.Size += layer.Size
+			}
 		}
 	}
-	cachePut(byReference, key, desc)
-	return desc
+	return finish(desc)
+}
+
+// KnownPlatforms answers the platforms of an image Cosmos described in the
+// last half hour, so that the processor check of the review and of the
+// creation (docker/fork_image_arch.go) does not read the registry again
+// (each read of a Docker Hub manifest counts as a pull).
+func KnownPlatforms(image string) ([]string, bool) {
+	ref, err := Parse(strings.TrimSpace(image), nil)
+	if err != nil {
+		return nil, false
+	}
+	item, ok := platformsOf.get(ref.String(), 30*time.Minute)
+	if !ok {
+		return nil, false
+	}
+	var list []string
+	if json.Unmarshal(item.data, &list) != nil || len(list) == 0 {
+		return nil, false
+	}
+	return list, true
 }
 
 func codeOf(err error) string {
-	switch err {
+	switch e := err.(type) {
 	case nil:
 		return ""
+	case errHubLimit:
+		return e.code
+	}
+	switch err {
 	case ErrInvalid:
 		return "invalid"
 	case ErrInternal:

@@ -144,6 +144,13 @@ func registryAuthFor(image string) string {
 // an image is made for. An answer is remembered for ten minutes, a failure
 // for one. Replaced by the tests.
 var askImagePlatforms = func(image string) ([]string, error) {
+	// an image "Install any image" read in the last half hour: no second read of
+	// the registry (on Docker Hub every manifest read counts as a pull)
+	if KnownPlatforms != nil {
+		if platforms, ok := KnownPlatforms(image); ok {
+			return platforms, nil
+		}
+	}
 	platformCacheMu.Lock()
 	if cached, ok := platformCache[image]; ok {
 		keep := 10 * time.Minute
@@ -244,6 +251,10 @@ func platformRefusal(request DockerServiceCreateRequest) string {
 	return strings.Join(problems, "; ") + "; this server runs " + server.OS + "/" + server.Arch +
 		". Nothing was pulled or created. To try anyway (under emulation, if the server has it), confirm \"install anyway\" on the review."
 }
+
+// KnownPlatforms, when set (anyimage.KnownPlatforms), answers the platforms
+// of an image read recently, so that they are not asked for again.
+var KnownPlatforms func(image string) ([]string, bool)
 
 // ForkDockerRoot is Docker's data root, where named volumes are kept ("" when
 // Docker does not answer).

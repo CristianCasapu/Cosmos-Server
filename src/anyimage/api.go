@@ -57,6 +57,12 @@ func SearchRoute(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "Invalid search", http.StatusBadRequest, "IS002")
 		return
 	}
+	user := principal(req)
+	if !searchUsers.start(user, time.Now()) {
+		answer(w, map[string]interface{}{"results": []Result{}, "problem": "busy"})
+		return
+	}
+	defer searchUsers.done(user)
 	ctx, cancel := context.WithTimeout(req.Context(), 12*time.Second)
 	defer cancel()
 	results, err := search(ctx, query)
@@ -65,6 +71,15 @@ func SearchRoute(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	answer(w, map[string]interface{}{"results": results})
+}
+
+// principal names who asks, for the per-user bounds: the user, or the API token.
+func principal(req *http.Request) string {
+	ctx := utils.GetAuthContext(req)
+	if ctx.APIToken != nil {
+		return "token:" + ctx.APIToken.Name
+	}
+	return "user:" + ctx.Nickname
 }
 
 // serverPlatform is the platform the daemon runs (linux/amd64 when it does not answer).
@@ -113,7 +128,7 @@ func tagsFor(ctx context.Context, ref Reference, recipe *Recipe) TagList {
 // Describe is what the describe route answers for a reference. A name
 // without a tag is described at the tag Cosmos proposes (the newest major
 // of a database rather than "latest"), so that the image is read once.
-func Describe(ctx context.Context, text string) Description {
+func Describe(ctx context.Context, text string, user string) Description {
 	text = strings.TrimSpace(text)
 	ref, err := Parse(text, loggedIn)
 	if err != nil {
@@ -128,7 +143,7 @@ func Describe(ctx context.Context, text string) Description {
 			ref.Tag = tags.Suggested
 		}
 	}
-	desc := describeImage(ctx, ref, serverPlatform())
+	desc := describeImage(ctx, ref, serverPlatform(), user)
 	desc.Recipe = recipe
 	desc.Market = marketFor(ref)
 	desc.TagTyped = typedTag(text)
@@ -158,6 +173,12 @@ func DescribeRoute(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "Invalid image name", http.StatusBadRequest, "IS003")
 		return
 	}
+	user := principal(req)
+	if !describeUsers.start(user, time.Now()) {
+		answer(w, Description{Reference: clean(body.Reference, 255), Problem: "busy", Platforms: []string{}, Tags: TagList{List: []string{}}})
+		return
+	}
+	defer describeUsers.done(user)
 	if !describeWindow.start(time.Now()) {
 		// Cosmos' own bound, not the registry's
 		answer(w, Description{Reference: clean(body.Reference, 255), Problem: "busy", Platforms: []string{}, Tags: TagList{List: []string{}}})
@@ -166,5 +187,5 @@ func DescribeRoute(w http.ResponseWriter, req *http.Request) {
 	defer describeWindow.done()
 	ctx, cancel := context.WithTimeout(req.Context(), 20*time.Second)
 	defer cancel()
-	answer(w, Describe(ctx, body.Reference))
+	answer(w, Describe(ctx, body.Reference, user))
 }

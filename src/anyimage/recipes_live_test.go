@@ -58,7 +58,7 @@ func TestRecipesLive(t *testing.T) {
 				t.Run(recipe.ID+"/"+reference, func(t *testing.T) {
 					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 					defer cancel()
-					desc := Describe(ctx, reference)
+					desc := Describe(ctx, reference, "user:live")
 					if desc.Problem != "" || desc.Declared == nil {
 						t.Fatalf("describe %s: %q", reference, desc.Problem)
 					}

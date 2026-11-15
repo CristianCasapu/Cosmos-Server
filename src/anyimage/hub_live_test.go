@@ -29,7 +29,7 @@ func TestHubLive(t *testing.T) {
 		}
 	}
 	serverPlatform = func() Platform { return Platform{OS: "linux", Arch: "amd64"} }
-	desc := Describe(ctx, "postgres")
+	desc := Describe(ctx, "postgres", "user:live")
 	t.Logf("postgres: tag %s (%s), %d tags, platforms %v, volumes %v, size %d", desc.Tag, desc.Tags.Why, len(desc.Tags.List), desc.Platforms, desc.Declared.Volumes, desc.Size)
 	if desc.Problem != "" || desc.Tags.Why != "pinMajor" || desc.Declared == nil || len(desc.Platforms) < 3 {
 		t.Fatalf("%+v", desc)
@@ -37,7 +37,7 @@ func TestHubLive(t *testing.T) {
 	if !strings.HasPrefix(desc.Declared.Volumes[0], "/var/lib/postgresql") {
 		t.Fatal(desc.Declared.Volumes)
 	}
-	desc = Describe(ctx, "ghcr.io/home-assistant/home-assistant:stable")
+	desc = Describe(ctx, "ghcr.io/home-assistant/home-assistant:stable", "user:live")
 	t.Logf("ghcr: %q market %q platforms %v", desc.Problem, desc.Market, desc.Platforms)
 	if desc.Problem != "" || desc.Market != "Home Assistant" || desc.Declared == nil {
 		t.Fatalf("GHCR anonymous token: %+v", desc.Problem)

@@ -27,6 +27,9 @@ type Reference struct {
 
 const hubRegistry = "docker.io"
 
+// hubRegistryHost is where Docker Hub's distribution API is (a test points it at its stand-in).
+var hubRegistryHost = "registry-1.docker.io"
+
 // The grammar of github.com/distribution/reference (the OCI distribution
 // specification's names), lower-case only.
 var (
@@ -203,7 +206,7 @@ func Parse(text string, loggedIn func(host string) bool) (Reference, error) {
 // registryHost is the host the distribution API is asked on.
 func (r Reference) registryHost() string {
 	if r.Registry == hubRegistry {
-		return "registry-1.docker.io"
+		return hubRegistryHost
 	}
 	return r.Registry
 }

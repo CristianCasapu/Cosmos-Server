@@ -22,6 +22,8 @@ var (
 	alwaysRefused = prefixes(
 		"0.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16", "192.0.0.0/24", "224.0.0.0/4", "240.0.0.0/4",
 		"::/128", "::1/128", "fe80::/10", "ff00::/8", "2001::/32", "2002::/16", "64:ff9b:1::/48",
+		"::/96",     // IPv4-compatible ::a.b.c.d (deprecated, carries an IPv4 address)
+		"fec0::/10", // site-local (deprecated, means the local network)
 	)
 	// the local network: refused unless the server is logged in to that registry
 	insideRanges = prefixes(
@@ -51,9 +53,13 @@ func plain(addr netip.Addr) netip.Addr {
 	return addr
 }
 
-// refusedAddr tells whether the server must not connect to addr. insideAllowed
-// is true only for a registry the server is logged in to.
-func refusedAddr(addr netip.Addr, insideAllowed bool, own []netip.Addr) bool {
+// refusedAddr tells whether the server must not connect to addr. own are
+// the server's interfaces with their prefixes: its own addresses are always
+// refused, and so is every address on a network it is directly on (a
+// neighbour on the same IPv6 /64 or on a public IPv4 subnet is inside the
+// house as much as 192.168.x is). insideAllowed is true only for a registry
+// the server is logged in to.
+func refusedAddr(addr netip.Addr, insideAllowed bool, own []netip.Prefix) bool {
 	if !addr.IsValid() {
 		return true
 	}
@@ -66,8 +72,11 @@ func refusedAddr(addr netip.Addr, insideAllowed bool, own []netip.Addr) bool {
 			return true
 		}
 	}
+	if testAllowed(addr) {
+		return false
+	}
 	for _, mine := range own {
-		if plain(mine) == addr {
+		if plain(mine.Addr()) == addr {
 			return true
 		}
 	}
@@ -79,21 +88,55 @@ func refusedAddr(addr netip.Addr, insideAllowed bool, own []netip.Addr) bool {
 			return true
 		}
 	}
+	for _, mine := range own {
+		network := mine.Masked()
+		if network.Bits() > 0 && plainPrefix(network).Contains(addr) {
+			return true
+		}
+	}
 	return false
 }
 
-func ownAddrs() []netip.Addr {
+func plainPrefix(p netip.Prefix) netip.Prefix {
+	if p.Addr().Is4In6() {
+		bits := p.Bits() - 96
+		if bits < 0 {
+			bits = 0
+		}
+		return netip.PrefixFrom(p.Addr().Unmap(), bits).Masked()
+	}
+	return p
+}
+
+// ownAddrs are the server's interface addresses with their prefixes.
+func ownAddrs() []netip.Prefix {
 	list, err := net.InterfaceAddrs()
 	if err != nil {
 		return nil
 	}
-	out := []netip.Addr{}
+	out := []netip.Prefix{}
 	for _, a := range list {
 		if prefix, err := netip.ParsePrefix(a.String()); err == nil {
-			out = append(out, prefix.Addr())
+			out = append(out, prefix)
 		}
 	}
 	return out
+}
+
+// testAllowedPrefixes are networks a test may reach although the rules above
+// refuse them (its stand-in registries). Empty in every build Cosmos ships:
+// only a _test.go file or the anyimage_testnet build tag (guard_testnet.go,
+// used by the browser check's own build) can fill it; no setting, variable
+// or request of a production build reaches it.
+var testAllowedPrefixes []netip.Prefix
+
+func testAllowed(addr netip.Addr) bool {
+	for _, p := range testAllowedPrefixes {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+	return false
 }
 
 // Replaced by the tests.

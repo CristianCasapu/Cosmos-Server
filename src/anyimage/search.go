@@ -65,7 +65,7 @@ func (w *window) done() {
 
 var (
 	searchWindow   = &window{perMin: 20, atOnce: 2}
-	describeWindow = &window{perMin: 30, atOnce: 3}
+	describeWindow = &window{perMin: describePerMinute, atOnce: 3}
 
 	searchMu    sync.Mutex
 	searchCache = map[string]struct {
