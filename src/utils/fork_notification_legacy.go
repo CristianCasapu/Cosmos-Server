@@ -18,7 +18,7 @@ var legacyNotificationTexts = map[string]string{
 	"header.notification.message.snapshotsFailed":      "The incremental backup did not go cleanly: {{Vars}}. See the list of snapshots under Configuration > General > Incremental backup.",
 	"header.notification.message.telegramFailed":       "{{Vars}} The messages that were not sent are counted and summed up once Telegram accepts messages again. See Configuration > General > Telegram notifications.",
 	"header.notification.message.updateRejected":       "A server update was refused and NOT installed: {{Vars}}. The server keeps running its current version. If this repeats, a correctly signed release has to be published; do not install the refused one by hand.",
-	"header.notification.message.upnpFailed":           "Cosmos could not open its port on the router over UPnP and will not try again by itself: {{Vars}}. Check the router, then press \"Check now\" under Configuration > HTTP > Internet access.",
+	"header.notification.message.upnpFailed":           "Cosmos could not open its port on the router over UPnP: {{Vars}}. It tries again by itself; \"Check now\" under Configuration > HTTP > Internet access asks at once.",
 	"header.notification.title.alertTriggered":         "Alert triggered",
 	"header.notification.title.certificateExpiring":    "A certificate is not being renewed",
 	"header.notification.title.certificateRenewed":     "Cosmos Certificate Renewed",

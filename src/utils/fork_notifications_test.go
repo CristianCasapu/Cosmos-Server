@@ -426,7 +426,7 @@ func TestNotificationTextsAreInThePanel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var panel map[string]string
+	var panel map[string]interface{}
 	if err := json.Unmarshal(raw, &panel); err != nil {
 		t.Fatal(err)
 	}

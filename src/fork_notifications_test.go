@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -190,5 +193,32 @@ func TestNotificationRoutesAreRegistered(t *testing.T) {
 	source, _ := os.ReadFile("httpServer.go")
 	if !strings.Contains(string(source), "registerNotificationRoutes(srapiAdmin)") {
 		t.Error("the notification routes are not registered")
+	}
+}
+
+// TestEveryNotificationTextUsedHasEnglish: a key written anywhere in the
+// server's code has English (and so, by the utils test, is in the panel).
+func TestEveryNotificationTextUsedHasEnglish(t *testing.T) {
+	keyPattern := regexp.MustCompile(`"(notif\.[A-Za-z0-9_.]+)"`)
+	count := 0
+	filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		source, _ := os.ReadFile(path)
+		for _, m := range keyPattern.FindAllStringSubmatch(string(source), -1) {
+			key := m[1]
+			if strings.HasSuffix(key, ".") {
+				continue // a prefix that is completed in code
+			}
+			count++
+			if utils.NotificationEnglish(key) == "" {
+				t.Errorf("%s: %s has no English", path, key)
+			}
+		}
+		return nil
+	})
+	if count < 100 {
+		t.Errorf("only %d keys found: the scan is broken", count)
 	}
 }
