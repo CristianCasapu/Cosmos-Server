@@ -79,7 +79,11 @@ var notifyRejectedUpdate = func(summary string) {
 // update was not installed.
 func reportRejectedUpdate(version string, reason string, by string) {
 	version, reason = forkrelease.SafeText(version), forkrelease.SafeText(reason)
-	utils.Error("Update: release "+version+" was NOT installed ("+by+"): "+reason, nil)
+	what := "release " + version
+	if version == "" {
+		what = "the update" // the launcher's note names no version
+	}
+	utils.Error("Update: "+what+" was NOT installed ("+by+"): "+reason, nil)
 	if forkrelease.SecurityRefusal(reason) { // a full disk is not a security incident
 		utils.RecordSecurityEvent(utils.SecurityEvent{
 			Kind:    utils.SecServerUpdateRejected,
