@@ -1,0 +1,61 @@
+# Fork addition: what the automatic dependency update (scripts/fork-deps-update.mjs)
+# must never change, or not beyond a ceiling. One per line:
+#
+#   <eco> <name> <ceiling> <reason>
+#
+# eco: go, npm, action, image, toolchain, node, bundled, path. Ceiling: "-" never
+# touched; "1" stays in major 1; "1.5" stays at or below 1.5.x. A line
+#   group <eco> <name> <name>...
+# names packages whose majors are only tried together. Keep a reason on every
+# line; remove a hold when its reason no longer holds. Changing this file is a
+# decision of the owner (or of a session the owner asked), never of the machine:
+# the update's own checks refuse a change to it.
+
+# Go modules
+go github.com/kardianos/service - its 1.3 template engine rejects upstream's systemd unit template (src/index.go); the service install would fail
+go github.com/holoplot/go-avahi - replaced in go.mod by upstream's own fork: the replace line decides what is built
+go github.com/rclone/rclone - replaced in go.mod by upstream's own fork; remote storage is paid code
+go github.com/nats-io/nats-server/v2 - only paid code (src/constellation) uses it
+go github.com/nats-io/nats.go - only paid code (src/constellation, src/pro) uses it
+go github.com/natefinch/lumberjack - only paid code (src/constellation) uses it
+go github.com/golang-jwt/jwt - only upstream's licence code (src/utils/cloud.go) uses it; never changed by the fork
+go github.com/docker/docker 26 moved to github.com/moby/moby: the client migration is done by hand
+go github.com/docker/cli 26 goes with the Docker client migration, done by hand
+go github.com/docker/go-connections 0.5 goes with the Docker client migration, done by hand
+go github.com/jasonlvhit/gocron - unmaintained, upstream code; replacing it is a rewrite
+
+# npm
+npm @jamesives/github-sponsors-readme-action - 1.6 ships lint tooling with advisories as runtime dependencies; upstream's sponsors script, nothing runs it
+npm eslint-config-airbnb-typescript - 17.1 pulls typescript-eslint 6.21 with an exact vulnerable minimatch; lint tooling nothing runs
+npm eslint-import-resolver-typescript - 3.10's optional peers do not resolve; lint tooling nothing runs
+npm react-apexcharts 1.5 1.6 and later need apexcharts 4 or newer (moved together by hand)
+group npm react react-dom
+group npm @emotion/react @emotion/styled @emotion/cache
+group npm @mui/material @mui/lab
+group npm vite @vitejs/plugin-react rollup-plugin-visualizer
+group npm react-router react-router-dom
+group npm @reduxjs/toolkit react-redux redux
+group npm i18next react-i18next
+
+# Images named in scripts: only golang, node and Playwright have a publish date the
+# machine can check (the Go toolchain, Node's releases, the npm package)
+image docker - dind for test daemons: no reliable publish date; by hand
+image registry - inside test daemons: no reliable publish date; by hand
+image ghcr.io/letsencrypt/pebble - test certificate authority: by hand
+image alpine - test helper: by hand
+image busybox - fixture image inside throwaway daemons (live tests and test data)
+image debian - the mail stand-in's base and upstream's Dockerfiles, which the fork does not build
+
+# Bundled with the release, from upstream's release zip (not managed here at all)
+bundled nebula - used only by paid code; 1.10+ breaks it (plan 37); upstream's binary is shipped
+bundled restic - used only by paid code; upstream's binary is shipped
+bundled GeoLite2-Country.mmdb - needs a MaxMind account; upstream's file is shipped
+
+# Paths the machine never changes (it changes no source file at all; the validator refuses these too)
+path src/pro - paid code
+path src/constellation - paid code
+path src/backups - paid code
+path src/storage/rclone.go - paid code
+path src/utils/cloud.go - licence code
+path scripts/fork-deps-holds.txt - the owner's decisions
+path .github/workflows - the workflow token may not push them, and a called workflow is read from the caller
