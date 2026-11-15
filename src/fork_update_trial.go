@@ -10,12 +10,18 @@ package main
 // not answer within the watchdog's window. Here the new server proves
 // itself with local checks only (nothing outside the machine, no Docker):
 // the configuration is loaded, the SQLite databases on this machine answer
-// a query, its HTTP port answers on 127.0.0.1 (any status below 500), and
-// all of it still holds a minute later. Then the trial ends and only then is
-// the launcher that came with the update put in place, so during a trial
-// the launcher that runs is the old, proven one. A stop that was asked for
-// (SIGTERM, SIGINT, a planned restart) is noted as clean, so it does not
-// count against the new version.
+// a query, its listener on 127.0.0.1 (HTTPS with a real handshake when the
+// server serves HTTPS) answers /cosmos/api/status as a healthy server does
+// and serves the panel's page, and all of it still holds a minute later.
+// Then the trial ends and only then is the launcher that came with the
+// update put in place, so during a trial the launcher that runs is the old,
+// proven one.
+//
+// A stop that was asked for is noted as clean from the very start of the
+// process (armUpdateTrialStop, the first line of main), before the slow exit
+// hooks run, so it does not count against the new version. An exit because
+// Docker could not be reached is noted too: the launcher does not count it
+// when it cannot reach Docker either.
 //
 // After going back, the old server tells the administrators (notification
 // update.rolledback, which Telegram receives like every notification), and
@@ -23,12 +29,16 @@ package main
 // program files go back: data a newer version migrated stays as it is.
 
 import (
+	"context"
+	"crypto/tls"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/azukaar/cosmos-server/src/forkrelease"
@@ -66,10 +76,8 @@ func (c trialChecks) run() error {
 func serverTrialChecks() trialChecks {
 	return trialChecks{
 		config: func() error {
-			if _, err := trialHTTPPort(utils.GetMainConfig().HTTPConfig.HTTPPort); err != nil {
-				return errors.New("the configuration holds no usable HTTP port")
-			}
-			return nil
+			_, err := listenerOf(utils.GetMainConfig().HTTPConfig)
+			return err
 		},
 		database: func() error {
 			return localDatabasesAnswer(trialDatabases{
@@ -90,8 +98,12 @@ func serverTrialChecks() trialChecks {
 			})
 		},
 		http: func() error {
-			// GetMainConfig has COSMOS_HTTP_PORT applied, like the listener
-			return checkHTTPAnswers(utils.GetMainConfig().HTTPConfig.HTTPPort)
+			// GetMainConfig has COSMOS_HTTP_PORT / COSMOS_HTTPS_PORT applied, like the listener
+			target, err := listenerOf(utils.GetMainConfig().HTTPConfig)
+			if err != nil {
+				return err
+			}
+			return checkServerAnswers(target)
 		},
 	}
 }
@@ -120,7 +132,14 @@ func localDatabasesAnswer(d trialDatabases) error {
 	return nil
 }
 
-func trialHTTPPort(value string) (int, error) {
+// listener is where this server is asked on 127.0.0.1.
+type listener struct {
+	https bool
+	port  int
+	host  string // the configured hostname: Host header and TLS server name
+}
+
+func trialPort(value string) (int, error) {
 	port, err := strconv.Atoi(value)
 	if err != nil || port < 1 || port > 65535 {
 		return 0, errors.New("not a port")
@@ -128,28 +147,84 @@ func trialHTTPPort(value string) (int, error) {
 	return port, nil
 }
 
-// checkHTTPAnswers: the server answers on its HTTP port on 127.0.0.1 with a
-// status below 500. No proxy, no redirect followed.
-func checkHTTPAnswers(portValue string) error {
-	port, err := trialHTTPPort(portValue)
+// listenerOf decides, as StartServer does, whether the server serves HTTPS.
+func listenerOf(config utils.HTTPConfig) (listener, error) {
+	mode := config.HTTPSCertificateMode
+	cert, key := config.TLSCert, config.TLSKey
+	if mode == utils.HTTPSCertModeList["SELFSIGNED"] {
+		cert, key = config.SelfTLSCert, config.SelfTLSKey
+	}
+	https := (mode == utils.HTTPSCertModeList["SELFSIGNED"] || mode == utils.HTTPSCertModeList["PROVIDED"] || mode == utils.HTTPSCertModeList["LETSENCRYPT"]) &&
+		cert != "" && key != ""
+	value := config.HTTPPort
+	if https {
+		value = config.HTTPSPort
+	}
+	port, err := trialPort(value)
 	if err != nil {
-		return errors.New("the configuration holds no usable HTTP port")
+		return listener{}, errors.New("the configuration holds no usable port to listen on")
 	}
-	client := &http.Client{
-		Timeout:       trialHTTPTimeout,
-		Transport:     &http.Transport{Proxy: nil, DisableKeepAlives: true},
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	host := config.Hostname
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
 	}
-	response, err := client.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/cosmos/api/status")
+	if host == "" {
+		host = "localhost"
+	}
+	return listener{https: https, port: port, host: host}, nil
+}
+
+// checkServerAnswers asks the server as a browser would, on 127.0.0.1:
+// /cosmos/api/status must answer as a healthy server does (2xx, 401 or
+// 403), and /cosmos-ui/ must serve the panel's page. In HTTPS mode with a
+// real handshake (the certificate is not checked: this is the machine
+// itself; the server name is the configured hostname, so the server picks
+// its certificate as for a visitor). No proxy, no redirect followed.
+func checkServerAnswers(target listener) error {
+	address := "127.0.0.1:" + strconv.Itoa(target.port)
+	transport := &http.Transport{
+		Proxy:             nil,
+		DisableKeepAlives: true,
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{Timeout: trialHTTPTimeout}).DialContext(ctx, "tcp", address)
+		},
+		TLSClientConfig: &tls.Config{ServerName: target.host, InsecureSkipVerify: true}, // loopback only, see above
+	}
+	client := &http.Client{Timeout: trialHTTPTimeout, Transport: transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	scheme := "http"
+	if target.https {
+		scheme = "https"
+	}
+	base := scheme + "://" + net.JoinHostPort(target.host, strconv.Itoa(target.port))
+	where := scheme + " on port " + strconv.Itoa(target.port)
+
+	status, _, _, err := ask(client, base+"/cosmos/api/status")
 	if err != nil {
-		return errors.New("the HTTP port " + strconv.Itoa(port) + " does not answer")
+		return errors.New("the server does not answer (" + where + ")")
 	}
-	io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
-	response.Body.Close()
-	if response.StatusCode >= 500 {
-		return errors.New("the HTTP port " + strconv.Itoa(port) + " answers with status " + strconv.Itoa(response.StatusCode))
+	if !(status >= 200 && status < 300) && status != http.StatusUnauthorized && status != http.StatusForbidden {
+		return errors.New("the server answers /cosmos/api/status with status " + strconv.Itoa(status) + " (" + where + ")")
+	}
+	status, kind, body, err := ask(client, base+"/cosmos-ui/")
+	if err != nil {
+		return errors.New("the server does not serve the panel (" + where + ")")
+	}
+	lower := strings.ToLower(strings.TrimSpace(body))
+	if status != http.StatusOK || !(strings.Contains(kind, "text/html") || strings.HasPrefix(lower, "<!doctype html") || strings.HasPrefix(lower, "<html")) {
+		return errors.New("the server does not serve the panel's page: status " + strconv.Itoa(status) + " (" + where + ")")
 	}
 	return nil
+}
+
+func ask(client *http.Client, url string) (status int, kind string, body string, err error) {
+	response, err := client.Get(url)
+	if err != nil {
+		return 0, "", "", err
+	}
+	defer response.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
+	return response.StatusCode, response.Header.Get("Content-Type"), string(raw), nil
 }
 
 // placeUpdatedLauncher puts the launcher that came with the update in place
@@ -160,8 +235,9 @@ var placeUpdatedLauncher = cleanUpUpdateFiles
 var markAnswered = forkrelease.MarkAnswered
 
 // proveUpdateTrial waits until the checks pass, and pass again trialSettle
-// later; then the trial of version ends. False when it gave up.
-func proveUpdateTrial(folder string, version string, run int, checks trialChecks, sleep func(time.Duration)) bool {
+// later; then the trial ends. False when it gave up.
+func proveUpdateTrial(folder string, run forkrelease.TrialRun, checks trialChecks, sleep func(time.Duration)) bool {
+	version := forkrelease.SafeText(run.Version)
 	tries := int(trialGiveUp / trialPoll)
 	lastReason := ""
 	for try := 0; try < tries; try++ {
@@ -175,14 +251,16 @@ func proveUpdateTrial(folder string, version string, run int, checks trialChecks
 			}
 			continue
 		}
-		markAnswered(folder, version, run) // the watchdog now waits for the proof
+		if err := markAnswered(folder, run); err != nil { // the watchdog now waits for the proof
+			utils.Warn("Update: the first answer could not be noted for the watchdog: " + err.Error())
+		}
 		sleep(trialSettle)
 		if err := checks.run(); err != nil {
 			utils.Warn("Update: version " + version + " answered, then not any more: " + err.Error())
 			lastReason = err.Error()
 			continue
 		}
-		if err := forkrelease.ProveTrial(folder, version, run); err != nil {
+		if err := forkrelease.ProveTrial(folder, run); err != nil {
 			utils.Error("Update: the trial of version "+version+" could not be ended", err)
 			return false
 		}
@@ -202,6 +280,47 @@ func trialFolder() (string, error) {
 	return filepath.Dir(self), nil
 }
 
+// armedRun is the start on trial this process is, set by armUpdateTrialStop.
+var armedRun *forkrelease.TrialRun
+
+// armUpdateTrialStop is the hook at the very start of main: when this
+// process is the server of a version on trial, a SIGTERM or SIGINT from now
+// on, a planned restart, and a Docker that cannot be reached are noted for
+// the launcher, the stop first, before the other exit hooks run.
+func armUpdateTrialStop() {
+	if len(os.Args) != 1 { // a command of the binary, not the server
+		return
+	}
+	folder, err := trialFolder()
+	if err != nil {
+		return
+	}
+	run, ok := forkrelease.TrialOf(folder)
+	if !ok {
+		return
+	}
+	armedRun = &run
+	cleanStop := func() {
+		if err := forkrelease.MarkCleanStop(folder, run); err != nil {
+			utils.Error("Update: the clean stop of the version on trial could not be noted; the launcher counts this start as failed", err)
+		}
+	}
+	utils.OnExit(cleanStop) // the first exit hook: it runs before rclone, DNS and Telegram
+	utils.OnPlannedExit(cleanStop)
+	utils.OnFatal(func(message string) {
+		if dockerFatal(message) {
+			if err := forkrelease.MarkDockerUnreachable(folder, run); err != nil {
+				utils.Error("Update: that Docker could not be reached could not be noted", err)
+			}
+		}
+	})
+}
+
+// dockerFatal: the fatal error is about Docker not being reachable.
+func dockerFatal(message string) bool {
+	return strings.HasPrefix(message, "Docker connection died")
+}
+
 // startUpdateTrial is the hook at start, just before the server listens: it
 // reports a return to this version and, when this version is on trial,
 // starts proving it.
@@ -212,19 +331,14 @@ func startUpdateTrial() {
 	}
 	reportRollback(folder, GetCosmosVersion())
 	flushLauncherRefusal() // an update the launcher refused at this start, now that the databases are open
+	reportAttention(folder)
 	go pruneKept(folder)
-	trial, pending := forkrelease.PendingTrial(folder)
-	version := GetCosmosVersion()
-	if !pending || trial.NewVersion != version {
+	if armedRun == nil || armedRun.Version != GetCosmosVersion() {
 		return
 	}
-	run := trial.Run
-	// a stop that was asked for is not a failed start
-	cleanStop := func() { forkrelease.MarkCleanStop(folder, version, run) }
-	utils.OnExit(cleanStop)
-	utils.OnPlannedExit(cleanStop)
-	utils.Log("Update: version " + version + " is on trial (start " + strconv.Itoa(run) + "; it goes back after " + strconv.Itoa(forkrelease.TrialStarts) + " failed starts)")
-	go proveUpdateTrial(folder, version, run, serverTrialChecks(), time.Sleep)
+	run := *armedRun
+	utils.Log("Update: version " + run.Version + " is on trial (start " + strconv.Itoa(run.Run) + "; it goes back after " + strconv.Itoa(forkrelease.TrialStarts) + " failed starts)")
+	go proveUpdateTrial(folder, run, serverTrialChecks(), time.Sleep)
 }
 
 // pruneKept removes the copy kept by the last update once its version has
@@ -258,11 +372,45 @@ func reportRollback(folder string, running string) {
 		return
 	}
 	notifyRollback(rollbackNotification(note))
-	if note.Restored {
-		utils.Error("Update: version "+note.Failed+" did not start properly; Cosmos went back to version "+note.Back+" by itself (running "+forkrelease.SafeText(running)+")", nil)
-	} else {
+	switch {
+	case !note.Restored:
 		utils.Error("Update: version "+note.Failed+" did not start properly and Cosmos could not go back to version "+note.Back+": the kept files did not match their checksums", nil)
+	case note.Reason == forkrelease.RollbackUnrecorded:
+		utils.Error("Update: the trial of version "+note.Failed+" could not be recorded ("+note.Cause+"); Cosmos went back to version "+note.Back+" (running "+forkrelease.SafeText(running)+")", nil)
+	default:
+		utils.Error("Update: version "+note.Failed+" did not start properly; Cosmos went back to version "+note.Back+" by itself (running "+forkrelease.SafeText(running)+")", nil)
 	}
+}
+
+// reportAttention tells what the launcher left for a person while the
+// server runs (a finished restore whose bookkeeping could not be written).
+func reportAttention(folder string) {
+	text := forkrelease.Attention(folder)
+	if text == "" {
+		return
+	}
+	utils.Error("Update: "+strings.ReplaceAll(text, "\n", " "), nil)
+	summary := text
+	if lines := strings.SplitN(text, "\n\n", 2); len(lines) == 2 {
+		summary = lines[1]
+	}
+	if len(summary) > 600 {
+		summary = summary[:600] + "…"
+	}
+	file := forkrelease.AttentionFile(folder)
+	notifyRollback(utils.Notification{
+		Recipient: "admin",
+		Level:     "error",
+		Fork: &utils.NotificationInfo{
+			Kind:    "update.attention",
+			Thread:  "update.attention",
+			Title:   utils.NText("notif.update.attention.title"),
+			Subject: &utils.NotificationSubject{Type: "file", Name: file},
+			What:    utils.NText("notif.update.attention.what", "summary", strings.ReplaceAll(summary, "\n", " ")),
+			Means:   utils.NText("notif.update.attention.means", "file", file),
+			Raw:     text,
+		},
+	})
 }
 
 func rollbackNotification(note forkrelease.RollbackNote) utils.Notification {
@@ -276,6 +424,8 @@ func rollbackNotification(note forkrelease.RollbackNote) utils.Notification {
 		means = utils.NText("notif.update.rolledback.means.damaged")
 	case note.Reason == forkrelease.RollbackTimeout:
 		what = "notif.update.rolledback.what.timeout"
+	case note.Reason == forkrelease.RollbackUnrecorded:
+		what = "notif.update.rolledback.what.unrecorded"
 	}
 	return utils.Notification{
 		Recipient: "admin",
@@ -285,7 +435,7 @@ func rollbackNotification(note forkrelease.RollbackNote) utils.Notification {
 			Thread:  "update.rolledback:" + note.Failed,
 			Title:   utils.NText("notif.update.rolledback.title"),
 			Subject: &utils.NotificationSubject{Type: "release", Name: note.Failed, Link: link},
-			What:    utils.NText(what, "back", note.Back, "failed", note.Failed, "starts", starts, "minutes", minutes, "file", note.File),
+			What:    utils.NText(what, "back", note.Back, "failed", note.Failed, "starts", starts, "minutes", minutes, "file", note.File, "cause", note.Cause),
 			Means:   means,
 			Doing:   utils.NText("notif.update.rolledback.doing"),
 			Steps:   []utils.NotificationStep{{NotificationText: *utils.NText("notif.step.update.general"), Link: link}},

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"net"
@@ -8,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -19,14 +21,19 @@ import (
 // Fork addition: the new server's proof of a good start, and the report of
 // a return to the version before.
 
-const trialVersion = "0.24.0-fork.10"
+const (
+	trialVersion = "0.24.0-fork.10"
+	trialID      = "0123456789abcdef"
+)
+
+var trialStart = forkrelease.TrialRun{Version: trialVersion, ID: trialID, Run: 1}
 
 // trialFolderWith is an install with trialVersion on trial (start 1).
 func trialFolderWith(t *testing.T) string {
 	t.Helper()
 	folder := t.TempDir()
 	os.WriteFile(filepath.Join(folder, "meta.json"), []byte(`{"version": "`+trialVersion+`"}`), 0644)
-	raw, _ := json.Marshal(map[string]interface{}{"state": "trial", "newVersion": trialVersion, "previousVersion": "0.24.0-fork.9", "run": 1})
+	raw, _ := json.Marshal(map[string]interface{}{"format": 1, "state": "trial", "newVersion": trialVersion, "previousVersion": "0.24.0-fork.9", "id": trialID, "run": 1})
 	if err := os.WriteFile(filepath.Join(folder, "cosmos-update.trial"), raw, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -47,45 +54,116 @@ func shortTrial(t *testing.T) *int {
 	return &placed
 }
 
-func listenerPort(t *testing.T, handler http.HandlerFunc) string {
-	t.Helper()
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-	_, port, _ := net.SplitHostPort(strings.TrimPrefix(server.URL, "http://"))
-	return port
+// panelLike answers as a healthy Cosmos does (measured on a real start):
+// the status for the configured hostname, the panel's page.
+func panelLike(status int, page int) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/cosmos/api/status":
+			w.WriteHeader(status)
+		case "/cosmos-ui/":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(page)
+			w.Write([]byte("<!doctype html><html><body>panel</body></html>"))
+		default:
+			http.NotFound(w, r)
+		}
+	}
 }
 
-func TestTheHTTPCheckOfATrial(t *testing.T) {
-	asked := ""
-	cases := map[int]bool{200: true, 401: true, 404: true, 302: true, 499: true, 500: false, 503: false}
-	for status, passes := range cases {
-		port := listenerPort(t, func(w http.ResponseWriter, r *http.Request) {
-			asked = r.Host + r.URL.Path
-			if status == 302 {
-				http.Redirect(w, r, "http://203.0.113.9/elsewhere", http.StatusFound)
-				return
-			}
-			w.WriteHeader(status)
-		})
-		err := checkHTTPAnswers(port)
-		if (err == nil) != passes {
-			t.Errorf("status %d: %v", status, err)
-		}
-		if asked != "127.0.0.1:"+port+"/cosmos/api/status" {
-			t.Errorf("asked %s", asked)
+func portOf(t *testing.T, url string) int {
+	t.Helper()
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(strings.TrimPrefix(url, "http://"), "https://"))
+	n, _ := strconv.Atoi(port)
+	return n
+}
+
+func TestTheServerCheckOfATrial(t *testing.T) {
+	asked := []string{}
+	for _, c := range []struct {
+		status, page int
+		passes       bool
+	}{
+		{200, 200, true}, {401, 200, true}, {403, 200, true}, {204, 200, true},
+		{400, 200, false}, {404, 200, false}, {302, 200, false}, {500, 200, false}, {503, 200, false},
+		{200, 404, false}, {200, 302, false}, {200, 500, false},
+	} {
+		handler := panelLike(c.status, c.page)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			asked = append(asked, r.Host+r.URL.Path)
+			handler(w, r)
+		}))
+		err := checkServerAnswers(listener{port: portOf(t, server.URL), host: "cosmos.server.local"})
+		server.Close()
+		if (err == nil) != c.passes {
+			t.Errorf("status %d, page %d: %v", c.status, c.page, err)
 		}
 	}
+	if len(asked) == 0 || !strings.HasPrefix(asked[0], "cosmos.server.local:") {
+		t.Errorf("asked %v: not for the configured hostname", asked)
+	}
+	// a page that is not HTML
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("{}"))
+	}))
+	if err := checkServerAnswers(listener{port: portOf(t, server.URL), host: "cosmos.server.local"}); err == nil {
+		t.Error("a JSON answer was taken for the panel")
+	}
+	server.Close()
 	// nothing listens
-	listener, _ := net.Listen("tcp", "127.0.0.1:0")
-	_, closed, _ := net.SplitHostPort(listener.Addr().String())
-	listener.Close()
-	if err := checkHTTPAnswers(closed); err == nil {
+	closed, _ := net.Listen("tcp", "127.0.0.1:0")
+	port := closed.Addr().(*net.TCPAddr).Port
+	closed.Close()
+	if err := checkServerAnswers(listener{port: port, host: "x"}); err == nil {
 		t.Error("a closed port passed")
 	}
-	for _, bad := range []string{"", "0", "65536", "80; rm", "-1"} {
-		if err := checkHTTPAnswers(bad); err == nil {
-			t.Errorf("port %q passed", bad)
+}
+
+// In HTTPS mode: a real handshake on the HTTPS listener, with the
+// configured hostname as server name.
+func TestTheHTTPSCheckOfATrial(t *testing.T) {
+	names := []string{}
+	server := httptest.NewUnstartedServer(panelLike(200, 200))
+	server.TLS = &tls.Config{GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+		names = append(names, hello.ServerName)
+		return nil, nil
+	}}
+	server.StartTLS()
+	defer server.Close()
+	target := listener{https: true, port: portOf(t, server.URL), host: "cosmos.server.local"}
+	if err := checkServerAnswers(target); err != nil {
+		t.Fatal(err)
+	}
+	if len(names) == 0 || names[0] != "cosmos.server.local" {
+		t.Errorf("server names %v", names)
+	}
+	// plain HTTP on the HTTPS port: no handshake, no proof
+	plain := httptest.NewServer(panelLike(200, 200))
+	defer plain.Close()
+	if err := checkServerAnswers(listener{https: true, port: portOf(t, plain.URL), host: "x"}); err == nil {
+		t.Error("a listener without TLS passed the HTTPS check")
+	}
+
+	// which listener: as StartServer decides
+	modes := utils.HTTPSCertModeList
+	for _, c := range []struct {
+		config utils.HTTPConfig
+		https  bool
+		port   int
+	}{
+		{utils.HTTPConfig{HTTPSCertificateMode: modes["DISABLED"], HTTPPort: "8080", HTTPSPort: "8443", Hostname: "a.example.org"}, false, 8080},
+		{utils.HTTPConfig{HTTPSCertificateMode: modes["SELFSIGNED"], SelfTLSCert: "c", SelfTLSKey: "k", HTTPPort: "8080", HTTPSPort: "8443"}, true, 8443},
+		{utils.HTTPConfig{HTTPSCertificateMode: modes["SELFSIGNED"], HTTPPort: "8080", HTTPSPort: "8443"}, false, 8080},
+		{utils.HTTPConfig{HTTPSCertificateMode: modes["LETSENCRYPT"], TLSCert: "c", TLSKey: "k", HTTPPort: "80", HTTPSPort: "443"}, true, 443},
+	} {
+		got, err := listenerOf(c.config)
+		if err != nil || got.https != c.https || got.port != c.port {
+			t.Errorf("%+v: %+v %v", c.config.HTTPSCertificateMode, got, err)
 		}
+	}
+	if _, err := listenerOf(utils.HTTPConfig{HTTPPort: "80; rm"}); err == nil {
+		t.Error("a port that is no port")
 	}
 }
 
@@ -93,25 +171,27 @@ func TestANewVersionProvesItself(t *testing.T) {
 	placed := shortTrial(t)
 	folder := trialFolderWith(t)
 	up := false
-	port := listenerPort(t, func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !up {
 			w.WriteHeader(http.StatusBadGateway)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
-	})
+		panelLike(200, 200)(w, r)
+	}))
+	defer server.Close()
 	answered := 0
-	markAnswered = func(f string, v string, run int) {
-		if f != folder || v != trialVersion || run != 1 {
-			t.Errorf("answered for %s %s %d", f, v, run)
+	markAnswered = func(f string, run forkrelease.TrialRun) error {
+		if f != folder || run != trialStart {
+			t.Errorf("answered for %s %+v", f, run)
 		}
 		answered++
+		return nil
 	}
 	dbCalls := 0
 	checks := trialChecks{
 		config:   func() error { return nil },
 		database: func() error { dbCalls++; return nil },
-		http:     func() error { return checkHTTPAnswers(port) },
+		http:     func() error { return checkServerAnswers(listener{port: portOf(t, server.URL), host: "x"}) },
 	}
 	slept := []time.Duration{}
 	sleep := func(d time.Duration) {
@@ -126,7 +206,7 @@ func TestANewVersionProvesItself(t *testing.T) {
 			t.Error("the launcher was put in place during the trial")
 		}
 	}
-	if !proveUpdateTrial(folder, trialVersion, 1, checks, sleep) {
+	if !proveUpdateTrial(folder, trialStart, checks, sleep) {
 		t.Fatal("not proven")
 	}
 	if _, err := os.Lstat(filepath.Join(folder, "cosmos-update.trial")); err == nil {
@@ -143,6 +223,7 @@ func TestANewVersionProvesItself(t *testing.T) {
 func TestATrialIsNotProvenByHalfAnswers(t *testing.T) {
 	placed := shortTrial(t)
 	trialGiveUp = 100 * time.Millisecond
+	markAnswered = func(string, forkrelease.TrialRun) error { return nil }
 	cases := map[string]trialChecks{
 		"the database does not answer":  {config: func() error { return nil }, database: func() error { return errors.New("down") }, http: func() error { return nil }},
 		"the HTTP port does not answer": {config: func() error { return nil }, database: func() error { return nil }, http: func() error { return errors.New("down") }},
@@ -150,7 +231,7 @@ func TestATrialIsNotProvenByHalfAnswers(t *testing.T) {
 	}
 	for name, checks := range cases {
 		folder := trialFolderWith(t)
-		if proveUpdateTrial(folder, trialVersion, 1, checks, time.Sleep) {
+		if proveUpdateTrial(folder, trialStart, checks, time.Sleep) {
 			t.Errorf("%s: proven", name)
 		}
 		if _, err := os.Lstat(filepath.Join(folder, "cosmos-update.trial")); err != nil {
@@ -168,14 +249,15 @@ func TestATrialIsNotProvenByHalfAnswers(t *testing.T) {
 		}
 		return nil
 	}}
-	if proveUpdateTrial(folder, trialVersion, 1, flaky, time.Sleep) {
+	if proveUpdateTrial(folder, trialStart, flaky, time.Sleep) {
 		t.Error("a server that stops answering a minute later was proven")
 	}
-	// another version on trial: not this server's to prove
-	folder = trialFolderWith(t)
+	// another version or another trial: not this server's to prove
 	ok := trialChecks{config: func() error { return nil }, database: func() error { return nil }, http: func() error { return nil }}
-	if proveUpdateTrial(folder, "0.24.0-fork.11", 1, ok, time.Sleep) {
-		t.Error("another version proved the trial")
+	for _, other := range []forkrelease.TrialRun{{Version: "0.24.0-fork.11", ID: trialID, Run: 1}, {Version: trialVersion, ID: "fedcba9876543210", Run: 1}, {Version: trialVersion, ID: trialID, Run: 2}} {
+		if proveUpdateTrial(trialFolderWith(t), other, ok, time.Sleep) {
+			t.Errorf("%+v proved the trial", other)
+		}
 	}
 	if *placed != 0 {
 		t.Error("the launcher was put in place without a proof")
@@ -203,6 +285,8 @@ func TestAReturnToTheVersionBeforeIsReported(t *testing.T) {
 			"Cosmos went back to version 0.24.0-fork.9 by itself: version 0.24.0-fork.10 did not start properly (it stopped 3 times before it had proved itself). 0.24.0-fork.10 is not installed again; a later release will be. To allow it again, remove the line 0.24.0-fork.10 from "},
 		{forkrelease.RollbackNote{Failed: "0.24.0-fork.10", Back: "0.24.0-fork.9", Reason: forkrelease.RollbackTimeout, Starts: 3, Minutes: 15, Restored: true},
 			"Cosmos went back to version 0.24.0-fork.9 by itself: version 0.24.0-fork.10 did not start properly (it did not answer within 15 minutes). 0.24.0-fork.10 is not installed again; a later release will be. To allow it again, remove the line 0.24.0-fork.10 from "},
+		{forkrelease.RollbackNote{Failed: "0.24.0-fork.10", Back: "0.24.0-fork.9", Reason: forkrelease.RollbackUnrecorded, Starts: 1, Minutes: 15, Restored: true, Cause: "no space left on device"},
+			"Cosmos went back to version 0.24.0-fork.9 by itself: the trial of version 0.24.0-fork.10 could not be recorded (no space left on device). 0.24.0-fork.10 is not noted as failed and is installed again at the next update."},
 		{forkrelease.RollbackNote{Failed: "0.24.0-fork.10", Back: "0.24.0-fork.9", Reason: forkrelease.RollbackDamaged, Starts: 3, Minutes: 5, Restored: false},
 			"could not go back to version 0.24.0-fork.9 by itself"},
 	}
@@ -221,7 +305,7 @@ func TestAReturnToTheVersionBeforeIsReported(t *testing.T) {
 			t.Errorf("%s: %+v", c.note.Reason, n)
 			continue
 		}
-		if got := english(n.Fork.What); !strings.Contains(got, c.want) || strings.Contains(got, "{{") || (c.note.Restored && !strings.Contains(got, filepath.Join(folder, "cosmos-update.failed"))) {
+		if got := english(n.Fork.What); !strings.Contains(got, c.want) || strings.Contains(got, "{{") || (c.note.Restored && c.note.Reason != forkrelease.RollbackUnrecorded && !strings.Contains(got, filepath.Join(folder, "cosmos-update.failed"))) {
 			t.Errorf("%s: says %q, want %q", c.note.Reason, got, c.want)
 		}
 		if got := english(n.Fork.Means); got == "" || strings.Contains(got, "{{") {
@@ -325,10 +409,55 @@ func TestAPlannedExitIsHeard(t *testing.T) {
 		t.Errorf("heard %d planned exits, want 2", heard)
 	}
 	source := readSource(t, "fork_update_trial.go")
-	start := source[strings.Index(source, "func startUpdateTrial()"):]
-	start = start[:strings.Index(start, "\n}\n")]
-	if !strings.Contains(start, "utils.OnExit(cleanStop)") || !strings.Contains(start, "utils.OnPlannedExit(cleanStop)") {
-		t.Error("a stop that was asked for is not noted as clean")
+	arm := source[strings.Index(source, "func armUpdateTrialStop()"):]
+	arm = arm[:strings.Index(arm, "\n}\n")]
+	if !strings.Contains(arm, "utils.OnExit(cleanStop)") || !strings.Contains(arm, "utils.OnPlannedExit(cleanStop)") || !strings.Contains(arm, "utils.OnFatal(") {
+		t.Error("a stop that was asked for, or a Docker fatal, is not noted")
+	}
+	// the very first thing main does, before any other exit hook exists
+	index := readSource(t, "index.go")
+	main := index[strings.Index(index, "func main() {"):]
+	if first := strings.TrimSpace(strings.SplitN(main, "\n", 3)[1]); !strings.HasPrefix(first, "armUpdateTrialStop()") {
+		t.Errorf("main begins with %q", first)
+	}
+	if strings.Contains(index[:strings.Index(index, "func main() {")], "OnExit(") {
+		t.Error("an exit hook is registered before main")
+	}
+}
+
+// N7: only a fatal about Docker is excused (and only when the launcher
+// cannot reach Docker either, see forkrelease).
+func TestOnlyADockerFatalIsNoted(t *testing.T) {
+	if !dockerFatal("Docker connection died, couldn't recover... Restarting") {
+		t.Error("the Docker fatal of docker/events.go is not recognised")
+	}
+	events := readSource(t, filepath.Join("docker", "events.go"))
+	if !strings.Contains(events, `utils.Fatal("Docker connection died`) {
+		t.Error("docker/events.go no longer ends with that message: update dockerFatal")
+	}
+	for _, other := range []string{"Listening to HTTPS", "Cannot open auth.db", ""} {
+		if dockerFatal(other) {
+			t.Errorf("%q taken for a Docker fatal", other)
+		}
+	}
+}
+
+// N3: what the launcher left for a person while the server runs is told.
+func TestAnUpdateThatNeedsAttentionIsTold(t *testing.T) {
+	var told []utils.Notification
+	previous := notifyRollback
+	notifyRollback = func(n utils.Notification) { told = append(told, n) }
+	defer func() { notifyRollback = previous }()
+	folder := t.TempDir()
+	reportAttention(folder)
+	if len(told) != 0 {
+		t.Fatal("told without a README")
+	}
+	os.WriteFile(forkrelease.AttentionFile(folder), []byte("Cosmos update: needs attention (now).\n\nCosmos went back to version 0.24.0-fork.9 and runs it, but 0.24.0-fork.10 could not be noted as failed.\n"), 0600)
+	reportAttention(folder)
+	if len(told) != 1 || told[0].Fork.Kind != "update.attention" || told[0].Level != "error" ||
+		!strings.Contains(told[0].Fork.What.Vars["summary"], "could not be noted as failed") || told[0].Fork.Means.Vars["file"] != forkrelease.AttentionFile(folder) {
+		t.Errorf("told %+v", told)
 	}
 }
 

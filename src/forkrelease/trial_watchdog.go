@@ -60,16 +60,16 @@ func watchdog(folder string, out io.Writer, end func(string, io.Writer)) {
 	if err != nil || trial.State != stateTrial {
 		return
 	}
-	run := trial.Run
-	begun := time.Now() // monotonic: a clock set meanwhile changes nothing
+	run, id := trial.Run, trial.ID // this trial's start: never another one's
+	begun := time.Now()            // monotonic: a clock set meanwhile changes nothing
 	var answered time.Time
 	for {
 		time.Sleep(watchdogPoll)
 		now, err := readTrial(folder)
-		if err != nil || now.State != stateTrial || now.Run != run {
+		if err != nil || now.State != stateTrial || now.Run != run || now.ID != id {
 			return // proven, gone back, or another start watches itself
 		}
-		if now.AnsweredRun == run && answered.IsZero() {
+		if answered.IsZero() && hasMark(folder, id, run, markAnswered) {
 			answered = time.Now()
 		}
 		if answered.IsZero() && time.Since(begun) >= WatchdogWindow {
@@ -79,7 +79,7 @@ func watchdog(folder string, out io.Writer, end func(string, io.Writer)) {
 			break
 		}
 	}
-	if !timeOut(folder, run) {
+	if !timeOut(folder, id, run) {
 		return
 	}
 	limit := strconv.Itoa(int(WatchdogWindow/time.Minute)) + " minutes"
@@ -93,10 +93,10 @@ func watchdog(folder string, out io.Writer, end func(string, io.Writer)) {
 // timeOut notes, under the lock, that run's time is up. False when the run
 // was proven (or ended otherwise) meanwhile: the proof and the time-out
 // never both happen, and a proven trial is never written again.
-func timeOut(folder string, run int) bool {
+func timeOut(folder string, id string, run int) bool {
 	ended := false
 	changeTrial(folder, func(t *Trial, readErr error) (bool, bool) {
-		if readErr != nil || t.State != stateTrial || t.Run != run || t.KilledRun == run {
+		if readErr != nil || t.State != stateTrial || t.ID != id || t.Run != run || t.KilledRun == run {
 			return false, false
 		}
 		t.TimedOut++

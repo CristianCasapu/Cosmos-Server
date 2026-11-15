@@ -81,6 +81,32 @@ func OnPlannedExit(watch func()) {
 	exitWatchersMu.Unlock()
 }
 
+// fatalWatchers hear utils.Fatal's message just before the process ends.
+var (
+	fatalWatchersMu sync.Mutex
+	fatalWatchers   []func(string)
+)
+
+// OnFatal registers what runs, with the message, when Fatal ends the process.
+func OnFatal(watch func(message string)) {
+	fatalWatchersMu.Lock()
+	fatalWatchers = append(fatalWatchers, watch)
+	fatalWatchersMu.Unlock()
+}
+
+// forkBeforeFatal is the hook in Fatal (log.go).
+func forkBeforeFatal(message string) {
+	fatalWatchersMu.Lock()
+	watchers := append([]func(string){}, fatalWatchers...)
+	fatalWatchersMu.Unlock()
+	for _, watch := range watchers {
+		func() {
+			defer func() { recover() }()
+			watch(message)
+		}()
+	}
+}
+
 // ForkNotice reports a situation by its kind, with details as key, value
 // pairs. The kinds are the Notice constants above.
 func ForkNotice(kind string, pairs ...string) {

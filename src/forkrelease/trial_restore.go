@@ -19,79 +19,127 @@ import (
 // restoreNow carries out the restore the state (restoring) owes. True when
 // the server may be started.
 func restoreNow(folder string, trial Trial, env launcherEnv) bool {
-	manifest, err := readKept(folder)
-	if err == nil && manifest.PreviousVersion != trial.PreviousVersion {
-		err = errors.New("the files kept are of " + SafeText(manifest.PreviousVersion) + ", not of " + SafeText(trial.PreviousVersion))
-	}
-	if err == nil {
-		err = verifyKept(folder, manifest)
-	}
-	if err != nil {
-		if !trial.Touched && trial.Purpose == purposeRollback {
-			// nothing was changed yet: the new version is complete and stays
-			fmt.Fprintln(env.out, "[ERROR] Update: could NOT go back: "+SafeText(err.Error())+". "+SafeText(trial.NewVersion)+" stays installed.")
-			note := RollbackNote{Failed: trial.NewVersion, Back: trial.PreviousVersion, Reason: RollbackDamaged, Starts: trial.Failures,
-				Minutes: int(WatchdogWindow / time.Minute)}
-			writeNote(folder, note)
-			changeTrial(folder, func(t *Trial, readErr error) (bool, bool) { return false, readErr == nil && t.State == stateRestoring })
-			return true
+	if !trial.Done {
+		manifest, err := readKept(folder)
+		if err == nil && manifest.PreviousVersion != trial.PreviousVersion {
+			err = errors.New("the files kept are of " + SafeText(manifest.PreviousVersion) + ", not of " + SafeText(trial.PreviousVersion))
 		}
-		fmt.Fprintln(env.out, "[ERROR] Update: the files of "+SafeText(trial.PreviousVersion)+" cannot be put back: "+SafeText(err.Error())+".")
-		return false
-	}
-	if !trial.Touched {
-		trial.Touched = true
-		noteState(folder, trial, env)
-	}
-	if err := putBack(folder, manifest); err != nil {
-		fmt.Fprintln(env.out, "[ERROR] Update: the files of "+SafeText(trial.PreviousVersion)+" could not all be put back yet: "+SafeText(pathless(err).Error())+".")
-		return false
+		if err == nil {
+			err = verifyKept(folder, manifest)
+		}
+		if err != nil {
+			if !trial.Touched && trial.Purpose == purposeRollback {
+				// nothing was changed yet: the new version is complete and stays
+				fmt.Fprintln(env.out, "[ERROR] Update: could NOT go back: "+SafeText(err.Error())+". "+SafeText(trial.NewVersion)+" stays installed.")
+				writeNote(folder, RollbackNote{Failed: trial.NewVersion, Back: trial.PreviousVersion, Reason: RollbackDamaged, Starts: trial.Failures,
+					Minutes: int(WatchdogWindow / time.Minute)})
+				changeTrial(folder, func(t *Trial, readErr error) (bool, bool) { return false, readErr == nil && t.State == stateRestoring })
+				clearMarks(folder, "")
+				return true
+			}
+			explain(folder, trial, err, env)
+			return false
+		}
+		if !trial.Touched {
+			trial.Touched = true
+			noteState(folder, trial, env)
+		}
+		if err := putBack(folder, manifest); err != nil {
+			explain(folder, trial, err, env)
+			return false
+		}
+		trial.Done = true
+		noteState(folder, trial, env) // a later start only redoes the bookkeeping
+		fmt.Fprintln(env.out, "Update: every file of "+SafeText(trial.PreviousVersion)+" is back.")
 	}
 
-	// everything is back: now say so, then clear the state
+	// everything is back: from here on the restored server is started
+	// whatever else fails, and what is left is told
 	switch trial.Purpose {
-	case purposeRollback:
-		if trial.NewVersion != trial.PreviousVersion {
+	case purposeRollback, purposeUnrecorded:
+		if trial.Purpose == purposeRollback && trial.NewVersion != trial.PreviousVersion {
 			if err := addFailed(folder, trial.NewVersion); err != nil {
-				fmt.Fprintln(env.out, "[ERROR] Update: "+SafeText(trial.NewVersion)+" could not be noted as failed: "+SafeText(pathless(err).Error())+".")
-				return false
+				// while the state stays, no update is staged or unpacked: the
+				// failed version cannot come back meanwhile
+				if !trial.Noted && writeNote(folder, rollbackNote(trial)) == nil {
+					trial.Noted = true
+					noteState(folder, trial, env)
+				}
+				attention(folder, "Cosmos went back to version "+trial.PreviousVersion+" and runs it, but "+trial.NewVersion+" could not be noted as failed in "+
+					filepath.Join(folder, failedName)+" ("+SafeText(pathless(err).Error())+"). Until that file can be written, no update is installed; the launcher tries again at every start. Fix the cause (a folder or a read-only file system in the way, a full disk).", env)
+				return true
 			}
 		}
-		note := RollbackNote{Failed: trial.NewVersion, Back: trial.PreviousVersion, Reason: RollbackStopped, Starts: trial.Failures,
-			Minutes: int(WatchdogWindow / time.Minute), Restored: true}
-		if trial.TimedOut > 0 {
-			note.Reason = RollbackTimeout
+		if !trial.Noted {
+			writeNote(folder, rollbackNote(trial))
 		}
-		writeNote(folder, note)
-		fmt.Fprintln(env.out, "Update: back on "+SafeText(trial.PreviousVersion)+"; "+SafeText(trial.NewVersion)+" is not installed again. To allow it again, remove the line "+SafeText(trial.NewVersion)+" from "+filepath.Join(folder, failedName)+".")
-	case purposeUndo:
+		if trial.Purpose == purposeRollback {
+			fmt.Fprintln(env.out, "Update: back on "+SafeText(trial.PreviousVersion)+"; "+SafeText(trial.NewVersion)+" is not installed again. To allow it again, remove the line "+SafeText(trial.NewVersion)+" from "+filepath.Join(folder, failedName)+".")
+		} else {
+			fmt.Fprintln(env.out, "Update: back on "+SafeText(trial.PreviousVersion)+"; "+SafeText(trial.NewVersion)+" is not noted as failed and is installed again at the next update.")
+		}
+	case purposeUndo, purposeInterrupted:
 		reason := "it could not be unpacked (" + SafeText(trial.Cause) + "); the files it replaced were put back"
-		os.Remove(filepath.Join(folder, StagedZip))
-		os.Remove(filepath.Join(folder, StagedSignature))
-		writeNew(filepath.Join(folder, rejectedReport), []byte(reason+"\n"))
-		fmt.Fprintln(env.out, "[ERROR] Update NOT installed: "+reason+".")
-	case purposeInterrupted:
-		// a power loss, a kill or a full disk: not tried again at once (a
-		// full disk would loop); the server stages it again at its next update
-		reason := "its installation was cut short (a power loss, a kill or a full disk); the files it replaced were put back, and it is tried again at the next update"
-		os.Remove(filepath.Join(folder, StagedZip))
-		os.Remove(filepath.Join(folder, StagedSignature))
-		writeNew(filepath.Join(folder, rejectedReport), []byte(reason+"\n"))
+		if trial.Purpose == purposeInterrupted {
+			// a power loss, a kill or a full disk: not tried again at once (a
+			// full disk would loop); the server stages it again at its next update
+			reason = "its installation was cut short (a power loss, a kill or a full disk); the files it replaced were put back, and it is tried again at the next update"
+		}
+		if trial.OnTrial != "" && trial.OnTrial != trial.NewVersion && trial.OnTrial != trial.PreviousVersion {
+			reason += "; that is version " + SafeText(trial.PreviousVersion) + ", the version proven before. " + SafeText(trial.OnTrial) +
+				", which was on trial when this install began, is neither proven nor failed and is offered again"
+		}
+		dropZip(folder, trial, env)
+		writeNew(filepath.Join(folder, rejectedReport), []byte(SafeText(trial.NewVersion)+": "+reason+"\n"))
 		fmt.Fprintln(env.out, "[ERROR] Update NOT installed: "+reason+".")
 	}
 	if err := changeTrial(folder, func(t *Trial, readErr error) (bool, bool) {
 		return false, readErr == nil && (t.State == stateRestoring || t.State == stateInstalling)
 	}); err != nil {
-		fmt.Fprintln(env.out, "[ERROR] Update: the state of the update cannot be cleared: "+SafeText(pathless(err).Error())+".")
-		return false
+		attention(folder, "Cosmos went back to version "+trial.PreviousVersion+" and runs it, but "+trialPath(folder)+" could not be removed ("+
+			SafeText(pathless(err).Error())+"). Until it can, no update is installed; the launcher tries again at every start. Fix the cause (a read-only file system, a full disk), or remove that file by hand.", env)
+		return true
 	}
+	clearMarks(folder, "")
+	resolved(folder)
 	return true
 }
 
-func writeNote(folder string, note RollbackNote) {
-	if raw, err := json.Marshal(note); err == nil {
-		writeAtomic(filepath.Join(folder, rollbackName), raw)
+func rollbackNote(trial Trial) RollbackNote {
+	note := RollbackNote{Failed: trial.NewVersion, Back: trial.PreviousVersion, Reason: RollbackStopped, Starts: trial.Failures,
+		Minutes: int(WatchdogWindow / time.Minute), Restored: true}
+	switch {
+	case trial.Purpose == purposeUnrecorded:
+		note.Reason, note.Cause = RollbackUnrecorded, trial.Cause
+	case trial.TimedOut > 0:
+		note.Reason = RollbackTimeout
 	}
+	return note
+}
+
+// dropZip removes the update file that failed, never another one copied
+// there meanwhile: that one is looked at right after the restore.
+func dropZip(folder string, trial Trial, env launcherEnv) {
+	zip := filepath.Join(folder, StagedZip)
+	if _, err := os.Lstat(zip); err != nil {
+		os.Remove(filepath.Join(folder, StagedSignature))
+		return
+	}
+	if sum, err := fileSHA256(zip, MaxZip); err == nil && trial.ZipSHA256 != "" && sum != trial.ZipSHA256 {
+		fmt.Fprintln(env.out, "Update: another update file was put beside the launcher meanwhile; it is looked at now.")
+		return
+	}
+	os.Remove(zip)
+	os.Remove(filepath.Join(folder, StagedSignature))
+	syncFolder(folder)
+}
+
+func writeNote(folder string, note RollbackNote) error {
+	raw, err := json.Marshal(note)
+	if err != nil {
+		return err
+	}
+	return writeAtomic(filepath.Join(folder, rollbackName), raw)
 }
 
 // verifyKept: every kept file has its SHA-256.
@@ -100,7 +148,7 @@ func verifyKept(folder string, manifest keptManifest) error {
 	for _, f := range manifest.Replaced {
 		sum, err := fileSHA256(filepath.Join(kept, f.Path), MaxZip)
 		if err != nil || sum != f.SHA256 {
-			return fmt.Errorf("the kept copy of %s does not have its SHA-256", SafeText(f.Path))
+			return &keptDamagedError{path: f.Path}
 		}
 	}
 	return nil
@@ -159,7 +207,7 @@ func putBack(folder string, manifest keptManifest) error {
 		info, err := os.Lstat(target)
 		switch {
 		case err == nil && info.IsDir():
-			return fmt.Errorf("%s is a folder where a file of the version before goes", SafeText(f.Path))
+			return &obstacleError{path: f.Path, what: "is a folder where a file of the version before goes"}
 		case err == nil:
 			// nothing runs from this folder until the restore is done: the
 			// file of the update goes first, so its room can be used
@@ -170,6 +218,9 @@ func putBack(folder string, manifest keptManifest) error {
 			return err
 		}
 		tmp := target + ".rollback"
+		if info, err := os.Lstat(tmp); err == nil && info.IsDir() {
+			return &obstacleError{path: f.Path + ".rollback", what: "is a folder where the restore writes a file"}
+		}
 		sum, _, err := copyFile(filepath.Join(kept, f.Path), tmp, os.FileMode(f.Mode))
 		if err != nil {
 			os.Remove(tmp)
@@ -177,7 +228,7 @@ func putBack(folder string, manifest keptManifest) error {
 		}
 		if sum != f.SHA256 {
 			os.Remove(tmp)
-			return fmt.Errorf("the kept copy of %s changed while it was put back", SafeText(f.Path))
+			return &keptDamagedError{path: f.Path}
 		}
 		if err := os.Rename(tmp, target); err != nil {
 			os.Remove(tmp)
@@ -202,14 +253,14 @@ func realFolders(folder string, rel string) error {
 			return err
 		}
 		if !info.IsDir() {
-			return fmt.Errorf("%s is not a folder", SafeText(filepath.Join(parts[:i]...)))
+			return &obstacleError{path: filepath.Join(parts[:i]...), what: "is not a folder"}
 		}
 	}
 	return nil
 }
 
 // ensureFolders makes the folders of rel inside folder that are missing,
-// and refuses a link on the way.
+// and refuses a link or a file on the way.
 func ensureFolders(folder string, rel string) error {
 	if rel == "." || rel == "" {
 		return nil
@@ -228,7 +279,7 @@ func ensureFolders(folder string, rel string) error {
 			return err
 		}
 		if !info.IsDir() {
-			return fmt.Errorf("%s is not a folder", SafeText(filepath.Join(parts[:i]...)))
+			return &obstacleError{path: filepath.Join(parts[:i]...), what: "is a file or a link where a folder of the version before goes"}
 		}
 	}
 	return nil

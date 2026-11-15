@@ -4,36 +4,43 @@ package forkrelease
 //
 // The launcher installs a release only after LauncherAccepts and upstream's
 // MD5 check, both unchanged. Around the unpacking it keeps a way back, and
-// the state of that way back is one small file, cosmos-update.trial, changed
-// only under an exclusive lock (cosmos-update.lock):
+// the state of that way back is one small file, cosmos-update.trial, written
+// only by the launcher (and its watchdog), under an exclusive lock
+// (cosmos-update.lock):
 //
 //	installing  the copy kept is complete and the unzip is under way
 //	trial       the new version runs and has not proved itself yet
 //	restoring   a restore is owed (a rollback, a failed or cut-short unzip)
 //
+// The new server never writes that file: it leaves empty mark files
+// (cosmos-update.mark.<trial id>.<run>.<kind>: its first answer, a clean
+// stop, a Docker it could not reach) and removes the state when it has
+// proved itself. A server of a later release is proven by the launcher of
+// the earlier one, so the state file and the marks are a contract between
+// versions (see readTrial).
+//
 // The launcher's hooks (src/launcher/launcher.go):
 //
 //   - KeepReplaced, just before unzipping: checks the free space, copies every
 //     file the zip will overwrite into cosmos-update.previous/ (0700) with a
-//     manifest, and sets "installing". Not enough room or any error: nothing
-//     is touched, the update is refused in words (cosmos-update.rejected, which
-//     the server reports).
+//     manifest, and sets "installing" (that write is required). Short of room
+//     or any error: nothing is touched, the update is refused in words
+//     (cosmos-update.rejected, which the server reports).
 //   - UndoInstall, when the unzip fails: the restore runs at once.
 //   - BeginTrial, after the unzip: every file written is synced, the state
-//     becomes "trial" (start 1), a watchdog is started.
-//   - LauncherTrial, at every start: finishes an owed restore first (until it
-//     completes the launcher ends with an error after a pause, so start.sh
-//     never runs a half-restored folder); in "trial" counts the last start as
-//     failed unless it ended by a clean stop, rolls back after TrialStarts
-//     failed starts, or starts the next one, watched.
+//     becomes "trial" (start 1, a trial id), a watchdog is started.
+//   - LauncherTrial, at every start: finishes an owed restore first. Until it
+//     completes the launcher prints what is wrong and the ways out (also in
+//     cosmos-update.README), and ends with an error after a pause, so
+//     start.sh never runs a half-restored folder. In "trial" it counts the
+//     last start as failed unless it ended by a clean stop (or by a Docker
+//     that the launcher cannot reach either), rolls back after TrialStarts
+//     failed starts, or starts the next one, watched. When the count cannot
+//     be recorded it goes back rather than run the new version unwatched.
 //   - RunWatchdog: the launcher started with WatchdogArg. It ends this
-//     folder's cosmos process when the start has not answered within
-//     WatchdogWindow, or not proved itself ProofGrace after its first answer.
-//
-// The new server (src/fork_update_trial.go) notes its first answer, notes a
-// clean stop (SIGTERM, SIGINT, a planned restart), and proves itself with
-// ProveTrial; only then is the launcher that came with it put in place
-// (cleanUpUpdateFiles waits while TrialPending).
+//     folder's cosmos process when the start (this trial id and run) has not
+//     answered within WatchdogWindow, or not proved itself ProofGrace after
+//     its first answer.
 //
 // A restore is idempotent: the copy kept is never changed by it. It removes
 // the added files first (that frees room), then puts every replaced file
@@ -44,6 +51,8 @@ package forkrelease
 // counted, and the watchdog measures on the monotonic clock.
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -51,6 +60,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -65,18 +75,29 @@ const (
 	failedName       = "cosmos-update.failed"
 	rollbackName     = "cosmos-update.rolledback"
 	provenName       = "cosmos-update.proven"
+	readmeName       = "cosmos-update.README"
+	markPrefix       = "cosmos-update.mark."
 
 	// WatchdogArg is the one argument the launcher is started with as the
 	// watchdog of a trial.
 	WatchdogArg = "--fork-update-watchdog"
+
+	// trialFormat is the format of the state file this code writes. See
+	// readTrial for the rule that keeps releases able to read each other.
+	trialFormat = 1
 
 	stateInstalling = "installing"
 	stateTrial      = "trial"
 	stateRestoring  = "restoring"
 
 	purposeRollback    = "rollback"    // the new version did not prove itself
+	purposeUnrecorded  = "unrecorded"  // its trial could not be recorded: back, not failed
 	purposeUndo        = "undo"        // the unzip failed
 	purposeInterrupted = "interrupted" // the unzip was cut short (power loss, kill)
+
+	markAnswered = "answered"
+	markClean    = "clean"
+	markDocker   = "docker"
 
 	failedKept       = 20
 	maxKeptFiles     = 20000
@@ -84,20 +105,22 @@ const (
 	maxTrialFile     = 4096
 	maxFailedList    = 4096
 	maxRollbackNote  = 4096
+	maxReadme        = 16 << 10
 	maxVersionLength = 40
 
-	// RollbackStopped and RollbackTimeout are why a version went back;
-	// RollbackDamaged says it could not go back.
-	RollbackStopped = "stopped"
-	RollbackTimeout = "timeout"
-	RollbackDamaged = "damaged"
+	// RollbackStopped, RollbackTimeout and RollbackUnrecorded are why a
+	// version went back; RollbackDamaged says it could not go back.
+	RollbackStopped    = "stopped"
+	RollbackTimeout    = "timeout"
+	RollbackUnrecorded = "unrecorded"
+	RollbackDamaged    = "damaged"
 )
 
 // The service's unit (src/index.go) restarts Cosmos RestartSec after it
 // ends, and systemd gives up for good when it is started StartLimitBurst
 // times within StartLimitInterval. A release that crashes at once must
 // reach the start that goes back well before that: TrialStarts failed
-// starts, each followed by crashPause in the launcher, keep at most two
+// starts, each followed by crashPause in the launcher, keep at most three
 // starts in any StartLimitInterval (TestTheStartLimitIsNeverReached).
 const (
 	unitRestartSec         = 2 * time.Second
@@ -123,6 +146,9 @@ var (
 	// this long and ends with an error, so that systemd's start limit is
 	// never reached while it tries again at every start.
 	RestorePause = 30 * time.Second
+	// DockerExcused is how many starts that ended because Docker could not
+	// be reached (by the server and by the launcher) go uncounted.
+	DockerExcused = 10
 
 	crashPause    = 3 * time.Second
 	watchdogPoll  = 2 * time.Second
@@ -135,17 +161,24 @@ var (
 	ErrFailedHere   = errors.New("this release went back by itself on this server because it did not start properly; it is not installed again")
 	ErrTrialPending = errors.New("the last update is still on trial")
 	errStateEntry   = errors.New("the update would overwrite a file the updater keeps its state in")
+	errLeftoverZip  = errors.New("the update file is the one already installed and on trial")
+	idPattern       = regexp.MustCompile(`^[0-9a-f]{16}$`)
 )
 
 // trialRefusals start the reasons the trial code refuses an update for.
 // None is about a release that could not be verified.
 var trialRefusals = []string{"not enough free space", "the files it replaces could not be kept", "it could not be unpacked",
-	"its installation was cut short", ErrFailedHere.Error()}
+	"its installation was cut short", "an earlier update is still being undone", ErrFailedHere.Error()}
 
 // SecurityRefusal: a refusal noted by the launcher is about the release's
 // signature or origin (a security incident), not about room, an unzip, or a
 // version that went back here.
 func SecurityRefusal(reason string) bool {
+	if i := strings.Index(reason, ": "); i > 0 {
+		if _, ok := Build(reason[:i]); ok {
+			reason = reason[i+2:] // "<version>: <reason>"
+		}
+	}
 	for _, prefix := range trialRefusals {
 		if strings.HasPrefix(reason, prefix) {
 			return false
@@ -162,32 +195,48 @@ func failedError(folder string, version string) error {
 
 // Trial is the content of cosmos-update.trial.
 type Trial struct {
+	Format          int    `json:"format"`
 	State           string `json:"state"`
 	NewVersion      string `json:"newVersion"`
 	PreviousVersion string `json:"previousVersion"`
-	// Run numbers the starts of the new version; the watchdog, the clean stop
-	// and the proof refer to one run.
-	Run         int `json:"run,omitempty"`
-	Failures    int `json:"failures,omitempty"`    // runs that ended without proof and without a clean stop
-	TimedOut    int `json:"timedOut,omitempty"`    // runs the watchdog ended
-	CleanRun    int `json:"cleanRun,omitempty"`    // the run that ended by a clean stop
-	KilledRun   int `json:"killedRun,omitempty"`   // the run the watchdog ended
-	AnsweredRun int `json:"answeredRun,omitempty"` // the run that answered on its HTTP port
+	// ID names this trial; with Run it names one start (marks, watchdog).
+	ID            string `json:"id,omitempty"`
+	Run           int    `json:"run,omitempty"`
+	Failures      int    `json:"failures,omitempty"`      // runs that ended without proof and without a clean stop
+	TimedOut      int    `json:"timedOut,omitempty"`      // runs the watchdog ended
+	KilledRun     int    `json:"killedRun,omitempty"`     // the run the watchdog ended
+	DockerExcused int    `json:"dockerExcused,omitempty"` // runs not counted: Docker unreachable for both
+	// ZipSHA256 is the update file being (or that was) installed: a copy of
+	// it left behind is dropped, not installed again.
+	ZipSHA256 string `json:"zipSHA256,omitempty"`
+	// OnTrial is the version that was on trial when this install began (an
+	// install by hand during a trial).
+	OnTrial string `json:"onTrial,omitempty"`
 	// restoring
 	Purpose string `json:"purpose,omitempty"`
 	Touched bool   `json:"touched,omitempty"` // the restore may have changed files of the folder
-	Cause   string `json:"cause,omitempty"`   // why the unzip failed
+	Done    bool   `json:"done,omitempty"`    // every file is back; only the bookkeeping is left
+	Noted   bool   `json:"noted,omitempty"`   // the note for the server is written
+	Cause   string `json:"cause,omitempty"`   // why the unzip failed, or why the trial could not be recorded
+}
+
+// TrialRun names one start on trial, for the server's marks and proof.
+type TrialRun struct {
+	Version string
+	ID      string
+	Run     int
 }
 
 // RollbackNote is the content of cosmos-update.rolledback.
 type RollbackNote struct {
 	Failed   string `json:"failed"`   // the version that did not start properly
 	Back     string `json:"back"`     // the version the folder went back to
-	Reason   string `json:"reason"`   // RollbackStopped, RollbackTimeout or RollbackDamaged
+	Reason   string `json:"reason"`   // RollbackStopped, RollbackTimeout, RollbackUnrecorded or RollbackDamaged
 	Starts   int    `json:"starts"`   // failed starts it was given
 	Minutes  int    `json:"minutes"`  // minutes one start was given to answer
 	Restored bool   `json:"restored"` // false: the kept files could not be put back
-	File     string `json:"-"`        // the list of failed versions, to allow one again
+	Cause    string `json:"cause,omitempty"`
+	File     string `json:"-"` // the list of failed versions, to allow one again
 }
 
 // ---------------------------------------------------------------- state
@@ -234,6 +283,9 @@ func changeTrial(folder string, change func(t *Trial, readErr error) (keep bool,
 }
 
 func writeTrial(folder string, trial Trial) error {
+	if trial.Format == 0 {
+		trial.Format = trialFormat
+	}
 	raw, err := json.Marshal(trial)
 	if err != nil {
 		return err
@@ -243,6 +295,17 @@ func writeTrial(folder string, trial Trial) error {
 
 // readTrial: os.ErrNotExist when no update is pending; another error when
 // the file is there but cannot be used.
+//
+// The rule that keeps releases able to read each other: the state is
+// written by the launcher of the proven release and read by it, by its
+// watchdog and by the server of the release on trial (the next one), and
+// the marks are written by that next server and read by the earlier
+// launcher. So the format must never change incompatibly: add fields only
+// (unknown fields are ignored here), keep the meaning of the states, the
+// purposes and the mark names, and raise trialFormat only when both the
+// earlier and the later code accept the new one. A format higher than this
+// code knows is refused as unreadable. Format 0 is the first form of the
+// file (never released) and read as format 1.
 func readTrial(folder string) (Trial, error) {
 	var trial Trial
 	raw, err := readRegular(trialPath(folder), maxTrialFile)
@@ -256,21 +319,30 @@ func readTrial(folder string) (Trial, error) {
 	if err := json.Unmarshal(raw, &trial); err != nil {
 		return trial, bad
 	}
+	if trial.Format > trialFormat {
+		return trial, errors.New("the state of the update (" + trialName + ") was written by a later version of the updater")
+	}
 	_, newOK := Build(trial.NewVersion)
 	_, previousOK := Build(trial.PreviousVersion)
-	if !newOK || !previousOK {
+	if !newOK || !previousOK || (trial.ID != "" && !idPattern.MatchString(trial.ID)) {
 		return trial, bad
 	}
-	for _, n := range []int{trial.Run, trial.Failures, trial.TimedOut, trial.CleanRun, trial.KilledRun, trial.AnsweredRun} {
+	for _, n := range []int{trial.Format, trial.Run, trial.Failures, trial.TimedOut, trial.KilledRun, trial.DockerExcused} {
 		if n < 0 || n > 100000 {
 			return trial, bad
 		}
+	}
+	if trial.ZipSHA256 != "" && !sha256Pattern.MatchString(trial.ZipSHA256) {
+		return trial, bad
+	}
+	if _, ok := Build(trial.OnTrial); trial.OnTrial != "" && !ok {
+		return trial, bad
 	}
 	switch trial.State {
 	case stateInstalling, stateTrial:
 	case stateRestoring:
 		switch trial.Purpose {
-		case purposeRollback, purposeUndo, purposeInterrupted:
+		case purposeRollback, purposeUnrecorded, purposeUndo, purposeInterrupted:
 		default:
 			return trial, bad
 		}
@@ -315,24 +387,74 @@ func syncFolder(path string) {
 	}
 }
 
+func newTrialID() string {
+	raw := make([]byte, 8)
+	if _, err := rand.Read(raw); err != nil {
+		return fmt.Sprintf("%016x", uint64(time.Now().UnixNano()))
+	}
+	return hex.EncodeToString(raw)
+}
+
+// ---------------------------------------------------------------- marks
+
+// The marks are empty files: creating one needs no data block, so a nearly
+// full disk still takes it, and the server rewrites nothing of the state.
+func markPath(folder string, id string, run int, kind string) string {
+	return filepath.Join(folder, markPrefix+id+"."+strconv.Itoa(run)+"."+kind)
+}
+
+func writeMark(folder string, id string, run int, kind string) error {
+	if !idPattern.MatchString(id) {
+		return errors.New("no trial id")
+	}
+	file, err := os.OpenFile(markPath(folder, id, run, kind), os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0600)
+	if err != nil {
+		if os.IsExist(err) {
+			return nil
+		}
+		return err
+	}
+	file.Close()
+	syncFolder(folder)
+	return nil
+}
+
+func hasMark(folder string, id string, run int, kind string) bool {
+	if !idPattern.MatchString(id) {
+		return false
+	}
+	info, err := os.Lstat(markPath(folder, id, run, kind))
+	return err == nil && info.Mode().IsRegular()
+}
+
+// clearMarks removes the marks of a trial ("": of every trial).
+func clearMarks(folder string, id string) {
+	matches, _ := filepath.Glob(filepath.Join(folder, markPrefix+id+"*"))
+	for _, path := range matches {
+		os.Remove(path)
+	}
+}
+
 // ------------------------------------------------------ launcher hooks
 
 // launcherEnv is what the launcher's steps do besides files. Tests replace it.
 type launcherEnv struct {
-	out   io.Writer
-	spawn func(folder string, out io.Writer)           // the watchdog of a run
-	arm   func(folder string, version string, run int) // a SIGTERM to the launcher is a clean stop of run
-	pause func(time.Duration)                          // crashPause
+	out    io.Writer
+	spawn  func(folder string, out io.Writer) // the watchdog of a run
+	arm    func(folder string, run TrialRun)  // a SIGTERM to the launcher is a clean stop of run
+	pause  func(time.Duration)                // crashPause
+	docker func() bool                        // Docker answers the launcher
 }
 
 func realEnv() launcherEnv {
-	return launcherEnv{out: os.Stdout, spawn: spawnWatchdog, arm: armCleanStop, pause: time.Sleep}
+	return launcherEnv{out: os.Stdout, spawn: spawnWatchdog, arm: armCleanStop, pause: time.Sleep, docker: dockerAnswers}
 }
 
 // stayDown ends the launcher with an error after RestorePause: start.sh
-// then does not start the server, and systemd tries again.
+// then does not start the server, and systemd tries again. What is wrong
+// and the ways out were printed just before (and are in the README).
 var stayDown = func(out io.Writer) {
-	fmt.Fprintln(out, "[ERROR] Update: Cosmos is not started until the files of the version before are back; trying again at the next start.")
+	fmt.Fprintln(out, "[ERROR] Update: Cosmos is not started; the launcher tries again at the next start (in about "+strconv.Itoa(int((RestorePause+unitRestartSec)/time.Second))+" seconds).")
 	time.Sleep(RestorePause)
 	exitLauncher(1)
 }
@@ -351,21 +473,20 @@ func LauncherTrial(folder string) {
 func launcherTrial(folder string, env launcherEnv) bool {
 	trial, err := readTrial(folder)
 	if errors.Is(err, os.ErrNotExist) {
+		resolved(folder)
 		return true
 	}
 	if err != nil {
 		// a state that cannot be read: back to the version the copy kept is of
 		manifest, keptErr := readKept(folder)
 		if keptErr != nil {
-			fmt.Fprintln(env.out, "[ERROR] Update: "+SafeText(err.Error())+" and "+SafeText(keptErr.Error())+": nothing can be put back by itself. Removing "+trialPath(folder)+" starts the installed files as they are.")
+			explain(folder, Trial{}, fmt.Errorf("%s, and %s", err.Error(), keptErr.Error()), env)
 			return false
 		}
 		fmt.Fprintln(env.out, "[ERROR] Update: "+SafeText(err.Error())+"; going back to "+SafeText(manifest.PreviousVersion)+".")
 		trial = Trial{State: stateRestoring, Purpose: purposeRollback, NewVersion: manifest.NewVersion, PreviousVersion: manifest.PreviousVersion,
 			Failures: TrialStarts, Touched: true}
-		if !setState(folder, trial, env) {
-			return false
-		}
+		noteState(folder, trial, env) // a full disk must not keep the restore from being tried
 		return restoreNow(folder, trial, env)
 	}
 
@@ -376,7 +497,9 @@ func launcherTrial(folder string, env launcherEnv) bool {
 		noteState(folder, trial, env) // "installing" on disk owes the same restore
 		return restoreNow(folder, trial, env)
 	case stateRestoring:
-		fmt.Fprintln(env.out, "Update: putting back the files of "+SafeText(trial.PreviousVersion)+", owed since an earlier start.")
+		if !trial.Done {
+			fmt.Fprintln(env.out, "Update: putting back the files of "+SafeText(trial.PreviousVersion)+", owed since an earlier start.")
+		}
 		return restoreNow(folder, trial, env)
 	}
 
@@ -387,35 +510,57 @@ func launcherTrial(folder string, env launcherEnv) bool {
 		changeTrial(folder, func(t *Trial, readErr error) (bool, bool) {
 			return false, readErr == nil && t.State == stateTrial && t.NewVersion == trial.NewVersion
 		})
+		clearMarks(folder, "")
 		fmt.Fprintln(env.out, "Update: the trial of "+SafeText(trial.NewVersion)+" is over: "+SafeText(installed)+" is installed.")
 		return true
 	}
 
-	var counted, timedOut, rollBack, changed bool
+	// how the last start ended (the server's marks, the watchdog's record)
+	last := trial.Run
+	killed := last > 0 && trial.KilledRun == last
+	clean := last > 0 && !killed && hasMark(folder, trial.ID, last, markClean)
+	excused := false
+	if last > 0 && !killed && !clean && hasMark(folder, trial.ID, last, markDocker) {
+		if trial.DockerExcused < DockerExcused && !env.docker() {
+			excused = true
+			fmt.Fprintln(env.out, "Update: the last start of "+SafeText(trial.NewVersion)+" ended because Docker could not be reached, and the launcher cannot reach it either: not counted.")
+		} else {
+			fmt.Fprintln(env.out, "Update: the last start of "+SafeText(trial.NewVersion)+" ended because it could not reach Docker, but Docker answers the launcher (or it happened too often): counted.")
+		}
+	}
+
+	var counted, rollBack, changed bool
 	err = changeTrial(folder, func(t *Trial, readErr error) (bool, bool) {
-		if readErr != nil || t.State != stateTrial {
+		if readErr != nil || t.State != stateTrial || t.Run != last || t.ID != trial.ID {
 			return false, false
 		}
-		if t.Run > 0 && t.CleanRun != t.Run {
+		switch {
+		case last == 0 || clean:
+		case excused:
+			t.DockerExcused++
+		default:
 			t.Failures++
-			counted, timedOut = true, t.KilledRun == t.Run
+			counted = true
 		}
 		if t.Failures >= TrialStarts {
 			t.State, t.Purpose, t.Touched = stateRestoring, purposeRollback, false
 			rollBack = true
 		} else {
 			t.Run++
-			t.CleanRun, t.AnsweredRun = 0, 0
 		}
 		trial, changed = *t, true
 		return true, false
 	})
+	clearMarks(folder, trial.ID)
 	if err != nil || !changed {
-		fmt.Fprintln(env.out, "[ERROR] Update: the state of the trial cannot be written: "+SafeText(errorText(err)))
-		return true // the version on trial runs; the next start tries again
+		// never run the new version unwatched and uncounted: go back
+		fmt.Fprintln(env.out, "[ERROR] Update: the trial of "+SafeText(trial.NewVersion)+" cannot be recorded ("+SafeText(errorText(err))+"); going back to "+SafeText(trial.PreviousVersion)+", without counting it against "+SafeText(trial.NewVersion)+".")
+		trial.State, trial.Purpose, trial.Touched, trial.Cause = stateRestoring, purposeUnrecorded, true, SafeText(errorText(err))
+		noteState(folder, trial, env)
+		return restoreNow(folder, trial, env)
 	}
 	if rollBack {
-		why := "stopped " + strconv.Itoa(trial.Failures) + " times before it had started properly"
+		why := "stopped " + strconv.Itoa(trial.Failures) + " times before it had proved itself"
 		if trial.TimedOut > 0 {
 			why = "did not answer in time"
 		}
@@ -424,12 +569,12 @@ func launcherTrial(folder string, env launcherEnv) bool {
 	}
 	if counted {
 		fmt.Fprintln(env.out, "Update: the last start of "+SafeText(trial.NewVersion)+" ended before it had proved itself: failed start "+strconv.Itoa(trial.Failures)+" of "+strconv.Itoa(TrialStarts)+".")
-		if !timedOut {
+		if !killed {
 			env.pause(crashPause) // keeps clear of systemd's start limit
 		}
 	}
 	fmt.Fprintln(env.out, "Update: "+SafeText(trial.NewVersion)+" has not proved itself yet: start "+strconv.Itoa(trial.Run)+".")
-	env.arm(folder, trial.NewVersion, trial.Run)
+	env.arm(folder, TrialRun{Version: trial.NewVersion, ID: trial.ID, Run: trial.Run})
 	env.spawn(folder, env.out)
 	return true
 }
@@ -441,18 +586,9 @@ func errorText(err error) string {
 	return pathless(err).Error()
 }
 
-// setState writes the state as given.
-func setState(folder string, trial Trial, env launcherEnv) bool {
-	if err := changeTrial(folder, func(t *Trial, _ error) (bool, bool) { *t = trial; return true, false }); err != nil {
-		fmt.Fprintln(env.out, "[ERROR] Update: the state of the update cannot be written: "+SafeText(pathless(err).Error()))
-		return false
-	}
-	return true
-}
-
 // noteState writes the state when it can. A full disk must not keep a
-// restore from starting: it frees room itself, and "installing" on disk
-// owes the same restore at the next start.
+// restore from starting: it frees room itself, and the state on disk owes
+// the same restore at the next start.
 func noteState(folder string, trial Trial, env launcherEnv) {
 	if err := changeTrial(folder, func(t *Trial, _ error) (bool, bool) { *t = trial; return true, false }); err != nil {
 		fmt.Fprintln(env.out, "Update: the state of the update could not be noted ("+SafeText(pathless(err).Error())+"); the restore goes on.")
@@ -476,14 +612,20 @@ func keepReplaced(folder string, newVersion string, out io.Writer) bool {
 		fmt.Fprintln(out, "The files the update replaces are kept in "+previousFolder+": it goes back by itself if "+SafeText(newVersion)+" does not start properly.")
 		return true
 	}
+	os.Remove(filepath.Join(folder, StagedZip))
+	os.Remove(filepath.Join(folder, StagedSignature))
+	syncFolder(folder)
+	if errors.Is(err, errLeftoverZip) {
+		fmt.Fprintln(out, "Update: the update file beside the launcher is the one of "+SafeText(newVersion)+", already installed and on trial; removed.")
+		return false
+	}
 	reason := SafeText(pathless(err).Error())
 	var space *noSpaceError
-	if !errors.As(err, &space) {
+	var busy *busyError
+	if !errors.As(err, &space) && !errors.As(err, &busy) {
 		reason = "the files it replaces could not be kept, so it could not go back by itself: " + reason
 	}
 	fmt.Fprintln(out, "[ERROR] Update NOT installed: "+reason)
-	os.Remove(filepath.Join(folder, StagedZip))
-	os.Remove(filepath.Join(folder, StagedSignature))
 	writeNew(filepath.Join(folder, rejectedReport), []byte(reason+"\n"))
 	return false
 }
@@ -498,18 +640,24 @@ func beginTrial(folder string, env launcherEnv) {
 	syncInstalled(folder) // what the trial relies on survives a power loss
 	var trial Trial
 	same := false
+	abandoned := ""
 	err := changeTrial(folder, func(t *Trial, readErr error) (bool, bool) {
 		if readErr != nil || t.State != stateInstalling {
 			return false, false
 		}
+		abandoned = t.OnTrial
 		if t.NewVersion == t.PreviousVersion {
 			same = true
 			return false, true // the proven version again: nothing to try, never "failed"
 		}
-		*t = Trial{State: stateTrial, NewVersion: t.NewVersion, PreviousVersion: t.PreviousVersion, Run: 1}
+		*t = Trial{State: stateTrial, NewVersion: t.NewVersion, PreviousVersion: t.PreviousVersion, ID: newTrialID(), Run: 1, ZipSHA256: t.ZipSHA256}
 		trial = *t
 		return true, false
 	})
+	clearMarks(folder, "")
+	if abandoned != "" && abandoned != trial.NewVersion {
+		fmt.Fprintln(env.out, "Update: "+SafeText(abandoned)+", which was on trial, was replaced by this install; it is neither proven nor failed.")
+	}
 	switch {
 	case err != nil:
 		fmt.Fprintln(env.out, "[ERROR] Update: the trial of the new version cannot be started: "+SafeText(pathless(err).Error()))
@@ -517,7 +665,7 @@ func beginTrial(folder string, env launcherEnv) {
 		fmt.Fprintln(env.out, "Update: the version that was proven was installed again; there is nothing to try.")
 	case trial.Run == 1:
 		fmt.Fprintln(env.out, "Update: "+SafeText(trial.NewVersion)+" starts on trial (start 1; it goes back after "+strconv.Itoa(TrialStarts)+" failed starts).")
-		env.arm(folder, trial.NewVersion, 1)
+		env.arm(folder, TrialRun{Version: trial.NewVersion, ID: trial.ID, Run: 1})
 		env.spawn(folder, env.out)
 	}
 }
@@ -562,228 +710,14 @@ func undoInstall(folder string, cause error, env launcherEnv) bool {
 
 // armCleanStop: a SIGTERM or SIGINT to the launcher while a run is starting
 // is a clean stop of that run, not a failure.
-func armCleanStop(folder string, version string, run int) {
+func armCleanStop(folder string, run TrialRun) {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
 		<-signals
-		MarkCleanStop(folder, version, run)
+		writeMark(folder, run.ID, run.Run, markClean)
 		exitLauncher(143)
 	}()
-}
-
-// ------------------------------------------------------- for the server
-
-// TrialPending: an update is not finished in this folder. The launcher that
-// came with it is not put in place meanwhile. A trial of a version that is
-// not the installed one is over and removed.
-func TrialPending(folder string) bool {
-	trial, err := readTrial(folder)
-	if errors.Is(err, os.ErrNotExist) {
-		return false
-	}
-	if err != nil || trial.State != stateTrial {
-		return true // the launcher decides at the next start
-	}
-	installed, err := installedVersion(folder)
-	if err != nil || installed == trial.NewVersion {
-		return true
-	}
-	dropped := false
-	changeTrial(folder, func(t *Trial, readErr error) (bool, bool) {
-		dropped = readErr == nil && t.State == stateTrial && t.NewVersion == trial.NewVersion
-		return false, dropped
-	})
-	return !dropped
-}
-
-// PendingTrial returns the trial of this folder, if one is running.
-func PendingTrial(folder string) (Trial, bool) {
-	trial, err := readTrial(folder)
-	return trial, err == nil && trial.State == stateTrial
-}
-
-// own: the state is the trial of version, run, and the watchdog has not
-// ended that run.
-func own(t *Trial, readErr error, version string, run int) bool {
-	return readErr == nil && t.State == stateTrial && t.NewVersion == version && t.Run == run && t.KilledRun != run
-}
-
-// MarkAnswered notes that run answered for the first time: the watchdog
-// then gives it ProofGrace to prove itself.
-func MarkAnswered(folder string, version string, run int) {
-	changeTrial(folder, func(t *Trial, readErr error) (bool, bool) {
-		if !own(t, readErr, version, run) || t.AnsweredRun == run {
-			return false, false
-		}
-		t.AnsweredRun = run
-		return true, false
-	})
-}
-
-// MarkCleanStop notes that run is ending because it was asked to (a
-// signal, a planned restart): it is not counted as a failed start.
-func MarkCleanStop(folder string, version string, run int) {
-	changeTrial(folder, func(t *Trial, readErr error) (bool, bool) {
-		if !own(t, readErr, version, run) {
-			return false, false
-		}
-		t.CleanRun = run
-		return true, false
-	})
-}
-
-// ProveTrial ends the trial of version: run started properly. It fails when
-// the watchdog already ended that run.
-func ProveTrial(folder string, version string, run int) error {
-	proven := false
-	err := changeTrial(folder, func(t *Trial, readErr error) (bool, bool) {
-		proven = own(t, readErr, version, run)
-		return false, proven
-	})
-	if err != nil {
-		return err
-	}
-	if !proven {
-		return errors.New("the update on trial is another version or start, or its time is up")
-	}
-	writeAtomic(filepath.Join(folder, provenName), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"))
-	return nil
-}
-
-// PruneKept removes the copy kept once the version it was kept for proved
-// itself at least KeptFor ago and no update is pending. True when removed.
-func PruneKept(folder string, now time.Time) bool {
-	unlock, err := lockState(folder)
-	if err != nil {
-		return false
-	}
-	defer unlock()
-	if _, err := os.Lstat(trialPath(folder)); !os.IsNotExist(err) {
-		return false // pending or unreadable: the copy may be owed
-	}
-	raw, err := readRegular(filepath.Join(folder, provenName), 64)
-	if err != nil {
-		return false
-	}
-	at, err := time.Parse(time.RFC3339, strings.TrimSpace(string(raw)))
-	if err != nil || now.Sub(at) < KeptFor {
-		return false
-	}
-	if os.RemoveAll(filepath.Join(folder, previousFolder)) != nil {
-		return false
-	}
-	os.Remove(filepath.Join(folder, provenName))
-	syncFolder(folder)
-	return true
-}
-
-// RollbackNoted: the launcher went back at this start (the note is still
-// there for TakeRollbackNote).
-func RollbackNoted(folder string) bool {
-	_, err := os.Lstat(filepath.Join(folder, rollbackName))
-	return err == nil
-}
-
-// TakeRollbackNote returns what the launcher noted when it went back, and
-// removes the note.
-func TakeRollbackNote(folder string) (RollbackNote, bool) {
-	path := filepath.Join(folder, rollbackName)
-	raw, err := readRegular(path, maxRollbackNote)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			os.Remove(path)
-		}
-		return RollbackNote{}, false
-	}
-	os.Remove(path)
-	var note RollbackNote
-	if json.Unmarshal(raw, &note) != nil {
-		return RollbackNote{}, false
-	}
-	note.Failed, note.Back = shortVersion(note.Failed), shortVersion(note.Back)
-	switch note.Reason {
-	case RollbackStopped, RollbackTimeout, RollbackDamaged:
-	default:
-		note.Reason = RollbackStopped
-	}
-	if note.Starts < 1 || note.Starts > 1000 {
-		note.Starts = TrialStarts
-	}
-	if note.Minutes < 1 || note.Minutes > 1000 {
-		note.Minutes = int(WatchdogWindow / time.Minute)
-	}
-	note.File = filepath.Join(folder, failedName) // never taken from the note
-	return note, true
-}
-
-func shortVersion(version string) string {
-	version = SafeText(version)
-	if len(version) > maxVersionLength {
-		version = version[:maxVersionLength]
-	}
-	if version == "" {
-		version = "unknown"
-	}
-	return version
-}
-
-// ----------------------------------------------------- failed versions
-
-func readFailed(folder string) []string {
-	raw, err := readRegular(filepath.Join(folder, failedName), maxFailedList)
-	if err != nil {
-		return nil
-	}
-	versions := []string{}
-	for _, line := range strings.Split(string(raw), "\n") {
-		line = strings.TrimSpace(line)
-		if _, ok := Build(line); ok && !strings.HasPrefix(line, "v") {
-			versions = append(versions, line)
-		}
-	}
-	return versions
-}
-
-func failedIn(folder string, version string) bool {
-	version = strings.TrimPrefix(version, "v")
-	for _, failed := range readFailed(folder) {
-		if failed == version {
-			return true
-		}
-	}
-	return false
-}
-
-func addFailed(folder string, version string) error {
-	if failedIn(folder, version) {
-		return nil
-	}
-	versions := append(readFailed(folder), version)
-	if len(versions) > failedKept {
-		versions = versions[len(versions)-failedKept:]
-	}
-	return writeAtomic(filepath.Join(folder, failedName), []byte(strings.Join(versions, "\n")+"\n"))
-}
-
-// executableFolder is where the running binary is. A variable for the tests.
-var executableFolder = func() (string, error) {
-	self, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Dir(self), nil
-}
-
-// FailedHere: the release with this tag or version went back by itself on
-// this server. The release list skips it (GetLatestVersion), so it is
-// neither announced nor installed.
-func FailedHere(tag string) bool {
-	folder, err := executableFolder()
-	if err != nil {
-		return false
-	}
-	return failedIn(folder, tag)
 }
 
 // accepted is the release LauncherAccepts let through in this run of the

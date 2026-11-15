@@ -187,6 +187,7 @@ WantedBy=multi-user.target`
 }
 
 func main() {
+	armUpdateTrialStop() // Fork addition: a stop of a version on trial is noted as clean from here on, see fork_update_trial.go
 	docker.IsInsideContainer()
 
 	if utils.IsInsideContainer && pro.IsPro() {

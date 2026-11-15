@@ -198,7 +198,14 @@ func backUp(folder string, newVersion string) error {
 	case terr != nil && !errors.Is(terr, os.ErrNotExist):
 		return errors.New(SafeText(terr.Error()) + "; nothing is installed until the next start has dealt with it")
 	case onTrial && trial.State != stateTrial:
-		return errors.New("the last update is still being installed or undone; nothing is installed until that is finished")
+		return &busyError{version: newVersion, earlier: trial.NewVersion}
+	}
+	zipSum, err := fileSHA256(filepath.Join(folder, StagedZip), MaxZip)
+	if err != nil {
+		return fmt.Errorf("the update file cannot be read: %v", pathless(err))
+	}
+	if onTrial && trial.ZipSHA256 != "" && zipSum == trial.ZipSHA256 {
+		return errLeftoverZip // its unzip completed before; the trial goes on
 	}
 
 	previousVersion := trial.PreviousVersion
@@ -368,7 +375,10 @@ func backUp(folder string, newVersion string) error {
 	}
 	syncFolder(kept)
 	// from here on a start finds the state: an unzip cut short is undone
-	installing := Trial{State: stateInstalling, NewVersion: newVersion, PreviousVersion: previousVersion}
+	installing := Trial{State: stateInstalling, NewVersion: newVersion, PreviousVersion: previousVersion, ZipSHA256: zipSum}
+	if onTrial {
+		installing.OnTrial = trial.NewVersion
+	}
 	if err := changeTrial(folder, func(t *Trial, _ error) (bool, bool) { *t = installing; return true, false }); err != nil {
 		return fail(err)
 	}
