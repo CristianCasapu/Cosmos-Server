@@ -200,7 +200,7 @@ func TestAReturnToTheVersionBeforeIsReported(t *testing.T) {
 		want string
 	}{
 		{forkrelease.RollbackNote{Failed: "0.24.0-fork.10", Back: "0.24.0-fork.9", Reason: forkrelease.RollbackStopped, Starts: 3, Minutes: 5, Restored: true},
-			"Cosmos went back to version 0.24.0-fork.9 by itself: version 0.24.0-fork.10 did not start properly (it stopped 3 times before it had started properly). 0.24.0-fork.10 is not installed again; a later release will be. To allow it again, remove the line 0.24.0-fork.10 from "},
+			"Cosmos went back to version 0.24.0-fork.9 by itself: version 0.24.0-fork.10 did not start properly (it stopped 3 times before it had proved itself). 0.24.0-fork.10 is not installed again; a later release will be. To allow it again, remove the line 0.24.0-fork.10 from "},
 		{forkrelease.RollbackNote{Failed: "0.24.0-fork.10", Back: "0.24.0-fork.9", Reason: forkrelease.RollbackTimeout, Starts: 3, Minutes: 15, Restored: true},
 			"Cosmos went back to version 0.24.0-fork.9 by itself: version 0.24.0-fork.10 did not start properly (it did not answer within 15 minutes). 0.24.0-fork.10 is not installed again; a later release will be. To allow it again, remove the line 0.24.0-fork.10 from "},
 		{forkrelease.RollbackNote{Failed: "0.24.0-fork.10", Back: "0.24.0-fork.9", Reason: forkrelease.RollbackDamaged, Starts: 3, Minutes: 5, Restored: false},

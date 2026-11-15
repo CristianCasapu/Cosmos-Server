@@ -5402,7 +5402,7 @@
 	"notif.update.rolledback.means.damaged": "The server may not work properly until another release is installed.",
 	"notif.update.rolledback.title": "A server update was undone",
 	"notif.update.rolledback.what.damaged": "Version {{failed}} did not start properly, and Cosmos could not go back to version {{back}} by itself: the copies it kept of the files of {{back}} did not match their checksums. {{failed}} stays installed.",
-	"notif.update.rolledback.what.stopped": "Cosmos went back to version {{back}} by itself: version {{failed}} did not start properly (it stopped {{starts}} times before it had started properly). {{failed}} is not installed again; a later release will be. To allow it again, remove the line {{failed}} from {{file}}.",
+	"notif.update.rolledback.what.stopped": "Cosmos went back to version {{back}} by itself: version {{failed}} did not start properly (it stopped {{starts}} times before it had proved itself). {{failed}} is not installed again; a later release will be. To allow it again, remove the line {{failed}} from {{file}}.",
 	"notif.update.rolledback.what.timeout": "Cosmos went back to version {{back}} by itself: version {{failed}} did not start properly (it did not answer within {{minutes}} minutes). {{failed}} is not installed again; a later release will be. To allow it again, remove the line {{failed}} from {{file}}.",
 	"notif.step.update.general": "Open Configuration > General (server updates)",
 	"notif.upnp.config.invalid.means": "Nothing is asked of the router until the settings are corrected.",

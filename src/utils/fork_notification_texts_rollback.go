@@ -12,7 +12,7 @@ var rollbackNotificationKinds = map[string]notificationKind{
 
 var rollbackNotificationTexts = map[string]string{
 	"notif.update.rolledback.title":         "A server update was undone",
-	"notif.update.rolledback.what.stopped":  "Cosmos went back to version {{back}} by itself: version {{failed}} did not start properly (it stopped {{starts}} times before it had started properly). {{failed}} is not installed again; a later release will be. To allow it again, remove the line {{failed}} from {{file}}.",
+	"notif.update.rolledback.what.stopped":  "Cosmos went back to version {{back}} by itself: version {{failed}} did not start properly (it stopped {{starts}} times before it had proved itself). {{failed}} is not installed again; a later release will be. To allow it again, remove the line {{failed}} from {{file}}.",
 	"notif.update.rolledback.what.timeout":  "Cosmos went back to version {{back}} by itself: version {{failed}} did not start properly (it did not answer within {{minutes}} minutes). {{failed}} is not installed again; a later release will be. To allow it again, remove the line {{failed}} from {{file}}.",
 	"notif.update.rolledback.what.damaged":  "Version {{failed}} did not start properly, and Cosmos could not go back to version {{back}} by itself: the copies it kept of the files of {{back}} did not match their checksums. {{failed}} stays installed.",
 	"notif.update.rolledback.means":         "The server runs the program files of version {{back}} again, the ones that were installed before the update: nothing was downloaded to go back. Only the program files went back: data and settings that {{failed}} changed (a database it migrated, for example) stay as they are.",
