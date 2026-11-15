@@ -97,6 +97,29 @@ on the invitation page, failing closed when Cloudflare is down, a challenge
 rather than a block for a first offence, seven days of exemption for an
 administrator's address, the caps of 500 rules and 60 blocks an hour.
 
+## Automatic updates: left for later (2026-11-15)
+
+The weekly schedule of `fork-deps-update.yml` is commented out until a first
+run by hand went well; only that run can prove that the workflow's token may
+push action pins, the queued retry without the newest major, reading job
+logs while a run is going, the status branch served by
+`raw.githubusercontent.com`, the smoke on a real runner and the release
+build without caches. Pins inside `.github/workflows/` are never changed by
+the machine (that needs a token with the `workflows` permission: not given).
+A package compromised at its source and not pulled within 7 days would ship
+and run as root: the risk the owner accepted. The rollback: a signal in the
+first milliseconds of a start still counts as a failed start; a hang costs
+up to three times 15 minutes; a Docker daemon restart during a trial counts
+unless the launcher cannot reach Docker either; data a new version migrated
+is not restored; the proof does not cover Docker, the proxy routes or a
+remote monitoring database; an older version cannot be put back by hand
+(upstream's "not newer" rule); a restore that is stuck sends no
+notification (the server is down: the journal and `cosmos-update.README`
+say it); the hand reinstall of the README needs curl, unzip, openssl and
+GitHub; a notice told before the first administrator exists goes to
+nobody. The owner's to change if wanted: majors per run (6), the 7-day
+cool-down, the 72 hours the previous files are kept, the 15-minute window.
+
 ## Dependencies: left for later (2026-11-15)
 
 - Docker client library v26 is out of support (two daemon-side advisories

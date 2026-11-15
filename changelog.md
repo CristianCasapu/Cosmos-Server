@@ -8,9 +8,14 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Nothing merged into `custom` since `0.24.0-fork.30` yet.
+Merged into `custom` since `0.24.0-fork.30`, to be part of the next release:
 
-Work in progress on separate branches (not released, and may change before it is): automatic dependency updates, and apps without a web interface.
+### Added
+- Updates go back by themselves: before an update is unpacked the files it replaces are kept, the new version runs on trial, and after three failed starts (crashes or 15 minutes without an answer; deliberate stops do not count) the previous files are put back and the administrators are told, on Telegram too. A version that went back is not offered again. An update that would not fit on the disk is refused in words. This protects updates installed after this release; the rollback restores the program, not data a newer version migrated.
+- Automatic dependency updates, prepared and still switched off: a weekly run brings every dependency to its newest version that is at least 7 days old, tries major versions one at a time, runs every check and publishes a signed release only if they pass; otherwise it opens an issue. The server tells the administrators what happened (updated, failed, paused), with a switch in Configuration > General.
+- A browser smoke test runs in the checks of every push.
+
+Work in progress on a separate branch (not released, and may change before it is): apps without a web interface.
 
 ## Fork 0.24.0-fork.30 — 2026-11-15
 
