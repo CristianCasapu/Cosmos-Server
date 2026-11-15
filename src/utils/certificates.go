@@ -287,7 +287,10 @@ func DoLetsEncrypt(domains []string, zone *DNSZoneConfig) (string, string) {
 
 		for key, value := range zone.DNSChallengeConfig {
 			key = strings.TrimSpace(key)
-			os.Setenv(key, strings.TrimSpace(value))
+			// Fork addition: never a name that changes how the server runs, see fork_env_names.go
+			if !SetDNSChallengeEnv(key, strings.TrimSpace(value)) {
+				continue
+			}
 			defer os.Unsetenv(key)
 		}
 

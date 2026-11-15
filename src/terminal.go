@@ -170,7 +170,7 @@ func HostTerminalRoute(w http.ResponseWriter, r *http.Request) {
 					}
 					out.SetWriteDeadline(time.Now().Add(timeoutDuration)) // Fork addition: through the serialised writer
 					ws.SetReadDeadline(time.Now().Add(timeoutDuration))
-					utils.Debug("Writing to websocket: " + string(buf[:n]))
+					utils.Debug("Terminal: output sent to the websocket") // Fork addition: without what the terminal shows, see fork_terminal_log_test.go
 					// Fork addition: through the serialised writer
 					if err := out.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
 							utils.Error("Failed to write to websocket: ", err)
@@ -189,7 +189,7 @@ func HostTerminalRoute(w http.ResponseWriter, r *http.Request) {
 					break
 			}
 
-			utils.Debug("Received message: " + string(message))
+			utils.Debug("Terminal: input received from the websocket") // Fork addition: without what was typed (passwords at prompts), see fork_terminal_log_test.go
 
 			out.SetWriteDeadline(time.Now().Add(timeoutDuration)) // Fork addition: through the serialised writer
 			ws.SetReadDeadline(time.Now().Add(timeoutDuration))

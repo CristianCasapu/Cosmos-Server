@@ -37,11 +37,8 @@ func getUserClaims(nickname string, scopes fosite.Arguments) (map[string]interfa
 	// session), so HasPermission(req, ...) would always be false there.
 	// TODO: Resurface user's real role
 	// TODO: CHeck claim has role/groups
-	if user.Role >= utils.ADMIN {
-		claims["role"] = "admin"
-	} else {
-		claims["role"] = "user"
-	}
+	// Fork addition: admin only for a role that holds the admin permission, see fork_token_signin.go
+	claims["role"] = roleClaim(user.Role)
 
 	return claims, nil
 }

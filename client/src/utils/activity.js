@@ -63,6 +63,7 @@ const IGNORED = [
   /^\/api\/cloudflare\/(check|preview)\b/, // Fork addition: the guided set-up shows these answers itself
   /^\/api\/certificates\/(domain|delegation)\b/, // Fork addition: lookups for "Add another domain", which shows what was found itself
   /^\/api\/cloudflare\/origin-pulls\b/, // Fork addition: the card says what each step gave, in words, where it was asked for
+  /^\/api\/turnstile\b/, // Fork addition: the sign-in check's card says what each step gave, in words
   /^\/api\/servapps\/[^/]+\/(logs|terminal|export|check-update)\b/,
   /^\/api\/constellation\/(ping|devices\/[^/]+\/ping)\b/,
   /^\/rclone\/(config\/(dump|listremotes)|operations\/about|vfs\/stats|core\/stats)\b/,
@@ -91,6 +92,7 @@ const COMMANDS = [
   ['DELETE', /^\/api\/network\/(.+)$/, (m) => ['activity.network.delete', 'Delete network {{name}}', { name: decode(m[1]) }]],
   ['POST', /^\/api\/networks$/, () => ['activity.network.create', 'Create the network']],
 
+  [null, /^\/api\/reset-metrics$/, () => ['activity.metrics.reset', 'Reset the monitoring data']], // Fork addition: a POST command since src/fork_post_only.go
   [null, /^\/api\/restart$/, () => ['activity.restartCosmos', 'Restart Cosmos']],
   [null, /^\/api\/restart-server$/, () => ['activity.restartServer', 'Restart the server']],
   [null, /^\/api\/config\/dns$/, whenChanging(() => ['activity.config.dns', 'Save the DNS settings'])],
@@ -131,6 +133,7 @@ const COMMANDS = [
   ['POST', /^\/api\/cloudflare\/panel$/, () => ['activity.cloudflare.panel', 'Set the panel\'s address']],
   ['POST', /^\/api\/cloudflare\/takeover$/, () => ['activity.cloudflare.takeover', 'Let Cosmos replace the existing record']],
   ['POST', /^\/api\/cloudflare\/ranges$/, () => ['activity.cloudflare.ranges', 'Update Cloudflare\'s addresses']],
+  ['POST', /^\/api\/cloudflare\/edge-blocks$/, () => ['activity.cloudflare.edgeBlocks', 'Change the blocks at Cloudflare']], // Fork addition: utils/edgeBlocks.js
   ['POST', /^\/api\/home-names$/, () => ['activity.homeNames.set', 'Change the names for use at home']], // Fork addition: utils/homeNames.js
   ['POST', /^\/api\/home-names\/check$/, () => ['activity.homeNames.check', 'Check the name for use at home from the server']],
 
@@ -158,6 +161,10 @@ const COMMANDS = [
   ['POST', /^\/api\/disks\/format$/, () => ['activity.storage.format', 'Format the disk']],
   ['POST', /^\/api\/new-dir$/, () => ['activity.storage.newDir', 'Create the folder']],
   ['POST', /^\/api\/upload\//, () => ['activity.upload', 'Upload the file']],
+  // Fork addition: commands that are POST since src/fork_post_only.go
+  [null, /^\/api\/snapraid\/[^/]+\/fix$/, () => ['activity.snapraid.fix', 'Start the repair from parity']],
+  [null, /^\/api\/snapraid\/[^/]+\/enable$/, () => ['activity.snapraid.enable', 'Switch the parity setup on']],
+  [null, /^\/api\/snapraid\/[^/]+\/disable$/, () => ['activity.snapraid.disable', 'Switch the parity setup off']],
   [null, /^\/api\/snapraid\/[^/]+\/sync$/, () => ['activity.snapraid.sync', 'Start the parity sync']],
   [null, /^\/api\/snapraid\/[^/]+\/scrub$/, () => ['activity.snapraid.scrub', 'Start the parity check']],
   [null, /^\/api\/snapraid/, byMethod({ POST: ['activity.snapraid.save', 'Save the parity setup'], DELETE: ['activity.snapraid.delete', 'Delete the parity setup'] })],

@@ -13,6 +13,7 @@ import * as Yup from 'yup';
 import * as API from '../../api';
 import { CosmosInputText } from '../config/users/formShortcuts';
 import { useState } from 'react';
+import TurnstileWidget from '../../components/turnstileWidget'; // Fork addition: Cloudflare's check for visitors from the internet
 
 // ================================|| LOGIN ||================================ //
 
@@ -53,7 +54,7 @@ const ForgotPassword = () => {
                                     setSubmitting(false);
                                     setIsSuccess(true);
                                 }
-                            })
+                            }).catch(() => { setStatus({ success: false }); setErrors({ submit: t('auth.unexpectedErrorValidation') }); setSubmitting(false); }) // Fork addition: a refused request (the server's answer is shown by the API client) no longer leaves the button waiting
                         } catch (err) {
                             setStatus({ success: false });
                             setErrors({ submit: err.message });
@@ -83,6 +84,7 @@ const ForgotPassword = () => {
                                         <FormHelperText error>{formik.errors.submit}</FormHelperText>
                                     </Grid>
                                 )}
+                                <Grid item xs={12}><TurnstileWidget form="reset" /></Grid>{/* Fork addition: shows nothing unless the check applies to this visitor */}
                                 <Grid item xs={12}>
                                     <Button
                                         disableElevation

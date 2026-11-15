@@ -36,13 +36,12 @@ func BotDetectionMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		for _, botUserAgent := range botUserAgents {
-			if userAgent == botUserAgent {
-				recordBotBlock(r) // Fork addition: security record
+		// Fork addition: the words of the User-Agent against the fork's list, see fork_botblock.go (upstream: the whole User-Agent equal to a name of botUserAgents)
+		if isCommonBot(userAgent) {
+			recordBotBlock(r) // Fork addition: security record
 			go metrics.PushShieldMetrics("bots")
-				http.Error(w, "Access denied: Bots are not allowed.", http.StatusForbidden)
-				return
-			}
+			http.Error(w, "Access denied: Bots are not allowed.", http.StatusForbidden)
+			return
 		}
 
 		// If no bot user agent is detected, pass the request to the next handler

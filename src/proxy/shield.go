@@ -235,7 +235,7 @@ func finishRequest(wrapper *SmartResponseWriterWrapper, route utils.ProxyRouteCo
 		level = "warning"
 	}
 
-	utils.TriggerEvent(
+	SampledEvent( // Fork addition: one row per minute and kind, see fork_event_sample.go (upstream: utils.TriggerEvent, one row per request)
 		"cosmos.proxy.response."+route.Name+"."+statusText,
 		"Proxy Response "+route.Name+" "+statusText,
 		level,

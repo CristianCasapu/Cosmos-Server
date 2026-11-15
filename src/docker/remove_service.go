@@ -479,6 +479,9 @@ func CleanupExitedDeploymentContainers() {
 			name = c.Names[0]
 		}
 		deployment := c.Labels[DeploymentLabel]
+		if labelFromImage(c.ImageID, DeploymentLabel, deployment) { // Fork addition: an image cannot ask for its own removal, see fork_image_labels.go
+			continue
+		}
 
 		insp, ierr := DockerClient.ContainerInspect(DockerContext, c.ID)
 		if ierr != nil {

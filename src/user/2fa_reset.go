@@ -48,6 +48,11 @@ func Delete2FA(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Fork addition: only an account whose permissions the caller holds itself, see fork_manage_target.go
+	if refuseStrongerAccount(w, req, userInBase) {
+		return
+	}
+
 	toSet := map[string]interface{}{
 		"Was2FAVerified": false,
 		"MFAKey": "",

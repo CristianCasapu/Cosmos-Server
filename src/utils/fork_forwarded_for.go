@@ -140,15 +140,11 @@ func forwardedClient(req *http.Request, trusted func(ip string) bool) string {
 
 	peer, _ := SplitIP(req.RemoteAddr)
 	if edge(peer) {
-		if !shielded {
-			return ""
+		visitor := edgeVisitor(req, cf, shielded)
+		if visitor != "" {
+			noteEdgeClient(visitor) // Fork addition: edge blocks at Cloudflare, see fork_edge.go
 		}
-		if OriginPullMode(cf) == OriginPullEnforce && !OriginPullVerified(cf, req.TLS) {
-			// not shown to be Cloudflare's proxy: the guard refuses it, and
-			// nothing it says about the visitor counts
-			return ""
-		}
-		return publicVisitor(req.Header.Values("CF-Connecting-IP"))
+		return visitor
 	}
 
 	entries := []string{}
@@ -197,4 +193,20 @@ func publicVisitor(values []string) string {
 		return ""
 	}
 	return addr.String()
+}
+
+// edgeVisitor is the visitor Cloudflare's proxy reports for a request whose
+// peer is in Cloudflare's ranges: "" unless the hostname is shielded, the
+// connection is shown to be Cloudflare's proxy while origin pulls are
+// enforced, and the header holds one public address.
+func edgeVisitor(req *http.Request, cf ForkCloudflareConfig, shielded bool) string {
+	if !shielded {
+		return ""
+	}
+	if OriginPullMode(cf) == OriginPullEnforce && !OriginPullVerified(cf, req.TLS) {
+		// not shown to be Cloudflare's proxy: the guard refuses it, and
+		// nothing it says about the visitor counts
+		return ""
+	}
+	return publicVisitor(req.Header.Values("CF-Connecting-IP"))
 }

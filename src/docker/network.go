@@ -279,7 +279,7 @@ func IsConnectedToASecureCosmosNetwork(self types.ContainerJSON, containerConfig
 		return false, nil, false
 	}
 
-	if(!HasLabel(containerConfig, "cosmos-network-name")) {
+	if(!HasLabel(containerConfig, "cosmos-network-name") || adminLabel(containerConfig, "cosmos-network-name") == "") { // Fork addition: not when it comes from the image, see fork_image_labels.go
 		return false, nil, false
 	}
 

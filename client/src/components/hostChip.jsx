@@ -62,10 +62,10 @@ const HostChip = ({route, settings, style, ellipsis}) => {
     }}
     onClick={() => {
       // Fork addition: with the port Cosmos is on (upstream left it out for a URL with a host of its own)
-      window.open(routeLink(route, window.location), '_blank');
+      window.open(routeLink(route, window.location), '_blank', 'noopener,noreferrer'); // Fork addition: the app gets no handle on the panel's tab
     }}
     onDelete={settings ? () => {
-      window.open('/cosmos-ui/config-url/'+route.Name, '_blank');
+      window.open('/cosmos-ui/config-url/'+route.Name, '_blank', 'noopener,noreferrer');
     } : null}
     deleteIcon={settings ? <SettingOutlined /> : null}
   />

@@ -48,8 +48,18 @@ func cleanDirectory(label string, value string) (string, error) {
 	if clean == "/" {
 		return "", fmt.Errorf("%s: choose a folder, not the root of the disk", label)
 	}
+	for _, system := range systemFolders {
+		if clean == system || inside(clean, system) {
+			return "", fmt.Errorf("%s: %s is made by the system while it runs (devices, processes, kernel settings) and holds no files to keep; choose another folder", label, clean)
+		}
+	}
 	return clean, nil
 }
+
+// systemFolders hold what the kernel and the running system make up as they
+// go, not files: nothing in them can be backed up, stored or restored.
+// /var/run is the older name of /run.
+var systemFolders = []string{"/proc", "/sys", "/dev", "/run", "/var/run"}
 
 // cleanExclude checks one exclusion and returns it in its plain form (no
 // trailing slash). An exclusion is a glob pattern as path.Match reads it,
