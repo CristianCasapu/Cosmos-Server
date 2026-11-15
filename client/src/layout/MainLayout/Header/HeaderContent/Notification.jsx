@@ -183,7 +183,9 @@ const Notification = () => {
                             options: {
                                 offset: [matchesXs ? -5 : 0, 9]
                             }
-                        }
+                        },
+                        // Fork addition: the page's 16 px margin on both sides (it touched the right edge on a phone)
+                        { name: 'preventOverflow', options: { padding: 16 } }
                     ]
                 }}
             >
@@ -197,6 +199,11 @@ const Notification = () => {
                                 maxWidth: 420,
                                 [theme.breakpoints.down('md')]: {
                                     maxWidth: 285
+                                },
+                                // Fork addition: on a phone the whole width but the page's margins (was 285 px, a message got two narrow lines)
+                                [theme.breakpoints.down('sm')]: {
+                                    width: 'calc(100vw - 32px)',
+                                    maxWidth: 'calc(100vw - 32px)',
                                 }
                             }}
                         >
@@ -244,7 +251,11 @@ const Notification = () => {
                                                         </Typography>
                                                         <div style={{ 
                                                             overflow: 'hidden',
-                                                            maxHeight: '48px',
+                                                            // Fork addition: three lines ending in "…" (was cut in the middle of the second line at 48 px)
+                                                            display: '-webkit-box',
+                                                            WebkitLineClamp: 3,
+                                                            WebkitBoxOrient: 'vertical',
+                                                            overflowWrap: 'anywhere',
                                                             borderLeft: '1px solid grey',
                                                             paddingLeft: '8px',
                                                             margin: '2px'
