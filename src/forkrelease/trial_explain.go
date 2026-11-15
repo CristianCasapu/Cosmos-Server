@@ -66,6 +66,10 @@ func purposeWords(trial Trial) string {
 }
 
 // quote makes a word for sh.
+// here quotes a path relative to the install folder for the script: with
+// "./" in front, a name that starts with "-" is never taken for an option.
+func here(path string) string { return quote("./" + path) }
+
 func quote(word string) string {
 	return "'" + strings.ReplaceAll(word, "'", `'\''`) + "'"
 }
@@ -102,28 +106,28 @@ func restoreScript(folder string, trial Trial, manifest keptManifest) string {
 	}
 	for _, f := range manifest.Replaced {
 		if dir := filepath.Dir(f.Path); dir != "." {
-			lines = append(lines, "mkdir -p "+quote(dir))
+			lines = append(lines, "mkdir -p "+here(dir))
 		}
 		kept := filepath.Join(previousFolder, f.Path)
 		lines = append(lines,
-			"cp "+quote(kept)+" "+quote(f.Path+".restore"),
-			"echo "+quote(f.SHA256+"  "+f.Path+".restore")+" | sha256sum -c --quiet",
-			"chmod "+fmt.Sprintf("%04o", f.Mode&0777)+" "+quote(f.Path+".restore"),
-			"mv -f "+quote(f.Path+".restore")+" "+quote(f.Path))
+			"cp "+here(kept)+" "+here(f.Path+".restore"),
+			"echo "+quote(f.SHA256+"  ./"+f.Path+".restore")+" | sha256sum -c --quiet",
+			"chmod "+fmt.Sprintf("%04o", f.Mode&0777)+" "+here(f.Path+".restore"),
+			"mv -f "+here(f.Path+".restore")+" "+here(f.Path))
 	}
 	removed := map[string]bool{}
 	for _, rel := range append(append([]string{}, manifest.Added...), pendingLauncher, "cosmos-launcher-arm64.updated") {
 		if !removed[rel] {
 			removed[rel] = true
-			lines = append(lines, "rm -f "+quote(rel))
+			lines = append(lines, "rm -f "+here(rel))
 		}
 	}
 	dirs := append([]string{}, manifest.AddedDirs...)
 	sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
 	for _, dir := range dirs {
-		lines = append(lines, "rmdir "+quote(dir)+" 2>/dev/null || true")
+		lines = append(lines, "rmdir "+here(dir)+" 2>/dev/null || true")
 	}
-	lines = append(lines, "rm -f "+quote(StagedZip)+" "+quote(StagedSignature))
+	lines = append(lines, "rm -f "+here(StagedZip)+" "+here(StagedSignature))
 	if trial.Purpose == purposeRollback && trial.NewVersion != trial.PreviousVersion {
 		lines = append(lines, "grep -qx "+quote(trial.NewVersion)+" "+quote(failedName)+" 2>/dev/null || echo "+quote(trial.NewVersion)+" >> "+quote(failedName))
 	}
