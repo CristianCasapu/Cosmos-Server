@@ -69,8 +69,8 @@ func reachWatchState(d utils.NotificationDetails) *contextState {
 			state.Sentence = line("notif.state.reach.unknown", "at", last)
 		}
 	}
-	if st.Router != "" {
-		state.Facts = append(state.Facts, fact("notif.fact.reach.router", st.Router))
+	if st.Outage != nil && st.Outage.Router != "" {
+		state.Facts = append(state.Facts, fact("notif.fact.reach.router", st.Outage.Router))
 	}
 	return state
 }

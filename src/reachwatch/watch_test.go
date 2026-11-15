@@ -534,3 +534,24 @@ func TestStatusAndOutside(t *testing.T) {
 		t.Errorf("%+v", o)
 	}
 }
+
+// TestAnOutageCarriesOnlyItsOwnRouterAnswer: the router module's answer to
+// an earlier outage is not told with a later one.
+func TestAnOutageCarriesOnlyItsOwnRouterAnswer(t *testing.T) {
+	r := newRig(t, "example.org")
+	r.upnpOn = true
+	r.start()
+	down(r, "example.org", "connect", "522")
+	r.set("example.org", StatusOK, "seen", "")
+	r.advance(2 * time.Minute)
+	if len(r.backs) != 1 {
+		t.Fatalf("not back: %+v", r.backs)
+	}
+	r.upnpOn = false
+	r.advance(10 * time.Minute)
+	down(r, "example.org", "dnsNotFound", "")
+	last := r.downs[len(r.downs)-1]
+	if last.Cause != "dnsNotFound" || last.Asked || last.Router != "" {
+		t.Fatalf("the second outage: %+v", last)
+	}
+}

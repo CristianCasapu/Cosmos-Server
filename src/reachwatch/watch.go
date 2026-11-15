@@ -495,8 +495,11 @@ func (w *watcher) settle(now time.Time, p Plan) {
 	sort.SliceStable(names, func(i, j int) bool { return names[i] == primary.Host && names[j] != primary.Host })
 	switch {
 	case w.outage == nil:
-		w.outage = &Outage{Since: since, Cause: primary.Cause, Code: primary.Code, Names: names,
-			Asked: !w.upnpAsked.IsZero() && !w.upnpAsked.Before(since), Router: w.router}
+		asked := !w.upnpAsked.IsZero() && !w.upnpAsked.Before(since)
+		w.outage = &Outage{Since: since, Cause: primary.Cause, Code: primary.Code, Names: names, Asked: asked}
+		if asked {
+			w.outage.Router = w.router // what the router module said about this outage, not an earlier one
+		}
 		w.outage.Thread = threadFor(primary.Cause)
 		w.downRound = 0
 		w.nextRound = now.Add(jitter(w.pause(p)))

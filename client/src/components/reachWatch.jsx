@@ -161,7 +161,7 @@ export const ReachWatchCard = () => {
         {data.nextRound && <Typography variant="caption" color="textSecondary">{say(t, [...TEXT.nextRound, { time: clock(data.nextRound) }])}</Typography>}
       </Stack>}
 
-      {data.router && data.routerAt && <Typography variant="body2" sx={wrap} data-reach-watch-router>
+      {data.outage && data.router && data.routerAt && <Typography variant="body2" sx={wrap} data-reach-watch-router>
         {say(t, [...TEXT.router, { time: clock(data.routerAt), answer: data.router }])}
       </Typography>}
       {data.seenAs && <Typography variant="caption" color="textSecondary" sx={wrap}>{say(t, [...TEXT.seenAs, { address: data.seenAs }])}</Typography>}
