@@ -182,6 +182,7 @@ func MajorError(message string, err error) {
 		Message:   message + " : " + errStr,
 		Vars:      "",
 		Level:     "error",
+		Fork:      majorErrorInfo(message, errStr), // Fork addition: a kind, a plain sentence and a link, see fork_major_error.go
 	})
 }
 
