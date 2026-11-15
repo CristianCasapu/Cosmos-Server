@@ -103,7 +103,7 @@ const ForkCarousel = ({ children, animation = 'slide', autoPlay = true, interval
         {count > 1 && arrow('next')}
       </Box>
       {count > 1 && (
-        <Box sx={{ mt: '10px', display: 'flex', justifyContent: 'center', gap: '4px' }}>
+        <Box sx={{ mt: { xs: 0, sm: '5px' }, display: 'flex', justifyContent: 'center' }}>
           {slides.map((_, i) => (
             <Box
               key={i}
@@ -113,12 +113,17 @@ const ForkCarousel = ({ children, animation = 'slide', autoPlay = true, interval
               aria-current={i === current ? 'true' : undefined}
               onClick={() => setIndex(i)}
               sx={{
-                width: 15, height: 15, p: 0, border: 0, borderRadius: '50%', cursor: 'pointer',
-                // the same greys as the old carousel: seen on the Market's dark picture and on a plain page
-                bgcolor: i === current ? 'grey.800' : 'grey.500',
-                transition: 'background-color 200ms',
-                '&:hover': { bgcolor: i === current ? 'grey.800' : 'grey.700' },
-                '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
+                // a 15 px dot inside a target of 44 px on a phone (24 px with a pointer)
+                width: { xs: 44, sm: 24 }, height: { xs: 44, sm: 24 }, p: 0, border: 0, borderRadius: '50%', cursor: 'pointer',
+                bgcolor: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                '&::before': {
+                  content: '""', width: 15, height: 15, borderRadius: '50%',
+                  // the same greys as the old carousel: seen on the Market's dark picture and on a plain page
+                  bgcolor: i === current ? 'grey.800' : 'grey.500',
+                  transition: 'background-color 200ms',
+                },
+                '&:hover::before': { bgcolor: i === current ? 'grey.800' : 'grey.700' },
+                '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: -4 },
               }}
             />
           ))}
