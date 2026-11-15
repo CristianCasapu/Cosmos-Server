@@ -65,16 +65,18 @@ runs:
     # checksum list is signed with the key CF8F18F2844575973F79D4E191A6868BD3F7A907;
     # Nebula publishes SHASUM256.txt). Nebula stays on 1.9: from 1.10 on,
     # nebula-cert prints its JSON as a list and signs v2 certificates by
-    # default, which Constellation's code does not read.
+    # default, which Constellation's code does not read. restic stays on
+    # 0.18: 0.19 stops with an error when neither HOME nor XDG_CACHE_HOME
+    # is set, which is how a server installed as a system service runs it.
     - name: Fetch Nebula and restic from their own releases
       shell: bash
       env:
         NEBULA_VERSION: v1.9.7
         NEBULA_AMD64_SHA256: b748bd78b81e8a484ec7e35ad1c620807397c978780e8322d2148b87041e6525
         NEBULA_ARM64_SHA256: 009d98724cb430d911cdc53ea9e16373ff7f3d98ada82ec1c09796e6168cddac
-        RESTIC_VERSION: 0.19.1
-        RESTIC_AMD64_SHA256: f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c
-        RESTIC_ARM64_SHA256: a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465
+        RESTIC_VERSION: 0.18.1
+        RESTIC_AMD64_SHA256: 680838f19d67151adba227e1570cdd8af12c19cf1735783ed1ba928bc41f363d
+        RESTIC_ARM64_SHA256: 87f53fddde38764095e9c058a3b31834052c37e5826d2acf34e18923c006bd45
       run: |
         mkdir thirdparty
         fetch() { # url, file, sha256
