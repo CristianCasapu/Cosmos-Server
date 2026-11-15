@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import { Stack, CircularProgress, Card, Typography, useMediaQuery, Chip, Button } from '@mui/material';
 import { CloudServerOutlined, CalendarOutlined, FolderOutlined, ReloadOutlined, InfoCircleOutlined, CloudOutlined, UpCircleOutlined, DeleteOutlined } from '@ant-design/icons';
 import * as API from '../../api';
@@ -66,7 +66,7 @@ export default function BackupOverview({backupName}) {
 
   if (loading) {
     return (
-      <Stack spacing={3} alignContent={'center'} justifyContent={'center'} alignItems={'center'}>
+      <Stack spacing={3} sx={{ alignContent: 'center', justifyContent: 'center', alignItems: 'center' }}>
         <CircularProgress />
       </Stack>
     );
@@ -103,9 +103,9 @@ export default function BackupOverview({backupName}) {
   return (
     <Stack spacing={3} className="p-4" style={{ maxWidth: '1000px', margin: 'auto' }}>
       <MainCard name={backup.Name} title={<div>{backup.Name}</div>}>
-        <Stack spacing={2} direction={isMobile ? 'column' : 'row'} alignItems={isMobile ? 'center' : 'flex-start'}>
+        <Stack spacing={2} direction={isMobile ? 'column' : 'row'} sx={{ alignItems: isMobile ? 'center' : 'flex-start' }}>
           {/* Left Column */}
-          <Stack spacing={2} direction="column" justifyContent="center" alignItems="center">
+          <Stack spacing={2} direction="column" sx={{ justifyContent: 'center', alignItems: 'center' }}>
             <div style={{ position: 'relative' }}>
               <CloudServerOutlined style={{ fontSize: '128px' }} />
             </div>
@@ -162,7 +162,7 @@ export default function BackupOverview({backupName}) {
             <strong><CloudServerOutlined /> {t("mgmt.backup.latestSnap")}</strong>
             <div>
               {snapshots.slice(0, 5).map((snapshot, index) => (
-                <Stack key={index} direction="row" spacing={2} alignItems="center" justifyContent="space-between">
+                <Stack key={index} direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
                   <Chip
                     key={index}
                     label={<><strong>{new Date(snapshot.time).toLocaleString()} </strong>{isMobile ? '' : ` - (${snapshot.short_id	 || 'Unknown'})`}</>}

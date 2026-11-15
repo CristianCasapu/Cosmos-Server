@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 
 // ==============================|| ANIMATION BUTTON ||============================== //
 
-export default function AnimateButton({ children, type }) {
+export default function AnimateButton({ children, type = 'scale' }) { // Fork addition: the default here (React 19 ignores defaultProps on function components)
     switch (type) {
         case 'rotate': // only available in paid version
         case 'slide': // only available in paid version
@@ -22,8 +22,4 @@ export default function AnimateButton({ children, type }) {
 AnimateButton.propTypes = {
     children: PropTypes.node,
     type: PropTypes.oneOf(['slide', 'scale', 'rotate'])
-};
-
-AnimateButton.defaultProps = {
-    type: 'scale'
 };

@@ -5,7 +5,7 @@
 // events and the server's log lines around that moment. Its own address
 // (/cosmos-ui/notifications/<id>, or /r/<ref> from a Telegram message).
 import * as React from 'react';
-import { Link as RouterLink, useParams } from 'react-router-dom';
+import { Link as RouterLink, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import {
   Alert, Box, Button, Chip, CircularProgress, Divider, Link, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography, useMediaQuery,
@@ -52,7 +52,7 @@ const Step = ({ step, t }) => {
       }).catch(() => {}).finally(() => setBusy(false));
     }
   };
-  return <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }} justifyContent="space-between" sx={{ py: 0.75 }}>
+  return <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between', py: 0.75 }}>
     <Typography variant="body2" sx={{ ...wrapAnywhere, flex: 1 }}>{text}</Typography>
     {knownAction(step.action) && <Button variant="contained" onClick={run} disabled={busy} sx={{ ...touch, flexShrink: 0 }}
       startIcon={busy ? <CircularProgress size={14} /> : null}>{label || t(...TEXT.checkNow)}</Button>}
@@ -222,11 +222,11 @@ const NotificationDetails = () => {
     {back}
     <MainCard sx={{ minWidth: 0 }}>
       <Stack spacing={1.5}>
-        <Stack direction="row" spacing={1.5} alignItems="flex-start">
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
           <LevelIcon level={item.level} size={40} />
           <Box sx={{ minWidth: 0, flex: 1 }}>
             <Typography variant="h3" component="h1" sx={wrapAnywhere}>{title}</Typography>
-            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center" sx={{ mt: 1 }}>
+            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mt: 1 }}>
               <Chip size="small" color={item.level} variant="outlined" label={t(...LEVEL_TEXT[item.level])} />
               {item.resolved
                 ? <Chip size="small" color="success" label={t(TEXT.resolvedAt[0], TEXT.resolvedAt[1], { when: formatTime(item.resolved) })} />

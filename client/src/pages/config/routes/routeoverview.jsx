@@ -38,15 +38,16 @@ const RouteOverview = ({ routeConfig, refreshConfig, readOnly = false }) => {
     });
   }
 
-  return <div style={{ maxWidth: '1000px', width: '100%', margin: 'auto' }}>
+  return (
+    <div style={{ maxWidth: '1000px', width: '100%', margin: 'auto' }}>
     {routeConfig && <>
       <MainCard name={routeConfig.Name} title={<div>
         {routeConfig.Name} &nbsp;&nbsp;
         {!readOnly && !confirmDelete && (<Tooltip title={t('global.delete', 'Delete')}><Chip label={<DeleteOutlined />} onClick={() => setConfirmDelete(true)}/></Tooltip>)}
         {!readOnly && confirmDelete && (<Tooltip title={t('tooltip.confirmDelete', 'Click again to confirm')}><Chip label={<CheckOutlined />} color="error" onClick={(event) => deleteRoute(event)}/></Tooltip>)}
       </div>}>
-        <Stack spacing={2} direction={isMobile ? 'column' : 'row'} alignItems={isMobile ? 'center' : 'flex-start'}>
-          <Stack spacing={1} alignItems="center">
+        <Stack spacing={2} direction={isMobile ? 'column' : 'row'} sx={{ alignItems: isMobile ? 'center' : 'flex-start' }}>
+          <Stack spacing={1} sx={{ alignItems: 'center' }}>
             <ImageWithPlaceholder className="loading-image" alt="" src={routeConfig.Icon || getFaviconURL(routeConfig)} width="128px" />
             <UploadButtons
               accept='.jpg, .png, .gif, .jpeg, .webp, .bmp, .avif, .tiff, .svg'
@@ -101,7 +102,8 @@ const RouteOverview = ({ routeConfig, refreshConfig, readOnly = false }) => {
         </Stack>
       </MainCard>
     </>}
-  </div>;
+    </div>
+  );
 }
 
 export default RouteOverview;

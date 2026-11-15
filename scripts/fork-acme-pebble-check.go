@@ -329,7 +329,7 @@ func addRoute(name string, host string) {
 }
 
 func restartProcess() {
-	api("GET", "/restart", nil)
+	api("POST", "/restart", nil) // POST only since the audit (src/fork_post_only.go): a GET answers 405 and restarts nothing
 	time.Sleep(4 * time.Second)
 	serverUp()
 	login()
@@ -535,13 +535,20 @@ func main() {
 	uncovered := handshake("c.d.example.org", roots)
 	expect(uncovered.err != "" && !uncovered.trusted && uncovered.serial != "", "c.d.example.org is answered, with a certificate browsers do not trust", uncovered.issuer)
 	expect(hostOf(certStatus(), "c.d.example.org")["trusted"] == false, "the panel says so for c.d.example.org", hostOf(certStatus(), "c.d.example.org"))
-	_, notifications, _ := api("GET", "/notifications", nil)
+	// the notice is written by the order's goroutine: asked a few times, not once
 	told := ""
-	for _, entry := range list(notifications, "data") {
-		if message := text(entry, "Message"); strings.Contains(message, "couldn't get the TLS certificate of example.org") {
-			told = message
+	// The notifications keep the server's own sentence as the raw text of their details
+	// (/notifications/list, then /notifications/item?id=...: src/fork_notifications.go).
+	until("the administrators' notice about the refused token", 30, func() bool {
+		_, notifications, _ := api("GET", "/notifications/list?limit=100", nil)
+		for _, entry := range list(notifications, "data", "items") {
+			_, details, _ := api("GET", fmt.Sprintf("/notifications/item?id=%v", at(entry, "id")), nil)
+			if raw := text(details, "data", "raw"); strings.Contains(raw, "couldn't get the TLS certificate of example.org") {
+				told = raw
+			}
 		}
-	}
+		return strings.Contains(told, "DNS provider refused the credentials")
+	})
 	expect(strings.Contains(told, "DNS provider refused the credentials"), "the administrators are told why", told)
 	expect(!strings.Contains(told, goodToken), "without the token")
 

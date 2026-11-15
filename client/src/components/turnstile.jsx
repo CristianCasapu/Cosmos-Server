@@ -21,7 +21,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { CheckCircleOutlined, CloseCircleOutlined, DownOutlined, ExclamationCircleOutlined, InfoCircleOutlined, UpOutlined } from '@ant-design/icons';
 import { useTheme } from '@mui/material/styles';
 import { useTranslation } from 'react-i18next';
@@ -249,7 +249,7 @@ const TryIt = ({ status, onAnswer, busy, setBusy }) => {
     </Button>}
     {open && <Stack spacing={1} data-turnstile-trial ref={trial}>
       <TurnstileBox siteKey={status.siteKey} form="test" appearance="always" resetKey={resetKey} onToken={send} onState={setWidgetState} />
-      <Typography variant="caption" color={['loading', 'checking', 'ready'].includes(widgetState) ? 'textSecondary' : 'error'} role="status" aria-live="polite" sx={{ overflowWrap: 'anywhere' }}>
+      <Typography variant="caption" role="status" aria-live="polite" sx={{ color: ['loading', 'checking', 'ready'].includes(widgetState) ? 'textSecondary' : 'error', overflowWrap: 'anywhere' }}>
         {say(t, statusText(widgetState, typeof window !== 'undefined' ? window.location.hostname : ''))}
       </Typography>
       {widgetState === 'policy' && <Button size="small" variant="outlined" sx={{ alignSelf: 'flex-start' }} onClick={() => window.location.reload()}>
@@ -347,7 +347,7 @@ export const TurnstileCard = () => {
         {t('mgmt.turnstile.intro', 'Cloudflare\'s Turnstile tells people from programs. Switched on, the sign-in, "forgot password" and invitation pages ask a visitor from the internet to pass it before the server reads the form: a program guessing passwords is turned away before any password is looked at. The visitor\'s browser then loads a script from Cloudflare.')}
       </Typography>
 
-      {state && <Stack direction="row" spacing={1} alignItems="flex-start" data-turnstile-state={status.active ? 'on' : (status.confirmed ? 'ready' : (status.siteKey ? 'saved' : 'off'))}>
+      {state && <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }} data-turnstile-state={status.active ? 'on' : (status.confirmed ? 'ready' : (status.siteKey ? 'saved' : 'off'))}>
         <LevelIcon level={state[0]} />
         <Typography variant="body2" sx={{ overflowWrap: 'anywhere', minWidth: 0 }}>{say(t, state[1])}</Typography>
       </Stack>}
@@ -384,7 +384,7 @@ export const TurnstileCard = () => {
             <Stack spacing={1}>
               <Typography variant="subtitle1">{t('mgmt.turnstile.try.title', 'Try it, then switch it on')}</Typography>
               {!status.confirmed && <TryIt status={status} onAnswer={(res) => onAnswer(res, t('mgmt.turnstile.try.passed', 'The check passed with these keys: it can be switched on.'))} busy={busy} setBusy={setBusy} />}
-              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
+              <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
                 <LoadingButton variant="contained" size="small" loading={busy === 'enable'} disabled={!!busy || !status.confirmed} onClick={() => act('enable')} data-turnstile-action="enable">
                   {t('mgmt.turnstile.enable', 'Switch on')}
                 </LoadingButton>
@@ -396,7 +396,7 @@ export const TurnstileCard = () => {
             </Stack>
           </>}
 
-          {status.active && <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+          {status.active && <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
             <LoadingButton variant="outlined" size="small" loading={busy === 'disable'} disabled={!!busy} onClick={() => act('disable')} data-turnstile-action="disable">
               {t('mgmt.turnstile.disable', 'Switch off')}
             </LoadingButton>

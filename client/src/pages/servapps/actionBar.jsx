@@ -163,10 +163,9 @@ const GetActions = ({
       return (!isStack || !action.hideStack) && (el.type === PermissionGuard ? React.cloneElement(el, {}, <Tooltip title={action.t}>{el.props.children}</Tooltip>) : el)
     })}
 
-    {isUpdating && <Stack sx={{
+    {isUpdating && <Stack sx={{ justifyContent: 'center',
       width: '100%', height: '44px',
     }}
-    justifyContent={'center'} 
     ><LinearProgress /></Stack>}
   </>
 }

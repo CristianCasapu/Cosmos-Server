@@ -9,24 +9,6 @@ GO-2026-4887  docker/docker v26: daemon-side; no fix in this module (it moved to
 GO-2025-3553  golang-jwt v3: only used by upstream's licence code (src/utils/cloud.go), which the fork never changes
 
 # npm: in the bundle
-GHSA-wrjc-x8rr-h8h6  react-router 6: open redirect via a backslash in <Link>/navigate; the panel never passes an outside path to them; fixed only in 7.18
-GHSA-337j-9hxr-rhxg  react-router 6: server-side rendering only; the panel is a client-only page
-GHSA-x7hr-w5r2-h6wg  prismjs 1.27 nested in react-syntax-highlighter 15 (refractor): DOM clobbering; refractor runs Prism without the DOM
-
-# npm: build tools only (never in the bundle; the dev server is never run by the build)
-GHSA-67mh-4wv8-2f99  esbuild <=0.24.2 (with vite 4): dev server only
-GHSA-4w7w-66w2-5vf9  vite 4: dev server only
-GHSA-587h-7wmj-h5pm  vite 4: dev server (launch-editor, Windows)
-GHSA-698v-4r3x-3vcv  vite 4: dev server (launch-editor, Windows)
-GHSA-93m4-6634-74q7  vite 4: dev server (Windows)
-GHSA-9jrq-w75r-8gcw  vite 4: dev server middleware
-GHSA-c27g-q93r-2cwf  vite 4: dev server (launch-editor, Windows)
-GHSA-fx2h-pf6j-xcff  vite 4: dev server (Windows)
-GHSA-g4jq-h2w9-997c  vite 4: dev server
-GHSA-jqfw-vq24-v9c3  vite 4: dev server
-GHSA-r825-w8mm-5pxw  vite 4: dev server (launch-editor)
-GHSA-rq7h-c2jc-7f22  vite 4: dev server
-GHSA-v6wh-96g9-6wx3  vite 4: dev server (launch-editor, Windows)
 
 # npm: not run at all
 GHSA-w5hq-g745-h8pq  uuid 8 in @actions/core of upstream's sponsors script (sponsors.js), which nothing runs

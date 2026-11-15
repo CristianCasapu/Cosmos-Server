@@ -27,7 +27,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { PlusOutlined, SaveOutlined, SyncOutlined, UndoOutlined, UnlockOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 
@@ -216,7 +216,7 @@ const Fail2banPanel = () => {
   const field = (name, key, label, valueField, unitField) => {
     const id = 'fail2ban-' + name + '-' + key;
     const problem = problems[name + '.' + key];
-    return <Grid item xs={12} sm={4}>
+    return <Grid size={{ xs: 12, sm: 4 }}>
       <Stack spacing={1}>
         <InputLabel htmlFor={id}>{label}</InputLabel>
         <Stack direction="row" spacing={1}>
@@ -258,12 +258,12 @@ const Fail2banPanel = () => {
     <Stack spacing={2}>
       <div>
         <Typography variant="h5">{t('fail2ban.title', 'Fail2ban')}</Typography>
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
           {t('fail2ban.intro', 'Fail2ban runs on the server itself. It reads the security log of Cosmos and the server\'s SSH log, and bans an address at the firewall after repeated failed logins, scans or abuse: a banned address reaches nothing on the server, neither Cosmos nor the apps nor SSH, until the ban ends.')}
         </Typography>
       </div>
 
-      {state === 'loading' && !loadError && <Stack direction="row" spacing={1} alignItems="center">
+      {state === 'loading' && !loadError && <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
         <CircularProgress size={18} />
         <Typography variant="body2">{t('fail2ban.loading', 'Asking the server about Fail2ban...')}</Typography>
       </Stack>}
@@ -310,7 +310,7 @@ const Fail2banPanel = () => {
         {t(note[0], note[1], note[2])}
       </Alert>)}
 
-      {state === 'active' && status.clientForwarded && status.clientIP && <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+      {state === 'active' && status.clientForwarded && status.clientIP && <Typography variant="body2" sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }}>
         {t(SELF_FORWARDED[0], SELF_FORWARDED[1], { ip: status.clientIP })}
       </Typography>}
 
@@ -332,8 +332,8 @@ const Fail2banPanel = () => {
 
       {state === 'active' && <div>
         <Typography variant="h5" style={{ marginBottom: '10px' }}>{t('fail2ban.bans.title', 'Banned addresses')}</Typography>
-        {bans.length === 0 && <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
-          <Typography variant="body2" color="text.secondary">{t('fail2ban.bans.none', 'No address is banned at the moment.')}</Typography>
+        {bans.length === 0 && <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>{t('fail2ban.bans.none', 'No address is banned at the moment.')}</Typography>
           <Button variant="outlined" startIcon={<SyncOutlined />} onClick={refresh}>{t('global.refresh')}</Button>
         </Stack>}
         {bans.length > 0 && <PrettyTableView
@@ -381,7 +381,7 @@ const Fail2banPanel = () => {
 
       {status && status.installed && form && <MainCard title={t('fail2ban.jails.title', 'Jails and their thresholds')}>
         <Stack spacing={2}>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
             {t('fail2ban.jails.intro', 'A jail watches one kind of misbehaviour. An address that reaches the number of tries within the time they are counted over is banned for the length of the ban.')}
           </Typography>
           {!status.configInstalled && <Alert severity="info">
@@ -392,20 +392,20 @@ const Fail2banPanel = () => {
             {position > 0 && <Divider />}
             {/* the wrapper keeps the Stack from resetting the margins a Grid container needs */}
             <div><Grid container spacing={2}>
-              <Grid item xs={12} md={5}>
+              <Grid size={{ xs: 12, md: 5 }}>
                 <Stack spacing={0.5}>
-                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
                     <Typography variant="subtitle1"><strong>{jailLabel(jail.name)}</strong></Typography>
                     {status.running && <Chip size="small" color={jail.loaded ? 'success' : 'default'} label={jail.loaded ? t('fail2ban.jail.running', 'running') : t('fail2ban.jail.off', 'off')} />}
                   </Stack>
-                  <Typography variant="body2" color="text.secondary">{JAILS[jail.name] ? tr(JAILS[jail.name].watches) : ''}</Typography>
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>{JAILS[jail.name] ? tr(JAILS[jail.name].watches) : ''}</Typography>
                   <Typography variant="body2">{thresholdText(jail)}</Typography>
-                  {jail.loaded && <Typography variant="caption" color="text.secondary">
+                  {jail.loaded && <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                     {t('fail2ban.jail.counts', 'Banned now: {{now}}. Banned since Fail2ban started: {{total}}. Tries being counted: {{failed}}.', { now: jail.currentlyBanned, total: jail.totalBanned, failed: jail.currentlyFailed })}
                   </Typography>}
                 </Stack>
               </Grid>
-              <Grid item xs={12} md={7}>
+              <Grid size={{ xs: 12, md: 7 }}>
                 <Grid container spacing={2}>
                   {field(jail.name, 'maxRetry', t('fail2ban.field.tries', 'Tries'), 'maxRetry')}
                   {field(jail.name, 'findTime', t('fail2ban.field.findTime', 'Counted over'), 'findValue', 'findUnit')}
@@ -418,10 +418,10 @@ const Fail2banPanel = () => {
           <Divider />
           <Stack spacing={1}>
             <Typography variant="subtitle1"><strong>{t('fail2ban.ignore.title', 'Addresses that are never banned')}</strong></Typography>
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
               {t('fail2ban.ignore.intro', 'Whatever comes from these addresses and networks is never banned by the jails above. The server itself is always on the list. Keep your home network here, and add the address of any other place you manage the server from.')}
             </Typography>
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }} useFlexGap>
               {form.ignoreIP.map((entry) => <Chip
                 key={entry}
                 label={entry}
@@ -429,7 +429,7 @@ const Fail2banPanel = () => {
                 color={status.clientIP && neverBanned([entry], status.clientIP) ? 'success' : 'default'}
                 onDelete={canSave ? () => removeEntry(entry) : undefined}
               />)}
-              {form.ignoreIP.length === 0 && <Typography variant="body2" color="text.secondary">{t('fail2ban.ignore.none', 'Only the server itself.')}</Typography>}
+              {form.ignoreIP.length === 0 && <Typography variant="body2" sx={{ color: 'text.secondary' }}>{t('fail2ban.ignore.none', 'Only the server itself.')}</Typography>}
             </Stack>
             {cloudflareRanges && <Alert severity={cloudflareRanges[0]} data-fail2ban-cloudflare={cloudflareRanges[0]}
               sx={{ overflowWrap: 'anywhere', '& .MuiAlert-message': { minWidth: 0 } }}>
@@ -439,7 +439,7 @@ const Fail2banPanel = () => {
               {t('fail2ban.ignore.others', 'Fail2ban\'s list also holds {{n}} entries that are not addresses (host names). They are not shown, and saving here removes them.', { n: status.otherIgnored })}
             </FormHelperText>}
             <InputLabel htmlFor="fail2ban-new-entry">{t('fail2ban.ignore.add.label', 'Address or network')}</InputLabel>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems="stretch">
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: 'stretch' }}>
               <OutlinedInput
                 id="fail2ban-new-entry"
                 value={newEntry}
@@ -464,7 +464,7 @@ const Fail2banPanel = () => {
 
           {saveError && <Alert severity="error">{saveError}</Alert>}
           {saved && !dirty && <Alert severity="success">{t('fail2ban.saved', 'Saved. Fail2ban is using the new settings; addresses that are banned stay banned until their ban ends.')}</Alert>}
-          {canSave && <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          {canSave && <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }} useFlexGap>
             <PermissionGuard permission={PERM_ADMIN} alwaysShow>
               <LoadingButton variant="contained" startIcon={<SaveOutlined />} loading={saving} disabled={!dirty} onClick={save}>
                 {t('global.saveAction')}

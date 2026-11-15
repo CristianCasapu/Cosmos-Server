@@ -99,7 +99,7 @@ const CronHelp = ({ formik, name, disabled }) => {
       <Typography variant="caption" color="textSecondary">
         {t('mgmt.cron.presets.title', 'Common schedules (click to use one):')}
       </Typography>
-      <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+      <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1}>
         {CRON_PRESETS.map((preset) => {
           const picked = value.trim() === preset.expression;
           return <Chip

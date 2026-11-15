@@ -103,9 +103,9 @@ const noSideScroll = async (page, name, where) => {
   expect(over <= 1, `${name}: no sideways scroll on ${where} (${over}px over)`);
 };
 const dialogFits = async (page, name, where) => {
-  const box = await page.locator('[role=dialog]').last().boundingBox();
+  const box = await page.locator('[role=dialog]:visible').last().boundingBox();
   expect(!!box && box.x >= 0 && box.x + box.width <= page.viewportSize().width + 1, `${name}: the dialog fits the screen (${where})`);
-  const inside = await page.locator('[role=dialog]').last().evaluate((dialog) => {
+  const inside = await page.locator('[role=dialog]:visible').last().evaluate((dialog) => {
     const content = dialog.querySelector('.MuiDialogContent-root');
     return !content || content.scrollWidth <= content.clientWidth + 1;
   });
@@ -152,8 +152,8 @@ for (const engine of engines) {
         expect(await dialog.locator('[data-expose-cost]').count() === 1, `${name}: what direct costs is said`);
         await shot(page, name, 'dialog-ticked');
         await dialog.locator('[data-expose-save]').click();
-        await page.locator('[data-expose-dialog] .MuiAlert-standardSuccess, [data-expose-dialog] .MuiAlert-standardError').first().waitFor({ timeout: 90000 });
-        expect(await page.locator('[data-expose-dialog] .MuiAlert-standardError').count() === 0, `${name}: saved without an error`);
+        await page.locator('[data-expose-dialog] .MuiAlert-standard.MuiAlert-colorSuccess, [data-expose-dialog] .MuiAlert-standard.MuiAlert-colorError').first().waitFor({ timeout: 90000 });
+        expect(await page.locator('[data-expose-dialog] .MuiAlert-standard.MuiAlert-colorError').count() === 0, `${name}: saved without an error`);
         await until('minecraft.example.org proxied at Cloudflare', async () => { const r = await record('minecraft.example.org'); return r.length === 1 && r[0].proxied; });
         await until('minecraft-direct.example.org DNS only', async () => { const r = await record('minecraft-direct.example.org'); return r.length === 1 && !r[0].proxied && r[0].content === '203.0.113.10'; });
         await until('the router forwards TCP 25565', async () => !!(await table())['TCP/25565']);
@@ -266,7 +266,7 @@ if (!process.env.SKIP_WITHDRAW) {
     await dialog.locator('[data-expose-web="example.org"] input[type=checkbox]').first().uncheck();
     await dialog.locator('[data-expose-port="minecraft:25565/tcp"] input[type=checkbox]').uncheck();
     await dialog.locator('[data-expose-save]').click();
-    await page.locator('[data-expose-dialog] .MuiAlert-standardSuccess, [data-expose-dialog] .MuiAlert-standardError').first().waitFor({ timeout: 90000 });
+    await page.locator('[data-expose-dialog] .MuiAlert-standard.MuiAlert-colorSuccess, [data-expose-dialog] .MuiAlert-standard.MuiAlert-colorError').first().waitFor({ timeout: 90000 });
     await until('the web record is gone', async () => (await record('minecraft.example.org')).length === 0);
     await until('the direct record is gone', async () => (await record('minecraft-direct.example.org')).length === 0);
     await until('the router no longer forwards 25565', async () => !(await table())['TCP/25565']);

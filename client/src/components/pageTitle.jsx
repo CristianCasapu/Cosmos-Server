@@ -1,7 +1,7 @@
 // Fork addition: the browser tab says which page is open ("jellyfin ·
 // ServApps · Cosmos" instead of "Cosmos" everywhere). Renders nothing.
 import { useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { menuEntries, tabTitleFor } from '../utils/wayfinding';
 

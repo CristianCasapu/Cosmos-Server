@@ -8,7 +8,7 @@ import { Alert, Button, Checkbox, CircularProgress, InputLabel, ListItemIcon, Li
 import { CosmosCheckbox, CosmosFormDivider, CosmosInputText } from "../config/users/formShortcuts";
 import MainCard from "../../components/MainCard";
 import { Formik } from "formik";
-import { LoadingButton } from "@mui/lab";
+import { Button as LoadingButton } from "@mui/material"; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import ApiModal from "../../components/apiModal";
 import ConfirmModal, { ConfirmModalDirect } from "../../components/confirmModal";
 import { crontabToText, isDomain } from "../../utils/indexs";
@@ -135,7 +135,7 @@ export const Parity = () => {
       />}
       <Stack spacing={2}>
         {containerized && <VMWarning />}
-        <Stack direction="row" spacing={2} justifyContent="flex-start">  
+        <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-start' }}>  
           <SnapRAIDDialog refresh={refresh} disabled={containerized}/>
           <ResponsiveButton variant="outlined" startIcon={<ReloadOutlined />} onClick={() => {
             refresh();

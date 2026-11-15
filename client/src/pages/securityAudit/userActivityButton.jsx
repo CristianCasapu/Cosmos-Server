@@ -4,7 +4,7 @@
 import * as React from 'react';
 import { IconButton, Tooltip } from '@mui/material';
 import { AuditOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useClientInfos } from '../../utils/hooks';
 import { PERM_ADMIN_READ } from '../../utils/permissions';

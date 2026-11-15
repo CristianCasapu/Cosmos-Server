@@ -75,7 +75,7 @@ for (const name of names) for (const size of wanted) {
   const card = page.locator('.MuiPaper-root', { hasText: 'linuxserver/radarr' }).last();
   await card.locator('.MuiChip-root', { hasText: /^New$/ }).click();
   await page.waitForTimeout(2500);
-  const dialog = page.locator('[role=dialog]').last();
+  const dialog = page.locator('[role=dialog]:visible').last();
   let text = await dialog.innerText();
   expect(id + ': the dialog names the app', /An address for radarr/.test(text));
   expect(id + ': the address is proposed', await dialog.locator('#Host').inputValue() === 'radarr.local', await dialog.locator('#Host').inputValue());
@@ -133,16 +133,16 @@ for (const name of names) for (const size of wanted) {
   await go(page, '/cosmos-ui/servapps');
   await page.locator('.MuiPaper-root', { hasText: 'linuxserver/radarr' }).last().locator('.MuiChip-root', { hasText: /^New$/ }).click();
   await page.waitForTimeout(2500);
-  text = await page.locator('[role=dialog]').last().innerText();
+  text = await page.locator('[role=dialog]:visible').last().innerText();
   expect(id + ': a second URL gets a free name', /Saved as "radarr-2"/.test(text), (text.match(/Saved as "[^"]*"/) || [''])[0]);
   await page.keyboard.press('Escape');
   await page.waitForTimeout(600);
-  expect(id + ': Escape closes the form', await page.locator('[role=dialog]').count() === 0);
+  expect(id + ': Escape closes the form', await page.locator('[role=dialog]:visible').count() === 0);
 
   // ---- C. jellyfin: its own HTTPS port switches the scheme
   await page.locator('.MuiPaper-root', { hasText: 'jellyfin/jellyfin' }).last().locator('.MuiChip-root', { hasText: /^New$/ }).click();
   await page.waitForTimeout(2500);
-  const jf = page.locator('[role=dialog]').last();
+  const jf = page.locator('[role=dialog]:visible').last();
   expect(id + ': jellyfin: 8096 of its four ports', await picked(jf, 'Target') === '8096', await picked(jf, 'Target'));
   await chip(jf, '443').click();
   await page.waitForTimeout(500);
@@ -158,7 +158,7 @@ for (const name of names) for (const size of wanted) {
   await go(page, '/cosmos-ui/config-url');
   await page.getByRole('button', { name: /Create/ }).first().click();
   await page.waitForTimeout(2500);
-  const fresh = page.locator('[role=dialog]').last();
+  const fresh = page.locator('[role=dialog]:visible').last();
   expect(id + ': it starts by asking what the address opens', await picked(fresh, 'guide-mode') === 'An app on this server');
   await fresh.locator('#guide-app').click();
   await page.getByRole('option', { name: /sonarr/ }).click();

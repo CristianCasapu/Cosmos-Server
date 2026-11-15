@@ -24,7 +24,7 @@ const VPNSalesPage = () => {
   const { t, i18n } = useTranslation();
 
   return <PremiumSalesPage salesKey="constellation" extra={
-    <Typography variant="body2" color="text.secondary">
+    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
       {t(`mgmt.sales.constellation.lighthouse_note`)}
     </Typography>
   }/>

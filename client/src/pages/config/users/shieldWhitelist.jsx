@@ -12,7 +12,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { PlusCircleOutlined, DeleteOutlined, SyncOutlined } from '@ant-design/icons';
 
 import * as API from '../../../api';
@@ -74,7 +74,7 @@ const AddEntryDialog = ({ open, onClose, onAdd, t, entries = [] }) => {
         <DialogContent>
           <Stack spacing={2} style={{ marginTop: '10px' }}>
             {/* Fork addition: the address in use and the local network, each a click away */}
-            {proposals.map((proposal) => <Stack key={proposal.IP} direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+            {proposals.map((proposal) => <Stack key={proposal.IP} direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
               <Button size="small" variant="outlined" onClick={() => formik.setValues({ ...formik.values, IP: proposal.IP, Label: formik.values.Label || t(proposal.Label[0], proposal.Label[1]) })}>
                 {t('mgmt.shield.fork.use', 'Use {{ip}}', { ip: proposal.IP })}
               </Button>

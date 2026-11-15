@@ -57,16 +57,16 @@ const SecretInput = ({ id, label, value, stored, onChange, helperText, error, di
     }
   >
     {/* an error says what to do with the field: the reassurance would contradict it */}
-    {keeps && !disabled && !error && <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
-      <Typography variant="caption" color="text.secondary">
+    {keeps && !disabled && !error && <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
+      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
         {t('forms.secret.kept', 'One is saved on the server and is not shown here. Leave the field empty to keep it.')}
       </Typography>
       <Button size="small" color="inherit" onClick={() => { setRemoving(true); onChange(''); }}>
         {t('forms.secret.remove', 'Remove it')}
       </Button>
     </Stack>}
-    {stored && removing && value === '' && <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
-      <Typography variant="caption" color="text.secondary">
+    {stored && removing && value === '' && <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
+      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
         {t('forms.secret.removing', 'The saved one is removed when you save.')}
       </Typography>
       <Button size="small" color="inherit" onClick={() => { setRemoving(false); onChange(SECRET_MASK); }}>

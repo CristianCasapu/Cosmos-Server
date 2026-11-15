@@ -98,7 +98,7 @@ const Profile = () => {
                 aria-haspopup="true"
                 onClick={handleToggle}
             >
-                <Stack direction="row" spacing={2} alignItems="center" sx={{ p: 0.5 }}>
+                <Stack direction="row" spacing={2} sx={{ alignItems: 'center', p: 0.5 }}>
                     <Avatar alt="profile user" src={avatar1} sx={{ width: 32, height: 32 }} />
                     <Typography variant="subtitle1">John Doe</Typography>
                 </Stack>
@@ -138,9 +138,9 @@ const Profile = () => {
                                 <ClickAwayListener onClickAway={handleClose}>
                                     <MainCard elevation={0} border={false} content={false}>
                                         <CardContent sx={{ px: 2.5, pt: 3 }}>
-                                            <Grid container justifyContent="space-between" alignItems="center">
-                                                <Grid item>
-                                                    <Stack direction="row" spacing={1.25} alignItems="center">
+                                            <Grid container sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <Grid>
+                                                    <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center' }}>
                                                         <Avatar alt="profile user" src={avatar1} sx={{ width: 32, height: 32 }} />
                                                         <Stack>
                                                             <Typography variant="h6">John Doe</Typography>
@@ -150,7 +150,7 @@ const Profile = () => {
                                                         </Stack>
                                                     </Stack>
                                                 </Grid>
-                                                <Grid item>
+                                                <Grid>
                                                     <IconButton size="large" color="secondary" onClick={handleLogout}>
                                                         <LogoutOutlined />
                                                     </IconButton>

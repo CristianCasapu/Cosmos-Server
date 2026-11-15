@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router';
 import { Stack, CircularProgress, Card, Typography, useMediaQuery, Chip, Button, Select, MenuItem } from '@mui/material';
 import { CloudServerOutlined, CalendarOutlined, FolderOutlined, ReloadOutlined, InfoCircleOutlined, CloudOutlined } from '@ant-design/icons';
 import * as API from '../../api';
@@ -66,7 +66,7 @@ export default function BackupRestore({backupName}) {
 
   if (loading) {
     return (
-      <Stack spacing={2} justifyContent={'center'} alignItems={'center'}>
+      <Stack spacing={2} sx={{ justifyContent: 'center', alignItems: 'center' }}>
         <CircularProgress />
       </Stack>
     );

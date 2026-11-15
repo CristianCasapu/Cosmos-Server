@@ -3,11 +3,11 @@ import { HomeBackground, TransparentHeader } from "../home";
 import { useEffect, useState } from "react";
 import * as API from "../../api";
 import { useTheme } from "@emotion/react";
-import Grid2 from "@mui/material/Unstable_Grid2/Grid2";
+import Grid2 from '@mui/material/Grid';
 import { useParams } from "react-router";
-import Carousel from 'react-material-ui-carousel'
+import Carousel from '../../components/forkCarousel'; // Fork addition: replaces react-material-ui-carousel (unmaintained, MUI 5 only)
 import { Paper, Button, Chip } from '@mui/material'
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Link as LinkMUI } from '@mui/material'
 import DockerComposeImport from '../servapps/containers/docker-compose';
 import { AppstoreAddOutlined, SearchOutlined, WarningOutlined } from "@ant-design/icons";
@@ -22,6 +22,7 @@ import DOMPurify from 'dompurify';
 import { marketArchFits } from '../../utils/dataPlaces'; // Fork addition
 
 function Screenshots({ screenshots }) {
+  const { t } = useTranslation(); // Fork addition: the slide show's name
   const aspectRatioContainerStyle = {
     position: 'relative',
     overflow: 'hidden',
@@ -44,7 +45,7 @@ function Screenshots({ screenshots }) {
   // Fork addition: on a phone the frame is as tall as the picture (a fixed 400 px left a band of empty space under it)
   const frame = { height: { xs: 'auto', sm: '400px' } };
   return screenshots.length > 1 ? (
-    <Carousel animation="slide" navButtonsAlwaysVisible={false} fullHeightHover="true" swipe={false}>
+    <Carousel animation="slide" label={t('navigation.market.screenshots', 'Screenshots')}>
       {
         screenshots.map((item, i) => <Box sx={frame} key={i}>
           <img style={{ maxHeight: '100%', width: '100%', objectFit: 'contain' }} src={item} alt="" />
@@ -57,11 +58,12 @@ function Screenshots({ screenshots }) {
 }
 
 function Showcases({ showcase, isDark, isAdmin }) {
+  const { t } = useTranslation(); // Fork addition: the slide show's name
   // Fork addition: the slides stay inside their frame (on a phone two half slides showed), and with
   // "reduce motion" on the device the showcase does not turn by itself and changes without sliding
   const still = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   return (
-    <Carousel className="ct-market-showcase" animation={still ? 'fade' : 'slide'} autoPlay={!still} navButtonsAlwaysVisible={false} fullHeightHover="true" swipe={false}>
+    <Carousel className="ct-market-showcase" animation={still ? 'fade' : 'slide'} autoPlay={!still} label={t('navigation.market.featured', 'Featured apps')}>
       {
         showcase.map((item, i) => <ShowcasesItem isDark={isDark} key={i} item={item} isAdmin={isAdmin} />)
       }
@@ -90,7 +92,7 @@ function ShowcasesItem({ isDark, item, isAdmin }) {
         backgroundSize: 'cover',
         backgroundPosition: 'center top',
       }} />
-      <Stack direction="row" spacing={2} style={{ height: '100%', overflow: 'hidden' }} justifyContent="flex-end">
+      <Stack direction="row" spacing={2} style={{ height: '100%', overflow: 'hidden' }} sx={{ justifyContent: 'flex-end' }}>
         <Stack direction="column" spacing={2} style={{ height: '100%' }} sx={{
           backgroundColor: isDark ? 'var(--ct-surface, #20232b)' : 'rgba(255,255,255)',
           padding: '20px 100px',
@@ -108,7 +110,7 @@ function ShowcasesItem({ isDark, item, isAdmin }) {
             filter: 'none',
           }
         }}>
-          <Stack direction="row" spacing={2} alignItems="center">
+          <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
             <img src={item.icon} alt="" style={{ width: '36px', height: '36px' }} />
             <h2 style={{ margin: 0 }}>{item.name}</h2>
           </Stack>
@@ -119,7 +121,7 @@ function ShowcasesItem({ isDark, item, isAdmin }) {
             WebkitBoxOrient: 'vertical',
             WebkitLineClamp: { xs: 3, sm: 4 },
           }}></Box>
-          <Stack direction="row" spacing={2} justifyContent="flex-start" useFlexGap flexWrap="wrap">
+          <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-start', flexWrap: 'wrap' }} useFlexGap>
             <DockerComposeImport installerInit defaultName={item.name} dockerComposeInit={item.compose} />
             <Button component={Link} to={"/cosmos-ui/market-listing/cosmos-cloud/" + item.name} className="CheckButton" color="primary" variant="outlined">
               {t('navigation.market.viewButton')}
@@ -256,7 +258,7 @@ const MarketPage = () => {
           height: '100%',
         }}></Link>
 
-      <Stack direction="row" spacing={2} style={{ height: '100%' }} justifyContent="flex-end">
+      <Stack direction="row" spacing={2} style={{ height: '100%' }} sx={{ justifyContent: 'flex-end' }}>
         <Stack direction="column" spacing={3} style={{ height: '100%', overflow: "auto" }} sx={{
           backgroundColor: isDark ? 'var(--ct-surface, #20232b)' : 'rgba(255,255,255)',
           padding: '80px 80px',
@@ -345,7 +347,7 @@ const MarketPage = () => {
       }}>
         <h2>{t('navigation.market.applicationsTitle')}</h2>
         {/* Fork addition: useFlexGap flexWrap (on a phone the row ran out of the window) */}
-        <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
+        <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }}>
           <Input placeholder={t('navigation.market.search',  {count: filteredAppList.length})}
             value={search}
             style={{ maxWidth: '400px' }}
@@ -390,7 +392,7 @@ const MarketPage = () => {
         {loaded && !filteredAppList.length && !search && <Alert severity="info" sx={{ maxWidth: 720 }}>
           {t('navigation.market.nothingLoaded', 'No app could be loaded from the market sources. Check that this server can reach the internet, or the addresses under "Sources".')}
         </Alert>}
-        {loaded && !filteredAppList.length && search.length > 2 && <Typography variant="body2" color="text.secondary">
+        {loaded && !filteredAppList.length && search.length > 2 && <Typography variant="body2" sx={{ color: 'text.secondary' }}>
           {t('navigation.market.noMatch', 'No app matches “{{search}}”.', { search: search.slice(0, 80), interpolation: { escapeValue: false } })}
         </Typography>}
         {apps && Object.keys(apps).length > 0 && <Grid2 container spacing={{ xs: 1, sm: 1, md: 2 }}>
@@ -399,11 +401,11 @@ const MarketPage = () => {
               style={{
                 ...gridAnim,
                 cursor: 'pointer',
-              }} xs={12} sm={12} md={6} lg={4} xl={3} key={app.name + app.appstore} item><Link to={"/cosmos-ui/market-listing/" + app.appstore + "/" + app.name} style={{
+              }} size={{ xs: 12, sm: 12, md: 6, lg: 4, xl: 3 }} key={app.name + app.appstore}><Link to={"/cosmos-ui/market-listing/" + app.appstore + "/" + app.name} style={{
                 textDecoration: 'none',
               }}>
                   <div key={app.name} style={appCardStyle(theme)}>
-                    <Stack spacing={3} direction={'row'} alignItems={'center'} style={{ padding: '0px 15px' }}>
+                    <Stack spacing={3} direction={'row'} sx={{ alignItems: 'center' }} style={{ padding: '0px 15px' }}>
                       <img src={app.icon} style={{ width: 64, height: 64 }} />
                       <Stack spacing={1}>
                         <div style={{ fontWeight: "bold" }}>{app.name}<span style={{color:'var(--ct-muted, grey)'}}>{/* Fork addition: the skin's secondary text (grey was 4.4:1 on the dark card) */}{app.appstore != 'cosmos-cloud' ? (' @ '+app.appstore) : ''}</span></div>

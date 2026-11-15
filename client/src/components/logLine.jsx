@@ -51,7 +51,7 @@ const LogLine = ({ message, docker, isMobile }) => {
     let restString = html.replace(parts[0], '');
    
     return (
-      <Stack direction={isMobile ? 'column' : 'row'} spacing={1} alignItems="flex-start">
+      <Stack direction={isMobile ? 'column' : 'row'} spacing={1} sx={{ alignItems: 'flex-start' }}>
         <div style={{color:'#AAAAFF', fontStyle:'italic', whiteSpace: 'pre', background: '#393f48', padding: '0 0.5em', marginRight: '5px'}}>
           {parts[0].replace('T', ' ').split('.')[0]}
         </div>

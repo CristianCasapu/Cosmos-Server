@@ -10,7 +10,7 @@ import { CosmosCheckbox, CosmosFormDivider, CosmosInputText } from "../config/us
 import MainCard from "../../components/MainCard";
 import { Formik } from "formik";
 import * as Yup from "yup";
-import { LoadingButton } from "@mui/lab";
+import { Button as LoadingButton } from "@mui/material"; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import ApiModal from "../../components/apiModal";
 import { isDomain } from "../../utils/indexs";
 import ConfirmModal from "../../components/confirmModal";
@@ -227,7 +227,8 @@ export const ConstellationVPN = ({ freeVersion }) => {
     && (natsInfo.role !== 'agent' || natsInfo.managerLinkUp)
     && natsInfo.jetstreamReady && natsInfo.kvNodesReady);
 
-  return <>
+  return (
+    <>
     {(devices && config && users) ? <>
       {resynDevice &&
         <ResyncDeviceModal nickname={resynDevice[0]} deviceName={resynDevice[1]} OnClose={
@@ -273,8 +274,8 @@ export const ConstellationVPN = ({ freeVersion }) => {
 
         {config.ConstellationConfig.ThisDeviceName && <MainCard>
           <Stack spacing={1.5}>
-            <Stack direction="row" alignItems="center" justifyContent="space-between">
-              <Stack direction="row" alignItems="center" spacing={1.5}>
+            <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+              <Stack direction="row" sx={{ alignItems: 'center' }} spacing={1.5}>
                 <Box sx={{
                   width: 40, height: 40, borderRadius: '50%',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -294,7 +295,7 @@ export const ConstellationVPN = ({ freeVersion }) => {
               </Stack>
 
               {currentDevice && <>
-                <Stack direction="row" spacing={1} alignItems="center" sx={{ color: 'text.secondary' }}>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', color: 'text.secondary' }}>
                   {isLeaderDevice(currentDevice) && <Tooltip title={t('mgmt.constellation.leaderTooltip')}><Chip size="small" color="primary" label={t('mgmt.constellation.leader')} /></Tooltip>}
                   {currentDevice.isLighthouse
                     ? <Tooltip title={t('mgmt.constellation.publicLighthouseTooltip')}><CompassOutlined style={{ fontSize: 16 }} /></Tooltip>
@@ -324,14 +325,14 @@ export const ConstellationVPN = ({ freeVersion }) => {
               </>}
             </Stack>
 
-            <Stack direction="row" alignItems="center" justifyContent="space-between"
-              sx={{ px: 2, py: 1, borderRadius: 1, backgroundColor: 'action.hover' }}
+            <Stack direction="row"
+              sx={{ alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1, borderRadius: 1, backgroundColor: 'action.hover' }}
             >
-              <Stack direction="row" spacing={1} alignItems="center">
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                 <Typography variant="body2">{constellationEnabled ? t('mgmt.constellation.setup.enabledCheckbox') : t('mgmt.constellation.disabled')}</Typography>
                 {constellationEnabled && <>
                   <Typography variant="body2" color="textSecondary">-</Typography>
-                  <Typography variant="body2" color={ping === 2 ? (chainOk ? 'success.main' : 'warning.main') : (ping === 1 && !natsInfo?.starting) ? 'error.main' : 'textSecondary'}>
+                  <Typography variant="body2" sx={{ color: ping === 2 ? (chainOk ? 'success.main' : 'warning.main') : (ping === 1 && !natsInfo?.starting) ? 'error.main' : 'textSecondary' }}>
                     {[
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><CircularProgress color="inherit" size={12} /> {t('mgmt.constellation.constStatus')}</span>,
                       natsInfo?.starting
@@ -373,7 +374,7 @@ export const ConstellationVPN = ({ freeVersion }) => {
             {constellationEnabled && isAdmin && natsInfo === null && (
               // status request still in flight — placeholder so the timeline
               // doesn't pop in (or silently stay absent on slow requests)
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ px: 2, py: 1.5, borderRadius: 1, backgroundColor: 'action.hover' }}>
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', px: 2, py: 1.5, borderRadius: 1, backgroundColor: 'action.hover' }}>
                 <CircularProgress size={12} sx={{ color: 'text.secondary' }} />
                 <Typography variant="caption" color="textSecondary">{t('mgmt.constellation.nats.loading')}</Typography>
               </Stack>
@@ -445,7 +446,7 @@ export const ConstellationVPN = ({ freeVersion }) => {
               const firstBroken = allOk ? null : steps[firstBrokenIdx];
               return (
                 <Stack spacing={1} sx={{ px: 2, py: 1.5, borderRadius: 1, backgroundColor: 'action.hover' }}>
-                  <Stack direction="row" alignItems="center" justifyContent="space-between">
+                  <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
                     <Typography variant="caption" color="textSecondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
                       {(isAgentNode ? t('mgmt.constellation.nats.role.agent') : t('mgmt.constellation.nats.role.manager'))
                         + (natsInfo.haMode ? ' (' + t('mgmt.constellation.nats.ha') + ')' : '')
@@ -458,8 +459,8 @@ export const ConstellationVPN = ({ freeVersion }) => {
                     </IconButton></Tooltip>
                   </Stack>
                   {!natsExpanded && (
-                    <Stack direction="row" spacing={0.75} alignItems="center" onClick={() => setNatsExpanded(true)}
-                      sx={{ display: { xs: 'flex', md: 'none' }, cursor: 'pointer' }}>
+                    <Stack direction="row" spacing={0.75} onClick={() => setNatsExpanded(true)}
+                      sx={{ alignItems: 'center', display: { xs: 'flex', md: 'none' }, cursor: 'pointer' }}>
                       {firstBroken && (firstBroken.pending || natsInfo.starting)
                         ? <CircularProgress size={10} sx={{ color: 'text.secondary' }} />
                         : <StatusDot status={allOk ? 'success' : (firstBroken.warnOnly ? 'warning' : 'error')} />}
@@ -470,21 +471,21 @@ export const ConstellationVPN = ({ freeVersion }) => {
                       </Typography>
                     </Stack>
                   )}
-                  <Stack alignItems={{ xs: 'flex-start', md: 'center' }} useFlexGap
+                  <Stack useFlexGap
                     direction={{ xs: 'column', md: 'row' }}
-                    sx={{ columnGap: 1, rowGap: 1, display: { xs: natsExpanded ? 'flex' : 'none', md: 'flex' } }}>
+                    sx={{ alignItems: { xs: 'flex-start', md: 'center' }, columnGap: 1, rowGap: 1, display: { xs: natsExpanded ? 'flex' : 'none', md: 'flex' } }}>
                     {steps.map((s, i) => (
                       <React.Fragment key={s.key}>
                         {i > 0 && <Box sx={{ flexGrow: 1, minWidth: 16, borderTop: '1px solid', borderColor: 'divider', display: { xs: 'none', md: 'block' } }} />}
                         <Tooltip title={s.tooltip || ''}>
-                          <Stack direction="row" spacing={0.75} alignItems="center">
+                          <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
                             {!s.ok && (s.pending || natsInfo.starting)
                               ? <CircularProgress size={10} sx={{ color: 'text.secondary' }} />
                               : <StatusDot status={s.ok ? 'success' : (s.warnOnly ? 'warning' : 'error')} />}
                             <Stack spacing={0}>
                               <Typography variant="body2" sx={{ lineHeight: 1.2 }}>{s.label}</Typography>
-                              <Typography variant="caption" sx={{ lineHeight: 1.2 }}
-                                color={s.ok || s.pending || natsInfo.starting ? 'textSecondary' : (s.warnOnly ? 'warning.main' : 'error.main')}>
+                              <Typography variant="caption" sx={{ color: s.ok || s.pending || natsInfo.starting ? 'textSecondary' : (s.warnOnly ? 'warning.main' : 'error.main'), lineHeight: 1.2 }}
+>
                                 {s.ok ? s.state : ((s.pending || natsInfo.starting) ? t('mgmt.constellation.nats.starting') : s.state)}
                               </Typography>
                             </Stack>
@@ -505,7 +506,7 @@ export const ConstellationVPN = ({ freeVersion }) => {
 
           {constellationEnabled && <PermissionGuard permission={PERM_RESOURCES}>
             <Box sx={{ borderTop: '1px solid', borderColor: 'divider', mt: 2, pt: 2 }}>
-              <Stack spacing={1} direction="row" flexWrap="wrap">
+              <Stack spacing={1} direction="row" sx={{ flexWrap: 'wrap' }}>
                 <Button
                   disableElevation
                   size="small"
@@ -695,14 +696,14 @@ export const ConstellationVPN = ({ freeVersion }) => {
                         label={t('mgmt.constellation.setup.deviceName.label')}
                       />}
 
-                      {!freeVersion && !config.ConstellationConfig.ThisDeviceName && <CosmosInputText disabled={!isAdmin} formik={formik} name="ConstellationHostname" label={<Stack direction="row" spacing={0.5} alignItems="center" component="span">
+                      {!freeVersion && !config.ConstellationConfig.ThisDeviceName && <CosmosInputText disabled={!isAdmin} formik={formik} name="ConstellationHostname" label={<Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }} component="span">
                         <span>{'Constellation ' + t('global.hostname')}</span>
                         <Tooltip title={<Trans i18nKey="mgmt.constellation.setup.hostnameInfo" />}>
                           <QuestionCircleOutlined style={{ fontSize: 14, cursor: 'help', opacity: 0.6 }} />
                         </Tooltip>
                       </Stack>} />}
 
-                      {!freeVersion && !config.ConstellationConfig.ThisDeviceName && <CosmosInputText disabled={!isAdmin} formik={formik} name="IPRange" label={<Stack direction="row" spacing={0.5} alignItems="center" component="span">
+                      {!freeVersion && !config.ConstellationConfig.ThisDeviceName && <CosmosInputText disabled={!isAdmin} formik={formik} name="IPRange" label={<Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }} component="span">
                         <span>{t('mgmt.constellation.setup.ipRange.label')}</span>
                         <Tooltip title={t('mgmt.constellation.setup.ipRange.tooltip')}>
                           <QuestionCircleOutlined style={{ fontSize: 14, cursor: 'help', opacity: 0.6 }} />
@@ -713,7 +714,7 @@ export const ConstellationVPN = ({ freeVersion }) => {
                       <Alert severity="warning">
                         {t('mgmt.constellation.setup.lighthouseInfo')}
                       </Alert>
-                      <CosmosCheckbox disabled={!isAdmin} formik={formik} name="IsLighthouse" label={<Stack direction="row" spacing={0.5} alignItems="center" component="span">
+                      <CosmosCheckbox disabled={!isAdmin} formik={formik} name="IsLighthouse" label={<Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }} component="span">
                         <span>{t('mgmt.constellation.setup.isLighthouse.label')}</span>
                         <Tooltip title={t('mgmt.constellation.setup.isLighthouse.tooltip')}>
                           <QuestionCircleOutlined style={{ fontSize: 14, cursor: 'help', opacity: 0.6 }} />
@@ -723,19 +724,19 @@ export const ConstellationVPN = ({ freeVersion }) => {
                       {!config.ConstellationConfig.ThisDeviceName && proFeatures.ConstellationNATSReplicas && <proFeatures.ConstellationNATSReplicas formik={formik} />}
 
                       {constellationEnabled && formik.values.IsLighthouse && <>
-                        <CosmosCheckbox disabled={!isAdmin} formik={formik} name="IsRelay" label={<Stack direction="row" spacing={0.5} alignItems="center" component="span">
+                        <CosmosCheckbox disabled={!isAdmin} formik={formik} name="IsRelay" label={<Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }} component="span">
                           <span>{t('mgmt.constellation.setup.relayRequests.label')}</span>
                           <Tooltip title={t('mgmt.constellation.setup.relayRequests.tooltip')}>
                             <QuestionCircleOutlined style={{ fontSize: 14, cursor: 'help', opacity: 0.6 }} />
                           </Tooltip>
                         </Stack>} />
-                        <CosmosCheckbox disabled={!isAdmin} formik={formik} name="IsExitNode" label={<Stack direction="row" spacing={0.5} alignItems="center" component="span">
+                        <CosmosCheckbox disabled={!isAdmin} formik={formik} name="IsExitNode" label={<Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }} component="span">
                           <span>{t('mgmt.constellation.setup.exitNode.label')}</span>
                           <Tooltip title={t('mgmt.constellation.setup.exitNode.tooltip')}>
                             <QuestionCircleOutlined style={{ fontSize: 14, cursor: 'help', opacity: 0.6 }} />
                           </Tooltip>
                         </Stack>} />
-                        <CosmosCheckbox disabled={!isAdmin} formik={formik} name="IsLoadBalancer" label={<Stack direction="row" spacing={0.5} alignItems="center" component="span">
+                        <CosmosCheckbox disabled={!isAdmin} formik={formik} name="IsLoadBalancer" label={<Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }} component="span">
                           <span>{t('mgmt.constellation.setup.loadBalancer.label')}</span>
                           <Tooltip title={t('mgmt.constellation.setup.loadBalancer.tooltip')}>
                             <QuestionCircleOutlined style={{ fontSize: 14, cursor: 'help', opacity: 0.6 }} />
@@ -752,7 +753,7 @@ export const ConstellationVPN = ({ freeVersion }) => {
                         formik={formik}
                         name="TagsText"
                         placeholder={t('mgmt.constellation.setup.tags.placeholder')}
-                        label={<Stack direction="row" spacing={0.5} alignItems="center" component="span">
+                        label={<Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }} component="span">
                           <span>{t('mgmt.constellation.setup.tags.label')}</span>
                           <Tooltip title={t('mgmt.constellation.setup.tags.tooltip')}>
                             <QuestionCircleOutlined style={{ fontSize: 14, cursor: 'help', opacity: 0.6 }} />
@@ -938,7 +939,7 @@ export const ConstellationVPN = ({ freeVersion }) => {
                 clickable: true,
                 field: (r) => {
                   const tags = Array.isArray(r.tags) ? r.tags : [];
-                  return <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap style={{ maxWidth: 240 }}>
+                  return <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap style={{ maxWidth: 240 }}>
                     {tags.map((tag) => <Chip key={tag} size="small" label={tag} />)}
                     {tags.length === 0 && <Typography variant="body2" color="textSecondary">{t('mgmt.constellation.setup.tags.none')}</Typography>}
                     <PermissionGuard permission={PERM_RESOURCES}>
@@ -1034,4 +1035,5 @@ export const ConstellationVPN = ({ freeVersion }) => {
 
     {freeVersion && config && !constellationEnabled && <VPNSalesPage />}
   </>
+  );
 };

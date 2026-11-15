@@ -7,7 +7,7 @@
 // is asked again every few seconds until the round is over.
 import * as React from 'react';
 import { Alert, FormControlLabel, Link, Stack, Switch, Typography } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { useTranslation } from 'react-i18next';
 import * as API from '../api';
 import MainCard from './MainCard';
@@ -77,7 +77,7 @@ export const useReachWatchNotices = () => {
 
 const NameRow = ({ n, t }) => {
   const line = nameLine(n);
-  return <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ minWidth: 0 }} data-reach-watch-name={line.host} data-reach-watch-state={n.state}>
+  return <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', minWidth: 0 }} data-reach-watch-name={line.host} data-reach-watch-state={n.state}>
     <StatusDot status={line.dot} size={8} style={{ marginTop: 7, flexShrink: 0 }} />
     <Typography variant="body2" component="div" sx={wrap}>
       <strong>{line.host}</strong>{line.panel ? ' (' + t(...TEXT.panel) + ')' : ''}{': '}
@@ -135,7 +135,7 @@ export const ReachWatchCard = () => {
           <FormControlLabel
             sx={{ mr: 0, alignItems: 'flex-start', '& .MuiFormControlLabel-label': { pt: '7px', ...wrap } }}
             control={<Switch checked={!!data.enabled} disabled={!!busy} onChange={(event) => save(settingsBody(event.target.checked))}
-              inputProps={{ 'data-reach-watch-switch': data.enabled ? 'on' : 'off' }} />}
+              slotProps={{ input: { 'data-reach-watch-switch': data.enabled ? 'on' : 'off' } }} />}
             label={t(...TEXT.switchLabel)}
           />
           {data.enabled && <ChoiceChips

@@ -75,13 +75,15 @@ const PremiumSalesPage = ({salesKey, extra}) => {
 
   return (
     <Container maxWidth="md">
-      <Box my={4}>
+      <Box sx={{ my: 4 }}>
         <img src={banners[salesKey]} alt={t(`mgmt.sales.${salesKey}.banner_alt`)} style={{ width: '100%', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }} />
       </Box>
 
       <Typography variant="h3" gutterBottom>{t(`mgmt.sales.${salesKey}.title`)}</Typography>
 
-      <Typography variant="body1" paragraph>
+      <Typography variant="body1" sx={{
+        marginBottom: "16px"
+      }}>
         {t(`mgmt.sales.${salesKey}.description`)}
       </Typography>
 
@@ -110,7 +112,7 @@ const PremiumSalesPage = ({salesKey, extra}) => {
         </CardContent>
       </Card>
 
-      <Box display="flex" justifyContent="center" alignItems="center" mb={4}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 4 }}>
         <Typography>{t('mgmt.sales.monthly')}</Typography>
         <Switch 
           checked={isYearly}
@@ -120,13 +122,13 @@ const PremiumSalesPage = ({salesKey, extra}) => {
         <Typography>{t('mgmt.sales.yearly')}</Typography>
       </Box>
 
-      <Stack spacing={2} direction="row" justifyContent="center" alignItems="center">
+      <Stack spacing={2} direction="row" sx={{ justifyContent: 'center', alignItems: 'center' }}>
       <Card variant="outlined" sx={{ width: 400, margin: 'auto' }}>
         <CardHeader 
           title={<Typography variant="h4" align="center">{t(isYearly ? 'mgmt.sales.yearly_plan' : 'mgmt.sales.monthly_plan')}</Typography>}
         />
         <CardContent>
-          <Box textAlign="center" mb={2}>
+          <Box sx={{ textAlign: 'center', mb: 2 }}>
             <Typography variant="h3" color="primary">
             {/* <Typography variant="h3" style={{ textDecoration: 'line-through', color: 'text.secondary' }}> */}
               {currencyCode} {isYearly ? (yearlyPrice / 12).toFixed(2) : monthlyPrice.toFixed(2)}
@@ -134,7 +136,7 @@ const PremiumSalesPage = ({salesKey, extra}) => {
             {/* <Typography variant="h3" color="primary">
               {currencyCode} {isYearly ? ((discountedYearlyPrice / 12).toFixed(2)) : discountedMonthlyPrice}
             </Typography> */}
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
               {t('mgmt.sales.per_month')}
             </Typography>
             {/* <Chip 
@@ -176,7 +178,7 @@ const PremiumSalesPage = ({salesKey, extra}) => {
           title={<Typography variant="h4" align="center">{t('mgmt.sales.life_plan')}</Typography>}
         />
         <CardContent>
-          <Box textAlign="center" mb={2}>
+          <Box sx={{ textAlign: 'center', mb: 2 }}>
             
             <Typography variant="h3" color="primary">
             {/* <Typography variant="h3" style={{ textDecoration: 'line-through', color: 'text.secondary' }}> */}
@@ -185,7 +187,7 @@ const PremiumSalesPage = ({salesKey, extra}) => {
             {/* <Typography variant="h3" color="primary">
               {currencyCode} {discountedLifePrice}
             </Typography> */}
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
               -
             </Typography>
             {/* <Chip 

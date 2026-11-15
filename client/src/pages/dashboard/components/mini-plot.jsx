@@ -204,10 +204,10 @@ const _MiniPlotComponent = ({metrics, labels, noLabels, noBackground, agglo, tit
 
   // Fork addition: the classes let the skin give the box its own surface; no chart is built without a series, a word instead
   return <Stack direction='row' spacing={3} className={'ct-miniplot' + (series.length ? '' : ' ct-miniplot-empty')}
-                alignItems='center' sx={{padding: '0px 20px', width: '100%', backgroundColor: noBackground ? '' : 'rgba(0,0,0,0.075)'}}
-                justifyContent={'space-around'}>
+ sx={{ alignItems: 'center', justifyContent: 'space-around',padding: '0px 20px', width: '100%', backgroundColor: noBackground ? '' : 'rgba(0,0,0,0.075)'}}
+>
 
-        <Stack direction='column' justifyContent={'center'} alignItems={'flex-start'} spacing={0} style={{
+        <Stack direction='column' sx={{ justifyContent: 'center', alignItems: 'flex-start' }} spacing={0} style={{
           width: '160px',
           whiteSpace: 'nowrap',
         }}>
@@ -242,8 +242,9 @@ const _MiniPlotComponent = ({metrics, labels, noLabels, noBackground, agglo, tit
       <div style={{
         margin: '-10px 0px -20px 10px',
         flexGrow: 1,
+        flexBasis: 0, minWidth: 0, // Fork addition: the chart takes the width that is left (apexcharts 8 drew it 300 px wide past the card)
       }} ref={ref}>
-        {series.length > 0 && <Chart options={chartOptions} series={series} type="line" height={90} />}
+        {series.length > 0 && <Chart options={chartOptions} series={series} type="line" height={90} width="100%" /* Fork addition: react-apexcharts 2 has no 100% default */ />}
         {series.length === 0 && answered && <div className="ct-miniplot-none">{t('monitoring.noMeasurementsShort', 'No measurements yet')}</div>}
       </div>
     </Stack>

@@ -122,12 +122,12 @@ const ShieldDashboard = () => {
     />}
 
     <Grid container rowSpacing={4.5} columnSpacing={2.75}>
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         <MetricHeaders loaded={metrics} slot={slot} setSlot={setSlot} zoom={zoom} setZoom={setZoom} />
       </Grid>
 
       {metrics && <>
-        <Grid item xs={12} md={7} lg={8}>
+        <Grid size={{ xs: 12, md: 7, lg: 8 }}>
           <PlotComponent xAxis={xAxis} zoom={zoom} setZoom={setZoom} slot={slot} title={t('mgmt.shield.metrics.blockedTitle')} data={[
             metrics['cosmos.proxy.all.blocked'],
           ]} />
@@ -147,7 +147,7 @@ const ShieldDashboard = () => {
         } />
       </>}
 
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         <Typography variant="h5" style={{ marginBottom: '10px' }}>{t('mgmt.shield.bans.title')}</Typography>
         <PrettyTableView
             empty={{ title: t('emptyState.bans.title', 'No address is blocked'), text: t('emptyState.bans.text', 'Addresses SmartShield blocks for abuse appear here, with the time their block ends.') }} /* Fork addition: what this list is for and how it fills */

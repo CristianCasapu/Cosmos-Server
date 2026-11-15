@@ -439,7 +439,7 @@ _countries.forEach((country) => {
 
 export default function CountrySelect({name, label, formik}) {
   return (
-    <Grid item xs={12}>
+    <Grid size={{ xs: 12 }}>
     <Autocomplete
       id={name}
       name={name}
@@ -483,9 +483,13 @@ export default function CountrySelect({name, label, formik}) {
         <TextField
           {...params}
           label={label}
-          inputProps={{
-            ...params.inputProps,
+            slotProps={{
+              ...params.slotProps,
+
+              htmlInput: {
+                ...params.slotProps.htmlInput,
             autoComplete: 'new-password', // disable autocomplete and autofill
+              }
           }}
         />
       )}

@@ -120,7 +120,7 @@ const ports = async (page, name) => {
   expect('a port Cosmos may use is a hint that does not hold "Next"', said.some((s) => s.includes(`Port ${https} is the HTTPS port in Cosmos' settings`)) && await next.isEnabled(), said.join(' / '));
   await next.click(); await page.waitForTimeout(800);
   await next.click(); await page.waitForTimeout(1500);
-  const warning = await page.locator('.MuiAlert-standardWarning').allInnerTexts();
+  const warning = await page.locator('.MuiAlert-standard.MuiAlert-colorWarning').allInnerTexts();
   expect('the review step repeats what is left', warning.some((s) => s.includes(`Port ${https} is the HTTPS port`)), warning.join(' / ').replace(/\n/g, ' '));
   await page.evaluate(() => window.scrollTo(0, 0));
   await shot(page, `${name}-ports-review`);
@@ -152,9 +152,9 @@ const compose = async (page, name) => {
     '  beta:', '    image: busybox', '    ports:', '      - "9005:91"', '      - "5353:53/udp"', '',
   ].join('\n'));
   await page.waitForTimeout(800);
-  await page.locator('[role=dialog]').getByRole('button', { name: /Next/ }).click();
+  await page.locator('[role=dialog]:visible').getByRole('button', { name: /Next/ }).click();
   await page.waitForTimeout(2500);
-  const warning = (await page.locator('[role=dialog] .MuiAlert-standardWarning').allInnerTexts()).join(' / ').replace(/\n/g, ' | ');
+  const warning = (await page.locator('[role=dialog] .MuiAlert-standard.MuiAlert-colorWarning').allInnerTexts()).join(' / ').replace(/\n/g, ' | ');
   expect('taken ports are listed before the service is created',
     warning.includes('Port 8080 (TCP) is already used by the app "web1"') && warning.includes('Port 5353 (UDP) is already used by the app "dns1"') && warning.includes('Port 9005 (TCP) is also asked for by'), warning);
   await shot(page, `${name}-ports-compose`);
@@ -168,7 +168,7 @@ const cron = async (page, name, save) => {
   await go(page, '/cosmos-ui/cron');
   await page.getByRole('button', { name: /New Job/ }).first().click();
   await page.waitForTimeout(1200);
-  const dialog = page.locator('[role=dialog]');
+  const dialog = page.locator('[role=dialog]:visible');
   const field = dialog.locator('#Crontab');
   const said = async () => (await dialog.locator('.MuiFormHelperText-root').allInnerTexts()).map((s) => s.trim()).filter(Boolean).join(' / ');
   const chips = (await dialog.locator('.MuiChip-clickable').allInnerTexts()).map((s) => s.trim());
@@ -227,7 +227,7 @@ const snapraid = async (page, name) => {
     return;
   }
   await create.click(); await page.waitForTimeout(1500);
-  const dialog = page.locator('[role=dialog]');
+  const dialog = page.locator('[role=dialog]:visible');
   const text = (await dialog.locator('.MuiFormHelperText-root').allInnerTexts()).join(' / ');
   expect('both default schedules are put in words',
     text.includes('Every day at 02:00. Next run:') && text.includes('Every 2 days (the 1st, 3rd, 5th and so on of each month) at 04:00. Next run:'), text);
@@ -287,7 +287,7 @@ const mount = async (page, name) => {
   await openTab(page, 'Mounts');
   await page.getByRole('button', { name: /New Mount/ }).first().click();
   await page.waitForTimeout(1500);
-  const dialog = page.locator('[role=dialog]');
+  const dialog = page.locator('[role=dialog]:visible');
   const chips = (await dialog.locator('.MuiChip-clickable').allInnerTexts()).map((s) => s.trim());
   expect('the partitions that are not mounted are offered, and only those',
     chips.length === 2 && chips[0] === '/dev/sdb1 · ext4 · 4 TB' && chips[1] === '/dev/sdc · xfs · 2 TB', chips.join(' , '));

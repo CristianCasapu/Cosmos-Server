@@ -60,7 +60,7 @@ const ForkRouteProtection = ({ formik, socket, children }) => {
       </FormHelperText>}
       <FormHelperText>{tr(t, timeoutText(formik.values.Timeout))}</FormHelperText>
     </ChoiceRow>
-    <Grid item xs={12}>
+    <Grid size={{ xs: 12 }}>
       <Button
         size="small"
         onClick={() => setOpen(!open)}
@@ -70,7 +70,7 @@ const ForkRouteProtection = ({ formik, socket, children }) => {
         {t('mgmt.urls.protection.door', 'Adjust the values myself')}
       </Button>
     </Grid>
-    <Grid item xs={12} sx={{ pt: open ? undefined : '0 !important' }}>
+    <Grid size={{ xs: 12 }} sx={{ pt: open ? undefined : '0 !important' }}>
       <Collapse in={open} unmountOnExit={false}>
         <Stack spacing={1} sx={{ mb: 2 }}>
           <FormHelperText>

@@ -279,7 +279,7 @@ const Logs = ({ containerInfo }) => {
             {t('mgmt.servApps.container.protocols.errorOnlyCheckbox')}
           </Box> */}
         </Stack>
-        <Stack direction="row" spacing={3} alignItems="center">
+        <Stack direction="row" spacing={3} sx={{ alignItems: 'center' }}>
           <Box>
             <TextField
               label="Limit"

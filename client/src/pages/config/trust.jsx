@@ -57,10 +57,14 @@ const TrustPage = () => {
         <Typography variant="h4" gutterBottom>
           {t('trust.title')}
         </Typography>
-        <Typography paragraph>
+        <Typography sx={{
+          marginBottom: "16px"
+        }}>
           {t('trust.intro.first')}
         </Typography>
-        <Typography paragraph>
+        <Typography sx={{
+          marginBottom: "16px"
+        }}>
           {t('trust.intro.second')}
         </Typography>
         <ul>

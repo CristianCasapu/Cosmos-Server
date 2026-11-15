@@ -13,7 +13,7 @@ import {
 } from '@mui/material';
 import RestartModal from './users/restart';
 import { ArrowDownOutlined, DeleteOutlined, SyncOutlined } from '@ant-design/icons';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { useClientInfos } from '../../utils/hooks';
 import { PERM_CONFIGURATION, PERM_ADMIN_READ } from '../../utils/permissions';
 import ConfirmModal from '../../components/confirmModal';
@@ -67,11 +67,11 @@ const SaveButton = ({ formik, saveLabel, sticky }) => {
     <MainCard className={'ct-savebar' + (unsaved ? ' ct-savebar-unsaved' : '') + (sticky ? ' ct-savebar-first' : '')}>
       {unsaved && <div className="ct-savebar-note">{t('mgmt.config.unsavedChanges', 'You changed something that is not saved yet.')}</div>}
       {formik.errors.submit && (
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <FormHelperText error>{formik.errors.submit}</FormHelperText>
         </Grid>
       )}
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         <LoadingButton
           disableElevation
           loading={formik.isSubmitting}
@@ -131,7 +131,7 @@ const ConfigManagement = () => {
     <div style={{ maxWidth: "1000px", margin: "auto" }}>
       <Stack spacing={3}>
         {/* Fork addition: useFlexGap flexWrap. On a phone the three buttons were squeezed into one line, their text broken and the icons pushed out of them */}
-        <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
+        <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }}>
           <Button variant="contained" color="primary" startIcon={<SyncOutlined />} onClick={() => {
               refresh();
           }}>{t('mgmt.config.header.refreshButton.refreshLabel')}</Button>
@@ -162,7 +162,8 @@ const ConfigManagement = () => {
     </div>
   );
 
-  return <div>
+  return (
+    <div>
     {config && <>
       <RestartModal openModal={openResartModal} setOpenModal={setOpenRestartModal} />
 
@@ -436,7 +437,8 @@ const ConfigManagement = () => {
         )}
       </Formik>
     </>}
-  </div>;
+    </div>
+  );
 }
 
 export default ConfigManagement;

@@ -2,7 +2,7 @@
 import { Box, Typography } from '@mui/material';
 import { useEffect } from 'react';
 import { useDispatch } from 'react-redux';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import { activeItem } from '../../../../../store/reducers/menu';
 import { menuEntries, menuEntryFor } from '../../../../../utils/wayfinding'; // Fork addition: mark the current page
 

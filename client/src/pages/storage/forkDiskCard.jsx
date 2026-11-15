@@ -41,7 +41,7 @@ const ForkDiskCard = ({ disk, refresh, SetSMARTDialogOpened, containerized, Form
     partuuid: t('mgmt.storage.disk.partuuid', 'Partition ID'),
   };
 
-  return <TreeItem className="ct-disk-node" nodeId={disk.name} label={
+  return <TreeItem className="ct-disk-node" itemId={disk.name} label={
     <div className="ct-disk-card" style={{ '--ct-disk-health': stripe[health] || 'var(--ct-border-strong)' }}>
       <div className="ct-disk-main">
         <div className="ct-disk-icon">

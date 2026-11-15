@@ -56,7 +56,7 @@ export const RawText = ({ text, label }) => {
   const { t } = useTranslation();
   if (!text) return null;
   return <Box sx={{ border: '1px solid var(--ct-border)', borderRadius: 'var(--ct-radius-s)', bgcolor: 'var(--ct-surface-2)', p: 1.5, minWidth: 0 }}>
-    <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} sx={{ mb: 0.5 }}>
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
       <Typography variant="caption" color="textSecondary">{label || t(...TEXT.technical)}</Typography>
       <Button size="small" startIcon={<CopyOutlined />} onClick={() => copyText(text, t)} sx={{ minHeight: { xs: 44, sm: 'auto' } }}>
         {t(...TEXT.copy)}

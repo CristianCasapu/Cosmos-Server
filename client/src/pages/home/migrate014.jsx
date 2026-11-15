@@ -18,7 +18,7 @@ import {
   CircularProgress,
 } from '@mui/material';
 import { ArrowRightOutlined, PlusCircleOutlined } from '@ant-design/icons';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import * as API from '../../api';
 
 const Migrate014 = ({ config }) => {
@@ -121,7 +121,7 @@ const Migrate014 = ({ config }) => {
               />
             </form>
             {formik.errors.submit && (
-              <Grid item xs={12}>
+              <Grid size={{ xs: 12 }}>
                 <FormHelperText error>{formik.errors.submit}</FormHelperText>
               </Grid>
             )}

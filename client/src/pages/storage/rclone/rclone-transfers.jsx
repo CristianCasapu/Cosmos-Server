@@ -4,7 +4,7 @@ import { TextField, Select, MenuItem, FormControl, InputLabel, Button, Typograph
 import { ProvConfig, ProvAuth } from './rclone-providers';
 import { CosmosCollapse } from '../../config/users/formShortcuts';
 import * as API from '../../../api';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { useTranslation } from 'react-i18next';
 import ResponsiveButton from '../../../components/responseiveButton';
 import { ArrowsAltOutlined } from '@ant-design/icons';
@@ -53,7 +53,7 @@ const RCloneTransfers = ({ transferring, refreshStats }) => {
                 field: (r) => {
                   let percent = Math.round(r.bytes / r.size * 100);
                   return <Tooltip title={`${simplifyNumber(r.bytes, "B")} / ${simplifyNumber(r.size, "B")}`}> 
-                    <Stack direction="row" spacing={1} alignItems="center">
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                       <CircularProgress variant="indeterminate" size={12} />
                       <LinearProgress variant="determinate" value={percent} style={{width: '100%'}} />
                     </Stack>

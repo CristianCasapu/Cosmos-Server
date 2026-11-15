@@ -6,7 +6,7 @@
 // (src/storage/fork_format.go); utils/formatDisk.js holds the logic.
 import * as React from 'react';
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, Typography } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { useTranslation } from 'react-i18next';
 import ChoiceChips from '../../components/choiceChips';
 import { FormField, FormSelect } from '../../components/formField';

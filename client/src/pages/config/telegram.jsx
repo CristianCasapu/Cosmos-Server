@@ -19,7 +19,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { SendOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { CosmosCheckbox, CosmosInputPassword, CosmosInputText, CosmosSelect } from './users/formShortcuts';
@@ -161,7 +161,7 @@ const Telegram = ({ formik, config }) => {
   return (
     <MainCard title={t('mgmt.config.telegram.title', 'Telegram notifications')}>
       <Grid container spacing={3}>
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <Alert severity="info">
             {t('mgmt.config.telegram.info',
               "Cosmos can tell you in a Telegram chat what happens on this server. The messages pass through Telegram's servers (api.telegram.org) and are kept there; they are not end-to-end encrypted. Nothing is sent while this is switched off.")}
@@ -175,7 +175,7 @@ const Telegram = ({ formik, config }) => {
         />
 
         {/* how to get the two things the form asks for */}
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <Stack spacing={0.5}>
             <Typography variant="subtitle1">{t('mgmt.config.telegram.howto.title', 'Setting it up')}</Typography>
             <Typography variant="body2" component="ol" sx={{ pl: 2.5, m: 0, overflowWrap: 'anywhere', '& li': { mb: 0.5 } }}>
@@ -197,7 +197,7 @@ const Telegram = ({ formik, config }) => {
           noStrength
         />
         {saved && !typed && (
-          <Grid item xs={12} sx={{ pt: '0 !important' }}>
+          <Grid size={{ xs: 12 }} sx={{ pt: '0 !important' }}>
             <Button
               size="small"
               color={forgetting ? 'primary' : 'warning'}
@@ -236,7 +236,7 @@ const Telegram = ({ formik, config }) => {
         />
 
         {/* what is sent */}
-        <Grid item xs={12} sx={{ pb: 0 }}>
+        <Grid size={{ xs: 12 }} sx={{ pb: 0 }}>
           <Typography variant="subtitle1">{t('mgmt.config.telegram.cat.title', 'What is sent')}</Typography>
         </Grid>
         {TELEGRAM_CATEGORIES.map(({ name }) => {
@@ -309,9 +309,9 @@ const Telegram = ({ formik, config }) => {
         />
 
         {/* try it, and how deliveries go */}
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <Stack spacing={1.5}>
-            <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap flexWrap="wrap">
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
               <PermissionGuard permission={PERM_ADMIN}>
                 <LoadingButton
                   variant="outlined"
@@ -323,7 +323,7 @@ const Telegram = ({ formik, config }) => {
                   {t('mgmt.config.telegram.test.button', 'Send a test message')}
                 </LoadingButton>
               </PermissionGuard>
-              <Typography variant="caption" color="text.secondary" sx={{ flexBasis: 0, flexGrow: 1, minWidth: '14em' }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary', flexBasis: 0, flexGrow: 1, minWidth: '14em' }}>
                 {t('mgmt.config.telegram.test.help', 'Uses the bot, the chat and the name above as they are now, saved or not.')}
               </Typography>
             </Stack>
@@ -341,12 +341,12 @@ const Telegram = ({ formik, config }) => {
 
             <Typography variant="subtitle1">{t('mgmt.config.telegram.status.title', 'Deliveries')}</Typography>
             {unsaved && (
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                 {t('mgmt.config.telegram.status.unsaved', 'The settings above were changed: they apply once saved. What follows is about the saved settings.')}
               </Typography>
             )}
             {status && !status.enabled && (
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                 {t('mgmt.config.telegram.status.off', 'The notifications are off: nothing is sent.')}
               </Typography>
             )}

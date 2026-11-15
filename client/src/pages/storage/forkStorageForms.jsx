@@ -11,7 +11,7 @@ import {
   Alert, Button, Checkbox, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle,
   FormHelperText, Stack, Typography,
 } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { DownOutlined, HddOutlined, UpOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import * as API from '../../api';
@@ -153,7 +153,7 @@ export const ForkMountDialog = ({ existing, disk, onClose, onDone }) => {
               <Typography variant="subtitle1" component="div">{t('mgmt.storage.fork.whichDisk', 'Which disk or partition')}</Typography>
               {offers.offered.length === 0
                 ? <FormHelperText sx={{ m: 0 }}>{t('mgmt.storage.fork.noneToMount', 'No disk or partition is waiting to be mounted. A new disk is formatted first (Disks tab).')}</FormHelperText>
-                : <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+                : <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1}>
                   {offers.offered.map((d) => <Chip
                     key={d.device}
                     icon={<HddOutlined />}
@@ -202,7 +202,7 @@ export const ForkMountDialog = ({ existing, disk, onClose, onDone }) => {
               onChange={setDevice}
               helperText={t('mgmt.storage.fork.deviceHelp', 'A device such as /dev/sdb1, or for a network share (NFS) the share such as nas.local:/export/media.')}
             />
-            <Stack direction="row" alignItems="center" spacing={1}>
+            <Stack direction="row" sx={{ alignItems: 'center' }} spacing={1}>
               <Checkbox id="fork-storage-net" checked={netDisk} onChange={(e) => setNetDisk(e.target.checked)} />
               <label htmlFor="fork-storage-net"><Typography variant="body2">{t('mgmt.storage.fork.netDisk', 'It is a network share (NFS): mounted once the network is up')}</Typography></label>
             </Stack>
@@ -266,7 +266,7 @@ export const ForkUnmountDialog = ({ mount, merged, onClose, onDone }) => {
             ? t('mgmt.storage.fork.unmergeIntro', 'The folder {{path}} stops showing the files of its disks. The files stay on each disk, in its own folder.', { path: mount.path })
             : t('mgmt.storage.fork.unmountIntro', 'The files of {{device}} stop appearing in {{path}}. Nothing on the disk is erased.', { device: mount.device, path: mount.path })}
         </Typography>
-        {check === null && !checkFailed && <Stack direction="row" spacing={1} alignItems="center"><CircularProgress size={16} /><Typography variant="body2">{t('mgmt.storage.fork.checkingUse', 'Looking at what uses it…')}</Typography></Stack>}
+        {check === null && !checkFailed && <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}><CircularProgress size={16} /><Typography variant="body2">{t('mgmt.storage.fork.checkingUse', 'Looking at what uses it…')}</Typography></Stack>}
         {checkFailed && <Alert severity="warning" sx={{ '& .MuiAlert-message': wrapText }}>{t('mgmt.storage.fork.checkFailed', 'Cosmos could not tell what uses it: {{reason}}', { reason: checkFailed })}</Alert>}
         {check && check.system && <Alert severity="error">{t('mgmt.storage.fork.systemMount', 'This holds the system or Cosmos itself: it cannot be unmounted from here.')}</Alert>}
         {users && <Alert severity="warning" sx={{ '& .MuiAlert-message': wrapText }}>{tr(t, users)}</Alert>}
@@ -306,15 +306,19 @@ export const ForkUnmountDialog = ({ mount, merged, onClose, onDone }) => {
 
 const MountRow = ({ m, checked, onChange, disabled, reason }) => {
   const { t } = useTranslation();
-  return <Stack direction="row" spacing={1} alignItems="flex-start">
-    <Checkbox checked={checked} onChange={(e) => onChange(e.target.checked)} disabled={disabled} inputProps={{ 'aria-label': m.path }} sx={{ mt: -0.75 }} />
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+      <Checkbox checked={checked} onChange={(e) => onChange(e.target.checked)} disabled={disabled} sx={{ mt: -0.75 }} slotProps={{
+        input: { 'aria-label': m.path }
+      }} />
     <Stack sx={wrapText}>
       <Typography variant="body2" component="div"><strong>{m.path}</strong> · {m.device}</Typography>
-      <Typography variant="caption" color={reason ? 'error' : 'textSecondary'}>
+      <Typography variant="caption" sx={{ color: reason ? 'error' : 'textSecondary' }}>
         {reason ? tr(t, reason) : t('mgmt.storage.fork.sizeFree', '{{size}}, {{free}} free', { size: sizeText(m.size), free: sizeText(m.free) })}
       </Typography>
     </Stack>
-  </Stack>;
+    </Stack>
+  );
 };
 
 export const ForkMergeDialog = ({ onClose, onDone }) => {

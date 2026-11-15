@@ -48,7 +48,7 @@ for (const name of names) for (const size of wanted) {
   await page.screenshot({ path: `shots/${tag}-all-notice-${id}.png` });
   await page.getByRole('button', { name: 'Give them a local address' }).click();
   await page.waitForTimeout(800);
-  const dialog = page.locator('[role=dialog]').last();
+  const dialog = page.locator('[role=dialog]:visible').last();
   text = await dialog.innerText();
   for (const [app, port, why] of [['radarr', 7878, 'usual web port of radarr'], ['sonarr', 8989, 'usual web port of sonarr'], ['jellyfin', 8096, 'usual web port of jellyfin'], ['qbittorrent', 8080, 'usual web port of qbittorrent'], ['web1', 80, 'only port this app has'], ['media-app', 80, 'most likely web port']]) {
     expect(`${id}: ${app} → ${app}.local, port ${port}, with the reason`, new RegExp(`${app}\\s*→\\s*${app}\\.local`).test(text) && text.includes(`${port} is the ${why}`), '');

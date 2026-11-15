@@ -6,7 +6,7 @@ import * as React from 'react';
 import * as API from '../../api';
 import { Alert, Stack, Typography } from '@mui/material';
 import { SendOutlined } from '@ant-design/icons';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import PermissionGuard from '../../components/permissionGuard';
 import { FormField } from '../../components/formField';
 import StepList from '../../components/stepList';
@@ -87,7 +87,7 @@ const EmailTest = ({ formik, provider, unsaved, needsPassword, hasProblems }) =>
         onChange={setRecipient}
         onEnter={() => { if (canTest && !loading) sendTest(); }}
       />
-      <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap flexWrap="wrap">
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
         <PermissionGuard permission={PERM_ADMIN}>
           <LoadingButton
             variant="outlined"
@@ -99,7 +99,7 @@ const EmailTest = ({ formik, provider, unsaved, needsPassword, hasProblems }) =>
             {t('mgmt.config.email.test.check', 'Check and send a test email')}
           </LoadingButton>
         </PermissionGuard>
-        <Typography variant="caption" color="text.secondary" sx={{ minWidth: 0 }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', minWidth: 0 }}>
           {why || t('mgmt.config.email.test.uses', 'Uses the values as they are shown now, saved or not. Nothing is saved by the check.')}
         </Typography>
       </Stack>

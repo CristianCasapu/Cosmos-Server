@@ -28,7 +28,7 @@ const EventExplorerStandalone = ({initSearch, initLevel}) => {
       <>
         <div style={{zIndex:2, maxWidth: "1000px", margin: "auto"}}>
           <Grid container rowSpacing={4.5} columnSpacing={2.75} >
-              <Grid item xs={12} sx={{ mb: -2.25 }}>
+              <Grid size={{ xs: 12 }} sx={{ mb: -2.25 }}>
                   <Typography variant="h4">{t('navigation.monitoring.eventsTitle')}</Typography>
                   
                   <Stack direction="row" spacing={2} sx={{ mt: 1.5 }}>
@@ -38,7 +38,7 @@ const EventExplorerStandalone = ({initSearch, initLevel}) => {
               </Grid>
 
 
-              <Grid item xs={12} md={12} lg={12}>
+              <Grid size={{ xs: 12, md: 12, lg: 12 }}>
                 <EventsExplorer initLevel={initLevel} initSearch={initSearch} from={from} to={to}/>
               </Grid>
           </Grid>

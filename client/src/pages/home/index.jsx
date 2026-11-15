@@ -5,9 +5,9 @@ import { lazy, useEffect, useState } from "react";
 import * as API from "../../api";
 import wallpaper from '../../assets/images/wallpaper2.jpg';
 import wallpaperLight from '../../assets/images/wallpaper2_light.jpg';
-import Grid2 from "@mui/material/Unstable_Grid2/Grid2";
+import Grid2 from '@mui/material/Grid';
 import { getFaviconURL, IsRouteSocketProxy } from "../../utils/routes";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { getFullOrigin } from "../../utils/routes";
 import { homeTiles } from "../../utils/homeTiles"; // Fork addition
 import { DashboardIcon } from "../../utils/servapp-icon";
@@ -281,7 +281,7 @@ const HomePage = () => {
 
     const loadingMetricCards = [
         <Box className='app' style={metricCardStyle}>
-            <Stack direction="row" justifyContent={'space-between'} alignItems={'center'} style={{ height: "100%" }}>
+            <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }} style={{ height: "100%" }}>
                 <Stack style={{paddingLeft: '20px'}} spacing={0}>
                     <div style={{fontSize: '18px', fontWeight: "bold"}}>{t('global.CPU')}</div>
                     <div>-</div>
@@ -291,7 +291,7 @@ const HomePage = () => {
             </Stack>
         </Box>,
         <Box className='app' style={metricCardStyle}>
-            <Stack direction="row" justifyContent={'space-between'} alignItems={'center'} style={{ height: "100%" }}>
+            <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }} style={{ height: "100%" }}>
                 <Stack style={{paddingLeft: '20px'}} spacing={0}>
                     <div style={{fontSize: '18px', fontWeight: "bold"}}>{t('global.RAM')}</div>
                     <div>{t('navigation.home.availRam')}: -</div>
@@ -301,16 +301,16 @@ const HomePage = () => {
             </Stack>
         </Box>,
         <Box className='app' style={metricCardStyle}>
-            <Stack direction="row" justifyContent={'center'} alignItems={'center'} style={{ height: "100%" }}>-</Stack>
+            <Stack direction="row" sx={{ justifyContent: 'center', alignItems: 'center' }} style={{ height: "100%" }}>-</Stack>
         </Box>,
         <Box className='app' style={metricCardStyle}>
-            <Stack direction="row" justifyContent={'center'} alignItems={'center'} style={{ height: "100%" }}>-</Stack>
+            <Stack direction="row" sx={{ justifyContent: 'center', alignItems: 'center' }} style={{ height: "100%" }}>-</Stack>
         </Box>,
     ];
 
     const liveMetricCards = [
         <Box className='app' style={metricCardStyle}>
-            <Stack direction="row" justifyContent={'space-between'} alignItems={'center'} style={{ height: "100%" }}>
+            <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }} style={{ height: "100%" }}>
                 <Stack style={{paddingLeft: '20px'}} spacing={0}>
                     <div style={{fontSize: '18px', fontWeight: "bold"}}>{t('global.CPU')}</div>
                     <div>{coStatus && coStatus.CPU}</div>
@@ -323,7 +323,7 @@ const HomePage = () => {
             </Stack>
         </Box>,
         <Box className='app' style={metricCardStyle}>
-            <Stack direction="row" justifyContent={'space-between'} alignItems={'center'} style={{ height: "100%" }}>
+            <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }} style={{ height: "100%" }}>
                 <Stack style={{paddingLeft: '20px'}} spacing={0}>
                     <div style={{fontSize: '18px', fontWeight: "bold"}}>{t('global.RAM')}</div>
                     <div>{t('navigation.home.availRam')}: <strong>{maxRAM}</strong></div>
@@ -336,7 +336,7 @@ const HomePage = () => {
             </Stack>
         </Box>,
         <Box className='app' style={metricCardStyle}>
-            <Stack direction="row" justifyContent={'center'} alignItems={'center'} style={{ height: "100%" }}>
+            <Stack direction="row" sx={{ justifyContent: 'center', alignItems: 'center' }} style={{ height: "100%" }}>
                 <MiniPlotComponent noBackground title={t('navigation.home.network')} agglo metrics={[
                     "cosmos.system.netTx",
                     "cosmos.system.netRx",
@@ -347,7 +347,7 @@ const HomePage = () => {
             </Stack>
         </Box>,
         <Box className='app' style={metricCardStyle}>
-            <Stack direction="row" justifyContent={'center'} alignItems={'center'} style={{ height: "100%" }}>
+            <Stack direction="row" sx={{ justifyContent: 'center', alignItems: 'center' }} style={{ height: "100%" }}>
                 <MiniPlotComponent noBackground title='URLS' agglo metrics={[
                     "cosmos.proxy.all.success",
                     "cosmos.proxy.all.error",
@@ -379,7 +379,7 @@ const HomePage = () => {
                 {nothingMeasured && <NoMeasurements sx={{ mb: 2 }} />}
                 <Grid2 container spacing={2}>
                     {!nothingMeasured && activeMetricCards.map((card, i) => (
-                        <Grid2 item xs={12} sm={6} md={6} lg={3} xl={3} xxl={3} key={'metric-' + i}>
+                        <Grid2 size={{ xs: 12, sm: 6, md: 6, lg: 3, xl: 3, xxl: 3 }} key={'metric-' + i}>
                             {card}
                         </Grid2>
                     ))}
@@ -407,10 +407,10 @@ const HomePage = () => {
 
                 return !skip && coStatus && (coStatus.homepage.Expanded ?
 
-                <Grid2 item xs={12} sm={6} md={4} lg={3} xl={3} xxl={3} key={route.Name}>
+                <Grid2 size={{ xs: 12, sm: 6, md: 4, lg: 3, xl: 3, xxl: 3 }} key={route.Name}>
                     <Box className='app app-hover' style={{ padding: 25, borderRadius: 10, ...appColor, ...appBorder }}>
                         <Link to={link} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', ...appColor }}>
-                            <Stack direction="row" spacing={2} alignItems="center" style={{ overflow: 'hidden' }}>
+                            <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }} style={{ overflow: 'hidden' }}>
                                 <DashboardIcon route={route} containerIcon={route.ContainerIcon} className="loading-image" width="70px" />
                                 <div style={{ minWidth: 0, overflow: 'hidden' }}>
                                     <h3 style={blockStyle}>{name}</h3>
@@ -422,10 +422,10 @@ const HomePage = () => {
                     </Box>
                 </Grid2>
                 :
-                <Grid2 item xs={6} sm={4} md={3} lg={2} xl={2} xxl={2} key={route.Name}>
+                <Grid2 size={{ xs: 6, sm: 4, md: 3, lg: 2, xl: 2, xxl: 2 }} key={route.Name}>
                     <Box className='app app-hover' style={{ padding: 25, borderRadius: 10, ...appColor, ...appBorder }}>
                         <Link to={link} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', ...appColor }}>
-                            <Stack direction="column" spacing={2} alignItems="center" style={{ overflow: 'hidden', width: '100%' }}>
+                            <Stack direction="column" spacing={2} sx={{ alignItems: 'center' }} style={{ overflow: 'hidden', width: '100%' }}>
                                 <DashboardIcon route={route} containerIcon={route.ContainerIcon} className="loading-image" width="70px" />
                                 <div style={{ minWidth: 0, overflow: 'hidden', maxWidth: '100%' }}>
                                     <h3 style={blockStyle}>{name}</h3>
@@ -437,7 +437,7 @@ const HomePage = () => {
             })}
 
             {config && routes.length === 0 && (
-                <Grid2 item xs={12} sm={12} md={12} lg={12} xl={12}>
+                <Grid2 size={{ xs: 12, sm: 12, md: 12, lg: 12, xl: 12 }}>
                     <Box className='app' style={{ padding: 32, borderRadius: 12, textAlign: 'center', ...appColor }}>
                         <h3 style={blockStyle}>{t('navigation.home.noAppsTitle')}</h3>
                         {/* Fork addition: whiteSpace normal (on a phone the sentence was cut after "Please a...") */}

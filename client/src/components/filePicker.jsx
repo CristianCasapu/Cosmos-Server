@@ -2,19 +2,18 @@
 import * as React from 'react';
 import { Alert, Box, Button, Checkbox, CircularProgress, FormControl, FormHelperText, Grid, Icon, IconButton, InputLabel, List, ListItem, ListItemButton, MenuItem, NativeSelect, Select, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import Dialog from '@mui/material/Dialog';
-import {TreeItem, TreeView} from '@mui/x-tree-view';
+import {TreeItem, SimpleTreeView} from '@mui/x-tree-view';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { useFormik, FormikProvider } from 'formik';
 import * as Yup from 'yup';
 import { useTranslation } from 'react-i18next';
 import { FolderOpenOutlined, ClockCircleOutlined, DashboardOutlined, DeleteOutlined, DownOutlined, LockOutlined, SafetyOutlined, UpOutlined, ExpandOutlined, FolderFilled, FileFilled, FileOutlined, LoadingOutlined, FolderAddFilled, FolderViewOutlined } from "@ant-design/icons";
 import * as API from '../api';
 import { current } from '@reduxjs/toolkit';
-import { json } from 'react-router';
 import { NewFolderButton } from './newFileModal';
 import FilePickerShortcuts, { startFolders } from './filePickerShortcuts'; // Fork addition
 
@@ -115,12 +114,12 @@ const FilePickerModal = ({ raw, open, cb, restic, OnClose, onPick, canCreate, _s
     const renderTree = (node) => {
       nodeCounter++;
       return (
-        <TreeItem key={node.id} nodeId={node.id} label={node.label} expanded={node.opened} icon={(node.file && node.file.isDir) ? (node.children == null ? <FolderFilled /> : null) : <FileOutlined />}>
+        <TreeItem key={node.id} itemId={node.id} label={node.label} expanded={node.opened} slots={{ icon: (node.file && node.file.isDir) ? (node.children == null ? FolderFilled : undefined) : FileOutlined }}>
           {Array.isArray(node.children)
             ? node.children.map((child) => renderTree(child))
             : (
               (node.file && node.file.isDir) ? 
-              <TreeItem key={node.id + "load"} nodeId={(++nodeCounter).toString()} label={"Loading..."} icon={<LoadingOutlined />} />
+              <TreeItem key={node.id + "load"} itemId={(++nodeCounter).toString()} label={"Loading..."} slots={{ icon: LoadingOutlined }} />
               : null
             )}
         </TreeItem>
@@ -128,21 +127,20 @@ const FilePickerModal = ({ raw, open, cb, restic, OnClose, onPick, canCreate, _s
     };
   
     return (
-      <TreeView
+      <SimpleTreeView
         /* Fork addition: the top folder is shown open, also after jumping to another one */
         key={treeData.id}
-        defaultExpanded={[treeData.id]}
-        onNodeSelect={handleToggleNode}
+        defaultExpandedItems={[treeData.id]}
+        onSelectedItemsChange={handleToggleNode}
         aria-label="file system navigator"
-        defaultCollapseIcon={<FolderOpenOutlined />}
-        defaultExpandIcon={<FolderFilled />}
+        slots={{ collapseIcon: FolderOpenOutlined, expandIcon: FolderFilled }}
         style={{
           background: 'rgba(0,0,0,0.2)',
           padding: '10px',
         }}
       >
         {renderTree(treeData)}
-      </TreeView>
+      </SimpleTreeView>
     );
   }
 
@@ -231,13 +229,13 @@ const FilePickerModal = ({ raw, open, cb, restic, OnClose, onPick, canCreate, _s
                         </ListItem>
                       ))}
                     </List>
-                    <Stack alignItems="center" spacing={2}>
+                    <Stack sx={{ alignItems: 'center' }} spacing={2}>
                       <Button href="/cosmos-ui/storage" target="_blank" rel="noopener noreferrer" style={{width: '110px', textAlign:'center'}}>Add external storages</Button>
                     </Stack>
                     </Stack>
                 </div>}
                 <div style={{flexGrow: 1, minHeight: '300px'}}>
-                  {!explore && <Stack style={{padding: '5px 5px 5px 10px', margin: '0px 0px 5px 0px', background: 'rgba(0,0,0,0.1)'}} direction="row" spacing={2} alignContent={'center'} alignItems={'center'}>
+                  {!explore && <Stack style={{padding: '5px 5px 5px 10px', margin: '0px 0px 5px 0px', background: 'rgba(0,0,0,0.1)'}} direction="row" spacing={2} sx={{ alignContent: 'center', alignItems: 'center' }}>
                     <div>{canCreate ?  <NewFolderButton cb={
                       (fullpath, filename) => {
                         updateFiles(selectedStorage, selectedPath, true);
@@ -253,13 +251,7 @@ const FilePickerModal = ({ raw, open, cb, restic, OnClose, onPick, canCreate, _s
                 </div>
               </Stack>
               </> : <Box
-              display="flex"
-              alignItems="center" 
-              justifyContent="center" 
-              width="100%"  
-              height="100%" 
-              color="text.primary"  
-              p={2}
+              sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', color: 'text.primary', p: 2 }}
             >
               <CircularProgress />
             </Box>}

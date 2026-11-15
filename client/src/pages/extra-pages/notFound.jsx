@@ -2,7 +2,7 @@
 // It used to give an empty window; now the panel stays and says so.
 import * as React from 'react';
 import { Button } from '@mui/material';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { CompassOutlined, HomeOutlined } from '@ant-design/icons';
 import EmptyState from '../../components/emptyState';

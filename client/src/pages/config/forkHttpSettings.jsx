@@ -169,7 +169,7 @@ export const ForkHttpPorts = ({ formik, check }) => {
     ]}
   >
     {choice === 'other' && <Grid container spacing={2}>
-      <Grid item xs={12} sm={6}>
+      <Grid size={{ xs: 12, sm: 6 }}>
         <FormField
           id="HTTPPort-login"
           label={t('mgmt.config.http.fork.httpPort', 'HTTP port')}
@@ -182,7 +182,7 @@ export const ForkHttpPorts = ({ formik, check }) => {
         />
         <PortFinding finding={ports[0]} changed={changedHttp && sameAsCheck(ports[0], HTTPPort)} />
       </Grid>
-      <Grid item xs={12} sm={6}>
+      <Grid size={{ xs: 12, sm: 6 }}>
         <FormField
           id="HTTPSPort-login"
           label={t('mgmt.config.http.fork.httpsPort', 'HTTPS port')}
@@ -226,12 +226,12 @@ export const ForkAdminWhitelist = ({ formik, check }) => {
     || Boolean(formik.values.AdminConstellationOnly) !== Boolean(formik.initialValues.AdminConstellationOnly);
   const you = check && check.you && check.you.address;
 
-  return <Grid item xs={12}>
+  return <Grid size={{ xs: 12 }}>
     <Stack spacing={1}>
       <Typography variant="subtitle1" component="div">{t('mgmt.config.http.fork.whitelistLabel', 'Addresses administrators may use')}</Typography>
       {list.length === 0
         ? <FormHelperText>{t('mgmt.config.http.fork.whitelistEmpty', 'No list: administrators can work from any address. With a list, admin actions from any other address are refused, signing in included.')}</FormHelperText>
-        : <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+        : <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1}>
           {list.map((entry) => <Chip
             key={entry}
             label={entry}
@@ -241,7 +241,7 @@ export const ForkAdminWhitelist = ({ formik, check }) => {
             sx={{ maxWidth: '100%' }}
           />)}
         </Stack>}
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'flex-start' }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { xs: 'stretch', sm: 'flex-start' } }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <FormField
             id="fork-whitelist-add"
@@ -258,7 +258,7 @@ export const ForkAdminWhitelist = ({ formik, check }) => {
         </Button>
       </Stack>
       {proposals.length > 0 && <Stack spacing={1}>
-        {proposals.map((proposal) => <Stack key={proposal.value} direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+        {proposals.map((proposal) => <Stack key={proposal.value} direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
           <Button size="small" variant="outlined" onClick={() => add(proposal.value)}>{t('mgmt.config.http.fork.addValue', 'Add {{value}}', { value: proposal.value })}</Button>
           <FormHelperText sx={{ m: 0, overflowWrap: 'anywhere' }}>{tr(t, proposal.source)}</FormHelperText>
         </Stack>)}
@@ -290,14 +290,14 @@ export const ForkGeoOwnCountry = ({ formik, check }) => {
   const seenRefused = seen && refused.includes(String(seen).toUpperCase());
   const hasList = (formik.values.GeoBlocking || []).length > 0;
   return <>
-    {refused.length > 0 && <Grid item xs={12}>
+    {refused.length > 0 && <Grid size={{ xs: 12 }}>
       <Alert severity={seenRefused ? 'error' : 'warning'} sx={{ '& .MuiAlert-message': { minWidth: 0 } }}>
         {seenRefused
           ? t('mgmt.config.http.fork.geoOwnSeen', 'Visitors from {{country}} would be refused, and you are there: the address the server sees you at ({{address}}) is in {{country}}, according to the location database on this server. Saving this list locks you out of every app and of the panel from where you are now.', { country: seen, address: check.you.address })
           : t('mgmt.config.http.fork.geoOwn', 'Visitors from {{countries}} would be refused, and you or this server seem to be there (from the time zone and the languages of this browser). From the internet you would be locked out too.', { countries: refused.join(', ') })}
       </Alert>
     </Grid>}
-    {hasList && local && <Grid item xs={12}>
+    {hasList && local && <Grid size={{ xs: 12 }}>
       <FormHelperText>{t('mgmt.config.http.fork.geoLocal', 'You are on the local network ({{address}}): geo-blocking never applies there, so this list cannot lock you out at home. It does apply when you connect from the internet.', { address: check.you.address })}</FormHelperText>
     </Grid>}
   </>;
@@ -322,11 +322,11 @@ export const ForkTrustedProxies = ({ formik, check }) => {
   const cloudflare = cloudflareProxyNote(check, list);
   const seen = check && check.seen;
 
-  return <Grid item xs={12}>
+  return <Grid size={{ xs: 12 }}>
     <Stack spacing={1}>
       <Typography variant="subtitle1" component="div">{t('mgmt.config.http.fork.proxiesLabel', 'Trusted proxies')}</Typography>
       <FormHelperText sx={{ m: 0 }}>{t('mgmt.config.http.fork.proxiesHelp', 'Programs that pass visitors on to Cosmos (a reverse proxy, a tunnel). Cosmos believes them about the visitor\'s real address; anyone else saying so is ignored. Leave the list empty when visitors reach Cosmos directly.')}</FormHelperText>
-      {list.length > 0 && <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+      {list.length > 0 && <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1}>
         {list.map((entry) => <Chip
           key={entry}
           label={entry}
@@ -336,7 +336,7 @@ export const ForkTrustedProxies = ({ formik, check }) => {
           sx={{ maxWidth: '100%' }}
         />)}
       </Stack>}
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'flex-start' }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { xs: 'stretch', sm: 'flex-start' } }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <FormField
             id="fork-proxies-add"
@@ -352,13 +352,13 @@ export const ForkTrustedProxies = ({ formik, check }) => {
           {t('mgmt.config.http.fork.add', 'Add')}
         </Button>
       </Stack>
-      {proposals.map((proposal) => <Stack key={proposal.value} direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+      {proposals.map((proposal) => <Stack key={proposal.value} direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
         <Button size="small" variant="outlined" onClick={() => add(proposal.value)}>{t('mgmt.config.http.fork.addValue', 'Add {{value}}', { value: proposal.value })}</Button>
         <FormHelperText sx={{ m: 0, overflowWrap: 'anywhere', flex: '1 1 240px' }}>{tr(t, proposal.source)}</FormHelperText>
       </Stack>)}
       {seen && seen.via && seen.viaTrusted && <FormHelperText>{t('mgmt.config.http.fork.proxyTrusted', 'Your request came through {{ip}}, which is trusted: Cosmos sees you at {{address}}.', { ip: seen.via, address: check.you.address })}</FormHelperText>}
       {cloudflare && <Alert severity="info" sx={{ '& .MuiAlert-message': { minWidth: 0, overflowWrap: 'anywhere' } }}>
-        <Stack spacing={1} alignItems="flex-start">
+        <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
           <span>{cloudflare.trusted
             ? t('mgmt.config.http.fork.cloudflareTrusted', 'A domain of this server is at Cloudflare, and Cosmos already believes Cloudflare\'s addresses for the apps served through Cloudflare (Domains > Cloudflare). They need not be listed here. Listing them here makes Cosmos believe them for every name, also those served directly; any Cloudflare customer can send traffic from those addresses.')
             : t('mgmt.config.http.fork.cloudflareUntrusted', 'A domain of this server is at Cloudflare. If visitors reach apps through Cloudflare\'s proxy, switch on "Serve through Cloudflare" for those apps (Domains > Cloudflare): Cosmos then believes Cloudflare only for them. Listing Cloudflare\'s ranges here makes Cosmos believe them for every name.')}</span>

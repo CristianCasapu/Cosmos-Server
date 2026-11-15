@@ -118,7 +118,7 @@ const EventsExplorer = ({from, to, xAxis, zoom, slot, initLevel, initSearch = ''
 	return ( <div style={{ maxWidth: "1200px", margin: "auto" }}>
 		<Stack spacing={2} direction="column" style={{width: '100%'}}>
 			{/* Fork addition: useFlexGap flexWrap, and the search field takes a line of its own when there is no room (on a phone it was two letters wide) */}
-			<Stack spacing={2} direction="row" useFlexGap flexWrap="wrap" style={{width: '100%'}}>
+			<Stack spacing={2} direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} style={{width: '100%'}}>
 				<div>
 					<Button variant='contained' onClick={() => {
 						refresh("");
@@ -159,7 +159,7 @@ const EventsExplorer = ({from, to, xAxis, zoom, slot, initLevel, initSearch = ''
 					/>
 				</div>
 				<TextField sx={{ flex: '1 1 240px', minWidth: 0 }} value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('navigation.monitoring.events.searchInput.searchPlaceholder')}
-					inputProps={{ 'aria-label': t('navigation.monitoring.events.searchInput.searchPlaceholder') }} />
+					slotProps={{ htmlInput: { 'aria-label': t('navigation.monitoring.events.searchInput.searchPlaceholder') } }} />
 			</Stack>
 			<div>
 				{!loading &&

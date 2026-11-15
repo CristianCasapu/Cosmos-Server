@@ -24,7 +24,7 @@ import { useEffect, useState } from 'react';
 import ResponsiveButton from '../../../components/responseiveButton';
 import UploadButtons from '../../../components/fileUpload';
 import NewDockerService from './newService';
-import yaml from 'js-yaml';
+import { loadCompose } from '../../../utils/composeYaml.mjs'; // Fork addition: js-yaml 5 (merge keys added back)
 import { CosmosCollapse, CosmosFormDivider, CosmosInputPassword, CosmosInputText, CosmosSelect } from '../../config/users/formShortcuts';
 import VolumeContainerSetup from './volumes';
 import DockerContainerSetup from './setup';
@@ -95,7 +95,7 @@ const cleanUpStore = (service) => {
 // what it does not take (upstream's conversion broke a lone port and dropped unknown keys without a word).
 const convertDockerCompose = (config, serviceName, dockerCompose, setYmlError, setNotes) => {
   try {
-    const result = convertCompose(yaml.load(dockerCompose), {
+    const result = convertCompose(loadCompose(dockerCompose), {
       serviceName,
       dataPath: (config && config.DockerConfig && config.DockerConfig.DefaultDataPath) || '/cosmos-storage',
     });
@@ -461,7 +461,8 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
     resetPassword();
   }
 
-  return <>
+  return (
+    <>
     <Dialog open={openModal} onClose={keepOnBackdrop(() => setOpenModal(false)) /* Fork addition: a click beside it no longer throws the form away */} fullWidth maxWidth={'sm'}>
       <DialogTitle>{installer ? t('mgmt.servapps.compose.installTitle') : t('mgmt.servapps.importComposeFileButton')}</DialogTitle>
       <DialogContent style={{ width: '100%' }}>
@@ -509,12 +510,14 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
                 value={envContent}
                 onChange={(e) => setEnvContent(e.target.value)}
                 sx={{...preStyle, maxHeight: '200px'}}
-                InputProps={{
+                  minRows={Math.min(detectedEnvVars.length, 5)}
+                  slotProps={{
+                    input: {
                   sx: {
                     color: '#EEE',
                   }
-                }}
-                minRows={Math.min(detectedEnvVars.length, 5)}></TextField>
+                    }
+                  }}></TextField>
             </>)}
 
             <TextField
@@ -524,12 +527,14 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
               value={dockerCompose}
               onChange={(e) => setDockerCompose(e.target.value)}
               sx={{...preStyle, maxHeight: detectedEnvVars.length > 0 ? '400px' : '520px'}}
-              InputProps={{
+                minRows={detectedEnvVars.length > 0 ? 15 : 20}
+                slotProps={{
+                  input: {
                 sx: {
                   color: '#EEE',
                 }
-              }}
-              minRows={detectedEnvVars.length > 0 ? 15 : 20}></TextField>
+                  }
+                }}></TextField>
           </Stack></>}
 
           {step === 0 && installer && <><Stack spacing={2}>
@@ -540,7 +545,9 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
             {!ymlError && (<><FormLabel>{t('mgmt.servApps.newContainer.serviceNameInput')}</FormLabel>
 
               <TextField label="" value={serviceName} onChange={(e) => setServiceName(e.target.value)}
-                inputProps={{ 'aria-label': t('mgmt.servApps.newContainer.serviceNameInput') }} /* Fork addition: a name */ />
+                  slotProps={{
+                    htmlInput: { 'aria-label': t('mgmt.servApps.newContainer.serviceNameInput') }
+                  }} />
 
               {service['cosmos-installer'] && service['cosmos-installer'].form && service['cosmos-installer'].form.map((formElement) => {
                 return formElement.type === 'checkbox' ?
@@ -740,7 +747,7 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
             </>)}
           </Stack></>}
           
-          {step === 0 && dockerComposeInit && dockerCompose == '' && <Stack spacing={2} alignItems={'center'} style={{paddingTop: '20px'}}>
+          {step === 0 && dockerComposeInit && dockerCompose == '' && <Stack spacing={2} sx={{ alignItems: 'center' }} style={{paddingTop: '20px'}}>
             <CircularProgress />
           </Stack>}
 
@@ -794,7 +801,8 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
       </ResponsiveButton>
     </PermissionGuard>
     
-  </>;
+    </>
+  );
 };
 
 export default DockerComposeImport;

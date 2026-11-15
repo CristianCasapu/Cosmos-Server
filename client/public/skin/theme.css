@@ -387,56 +387,56 @@ header.MuiAppBar-root a:hover > .MuiChip-root {
 .MuiButton-root.MuiButton-sizeSmall { min-height: 30px; }
 
 /* filled: the fills are dark enough for their white text */
-.MuiButton-contained.MuiButton-containedPrimary {
+.MuiButton-contained.MuiButton-contained.MuiButton-colorPrimary {
   background-image: var(--ct-accent-fill);
   color: #fff;
   box-shadow: 0 4px 14px rgba(var(--ct-accent-glow), 0.24);
 }
-.MuiButton-contained.MuiButton-containedSecondary,
-.MuiButton-contained.MuiButton-containedInfo { background-image: var(--ct-info-fill); color: #fff; }
-.MuiButton-contained.MuiButton-containedError { background-image: var(--ct-danger-fill); color: #fff; }
-.MuiButton-contained.MuiButton-containedSuccess { background-image: var(--ct-ok-fill); color: #fff; }
-.MuiButton-contained.MuiButton-containedWarning { background-image: var(--ct-warn-fill); color: var(--ct-on-warn); }
+.MuiButton-contained.MuiButton-contained.MuiButton-colorSecondary,
+.MuiButton-contained.MuiButton-contained.MuiButton-colorInfo { background-image: var(--ct-info-fill); color: #fff; }
+.MuiButton-contained.MuiButton-contained.MuiButton-colorError { background-image: var(--ct-danger-fill); color: #fff; }
+.MuiButton-contained.MuiButton-contained.MuiButton-colorSuccess { background-image: var(--ct-ok-fill); color: #fff; }
+.MuiButton-contained.MuiButton-contained.MuiButton-colorWarning { background-image: var(--ct-warn-fill); color: var(--ct-on-warn); }
 
 /* Outlined buttons draw their border as a gradient behind a solid fill; the
    fill is hard-coded to the stock card colour, so repaint it per colour. */
 .MuiButton-outlined { --ct-btn-fill: var(--ct-surface); }
-.MuiButton-outlined.MuiButton-outlinedPrimary {
+.MuiButton-outlined.MuiButton-outlined.MuiButton-colorPrimary {
   background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), var(--ct-gradient);
   color: var(--ct-accent-text);
 }
-.MuiButton-outlined.MuiButton-outlinedSecondary,
-.MuiButton-outlined.MuiButton-outlinedInfo {
+.MuiButton-outlined.MuiButton-outlined.MuiButton-colorSecondary,
+.MuiButton-outlined.MuiButton-outlined.MuiButton-colorInfo {
   background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), linear-gradient(135deg, #0e96b8, #0a6f88);
   color: var(--ct-info-text);
 }
-.MuiButton-outlined.MuiButton-outlinedError {
+.MuiButton-outlined.MuiButton-outlined.MuiButton-colorError {
   background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), linear-gradient(135deg, #ef4444, #b91c1c);
   color: var(--ct-danger-text);
 }
-.MuiButton-outlined.MuiButton-outlinedSuccess {
+.MuiButton-outlined.MuiButton-outlined.MuiButton-colorSuccess {
   background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), linear-gradient(135deg, #22c55e, #15803d);
   color: var(--ct-ok-text);
 }
-.MuiButton-outlined.MuiButton-outlinedWarning {
+.MuiButton-outlined.MuiButton-outlined.MuiButton-colorWarning {
   background-image: linear-gradient(var(--ct-btn-fill), var(--ct-btn-fill)), linear-gradient(135deg, #f59e0b, #b45309);
   color: var(--ct-warn-text);
 }
 /* pointed at, an outlined button fills: with the same safe fills */
-.MuiButton-outlined.MuiButton-outlinedPrimary:hover { background-image: var(--ct-accent-fill); color: #fff; }
-.MuiButton-outlined.MuiButton-outlinedSecondary:hover,
-.MuiButton-outlined.MuiButton-outlinedInfo:hover { background-image: var(--ct-info-fill); color: #fff; }
-.MuiButton-outlined.MuiButton-outlinedError:hover { background-image: var(--ct-danger-fill); color: #fff; }
-.MuiButton-outlined.MuiButton-outlinedSuccess:hover { background-image: var(--ct-ok-fill); color: #fff; }
-.MuiButton-outlined.MuiButton-outlinedWarning:hover { background-image: var(--ct-warn-fill); color: var(--ct-on-warn); }
+.MuiButton-outlined.MuiButton-outlined.MuiButton-colorPrimary:hover { background-image: var(--ct-accent-fill); color: #fff; }
+.MuiButton-outlined.MuiButton-outlined.MuiButton-colorSecondary:hover,
+.MuiButton-outlined.MuiButton-outlined.MuiButton-colorInfo:hover { background-image: var(--ct-info-fill); color: #fff; }
+.MuiButton-outlined.MuiButton-outlined.MuiButton-colorError:hover { background-image: var(--ct-danger-fill); color: #fff; }
+.MuiButton-outlined.MuiButton-outlined.MuiButton-colorSuccess:hover { background-image: var(--ct-ok-fill); color: #fff; }
+.MuiButton-outlined.MuiButton-outlined.MuiButton-colorWarning:hover { background-image: var(--ct-warn-fill); color: var(--ct-on-warn); }
 
 /* text buttons and links */
-.MuiButton-text.MuiButton-textPrimary { color: var(--ct-accent-text); }
-.MuiButton-text.MuiButton-textSecondary,
-.MuiButton-text.MuiButton-textInfo { color: var(--ct-info-text); }
-.MuiButton-text.MuiButton-textError { color: var(--ct-danger-text); }
-.MuiButton-text.MuiButton-textSuccess { color: var(--ct-ok-text); }
-.MuiButton-text.MuiButton-textWarning { color: var(--ct-warn-text); }
+.MuiButton-text.MuiButton-text.MuiButton-colorPrimary { color: var(--ct-accent-text); }
+.MuiButton-text.MuiButton-text.MuiButton-colorSecondary,
+.MuiButton-text.MuiButton-text.MuiButton-colorInfo { color: var(--ct-info-text); }
+.MuiButton-text.MuiButton-text.MuiButton-colorError { color: var(--ct-danger-text); }
+.MuiButton-text.MuiButton-text.MuiButton-colorSuccess { color: var(--ct-ok-text); }
+.MuiButton-text.MuiButton-text.MuiButton-colorWarning { color: var(--ct-warn-text); }
 .MuiLink-root.MuiLink-root { color: var(--ct-accent-text); }
 
 /* One look for "not now": no gradient, no shadow, a quiet fill. */
@@ -455,28 +455,28 @@ header.MuiAppBar-root a:hover > .MuiChip-root {
   background-image: none;
   box-shadow: inset 0 0 0 1px var(--ct-quiet-edge, transparent); /* inside: the button is no wider than a filled one */
 }
-.MuiTableCell-root .MuiButton-contained.MuiButton-containedPrimary:not(.Mui-disabled) {
+.MuiTableCell-root .MuiButton-contained.MuiButton-contained.MuiButton-colorPrimary:not(.Mui-disabled) {
   background-color: var(--ct-accent-soft); color: var(--ct-accent-text); --ct-quiet-edge: var(--ct-accent-soft-border);
 }
-.MuiTableCell-root .MuiButton-contained.MuiButton-containedError:not(.Mui-disabled) {
+.MuiTableCell-root .MuiButton-contained.MuiButton-contained.MuiButton-colorError:not(.Mui-disabled) {
   background-color: var(--ct-danger-bg); color: var(--ct-danger-text); --ct-quiet-edge: var(--ct-danger-border);
 }
-.MuiTableCell-root .MuiButton-contained.MuiButton-containedWarning:not(.Mui-disabled) {
+.MuiTableCell-root .MuiButton-contained.MuiButton-contained.MuiButton-colorWarning:not(.Mui-disabled) {
   background-color: var(--ct-warn-bg); color: var(--ct-warn-text); --ct-quiet-edge: var(--ct-warn-border);
 }
-.MuiTableCell-root .MuiButton-contained.MuiButton-containedSuccess:not(.Mui-disabled) {
+.MuiTableCell-root .MuiButton-contained.MuiButton-contained.MuiButton-colorSuccess:not(.Mui-disabled) {
   background-color: var(--ct-ok-bg); color: var(--ct-ok-text); --ct-quiet-edge: var(--ct-ok-border);
 }
-.MuiTableCell-root .MuiButton-contained.MuiButton-containedSecondary:not(.Mui-disabled),
-.MuiTableCell-root .MuiButton-contained.MuiButton-containedInfo:not(.Mui-disabled) {
+.MuiTableCell-root .MuiButton-contained.MuiButton-contained.MuiButton-colorSecondary:not(.Mui-disabled),
+.MuiTableCell-root .MuiButton-contained.MuiButton-contained.MuiButton-colorInfo:not(.Mui-disabled) {
   background-color: var(--ct-info-bg); color: var(--ct-info-text); --ct-quiet-edge: var(--ct-info-border);
 }
-.MuiTableCell-root .MuiButton-contained.MuiButton-containedPrimary:not(.Mui-disabled):hover { background-image: var(--ct-accent-fill); color: #fff; filter: none; }
-.MuiTableCell-root .MuiButton-contained.MuiButton-containedError:not(.Mui-disabled):hover { background-image: var(--ct-danger-fill); color: #fff; filter: none; }
-.MuiTableCell-root .MuiButton-contained.MuiButton-containedWarning:not(.Mui-disabled):hover { background-image: var(--ct-warn-fill); color: var(--ct-on-warn); filter: none; }
-.MuiTableCell-root .MuiButton-contained.MuiButton-containedSuccess:not(.Mui-disabled):hover { background-image: var(--ct-ok-fill); color: #fff; filter: none; }
-.MuiTableCell-root .MuiButton-contained.MuiButton-containedSecondary:not(.Mui-disabled):hover,
-.MuiTableCell-root .MuiButton-contained.MuiButton-containedInfo:not(.Mui-disabled):hover { background-image: var(--ct-info-fill); color: #fff; filter: none; }
+.MuiTableCell-root .MuiButton-contained.MuiButton-contained.MuiButton-colorPrimary:not(.Mui-disabled):hover { background-image: var(--ct-accent-fill); color: #fff; filter: none; }
+.MuiTableCell-root .MuiButton-contained.MuiButton-contained.MuiButton-colorError:not(.Mui-disabled):hover { background-image: var(--ct-danger-fill); color: #fff; filter: none; }
+.MuiTableCell-root .MuiButton-contained.MuiButton-contained.MuiButton-colorWarning:not(.Mui-disabled):hover { background-image: var(--ct-warn-fill); color: var(--ct-on-warn); filter: none; }
+.MuiTableCell-root .MuiButton-contained.MuiButton-contained.MuiButton-colorSuccess:not(.Mui-disabled):hover { background-image: var(--ct-ok-fill); color: #fff; filter: none; }
+.MuiTableCell-root .MuiButton-contained.MuiButton-contained.MuiButton-colorSecondary:not(.Mui-disabled):hover,
+.MuiTableCell-root .MuiButton-contained.MuiButton-contained.MuiButton-colorInfo:not(.Mui-disabled):hover { background-image: var(--ct-info-fill); color: #fff; filter: none; }
 
 .MuiIconButton-root.MuiIconButton-root { border-radius: var(--ct-radius-m); }
 .MuiIconButton-root.MuiIconButton-colorPrimary { color: var(--ct-accent-text); }
@@ -580,7 +580,7 @@ header.MuiAppBar-root a:hover > .MuiChip-root {
   border-radius: 6px;
   background-color: var(--ct-hover);
 }
-.MuiLinearProgress-barColorPrimary.MuiLinearProgress-barColorPrimary {
+.MuiLinearProgress-colorPrimary > .MuiLinearProgress-bar.MuiLinearProgress-bar {
   border-radius: 6px;
   background-image: linear-gradient(90deg, var(--ct-accent), var(--ct-accent-2));
 }
@@ -590,14 +590,14 @@ header.MuiAppBar-root a:hover > .MuiChip-root {
 /* One family for the four kinds: a soft tint of the kind over the surface,
    its edge, the icon in its colour and the words in the page's text colour. */
 .MuiAlert-root.MuiAlert-root { border-radius: 12px; border: 1px solid transparent; }
-.MuiAlert-root.MuiAlert-standardInfo { background-color: var(--ct-info-bg); border-color: var(--ct-info-border); color: var(--ct-text); }
-.MuiAlert-root.MuiAlert-standardSuccess { background-color: var(--ct-ok-bg); border-color: var(--ct-ok-border); color: var(--ct-text); }
-.MuiAlert-root.MuiAlert-standardWarning { background-color: var(--ct-warn-bg); border-color: var(--ct-warn-border); color: var(--ct-text); }
-.MuiAlert-root.MuiAlert-standardError { background-color: var(--ct-danger-bg); border-color: var(--ct-danger-border); color: var(--ct-text); }
-.MuiAlert-root.MuiAlert-standardInfo .MuiAlert-icon { color: var(--ct-info-text); }
-.MuiAlert-root.MuiAlert-standardSuccess .MuiAlert-icon { color: var(--ct-ok-text); }
-.MuiAlert-root.MuiAlert-standardWarning .MuiAlert-icon { color: var(--ct-warn-text); }
-.MuiAlert-root.MuiAlert-standardError .MuiAlert-icon { color: var(--ct-danger-text); }
+.MuiAlert-root.MuiAlert-standard.MuiAlert-colorInfo { background-color: var(--ct-info-bg); border-color: var(--ct-info-border); color: var(--ct-text); }
+.MuiAlert-root.MuiAlert-standard.MuiAlert-colorSuccess { background-color: var(--ct-ok-bg); border-color: var(--ct-ok-border); color: var(--ct-text); }
+.MuiAlert-root.MuiAlert-standard.MuiAlert-colorWarning { background-color: var(--ct-warn-bg); border-color: var(--ct-warn-border); color: var(--ct-text); }
+.MuiAlert-root.MuiAlert-standard.MuiAlert-colorError { background-color: var(--ct-danger-bg); border-color: var(--ct-danger-border); color: var(--ct-text); }
+.MuiAlert-root.MuiAlert-standard.MuiAlert-colorInfo .MuiAlert-icon { color: var(--ct-info-text); }
+.MuiAlert-root.MuiAlert-standard.MuiAlert-colorSuccess .MuiAlert-icon { color: var(--ct-ok-text); }
+.MuiAlert-root.MuiAlert-standard.MuiAlert-colorWarning .MuiAlert-icon { color: var(--ct-warn-text); }
+.MuiAlert-root.MuiAlert-standard.MuiAlert-colorError .MuiAlert-icon { color: var(--ct-danger-text); }
 
 /* ---------- overlays ------------------------------------------------------ */
 
@@ -1018,7 +1018,7 @@ pre.code {
   /* small text buttons outside tables (the chart's Latest / Hourly / Daily, "All settings") */
   main .MuiButton-root.MuiButton-root.MuiButton-sizeSmall:not(.MuiTableCell-root .MuiButton-root) { min-height: var(--ct-touch); }
   /* the page's tab picker and the other full selects */
-  main .MuiOutlinedInput-root .MuiSelect-select.MuiSelect-outlined:not(.MuiInputBase-inputSizeSmall) {
+  main .MuiOutlinedInput-root:not(.MuiInputBase-sizeSmall) .MuiSelect-select.MuiSelect-outlined {
     min-height: var(--ct-touch);
     box-sizing: border-box;
     display: flex;
@@ -1139,7 +1139,7 @@ pre.code {
 .ct-disk-tree .ct-disk-node > .MuiTreeItem-content > .MuiTreeItem-iconContainer { width: 18px; margin-right: 0; color: var(--ct-muted); }
 .ct-disk-tree .ct-disk-node > .MuiTreeItem-content > .MuiTreeItem-iconContainer svg { font-size: 18px; }
 .ct-disk-tree .ct-disk-node > .MuiTreeItem-content > .MuiTreeItem-label { padding: 0; min-width: 0; }
-.ct-disk-tree .ct-disk-node > .MuiTreeItem-group,
+.ct-disk-tree .ct-disk-node > .MuiTreeItem-groupTransition,
 .ct-disk-tree .ct-disk-node > .MuiCollapse-root { margin: 10px 0 0 8px; padding-left: 12px; border-left: 1px solid var(--ct-border-strong); }
 
 .ct-disk-card {
@@ -1197,7 +1197,7 @@ pre.code {
 
 @media (max-width: 599.95px) {
   .ct-disk-tree .ct-disk-node > .MuiTreeItem-content > .MuiTreeItem-iconContainer { width: 16px; }
-  .ct-disk-tree .ct-disk-node > .MuiTreeItem-group,
+  .ct-disk-tree .ct-disk-node > .MuiTreeItem-groupTransition,
   .ct-disk-tree .ct-disk-node > .MuiCollapse-root { margin-left: 7px; padding-left: 6px; }
   .ct-disk-card { padding: 10px 12px; gap: 10px; }
   .ct-disk-main { flex-basis: 100%; gap: 12px; }

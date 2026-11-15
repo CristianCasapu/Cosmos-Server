@@ -75,7 +75,7 @@ export const DnsChallengeComp = ({ name, configName, style, multiline, type, pla
 
       {children}
 
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         <Stack spacing={2}>
         {formik.values[name] && dnsConfig[formik.values[name]] &&<>
           {dnsConfig[formik.values[name]].vars.length > 0 && <CosmosCollapse title={t('mgmt.config.zones.providerSetup', { provider: formik.values[name] })} >

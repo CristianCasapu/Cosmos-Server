@@ -334,7 +334,7 @@ const ProxyManagement = () => {
         <div style={stickyButton}>
         <MainCard>
           {error && (
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <FormHelperText error>{error}</FormHelperText>
             </Grid>
           )}
