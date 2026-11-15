@@ -16,10 +16,10 @@ func TestRecipesAreValid(t *testing.T) {
 	if len(recipes.Recipes) < 15 {
 		t.Fatalf("only %d recipes", len(recipes.Recipes))
 	}
-	kinds := map[string]bool{"database": true, "cache": true, "broker": true, "web": true, "tool": true, "proxy": true, "search": true}
+	kinds := map[string]bool{"database": true, "cache": true, "broker": true, "web": true, "tool": true, "proxy": true, "search": true, "storage": true}
 	evidence := regexp.MustCompile(`^(declared|workdir|docs|env:[A-Z_]+)$`)
 	notes := map[string]bool{"majorUpgrade": true, "pgdata18": true, "noAuth": true, "cpuAvx": true, "toolSignIn": true, "ownedVolume": true,
-		"hostnameKeeps": true, "maxMapCount": true, "httpsSelfSigned": true, "nothingToKeep": true, "cosmosIsProxy": true, "socket": true}
+		"hostnameKeeps": true, "maxMapCount": true, "httpsSelfSigned": true, "nothingToKeep": true, "cosmosIsProxy": true, "socket": true, "consolePath": true, "s3Outside": true}
 	whys := map[string]bool{"xProtocol": true, "webTls": true, "tls": true, "metrics": true, "cluster": true, "cosmosProxies": true, "admin": true}
 	provides := map[string]bool{}
 	ids := map[string]bool{}

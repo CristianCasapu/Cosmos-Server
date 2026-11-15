@@ -70,6 +70,8 @@ export const TEXT = {
   'note.httpsSelfSigned': 'It answers HTTPS with a certificate of its own on 9200.',
   'note.nothingToKeep': 'It keeps nothing: there is nothing to back up.',
   'note.cosmosIsProxy': 'Cosmos is already this server\'s reverse proxy: this one is reached through Cosmos, not on 80 and 443.',
+  'note.consolePath': 'Its console opens at the address above followed by /rustfs/console/ (the bare address answers "forbidden"); sign in with the access key and the secret key.',
+  'note.s3Outside': 'Apps on this server reach the S3 API at the address above on port 9000. For a machine elsewhere in the house (a backup client), add a URL to port 9000 under URLs.',
   'note.socket': 'It reads the Docker socket (read-only) to find the other containers: the review asks you to accept that.',
   'db.need': 'This app needs a database ({{kinds}}).',
   'db.needOptional': 'This app can use a database ({{kinds}}).',

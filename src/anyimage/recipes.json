@@ -264,6 +264,28 @@
       "client": { "url": "{host}:11211" }
     },
     {
+      "id": "rustfs",
+      "name": "RustFS",
+      "images": ["rustfs/rustfs"],
+      "source": "https://docs.rustfs.com/installation/docker/",
+      "maintained": { "checked": "2026-11-15", "lastImage": "2026-11-10" },
+      "kind": "storage",
+      "provides": "s3",
+      "service": { "port": 9000 },
+      "web": { "port": 9001 },
+      "runAs": [{ "user": "10001:10001" }],
+      "user": "rustfs",
+      "volumes": [{ "target": "/data", "evidence": "declared", "backup": true }],
+      "env": [
+        { "name": "RUSTFS_ACCESS_KEY", "type": "name", "value": "cosmos-admin" },
+        { "name": "RUSTFS_SECRET_KEY", "type": "secret" }
+      ],
+      "healthcheck": { "test": ["CMD", "curl", "-fs", "http://127.0.0.1:9000/health"], "interval": "15s", "timeout": "5s", "retries": 5 },
+      "memory": "256 MB and more",
+      "notes": ["consolePath", "s3Outside"],
+      "client": { "url": "http://{host}:9000 (access key {user})", "user": "RUSTFS_ACCESS_KEY", "password": "RUSTFS_SECRET_KEY" }
+    },
+    {
       "id": "nginx",
       "name": "nginx",
       "images": ["nginx"],
