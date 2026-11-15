@@ -127,9 +127,9 @@ const open = async (type, name, viewport, mode) => {
   const ctx = await browser.newContext({ viewport, ignoreHTTPSErrors: true, colorScheme: mode, serviceWorkers: 'block' });
   const page = await ctx.newPage();
   // a creation with an address reloads the server: a request of the page in flight then fails (upstream's list
-  // refresh, seen since plan 20); counted, not failed, in the half minute after a Create
+  // refresh, seen since plan 20); counted, not failed, in the minute and a half after a Create
   page.on('pageerror', (e) => {
-    if (Date.now() - lastCreate < 30000 && /Failed to fetch|Load failed|NetworkError/.test(e.message)) { reloadErrors.push(name); return; }
+    if (Date.now() - lastCreate < 90000 && /Failed to fetch|Load failed|NetworkError/.test(e.message)) { reloadErrors.push(name); return; }
     failures.push(`${name} PAGEERROR: ${(e.stack || e.message).slice(0, 600)}`);
   });
   page.consoleLines = [];

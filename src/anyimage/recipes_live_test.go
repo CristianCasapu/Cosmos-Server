@@ -202,7 +202,10 @@ func startRecipe(t *testing.T, ctx context.Context, docker *client.Client, recip
 		if runAs != "" {
 			owner = runAs
 		}
-		helper(t, ctx, docker, "rm -rf "+folder+" && mkdir -p "+folder+" && chmod 750 "+folder+" && chown "+owner+" "+folder)
+		made := helper(t, ctx, docker, "rm -rf "+folder+" && mkdir -p "+folder+" && chmod 750 "+folder+" && chown "+owner+" "+folder+" && stat -c %a:%u:%g "+folder)
+		if !strings.Contains(made, "750:"+owner) {
+			t.Fatalf("the data folder was not made as Cosmos makes it: %q", made)
+		}
 		mounts = append(mounts, mount.Mount{Type: mount.TypeBind, Source: folder, Target: target})
 	}
 	for _, b := range recipe.Binds {
@@ -261,8 +264,8 @@ func startRecipe(t *testing.T, ctx context.Context, docker *client.Client, recip
 	}
 }
 
-// helper runs a shell command in a busybox container with /livetest bound.
-func helper(t *testing.T, ctx context.Context, docker *client.Client, command string) {
+// helper runs a shell command in a busybox container with /livetest bound and answers its output.
+func helper(t *testing.T, ctx context.Context, docker *client.Client, command string) string {
 	if _, _, err := docker.ImageInspectWithRaw(ctx, "busybox:1.36"); err != nil {
 		pull, err := docker.ImagePull(ctx, "busybox:1.36", image.PullOptions{})
 		if err != nil {
@@ -277,13 +280,22 @@ func helper(t *testing.T, ctx context.Context, docker *client.Client, command st
 		t.Fatal(err)
 	}
 	defer docker.ContainerRemove(context.Background(), made.ID, container.RemoveOptions{Force: true})
-	docker.ContainerStart(ctx, made.ID, container.StartOptions{})
+	if err := docker.ContainerStart(ctx, made.ID, container.StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
 	wait, errs := docker.ContainerWait(ctx, made.ID, container.WaitConditionNotRunning)
 	select {
 	case <-wait:
 	case err := <-errs:
 		t.Fatal(err)
 	}
+	logs, err := docker.ContainerLogs(ctx, made.ID, container.LogsOptions{ShowStdout: true, ShowStderr: true})
+	if err != nil {
+		return ""
+	}
+	defer logs.Close()
+	data, _ := io.ReadAll(logs)
+	return string(data)
 }
 
 func contains(list []string, item string) bool {
