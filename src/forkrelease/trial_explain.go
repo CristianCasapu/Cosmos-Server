@@ -111,8 +111,12 @@ func restoreScript(folder string, trial Trial, manifest keptManifest) string {
 			"chmod "+fmt.Sprintf("%04o", f.Mode&0777)+" "+quote(f.Path+".restore"),
 			"mv -f "+quote(f.Path+".restore")+" "+quote(f.Path))
 	}
+	removed := map[string]bool{}
 	for _, rel := range append(append([]string{}, manifest.Added...), pendingLauncher, "cosmos-launcher-arm64.updated") {
-		lines = append(lines, "rm -f "+quote(rel))
+		if !removed[rel] {
+			removed[rel] = true
+			lines = append(lines, "rm -f "+quote(rel))
+		}
 	}
 	dirs := append([]string{}, manifest.AddedDirs...)
 	sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
@@ -170,7 +174,7 @@ func explain(folder string, trial Trial, problem error, env launcherEnv) {
 	}
 	if keptErr == nil {
 		script := restoreScript(folder, trial, manifest)
-		what := "copies back the " + strconv.Itoa(len(manifest.Replaced)) + " files of " + trial.PreviousVersion + " (each checked against its SHA-256), removes the " + strconv.Itoa(len(manifest.Added)) + " files the update added and the update files"
+		what := "copies back the files of " + trial.PreviousVersion + " (" + count(len(manifest.Replaced), "file") + ", each checked against its SHA-256), removes what the update added (" + count(len(manifest.Added), "file") + ") and the update files"
 		if trial.Purpose == purposeRollback {
 			what += ", adds " + trial.NewVersion + " to " + filepath.Join(folder, failedName) + " (so it is not installed again)"
 		}
@@ -216,6 +220,13 @@ func attention(folder string, what string, env launcherEnv) {
 	text := "Cosmos update: needs attention (" + time.Now().UTC().Format("2006-01-02 15:04 UTC") + ").\n\n" + what + "\n"
 	fmt.Fprintln(env.out, "[ERROR] Update: "+what)
 	writeAtomic(readmePath(folder), []byte(text))
+}
+
+func count(n int, what string) string {
+	if n == 1 {
+		return "1 " + what
+	}
+	return strconv.Itoa(n) + " " + what + "s"
 }
 
 func nonEmpty(value string, otherwise string) string {
