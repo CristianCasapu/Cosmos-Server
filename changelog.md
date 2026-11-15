@@ -8,7 +8,9 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Merged into `custom` since `0.24.0-fork.23`, to be part of the next release:
+Nothing has been merged into `custom` since `0.24.0-fork.24`. Work in progress on a separate branch (not released, and may change before it is): dependency updates.
+
+## Fork 0.24.0-fork.24 — 2026-11-15
 
 ### Added
 - A Notifications page: every notification in full, with filters, a search, read and unread, delete; a details view per notification with what happened, what it means, what Cosmos is doing, what you can do, the state right now, earlier occurrences and, for administrators, the related security entries and log lines.
@@ -18,8 +20,6 @@ Merged into `custom` since `0.24.0-fork.23`, to be part of the next release:
 ### Changed
 - "Found a Bug?" in the Support menu opens the fork's issue tracker.
 - Telegram messages carry the plain sentence and a link to the notification's details.
-
-Work in progress on a separate branch (not released, and may change before it is): dependency updates.
 
 ## Fork 0.24.0-fork.23 — 2026-11-15
 
