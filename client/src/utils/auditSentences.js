@@ -252,6 +252,29 @@ const SENTENCES = {
   'snapshot.restore.started': { text: '{{actor}} started restoring {{target}} from the snapshot {{snapshot}}', ip: true },
   'api.change': { text: '{{actor}} sent {{method}} {{path}}', ip: true },
 
+  // Fork addition: blocks at Cloudflare's edge (src/edgeblock)
+  'edge.blocked': {
+    text: 'Cosmos had {{target}} blocked at Cloudflare until {{until}} ({{reason}})',
+    pick: (e) => (detail(e, 'mode') === 'managed_challenge' ? 'challenge' : ''),
+    variants: { challenge: 'Cosmos had {{target}} challenged at Cloudflare until {{until}} ({{reason}})' },
+  },
+  'edge.block.added': {
+    text: '{{actor}} blocked {{target}} at Cloudflare until {{until}}', ip: true,
+    pick: (e) => (detail(e, 'mode') === 'managed_challenge' ? 'challenge' : ''),
+    variants: { challenge: '{{actor}} had {{target}} challenged at Cloudflare until {{until}}{{from}}' },
+  },
+  'edge.unblocked': {
+    text: '{{actor}} lifted the block of {{target}} at Cloudflare', ip: true,
+    pick: (e) => detail(e, 'reason'),
+    variants: {
+      all: '{{actor}} lifted every block Cosmos made at Cloudflare{{from}}',
+      expired: 'the block of {{target}} at Cloudflare ended',
+      removed_at_cloudflare: 'the block of {{target}} was deleted in Cloudflare\'s dashboard',
+      admin_seen: 'the block of {{target}} at Cloudflare was lifted: an administrator signed in from it',
+      exempt: 'the block of {{target}} at Cloudflare was lifted: the address is never to be blocked',
+      evicted: 'the block of {{target}} at Cloudflare was lifted to make room for a newer one',
+    },
+  },
   'recorder.dropped': { text: '{{count}} events could not be stored (the database did not answer)' },
 };
 
@@ -362,7 +385,7 @@ function defaultOutcome(kind) {
   if (FAILED_KINDS.includes(kind)) return 'failed';
   if (DENIED_KINDS.includes(kind)) return 'denied';
   if (kind.startsWith('shield.') && kind !== 'shield.unban') return 'blocked';
-  if (kind === 'scan.probe' || kind === 'auth.mfa.locked' || kind === 'firewall.ban') return 'blocked';
+  if (kind === 'scan.probe' || kind === 'auth.mfa.locked' || kind === 'firewall.ban' || kind === 'edge.blocked') return 'blocked';
   return 'ok';
 }
 
@@ -380,7 +403,7 @@ export const KIND_GROUPS = [
   { id: 'tokens', label: 'API tokens', kinds: ['token.*'] },
   { id: 'settings', label: 'Settings and URLs', kinds: ['config.*', 'route.*'] },
   { id: 'containers', label: 'Containers and terminals', kinds: ['container.*', 'host.*', 'snapshot.*'] },
-  { id: 'server', label: 'Server and SmartShield', kinds: ['server.*', 'shield.unban', 'firewall.unban', 'firewall.settings.saved', 'upnp.*', 'expose.*'] },
+  { id: 'server', label: 'Server and SmartShield', kinds: ['server.*', 'shield.unban', 'firewall.unban', 'firewall.settings.saved', 'upnp.*', 'expose.*', 'edge.block.added', 'edge.unblocked'] },
   { id: 'refused', label: 'Permissions refused', kinds: ['access.*'] },
   { id: 'other', label: 'Other changes', kinds: ['api.change'] },
 ];

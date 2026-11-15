@@ -33,6 +33,7 @@ import CertificatesOverview, { AnotherDomain, HttpChallengeNote, followCertifica
 import HomeNamesCard from "../../components/homeNames"; // Fork addition: names for use at home
 import { ForkZoneMode, ForkZoneProvider } from "./forkZoneMode"; // Fork addition
 import TurnstileCard from "../../components/turnstile"; // Fork addition: Cloudflare's sign-in check
+import EdgeBlocksCard from "../../components/edgeBlocks"; // Fork addition: blocks at Cloudflare's edge
 
 // one line saying which certificate serves a hostname, reused by the route and hostname views
 export const HostCertificateLine = ({ cert }) => {
@@ -544,6 +545,7 @@ const ConfigZonesWithCloudflare = () => <Stack spacing={3}>
   <HomeNamesCard />
   <CloudflareOverview />
   <TurnstileCard />{/* Fork addition */}
+  <EdgeBlocksCard />{/* Fork addition */}
 </Stack>;
 
 export default ConfigZonesWithCloudflare;

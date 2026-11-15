@@ -36,12 +36,18 @@ func registerSecurityRoutes(admin *mux.Router) {
 // from the SmartShield's response wrapper, which every router that
 // authenticates already has around its handlers: nothing more is wrapped
 // around the response, so streaming and websockets behave as before.
-var securityAudit = utils.SecurityAudit(func(w http.ResponseWriter) int {
-	if wrapper, ok := w.(*proxy.SmartResponseWriterWrapper); ok {
-		return wrapper.Status
-	}
-	return 0
-})
+var securityAudit = func(next http.Handler) http.Handler {
+	audited := utils.SecurityAudit(func(w http.ResponseWriter) int {
+		if wrapper, ok := w.(*proxy.SmartResponseWriterWrapper); ok {
+			return wrapper.Status
+		}
+		return 0
+	})(next)
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		noteEdgeAdmin(req) // the addresses administrators use are never blocked at Cloudflare, see fork_edgeblock.go
+		audited.ServeHTTP(w, req)
+	})
+}
 
 // recordNotFound looks at a request that no route answers. Two things are
 // worth a row: a path that scanners ask for, and a hostname this server

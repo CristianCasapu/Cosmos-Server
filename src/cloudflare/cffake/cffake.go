@@ -40,6 +40,10 @@ type Token struct {
 	// EditTurnstile: "Account > Turnstile > Edit" (Turnstile Sites Write),
 	// which the "Edit zone DNS" template does not include either
 	EditTurnstile bool
+	// ReadFirewall / EditFirewall: "Zone > Firewall Services > Read / Edit",
+	// which the IP Access Rules of a zone need (accessrules.go)
+	ReadFirewall bool
+	EditFirewall bool
 }
 
 // OriginPullCert is a client certificate uploaded for a zone's Authenticated
@@ -70,6 +74,8 @@ type Zone struct {
 	// zone-level Authenticated Origin Pulls
 	OriginPullCerts   []OriginPullCert
 	OriginPullEnabled bool
+	// IP Access Rules of the zone (accessrules.go)
+	AccessRules []AccessRule
 }
 
 // Call is one request the server got, without its credential.
@@ -95,6 +101,8 @@ type Server struct {
 	seenAs string
 	// the Turnstile widgets made through the API (turnstile.go)
 	widgets []Widget
+	// what the access rules endpoints do (accessrules.go)
+	rules rulesState
 }
 
 // New returns an empty stand-in with Cloudflare's real ranges.
@@ -378,6 +386,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if s.limited(w) {
+		return
+	}
+
 	header := req.Header.Get("Authorization")
 	if header == "" {
 		fail(w, http.StatusBadRequest, 1001, `Missing "Authorization" header`)
@@ -429,6 +441,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	if match := widgetsPath.FindStringSubmatch(path); match != nil {
 		s.serveWidgets(w, req, match[1], token, raw)
+		return
+	}
+
+	if match := accessRulesPath.FindStringSubmatch(path); match != nil {
+		s.serveAccessRules(w, req, match[1], match[2], token, raw)
 		return
 	}
 

@@ -124,6 +124,12 @@ const (
 	SecExposeOpened = "expose.opened"
 	SecExposeClosed = "expose.closed"
 
+	// blocks at Cloudflare's edge (src/edgeblock): what Cosmos asked
+	// Cloudflare to block, what an administrator blocked, what was lifted
+	SecEdgeBlocked    = "edge.blocked"
+	SecEdgeBlockAdded = "edge.block.added"
+	SecEdgeUnblocked  = "edge.unblocked"
+
 	// the record about itself
 	SecRecorderDropped = "recorder.dropped"
 )
@@ -164,6 +170,10 @@ type SecurityEvent struct {
 	// connection. Such an event is never written to the Fail2ban file: see
 	// fork_forwarded_for.go. Not stored.
 	Forwarded bool `json:"-"`
+	// Edge: IP is the visitor Cloudflare's proxy reported for a hostname
+	// served through it (see fork_edge.go). Only such events can lead to a
+	// block at Cloudflare. Not stored.
+	Edge bool `json:"-"`
 }
 
 var (
@@ -250,6 +260,7 @@ func securityEventOf(req *http.Request, actor string, kind string, target string
 
 	event.IP = SecurityClientIP(req)
 	event.Forwarded = IsForwardedClient(req, event.IP)
+	event.Edge = event.Forwarded && IsEdgeVisitor(req, event.IP) // Fork addition: edge blocks, see fork_edge.go
 	event.Host = req.Host
 	event.Method = req.Method
 	if req.URL != nil {
