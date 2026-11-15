@@ -621,13 +621,14 @@ func TestAFailedVersionIsNeitherStagedNorUnpacked(t *testing.T) {
 
 func TestTheWatchdog(t *testing.T) {
 	previousWindow, previousPoll := WatchdogWindow, watchdogPoll
-	WatchdogWindow, watchdogPoll = 300*time.Millisecond, 20*time.Millisecond
 	defer func() { WatchdogWindow, watchdogPoll = previousWindow, previousPoll }()
+	watchdogPoll = 10 * time.Millisecond
 
 	ended := 0
 	end := func(string, io.Writer) { ended++ }
 
 	// not proven in time: ended, and the time-out noted
+	WatchdogWindow = 100 * time.Millisecond
 	folder := t.TempDir()
 	writeTrial(folder, Trial{NewVersion: newVersion, PreviousVersion: oldVersion, Starts: 2})
 	watchdog(folder, io.Discard, end)
@@ -635,32 +636,41 @@ func TestTheWatchdog(t *testing.T) {
 		t.Errorf("ended %d, trial %+v", ended, trial)
 	}
 
-	// proven meanwhile: nothing ended
+	// From here the window is far longer than the steps take: a watchdog
+	// that waits for its end instead of stopping early fails the test, on
+	// a slow machine too.
+	WatchdogWindow = time.Minute
+	early := 20 * time.Second
+
+	// proven meanwhile: nothing ended, stopped early
 	ended = 0
 	writeTrial(folder, Trial{NewVersion: newVersion, PreviousVersion: oldVersion, Starts: 1})
-	go func() { time.Sleep(100 * time.Millisecond); os.Remove(trialPath(folder)) }()
+	go func() { time.Sleep(50 * time.Millisecond); os.Remove(trialPath(folder)) }()
 	begun := time.Now()
 	watchdog(folder, io.Discard, end)
-	if ended != 0 || time.Since(begun) > 250*time.Millisecond {
+	if ended != 0 || time.Since(begun) > early {
 		t.Errorf("ended %d after %v", ended, time.Since(begun))
 	}
 
 	// another start began meanwhile: it watches itself
+	ended = 0
 	writeTrial(folder, Trial{NewVersion: newVersion, PreviousVersion: oldVersion, Starts: 1})
 	go func() {
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 		writeTrial(folder, Trial{NewVersion: newVersion, PreviousVersion: oldVersion, Starts: 2})
 	}()
 	begun = time.Now()
 	watchdog(folder, io.Discard, end)
-	if trial := readTrialFile(t, folder); ended != 0 || trial.TimedOut != 0 || time.Since(begun) > 250*time.Millisecond {
+	if trial := readTrialFile(t, folder); ended != 0 || trial.TimedOut != 0 || time.Since(begun) > early {
 		t.Errorf("ended %d, trial %+v, watched %v", ended, trial, time.Since(begun))
 	}
 
-	// nothing on trial: nothing to do
+	// nothing on trial: nothing to do, at once
+	ended = 0
 	os.Remove(trialPath(folder))
+	begun = time.Now()
 	watchdog(folder, io.Discard, end)
-	if ended != 0 {
+	if ended != 0 || time.Since(begun) > early {
 		t.Error("ended without a trial")
 	}
 
