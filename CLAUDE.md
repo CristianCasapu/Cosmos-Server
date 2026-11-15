@@ -99,7 +99,7 @@ go test ./src/proxy/ -count=1
 # on root's rights passes here and fails there.
 #
 # The container edit against a real Docker, never the server's: start
-# docker:27-dind on a network of its own and run
+# docker:29-dind on a network of its own and run
 #   COSMOS_FORK_LIVE_DOCKER=1 DOCKER_HOST=tcp://<dind>:2375 go test ./src/docker/ -run SafeEditLive -count=1
 
 # the frontend's pure logic (quote the glob)
@@ -125,11 +125,11 @@ at the production instance.
 #    password}, step 5), then start the binary again: step 5 exits the process
 # 3. run the checks from the Playwright image on the same network
 docker run --rm --network <net> --ipc=host -v <dir with fork-ui-check.mjs>:/work -w /work \
-  mcr.microsoft.com/playwright:v1.49.1-noble sh -c 'npm i playwright@1.49.1 && node fork-ui-check.mjs'
+  mcr.microsoft.com/playwright:v1.65.1-noble sh -c 'npm i playwright@1.49.1 && node fork-ui-check.mjs'
 ```
 
 For the pages that list containers the test instance needs a Docker of its
-own, never the server's: start `docker:27-dind` (`--privileged`,
+own, never the server's: start `docker:29-dind` (`--privileged`,
 `-e DOCKER_TLS_CERTDIR=`) on the same network, create a couple of dummy
 containers inside it, and start the test instance with
 `DOCKER_HOST=tcp://<dind>:2375`. Run the binary in a loop
@@ -157,11 +157,13 @@ For a look at everything, `scripts/fork-ui-gallery.mjs` (with `-seed.mjs` to fil
 
 A test Cosmos container's host name must not be a single hex letter (it can match a container ID prefix in its test Docker, and Cosmos then takes itself for that container); the creation check's `/mnt/data` must be on another device than the instance's other bind mounts (a tmpfs does not count as a data disk).
 
-`scripts/fork-ui-check-creation.mjs`, `fork-ui-check-new-url.mjs` and `fork-ui-check-leftovers.mjs` check the creation paths, the New URL dialog and the leftovers of interrupted edits (setup in each header: a test Cosmos with its own Docker in Docker, a `registry:2` inside it, a data disk on another device and a local market source on an `--internal` network; the compose files of a test market are served over HTTPS: the browser blocks `http:` ones on the HTTPS panel and the script policy refuses `data:` ones). The live Docker tests, `COSMOS_FORK_LIVE_DOCKER=1 DOCKER_HOST=tcp://<dind>:2375 go test ./src/docker/ -run "CreationLive|SafeEditLive|LeftoversLive"`, run only against a Docker in Docker of the test's own (it needs `busybox:1.36` and `hello-world`), never the host's Docker. The gallery takes a `patch` option to change API answers per view; its seed makes a failing job and points its unreachable app at a documentation address; `fork-ui-check.mjs` stops at Storage's sixth tab on a test instance without disks.
+`scripts/fork-ui-check-creation.mjs`, `fork-ui-check-new-url.mjs` and `fork-ui-check-leftovers.mjs` check the creation paths, the New URL dialog and the leftovers of interrupted edits (setup in each header: a test Cosmos with its own Docker in Docker, a `registry:3` inside it, a data disk on another device and a local market source on an `--internal` network; the compose files of a test market are served over HTTPS: the browser blocks `http:` ones on the HTTPS panel and the script policy refuses `data:` ones). The live Docker tests, `COSMOS_FORK_LIVE_DOCKER=1 DOCKER_HOST=tcp://<dind>:2375 go test ./src/docker/ -run "CreationLive|SafeEditLive|LeftoversLive"`, run only against a Docker in Docker of the test's own (it needs `busybox:1.36` and `hello-world`), never the host's Docker. The gallery takes a `patch` option to change API answers per view; its seed makes a failing job and points its unreachable app at a documentation address; `fork-ui-check.mjs` stops at Storage's sixth tab on a test instance without disks.
 
 The panel enforces a script policy: new code must not need eval, `new Function` or inline scripts (`forkScriptPolicy.test.mjs`), and a browser check must not use `page.waitForFunction` (Playwright evaluates it with eval; `checkScripts.test.mjs` forbids it). Commands of the API take POST only: a check script or seed that acts must send POST. `scripts/fork-ui-check-csp.mjs` (phases wizard, walk, headers, flows) walks every page under the policy; `fork-ui-check-commands.mjs` checks the POST-only commands; `fork-ui-check-turnstile.mjs` and `fork-ui-check-turnstile-interplay.mjs` check the sign-in check (setup in the header: the fake Cloudflare also serving siteverify, the test Cosmos in Turnstile test mode with Cloudflare's public test keys, the policy taken from the server); `fork-ui-check-edge-blocks.mjs` checks the edge-block card and the dashboard's "Block at Cloudflare" (the stand-in with `/token?firewall=1`, its edge role inside the test server's network). The compose files of a test market are served over HTTPS (the policy refuses `data:` addresses). The live label test is `-run ImageLabelsLive` against a Docker in Docker of the test's own.
 
 `scripts/fork-ui-check-notifications.mjs` checks the notifications page, the details and the bell as an admin and as another user (`BASE`, `ADMIN_USER`/`ADMIN_PASS`, `USER_USER`/`USER_PASS`, `ENGINES`, `SIZES`, `MODES`, `SHOTS`); run one engine at a time, since parallel runs race on the read state. The stand-in router (`scripts/fork-fake-igd.go`) takes `/break?set=1` to close the connection on every request for a forward, which is how a real failure and recovery is made on a test instance.
+
+`sh scripts/fork-deps-check.sh` says whether a dependency has a known vulnerability that is not yet in `scripts/fork-deps-known.txt` (exit 1: a new finding; 2: a tool could not run; `OUTDATED=1` also lists newer versions); a finding is either fixed by an update or added to that file with the reason it does not apply. The creation check needs registry images that carry multi-platform indexes (`docker buildx imagetools create --platform …`), or the refusal of an image for another processor is never reached. After a change of `package-lock.json`, a worktree needs a fresh `npm ci` (in a `node:26` container): hard-linking `node_modules` from the main clone is right only while the two lock files are the same.
 
 The gallery also pictures the blocks at Cloudflare's edge (`domains-edge`, guarded, and `security-edge`, with the fixtures `edgeMock` and `edgeOverviewPatch`) and always blocks service workers. `fork-ui-check-cloudflare.mjs` stops at its per-app part (it looks for the "Domains" button the Internet section replaced: to repair). In Firefox a "dark" run of a check script can render light after the server's Cross-Origin-Opener-Policy process switch (the gallery is not affected).
 
@@ -177,7 +179,7 @@ The gallery also measures buttons inside links, heading jumps and the header's s
 
 `scripts/fork-ui-check-pwa.mjs` checks the installable app (`PHASE=online|offline|all|update|off|switch|install|fresh|untrusted`, `ENGINES=chromium,firefox,webkit`; its header lists the phases). It needs HTTPS with a certificate the browser trusts: Playwright's Firefox ignores the enterprise policy, so the script puts the test CA into each Firefox profile with `certutil`; Playwright's WebKit keeps no cache storage in a saved profile, use `PHASE=all` there. The gallery takes `STANDALONE=1`, `SAFE_AREA=47,0,34,0` and `SHOT=viewport` to picture the panel as an installed app on a notched phone.
 
-`scripts/fork-ui-check-expose.mjs` checks the Internet dialog and the installer's exposure step in three browsers; its header lists the setup (a test Cosmos, Docker in Docker with a `registry:2` inside it because compose installs always pull, the Cloudflare stand-in and the router stand-in, all on an `--internal` network: never the owner's Cloudflare account or router).
+`scripts/fork-ui-check-expose.mjs` checks the Internet dialog and the installer's exposure step in three browsers; its header lists the setup (a test Cosmos, Docker in Docker with a `registry:3` inside it because compose installs always pull, the Cloudflare stand-in and the router stand-in, all on an `--internal` network: never the owner's Cloudflare account or router).
 
 `sh scripts/fork-acme-pebble.sh` proves certificate orders for real against Pebble and the Cloudflare stand-in on an `--internal` network with the real server binary (options `PREFIX`, `SCRATCH`, `SUBNET`, `PEBBLE_IMAGE`, `KEEP=1`; `clean` removes what a kept run left; the variables `FORK_ACME_TEST_DIRECTORY`/`_CA`/`_TICK`/`_NO_ARI` are honoured only with a test authority); `scripts/fork-ui-check-certificates.mjs` then checks the Certificates card in three browsers against what a `KEEP=1` run left (its lookups are limited to 30 an hour: restart the test server before a second run). Never order from the real Let's Encrypt, production or staging, in a test.
 

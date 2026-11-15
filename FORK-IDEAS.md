@@ -96,17 +96,23 @@ on the invitation page, failing closed when Cloudflare is down, a challenge
 rather than a block for a first offence, seven days of exemption for an
 administrator's address, the caps of 500 rules and 60 blocks an hour.
 
-## Dependencies: left for later (2026-11-13)
+## Dependencies: left for later (2026-11-15)
 
-- Docker client library v26 is out of support; v28 needs changes in ten
-  upstream files and v29 moves to another module: wait for upstream.
-- react-router 7, vite 6 or later (build tool, end of life on 4), MUI 9,
-  React 19: large migrations of upstream's frontend, not started.
-- The bundled `nebula` 1.8.2 and `restic` 0.17.3 are old builds with known
-  advisories, taken from upstream's release zip and checked by MD5 only:
-  download current ones from their own releases with a pinned SHA-256
-  (check Constellation's and existing repositories' compatibility first).
-- GitHub Actions are pinned by commit but to old majors (Node 20 runtime).
+- Majors of the frontend, in progress on a branch: the build tool (Vite 4 is
+  past its end of life), React 19, react-router 7, MUI 9, then the charts,
+  the terminal, the syntax highlighter, i18n and the state library.
+- Docker client library v26 is out of support (two daemon-side advisories
+  recorded as known); v28 needs changes in upstream's files.
+- The bundled `nebula` 1.8.2 and `restic` 0.17.3 are old builds taken from
+  upstream's release zip and checked by MD5 only; they belong to paid
+  features. Nebula 1.10 and later break the paid code; 1.9.7 is the newest
+  that stays compatible.
+- Held: the service library (1.3.0 cannot render upstream's systemd unit
+  template), modules only paid code uses, majors of upstream's own code
+  behind a new import path.
+- The Pebble proof's two renewal-window checks fail on `custom` too (the
+  check or Pebble 2.10's answers: to find out); the installable app's check
+  in Firefox needs the port refused rather than the container stopped.
 
 ## Security features: left for later (2026-11-13)
 

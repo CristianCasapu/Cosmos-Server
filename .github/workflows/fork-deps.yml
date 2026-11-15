@@ -1,0 +1,84 @@
+# Fork addition: once a week, look for a known vulnerability in a dependency
+# that nobody has looked at yet (scripts/fork-deps-check.sh: govulncheck and
+# npm audit against scripts/fork-deps-known.txt), and say so in an issue.
+# It reads the repository and changes nothing in it; it needs no secret and
+# no outside account.
+name: Fork dependency check
+
+on:
+  schedule:
+    # Mondays at 05:23 UTC
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: fork-deps
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: custom
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+
+      - name: Check the dependencies
+        id: check
+        run: |
+          set +e
+          OUTDATED=1 sh scripts/fork-deps-check.sh > report.txt 2>&1
+          code=$?
+          cat report.txt
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Say what was found in an issue
+        if: steps.check.outputs.code != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CODE: ${{ steps.check.outputs.code }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Dependency check: something to look at"
+          {
+            if [ "$CODE" = "1" ]; then
+              echo "The weekly check found a known vulnerability in a dependency that is not in \`scripts/fork-deps-known.txt\` yet."
+            else
+              echo "The weekly dependency check could not run (a tool failed): see the run."
+            fi
+            echo
+            echo "Run: $RUN_URL"
+            echo
+            echo '```'
+            # the report holds advisory ids and package names only; bounded all the same
+            head -c 20000 report.txt
+            echo
+            echo '```'
+            echo
+            echo "What to do: update the dependency, or add the id to \`scripts/fork-deps-known.txt\` with the reason it does not apply."
+          } > body.md
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body-file body.md
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file body.md
+          fi
+
+      - name: Show the run as failed when something was found
+        if: steps.check.outputs.code != '0'
+        run: exit 1
