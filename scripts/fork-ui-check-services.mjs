@@ -329,12 +329,14 @@ if (phase === 'look') {
           await shot(page, name, '01-tile-service');
           await noSideScroll(page, name, 'ServApps');
           let dialog = await newUrl(page, 'postgresql');
+          await page.waitForTimeout(800); // the dialog's fade-in
           await shot(page, name, '02-new-url-database');
           await fits(page, name, '[data-new-url-dialog]', 'New URL of the database');
           await page.locator('[data-new-url-dialog] button', { hasText: 'Cancel' }).click().catch(() => {});
           await card(page, 'postgresql');
           await tile(page, 'postgresql').locator('[data-expose-open]').first().click();
           await page.locator('[data-expose-dialog] [data-service-info]').waitFor({ timeout: 30000 }).catch(() => {});
+          await page.waitForTimeout(800);
           await shot(page, name, '03-internet-database');
           await fits(page, name, '[data-expose-dialog]', 'Internet of the database');
           await page.locator('[data-expose-dialog] button', { hasText: 'Close' }).click();
@@ -349,6 +351,7 @@ if (phase === 'look') {
           await why.click();
           await page.locator('[data-start-dialog] [data-start-reason]').waitFor({ timeout: 30000 });
           await page.locator('[data-start-dialog] [data-start-log-door]').click().catch(() => {});
+          await page.waitForTimeout(800);
           await shot(page, name, '05-why-dialog');
           await fits(page, name, '[data-start-dialog]', 'Why?');
           await page.locator('[data-start-dialog] button', { hasText: 'Close' }).click();
