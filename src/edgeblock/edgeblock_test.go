@@ -421,7 +421,7 @@ func TestCaps(t *testing.T) {
 		}
 		env.engine.st.Rules = append(env.engine.st.Rules, &Rule{Key: "198.51.100." + itoa(i%250), Zone: "example.org", State: StatePending, Reason: reason, Since: now, Until: now.Add(time.Duration(i+1) * time.Hour)})
 	}
-	ok := env.engine.makeRoomLocked(1, now)
+	ok := env.engine.makeRoomLocked([]target{{Zone: "example.org", Via: ViaZone}}, ModeBlock, now)
 	live := env.engine.liveLocked()
 	first := env.engine.st.Rules[0]
 	env.engine.mu.Unlock()
@@ -447,12 +447,13 @@ func itoa(n int) string {
 func TestWithoutThePermissionSwitchingOnIsRefusedAndSaysWhich(t *testing.T) {
 	env := setup(t, true, nil)
 	code, body := env.post(map[string]interface{}{"action": "enable"})
-	if code != http.StatusBadGateway || body["reason"] != "proof_failed" {
+	// a refusal is a 4xx the panel can read: a gateway status reads as "no answer"
+	if code != http.StatusConflict || body["reason"] != "proof_failed" {
 		t.Fatalf("%d %v", code, body)
 	}
 	results := body["results"].([]interface{})
 	first := results[0].(map[string]interface{})
-	if first["ok"] != false || first["step"] != "list" || first["reason"] != "permission" {
+	if first["ok"] != false || first["outcome"] != OutcomeNone || first["zoneRules"] != "no" || first["waf"] != "no" {
 		t.Fatalf("%v", first)
 	}
 	if enabled() {
