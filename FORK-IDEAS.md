@@ -168,6 +168,21 @@ administrator's address, the caps of 500 rules and 60 blocks an hour.
   internet: a watch from the owner's other machine or a small external
   service would tell them sooner than a visitor does.
 
+## Notifications: left for later (2026-11-15)
+
+- The Postgres branch of the schema upgrade is written but not tested (the
+  server runs SQLite); rotated log files are not read; notifications from
+  paid code get the generic sentence only.
+- An open router notification for a port that is no longer wanted stays
+  open until its 24-hour window ends; the retry time stored in "What Cosmos
+  did" is the one at the moment of writing (the live section has the
+  current one); times in sentences are the server's local time; the link
+  buttons of the details all read "Open the page it is about".
+- The owner's to change if wanted: the grouping window (24 h) and the
+  re-alert interval (4 h); that anyone may delete their own copies; that
+  "keeps stopping" and "Fail2ban not answering" ring the bell; that opening
+  the bell no longer marks everything read.
+
 ## Look of the panel: left for later (2026-11-14)
 
 - Seen when the security release was checked, left as it is: on a phone the

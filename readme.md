@@ -71,6 +71,8 @@ The server's network traffic counts only its own network cards and never goes be
 
 ---
 
+**Notifications with details.** Each notification has a kind, the thing it is about and plain sentences with a link to where it is fixed, on a page of its own with filters and a search; its details say what happened, what it means, what Cosmos is doing and what you can do, with the state right now, earlier occurrences and, for administrators, the related security entries and log lines. A repeat of the same problem is grouped into one entry with a counter and alerts again only when it gets worse; when the problem is gone the entry is marked resolved with a follow-up. A failed router forward says which port, what it means for reaching the server, what the router answered and when Cosmos tries again.
+
 ## Status and honesty
 
 This fork is used in production on one server. It is checked by unit tests, by a start of each build, and by browser checks in Chromium, Firefox and WebKit against throwaway instances and stand-ins for outside services. Some things have **not** been verified for real:

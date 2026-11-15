@@ -8,7 +8,18 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Nothing has been merged into `custom` since `0.24.0-fork.23`. Work in progress on separate branches (not released, and may change before it is): a notifications page with details per notification, and dependency updates.
+Merged into `custom` since `0.24.0-fork.23`, to be part of the next release:
+
+### Added
+- A Notifications page: every notification in full, with filters, a search, read and unread, delete; a details view per notification with what happened, what it means, what Cosmos is doing, what you can do, the state right now, earlier occurrences and, for administrators, the related security entries and log lines.
+- Notifications with a kind, the object they concern and plain sentences; repeats grouped with a counter; a resolved state with follow-ups. Router forward failures are said in words: which port, what it means for reaching the server, when Cosmos asks again, and for how long it was down once it is back.
+- Both licences are in every release zip; the README, the changelog and the contribution guide describe the fork.
+
+### Changed
+- "Found a Bug?" in the Support menu opens the fork's issue tracker.
+- Telegram messages carry the plain sentence and a link to the notification's details.
+
+Work in progress on a separate branch (not released, and may change before it is): dependency updates.
 
 ## Fork 0.24.0-fork.23 — 2026-11-15
 
