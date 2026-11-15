@@ -284,6 +284,7 @@ func restoreLeftover(name string) (RestoreResult, error) {
 	}
 
 	utils.Log("Leftovers - Container " + app + " put back from " + name + leftoverAsideLog(result.SetAside))
+	utils.ResolveThread(leftoverThread(logSafe(name)))
 	return result, nil
 }
 
@@ -313,6 +314,7 @@ func removeLeftover(name string) error {
 		return err
 	}
 	utils.Log("Leftovers - Container " + name + " removed")
+	utils.ResolveThread(leftoverThread(logSafe(name)))
 	return nil
 }
 
@@ -384,6 +386,7 @@ func reportLeftovers() int {
 			Vars:      vars,
 			Level:     "warning",
 			Link:      "/cosmos-ui/servapps",
+			Fork:      leftoverInfo(entry),
 		})
 	}
 	return len(found)

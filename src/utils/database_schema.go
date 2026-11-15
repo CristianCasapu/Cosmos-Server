@@ -111,6 +111,12 @@ func initMetricsSchema(db *sql.DB, dialect string) error {
 	// future schema migrations go here, gated on current < N
 	_ = current
 
+	// Fork addition: the fork's notification columns, see fork_notifications_schema.go
+	if err := forkNotificationsSchema(tx, dialect); err != nil {
+		tx.Rollback()
+		return err
+	}
+
 	set := "INSERT INTO monitoring_kv(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
 	if _, err := tx.Exec(rebindFor(dialect, set), "schema_version", strconv.Itoa(monitoringSchemaVersion)); err != nil {
 		tx.Rollback()

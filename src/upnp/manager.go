@@ -63,6 +63,9 @@ type Mapping struct {
 	Suggested int        `json:"suggested,omitempty"`
 	Scheme    string     `json:"scheme,omitempty"`
 	Since     *time.Time `json:"since,omitempty"`
+	// Fork addition: when a forward that failed is asked for again by itself, and how often it was
+	RetryAt  *time.Time `json:"retryAt,omitempty"`
+	Attempts int        `json:"attempts,omitempty"`
 	// Hostname is the DNS-only name of an app port, when it has one
 	Hostname string `json:"hostname,omitempty"`
 }
@@ -111,6 +114,9 @@ type Status struct {
 	// could not be made waits on its own (Mapping.Paused).
 	Paused      bool      `json:"paused,omitempty"`
 	LastRefresh time.Time `json:"lastRefresh"`
+	// Fork addition: when the router is asked again, and how often it was, while paused
+	RetryAt  *time.Time `json:"retryAt,omitempty"`
+	Attempts int        `json:"attempts,omitempty"`
 }
 
 // heldMapping is a forward this process created or took over on the router.
@@ -261,17 +267,8 @@ func privateAddressNote(externalIP string) string {
 // discoverGateway finds the router. A variable so tests never touch a real one.
 var discoverGateway = discover
 
-// notifyFailure tells the admins, once per failure, that a forwarding is not
-// in place. A variable so tests can replace it.
-var notifyFailure = func(reason string) {
-	utils.WriteNotification(utils.Notification{
-		Recipient: "admin",
-		Title:     "header.notification.title.upnpFailed",
-		Message:   "header.notification.message.upnpFailed",
-		Vars:      reason,
-		Level:     "error",
-	})
-}
+// The administrators are told once per failure, in words, by notifyUPnP
+// (fork_notify.go), and again when it is over.
 
 // recordMapping writes a change made on the router to the security record.
 // These entries have no actor: they are what Cosmos did, after an
@@ -384,7 +381,8 @@ func run(p plan, manual bool) Status {
 	}
 	wasPaused := paused
 	routerFailed := false
-	notices := []string{}
+	notices := []upnpNotice{} // Fork addition: told in words, see fork_notify.go
+	var restored []func()     // Fork addition: forwards that work again, resolved once published
 
 	put := func(m Mapping) {
 		if m.State == "" {
@@ -410,20 +408,40 @@ func run(p plan, manual bool) Status {
 		}
 		if paused && !wasPaused {
 			utils.Warn("UPnP: the router could not be set up; trying again by itself at " + routerRetry.next.Format("15:04"))
-			notifyFailure(st.Error)
+			ports := []string{}
+			for _, w := range p.wants {
+				if w.eligible && w.choice == -1 {
+					ports = append(ports, portName(w.mapping))
+				}
+			}
+			notifyUPnP(upnpNotice{kind: noticeRouter, err: st.Error, gateway: st.GatewayIP, name: st.Gateway, local: st.LocalIP,
+				retry: routerRetry, pauses: unreachablePauses, ports: ports})
 		}
 		if wasPaused && !paused && wanted {
 			utils.Log("UPnP: the router answers again")
 		}
+		if !paused && wanted {
+			resolveUPnP(routerThread, routerBack(st.GatewayIP))
+		}
 		if p.cfgErr != nil && p.cfgErr.Error() != lastConfigErr {
-			notifyFailure(p.cfgErr.Error())
+			notifyUPnP(upnpNotice{kind: noticeConfig, err: p.cfgErr.Error()})
+		}
+		if p.cfgErr == nil && lastConfigErr != "" {
+			utils.ResolveThread("upnp:config")
 		}
 		lastConfigErr = ""
 		if p.cfgErr != nil {
 			lastConfigErr = p.cfgErr.Error()
 		}
 		for _, notice := range notices {
-			notifyFailure(notice)
+			notifyUPnP(notice)
+		}
+		for _, resolve := range restored {
+			resolve()
+		}
+		if paused {
+			next := routerRetry.next
+			st.RetryAt, st.Attempts = &next, routerRetry.attempts
 		}
 		st.ExternalHTTPSPort, st.ExternalHTTPPort = externalPorts(cfg, st.Mappings)
 		lastPlan = p.signature
@@ -663,8 +681,8 @@ func run(p plan, manual bool) Status {
 				delete(held, w.key)
 				recordMapping(utils.SecUPnPMappingRemoved, h.Target, "external", strconv.Itoa(h.ExternalPort), "protocol", strings.ToLower(h.Protocol), "reason", "lost")
 			}
-			if failed[w.key] != request {
-				notices = append(notices, m.Name+": "+m.Error)
+			tell := failed[w.key] != request
+			if tell {
 				delete(mappingRetry, w.key)
 			}
 			failed[w.key] = request
@@ -675,6 +693,15 @@ func run(p plan, manual bool) Status {
 				pauses = unreachablePauses
 			}
 			mappingRetry[w.key] = mappingRetry[w.key].again(now, pauses)
+			next := mappingRetry[w.key].next
+			m.RetryAt, m.Attempts = &next, mappingRetry[w.key].attempts
+			if tell {
+				_, present := forwardedHere(entries, m.Protocol, local, m.InternalPort, []int{m.WantedPort})
+				notices = append(notices, upnpNotice{kind: noticeForward, mapping: m, key: w.key, err: m.Error,
+					answered: refusal == nil || routerAnswered(refusal), listed: listed, present: present,
+					gateway: st.GatewayIP, name: st.Gateway, local: local, external: st.ExternalIP,
+					retry: mappingRetry[w.key], pauses: pauses})
+			}
 			utils.Error("UPnP: could not forward port "+strconv.Itoa(m.WantedPort)+" ("+m.Name+")", errors.New(m.Error))
 			put(m)
 			continue
@@ -682,6 +709,12 @@ func run(p plan, manual bool) Status {
 
 		if _, hadFailed := failed[w.key]; hadFailed {
 			utils.Log("UPnP: port " + strconv.Itoa(got) + " (" + m.Name + ") is forwarded again")
+		}
+		// Fork addition: a notification about this forward that is still open is resolved
+		{
+			key, done := w.key, m
+			done.Active, done.ExternalPort = true, got
+			restored = append(restored, func() { resolveUPnP(threadOf(key), forwardBack(key, done)) })
 		}
 		delete(failed, w.key)
 		if refusal == nil {

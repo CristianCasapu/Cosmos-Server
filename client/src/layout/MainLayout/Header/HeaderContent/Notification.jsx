@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link as RouterLink } from 'react-router-dom'; // Fork addition: every item opens its details
 import { useTranslation } from 'react-i18next';
 import dayjs from 'dayjs';
 
@@ -16,7 +17,7 @@ import {
     ListItemButton,
     ListItemAvatar,
     ListItemText,
-    ListItemSecondaryAction,
+    Button, // Fork addition: "See all"
     Paper,
     Popper,
     Typography,
@@ -27,10 +28,11 @@ import {
 import MainCard from '../../../../components/MainCard';
 import Transitions from '../../../../components/@extended/Transitions';
 // assets
-import { BellOutlined, CloseOutlined, ExclamationCircleOutlined, GiftOutlined, InfoCircleOutlined, MessageOutlined, SettingOutlined, WarningOutlined } from '@ant-design/icons';
+import { BellOutlined, CheckCircleOutlined, CheckOutlined, CloseOutlined, ExclamationCircleOutlined, InfoCircleOutlined, WarningOutlined } from '@ant-design/icons';
 
 import * as API from '../../../../api';
-import { redirectToLocal } from '../../../../utils/indexs';
+// Fork addition: the bell is a preview of the notifications page (pages/notifications)
+import { BELL_SIZE, TEXT, cleanItems, detailsLink, markAllBody, messageOf, titleOf } from '../../../../utils/notifications';
 
 // sx styles
 const avatarSX = {
@@ -39,52 +41,34 @@ const avatarSX = {
     fontSize: '1rem'
 };
 
-const actionSX = {
-    mt: '6px',
-    ml: 1,
-    top: 'auto',
-    right: 'auto',
-    alignSelf: 'flex-start',
-
-    transform: 'none'
-};
 
 // ==============================|| HEADER CONTENT - NOTIFICATION ||============================== //
 
+// Fork addition: the bell shows the newest notifications as a preview; each
+// one opens its details, "See all" the page. Opening the bell no longer
+// marks everything read (a notification is read once its details are
+// opened, or with "Mark all as read").
 const Notification = () => {
-    const { t, i18n } = useTranslation();
+    const { t } = useTranslation();
     const theme = useTheme();
     const matchesXs = useMediaQuery(theme.breakpoints.down('md'));
     const [notifications, setNotifications] = useState([]);
-    const [from, setFrom] = useState('');
+    const [unread, setUnread] = useState(0);
 
     const refreshNotifications = () => {
-        API.users.getNotifs(from).then((res) => {
-            setNotifications(() => res.data);
-        }).catch(() => {}); // Fork addition: a poll that fails (the server restarts after a save) is tried again by the next one
+        API.notifications.list({ limit: BELL_SIZE }, true).then((res) => {
+            const data = (res && res.data) || {};
+            setNotifications(cleanItems(data.items));
+            setUnread(Number(data.unread) || 0);
+        }).catch(() => {}); // a poll that fails (the server restarts after a save) is tried again by the next one
     };
 
-    const setAsRead = () => {
-        let unread = [];
-        
-       notifications.forEach((notif) => {
-            if (!notif.Read) {
-                unread.push(notif.ID);
-            }
-        })
-
-        if (unread.length > 0) {
-            API.users.readNotifs(unread);
-        }
-    }
-
-    const setLocalAsRead = (id) => {
-        let newN = notifications.map((notif) => {
-            notif.Read = true;
-            return notif;
-        })
-        setNotifications(newN);
-    }
+    const markAllRead = () => {
+        API.notifications.mark(markAllBody()).then(() => {
+            setNotifications((list) => list.map((n) => ({ ...n, read: true })));
+            setUnread(0);
+        }).catch(() => {});
+    };
 
     useEffect(() => {
         refreshNotifications();
@@ -98,12 +82,11 @@ const Notification = () => {
 
     const anchorRef = useRef(null);
     const [open, setOpen] = useState(false);
-    
+
     const handleToggle = () => {
         if (!open) {
-            setAsRead();
+            refreshNotifications();
         }
-
         setOpen((prevOpen) => !prevOpen);
     };
 
@@ -111,47 +94,17 @@ const Notification = () => {
         if (anchorRef.current && anchorRef.current.contains(event.target)) {
             return;
         }
-        setLocalAsRead();
         setOpen(false);
     };
 
+    const ICON = { warning: WarningOutlined, error: ExclamationCircleOutlined, success: CheckCircleOutlined, info: InfoCircleOutlined };
     const getNotifIcon = (notification) => {
-        switch (notification.Level) {
-            case 'warn':
-                return <Avatar
-                    sx={{
-                        color: 'warning.main',
-                        bgcolor: 'warning.lighter'
-                    }}
-                >
-                    <WarningOutlined />
-                </Avatar>
-            case 'error':
-                return <Avatar
-                    sx={{
-                        color: 'error.main',
-                        bgcolor: 'error.lighter'
-                    }}
-                >
-                    <ExclamationCircleOutlined />
-                </Avatar>
-            default:
-                
-            return <Avatar
-                sx={{
-                    color: 'info.main',
-                    bgcolor: 'info.lighter'
-                }}
-            >
-                <InfoCircleOutlined />
-            </Avatar>
-        }
+        const Icon = ICON[notification.level] || InfoCircleOutlined;
+        return <Avatar sx={{ color: notification.level + '.main', bgcolor: notification.level + '.lighter' }}><Icon /></Avatar>;
     };
 
     const iconBackColor = theme.palette.mode === 'dark' ? 'grey.700' : 'grey.100';
     const iconBackColorOpen = theme.palette.mode === 'dark' ? 'grey.800' : 'grey.200';
-
-    const nbUnread = notifications.filter((notif) => !notif.Read).length;
 
     return (
         <Box sx={{ flexShrink: 0, ml: 0.75 }}>
@@ -159,13 +112,13 @@ const Notification = () => {
                 disableRipple
                 color="secondary"
                 sx={{ color: 'text.primary', bgcolor: open ? iconBackColorOpen : iconBackColor }}
-                aria-label={t('header.notificationTitle', 'Notification')} /* Fork addition: was "open profile" */
+                aria-label={t('header.notificationTitle', 'Notification')}
                 ref={anchorRef}
                 aria-controls={open ? 'profile-grow' : undefined}
                 aria-haspopup="true"
                 onClick={handleToggle}
             >
-                <Badge badgeContent={nbUnread} color="error">
+                <Badge badgeContent={unread} color="error">
                     <BellOutlined />
                 </Badge>
             </IconButton></Tooltip>
@@ -184,7 +137,7 @@ const Notification = () => {
                                 offset: [matchesXs ? -5 : 0, 9]
                             }
                         },
-                        // Fork addition: the page's 16 px margin on both sides (it touched the right edge on a phone)
+                        // the page's 16 px margin on both sides (it touched the right edge on a phone)
                         { name: 'preventOverflow', options: { padding: 16 } }
                     ]
                 }}
@@ -200,7 +153,7 @@ const Notification = () => {
                                 [theme.breakpoints.down('md')]: {
                                     maxWidth: 285
                                 },
-                                // Fork addition: on a phone the whole width but the page's margins (was 285 px, a message got two narrow lines)
+                                // on a phone the whole width but the page's margins
                                 [theme.breakpoints.down('sm')]: {
                                     width: 'calc(100vw - 32px)',
                                     maxWidth: 'calc(100vw - 32px)',
@@ -209,49 +162,49 @@ const Notification = () => {
                         >
                             <ClickAwayListener onClickAway={handleClose}>
                                 <MainCard
-                                    title={t('header.notificationTitle')}
+                                    title={t(...TEXT.bellTitle)}
                                     elevation={0}
                                     border={false}
                                     content={false}
-                                    secondary={
-                                        <Tooltip title={t('global.close', 'Close')}><IconButton size="small" onClick={handleToggle}>
+                                    secondary={<Box sx={{ display: 'flex', gap: 0.5 }}>
+                                        {unread > 0 && <Tooltip title={t(...TEXT.markAllRead)}><IconButton size="small" aria-label={t(...TEXT.markAllRead)} onClick={markAllRead} sx={{ minWidth: { xs: 44, sm: 30 }, minHeight: { xs: 44, sm: 30 } }}>
+                                            <CheckOutlined />
+                                        </IconButton></Tooltip>}
+                                        <Tooltip title={t('global.close', 'Close')}><IconButton size="small" aria-label={t('global.close', 'Close')} onClick={handleToggle} sx={{ minWidth: { xs: 44, sm: 30 }, minHeight: { xs: 44, sm: 30 } }}>
                                             <CloseOutlined />
                                         </IconButton></Tooltip>
-                                    }
+                                    </Box>}
                                 >
                                     <List
                                         component="nav"
                                         sx={{
-                                            maxHeight: 350,
+                                            maxHeight: 'min(420px, calc(100vh - 220px))',
                                             overflow: 'auto',
                                             p: 0,
                                             '& .MuiListItemButton-root': {
-                                                py: 0.5,
+                                                py: 0.75,
+                                                minHeight: 44,
                                                 '& .MuiAvatar-root': avatarSX,
-                                                '& .MuiListItemSecondaryAction-root': { ...actionSX, position: 'relative' }
                                             }
                                         }}
                                     >
-                                        {notifications && notifications.map(notification => (<>
-                                            <ListItemButton onClick={() => {
-                                                notification.Link && redirectToLocal(notification.Link);
-                                            }}
+                                        {notifications.map(notification => (<div key={notification.id}>
+                                            <ListItemButton component={RouterLink} to={detailsLink(notification)} onClick={() => setOpen(false)}
+                                            data-notification={notification.id}
                                             style={{
-                                                borderLeft: notification.Read ? 'none' : `4px solid ${notification.Level === 'warn' ? theme.palette.warning.main : notification.Level === 'error' ? theme.palette.error.main : theme.palette.info.main}`,
-                                                paddingLeft: notification.Read ? '14px' : '10px',
+                                                borderLeft: notification.read ? 'none' : `4px solid ${theme.palette[notification.level] ? theme.palette[notification.level].main : theme.palette.info.main}`,
+                                                paddingLeft: notification.read ? '14px' : '10px',
                                             }}>
-                                            
                                                 <ListItemAvatar>
                                                     {getNotifIcon(notification)}
                                                 </ListItemAvatar>
                                                 <ListItemText
                                                     primary={<>
-                                                        <Typography variant={notification.Read ? 'body' : 'h6'} noWrap>
-                                                            {t(notification.Title)}
+                                                        <Typography variant={notification.read ? 'body1' : 'h6'} component="div" sx={{ overflowWrap: 'anywhere' }}>
+                                                            {titleOf(notification, t)}{notification.count > 1 ? ' ×' + notification.count : ''}
                                                         </Typography>
-                                                        <div style={{ 
+                                                        <div style={{
                                                             overflow: 'hidden',
-                                                            // Fork addition: three lines ending in "…" (was cut in the middle of the second line at 48 px)
                                                             display: '-webkit-box',
                                                             WebkitLineClamp: 3,
                                                             WebkitBoxOrient: 'vertical',
@@ -260,22 +213,24 @@ const Notification = () => {
                                                             paddingLeft: '8px',
                                                             margin: '2px'
                                                         }}>
-                                                            {t(notification.Message, { Vars: notification.Vars })}
-                                                        </div></>
+                                                            {messageOf(notification, t)}
+                                                        </div>
+                                                        <Typography variant="caption" color="textSecondary" component="div">
+                                                            {dayjs(notification.date).fromNow()}
+                                                        </Typography></>
                                                     }
                                                 />
-                                                <ListItemSecondaryAction>
-                                                    <Typography variant="caption" noWrap>
-                                                        {dayjs(notification.Date).fromNow()}
-                                                    </Typography>
-                                                </ListItemSecondaryAction>
                                             </ListItemButton>
-                                        <Divider /></>))}
-                                        {/* Fork addition: an empty list says so (it was a title and nothing under it) */}
-                                        {(!notifications || notifications.length === 0) && <Typography variant="body1" color="textSecondary" sx={{ px: 2.5, py: 2 }}>
-                                            {t('header.notification.empty', 'Nothing to report. Updates, alerts and jobs that failed are listed here.')}
+                                        <Divider /></div>))}
+                                        {notifications.length === 0 && <Typography variant="body1" color="textSecondary" sx={{ px: 2.5, py: 2 }}>
+                                            {t(...TEXT.bellEmpty)}
                                         </Typography>}
                                     </List>
+                                    <Box sx={{ p: 1 }}>
+                                        <Button fullWidth component={RouterLink} to="/cosmos-ui/notifications" onClick={() => setOpen(false)} style={{ minHeight: 44 }}>
+                                            {t(...TEXT.seeAll)}
+                                        </Button>
+                                    </Box>
                                 </MainCard>
                             </ClickAwayListener>
                         </Paper>

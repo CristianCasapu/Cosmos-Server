@@ -65,7 +65,14 @@ var (
 		}
 	}
 	notifyAdmins = func(title string, message string, vars string, level string) {
-		utils.WriteNotification(utils.Notification{Recipient: "admin", Title: title, Message: message, Vars: vars, Level: level})
+		kind := "originpull.expiring"
+		if title == TitleOriginPullStopped {
+			kind = "originpull.stopped"
+		}
+		utils.WriteNotification(utils.Notification{Recipient: "admin", Title: title, Message: message, Vars: vars, Level: level,
+			Fork: &utils.NotificationInfo{Kind: kind, Thread: kind, Title: utils.NText(title), What: utils.NText(message, "Vars", vars),
+				Subject: &utils.NotificationSubject{Type: "setting", Name: "Cloudflare", Link: "/cosmos-ui/config-general/https"},
+				Steps:   []utils.NotificationStep{{NotificationText: *utils.NText("notif.step.cert.card"), Link: "/cosmos-ui/config-general/https"}}}})
 	}
 	rsaBits = 2048
 )

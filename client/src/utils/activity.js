@@ -7,6 +7,7 @@ import i18n from 'i18next';
 import { watchForRefusal } from './sudoPrompt';
 import { ERROR_PAGE_MESSAGE, NO_ANSWER_MESSAGE, plainFailure } from './serverAnswer';
 import { commandLabel as leftoverCommand } from './leftovers'; // Fork addition: containers left by an interrupted change
+import { commandLabel as notificationCommand } from './notifications'; // Fork addition: the notifications page
 
 // Translated when the translations are loaded, the English text otherwise.
 const tr = (key, text, vars) => {
@@ -183,6 +184,11 @@ export const describe = (url, method, body) => {
     return null;
   }
   const rest = m[1];
+  // Fork addition: marking every notification read and deleting are commands; marking named ones is shown by the list itself
+  if (/^\/api\/notifications\/(mark|delete)$/.test(rest)) {
+    const found = notificationCommand(rest, method, body);
+    return found ? tr(found[0], found[1]) : null;
+  }
   // (opening and closing a port on the router are commands; only the status under /api/upnp itself is not)
   if (IGNORED.some((re) => re.test(rest)) && !/^\/api\/upnp\/./.test(rest)) {
     return null;

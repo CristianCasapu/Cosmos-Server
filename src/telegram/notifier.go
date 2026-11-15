@@ -39,6 +39,9 @@ type notice struct {
 	// details writes what is known about this one event: who, where,
 	// what. It is left out when the settings say so. May be nil.
 	details func(c *composer)
+	// link is the address of the notification's details in the panel,
+	// built by this server from its own name; "" when there is none.
+	link string
 }
 
 // limits are the numbers the notifier works with. The tests shorten them.
@@ -575,6 +578,7 @@ func (n *notifier) succeeded() {
 	n.mu.Unlock()
 	if wasFailing {
 		n.logf("Telegram: messages are delivered again")
+		go resolveInPanel()
 	}
 }
 
@@ -676,6 +680,9 @@ func composeNotice(st settings, nt notice, details bool) (string, []entity) {
 		}
 	} else if nt.details != nil {
 		c.fixed("The details are in the panel.").line()
+	}
+	if nt.link != "" {
+		c.fixed("Details: " + nt.link).line()
 	}
 	c.fixed(nt.at.Local().Format(stampLayout))
 	return c.result()

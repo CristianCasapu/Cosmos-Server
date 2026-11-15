@@ -22,7 +22,12 @@ const (
 var (
 	recordEvent  = utils.RecordSecurityEvent
 	notifyAdmins = func(title string, message string, vars string) {
-		utils.WriteNotification(utils.Notification{Recipient: "admin", Title: title, Message: message, Vars: vars, Level: "error"})
+		utils.WriteNotification(utils.Notification{Recipient: "admin", Title: title, Message: message, Vars: vars, Level: "error",
+			Fork: &utils.NotificationInfo{Kind: "edgeblock.problem", Thread: "edgeblock:" + vars, Title: utils.NText(title), What: utils.NText(message, "Vars", vars),
+				Subject:  &utils.NotificationSubject{Type: "domain", Name: vars, Link: "/cosmos-ui/config-general/https"},
+				Means:    utils.NText("notif.edgeblock.means"),
+				Steps:    []utils.NotificationStep{{NotificationText: *utils.NText("notif.step.edgeblock.open"), Link: "/cosmos-ui/config-general/https"}},
+				Security: &utils.NotificationSecurity{Kinds: []string{"edge.*"}}}})
 	}
 )
 

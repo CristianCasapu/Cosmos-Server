@@ -56,7 +56,24 @@ func raiseInPanel(reason string) {
 		Vars:      reason,
 		Level:     "error",
 		Link:      "/cosmos-ui/config-general/general",
+		Fork: &utils.NotificationInfo{
+			Kind: "telegram.failed", Thread: deliveryThread,
+			Subject: &utils.NotificationSubject{Type: "service", Name: "Telegram", Link: "/cosmos-ui/config-general/general"},
+			What:    utils.NText("notif.telegram.failed.what", "reason", reason),
+			Means:   utils.NText("notif.telegram.failed.means"),
+			Steps:   []utils.NotificationStep{{NotificationText: *utils.NText("notif.step.telegram.open"), Link: "/cosmos-ui/config-general/general"}},
+			Raw:     reason,
+		},
 	})
+}
+
+// deliveryThread is what the notice of failed deliveries is resolved by,
+// once a message goes through.
+const deliveryThread = "telegram.failed"
+
+// resolveInPanel ends that notice. A variable for the tests.
+var resolveInPanel = func() {
+	utils.ResolveThread(deliveryThread)
 }
 
 // handleEvent receives every event of the security record.
