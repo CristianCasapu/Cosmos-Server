@@ -41,7 +41,7 @@
 import { chromium, firefox, webkit } from 'playwright';
 import { mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { storageMock, usersPatch, notificationsMock, eventsMock, notificationPagesMock, NOTIFICATION_ITEMS } from './fork-ui-gallery-fixtures.mjs';
+import { storageMock, usersPatch, notificationsMock, eventsMock, notificationPagesMock, NOTIFICATION_ITEMS, edgeMock, edgeOverviewPatch } from './fork-ui-gallery-fixtures.mjs';
 
 const base = process.env.BASE || 'http://polish.test:18080';
 const out = process.env.OUT || 'gallery';
@@ -70,9 +70,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 //                   the paid tabs are hidden without a licence, which moves the numbers)
 //   guard: true     checked by CHECK=1 (see above)
 //   open: fn        do something first (open a dialog, hover, press keys)
+//   at: selector    one screen with the first match (its card) just under the top bar, instead of the whole page;
+//                   prev:<selector> the card before that one
 //   close: fn       undo it (default after `open`: Escape)
 //   core: true      part of the small set
-//   mock: [[path, body]]  answer the API calls under `path` with `body` instead of asking the server
+//   mock: [[path, body, status, headers]]  answer the calls under `path` (any origin) with `body` instead of asking the server
 //   patch: [[path, fn]]   ask the server, then change its JSON answer with fn(json, url) before the page gets it
 // A step that cannot be done is reported in the summary, not fatal.
 // ---------------------------------------------------------------------------
@@ -112,14 +114,17 @@ const anonymousViews = [
 // the install review with a name the server cannot look up (a server without DNS)
 const svg = (a, b, text) => 'data:image/svg+xml;base64,' + Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="1280" height="720" fill="url(#g)"/><rect x="60" y="60" width="1160" height="70" rx="12" fill="#fff" opacity=".35"/><rect x="60" y="170" width="360" height="480" rx="16" fill="#fff" opacity=".25"/><rect x="460" y="170" width="760" height="220" rx="16" fill="#fff" opacity=".25"/><rect x="460" y="430" width="760" height="220" rx="16" fill="#fff" opacity=".25"/><text x="80" y="110" font-family="sans-serif" font-size="36" fill="#fff">${text}</text></svg>`).toString('base64');
 const icon = (c) => 'data:image/svg+xml;base64,' + Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" rx="14" fill="${c}"/><circle cx="32" cy="32" r="14" fill="#fff"/></svg>`).toString('base64');
-const compose = (name) => 'data:text/plain;base64,' + Buffer.from(JSON.stringify({
+// The compose files come from an HTTPS address answered by the browser (with the CORS header a market host
+// sends): the panel's script policy lets it fetch https: addresses only, never data: ones
+const composeBody = {
   'cosmos-installer': {},
   name: '{ServiceName}',
   services: { '{ServiceName}': { image: 'jellyfin/jellyfin:latest', container_name: '{ServiceName}', restart: 'unless-stopped',
     volumes: [{ type: 'volume', source: '{ServiceName}-config', target: '/config' }],
     routes: [{ name: '{ServiceName}', description: 'Web UI', useHost: true, target: 'http://{ServiceName}:8096', mode: 'SERVAPP', Timeout: 14400000, ThrottlePerMinute: 10000, BlockCommonBots: true, SmartShield: { Enabled: true } }] } },
   volumes: { '{ServiceName}-config': {} },
-})).toString('base64');
+};
+const compose = (name) => 'https://market.example.org/compose/' + encodeURIComponent(name.toLowerCase()) + '.json';
 const marketApp = (name, colours, tags, description) => ({
   name, description, tags, icon: icon(colours[0]), compose: compose(name), supported_architectures: ['amd64', 'arm64'],
   screenshots: [svg(colours[0], colours[1], name + ' — library'), svg(colours[1], colours[0], name + ' — settings')],
@@ -133,7 +138,8 @@ const marketApps = [
   marketApp('Immich', ['#4250af', '#fa2921'], ['photos', 'backup'], 'Photos and videos from your phone, backed up automatically.'),
   marketApp('Home Assistant', ['#18bcf2', '#0b6a8c'], ['home', 'automation'], 'Lights, heating and sensors in one place, without a cloud account.'),
 ];
-const marketMock = [['/cosmos/api/markets', { status: 'OK', data: { all: { 'cosmos-cloud': marketApps, 'community': marketApps.slice(0, 2).map((a) => ({ ...a, name: a.name })) }, showcase: marketApps.slice(0, 3) } }]];
+const marketMock = [['/cosmos/api/markets', { status: 'OK', data: { all: { 'cosmos-cloud': marketApps, 'community': marketApps.slice(0, 2).map((a) => ({ ...a, name: a.name })) }, showcase: marketApps.slice(0, 3) } }],
+  ['/compose/', composeBody, 200, { 'Access-Control-Allow-Origin': '*' }]];
 const noDnsMock = [['/cosmos/api/dns', { status: 'error', message: 'Internal server error: lookup jellyfin.polish.test on 127.0.0.11:53: server misbehaving', code: 'DNS001' }, 500],
   ['/cosmos/api/dns-check', { status: 'error', message: 'DNS Check error: lookup jellyfin.polish.test on 127.0.0.11:53: server misbehaving', code: 'DNS002' }, 500]];
 
@@ -147,6 +153,25 @@ const expandAll = async (page) => {
     await closed.first().click();
     await page.waitForTimeout(150);
   }
+};
+// the OpenID client the gallery makes and removes again: a name of its own per run (runs share an instance)
+const openidClient = 'gallery-' + Math.random().toString(36).slice(2, 8);
+// the sign-in check of Cloudflare failing in both ways the server reports (src/turnstile/watch.go)
+const turnstileProblems = [
+  { reason: 'key_refused', since: '2026-11-14T08:10:00Z', last: '2026-11-14T09:40:00Z', count: 3 },
+  { reason: 'unreachable', since: '2026-11-14T09:00:00Z', last: '2026-11-14T09:41:00Z', count: 12 },
+];
+// an app reached under its local address and two names of a domain: one tile on the home page
+const withExtraAddresses = (j) => {
+  const routes = (((j || {}).data || {}).HTTPConfig || {}).ProxyConfig ? j.data.HTTPConfig.ProxyConfig.Routes || [] : null;
+  if (!routes) return j;
+  const jellyfin = routes.find((r) => r.Name === 'Jellyfin');
+  if (!jellyfin || routes.some((r) => r.Name === 'Jellyfin-example.org')) return j;
+  const extra = [
+    { ...jellyfin, Name: 'Jellyfin-example.org', Host: 'jellyfin.example.org' },
+    { ...jellyfin, Name: 'Jellyfin-media', Host: 'media.example.org' },
+  ];
+  return { ...j, data: { ...j.data, HTTPConfig: { ...j.data.HTTPConfig, ProxyConfig: { ...j.data.HTTPConfig.ProxyConfig, Routes: [...routes, ...extra] } } } };
 };
 
 const views = [
@@ -299,7 +324,7 @@ const views = [
     {},
     { id: 'review', wait: 2500, open: async (page) => { await page.getByRole('button', { name: /Install$/ }).first().click(); /* the app's page is drawn over the list: its button comes first */ } },
     // an address under a domain on a server that cannot look names up (the stand-in answers like Go's resolver)
-    { id: 'review-no-dns', wait: 2500, open: async (page) => { await page.getByRole('button', { name: /Install$/ }).first().click(); await page.locator('[role=dialog] .MuiChip-root', { hasText: 'polish.test' }).first().click(); }, close: async (page) => { await page.keyboard.press('Escape'); } },
+    { id: 'review-no-dns', wait: 2500, open: async (page) => { await page.getByRole('button', { name: /Install$/ }).first().click(); await page.locator('[role=dialog] .MuiChip-root', { hasText: new URL(base).hostname }).first().click(); }, close: async (page) => { await page.keyboard.press('Escape'); } },
   ] },
   { id: 'new-container-steps', path: '/cosmos-ui/servapps/new-service', captures: [
     {},
@@ -321,6 +346,67 @@ const views = [
   ...NOTIFICATION_ITEMS.map((n) => ({ id: 'notification-' + n.id + '-' + (n.kind || 'legacy').replace(/\./g, '-'), path: '/cosmos-ui/notifications/' + n.id, guard: true, wait: 1200, mock: notificationPagesMock })),
   { id: 'monitoring-events-many', path: '/cosmos-ui/monitoring', wait: 1200, mock: eventsMock, captures: [{ id: 'events', tab: 2, wait: 800 }] },
   { id: 'container-events-many', path: '/cosmos-ui/servapps/containers/jellyfin', wait: 800, mock: eventsMock, captures: [{ id: 'events', tab: 3, wait: 800 }] },
+  // the home page with several notices at once (a restart needed, the sign-in check of Cloudflare failing)
+  // and an app reached under several addresses (one tile per app, utils/homeTiles.js)
+  { id: 'home-notices', path: '/cosmos-ui/', core: true, wait: 1500, patch: [
+    ['/cosmos/api/status', (j) => ({ ...j, data: { ...(j.data || {}), needsRestart: true, domain: true } })],
+    ['/cosmos/api/turnstile', (j) => ({ ...j, data: { ...(j.data || {}), enabled: true, consoleOff: false, problems: turnstileProblems } })],
+    ['/cosmos/api/config', (j) => withExtraAddresses(j)],
+  ], captures: [
+    {},
+    { id: 'expanded', open: async (page) => { await page.locator('main [data-notices] button[aria-expanded=false]').first().click(); }, close: async () => {} },
+  ] },
+  { id: 'home-turnstile-console', path: '/cosmos-ui/', wait: 1500, patch: [
+    ['/cosmos/api/turnstile', (j) => ({ ...j, data: { ...(j.data || {}), enabled: true, consoleOff: true, problems: [] } })],
+  ] },
+  // Configuration > Domains: the certificates, home names, Cloudflare and Turnstile cards; the Turnstile card in its states
+  { id: 'domains-cards', path: '/cosmos-ui/config-general/https', wait: 2000, captures: [
+    { id: 'cloudflare-turnstile', at: 'prev:[data-turnstile-card]' },
+    { id: 'turnstile', at: '[data-turnstile-card]' },
+  ] },
+  { id: 'domains-turnstile-problems', path: '/cosmos-ui/config-general/https', wait: 2000, patch: [
+    ['/cosmos/api/turnstile', (j) => ({ ...j, data: { ...(j.data || {}), enabled: true, active: true, consoleOff: false, siteKey: '1x00000000000000000000AA', secretKey: '***', confirmed: true, problems: turnstileProblems } })],
+  ], captures: [{ at: '[data-turnstile-card]' }] },
+  { id: 'domains-turnstile-console', path: '/cosmos-ui/config-general/https', wait: 2000, patch: [
+    ['/cosmos/api/turnstile', (j) => ({ ...j, data: { ...(j.data || {}), enabled: true, active: false, consoleOff: true, siteKey: '1x00000000000000000000AA', secretKey: '***', confirmed: true, problems: [] } })],
+  ], captures: [{ at: '[data-turnstile-card]' }] },
+  // blocks at Cloudflare's edge (fixtures): the card with its list (cards on a phone), what leads to a block,
+  // and on the security dashboard the chip "At Cloudflare until ..." and the "Block at Cloudflare" dialog
+  { id: 'domains-edge', path: '/cosmos-ui/config-general/https', wait: 2000, guard: true, mock: edgeMock, captures: [
+    { at: '[data-edge-card]' },
+    { id: 'list', at: '[data-edge-rule]' },
+    { id: 'why', at: '[data-edge-card]', open: async (page) => { await page.locator('[data-edge-card]').getByRole('button', { name: 'What leads to a block, and what never is blocked' }).click(); }, close: async () => {} },
+    { id: 'unblock', open: async (page) => { await page.locator('[data-edge-unblock]').first().click(); } },
+  ] },
+  // (not guarded: the dashboard's icon buttons are 30 px high on a phone, as they were before the edge blocks)
+  { id: 'security-edge', path: '/cosmos-ui/security', wait: 1500, mock: edgeMock, patch: [edgeOverviewPatch], captures: [
+    {},
+    { id: 'chip', at: '[data-edge-chip]' },
+    { id: 'block', open: async (page) => { await page.locator('[data-edge-block]').first().click(); } },
+  ] },
+  // the OpenID client form, its values to copy, and the new secret
+  { id: 'openid-client', path: '/cosmos-ui/openid-manage', wait: 800, captures: [
+    { id: 'form', open: async (page) => {
+      await create(page);
+      await page.locator('#fork-openid-id').fill(openidClient);
+      await page.locator('#fork-openid-redirect').fill(new URL(base).origin.replace('://', '://jellyfin.') + '/auth/callback');
+      await page.locator('[role=dialog]').getByRole('button', { name: 'Add', exact: true }).click();
+    }, close: async () => {} },
+    { id: 'values', wait: 1500, open: async (page) => { await page.locator('[role=dialog]').getByRole('button', { name: 'Create' }).click(); }, close: async (page) => { await page.locator('[role=dialog]').getByRole('button', { name: 'Done' }).click(); } },
+    { id: 'reset-secret', open: async (page) => { await page.getByRole('button', { name: 'Reset Secret' }).first().click(); },
+      close: async (page) => { await page.keyboard.press('Escape'); await page.evaluate((id) => fetch('/cosmos/api/openid/' + id, { method: 'DELETE' }), openidClient); } },
+  ] },
+  // the small forms: a new network, a new volume, a Market source, a Shield whitelist entry
+  { id: 'small-forms', path: '/cosmos-ui/servapps', wait: 1200, captures: [
+    { id: 'network', tab: 2, open: async (page) => { await page.getByRole('button', { name: 'New Network' }).first().click(); await page.locator('#name').fill('lan-apps'); } },
+    { id: 'volume', tab: 1, open: async (page) => { await page.getByRole('button', { name: /New Volume/ }).first().click(); await page.locator('#name').fill('photos-cache'); } },
+  ] },
+  { id: 'market-source', path: '/cosmos-ui/market-listing', wait: 1500, mock: marketMock, captures: [
+    { open: async (page) => { await page.getByRole('button', { name: 'Sources' }).first().click(); await page.locator('[role=dialog]').getByRole('button', { name: 'Add Source' }).click(); await page.locator('[role=dialog] input[name$=".Url"]').last().fill('https://apps.example.org/servapps.json'); } },
+  ] },
+  { id: 'whitelist-entry', path: '/cosmos-ui/config-url/whitelist', wait: 1200, captures: [
+    { open: async (page) => { await page.getByRole('button', { name: 'Add IP' }).first().click(); } },
+  ] },
   // upstream's licence-only pages: one picture each, for the record
   { id: 'paid-backups', path: '/cosmos-ui/backups' },
   { id: 'paid-constellation', path: '/cosmos-ui/constellation' },
@@ -793,15 +879,33 @@ const run = async (engineName, viewport, mode) => {
     await (byName ? page.locator('[role=listbox] li', { hasText: index }).first() : page.locator('[role=listbox] li').nth(index)).click();
   };
 
-  const capture = async (name, problems, guarded) => {
+  const capture = async (name, problems, guarded, at) => {
     const file = join(dir, name + '.png');
     // a full-page picture taken on a scrolled page draws the fixed top bar in the middle of it
-    await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
+    // (`at`: one screen, scrolled so that the first element matching the selector is just under the bar)
+    if (at) {
+      const found = await page.evaluate((selector) => {
+        // "prev:<selector>": the card before the one that holds the match (two cards one under the other)
+        const previous = selector.startsWith('prev:');
+        const el = document.querySelector(previous ? selector.slice(5) : selector);
+        if (!el) return false;
+        let card = el.closest('.MuiCard-root, .MuiPaper-root') || el;
+        if (previous) {
+          let up = card;
+          while (up && !up.previousElementSibling) up = up.parentElement;
+          if (up && up.previousElementSibling) card = up.previousElementSibling;
+        }
+        const bar = document.querySelector('header.MuiAppBar-root');
+        window.scrollTo(0, Math.max(0, card.getBoundingClientRect().top + window.scrollY - (bar ? bar.getBoundingClientRect().height : 0) - 12));
+        return true;
+      }, at).catch(() => false);
+      if (!found) problems.push('step: nothing matches ' + at);
+    } else await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
     await page.waitForTimeout(120);
     const height = await page.evaluate(() => document.documentElement.scrollHeight).catch(() => viewport.height);
     const limit = viewport.height * (phone ? 6 : 4);
     try {
-      if (viewportShots) await page.screenshot({ path: file });
+      if (viewportShots || at) await page.screenshot({ path: file });
       else if (height > limit) await page.screenshot({ path: file, fullPage: true, clip: { x: 0, y: 0, width: viewport.width, height: limit } });
       else await page.screenshot({ path: file, fullPage: true });
     } catch (e) { problems.push('screenshot: ' + String(e.message).slice(0, 200)); }
@@ -834,7 +938,7 @@ const run = async (engineName, viewport, mode) => {
     await room(perLoad);
     const before = stamps.length;
     // a body may be a function of the address asked for (answers that depend on the query)
-    for (const [part, body, status] of view.mock || []) await page.route((url) => url.pathname.startsWith(part), (route) => route.fulfill({ status: status || 200, json: typeof body === 'function' ? body(new URL(route.request().url())) : body }));
+    for (const [part, body, status, headers] of view.mock || []) await page.route((url) => url.pathname.startsWith(part), (route) => route.fulfill({ status: status || 200, json: typeof body === 'function' ? body(new URL(route.request().url())) : body, headers }));
     for (const part of view.abort || []) await page.route((url) => url.pathname.startsWith(part), (route) => route.abort('connectionrefused'));
     for (const [part, change] of view.patch || []) {
       await page.route((url) => url.pathname === part || url.pathname.startsWith(part + '?'), async (route) => {
@@ -859,7 +963,7 @@ const run = async (engineName, viewport, mode) => {
         if (step.open) { await room(40); await step.open(page); }
         await settle(step.wait || 0);
       } catch (e) { problems.push('step: ' + String(e.message).split('\n')[0].slice(0, 200)); }
-      await capture(name, problems, view.guard);
+      await capture(name, problems, view.guard, step.at);
       try {
         if (step.open) {
           if (step.close) await step.close(page); else await page.keyboard.press('Escape');

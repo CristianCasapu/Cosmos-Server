@@ -19,12 +19,12 @@ type Group struct {
 const GroupOther = "other"
 
 var groups = []Group{
-	{"login", []string{utils.SecLoginFailed, utils.SecMFAFailed, utils.SecSudoFailed, utils.SecRegisterFailed, utils.SecTokenInvalid, utils.SecSessionForged}},
+	{"login", []string{utils.SecLoginFailed, utils.SecMFAFailed, utils.SecSudoFailed, utils.SecRegisterFailed, utils.SecTokenInvalid, utils.SecSessionForged, utils.SecTurnstileMissing, utils.SecTurnstileFailed}},
 	{"lockout", []string{utils.SecMFALocked, utils.SecShieldStrike, utils.SecShieldRateLimited}},
-	{"ban", []string{utils.SecShieldBanTemp, utils.SecShieldBanPerm, utils.SecFail2banBan}},
+	{"ban", []string{utils.SecShieldBanTemp, utils.SecShieldBanPerm, utils.SecFail2banBan, utils.SecEdgeBlocked}},
 	{"scan", []string{utils.SecScanProbe, utils.SecShieldHostname, utils.SecShieldBot, utils.SecShieldGeo}},
 	{"access", []string{utils.SecAccessDenied, utils.SecAccessGrantDenied, utils.SecAccessIPDenied, utils.SecAccessLocalDenied, utils.SecAccessOriginDenied, utils.SecAccessForeignDenied, utils.SecTokenIPDenied}},
-	{GroupOther, []string{utils.SecShieldBlocked, utils.SecSessionRejected, utils.SecResetRequested, utils.SecResetRejected, utils.SecTokenExpired, utils.SecRecorderDropped, utils.SecServerUpdateRejected}},
+	{GroupOther, []string{utils.SecShieldBlocked, utils.SecSessionRejected, utils.SecResetRequested, utils.SecResetRejected, utils.SecTokenExpired, utils.SecRecorderDropped, utils.SecServerUpdateRejected, utils.SecTurnstileUnavailable}},
 }
 
 var groupOfKind = func() map[string]string {

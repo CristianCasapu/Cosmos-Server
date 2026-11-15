@@ -48,7 +48,8 @@ note('icon buttons on the page:', n, '| tooltips:', tips.join(' / '));
 
 // --- a slow command: restart a container (busybox ignores the stop signal for 10 s)
 await page.mouse.move(5, 300);
-const restart = buttons.nth(6);
+// by its name, inside the page: the seventh icon button is no longer a Restart (the header has one too)
+const restart = page.locator('main').getByRole('button', { name: 'Restart', exact: true }).first();
 await restart.hover(); await page.waitForTimeout(600);
 note('restart button tooltip:', await page.locator('[role=tooltip]').last().innerText().catch(() => 'NONE'));
 await restart.click();

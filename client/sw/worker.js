@@ -84,7 +84,13 @@ const offlinePage = async () => {
   const page = await cache.match(ORIGIN + PWA_OFFLINE_PAGE);
   if (!page) return null;
   // 503, so that nothing takes it for the page that was asked for
-  return new Response(page.body, { status: 503, statusText: 'Server unreachable', headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+  const headers = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' };
+  // Fork addition: the page keeps the script policy it was served with (src/fork_csp.go)
+  for (const name of ['Content-Security-Policy', 'Content-Security-Policy-Report-Only']) {
+    const value = page.headers.get(name);
+    if (value) headers[name] = value;
+  }
+  return new Response(page.body, { status: 503, statusText: 'Server unreachable', headers });
 };
 
 // A page of the panel: always from the network, so that a new release and

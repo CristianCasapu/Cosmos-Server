@@ -96,6 +96,10 @@ func TestOnlyTheseIncidentsAreHigh(t *testing.T) {
 		// made by the server itself (the nightly update, an administrator's
 		// "update now", the launcher at start), never by a request
 		utils.SecServerUpdateRejected: true,
+		// like a SmartShield ban: a stranger gets one only by crossing a
+		// jail's threshold through Cloudflare, and Cosmos issues at most 60
+		// an hour (src/edgeblock)
+		utils.SecEdgeBlocked: true,
 	}
 	for kind, described := range catalogue {
 		if described.Class == ClassIncident && described.severity == SeverityHigh && !want[kind] {

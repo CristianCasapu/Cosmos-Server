@@ -42,7 +42,7 @@ type DirectoryListing struct {
 // @Failure 500 {object} utils.HTTPErrorResult
 // @Router /api/list-dir [get]
 func ListDirectoryRoute(w http.ResponseWriter, req *http.Request) {
-	if utils.CheckPermissions(w, req, utils.PERM_RESOURCES_READ) != nil {
+	if utils.CheckPermissions(w, req, utils.PERM_RESOURCES) != nil { // Fork addition: the host's folders are listed as root, for the forms that save with this permission (upstream: the read permission)
 		return
 	}
 

@@ -1,6 +1,7 @@
 package snapshots
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -8,8 +9,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
 	"strconv"
+	"strings"
 	"syscall"
 )
 
@@ -67,9 +68,10 @@ func openTree(dir string, info os.FileInfo) (*os.Root, error) {
 // may put something different in its place.
 var betweenLookAndOpen func(rel string)
 
-// fail records a problem with something in the source.
+// fail records a problem with something in the source. rel is shown through
+// shownName: the names come from the folder that is read.
 func (w *walker) fail(rel string, err error) {
-	message := rel + ": " + reason(err)
+	message := shownName(rel) + ": " + reason(err)
 	if w.strict {
 		w.fatal = errors.New(message)
 		return
@@ -82,7 +84,7 @@ func (w *walker) fail(rel string, err error) {
 
 // stop records that the target cannot be written, which ends the walk.
 func (w *walker) stop(rel string, err error) {
-	w.fatal = fmt.Errorf("cannot write %s (%s)", filepath.Join(w.dstRoot, rel), reason(err))
+	w.fatal = fmt.Errorf("cannot write %s (%s)", shownName(filepath.Join(w.dstRoot, rel)), reason(err))
 }
 
 // excluded tells whether an entry is left out of the snapshots: one of the
@@ -112,65 +114,94 @@ func (w *walker) isSkipped(path string, info os.FileInfo) bool {
 // dir copies the content of one folder. src is that folder, dst the folder
 // it is copied to (it exists), prev the same folder in the previous snapshot
 // (nil when there is none) and rel its path below the top ("" for the top).
+// The folder is listed a batch at a time, so one that holds millions of
+// entries is never held in memory at once; the entries come in the order
+// the file system gives them.
 func (w *walker) dir(src *os.Root, dst *os.Root, prev *os.Root, rel string) {
-	var entries []os.DirEntry
 	list, err := src.Open(".")
-	if err == nil {
-		entries, err = list.ReadDir(-1)
-		list.Close()
-	}
 	if err != nil {
-		if rel == "" {
-			w.fatal = fmt.Errorf("the folder cannot be read (%s)", reason(err))
-		} else {
-			w.fail(rel, err)
+		w.unreadable(rel, err)
+		return
+	}
+	defer list.Close()
+
+	for w.fatal == nil {
+		entries, err := list.ReadDir(listBatch)
+		for _, entry := range entries {
+			if w.fatal != nil {
+				return
+			}
+			w.entry(src, dst, prev, rel, entry.Name())
+		}
+		if err == io.EOF {
+			return
+		}
+		if err != nil {
+			w.unreadable(rel, err)
+			return
+		}
+	}
+}
+
+// listBatch is how many entries of a folder are read at a time.
+const listBatch = 1024
+
+// maxDepth is how many folders deep the walk goes. A folder below that is
+// counted as a problem, and what it holds is not copied: no real tree is
+// that deep, and each level costs memory and open files until it is done.
+const maxDepth = 512
+
+// unreadable records that the folder rel cannot be listed.
+func (w *walker) unreadable(rel string, err error) {
+	if rel == "" {
+		w.fatal = fmt.Errorf("the folder cannot be read (%s)", reason(err))
+	} else {
+		w.fail(rel, err)
+	}
+}
+
+// entry copies the entry called name of the folder src (rel below the top).
+func (w *walker) entry(src *os.Root, dst *os.Root, prev *os.Root, rel string, name string) {
+	relPath := filepath.Join(rel, name)
+
+	// left out on purpose: not copied, and not a problem
+	if excluded(w.excludes, relPath, name) {
+		return
+	}
+
+	// the snapshot's own record lives under this name
+	if rel == "" && name == metaName {
+		if !w.strict {
+			w.fail(relPath, errors.New("this name is used by the snapshot itself, the file is not backed up"))
 		}
 		return
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 
-	for _, entry := range entries {
-		if w.fatal != nil {
+	info, err := src.Lstat(name)
+	if err != nil {
+		w.fail(relPath, err) // it vanished since the folder was listed
+		return
+	}
+	if betweenLookAndOpen != nil {
+		betweenLookAndOpen(relPath)
+	}
+
+	switch {
+	case info.IsDir():
+		if w.isSkipped(filepath.Join(w.srcRoot, relPath), info) {
 			return
 		}
-		name := entry.Name()
-		relPath := filepath.Join(rel, name)
-
-		// left out on purpose: not copied, and not a problem
-		if excluded(w.excludes, relPath, name) {
-			continue
+		if strings.Count(relPath, string(filepath.Separator))+1 > maxDepth {
+			w.fail(relPath, fmt.Errorf("it lies more than %d folders deep, so it is not copied", maxDepth))
+			return
 		}
-
-		// the snapshot's own record lives under this name
-		if rel == "" && name == metaName {
-			if !w.strict {
-				w.fail(relPath, errors.New("this name is used by the snapshot itself, the file is not backed up"))
-			}
-			continue
-		}
-
-		info, err := src.Lstat(name)
-		if err != nil {
-			w.fail(relPath, err) // it vanished since the folder was listed
-			continue
-		}
-		if betweenLookAndOpen != nil {
-			betweenLookAndOpen(relPath)
-		}
-
-		switch {
-		case info.IsDir():
-			if w.isSkipped(filepath.Join(w.srcRoot, relPath), info) {
-				continue
-			}
-			w.folder(src, dst, prev, name, relPath, info)
-		case info.Mode().IsRegular():
-			w.file(src, dst, prev, name, relPath, info)
-		case info.Mode()&os.ModeSymlink != 0:
-			w.symlink(src, dst, name, relPath, info)
-		default:
-			// sockets, devices and FIFOs are not files to keep
-		}
+		w.folder(src, dst, prev, name, relPath, info)
+	case info.Mode().IsRegular():
+		w.file(src, dst, prev, name, relPath, info)
+	case info.Mode()&os.ModeSymlink != 0:
+		w.symlink(src, dst, name, relPath, info)
+	default:
+		// sockets, devices and FIFOs are not files to keep
 	}
 }
 
@@ -385,6 +416,9 @@ func copyFile(src *os.Root, dst *os.Root, name string, looked os.FileInfo, buffe
 	if !info.Mode().IsRegular() || !os.SameFile(info, looked) {
 		return 0, errors.New("it was replaced while it was being read"), nil
 	}
+	if whileOpen != nil {
+		whileOpen(name)
+	}
 
 	out, tmp, err := createTemp(dst)
 	if err != nil {
@@ -397,13 +431,25 @@ func copyFile(src *os.Root, dst *os.Root, name string, looked os.FileInfo, buffe
 		}
 	}()
 
-	for {
-		n, err := in.Read(buffer)
+	// The copy stops at the size the file had when it was opened: a file that
+	// keeps growing is not followed, the next run catches what was added. A
+	// file that shrank meanwhile is copied as far as it goes.
+	limit := info.Size()
+	sparse := isSparse(info)
+	position := int64(0)
+	for position < limit {
+		chunk := buffer
+		if rest := limit - position; rest < int64(len(chunk)) {
+			chunk = chunk[:rest]
+		}
+		n, err := in.Read(chunk)
 		if n > 0 {
-			if _, err := out.Write(buffer[:n]); err != nil {
+			stored, err := writeData(out, chunk[:n], position, sparse)
+			written += stored
+			if err != nil {
 				return written, nil, err
 			}
-			written += int64(n)
+			position += int64(n)
 		}
 		if err == io.EOF {
 			break
@@ -411,6 +457,10 @@ func copyFile(src *os.Root, dst *os.Root, name string, looked os.FileInfo, buffe
 		if err != nil {
 			return written, err, nil
 		}
+	}
+	// the length, holes at the end included
+	if err := out.Truncate(position); err != nil {
+		return written, nil, err
 	}
 
 	// owner before mode: changing the owner clears the set-user-ID bits
@@ -431,4 +481,47 @@ func copyFile(src *os.Root, dst *os.Root, name string, looked os.FileInfo, buffe
 		return written, nil, err
 	}
 	return written, nil, nil
+}
+
+// whileOpen is called, by tests only, once a file to copy has been opened and
+// its size taken.
+var whileOpen func(name string)
+
+// holeBlock is the size of the pieces of a sparse file that are looked at
+// for being empty.
+const holeBlock = 64 << 10
+
+var zeros = make([]byte, holeBlock) // never written to
+
+// isSparse tells whether a file takes less room on the disk than its length:
+// it has holes (or the file system compresses it).
+func isSparse(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && stat.Blocks*512 < info.Size()
+}
+
+// writeData writes data at the offset at of out and returns how many bytes it
+// stored. For a sparse file, pieces that hold nothing but zeros are skipped,
+// so that they stay holes in the copy as well: what is read back is the same.
+// The holes are found by their content, not by asking the file system where
+// they are, so a file system that reports them wrongly cannot cost data.
+func writeData(out *os.File, data []byte, at int64, sparse bool) (int64, error) {
+	if !sparse {
+		n, err := out.WriteAt(data, at)
+		return int64(n), err
+	}
+	stored := int64(0)
+	for start := 0; start < len(data); start += holeBlock {
+		end := min(start+holeBlock, len(data))
+		piece := data[start:end]
+		if bytes.Equal(piece, zeros[:len(piece)]) {
+			continue
+		}
+		n, err := out.WriteAt(piece, at+int64(start))
+		stored += int64(n)
+		if err != nil {
+			return stored, err
+		}
+	}
+	return stored, nil
 }

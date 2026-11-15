@@ -135,6 +135,8 @@ func EditContainer(oldContainerID string, newConfig types.ContainerJSON, noLock 
 		}
 	}
 
+	dropImageLabels(&newConfig) // Fork addition: labels that come from the image are not obeyed, see fork_image_labels.go
+
 	if !HasLabel(newConfig, "cosmos-force-network-mode") {
 		if (strings.HasPrefix(string(newConfig.HostConfig.NetworkMode), "service:") ||
 			strings.HasPrefix(string(newConfig.HostConfig.NetworkMode), "container:")) {
@@ -469,7 +471,7 @@ func Test() error {
 }
 
 func HasAutoUpdateOn(containerConfig types.ContainerJSON) bool {
-	if containerConfig.Config.Labels["cosmos-auto-update"] == "true" {
+	if adminLabel(containerConfig, "cosmos-auto-update") == "true" { // Fork addition: not when it comes from the image, see fork_image_labels.go
 		return true
 	}
 

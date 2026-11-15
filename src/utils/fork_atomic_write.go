@@ -18,8 +18,9 @@ var renameFile = os.Rename
 
 // writeFileAtomic replaces the file at path with what write produces, or leaves it as it
 // was. The content goes to "<file>.tmp" in the same folder, is flushed to disk and renamed
-// over the original, and the folder is flushed too. An existing file keeps its permissions
-// and owner; a new one gets mode. A symbolic link is followed, as writing in place did.
+// over the original, and the folder is flushed too. An existing file keeps its owner and
+// its permissions, less any for the group and others; a new one gets mode. A symbolic link
+// is followed, as writing in place did.
 //
 // Where a file cannot be replaced at all (it is itself a mount point, or the folder is not
 // writable) the file is written in place as before, so such a setup keeps working.
@@ -32,7 +33,8 @@ func writeFileAtomic(path string, mode os.FileMode, write func(io.Writer) error)
 	info, err := os.Stat(target)
 	exists := err == nil
 	if exists {
-		mode = info.Mode().Perm()
+		// never wider than owner-only: the file holds secrets
+		mode = info.Mode().Perm() &^ 0077
 	}
 
 	tmpName := target + ".tmp"

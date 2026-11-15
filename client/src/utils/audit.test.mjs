@@ -28,7 +28,7 @@ test('every kind the server records has a sentence', () => {
 // is in a filter group
 const STRANGERS_ONLY = ['auth.session.forged', 'auth.session.rejected', 'auth.reset.rejected', 'token.invalid', 'token.expired',
   'token.ip.denied', 'shield.blocked', 'shield.strike', 'shield.ban.temporary', 'shield.ban.permanent', 'shield.geo.blocked',
-  'shield.bot.blocked', 'shield.hostname.unknown', 'shield.ratelimited', 'scan.probe', 'recorder.dropped', 'firewall.ban'];
+  'shield.bot.blocked', 'shield.hostname.unknown', 'shield.ratelimited', 'scan.probe', 'recorder.dropped', 'firewall.ban', 'edge.blocked'];
 
 test('every kind of the trail is in a filter group', () => {
   const ungrouped = serverKinds().filter((kind) => !STRANGERS_ONLY.includes(kind) && !KIND_GROUPS.some((g) => kindInGroup(kind, g)));

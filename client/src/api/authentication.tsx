@@ -45,7 +45,7 @@ export default function createAuthAPI(apiFetch: ApiFetch) {
 
   function logout(): Promise<ApiResponse> {
     return wrap(apiFetch('/cosmos/api/logout', {
-      method: 'GET',
+      method: 'POST', // Fork addition: a command, sent as POST (src/fork_post_only.go)
       headers: {
           'Content-Type': 'application/json'
       }

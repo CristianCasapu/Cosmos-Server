@@ -363,3 +363,44 @@ export const notificationPagesMock = [
   ['/cosmos/api/notifications/item', details],
   ['/cosmos/api/notifications/context', context],
 ];
+
+// blocks at Cloudflare's edge (src/edgeblock/api.go answers the card and the dashboard with one status):
+// switched on for one domain, six rules of every reason, an IPv6 /64, one deleted in Cloudflare's dashboard
+const rule = (key, reason, mode, sinceHours, forHours, extra = {}) => ({
+  key, address: key, zone: 'example.org', mode, reason, state: 'active',
+  since: iso(Date.now() - sinceHours * hour), until: iso(Date.now() + forHours * hour), ...extra,
+});
+export const EDGE_RULES = [
+  rule('198.51.100.89', 'auth', 'managed_challenge', 0.2, 3.8),
+  rule('198.51.100.88', 'auth', 'managed_challenge', 0.5, 3.5),
+  rule('203.0.113.42', 'probe', 'block', 1, 23),
+  rule('203.0.113.41', 'repeat', 'block', 2, 166),
+  rule('2001:db8:1:2::/64', 'manual', 'managed_challenge', 3, 21, { address: '2001:db8:1:2::5', actor: 'admin' }),
+  rule('198.51.100.77', 'scan', 'managed_challenge', 5, -1, { state: 'gone' }),
+];
+const JAILS = [
+  { name: 'auth', maxRetry: 5, findTime: 3600, banTime: 14400, mode: 'managed_challenge' },
+  { name: 'probe', maxRetry: 3, findTime: 3600, banTime: 86400, mode: 'block' },
+  { name: 'scan', maxRetry: 10, findTime: 600, banTime: 14400, mode: 'managed_challenge' },
+  { name: 'abuse', maxRetry: 3, findTime: 86400, banTime: 14400, mode: 'managed_challenge' },
+  { name: 'repeat', maxRetry: 3, findTime: 604800, banTime: 604800, mode: 'block' },
+];
+export const EDGE_STATUS = {
+  enabled: true, adminDays: 7, counts: { active: 5, gone: 1 }, dropped: 0, droppedAt: null, durations: ['1h', '1d', '7d', '30d'],
+  jails: JAILS, leftovers: [], live: 5, maxPerHour: 60, maxRules: 500, originPulls: false, pullsKind: '', withAddresses: true,
+  zones: [{ name: 'example.org', shielded: 2, proven: true, provenAt: iso(Date.now() - 2 * day), tokenChanged: false }],
+  rules: EDGE_RULES,
+};
+export const edgeMock = [['/cosmos/api/cloudflare/edge-blocks', ok(EDGE_STATUS)]];
+// the dashboard's busiest addresses as they come through Cloudflare (a test instance only sees local ones,
+// for which "Block at Cloudflare" is not offered): the first rows are given the addresses of the rules
+const EDGE_TOP = ['198.51.100.89', '198.51.100.88', '203.0.113.42', '198.51.100.150'];
+export const edgeOverviewPatch = ['/cosmos/api/security/overview', (j) => {
+  if (!j || !j.data) return j;
+  const top = (j.data.top || []).slice();
+  EDGE_TOP.forEach((ip, i) => {
+    const row = top[i] || { total: 6 - i, first: iso(Date.now() - hour), last: iso(Date.now() - 600000), country: '', kinds: [{ kind: 'auth.login.failed', total: 6 - i }] };
+    top[i] = { ...row, ip, local: false, kinds: i < 3 ? [...(row.kinds || []), { kind: 'edge.blocked', total: 1 }] : row.kinds };
+  });
+  return { ...j, data: { ...j.data, top } };
+}];

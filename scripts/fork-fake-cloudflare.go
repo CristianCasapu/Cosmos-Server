@@ -51,6 +51,10 @@
 // being touched. Its control port (:8081) makes it visit:
 //
 //	GET /visit?host=<name>&cert=uploaded|wrong|none&n=<count>&visitor=<address>&path=<path>
+//	          [&method=POST&body=<JSON>&cookie=<Cookie header>]
+//
+// (a POST is sent as the panel's own page sends it: JSON, Origin and
+// Sec-Fetch-Site of the same host; the answer lists the cookies set)
 //
 // "uploaded" presents the certificate Cosmos gave to the API stand-in, the
 // way Cloudflare presents what was uploaded for a zone; "wrong" one from an
@@ -91,6 +95,26 @@ const (
 	// Certificates: Edit") and nothing else: it does not even list the domain
 	SSLToken = "sslcerts0123456789abcdefghijklmnopqrstuvwxYZ"
 )
+
+// IP Access Rules (src/edgeblock, scripts/fork-ui-check-edge-blocks.mjs). GET
+// /token?firewall=1 lets GoodToken manage them too ("Zone > Firewall Services
+// > Edit"); GET /rules lists the rules of example.org, /rules/delete?id=<id>
+// deletes one the way the owner would in Cloudflare's dashboard,
+// /rules/add?target=ip&value=<address>&mode=block&notes=<text> adds one,
+// /rules/refuse-documentation?on=1 makes rules for documentation addresses
+// refused, /ratelimit?next=<n>&after=<seconds> answers the next n requests
+// with 429.
+//
+// Turnstile (scripts/fork-ui-check-turnstile.mjs). GET /token?turnstile=1 on
+// the control port lets GoodToken make Turnstile widgets too ("Account >
+// Turnstile > Edit"), GET /widgets lists the widgets made. A second server on
+// :8090 (plain HTTP) stands in for challenges.cloudflare.com's siteverify, for
+// a test Cosmos started with COSMOS_FORK_TURNSTILE_TEST=1 and
+// COSMOS_FORK_TURNSTILE_SITEVERIFY=http://<this>:8090/turnstile/v0/siteverify:
+// it knows Cloudflare's test secrets and the secrets of the widgets made here;
+// GET /siteverify/down?mode=error|500|slow| (empty: answers again),
+// /siteverify/calls (?clear=1), /siteverify/forget?secret=<secret> on the
+// control port.
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "edge" {
@@ -159,7 +183,28 @@ func main() {
 		io.WriteString(w, "ok\n")
 	})
 	control.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
-		fake.AddToken(GoodToken, cffake.Token{Status: r.URL.Query().Get("status"), Zones: []string{"example.org"}, ReadDNS: true, EditDNS: true})
+		firewall := r.URL.Query().Get("firewall") == "1"
+		fake.AddToken(GoodToken, cffake.Token{Status: r.URL.Query().Get("status"), Zones: []string{"example.org"}, ReadDNS: true, EditDNS: true, EditTurnstile: r.URL.Query().Get("turnstile") == "1", ReadFirewall: firewall, EditFirewall: firewall})
+		io.WriteString(w, "ok\n")
+	})
+	control.HandleFunc("/rules", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(fake.AccessRules("example.org"))
+	})
+	control.HandleFunc("/rules/delete", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(fake.RemoveAccessRule("example.org", r.URL.Query().Get("id")))
+	})
+	control.HandleFunc("/rules/add", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		io.WriteString(w, fake.AddAccessRule("example.org", query.Get("target"), query.Get("value"), query.Get("mode"), query.Get("notes"))+"\n")
+	})
+	control.HandleFunc("/rules/refuse-documentation", func(w http.ResponseWriter, r *http.Request) {
+		fake.RefuseDocumentationAddresses(r.URL.Query().Get("on") == "1")
+		io.WriteString(w, "ok\n")
+	})
+	control.HandleFunc("/ratelimit", func(w http.ResponseWriter, r *http.Request) {
+		next, _ := strconv.Atoi(r.URL.Query().Get("next"))
+		after, _ := strconv.Atoi(r.URL.Query().Get("after"))
+		fake.RateLimitNext(next, after)
 		io.WriteString(w, "ok\n")
 	})
 	names := &nameServer{fake: fake, extra: map[string][]cffake.Record{}}
@@ -168,6 +213,27 @@ func main() {
 		json.NewEncoder(w).Encode(names.asked(r.URL.Query().Get("clear") != ""))
 	})
 	names.start()
+	siteverify := cffake.NewSiteverify()
+	siteverify.Delay = 30 * time.Second
+	go func() { log.Fatal(http.ListenAndServe(":8090", siteverify)) }()
+	control.HandleFunc("/widgets", func(w http.ResponseWriter, r *http.Request) {
+		widgets := fake.Widgets()
+		for _, widget := range widgets {
+			siteverify.AddSecret(widget.Secret)
+		}
+		json.NewEncoder(w).Encode(widgets)
+	})
+	control.HandleFunc("/siteverify/down", func(w http.ResponseWriter, r *http.Request) {
+		siteverify.SetDown(r.URL.Query().Get("mode"))
+		io.WriteString(w, "ok\n")
+	})
+	control.HandleFunc("/siteverify/calls", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(siteverify.Calls(r.URL.Query().Get("clear") != ""))
+	})
+	control.HandleFunc("/siteverify/forget", func(w http.ResponseWriter, r *http.Request) {
+		siteverify.RemoveSecret(r.URL.Query().Get("secret"))
+		io.WriteString(w, "ok\n")
+	})
 	control.HandleFunc("/aop", func(w http.ResponseWriter, r *http.Request) {
 		certs, enabled := fake.OriginPull("example.org")
 		json.NewEncoder(w).Encode(map[string]interface{}{"enabled": enabled, "certificates": certs})
@@ -463,6 +529,7 @@ func edge(target string, from string, api string) {
 		var mu sync.Mutex
 		asked := false
 		statuses := []int{}
+		cookies := []string{}
 		problem := ""
 		for i := 0; i < count; i++ {
 			transport := &http.Transport{
@@ -483,8 +550,24 @@ func edge(target string, from string, api string) {
 					},
 				},
 			}
-			req, _ := http.NewRequest("GET", "https://"+target+path, nil)
+			method := query.Get("method")
+			if method != "POST" {
+				method = "GET"
+			}
+			var body io.Reader
+			if method == "POST" {
+				body = strings.NewReader(query.Get("body"))
+			}
+			req, _ := http.NewRequest(method, "https://"+target+path, body)
 			req.Host = host
+			if method == "POST" {
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Origin", "https://"+host)
+				req.Header.Set("Sec-Fetch-Site", "same-origin")
+			}
+			if cookie := query.Get("cookie"); cookie != "" {
+				req.Header.Set("Cookie", cookie)
+			}
 			req.Header.Set("CF-Connecting-IP", visitor)
 			req.Header.Set("X-Forwarded-For", visitor)
 			client := &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -497,10 +580,13 @@ func edge(target string, from string, api string) {
 			io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 			resp.Body.Close()
 			statuses = append(statuses, resp.StatusCode)
+			for _, cookie := range resp.Cookies() {
+				cookies = append(cookies, cookie.Name+"="+cookie.Value)
+			}
 		}
 		mu.Lock()
 		defer mu.Unlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{"statuses": statuses, "asked": asked, "presented": present != nil, "problem": problem})
+		json.NewEncoder(w).Encode(map[string]interface{}{"statuses": statuses, "asked": asked, "presented": present != nil, "problem": problem, "cookies": cookies})
 	})
 	log.Println("fake Cloudflare edge ready, coming from " + from)
 	log.Fatal(http.ListenAndServe(":8081", control))

@@ -45,6 +45,10 @@ const (
 	SecResetRejected   = "auth.reset.rejected"
 	SecPasswordChanged = "auth.password.changed"
 	SecRegisterFailed  = "auth.register.failed"
+	// Fork addition (Turnstile, src/turnstile): the check of Cloudflare on the public forms
+	SecTurnstileMissing     = "auth.turnstile.missing"
+	SecTurnstileFailed      = "auth.turnstile.failed"
+	SecTurnstileUnavailable = "auth.turnstile.unavailable"
 
 	// accounts
 	SecUserCreated       = "user.created"
@@ -120,6 +124,12 @@ const (
 	SecExposeOpened = "expose.opened"
 	SecExposeClosed = "expose.closed"
 
+	// blocks at Cloudflare's edge (src/edgeblock): what Cosmos asked
+	// Cloudflare to block, what an administrator blocked, what was lifted
+	SecEdgeBlocked    = "edge.blocked"
+	SecEdgeBlockAdded = "edge.block.added"
+	SecEdgeUnblocked  = "edge.unblocked"
+
 	// the record about itself
 	SecRecorderDropped = "recorder.dropped"
 )
@@ -160,6 +170,10 @@ type SecurityEvent struct {
 	// connection. Such an event is never written to the Fail2ban file: see
 	// fork_forwarded_for.go. Not stored.
 	Forwarded bool `json:"-"`
+	// Edge: IP is the visitor Cloudflare's proxy reported for a hostname
+	// served through it (see fork_edge.go). Only such events can lead to a
+	// block at Cloudflare. Not stored.
+	Edge bool `json:"-"`
 }
 
 var (
@@ -246,6 +260,7 @@ func securityEventOf(req *http.Request, actor string, kind string, target string
 
 	event.IP = SecurityClientIP(req)
 	event.Forwarded = IsForwardedClient(req, event.IP)
+	event.Edge = event.Forwarded && IsEdgeVisitor(req, event.IP) // Fork addition: edge blocks, see fork_edge.go
 	event.Host = req.Host
 	event.Method = req.Method
 	if req.URL != nil {
@@ -305,6 +320,9 @@ func AuditSecurity(req *http.Request, kind string, target string, details ...str
 var securityUnlistedReads = []string{
 	"/cosmos/api/jobs/get",
 	"/cosmos/api/jobs/running",
+	"/cosmos/api/config/http-check", // checks the HTTP settings before a save, changes nothing
+	"/cosmos/api/install/plan",      // the platforms and places for data an installation would use, changes nothing
+	"/cosmos/api/notifications/read", // marks the caller's own notifications read (a POST since fork_post_only.go): no entry each time the bell is opened
 }
 
 // SecurityAudit is the middleware behind AuditSecurity, placed innermost on

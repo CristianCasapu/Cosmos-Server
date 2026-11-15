@@ -42,6 +42,8 @@ var notificationKinds = map[string]notificationKind{
 	"update.rejected":         {"updates", "notif.update.rejected.title"},
 	"originpull.expiring":     {"cloudflare", "header.notification.title.originPullExpiring"},
 	"originpull.stopped":      {"cloudflare", "header.notification.title.originPullStopped"},
+	"turnstile.problem":       {"cloudflare", "header.notification.title.turnstileProblem"},
+	"edgeblock.problem":       {"cloudflare", "header.notification.title.edgeBlocksProblem"},
 	"error.backup":            {"backup", "notif.error.backup.title"},
 	"error.job":               {"jobs", "notif.error.job.title"},
 	"error.snapraid":          {"storage", "notif.error.snapraid.title"},
@@ -72,6 +74,8 @@ var legacyNotificationKinds = map[string]string{
 	"header.notification.title.originPullExpiring":   "originpull.expiring",
 	"header.notification.title.originPullStopped":    "originpull.stopped",
 	"header.notification.title.serverError":          "error.other",
+	"header.notification.title.turnstileProblem":     "turnstile.problem",
+	"header.notification.title.edgeBlocksProblem":    "edgeblock.problem",
 }
 
 // NotificationSources are the sources, in the order the page offers them.
@@ -269,6 +273,12 @@ var notificationTexts = map[string]string{
 	"notif.step.cron.open":          "Open Scheduled jobs",
 	"notif.step.general.open":       "Open Configuration > General",
 	"notif.step.urls.open":          "Open URLs",
+
+	// --- Cloudflare sign-in check and edge blocks
+	"notif.turnstile.doing":     "Cosmos keeps checking with Cloudflare and marks this resolved when the sign-in check works again.",
+	"notif.step.turnstile.open": "Open Configuration > Domains > Sign-in check",
+	"notif.edgeblock.means":     "Until the token works, Cosmos adds no blocks at Cloudflare's edge and lifts none: SmartShield and Fail2ban still block here.",
+	"notif.step.edgeblock.open": "Open Configuration > Domains and check the Cloudflare token of that domain",
 
 	// --- generic
 	"notif.doing.nothing": "Cosmos does nothing more about it by itself.",

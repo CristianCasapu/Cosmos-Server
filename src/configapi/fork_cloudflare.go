@@ -21,4 +21,5 @@ import "github.com/azukaar/cosmos-server/src/utils"
 func keepCloudflareState(request *utils.Config, stored utils.Config) {
 	utils.RestoreCloudflareSecrets(request.HTTPConfig.DNSZones, stored.HTTPConfig.DNSZones)
 	request.HTTPConfig.Cloudflare = stored.HTTPConfig.Cloudflare
+	keepTurnstileState(request, stored) // and the Turnstile settings, which only their own routes write (fork_turnstile.go)
 }

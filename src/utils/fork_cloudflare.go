@@ -52,6 +52,26 @@ type ForkCloudflareConfig struct {
 	// (<app>.<label>.<domain> at the server's private address), see
 	// fork_home_names.go.
 	HomeNames []ForkHomeNamesZone `json:"HomeNames,omitempty"`
+	// EdgeBlocks: abusers who come through Cloudflare's proxy are blocked
+	// at Cloudflare (IP Access Rules of the zone), see src/edgeblock. Off
+	// until the admin switches it on.
+	EdgeBlocks ForkEdgeBlocksConfig `json:"EdgeBlocks,omitzero"`
+}
+
+// ForkEdgeBlocksConfig is HTTPConfig.Cloudflare.EdgeBlocks.
+type ForkEdgeBlocksConfig struct {
+	Enabled bool `json:"Enabled,omitempty"`
+	// Proven lists, per zone, when a test with the zone's token showed that
+	// it may list, create and delete IP Access Rules, and a digest of that
+	// token (a changed token needs a new test).
+	Proven []ForkEdgeProof `json:"Proven,omitempty"`
+}
+
+// ForkEdgeProof is one passed test of a zone's token.
+type ForkEdgeProof struct {
+	Zone  string    `json:"Zone"`
+	Token string    `json:"Token"` // digest, never the token
+	At    time.Time `json:"At"`
 }
 
 // CloudflareMaxNames bounds the lists of hostnames kept in the configuration.
