@@ -4,7 +4,7 @@ import React, {useState} from "react";
 import { CosmosCheckbox } from "../config/users/formShortcuts";
 import { Formik, FormikProvider, useFormik } from "formik";
 import * as yup from "yup";
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 
 import * as API from '../../api';
 import { DownCircleOutlined, UpCircleOutlined } from "@ant-design/icons";
@@ -60,7 +60,8 @@ const MountDiskDialogInternal = ({disk, unmount, refresh, open, setOpen }) => {
                     <Stack spacing={2} style={{ marginTop: '10px', width: '500px', maxWidth: '100%' }}>
                       <div>
                         <Alert severity="info">
-                            {t('mgmt.storage.unMountDiskText', {unMount: unmount ? t('global.unmount') : t('global.mount'), disk: disk.name, mountpoint: disk.mountpoint ? (<> mounted at <strong>{disk.mountpoint}</strong></>) : <></>, unAvailable: unmount ? t('unavailable') : t('available')})}
+                            {/* Fork addition: the sentence carries <strong>: read through Trans (t() showed the tag as text, and the mount point as "[object Object]") */}
+                            <Trans i18nKey="mgmt.storage.unMountDiskText" values={{ unMount: unmount ? t('global.unmount') : t('global.mount'), disk: disk.name, mountpoint: disk.mountpoint ? ' (' + disk.mountpoint + ')' : '', unAvailable: unmount ? t('unavailable') : t('available') }} />
                         </Alert>
                       </div>
                       {unmount ? '' : <>

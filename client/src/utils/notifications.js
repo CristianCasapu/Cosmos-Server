@@ -209,7 +209,7 @@ export const detailsLink = (item) => (item && Number.isSafeInteger(item.id) && i
 
 // ---- step actions: the commands the panel knows ----
 
-export const ACTIONS = { 'upnp.check': true };
+export const ACTIONS = { 'upnp.check': true, 'reach.check': true /* Fork addition: the watch from the internet */ };
 export const knownAction = (action) => ACTIONS[action] === true;
 
 // ---- filters (in the page's address: ?level=error&source=upnp&read=unread&q=...) ----
