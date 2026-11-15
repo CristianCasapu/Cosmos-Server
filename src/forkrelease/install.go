@@ -80,7 +80,7 @@ func (s Stager) Stage(tag string) error {
 		return ErrLauncherPending
 	}
 	if failedIn(s.Folder, version) {
-		return ErrFailedHere // went back by itself here: see trial.go
+		return failedError(s.Folder, version) // went back by itself here: see trial.go
 	}
 	if _, err := os.Lstat(filepath.Join(s.Folder, trialName)); err == nil {
 		return ErrTrialPending
@@ -225,7 +225,7 @@ func checkStaged(keys []ed25519.PublicKey, folder string, arch string) (Manifest
 		return Manifest{}, err
 	}
 	if failedIn(folder, manifest.Version) {
-		return Manifest{}, ErrFailedHere // went back by itself here: see trial.go
+		return Manifest{}, failedError(folder, manifest.Version) // went back by itself here: see trial.go
 	}
 
 	installed, err := installedVersion(folder)
