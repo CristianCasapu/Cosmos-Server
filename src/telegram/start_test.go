@@ -222,3 +222,34 @@ func TestTheNotifierHearsTheSecurityRecord(t *testing.T) {
 		t.Errorf("message: %s", text)
 	}
 }
+
+// Fork addition: after the launcher went back to the version before a
+// failed update, the start is told by that notification: no start message
+// claims an update.
+func TestAQuietStartSendsNoStartMessage(t *testing.T) {
+	fake := newFakeTelegram(t)
+	wire(t, fake, testConfig())
+	defer quietStart.Store(false)
+
+	// the last run was the failed version
+	markExitAt(statePath(), exitSignal, "")
+	recordStart(statePath(), "0.24.0-fork.10", time.Now().Add(-time.Hour))
+	QuietStart()
+	announceStart("0.24.0-fork.9", time.Now())
+	time.Sleep(200 * time.Millisecond)
+	if got := fake.texts(); len(got) != 0 {
+		t.Fatalf("a start message was sent: %v", got)
+	}
+	if state := readState(statePath()); state == nil || state.Version != "0.24.0-fork.9" || !state.Running {
+		t.Errorf("the start was not recorded: %+v", state)
+	}
+
+	// without it, the same start claims an update
+	quietStart.Store(false)
+	recordStart(statePath(), "0.24.0-fork.10", time.Now().Add(-time.Hour))
+	announceStart("0.24.0-fork.9", time.Now())
+	fake.waitFor(t, 1)
+	if texts := strings.Join(fake.texts(), "\n"); !strings.Contains(texts, "Cosmos was updated") {
+		t.Errorf("the control start said %q", texts)
+	}
+}
