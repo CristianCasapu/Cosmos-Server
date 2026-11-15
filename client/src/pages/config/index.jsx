@@ -50,6 +50,7 @@ import { PWASettings } from '../../components/pwa'; // Fork addition: the instal
 import ConfigAPITokens from './configAPITokens';
 import { refreshPaidVisibility } from '../../components/paidVisibility'; // Fork addition
 import { httpSettingsValidation } from './forkHttpSettings'; // Fork addition
+import ReadOnlyNotice from '../../components/readOnlyNotice'; // Fork addition
 
 const SaveButton = ({ formik, saveLabel, sticky }) => {
   // Fork addition: say when something was changed and not saved yet, and keep the
@@ -151,10 +152,8 @@ const ConfigManagement = () => {
           </PermissionGuard>
         </Stack>
 
-        {!isAdmin && <div>
-          <Alert severity="warning">{t('mgmt.config.general.notAdminWarning')}
-          </Alert>
-        </div>}
+        {/* Fork addition: says whether the password confirmation or the role is what is missing (components/readOnlyNotice.jsx); upstream told everyone they were not an admin, with a tag shown as text */}
+        <ReadOnlyNotice permission={PERM_CONFIGURATION} />
 
         <SaveButton formik={formik} saveLabel={saveLabel} sticky />
         {content}
