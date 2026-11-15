@@ -28,6 +28,17 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jasonlvhit/gocron v0.0.1
 	github.com/kardianos/service v1.2.4
+	github.com/libdns/cloudflare v0.2.2
+	github.com/libdns/desec v1.1.1
+	github.com/libdns/digitalocean v0.0.0-20250606071607-dfa7af5c2e31
+	github.com/libdns/duckdns v0.3.0
+	github.com/libdns/gandi v1.1.0
+	github.com/libdns/hetzner v1.0.0
+	github.com/libdns/libdns v1.1.1
+	github.com/libdns/namecheap v1.0.0
+	github.com/libdns/ovh v1.1.0
+	github.com/libdns/porkbun v1.1.0
+	github.com/libdns/route53 v1.6.2
 	github.com/miekg/dns v1.1.72
 	github.com/moby/sys/mountinfo v0.7.2
 	github.com/mxk/go-flowrate v0.0.0-20140419014527-cca7078d478f
@@ -38,6 +49,7 @@ require (
 	github.com/oschwald/geoip2-golang v1.8.0
 	github.com/pquerna/otp v1.5.0
 	github.com/rclone/rclone v1.72.1
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/sirupsen/logrus v1.9.4
 	go.deanishe.net/favicon v0.1.0
@@ -259,17 +271,6 @@ require (
 	github.com/labbsr0x/goh v1.0.1 // indirect
 	github.com/lanrat/extsort v1.4.2 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
-	github.com/libdns/cloudflare v0.2.2 // indirect
-	github.com/libdns/desec v1.1.1 // indirect
-	github.com/libdns/digitalocean v0.0.0-20250606071607-dfa7af5c2e31 // indirect
-	github.com/libdns/duckdns v0.3.0 // indirect
-	github.com/libdns/gandi v1.1.0 // indirect
-	github.com/libdns/hetzner v1.0.0 // indirect
-	github.com/libdns/libdns v1.1.1 // indirect
-	github.com/libdns/namecheap v1.0.0 // indirect
-	github.com/libdns/ovh v1.1.0 // indirect
-	github.com/libdns/porkbun v1.1.0 // indirect
-	github.com/libdns/route53 v1.6.2 // indirect
 	github.com/linode/linodego v1.69.1 // indirect
 	github.com/liquidweb/liquidweb-cli v0.7.0 // indirect
 	github.com/liquidweb/liquidweb-go v1.6.4 // indirect
@@ -358,7 +359,6 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rfjakob/eme v1.1.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/ryszard/goskiplist v0.0.0-20150312221310-2dfbae5fcf46 // indirect
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06 // indirect
