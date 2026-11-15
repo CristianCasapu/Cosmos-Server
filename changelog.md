@@ -14,7 +14,7 @@ Merged into `custom` since `0.24.0-fork.27`, to be part of the next release:
 - Install any image, from the Market and from ServApps: a search of Docker Hub, or the name of an image in any registry; what the image declares is read without pulling it, and a version, the place of its data and generated passwords are proposed, with built-in settings for 18 common images (PostgreSQL, MariaDB, MySQL, Redis, MongoDB and others). A database is never published; it can be created with, or linked to, the app that needs it. Everything ends on the usual review.
 
 ### Security
-- Giving a container a device of the server (a disk, a graphics card, a USB device) now needs a tick in the review; the server refuses it without.
+- Giving a container a device of the server (a disk, a graphics card, a USB device) now needs a tick in the review; the server refuses it without. The tick also holds when a container is edited: adding a device, a system folder, the Docker socket, the host network or more privileges asks for it, once.
 
 Work in progress on separate branches (not released, and may change before it is): the major versions of the frontend's build tool and libraries, and automatic dependency updates.
 

@@ -296,7 +296,9 @@ test app's `.local` address, blocked by CORS; not from this flow). The
 owner's to change if wanted: databases pinned to a major version (`lts`
 for MariaDB and MySQL), 24-character passwords, Redis, Valkey and Memcached
 without a password (not published, reached through link networks), Traefik
-with the Docker socket behind a tick.
+with the Docker socket behind a tick, and the limits of image look-ups
+(20 a minute for the server and 8 per user; 20 counted Docker Hub reads an
+hour, 8 per user; a reserve of 25 pulls).
 
 ## Installable app: left for later (2026-11-14)
 
