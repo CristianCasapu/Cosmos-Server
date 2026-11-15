@@ -1239,3 +1239,20 @@ func TestTheRollbackNoteIsReadSafely(t *testing.T) {
 		t.Error("a note that is a link was read")
 	}
 }
+
+func TestOnlySignatureRefusalsAreSecurityIncidents(t *testing.T) {
+	for reason, security := range map[string]bool{
+		"not enough free space in /opt/cosmos: 630 MiB needed, 442 MiB free":                      false,
+		"the files it replaces could not be kept, so it could not go back by itself: x":           false,
+		"it could not be unpacked (no space left on device); the files it replaced were put back": false,
+		"its installation was cut short (a power loss, a kill or a full disk); the files ...":     false,
+		failedError("/opt/cosmos", "v"+newVersion).Error():                                        false,
+		ErrBadSignature.Error():        true,
+		ErrWrongChecksum.Error():       true,
+		"something nobody planned for": true,
+	} {
+		if SecurityRefusal(reason) != security {
+			t.Errorf("%q: security %v", reason, !security)
+		}
+	}
+}

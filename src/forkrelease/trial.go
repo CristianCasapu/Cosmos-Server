@@ -137,6 +137,23 @@ var (
 	errStateEntry   = errors.New("the update would overwrite a file the updater keeps its state in")
 )
 
+// trialRefusals start the reasons the trial code refuses an update for.
+// None is about a release that could not be verified.
+var trialRefusals = []string{"not enough free space", "the files it replaces could not be kept", "it could not be unpacked",
+	"its installation was cut short", ErrFailedHere.Error()}
+
+// SecurityRefusal: a refusal noted by the launcher is about the release's
+// signature or origin (a security incident), not about room, an unzip, or a
+// version that went back here.
+func SecurityRefusal(reason string) bool {
+	for _, prefix := range trialRefusals {
+		if strings.HasPrefix(reason, prefix) {
+			return false
+		}
+	}
+	return true
+}
+
 // failedError names the way to allow a failed version again.
 func failedError(folder string, version string) error {
 	version = strings.TrimPrefix(SafeText(version), "v")

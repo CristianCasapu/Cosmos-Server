@@ -252,3 +252,13 @@ func TestTheUpdaterBeforeSigningStillFindsTheZip(t *testing.T) {
 		}
 	}
 }
+
+// Fork addition: a refusal for want of room is told, but it is no security
+// incident.
+func TestARefusalForRoomIsToldButNotASecurityIncident(t *testing.T) {
+	notifications, events := captureRejections(t)
+	reportRejectedUpdate("", "not enough free space in /opt/cosmos: 630 MiB needed, 442 MiB free", "launcher")
+	if len(*notifications) != 1 || len(events()) != 0 {
+		t.Errorf("notifications %q, security record %+v", *notifications, events())
+	}
+}
