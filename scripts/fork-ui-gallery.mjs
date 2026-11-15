@@ -15,7 +15,8 @@
 //     ENGINES=chromium                chromium,firefox,webkit
 //     VIEWPORTS=1920x1080,1366x768,390x844
 //     MODES=light,dark
-//     SET=all                         "small": the views marked core only (for the other engines)
+//     SET=all                         "small": the views marked core only (for the other engines);
+//                                     "smoke": the core and the guarded views (scripts/fork-ci-smoke.mjs)
 //     ONLY=<regexp>                   only the views whose name matches
 //     API_PER_MINUTE=420              the instance allows 500 API calls a minute per address; the script
 //                                     counts its own and waits before it would go over
@@ -26,6 +27,7 @@
 //                                     and the pictures show the two zones hatched
 //     SHOT=viewport                   one screen per picture instead of the whole page (default: full), so
 //                                     that bars fixed to the bottom are where a user sees them
+//     TIMEOUT=<ms>                    how long a step's click or fill may wait (default: Playwright's 30 s)
 //     CHECK=1                         after the run, fail (exit 1) when a view marked `guard` shows sideways
 //                                     scroll, text outside its card, text over other text, text squeezed to a
 //                                     word per line, an unnamed control or (on a phone) a target under 44 px
@@ -52,6 +54,7 @@ const viewports = (process.env.VIEWPORTS || '1920x1080,1366x768,390x844').split(
 });
 const modes = (process.env.MODES || 'light,dark').split(',');
 const smallSet = process.env.SET === 'small';
+const smokeSet = process.env.SET === 'smoke';
 const only = process.env.ONLY ? new RegExp(process.env.ONLY) : null;
 const apiPerMinute = Number(process.env.API_PER_MINUTE || 420);
 const standalone = process.env.STANDALONE === '1';
@@ -815,6 +818,7 @@ const run = async (engineName, viewport, mode) => {
     }, [...safeArea, viewportShots]);
   }
   const page = await context.newPage();
+  if (process.env.TIMEOUT) page.setDefaultTimeout(Number(process.env.TIMEOUT));
   if (standalone && engineName === 'chromium') {
     // Chromium can be told for real, so that CSS media queries agree with the script above
     try {
@@ -835,7 +839,9 @@ const run = async (engineName, viewport, mode) => {
   let throttled = 0;
   page.on('response', (r) => { if (r.status() === 429) throttled++; });
   let perLoad = 90; // grows to the largest page load seen
-  const room = async (need) => {
+  const room = async (want) => {
+    // (never more than the whole allowance: a larger need would wait for ever)
+    const need = Math.min(want, apiPerMinute);
     for (;;) {
       const now = Date.now();
       while (stamps.length && now - stamps[0] > 61000) stamps.shift();
@@ -935,6 +941,7 @@ const run = async (engineName, viewport, mode) => {
   const visit = async (view) => {
     if (only && !only.test(view.id)) return;
     if (smallSet && !view.core) return;
+    if (smokeSet && !view.core && !view.guard) return;
     await room(perLoad);
     const before = stamps.length;
     // a body may be a function of the address asked for (answers that depend on the query)
@@ -951,7 +958,7 @@ const run = async (engineName, viewport, mode) => {
         } catch (e) { return route.continue().catch(() => {}); }
       });
     }
-    try { await page.goto(base + view.path, { waitUntil: 'domcontentloaded' }); } catch (e) { note(label, view.id, 'did not load:', e.message.slice(0, 120)); return; }
+    try { await page.goto(base + view.path, { waitUntil: 'domcontentloaded' }); } catch (e) { note(label, view.id, 'did not load:', e.message.slice(0, 120)); return true; }
     await settle(view.wait || 0);
     perLoad = Math.max(perLoad, Math.min(stamps.length - before + 20, 260));
     for (const step of view.captures || [{}]) {
@@ -972,12 +979,14 @@ const run = async (engineName, viewport, mode) => {
       } catch (e) { /* the next step reports what is in its way */ }
     }
     if (view.mock || view.patch || view.abort) await page.unrouteAll({ behavior: 'ignoreErrors' });
+    return true;
   };
 
   // the pages that need no session, then the login through its form (with a pause between them: the
   // server limits the requests of a visitor without a session, and a refused style sheet spoils a picture)
   const anonPause = Number(process.env.ANON_PAUSE || 6000);
-  for (const view of anonymousViews) { await visit(view); if (!only || only.test(view.id)) await sleep(anonPause); }
+  // (the pause only after a view that was shown: SET leaves most of them out)
+  for (const view of anonymousViews) { if (await visit(view)) await sleep(anonPause); }
   await room(perLoad);
   await page.goto(base + '/cosmos-ui/login', { waitUntil: 'domcontentloaded' });
   await page.locator('#nickname-login').fill(admin.nickname);
