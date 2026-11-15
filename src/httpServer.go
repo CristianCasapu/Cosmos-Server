@@ -305,6 +305,7 @@ func issueLocalCerts(hosts []string, force bool) {
 			Message:   "header.notification.message.certificateRenewed",
 			Vars:      strings.Join(wanted, ", "),
 			Level:     "info",
+			Fork:      forkCertificateRenewed(zone, wanted), // Fork addition: in words, ends the notices of a failure, see fork_certificates.go
 		})
 	}
 
@@ -445,6 +446,7 @@ func issueZoneCerts(force bool) {
 			Message: "header.notification.message.certificateRenewed",
 			Vars: strings.Join(wanted, ", "),
 			Level: "info",
+			Fork: forkCertificateRenewed(name, wanted), // Fork addition: in words, ends the notices of a failure, see fork_certificates.go
 		})
 	}
 

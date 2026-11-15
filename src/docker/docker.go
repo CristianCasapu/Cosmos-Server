@@ -576,12 +576,13 @@ func CheckUpdatesAvailable() map[string]bool {
 				Vars: container.Names[0][1:],
 				Level: "info",
 				Link: "/cosmos-ui/servapps/containers/" + container.Names[0][1:],
+				Fork: containerUpdatedInfo(container.Names[0][1:], container.Image), // Fork addition: in words, see fork_notify.go
 			})
 
 			utils.Log("Downloaded new update for " + container.Image + " ready to install")
 			_, err := RecreateContainer(container.Names[0], fullContainer)
 			if err != nil {
-				utils.MajorError("Container failed to update", err)
+				forkContainerUpdateFailed(container.Names[0][1:], container.Image, err) // Fork addition: names the container, see fork_notify.go
 			} else {
 				result[container.Names[0]] = false
 			}

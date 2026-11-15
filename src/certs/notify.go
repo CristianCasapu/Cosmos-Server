@@ -34,8 +34,9 @@ const (
 // notify writes a notification. A variable for the tests.
 var notify = utils.WriteNotification
 
-// majorError is upstream's notice of a failed order. A variable for the tests.
-var majorError = utils.MajorError
+// majorError is upstream's notice of a failed order (log line, event,
+// notification), here with the notification's info. A variable for the tests.
+var majorError = utils.MajorErrorWith
 
 // NoticeFailure is called where upstream raised "couldn't get the TLS
 // certificate" after every failed order. The notice is raised when the
@@ -58,7 +59,7 @@ func NoticeFailure(key string, message string, reason error) {
 	if reason == nil {
 		reason = errors.New(FailureSentence(known.LastCode))
 	}
-	majorError(message, reason)
+	majorError(message, reason, failureInfo(key, message, reason, known))
 }
 
 // daysLeft says how long a certificate still lasts, in words a notice can
@@ -110,6 +111,7 @@ func raiseNotices(status Status, now time.Time) {
 			Message:   MessageExpiring,
 			Vars:      cert.Domain + " (" + timeLeft(cert.NotAfter, now) + "): " + why,
 			Level:     level,
+			Fork:      expiringInfo(cert, timeLeft(cert.NotAfter, now), why), // in words, see fork_notify.go
 		})
 	}
 
@@ -175,6 +177,7 @@ func raiseNotices(status Status, now time.Time) {
 			Message:   MessageUntrusted,
 			Vars:      strings.Join(names, ", ") + more,
 			Level:     "warning",
+			Fork:      untrustedInfo(strings.Join(names, ", ") + more),
 		})
 	}
 }

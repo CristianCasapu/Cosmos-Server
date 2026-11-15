@@ -2,7 +2,7 @@ package docker
 
 // Fork addition: notices a container that keeps stopping with an error (a
 // crash loop under a restart policy) and reports it once, through
-// utils.ForkNotice. Docker's events are all there is to it: no container is
+// a notification (fork_notify.go). Docker's events are all there is to it: no container is
 // inspected, nothing is polled.
 //
 // An exit that follows a stop or kill asked for through Docker (by an
@@ -10,11 +10,8 @@ package docker
 // lazy-start reaper) is not counted: Docker sends a "kill" event first.
 
 import (
-	"strconv"
 	"sync"
 	"time"
-
-	"github.com/azukaar/cosmos-server/src/utils"
 )
 
 const (
@@ -47,7 +44,7 @@ func noteContainerEvent(kind string, action string, attributes map[string]string
 		return
 	}
 	if report, code := containerDied(name, action, attributes["exitCode"], time.Now()); report {
-		utils.ForkNotice(utils.NoticeContainerDying, "name", name, "exits", strconv.Itoa(dyingExits), "code", code)
+		notifyDying(name, dyingExits, code) // a notification in the panel, which Telegram forwards (fork_notify.go)
 	}
 }
 

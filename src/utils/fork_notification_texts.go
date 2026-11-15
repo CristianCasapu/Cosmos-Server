@@ -155,6 +155,7 @@ var notificationTexts = map[string]string{
 	"notif.cert.order.failed.title": "No certificate for {{domain}}",
 	"notif.cert.order.failed.what":  "Cosmos could not obtain a certificate for {{domain}}: {{reason}}",
 	"notif.cert.means.valid":        "The current certificate stays in use until {{until}}. If no order succeeds before then, browsers show a security warning for {{domain}}.",
+	"notif.cert.means.generic":      "The certificate in use stays until it ends (the state below says until when). If no order succeeds before then, browsers show a security warning for {{domain}}.",
 	"notif.cert.means.none":         "{{domain}} has no certificate from a trusted authority yet: browsers show a security warning.",
 	"notif.cert.doing.retry":        "Cosmos tries again by itself. You are told again if the reason changes, or after a day.",
 	"notif.cert.expiring.title":     "The certificate of {{domain}} ends soon",

@@ -82,3 +82,19 @@ func majorErrorInfo(message string, errText string) *NotificationInfo {
 	}
 	return info
 }
+
+// MajorErrorWith is MajorError with the notification's info given by the
+// caller (a certificate that could not be obtained knows its domain).
+func MajorErrorWith(message string, err error, info *NotificationInfo) {
+	Error(message, err)
+	errStr := ""
+	if err != nil {
+		errStr = err.Error()
+	}
+	TriggerEvent("cosmos.error", "Critical Error", "error", "", map[string]interface{}{"message": message, "error": errStr})
+	if info == nil {
+		info = majorErrorInfo(message, errStr)
+	}
+	WriteNotification(Notification{Recipient: "admin", Title: "header.notification.title.serverError",
+		Message: message + " : " + errStr, Level: "error", Fork: info})
+}
