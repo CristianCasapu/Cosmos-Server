@@ -610,14 +610,6 @@ func TestRoutesPermissionsMethodsAndBounds(t *testing.T) {
 	if code, _ := env.post(map[string]interface{}{"action": "nothing"}); code != http.StatusBadRequest {
 		t.Errorf("unknown action: %d", code)
 	}
-	if code, _ := env.do(asAdmin(httptest.NewRequest("POST", "/cosmos/api/cloudflare/edge-blocks/keys", nil))); code != http.StatusMethodNotAllowed {
-		// the keys route is GET only
-		recorder := httptest.NewRecorder()
-		BlockedRoute(recorder, asAdmin(httptest.NewRequest("POST", "/x", nil)))
-		if recorder.Code != http.StatusMethodNotAllowed {
-			t.Errorf("keys by POST: %d", recorder.Code)
-		}
-	}
 }
 
 func TestManualBlockAndUnblock(t *testing.T) {

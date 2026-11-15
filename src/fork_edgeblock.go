@@ -20,7 +20,6 @@ import (
 // neighbours); each checks its permission and method itself.
 func registerEdgeBlockRoutes(admin *mux.Router) {
 	admin.HandleFunc("/api/cloudflare/edge-blocks", edgeblock.StatusRoute)
-	admin.HandleFunc("/api/cloudflare/edge-blocks/keys", edgeblock.BlockedRoute)
 	edgeblock.Start(dnsrecords.CurrentAddress, proxy.IsLocalAddress)
 }
 

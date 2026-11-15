@@ -161,20 +161,6 @@ func (e *Engine) Status(withAddresses bool) map[string]interface{} {
 	}
 }
 
-// Blocked lists the keys with a rule in force or on its way, for the
-// security dashboard.
-func (e *Engine) blockedKeys() map[string]RuleView {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	found := map[string]RuleView{}
-	for _, r := range e.st.Rules {
-		if (r.State == StateActive || r.State == StatePending) && r.Reason != "test" {
-			found[r.Key] = RuleView{Key: r.Key, Mode: r.Mode, Reason: r.Reason, State: r.State, Since: r.Since, Until: r.Until}
-		}
-	}
-	return found
-}
-
 // StatusRoute answers GET and POST /api/cloudflare/edge-blocks.
 func StatusRoute(w http.ResponseWriter, req *http.Request) {
 	if req.Method == "POST" {
@@ -481,24 +467,6 @@ func (e *Engine) manualBlock(w http.ResponseWriter, req *http.Request, body requ
 	e.poke()
 	utils.AuditSecurity(req, utils.SecEdgeBlockAdded, key, "mode", mode, "until", until.UTC().Format(time.RFC3339))
 	answer(w, e.Status(true))
-}
-
-// Blocked is what the security dashboard shows next to an address: the
-// rule in force for it at Cloudflare, if any.
-func Blocked() map[string]RuleView { return std.blockedKeys() }
-
-// BlockedRoute answers GET /api/cloudflare/edge-blocks/keys: the keys in
-// force (log readers), for the dashboard's chips.
-func BlockedRoute(w http.ResponseWriter, req *http.Request) {
-	if req.Method != "GET" {
-		w.Header().Set("Allow", "GET")
-		utils.HTTPError(w, "Method not allowed", http.StatusMethodNotAllowed, "HTTP001")
-		return
-	}
-	if utils.CheckPermissions(w, req, utils.PERM_ADMIN_READ) != nil {
-		return
-	}
-	answer(w, map[string]interface{}{"enabled": enabled(), "blocked": Blocked()})
 }
 
 var startOnce sync.Once
