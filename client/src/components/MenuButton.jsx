@@ -71,7 +71,6 @@ export default function MenuButton({children, size='large', icon=<DashOutlined  
         aria-haspopup="true"
         aria-expanded={open ? 'true' : undefined}
         variant="outlined"
-        disableElevation
         onClick={handleClick}
         size={size}
         sx={{
