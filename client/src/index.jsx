@@ -15,6 +15,7 @@ import 'simplebar-react/dist/simplebar.min.css'; // Fork addition: simplebar 6 p
 
 // third-party
 import { Provider as ReduxProvider } from 'react-redux';
+import { CookiesProvider } from 'react-cookie'; // Fork addition: react-cookie 8 needs its provider
 
 // apex-chart
 import './assets/third-party/apex-chart.css';
@@ -45,11 +46,13 @@ const root = createRoot(container); // createRoot(container!) if you use TypeScr
 root.render(
     <StrictMode>
         <ReduxProvider store={store}>
+          <CookiesProvider>{/* Fork addition: react-cookie 8 throws without it */}
             <BrowserRouter basename="/">    
                 <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale={getLanguage().toLowerCase()}>
                     <App />
                 </LocalizationProvider>
             </BrowserRouter>
+          </CookiesProvider>
         </ReduxProvider>
     </StrictMode>
 );
