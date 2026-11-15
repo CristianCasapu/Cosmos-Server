@@ -14,7 +14,6 @@ import (
 	"net"
 
 	"github.com/azukaar/cosmos-server/src/utils"
-	"github.com/azukaar/cosmos-server/src/docker"
 	"github.com/azukaar/cosmos-server/src/constellation"
 
 	"golang.org/x/net/http2"
@@ -133,12 +132,8 @@ func NewProxy(targetHost string, AcceptInsecureHTTPSTarget bool, DisableHeaderHa
 		if route.Mode == "SERVAPP" && (!utils.IsInsideContainer || utils.IsHostNetwork) {
 			targetHost := targetURL.Hostname()
 
-			targetIP, err := docker.GetContainerIPByName(targetHost)
-			if err != nil {
-				utils.Error("Director Route", err)
-			}
-			utils.Debug("Dockerless Target IP: " + targetIP)
-			req.URL.Host = targetIP + ":" + targetURL.Port()
+			// Fork addition: resolved by forkTargetGuard, never "" + ":port" (this server itself), see fork_unreachable.go
+			req.URL.Host = forkDirectorHost(req, targetHost, targetURL.Port())
 		}
 
 
@@ -411,7 +406,7 @@ func routeHandlerForTarget(target string, route utils.ProxyRouteConfig) http.Han
 		// innermost wrapper; targetRoute pins the exact LB target about to be dialed
 		targetRoute := route
 		targetRoute.Target = destination
-		return lazyMiddleware(targetRoute)(proxy)
+		return lazyMiddleware(targetRoute)(forkTargetGuard(targetRoute)(proxy)) // Fork addition: forkTargetGuard, see fork_unreachable.go
 	} else if routeType == "STATIC" {
 		return http.FileServer(http.Dir(destination))
 	} else if routeType == "SPA" {
