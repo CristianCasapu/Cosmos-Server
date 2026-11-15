@@ -24,7 +24,6 @@
 //     SAFE_AREA=47,0,34,0             top,right,bottom,left in px: the parts of the screen a phone keeps for
 //                                     itself (notch, home indicator). The skin's --ct-safe-* take these values
 //                                     and the pictures show the two zones hatched
-//     SERVICE_WORKERS=block           no service worker (Firefox and WebKit: the views' own answers then reach the page)
 //     SHOT=viewport                   one screen per picture instead of the whole page (default: full), so
 //                                     that bars fixed to the bottom are where a user sees them
 //     CHECK=1                         after the run, fail (exit 1) when a view marked `guard` shows sideways
@@ -42,7 +41,7 @@
 import { chromium, firefox, webkit } from 'playwright';
 import { mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { storageMock, usersPatch, notificationsMock, eventsMock } from './fork-ui-gallery-fixtures.mjs';
+import { storageMock, usersPatch, notificationsMock, eventsMock, edgeMock, edgeOverviewPatch } from './fork-ui-gallery-fixtures.mjs';
 
 const base = process.env.BASE || 'http://polish.test:18080';
 const out = process.env.OUT || 'gallery';
@@ -361,6 +360,20 @@ const views = [
   { id: 'domains-turnstile-console', path: '/cosmos-ui/config-general/https', wait: 2000, patch: [
     ['/cosmos/api/turnstile', (j) => ({ ...j, data: { ...(j.data || {}), enabled: true, active: false, consoleOff: true, siteKey: '1x00000000000000000000AA', secretKey: '***', confirmed: true, problems: [] } })],
   ], captures: [{ at: '[data-turnstile-card]' }] },
+  // blocks at Cloudflare's edge (fixtures): the card with its list (cards on a phone), what leads to a block,
+  // and on the security dashboard the chip "At Cloudflare until ..." and the "Block at Cloudflare" dialog
+  { id: 'domains-edge', path: '/cosmos-ui/config-general/https', wait: 2000, guard: true, mock: edgeMock, captures: [
+    { at: '[data-edge-card]' },
+    { id: 'list', at: '[data-edge-rule]' },
+    { id: 'why', at: '[data-edge-card]', open: async (page) => { await page.locator('[data-edge-card]').getByRole('button', { name: 'What leads to a block, and what never is blocked' }).click(); }, close: async () => {} },
+    { id: 'unblock', open: async (page) => { await page.locator('[data-edge-unblock]').first().click(); } },
+  ] },
+  // (not guarded: the dashboard's icon buttons are 30 px high on a phone, as they were before the edge blocks)
+  { id: 'security-edge', path: '/cosmos-ui/security', wait: 1500, mock: edgeMock, patch: [edgeOverviewPatch], captures: [
+    {},
+    { id: 'chip', at: '[data-edge-chip]' },
+    { id: 'block', open: async (page) => { await page.locator('[data-edge-block]').first().click(); } },
+  ] },
   // the OpenID client form, its values to copy, and the new secret
   { id: 'openid-client', path: '/cosmos-ui/openid-manage', wait: 800, captures: [
     { id: 'form', open: async (page) => {
