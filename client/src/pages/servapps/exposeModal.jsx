@@ -12,6 +12,8 @@ import { newAppRoute } from '../../utils/routeGuide'; // Fork addition
 import { RouteExposure, sendExposure } from '../../components/exposure'; // Fork addition
 import { useClientInfos } from '../../utils/hooks'; // Fork addition
 import { PERM_ADMIN } from '../../utils/permissions'; // Fork addition
+import { ServiceInfo, PortCheck, classifyService } from '../../components/serviceInfo'; // Fork addition (plan 43): an app that is not web
+import { containerPorts, targetParts } from '../../utils/routeGuide'; // Fork addition (plan 43)
 
 // Fork addition: the internet choices are the Internet dialog's own
 // (components/exposure.jsx, one server action: POST /api/expose); the domain
@@ -28,6 +30,10 @@ const ExposeModal = ({ openModal, setOpenModal, config, updateRoutes, container,
   const [outcome, setOutcome] = useState(null);
   const { hasRolePermission } = useClientInfos();
   const mayExpose = hasRolePermission(PERM_ADMIN);
+  // Fork addition (plan 43): a service (a database...) gets its address for other apps, not a web address, unless the admin insists
+  const [insist, setInsist] = useState(false);
+  const service = openModal ? classifyService({ image: openModal.Image, ports: containerPorts(openModal) }) : null;
+  const asService = !!(service && service.service && !insist);
 
   let containerName = openModal && (openModal.Names[0]);
   const appName = containerName ? containerName.replace('/', '') : '';
@@ -45,6 +51,7 @@ const ExposeModal = ({ openModal, setOpenModal, config, updateRoutes, container,
     setExposure(null);
     setOutcome(null);
     setSubmitErrors([]);
+    setInsist(false); // Fork addition (plan 43)
   };
   const close = () => {
     if (creating) return;
@@ -114,8 +121,10 @@ const ExposeModal = ({ openModal, setOpenModal, config, updateRoutes, container,
                   </>}
               </Alert>
             </Stack>}
-            {!outcome && <DialogContentText>
+            {!outcome && asService && <ServiceInfo containerName={appName} classification={service} onInsist={() => setInsist(true)} refresh={refresh} /* Fork addition (plan 43) */ />}
+            {!outcome && !asService && <DialogContentText>
               <Stack spacing={2}>
+                {insist && <PortCheck containerName={appName} port={targetParts((newRoute || startRoute || {}).Target).port} /* Fork addition (plan 43) */ />}
                 <div>
                     <RouteManagement TargetContainer={openModal}
                       routeConfig={startRoute}
@@ -161,7 +170,7 @@ const ExposeModal = ({ openModal, setOpenModal, config, updateRoutes, container,
               ? <Button onClick={close} data-new-url-close>{t('global.close', 'Close')}</Button>
               : <>
             <Button onClick={close} disabled={creating}>{t('global.cancelAction')}</Button>
-            <Button disabled={creating || (mayExpose && exposurePlan.chosen && exposurePlan.blocked)} data-new-url-confirm onClick={async () => {
+            {!asService /* Fork addition (plan 43) */ && <Button disabled={creating || (mayExpose && exposurePlan.chosen && exposurePlan.blocked)} data-new-url-confirm onClick={async () => {
               const route = newRoute || sanitizeRoute(startRoute);
               let errors = ValidateRoute(route, config, t) || [];
               if (errors && errors.length > 0) {
@@ -194,7 +203,7 @@ const ExposeModal = ({ openModal, setOpenModal, config, updateRoutes, container,
                 if (refresh) serverBack().then(() => refresh()).catch(() => {});
               }
 
-            }}>{t('global.confirmAction')}</Button>
+            }}>{t('global.confirmAction')}</Button>}
             </>}
         </DialogActions>
     </>}

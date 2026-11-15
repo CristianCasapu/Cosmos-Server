@@ -245,7 +245,8 @@ export const isSecretName = (name) => SECRET_NAME.test(String(name || '')) && !/
 // Variables an image keeps for itself: never copied, never shown as settings.
 const INTERNAL_ENV = (key) => ['PATH', 'HOME', 'HOSTNAME', 'TERM', 'LANG', 'LANGUAGE', 'LC_ALL', 'SHELL', 'container', 'LD_LIBRARY_PATH', 'JAVA_HOME', 'PYTHONPATH'].includes(key)
   || /(^|_)(VERSION|RELEASE|MAJOR|SHA\d*|CHECKSUM|GPG_KEYS?|PGP_KEY_ID|DOWNLOAD_URL|URL|DEPS|CFLAGS|CPPFLAGS|LDFLAGS|INI_DIR|PREFIX|PACKAGE|REPO)$/.test(key)
-  || /^(PHP|PYTHON|NODE|GOSU|JSYAML|ERLANG|OPENSSL|APACHE|NGINX|NJS|PKG|DYNPKG|ACME)_/.test(key);
+  || /^(PHP|PYTHON|NODE|GOSU|JSYAML|ERLANG|OPENSSL|APACHE|NGINX|NJS|PKG|DYNPKG|ACME)_/.test(key)
+  || /^(OS_ARCH|OS_FLAVOUR|OS_NAME|NSS_WRAPPER_LIB)$|^BITNAMI_/.test(key); // plan 43: Bitnami's own description of its build
 
 const envKey = (line) => String(line).split('=')[0];
 const envValue = (line) => { const s = String(line); const i = s.indexOf('='); return i < 0 ? '' : s.slice(i + 1); };
@@ -398,7 +399,7 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
   const env = [];
   const declaredMap = Object.fromEntries(declaredSettings(declared).map((s) => [s.name, s.value]));
   (settings || []).forEach((s) => {
-    if (s.type === 'optional' && !s.value) return;
+    if ((s.type === 'optional' || s.type === 'needed') && !s.value) return; // plan 43: 'needed' (from a description) and left empty: not set
     if (s.type === 'declared' && declaredMap[s.name] === s.value) return;
     env.push(`${s.name}=${s.value}`);
   });

@@ -12,6 +12,8 @@
 //   GET /v2/namespaces/{ns}/repositories/{repo}/tags/{tag}  the tag's
 //       platforms with their manifests' digests and sizes, read from that
 //       registry's manifests (as Docker Hub's API answers them)
+//   GET /v2/namespaces/{ns}/repositories/{repo}   the repository with its
+//       full_description, from DESCRIPTIONS/{ns}_{repo}.md when set (plan 43)
 // Run on the test's --internal network with the network alias hub.docker.com:
 //   go run scripts/fork-fake-dockerhub.go
 package main
@@ -68,6 +70,18 @@ func main() {
 				return
 			}
 			json.NewEncoder(w).Encode(answer)
+			return
+		}
+		// plan 43: the repository's description, from DESCRIPTIONS/<ns>_<repo>.md (src/anyimage/testdata/readmes)
+		if len(parts) == 3 && parts[1] == "repositories" {
+			log.Printf("description %s/%s", parts[0], parts[2])
+			dir := os.Getenv("DESCRIPTIONS")
+			text, err := os.ReadFile(dir + "/" + parts[0] + "_" + parts[2] + ".md")
+			if dir == "" || err != nil || strings.ContainsAny(parts[0]+parts[2], "./\\") {
+				http.NotFound(w, r)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]string{"namespace": parts[0], "name": parts[2], "full_description": string(text)})
 			return
 		}
 		if len(parts) != 4 || parts[1] != "repositories" || parts[3] != "tags" {

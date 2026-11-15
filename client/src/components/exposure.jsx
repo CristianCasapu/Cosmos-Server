@@ -25,6 +25,8 @@ import { AppShields, loadCloudflare, useCloudflare } from './cloudflare';
 import { RouterPortLinks, setRouterStatus, useCosmosPorts, useRouterStatus } from './routerPorts';
 import { installPorts, shownAddress } from '../utils/routerPorts';
 import { serverBack } from '../utils/appLinks';
+import { ServiceInfo, classifyService } from './serviceInfo'; // Fork addition (plan 43): a service is not put on the internet by default
+import { containerPorts } from '../utils/routeGuide'; // Fork addition (plan 43)
 import {
   accessSentence, choiceProblems, definitionPorts, exposureChanges, initialChoices, portPlan, routeExposure, text, throughSentence,
   webPlan, withRoutes,
@@ -246,6 +248,7 @@ export const ExposeDialog = ({ config, containerName, image, onClose, refresh })
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   const [done, setDone] = React.useState(false);
+  const [insist, setInsist] = React.useState(false); // Fork addition (plan 43)
 
   React.useEffect(() => {
     API.docker.list().then((res) => {
@@ -288,6 +291,9 @@ export const ExposeDialog = ({ config, containerName, image, onClose, refresh })
   };
 
   const exposedHosts = web.domains.filter((d) => d.exposed).map((d) => d.exposed.host);
+  // Fork addition (plan 43): a database or another service without a web page: what it is and the real choices, unless the admin insists
+  const service = container ? classifyService({ image, ports: containerPorts(container) }) : null;
+  const asService = !!(ready && service && service.service && !insist && !exposedHosts.length);
   const close = () => { if (!busy) onClose(); };
 
   return <Dialog open onClose={keepOnBackdrop(close)} fullWidth maxWidth="sm" data-expose-dialog>
@@ -295,7 +301,8 @@ export const ExposeDialog = ({ config, containerName, image, onClose, refresh })
     <DialogContent>
       <Stack spacing={2} sx={{ minWidth: 0 }}>
         {!ready && <Typography variant="body2">{t('mgmt.expose.loading', 'Looking at the app\'s ports and the domains…')}</Typography>}
-        {ready && <ExposureForm
+        {asService && <ServiceInfo containerName={containerName} classification={service} refresh={refresh} onInsist={() => setInsist(true)} insistLabel={t('mgmt.services.insistInternet', 'Show the internet choices anyway')} />}
+        {ready && !asService && <ExposureForm
           name={containerName}
           image={image}
           web={web}
@@ -318,9 +325,9 @@ export const ExposeDialog = ({ config, containerName, image, onClose, refresh })
     </DialogContent>
     <DialogActions sx={{ flexWrap: 'wrap' }}>
       <Button onClick={close} disabled={busy}>{t('global.close', 'Close')}</Button>
-      <LoadingButton loading={busy} variant="contained" disabled={nothing || Object.keys(problems).length > 0 || ports.some((p) => p.risky && current.ports[p.key] && current.ports[p.key].on && !(p.exposed) && !current.ports[p.key].risky)} onClick={save} data-expose-save>
+      {!asService /* Fork addition (plan 43) */ && <LoadingButton loading={busy} variant="contained" disabled={nothing || Object.keys(problems).length > 0 || ports.some((p) => p.risky && current.ports[p.key] && current.ports[p.key].on && !(p.exposed) && !current.ports[p.key].risky)} onClick={save} data-expose-save>
         {t('global.saveAction', 'Save')}
-      </LoadingButton>
+      </LoadingButton>}
     </DialogActions>
   </Dialog>;
 };

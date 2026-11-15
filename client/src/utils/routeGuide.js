@@ -8,6 +8,7 @@
 // (pages/servapps/defaultport.json) is handed in.
 import { schemeForPort } from './portLinks.js';
 import { isLocalHost } from './appLinks.js';
+import { classifyService } from './services.js'; // Fork addition (plan 43)
 
 const WEB = /^https?:\/\//i;
 
@@ -246,6 +247,7 @@ const hostOf = (route) => String((route && route.UseHost && route.Host) || '').t
 //        'stopped' — not running, so its ports are not known
 //        'hostNetwork' — uses the server's own network: it has no address of its own to point at
 //        'taken' — the address or the name is already used by another URL
+//        'service' — not web (a database...): other apps reach it by name, it gets no web address (plan 43)
 export const planLocalAddresses = ({ containers, routes, hostFor, defaults, skip }) => {
   const all = [...(routes || [])];
   const plan = [];
@@ -265,7 +267,17 @@ export const planLocalAddresses = ({ containers, routes, hostFor, defaults, skip
       entry.state = 'hostNetwork';
       return;
     }
-    const proposal = proposePort(container.Image, containerPorts(container), defaults);
+    // plan 43: a database or another service without a web page gets no web address
+    const kind = classifyService({ image: container.Image, ports: containerPorts(container) });
+    if (kind.service && !kind.webPort) {
+      entry.state = 'service';
+      entry.port = kind.port;
+      return;
+    }
+    let proposal = proposePort(container.Image, containerPorts(container), defaults);
+    if (kind.service && kind.webPort) {
+      proposal = { port: kind.webPort, source: 'usual' }; // its own web page, not its protocol's port
+    }
     entry.port = proposal.port;
     entry.source = proposal.source;
     // without a port of its own the usual one is a guess: left to the dialog, where it can be checked
