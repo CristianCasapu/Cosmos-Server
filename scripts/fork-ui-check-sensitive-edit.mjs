@@ -225,6 +225,7 @@ for (const engine of engines) {
         const said = await dialog(page).innerText();
         expect(/device \/dev\/zero/.test(said) && !/\/dev\/null/.test(said) && !/docker\.sock/.test(said), `${name}: the dialog names the new device only`);
         expect(await dialogFits(page), `${name}: the dialog fits, its ticks and buttons on the screen`);
+        expect(!(await page.getByText(/: failed/).count()), `${name}: no "failed" message while the dialog asks`);
         await shot(page, name, '2-dialog-device');
         expect(await page.locator('[data-sensitive-edit-accept]').isDisabled(), `${name}: Accept waits for the tick`);
         await page.getByRole('button', { name: 'Do not change it' }).click();

@@ -8,6 +8,7 @@ import { watchForRefusal } from './sudoPrompt';
 import { ERROR_PAGE_MESSAGE, NO_ANSWER_MESSAGE, plainFailure } from './serverAnswer';
 import { commandLabel as leftoverCommand } from './leftovers'; // Fork addition: containers left by an interrupted change
 import { commandLabel as notificationCommand } from './notifications'; // Fork addition: the notifications page
+import { isSensitiveRefusal } from './sensitiveEdit'; // Fork addition (plan 40)
 
 // Translated when the translations are loaded, the English text otherwise.
 const tr = (key, text, vars) => {
@@ -345,6 +346,11 @@ const follow = async (call, response) => {
     return;
   }
 
+  // Fork addition (plan 40): a refusal the panel turns into a question (the sensitive-access ticks) is not a failure
+  if (isSensitiveRefusal(response.status, text)) {
+    set({ calls: state.calls.filter((running) => running.id !== call.id), idleSince: Date.now() });
+    return;
+  }
   if (response.status >= 400) {
     let message = '';
     try {
