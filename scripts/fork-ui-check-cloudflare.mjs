@@ -119,7 +119,7 @@ const noSideScroll = async (page, name, where) => {
 };
 const shot = (page, name, what) => page.screenshot({ path: `shots/${name}-${what}.png` });
 const dialogFits = async (page, name, where) => {
-  const box = await page.locator('[role=dialog]').last().boundingBox();
+  const box = await page.locator('[role=dialog]:visible').last().boundingBox();
   const width = page.viewportSize().width;
   expect(!!box && box.x >= 0 && box.x + box.width <= width + 1, `${name}: the dialog fits the screen (${where})`);
 };
@@ -283,40 +283,40 @@ if (!onlyPulls) {
     const host = app + '.example.org';
     if ((await record(host)).length === 0) {
       await page.getByText('Domains', { exact: true }).first().click();
-      await page.locator('[role=dialog]').getByText(host, { exact: true }).click();
-      await page.locator('[role=dialog]').getByRole('button', { name: 'Save' }).click();
+      await page.locator('[role=dialog]:visible').getByText(host, { exact: true }).click();
+      await page.locator('[role=dialog]:visible').getByRole('button', { name: 'Save' }).click();
       await until(`the record of ${host} exists at Cloudflare`, async () => (await record(host)).length === 1, 90);
       await page.locator(`[role=dialog] [data-cloudflare-host="${host}"]`).waitFor({ timeout: 60000 });
       await until(`the dialog shows the record of ${host}`, async () =>
         (await page.locator(`[role=dialog] [data-cloudflare-host="${host}"] [data-record-state]`).getAttribute('data-record-state')) === 'ok', 60);
-      expect(/points straight at this server/.test(await page.locator('[role=dialog]').last().innerText()), `${name}: ${host} starts as served directly`);
+      expect(/points straight at this server/.test(await page.locator('[role=dialog]:visible').last().innerText()), `${name}: ${host} starts as served directly`);
     } else {
       await page.getByText('Domains', { exact: true }).first().click();
       await page.locator(`[role=dialog] [data-cloudflare-host="${host}"]`).waitFor({ timeout: 30000 });
     }
-    expect((await page.locator('[role=dialog]').last().innerText()).includes(`https://${host}:2053`), `${name}: the address of ${app} is shown with its port`);
+    expect((await page.locator('[role=dialog]:visible').last().innerText()).includes(`https://${host}:2053`), `${name}: the address of ${app} is shown with its port`);
     await shot(page, name, `8-${app}-domains`);
 
     // the switch asks first, and says what changes
     // the switch does not move before the question is answered
     await page.locator(`[role=dialog] [data-cloudflare-host="${host}"] input[type=checkbox]`).click();
     await page.getByText(`Serve ${host} through Cloudflare?`).waitFor({ timeout: 10000 });
-    const confirm = await page.locator('[role=dialog]').last().innerText();
+    const confirm = await page.locator('[role=dialog]:visible').last().innerText();
     expect(/100 MB/.test(confirm) && /Fail2ban/.test(confirm) && /Full \(strict\)/.test(confirm) && /refused/.test(confirm), `${name}: the switch says what changes (limits, bans, SSL mode, direct visitors refused)`);
     expect(/looks like a media server/.test(confirm) === (app === 'jellyfin'), `${name}: the note on video is shown for ${app === 'jellyfin' ? 'a media server' : 'a media server only'}`);
     await dialogFits(page, name, 'switch confirmation');
     await shot(page, name, `9-${app}-confirm`);
     if (app === 'jellyfin') {
-      await page.locator('[role=dialog]').last().getByRole('button', { name: 'Cancel' }).click();
+      await page.locator('[role=dialog]:visible').last().getByRole('button', { name: 'Cancel' }).click();
       await page.waitForTimeout(500);
     } else {
-      await page.locator('[role=dialog]').last().getByRole('button', { name: 'Serve through Cloudflare' }).click();
+      await page.locator('[role=dialog]:visible').last().getByRole('button', { name: 'Serve through Cloudflare' }).click();
       await until(`${host} is proxied at Cloudflare`, async () => ((await record(host))[0] || {}).proxied === true, 60);
       await until(`the dialog says ${host} goes through the proxy`, async () =>
         /goes through its proxy/.test(await page.locator(`[role=dialog] [data-cloudflare-host="${host}"]`).innerText()), 45);
       await shot(page, name, `10-${app}-shielded`);
     }
-    await page.locator('[role=dialog]').last().getByRole('button', { name: 'Cancel' }).click().catch(() => {});
+    await page.locator('[role=dialog]:visible').last().getByRole('button', { name: 'Cancel' }).click().catch(() => {});
   }
 
   // the container page says it too, through the reachability check
@@ -455,7 +455,7 @@ if (!onlyPulls) {
     await page.getByText('Enforce although some requests have no certificate?').waitFor({ timeout: 10000 });
     await dialogFits(page, name, 'enforce anyway');
     await shot(page, name, 'pulls-9-anyway');
-    await page.locator('[role=dialog]').last().getByRole('button', { name: 'Cancel' }).click();
+    await page.locator('[role=dialog]:visible').last().getByRole('button', { name: 'Cancel' }).click();
     expect((await stored()).Mode === 'test', `${name}: cancelling leaves the test running`);
 
     // counted anew, only requests that verify: enforcing is offered
@@ -513,7 +513,7 @@ if (!onlyPulls) {
     await page.getByRole('button', { name: 'Show the certificate and key' }).click();
     await page.locator('[data-origin-pull-revealed]').waitFor({ timeout: 20000 });
     expect(/BEGIN CERTIFICATE/.test(await page.locator('#origin-pulls-certificate').inputValue()) && /PRIVATE KEY/.test(await page.locator('#origin-pulls-key').inputValue()), `${name}: the certificate and the key are shown`);
-    expect(/This is shown once/.test(await page.locator('[role=dialog]').last().innerText()), `${name}: and the dialog says it is the only time`);
+    expect(/This is shown once/.test(await page.locator('[role=dialog]:visible').last().innerText()), `${name}: and the dialog says it is the only time`);
     await dialogFits(page, name, 'certificate and key');
     await shot(page, name, 'pulls-12-revealed');
     await page.getByRole('button', { name: /I have uploaded it/ }).click();
@@ -571,7 +571,7 @@ for (const [type, name, viewport] of others) {
     await page.getByText('Enforce although some requests have no certificate?').waitFor({ timeout: 10000 });
     await dialogFits(page, name, 'enforce anyway');
     await shot(page, name, 'pulls-anyway');
-    await page.locator('[role=dialog]').last().getByRole('button', { name: 'Enforce anyway' }).click();
+    await page.locator('[role=dialog]:visible').last().getByRole('button', { name: 'Enforce anyway' }).click();
     await pullsMode(page, 'enforce');
     await page.getByText(/Enforcing: a request for an address served through Cloudflare is answered only when/).waitFor({ timeout: 30000 });
     const refusedNow = await visit('example.org', 'none', 1);
@@ -643,12 +643,12 @@ for (const [type, name, viewport] of others) {
     await page.getByText('Serve radarr.example.org through Cloudflare?').waitFor({ timeout: 10000 });
     await dialogFits(page, name, 'switch confirmation');
     await shot(page, name, 'switch-confirm');
-    await page.locator('[role=dialog]').last().getByRole('button', { name: 'Serve through Cloudflare' }).click();
+    await page.locator('[role=dialog]:visible').last().getByRole('button', { name: 'Serve through Cloudflare' }).click();
     const proxied = await until(`${name}: radarr.example.org is proxied again`, async () => ((await record('radarr.example.org'))[0] || {}).proxied === true, 60);
     expect(proxied, `${name}: the switch of an application sets the record at Cloudflare both ways`);
     await page.waitForTimeout(1500);
     await shot(page, name, 'domains-dialog');
-    await page.locator('[role=dialog]').last().getByRole('button', { name: 'Cancel' }).click().catch(() => {});
+    await page.locator('[role=dialog]:visible').last().getByRole('button', { name: 'Cancel' }).click().catch(() => {});
 
     await page.locator('[data-reach-panel]').scrollIntoViewIfNeeded().catch(() => {});
     await shot(page, name, 'container-page');

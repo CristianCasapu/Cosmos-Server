@@ -9,14 +9,14 @@ import { formatTime } from '../../utils/auditFilters';
 import { wrapAnywhere } from './eventDetails';
 import TrailList from './trailList';
 
-const Fact = ({ title, children }) => <Grid item xs={12} sm={6} md={4}>
+const Fact = ({ title, children }) => <Grid size={{ xs: 12, sm: 6, md: 4 }}>
     <Stack spacing={0.5} sx={{ minWidth: 0 }}>
         <Typography variant="h6">{title}</Typography>
         <Box sx={wrapAnywhere}>{children}</Box>
     </Stack>
 </Grid>;
 
-const Line = ({ children, secondary }) => <Typography variant="body2" color={secondary ? 'textSecondary' : undefined} sx={wrapAnywhere}>{children}</Typography>;
+const Line = ({ children, secondary }) => <Typography variant="body2" sx={[{ color: secondary ? 'textSecondary' : undefined }, ...(Array.isArray(wrapAnywhere) ? wrapAnywhere : [wrapAnywhere])]}>{children}</Typography>;
 
 const UserSummary = ({ user, onOpen }) => {
     const { t } = useTranslation();
@@ -53,7 +53,7 @@ const UserSummary = ({ user, onOpen }) => {
         {failed && <Alert severity="error">{t('securityAudit.summary.failed', 'The summary could not be read.')}</Alert>}
         {!failed && !summary && <Box sx={{ textAlign: 'center', py: 2 }}><CircularProgress /></Box>}
         {summary && <Grid container spacing={2}>
-            {account && !account.exists && <Grid item xs={12}>
+            {account && !account.exists && <Grid size={{ xs: 12 }}>
                 <Alert severity="info">{t('securityAudit.summary.noAccount', 'There is no account of this name now (it was deleted, or never existed). What the record kept about the name is shown.')}</Alert>
             </Grid>}
 
@@ -104,14 +104,14 @@ const UserSummary = ({ user, onOpen }) => {
                 <Line secondary>{t('securityAudit.summary.sinceNote', 'The record keeps 180 days; nothing before its first entry is known.')}</Line>
             </Fact>
 
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
                 <Typography variant="h6" sx={{ mb: 0.5 }}>{t('securityAudit.summary.lastActions', 'Last actions')}</Typography>
                 {recent === null ? <CircularProgress size={20} /> : recent.length
                     ? <TrailList events={recent} onOpen={onOpen} />
                     : <Line secondary>{t('securityAudit.summary.noActions', 'Nothing in the record')}</Line>}
             </Grid>
 
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
                 <Typography variant="caption" color="textSecondary">
                     {t('securityAudit.summary.floodNote', 'Failed attempts that come too fast from one address are summed up without the name tried, so these counts can be lower than the real number. Times are those of this browser.')}
                 </Typography>

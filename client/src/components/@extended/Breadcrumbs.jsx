@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 
 // material-ui

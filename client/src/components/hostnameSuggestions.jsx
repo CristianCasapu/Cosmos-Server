@@ -136,7 +136,7 @@ const HostnameSuggestions = ({ name, value, config, onPick, disabled, inline }) 
       <Typography variant="caption" color="textSecondary">
         {t('mgmt.urls.edit.hostSuggestions.title', 'Suggested addresses (click to use one):')}
       </Typography>
-      <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+      <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1}>
         {suggestions.map((suggestion) => (
           <Chip
             key={suggestion.host}

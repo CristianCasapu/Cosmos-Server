@@ -1,7 +1,7 @@
 // material-ui
 import { AlertFilled, AppstoreAddOutlined, CloseSquareOutlined, DeleteOutlined, PauseCircleOutlined, PlaySquareOutlined, PlusCircleOutlined, ReloadOutlined, RollbackOutlined, SearchOutlined, SettingOutlined, StopOutlined, UpCircleOutlined, UpSquareFilled, WarningFilled } from '@ant-design/icons';
 import { Alert, Badge, Button, Card, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Divider, IconButton, Input, InputAdornment, TextField, Tooltip, Typography } from '@mui/material';
-import Grid2 from '@mui/material/Unstable_Grid2/Grid2';
+import Grid2 from '@mui/material/Grid';
 import { Stack } from '@mui/system';
 import { useEffect, useState } from 'react';
 import Paper from '@mui/material/Paper';
@@ -15,7 +15,7 @@ import AppLinks, { AppDomains } from '../../components/appLinks'; // Fork additi
 import { ReachChip } from '../../components/reachability'; // Fork addition
 import PortChips from '../../components/portChips'; // Fork addition
 import ServAppsNotices from '../../components/servappsNotices'; // Fork addition: leftovers, updates and apps without an address in one notice area
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import ExposeModal from './exposeModal';
 import GetActions from './actionBar';
 import ResponsiveButton from '../../components/responseiveButton';
@@ -300,7 +300,7 @@ const ServApps = ({stack}) => {
       
       <Grid2 container spacing={{xs: 1, sm: 1, md: 2 }}>
         {/* Fork addition: what needs attention (leftovers of interrupted changes, updates, apps without an address), one area */}
-        <Grid2 xs={12} item sx={{ '&:empty': { display: 'none' } }}>
+        <Grid2 size={{ xs: 12 }} sx={{ '&:empty': { display: 'none' } }}>
           <ServAppsNotices config={config} servApps={servApps} selfName={selfName} refresh={refreshServApps} updates={updatesAvailable} stack={stack} />
         </Grid2>
         {servApps && Object.values(servAppsStacked)
@@ -312,12 +312,12 @@ const ServApps = ({stack}) => {
             if (app.apps.find((app) => app.Names[0].toLowerCase().includes(search.toLowerCase()))) return true;
           })
           .map((app) => {
-          return <Grid2 sx={{...gridAnim}} xs={12} sm={6} md={6} lg={6} xl={4} key={app.app.Id} item>
+          return <Grid2 sx={{...gridAnim}} size={{ xs: 12, sm: 6, md: 6, lg: 6, xl: 4 }} key={app.app.Id}>
             <Item>
-            <Stack justifyContent='space-around' direction="column" spacing={2} padding={2} divider={<Divider orientation="horizontal" flexItem />}>
-              <Stack direction="column" spacing={0} alignItems="flex-start">
-                <Stack style={{position: 'relative', overflowX: 'hidden', width: '100%'}} direction="row" spacing={2} alignItems="center">
-                  <Typography variant="body2" color="text.secondary">
+            <Stack sx={{ justifyContent: 'space-around', padding: 2 }} direction="column" spacing={2} divider={<Divider orientation="horizontal" flexItem />}>
+              <Stack direction="column" spacing={0} sx={{ alignItems: 'flex-start' }}>
+                <Stack style={{position: 'relative', overflowX: 'hidden', width: '100%'}} direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+                  <Typography variant="body2" component="div" sx={{ color: 'text.secondary' }}>{/* Fork addition: a div, as it holds a Chip (a <p> may not) */}
                     {
                       (app.state !== 'running' && app.labels && app.labels['cosmos-lazy'] === 'true') ? (
                         <Chip label={t('mgmt.servApps.dormantChip.dormantLabel')} color="info" />
@@ -332,7 +332,7 @@ const ServApps = ({stack}) => {
                       })[app.state]
                     }
                   </Typography>
-                  <Stack direction="row" spacing={2} alignItems="center" className="ct-app-title">{/* Fork addition: the class lets the name shrink to the card (see ct-app-name below) */}
+                  <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }} className="ct-app-title">{/* Fork addition: the class lets the name shrink to the card (see ct-app-name below) */}
                     {app.type === 'app' && <ServAppIcon container={app.app} route={getFirstRoute(app.app)} className="loading-image" width="40px"/>}
                     {app.type === 'stack' && <StyledBadge  overlap="circular"
                       anchorOrigin={{
@@ -343,18 +343,18 @@ const ServApps = ({stack}) => {
                       <ServAppIcon container={app.app} route={getFirstRoute(app.app)} className="loading-image" width="40px"/>
                     </StyledBadge>}
 
-                    <Stack direction="column" spacing={0} alignItems="flex-start" style={{height: '40px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'no-wrap'}}>
+                    <Stack direction="column" spacing={0} sx={{ alignItems: 'flex-start' }} style={{height: '40px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'no-wrap'}}>
                       {/* Fork addition: class and title. A long name was cut in the middle of its second line; now one line, whole in the tooltip */}
-                      <Typography  variant="h5" color="text.secondary" className="ct-app-name" title={app.name.replace('/', '')}>
+                      <Typography  variant="h5" sx={{ color: 'text.secondary' }} className="ct-app-name" title={app.name.replace('/', '')}>
                       {app.name.replace('/', '')}&nbsp; {app.type === 'stack' && <Chip label="Stack" color="primary" size="small" style={{fontSize: '55%'}}/>}
                       </Typography>
-                      <Typography color="text.secondary" title={app.app.Image} style={{fontSize: '80%', whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '100%', textOverflow: 'ellipsis'}}>
+                      <Typography sx={{ color: 'text.secondary' }} title={app.app.Image} style={{fontSize: '80%', whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '100%', textOverflow: 'ellipsis'}}>
                         {app.app.Image}
                       </Typography>
                     </Stack>
                   </Stack>
                 </Stack>
-                <Stack direction="row" spacing={1} width='100%'>
+                <Stack direction="row" spacing={1} sx={{ width: '100%' }}>
                   <GetActions
                     Id={app.app.Names[0].replace('/', '')}
                     Ids={app.apps.map((app) => {
@@ -371,9 +371,9 @@ const ServApps = ({stack}) => {
                   />
                 </Stack>
               </Stack>
-              <Stack margin={1} direction="column" spacing={1} alignItems="flex-start" width="100%">
-                <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" width="100%">
-                  <Typography variant="h6" color="text.secondary">
+              <Stack sx={{ margin: 1, alignItems: 'flex-start', width: '100%' }} direction="column" spacing={1}>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                  <Typography variant="h6" sx={{ color: 'text.secondary' }}>
                     {t('menu-items.management.urls')}
                   </Typography>
                   {/* Fork addition: the app on the internet (its domains, through Cloudflare or directly, and its ports); a stack's on each container's page */}
@@ -402,7 +402,7 @@ const ServApps = ({stack}) => {
                   hostNetwork={!!(app.networkSettings && app.networkSettings.Networks && app.networkSettings.Networks['host'])}
                   containerNames={app.apps.map((one) => one.Names[0].replace('/', ''))}
                 />
-                <Stack style={noOver} spacing={1} direction="row" alignItems="center" >
+                <Stack style={noOver} spacing={1} direction="row" sx={{ alignItems: 'center' }} >
                   {/* Fork addition: local links first, each group under its icon */}
                   <AppLinks routes={getContainersRoutes(config, app.name.replace('/', ''))} />
                   {/* Fork addition: the ports the router forwards for the app, as external addresses */}
@@ -418,7 +418,7 @@ const ServApps = ({stack}) => {
                   <CircularProgress color="inherit" />
                 </div>
               :
-                <Stack margin={1} direction="column" spacing={1} alignItems="flex-start">
+                <Stack sx={{ margin: 1, alignItems: 'flex-start' }} direction="column" spacing={1}>
                   {/* <Typography  variant="h6" color="text.secondary">
                     Settings {app.type == "app" && (app.state !== 'running' ? '(Start container to edit)' : '')}
                   </Typography> 
@@ -441,7 +441,7 @@ const ServApps = ({stack}) => {
                       }}
                     /> Isolate Container Network <ContainerNetworkWarning container={app.app} />
                   </Stack> */}
-                  <Stack component="label" style={{ fontSize: '80%' }} direction={"row"} alignItems="center">{/* Fork addition: a label, so the box has a name */}
+                  <Stack component="label" style={{ fontSize: '80%' }} direction={"row"} sx={{ alignItems: 'center' }}>{/* Fork addition: a label, so the box has a name */}
                     <Checkbox
                       checked={app.labels['cosmos-auto-update'] === 'true' ||
                         (selfName && app.name.replace('/', '') == selfName && config.AutoUpdate)}

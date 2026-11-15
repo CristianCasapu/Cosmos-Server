@@ -6,7 +6,7 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { useFormik, FormikProvider } from 'formik';
 import * as Yup from 'yup';
 import { useTranslation } from 'react-i18next';
@@ -42,7 +42,7 @@ const PasswordModal = ({ textInfos, cb, OnClose }) => {
           <DialogContent>
             <DialogContentText>
               <form onSubmit={formik.handleSubmit}>
-                <Stack spacing={2} width={'300px'} style={{ marginTop: '10px' }}>
+                <Stack spacing={2} sx={{ width: '300px' }} style={{ marginTop: '10px' }}>
                   <TextField
                     fullWidth
                     id="password"
@@ -58,7 +58,7 @@ const PasswordModal = ({ textInfos, cb, OnClose }) => {
                 </Stack>
               </form>
               {formik.errors.submit && (
-                <Grid item xs={12}>
+                <Grid size={{ xs: 12 }}>
                   <FormHelperText error>{formik.errors.submit}</FormHelperText>
                 </Grid>
               )}

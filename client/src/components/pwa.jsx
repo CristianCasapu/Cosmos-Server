@@ -328,8 +328,8 @@ export const PWASettings = ({ formik }) => {
           label={t('fork.pwa.switchLabel', 'Offer the panel as an installable app')}
           helperText={t('fork.pwa.switchHelp', 'The panel can then be installed on computers, phones and tablets and opens in a window of its own. It keeps only its own program files on the device, never your data, and shows a "server unreachable" page instead of an error when the server cannot be reached. Switched off, devices that installed it remove those files at their next visit.')}
         />
-        {here && <Grid item xs={12}>{here}</Grid>}
-        <Grid item xs={12}>
+        {here && <Grid size={{ xs: 12 }}>{here}</Grid>}
+        <Grid size={{ xs: 12 }}>
           <Typography variant="h6" sx={{ mb: 1 }}>{t('fork.pwa.howTitle', 'How to install it')}</Typography>
           <Box component="ul" sx={{ pl: 3, m: 0, '& li': { mb: 0.75 } }}>
             <Typography component="li">{t('fork.pwa.how.chromium', 'Chrome and Edge, on a computer or Android: the install button in the address bar or in the panel\'s header, or the browser menu, "Install Cosmos".')}</Typography>

@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 
 // material-ui
 import { Grid, Stack, Typography } from '@mui/material';
@@ -30,7 +30,7 @@ const Logout = () => {
 
     return <AuthWrapper>
         <Grid container spacing={3}>
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <Typography variant="h3">
                   {t('auth.logoffText')}
               </Typography>

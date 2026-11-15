@@ -43,7 +43,7 @@ const MetricHeaders = ({loaded, slot, setSlot, zoom, setZoom}) => {
     return (
         <>
         {loaded && <div style={{zIndex:2, position: 'relative'}}>
-        <Stack direction="row" alignItems="center" spacing={0} style={{marginTop: 10}}>
+        <Stack direction="row" sx={{ alignItems: 'center' }} spacing={0} style={{marginTop: 10}}>
             <Button
                 size="small"
                 onClick={() => {setSlot('latest'); resetZoom()}}

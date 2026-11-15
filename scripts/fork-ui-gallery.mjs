@@ -412,9 +412,9 @@ const views = [
       await create(page);
       await page.locator('#fork-openid-id').fill(openidClient);
       await page.locator('#fork-openid-redirect').fill(new URL(base).origin.replace('://', '://jellyfin.') + '/auth/callback');
-      await page.locator('[role=dialog]').getByRole('button', { name: 'Add', exact: true }).click();
+      await page.locator('[role=dialog]:visible').getByRole('button', { name: 'Add', exact: true }).click();
     }, close: async () => {} },
-    { id: 'values', wait: 1500, open: async (page) => { await page.locator('[role=dialog]').getByRole('button', { name: 'Create' }).click(); }, close: async (page) => { await page.locator('[role=dialog]').getByRole('button', { name: 'Done' }).click(); } },
+    { id: 'values', wait: 1500, open: async (page) => { await page.locator('[role=dialog]:visible').getByRole('button', { name: 'Create' }).click(); }, close: async (page) => { await page.locator('[role=dialog]:visible').getByRole('button', { name: 'Done' }).click(); } },
     { id: 'reset-secret', open: async (page) => { await page.getByRole('button', { name: 'Reset Secret' }).first().click(); },
       close: async (page) => { await page.keyboard.press('Escape'); await page.evaluate((id) => fetch('/cosmos/api/openid/' + id, { method: 'DELETE' }), openidClient); } },
   ] },
@@ -424,7 +424,7 @@ const views = [
     { id: 'volume', tab: 1, open: async (page) => { await page.getByRole('button', { name: /New Volume/ }).first().click(); await page.locator('#name').fill('photos-cache'); } },
   ] },
   { id: 'market-source', path: '/cosmos-ui/market-listing', wait: 1500, mock: marketMock, captures: [
-    { open: async (page) => { await page.getByRole('button', { name: 'Sources' }).first().click(); await page.locator('[role=dialog]').getByRole('button', { name: 'Add Source' }).click(); await page.locator('[role=dialog] input[name$=".Url"]').last().fill('https://apps.example.org/servapps.json'); } },
+    { open: async (page) => { await page.getByRole('button', { name: 'Sources' }).first().click(); await page.locator('[role=dialog]:visible').getByRole('button', { name: 'Add Source' }).click(); await page.locator('[role=dialog] input[name$=".Url"]').last().fill('https://apps.example.org/servapps.json'); } },
   ] },
   { id: 'whitelist-entry', path: '/cosmos-ui/config-url/whitelist', wait: 1200, captures: [
     { open: async (page) => { await page.getByRole('button', { name: 'Add IP' }).first().click(); } },

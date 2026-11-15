@@ -96,7 +96,7 @@ const ImageDefaults = ({ image, containerInfo, onApply }) => {
   }
 
   if (applied) {
-    return <Grid item xs={12}>
+    return <Grid size={{ xs: 12 }}>
       <Alert severity="success" onClose={() => setDeclared(null)} closeText={t('global.close')}>
         {t('mgmt.servapps.newContainer.imageDefaults.applied',
           'Added. The variables are below, the volumes under Storage, and the ports are the choices offered under URL. Nothing you had entered was changed.')}
@@ -109,9 +109,9 @@ const ImageDefaults = ({ image, containerInfo, onApply }) => {
     return null;
   }
 
-  return <Grid item xs={12}>
+  return <Grid size={{ xs: 12 }}>
     <Alert severity="info">
-      <Stack spacing={1} alignItems="flex-start" sx={{ overflowWrap: 'anywhere' }}>
+      <Stack spacing={1} sx={{ alignItems: 'flex-start', overflowWrap: 'anywhere' }}>
         <div>
           {t('mgmt.servapps.newContainer.imageDefaults.intro',
             'This image is already on the server. It declares settings that are not in the form yet:')}

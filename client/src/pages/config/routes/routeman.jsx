@@ -227,7 +227,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
               }>
                 <Grid container spacing={2}>
                   {formik.errors.submit && (
-                    <Grid item xs={12}>
+                    <Grid size={{ xs: 12 }}>
                       <FormHelperText error>{formik.errors.submit}</FormHelperText>
                     </Grid>
                   )}
@@ -262,7 +262,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
 
                   <Hide h={lockTarget}>
                     <CosmosFormDivider title={t('mgmt.urls.edit.targetTypeTitle')} />
-                    <Grid item xs={12}>
+                    <Grid size={{ xs: 12 }}>
                       <Alert severity='info' /* Fork addition: severity (color alone showed the success icon) */>{t('mgmt.urls.edit.targetTypeInfo')}</Alert>
                     </Grid>
 
@@ -295,7 +295,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                           setRouteConfig && setRouteConfig(formik.values);
                         }}
                       />
-                      : <Grid item xs={12}><Stack direction="row" spacing={2} fullWidth alignItems="flex-end">
+                      : <Grid size={{ xs: 12 }}><Stack direction="row" spacing={2} fullWidth sx={{ alignItems: 'flex-end' }}>
                       {(formik.values.Mode == "STATIC" || formik.values.Mode == "SPA") && (
                         <FilePickerButton onPick={(path) => {
                           if(path)
@@ -314,7 +314,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                   }
 
                   
-                  {!(formik.values.Target.startsWith('http://') || formik.values.Target.startsWith('https://')) && <Grid item xs={12}>
+                  {!(formik.values.Target.startsWith('http://') || formik.values.Target.startsWith('https://')) && <Grid size={{ xs: 12 }}>
                     <Alert severity='warning'>{t('mgmt.urls.edit.targetSettings.targetUrlProtocolWarning')}</Alert>
                   </Grid>}
 
@@ -327,7 +327,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                   <CosmosFormDivider title={t('global.source')} />
                   
                   {IsRouteSocketProxy(formik.values) && <>
-                    <Grid item xs={12}>
+                    <Grid size={{ xs: 12 }}>
                       <Alert severity='info' /* Fork addition */>{t('mgmt.urls.edit.sourceInfoPort2')}</Alert>
                     </Grid>
                     <CosmosInputText
@@ -342,7 +342,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                     </>}
 
                   {!IsRouteSocketProxy(formik.values) && <>
-                  <Grid item xs={12}>
+                  <Grid size={{ xs: 12 }}>
                     <Alert severity='info' /* Fork addition */>{t('mgmt.urls.edit.sourceInfo')}</Alert>
                   </Grid>
 
@@ -374,7 +374,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                       checkHost(host, setHostError);
                     }}
                   />
-                  {hostError && <Grid item xs={12}>
+                  {hostError && <Grid size={{ xs: 12 }}>
                     <Alert severity='warning'>{hostError}</Alert>{/* Fork addition: the warning icon too */}
                   </Grid>}
                   </>
@@ -388,7 +388,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                     formik={formik}
                   />
 
-                  {formik.values.UsePathPrefix && <Grid item xs={12}>
+                  {formik.values.UsePathPrefix && <Grid size={{ xs: 12 }}>
                     <Alert severity='warning'>{t('mgmt.urls.edit.sourceWarningPathPrefix')}</Alert>
                   </Grid>}
 
@@ -514,8 +514,8 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                       </Alert>
 
                       {formik.values._ExtraHeaders.map((header, idx) => (
-                        <Grid container key={idx} spacing={2} alignItems="center">
-                          <Grid item xs={5}>
+                        <Grid container key={idx} spacing={2} sx={{ alignItems: 'center' }}>
+                          <Grid size={{ xs: 5 }}>
                             <TextField
                               fullWidth
                               label={t('mgmt.urls.edit.advancedSettings.extraHeaders.headerName')}
@@ -528,7 +528,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                               }}
                             />
                           </Grid>
-                          <Grid item xs={6}>
+                          <Grid size={{ xs: 6 }}>
                             <TextField
                               fullWidth
                               label={t('mgmt.urls.edit.advancedSettings.extraHeaders.headerValue')}
@@ -541,7 +541,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                               }}
                             />
                           </Grid>
-                          <Grid item xs={1}>
+                          <Grid size={{ xs: 1 }}>
                             <Tooltip title={t('global.delete', 'Delete')}><IconButton
                               color="error"
                               onClick={() => {

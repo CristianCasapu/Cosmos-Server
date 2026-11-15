@@ -49,7 +49,7 @@ const visit = async (page, name, path, shot) => {
     await page.getByRole('button', { name: /download Update now/ }).click();
     await page.waitForTimeout(800);
     await page.screenshot({ path: 'shots/chromium-update-confirm.png' });
-    note('confirm dialog:', (await page.locator('[role=dialog]').innerText().catch(() => 'none')).replace(/\n/g, ' | ').slice(0, 260));
+    note('confirm dialog:', (await page.locator('[role=dialog]:visible').innerText().catch(() => 'none')).replace(/\n/g, ' | ').slice(0, 260));
     await page.keyboard.press('Escape');
     await page.waitForTimeout(500);
   }
@@ -185,12 +185,12 @@ for (const [name, type, viewport] of [
   if (await rows.count()) {
     await rows.first().locator('td').nth(1).click();
     await page.waitForTimeout(1500);
-    const dialog = page.locator('[role=dialog]');
+    const dialog = page.locator('[role=dialog]:visible');
     await page.screenshot({ path: `shots/${name}-alert-editor.png` });
     note(name, 'alert editor scrolls sideways:', await dialog.locator('.MuiDialogContent-root').evaluate((el) => el.scrollWidth > el.clientWidth + 1), '(expected: false)');
     await dialog.getByRole('button', { name: /^Save$/ }).click();
     await page.waitForTimeout(9000);
-    note(name, 'after saving the alert: dialog closed', (await page.locator('[role=dialog]').count()) === 0, '| list usable again:', await rows.first().locator('input[type=checkbox]').isEnabled().catch(() => false));
+    note(name, 'after saving the alert: dialog closed', (await page.locator('[role=dialog]:visible').count()) === 0, '| list usable again:', await rows.first().locator('input[type=checkbox]').isEnabled().catch(() => false));
   }
   await browser.close();
 }

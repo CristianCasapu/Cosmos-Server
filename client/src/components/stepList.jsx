@@ -15,14 +15,14 @@ const StepList = ({ steps, label, advice, detailLabel }) => (
     {(steps || []).map((step, index) => {
       const next = !step.ok && advice ? advice(step) : '';
       return <Stack key={step.name + index} spacing={0.5}>
-        <Stack direction="row" spacing={1} alignItems="baseline">
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'baseline' }}>
           <span aria-hidden="true">{step.ok ? <CheckCircleOutlined /> : <CloseCircleOutlined />}</span>
           <Typography variant="body2" component="span" sx={{ fontWeight: step.ok ? 400 : 600, overflowWrap: 'anywhere' }}>
             {label(step)}
           </Typography>
         </Stack>
         {next && <Typography variant="body2" sx={{ pl: 3, overflowWrap: 'anywhere' }}>{next}</Typography>}
-        {!step.ok && step.detail && <Typography variant="caption" color="text.secondary" sx={{ pl: 3, overflowWrap: 'anywhere' }}>
+        {!step.ok && step.detail && <Typography variant="caption" sx={{ color: 'text.secondary', pl: 3, overflowWrap: 'anywhere' }}>
           {detailLabel ? detailLabel + ' ' : ''}{step.detail}
         </Typography>}
       </Stack>;

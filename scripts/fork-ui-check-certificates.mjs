@@ -55,7 +55,7 @@ const noSideScroll = async (page, name, where) => {
   expect(over <= 1, `${name}: no sideways scroll on ${where} (${over}px over)`);
 };
 const dialogFits = async (page, name, where) => {
-  const box = await page.locator('[role=dialog]').last().boundingBox();
+  const box = await page.locator('[role=dialog]:visible').last().boundingBox();
   const width = page.viewportSize().width;
   expect(!!box && box.x >= 0 && box.x + box.width <= width + 1, `${name}: the dialog fits the screen (${where})`);
 };
@@ -118,7 +118,7 @@ for (const engine of engines) {
     await page.locator('#certs-add-domain').press('Enter');
     await page.locator('[data-certs-add="way"]').waitFor({ timeout: 15000 });
     await page.waitForTimeout(500);
-    const dialog = page.locator('[role=dialog]').last();
+    const dialog = page.locator('[role=dialog]:visible').last();
     const offered = await dialog.innerText();
     expect(/are not ones Cosmos recognises/.test(offered), `${name}: the dialog says where the DNS is`);
     expect(/One record at its DNS provider/.test(offered), `${name}: handing the proof to example.org is on offer`);

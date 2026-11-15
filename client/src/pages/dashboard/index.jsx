@@ -128,14 +128,14 @@ const DashboardDefault = () => {
         {metrics && <div style={{zIndex:2, position: 'relative'}}>
             {currentTab <= 1 && !hasMeasurements(metrics) && <NoMeasurements sx={{ mb: 3 }} />}{/* Fork addition */}
             <Grid container rowSpacing={4.5} columnSpacing={2.75} >
-                <Grid item xs={12} sx={{ mb: -2.25 }}>
+                <Grid size={{ xs: 12 }} sx={{ mb: -2.25 }}>
                     <Typography variant="h4">{t('navigation.monitoringTitle')}</Typography>
                     {currentTab <= 2 && <MetricHeaders loaded={metrics} slot={slot} setSlot={setSlot} zoom={zoom} setZoom={setZoom} />}
                     {currentTab > 2 && <div style={{height: 41}}></div>}
                 </Grid>
 
 
-                <Grid item xs={12} md={12} lg={12}>
+                <Grid size={{ xs: 12, md: 12, lg: 12 }}>
                     <PrettyTabbedView 
                         currentTab={currentTab}
                         setCurrentTab={(tab) => {

@@ -35,7 +35,7 @@ const TimezoneInput = ({ name = 'Timezone', formik, detected, disabled }) => {
   const error = formik.touched[name] && formik.errors[name];
   disabled = disabled || readOnly;
 
-  return <Grid item xs={12}>
+  return <Grid size={{ xs: 12 }}>
     <Stack spacing={1}>
       <InputLabel htmlFor={name}>{t('mgmt.config.timezone.label', 'Time zone for new apps')}</InputLabel>
       {zones ? <Autocomplete

@@ -119,9 +119,9 @@ const noSideScroll = async (page, name, where) => {
   expect(over <= 1, `${name}: no sideways scroll on ${where} (${over}px over)`);
 };
 const dialogFits = async (page, name, where) => {
-  const box = await page.locator('[role=dialog]').last().boundingBox();
+  const box = await page.locator('[role=dialog]:visible').last().boundingBox();
   expect(!!box && box.x >= 0 && box.x + box.width <= page.viewportSize().width + 1, `${name}: the dialog fits the screen (${where})`);
-  const inside = await page.locator('[role=dialog]').last().evaluate((dialog) => {
+  const inside = await page.locator('[role=dialog]:visible').last().evaluate((dialog) => {
     const content = dialog.querySelector('.MuiDialogContent-root');
     return !content || content.scrollWidth <= content.clientWidth + 1;
   });

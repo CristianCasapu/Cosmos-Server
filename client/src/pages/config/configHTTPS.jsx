@@ -35,12 +35,12 @@ const ConfigHTTPS = ({ formik, config, serverCertificate }) => {
     <ConfigZones />
     <MainCard title={t('mgmt.config.zones.generalTitle')}>
       <Grid container spacing={3}>
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <Alert severity="info">{t('mgmt.config.security.encryption.enryptionInfo')}</Alert>
         </Grid>
 
-        <Grid item xs={12}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+        <Grid size={{ xs: 12 }}>
+          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }} spacing={2}>
             <Field
               type="checkbox"
               name="GenerateMissingAuthCert"
@@ -84,25 +84,25 @@ const ConfigHTTPS = ({ formik, config, serverCertificate }) => {
           )
         }
 
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <h4>{t('mgmt.config.security.encryption.authPubKeyTitle')}</h4>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }} spacing={2}>
             <pre className='code'>
               {config.HTTPConfig.AuthPublicKey}
             </pre>
           </Stack>
         </Grid>
 
-        {serverCertificate && <Grid item xs={12}>
+        {serverCertificate && <Grid size={{ xs: 12 }}>
           <h4>{t('mgmt.config.security.encryption.rootHttpsPubKeyTitle')}</h4>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }} spacing={2}>
             <pre className='code'>
               {serverCertificate}
             </pre>
           </Stack>
         </Grid>}
 
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <CosmosCheckbox
             label={t('mgmt.config.security.encryption.sslCertForceRenewCheckbox.sslCertForceRenewLabel')}
             name="ForceHTTPSCertificateRenewal"

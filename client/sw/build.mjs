@@ -93,11 +93,16 @@ const walk = (dir, prefix = '') => readdirSync(dir).flatMap((name) => {
 // The Vite plugin: once the build's files are written, write sw.js next to them.
 export const pwaWorker = () => {
   let outDir = null;
+  let failed = false;
   return {
     name: 'fork-pwa-worker',
     apply: 'build',
     configResolved(config) { outDir = join(config.root, config.build.outDir); },
+    // a failed build still reaches closeBundle (Vite 8): leave the bundler's own error to be seen
+    buildEnd(error) { failed = !!error; },
+    renderError() { failed = true; },
     closeBundle() {
+      if (failed) return;
       const files = walk(outDir).sort();
       const page = (name) => (files.includes(name) ? readFileSync(join(outDir, name), 'utf8') : '');
       const lists = buildLists([page('index.html'), page('offline.html')], files);

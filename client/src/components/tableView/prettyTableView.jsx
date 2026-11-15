@@ -9,7 +9,7 @@ import Paper from '@mui/material/Paper';
 import { CircularProgress, Input, InputAdornment, Stack, TextField, useMediaQuery } from '@mui/material';
 import { SearchOutlined } from '@ant-design/icons';
 import { useTheme } from '@mui/material/styles';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { tableColumns } from '../../utils/tableColumns'; // Fork addition: the columns a phone's cards show
 import { TableEmpty, TableNoMatch, cellLabel, useCellNames } from './tableEmpty'; // Fork addition: empty lists, search without a match, rows as cards on a phone

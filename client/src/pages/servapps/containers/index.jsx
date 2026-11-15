@@ -20,7 +20,7 @@ import ContainerMetrics from '../../dashboard/containerMetrics';
 import EventExplorerStandalone from '../../dashboard/eventsExplorerStandalone';
 import ContainerComposeEdit from './compose-editor';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { Button } from '@mui/material';
 import EmptyState from '../../../components/emptyState'; // Fork addition: a container that cannot be shown
 
@@ -54,7 +54,7 @@ const ContainerIndex = () => {
 
   return <div>
     <Stack spacing={1}>
-      <Stack direction="row" spacing={1} alignItems="center">
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
         <Back />
         <div>{containerName}</div>
       </Stack>

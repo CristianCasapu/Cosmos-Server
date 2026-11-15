@@ -1,6 +1,6 @@
 // material-ui
 import { Alert, Button, InputLabel, OutlinedInput, Stack, TextField, Tooltip } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -20,7 +20,6 @@ import { useClientInfos } from '../../utils/hooks';
 import { PERM_RESOURCES } from '../../utils/permissions';
 import PermissionGuard from '../../components/permissionGuard';
 import { useTranslation } from 'react-i18next';
-import { json } from 'react-router';
 
 // HA JetStream keeps every bucket at 3 replicas: it only works once 3 managers exist
 export const haManagerCount = (devices) => (devices || []).filter(d => !d.blocked && d.cosmosNode === 2).length;
@@ -64,7 +63,8 @@ const AddDeviceModal = ({ users, config, refreshConfig, devices, natsHA, canCrea
       })
   }
 
-  return <>
+  return (
+    <>
     <Dialog open={openModal} onClose={() => setOpenModal(false)}>
       <Formik
         enableReinitialize
@@ -159,7 +159,7 @@ const AddDeviceModal = ({ users, config, refreshConfig, devices, natsHA, canCrea
                   <Stack spacing={2} style={{}}>
                   <CosmosSelect
                     name="deviceType"
-                    label={<Stack direction="row" spacing={0.5} alignItems="center" component="span">
+                    label={<Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }} component="span">
                       <span>{t('mgmt.constellation.setup.deviceType.label')}</span>
                       <Tooltip title={t('mgmt.constellation.setup.deviceType.tooltip')}>
                         <QuestionCircleOutlined style={{ fontSize: 14, cursor: 'help', opacity: 0.6 }} />
@@ -235,7 +235,7 @@ const AddDeviceModal = ({ users, config, refreshConfig, devices, natsHA, canCrea
                       {(formik.values.deviceType === 'cosmos-manager' || formik.values.deviceType === 'cosmos-agent') && <>
                         <CosmosCheckbox
                           name="isLighthouse"
-                          label={<Stack direction="row" spacing={0.5} alignItems="center" component="span">
+                          label={<Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }} component="span">
                             <span>{t('mgmt.constellation.setup.isLighthouse.label')}</span>
                             <Tooltip title={t('mgmt.constellation.setup.isLighthouse.tooltip')}>
                               <QuestionCircleOutlined style={{ fontSize: 14, cursor: 'help', opacity: 0.6 }} />
@@ -254,7 +254,7 @@ const AddDeviceModal = ({ users, config, refreshConfig, devices, natsHA, canCrea
                       {(formik.values.deviceType === 'cosmos-manager' || formik.values.deviceType === 'cosmos-agent') && <>
                         <CosmosCheckbox
                           name="IsLoadBalancer"
-                          label={<Stack direction="row" spacing={0.5} alignItems="center" component="span">
+                          label={<Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }} component="span">
                             <span>{t('mgmt.constellation.isLoadBalancer.label')}</span>
                             <Tooltip title={t('mgmt.constellation.setup.loadBalancer.tooltip')}>
                               <QuestionCircleOutlined style={{ fontSize: 14, cursor: 'help', opacity: 0.6 }} />
@@ -266,7 +266,7 @@ const AddDeviceModal = ({ users, config, refreshConfig, devices, natsHA, canCrea
 
                       <CosmosCheckbox
                         name="IsRelay"
-                        label={<Stack direction="row" spacing={0.5} alignItems="center" component="span">
+                        label={<Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }} component="span">
                           <span>{t('mgmt.constellation.isRelay.label')}</span>
                           <Tooltip title={t('mgmt.constellation.setup.relayRequests.tooltip')}>
                             <QuestionCircleOutlined style={{ fontSize: 14, cursor: 'help', opacity: 0.6 }} />
@@ -277,7 +277,7 @@ const AddDeviceModal = ({ users, config, refreshConfig, devices, natsHA, canCrea
 
                       <CosmosCheckbox
                         name="IsExitNode"
-                        label={<Stack direction="row" spacing={0.5} alignItems="center" component="span">
+                        label={<Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }} component="span">
                           <span>{t('mgmt.constellation.isExitNode.label')}</span>
                           <Tooltip title={t('mgmt.constellation.setup.exitNode.tooltip')}>
                             <QuestionCircleOutlined style={{ fontSize: 14, cursor: 'help', opacity: 0.6 }} />
@@ -326,7 +326,8 @@ const AddDeviceModal = ({ users, config, refreshConfig, devices, natsHA, canCrea
         {t('mgmt.constellation.setup.addDeviceTitle')}
       </ResponsiveButton>
     </PermissionGuard>
-  </>;
+    </>
+  );
 };
 
 export default AddDeviceModal;

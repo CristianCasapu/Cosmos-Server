@@ -51,7 +51,7 @@ for (const name of names) for (const size of wanted) {
     await page.waitForTimeout(3500);
     await page.locator('button:has(.anticon-plus)').first().click();
     await page.waitForTimeout(1500);
-    return page.locator('[role=dialog]').last();
+    return page.locator('[role=dialog]:visible').last();
   };
   let dialog = await open();
   expect(id + ': a new job is called a new job', /New Job/.test(await dialog.locator('h2').first().innerText()), await dialog.locator('h2').first().innerText());

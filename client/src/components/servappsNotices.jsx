@@ -4,7 +4,7 @@
 // card of its own before, and they stacked.
 import * as React from 'react';
 import { Link } from '@mui/material';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import NoticeArea from './noticeArea';
 import useLeftoverNotices from './leftovers';

@@ -91,20 +91,20 @@ const FeatureMonitoring = ({ title, queries, note, children }) => {
 
   return <div style={{ zIndex: 2, position: 'relative' }}>
     <Grid container rowSpacing={4.5} columnSpacing={2.75}>
-      <Grid item xs={12} sx={{ mb: -2.25 }}>
+      <Grid size={{ xs: 12 }} sx={{ mb: -2.25 }}>
         <Typography variant="h4">{title}</Typography>
         <MetricHeaders loaded={metrics} slot={slot} setSlot={setSlot} zoom={zoom} setZoom={setZoom} />
       </Grid>
 
-      {note && <Grid item xs={12}>
+      {note && <Grid size={{ xs: 12 }}>
         <Alert severity="info">{note}</Alert>
       </Grid>}
 
-      {Object.keys(metrics).length === 0 && <Grid item xs={12}>
+      {Object.keys(metrics).length === 0 && <Grid size={{ xs: 12 }}>
         <Alert severity="info">{t('navigation.monitoring.noMetrics')}</Alert>
       </Grid>}
 
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         {children({ metrics, xAxis, slot, zoom, setZoom })}
       </Grid>
     </Grid>

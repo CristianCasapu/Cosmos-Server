@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Link, Link as RouterLink } from 'react-router-dom';
+import { Link, Link as RouterLink } from 'react-router';
 
 // material-ui
 import {
@@ -32,7 +32,7 @@ import AnimateButton from '../../../components/@extended/AnimateButton';
 
 // assets
 import { EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { redirectToLocal } from '../../../utils/indexs';
 import TurnstileWidget from '../../../components/turnstileWidget'; // Fork addition: Cloudflare's check for visitors from the internet
 
@@ -79,17 +79,17 @@ const AuthLogin = () => {
 
     return (
         <>
-            { notLogged &&<Grid container spacing={2} justifyContent="center">
+            { notLogged &&<Grid container spacing={2} sx={{ justifyContent: 'center' }}>
                 <Alert severity="error">{t('auth.notLoggedInError')}</Alert>
                 <br />
             </Grid>}
 
-            { notLoggedAdmin &&<Grid container spacing={2} justifyContent="center">
+            { notLoggedAdmin &&<Grid container spacing={2} sx={{ justifyContent: 'center' }}>
                 <Alert severity="error">{t('auth.notAdminError')}</Alert>
                 <br />
             </Grid>}
 
-            { invalid &&<Grid container spacing={2} justifyContent="center">
+            { invalid &&<Grid container spacing={2} sx={{ justifyContent: 'center' }}>
                 <Alert severity="error">{t('auth.loggedOutError')}</Alert>
                 <br />
             </Grid>}
@@ -125,7 +125,7 @@ const AuthLogin = () => {
                 {({ errors, handleBlur, handleChange, handleSubmit, isSubmitting, touched, values }) => (
                     <form noValidate onSubmit={handleSubmit}>
                         <Grid container spacing={3}>
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}>
                                 <Stack spacing={1}>
                                     <InputLabel htmlFor="nickname-login">{t('global.nicknameLabel')}</InputLabel>
                                     <OutlinedInput
@@ -147,7 +147,7 @@ const AuthLogin = () => {
                                     )}
                                 </Stack>
                             </Grid>
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}>
                                 <Stack spacing={1}>
                                     <InputLabel htmlFor="password-login">{t('auth.pwd')}</InputLabel>
                                     <OutlinedInput
@@ -182,8 +182,8 @@ const AuthLogin = () => {
                                 </Stack>
                             </Grid>
 
-                            <Grid item xs={12} sx={{ mt: -1 }}>
-                                <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+                            <Grid size={{ xs: 12 }} sx={{ mt: -1 }}>
+                                <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }} spacing={2}>
                                     {/* <FormControlLabel
                                         control={
                                             <Checkbox
@@ -205,12 +205,12 @@ const AuthLogin = () => {
                                 </Stack>
                             </Grid>
                             {errors.submit && (
-                                <Grid item xs={12}>
+                                <Grid size={{ xs: 12 }}>
                                     <FormHelperText error>{errors.submit}</FormHelperText>
                                 </Grid>
                             )}
-                            <Grid item xs={12}><TurnstileWidget form="login" /></Grid>{/* Fork addition: shows nothing unless the check applies to this visitor */}
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}><TurnstileWidget form="login" /></Grid>{/* Fork addition: shows nothing unless the check applies to this visitor */}
+                            <Grid size={{ xs: 12 }}>
                                     <LoadingButton
                                         disableElevation
                                         loading={isSubmitting}

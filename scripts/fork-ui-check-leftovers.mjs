@@ -145,7 +145,7 @@ for (const engine of engines) {
 
     // the confirmation of a removal
     await notices(page).filter({ hasText: 'sonarr-cosmos-old-' }).getByRole('button', { name: 'Remove the leftover' }).click();
-    const dialog = page.locator('[role=dialog]');
+    const dialog = page.locator('[role=dialog]:visible');
     await dialog.waitFor({ timeout: 5000 }).catch(() => {});
     const asked = await dialog.innerText().catch(() => '');
     expect(/Remove sonarr-cosmos-old-[0-9a-f]{12}\? The container is deleted for good; its volumes are kept\./.test(asked), `${name}: the removal asks first`);
@@ -180,7 +180,7 @@ for (const engine of engines) {
   await page.screenshot({ path: `shots/leftovers-${name}-restored.png` });
 
   await notices(page).filter({ hasText: 'sonarr-cosmos-old-' }).getByRole('button', { name: 'Remove the leftover' }).click();
-  await page.locator('[role=dialog]').getByRole('button', { name: 'Remove it' }).click();
+  await page.locator('[role=dialog]:visible').getByRole('button', { name: 'Remove it' }).click();
   await page.getByText(/Remove the leftover sonarr-cosmos-old-[0-9a-f]{12}: (done|failed)/).first().waitFor({ timeout: 20000 }).catch(() => {});
   await page.waitForTimeout(1500);
   const after = await notices(page).evaluateAll((all) => all.map((el) => el.getAttribute('data-leftover')));

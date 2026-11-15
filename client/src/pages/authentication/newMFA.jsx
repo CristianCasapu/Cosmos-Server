@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 
 // material-ui
@@ -31,7 +31,7 @@ import * as API from '../../api';
 import QRCode from 'qrcode';
 import { useTheme } from '@mui/material/styles';
 import { useFormik, Formik } from 'formik';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { CosmosCollapse } from '../config/users/formShortcuts';
 import { redirectToLocal } from '../../utils/indexs';
 
@@ -128,7 +128,7 @@ const MFALoginForm = () => {
               autoFocus
             />
             {formik.errors.submit && (
-              <Grid item xs={12}>
+              <Grid size={{ xs: 12 }}>
                 <FormHelperText error>{formik.errors.submit}</FormHelperText>
               </Grid>
             )}
@@ -178,31 +178,31 @@ const MFASetup = () => {
 
   return (
     <Grid container spacing={3}>
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         <Typography variant="h5">
             {t("mgmt.openid.newMfa.requires2faText")} (FreeOTP(+), Google Authenticator, Microsoft Authenticator, ...)
         </Typography>
       </Grid>
-      <Grid  item xs={12} textAlign={'center'}>
+      <Grid size={{ xs: 12 }} sx={{ textAlign: 'center' }}>
         <canvas style={{borderRadius: '15px', maxWidth: '100%', height: 'auto'}} ref={canvasRef} />{/* Fork addition: fits a 360 px phone (300 px code + the card's padding ran over) */}
       </Grid>
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         <Typography variant="h5">{t('mgmt.openid.newMfa.otpManualCode')}</Typography>
       </Grid>
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         <CosmosCollapse title={t('mgmt.openid.newMfa.otpManualCode.showButton')} defaultExpanded={false}>
         <div style={{padding: '20px', fontSize: '90%', borderRadius: '15px', background: 'rgba(0,0,0,0.2)'}}>
           {mfaCode && <span>{mfaCode.split('?')[1].split('&').map(a => <div>{decodeURI(a).replace('=', ': ')}</div>)}</span>}
         </div>
         </CosmosCollapse>
       </Grid>
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         <Typography variant="h5">{t('mgmt.openid.newMfa.otpEnterTokenText')}</Typography>
       </Grid>
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         <MFALoginForm />
       </Grid>
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         <Link to="/cosmos-ui/logout">
           <Typography variant="h5">{t('global.logout')}</Typography>
         </Link>
@@ -216,12 +216,12 @@ const NewMFA = () => {
 
     return <AuthWrapper>
         <Grid container spacing={3}>
-            <Grid item xs={12}>
-                <Stack direction="row" justifyContent="space-between" alignItems="baseline" sx={{ mb: { xs: -0.5, sm: 0.5 } }}>
+            <Grid size={{ xs: 12 }}>
+                <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline', mb: { xs: -0.5, sm: 0.5 } }}>
                     <Typography variant="h3">{t('mgmt.openid.newMfa')}</Typography>
                 </Stack>
             </Grid>
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
                 <MFASetup />
             </Grid>
         </Grid>
@@ -233,12 +233,12 @@ const MFALogin = () => {
 
   return <AuthWrapper>
       <Grid container spacing={3}>
-          <Grid item xs={12}>
-              <Stack direction="row" justifyContent="space-between" alignItems="baseline" sx={{ mb: { xs: -0.5, sm: 0.5 } }}>
+          <Grid size={{ xs: 12 }}>
+              <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline', mb: { xs: -0.5, sm: 0.5 } }}>
                   <Typography variant="h3">{t('mgmt.openid.newMfa.enterOtp')}</Typography>
               </Stack>
           </Grid>
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
               <MFALoginForm />
           </Grid>
       </Grid>

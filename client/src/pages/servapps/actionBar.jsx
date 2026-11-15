@@ -156,17 +156,16 @@ const GetActions = ({
     
     {!isUpdating && actions.filter((action) => {
       return action.if.includes(state) || (updateAvailable && action.if.includes('update_available')) || (!updateAvailable && action.if.includes('update_not_available'));
-    }).map((action) => {
+    }).map((action, index) => {
       // Fork addition: PermissionGuard hands back its child as-is, so a Tooltip around the guard never reaches the button.
       // Put the Tooltip inside the guard instead (DeleteModal carries its own).
       const el = isStack ? (action.es ? action.es : action.e) : action.e;
-      return (!isStack || !action.hideStack) && (el.type === PermissionGuard ? React.cloneElement(el, {}, <Tooltip title={action.t}>{el.props.children}</Tooltip>) : el)
+      return (!isStack || !action.hideStack) && <React.Fragment key={index}>{el.type === PermissionGuard ? React.cloneElement(el, {}, <Tooltip title={action.t}>{el.props.children}</Tooltip>) : el}</React.Fragment>
     })}
 
-    {isUpdating && <Stack sx={{
+    {isUpdating && <Stack sx={{ justifyContent: 'center',
       width: '100%', height: '44px',
     }}
-    justifyContent={'center'} 
     ><LinearProgress /></Stack>}
   </>
 }

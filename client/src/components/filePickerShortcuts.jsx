@@ -60,7 +60,7 @@ const FilePickerShortcuts = ({ current, startFolder, onGo }) => {
   add(dataPath, <DatabaseOutlined />, t('mgmt.storage.picker.shortcutData', 'The default data path for installs (Configuration > Docker)'));
   mounts.forEach((path) => add(path, <HddOutlined />, t('mgmt.storage.picker.shortcutMount', 'A mounted disk (Storage)')));
 
-  return <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+  return <Stack direction="row" useFlexGap spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 1 }}>
     <Typography variant="caption" color="textSecondary">
       {t('mgmt.storage.picker.shortcuts', 'Go to:')}
     </Typography>

@@ -137,10 +137,10 @@ const SecurityDashboard = () => {
 
   return <div style={{ maxWidth: '1200px', margin: 'auto' }}>
     <Grid container rowSpacing={4.5} columnSpacing={2.75}>
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         <Stack spacing={1.5}>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-            <Stack direction="row" alignItems="center" spacing={0} sx={{ flexWrap: 'wrap' }}>
+            <Stack direction="row" spacing={0} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
               {PERIODS.map((p) => <Button
                 key={p}
                 size="small"
@@ -151,7 +151,7 @@ const SecurityDashboard = () => {
                 {t(...PERIOD_TEXT[p])}
               </Button>)}
             </Stack>
-            <Stack direction="row" alignItems="center" spacing={1}>
+            <Stack direction="row" sx={{ alignItems: 'center' }} spacing={1}>
               <Typography variant="caption" color="textSecondary">
                 {t('security.zone', 'Times in {{zone}}', { zone: zoneName() })}
               </Typography>
@@ -172,19 +172,19 @@ const SecurityDashboard = () => {
       </Grid>
 
       {overview && <>
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <Grid container spacing={2}>
-            {COUNTER_GROUPS.map((id) => <Grid item key={id} xs={6} sm={4} md>
+            {COUNTER_GROUPS.map((id) => <Grid key={id} size={{ xs: 6, sm: 4, md: 'grow' }}>
               <Counter id={id} overview={overview} period={period} />
             </Grid>)}
           </Grid>
         </Grid>
 
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <Timeline overview={overview} />
         </Grid>
 
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <Addresses
             overview={overview}
             bans={bans}
@@ -197,11 +197,11 @@ const SecurityDashboard = () => {
       </>}
 
       {/* Fork addition: the Fail2ban status goes here (pages/security/fail2banSection.jsx) */}
-      <Grid item xs={12} sx={{ '&:empty': { display: 'none' } }}>
+      <Grid size={{ xs: 12 }} sx={{ '&:empty': { display: 'none' } }}>
         <Fail2banSection period={period} />
       </Grid>
 
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         <Incidents ref={list} catalogue={catalogue} from={listFrom} />
       </Grid>
     </Grid>

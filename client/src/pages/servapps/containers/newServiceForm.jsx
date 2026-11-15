@@ -105,7 +105,7 @@ const NewDockerServiceForm = () => {
     >
       {t('mgmt.servapps.creation.quick', 'Review and create')}
     </Button>
-    <Typography variant="caption" color="text.secondary" component="div">{/* the skin's smallest size (12px), in its secondary text colour */}
+    <Typography variant="caption" sx={{ color: 'text.secondary' }} component="div">{/* the skin's smallest size (12px), in its secondary text colour */}
       {t('mgmt.servapps.creation.quickHint', 'Cosmos proposes the rest (a local address, the restart policy, where the data goes) and shows everything on one page before anything is created. The other tabs stay open for changes.')}
     </Typography>
   </Stack>;
@@ -147,9 +147,10 @@ const NewDockerServiceForm = () => {
     </Button>
     </Stack>
 
-  return <div>
+  return (
+    <div>
     <Stack spacing={1}>
-      <Stack direction="row" spacing={1} alignItems="center">
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
         <Back />
         <div>{t('mgmt.servApp.newServAppButton')}</div>
       </Stack>
@@ -189,15 +190,17 @@ const NewDockerServiceForm = () => {
           children:  <Stack spacing={2}>
             <MainCard  style={{ maxWidth: '1000px', width: '100%', margin: 'auto', position: 'relative' }}>
               <Checkbox
-                inputProps={{ 'aria-label': t('mgmt.servApp.url') }} /* Fork addition: a name */
-                checked={containerInfo.CreateRoute}
-                onChange={(e) => {
+                  /* Fork addition: a name */
+                  checked={containerInfo.CreateRoute} onChange={(e) => {
                   const newValues = {
                     ...containerInfo,
                     CreateRoute: e.target.checked,
                   }
                   setContainerInfo(newValues);
                 }}
+                  slotProps={{
+                    input: { 'aria-label': t('mgmt.servApp.url') }
+                  }}
               />{t('mgmt.servApp.url')}
             </MainCard>
             {containerInfo.CreateRoute && <RouteManagement TargetContainer={containerInfo} 
@@ -321,7 +324,8 @@ const NewDockerServiceForm = () => {
       ]} />}
 
     </Stack>
-  </div>;
+    </div>
+  );
 }
 
 export default NewDockerServiceForm;

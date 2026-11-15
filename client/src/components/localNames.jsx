@@ -23,7 +23,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
@@ -33,7 +33,7 @@ import {
 } from '@ant-design/icons';
 import { useTheme } from '@mui/material/styles';
 import { useTranslation } from 'react-i18next';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router';
 import * as API from '../api';
 import { useClientInfos } from '../utils/hooks';
 import { PERM_ADMIN_READ } from '../utils/permissions';
@@ -91,7 +91,7 @@ const say = (t, text) => (text ? t(text[0], text[1], text[2] || {}) : '');
 const StateLine = ({ state, children }) => {
   const { t } = useTranslation();
   if (!state) return null;
-  return <Stack direction="row" spacing={1} alignItems="flex-start">
+  return <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
     <LevelIcon level={state.level} />
     <Typography variant="caption" color="textSecondary" component="div" sx={{ overflowWrap: 'anywhere', minWidth: 0 }}>
       {say(t, state.text)}
@@ -204,7 +204,7 @@ export const LocalNamesSettings = ({ formik }) => {
 
   return <Stack spacing={1.5} sx={{ mt: 1.5 }}>
     {status && <Alert severity={state ? state.level : 'info'} sx={{ overflowWrap: 'anywhere', '& .MuiAlert-message': { minWidth: 0 } }}>
-      <Stack spacing={0.5} alignItems="flex-start">
+      <Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
         <span>{say(t, state && state.text)}</span>
         {status.hostName && <span>{t('mgmt.localNames.hostNameIs', 'Avahi\'s name for this server: {{name}}.', { name: status.hostName })}</span>}
         {problems.map((text) => <span key={text}>{text}</span>)}

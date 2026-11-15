@@ -16,7 +16,7 @@ import {
 } from '@mui/material';
 import { CopyOutlined, EyeInvisibleOutlined, EyeOutlined, WarningFilled } from '@ant-design/icons';
 import { CosmosCheckbox, CosmosInputPassword, CosmosInputText, CosmosSelect } from './users/formShortcuts';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { useTranslation } from 'react-i18next';
 import { FilePickerButton } from '../../components/filePicker';
 import PermissionGuard from '../../components/permissionGuard';
@@ -77,7 +77,7 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
     <Stack spacing={3}>
       <MainCard title={t('mgmt.config.generalTitle')}>
         <Grid container spacing={3}>
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
             <Alert severity="info">{t('mgmt.config.general.configFileInfo')}</Alert>
           </Grid>
 
@@ -121,7 +121,7 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
             formik={formik}
           />
 
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
             <Stack spacing={1}>
               <InputLabel htmlFor="LoggingLevel-login">{t('mgmt.config.general.logLevelInput')}</InputLabel>
               <TextField
@@ -166,16 +166,16 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
 
       <MainCard title={t('mgmt.config.general.backupTitle')}>
         <Grid container spacing={3}>
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
             <Alert severity="info">{t('mgmt.config.general.backupInfo2')}</Alert>
           </Grid>
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
             {/* Fork addition: the label sits above the row and the row is aligned at its top, so the
                 folder button stays level with the input whatever is shown under it (help text, error),
                 and the field no longer runs out of the card on a phone */}
             <Stack spacing={1}>
               <InputLabel htmlFor="BackupOutputDir">{t('mgmt.config.general.backupDirInput.backupDirLabel')}</InputLabel>
-              <Stack direction={"row"} spacing={2} alignItems="flex-start">
+              <Stack direction={"row"} spacing={2} sx={{ alignItems: 'flex-start' }}>
                 <FilePickerButton canCreate onPick={(path) => {
                   if(path)
                       formik.setFieldValue('BackupOutputDir', path);
@@ -219,11 +219,11 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
           />
 
           <PaidOnly>{/* Fork addition: the incremental backup needs a licence */}
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
             {/* Fork addition: laid out like the row above */}
             <Stack spacing={1}>
               <InputLabel htmlFor="IncrBackupOutputDir">{t('mgmt.config.general.backupDirInput.incrBackupDirLabel')}</InputLabel>
-              <Stack direction={"row"} spacing={2} alignItems="flex-start">
+              <Stack direction={"row"} spacing={2} sx={{ alignItems: 'flex-start' }}>
                 {status && status.Licence && <FilePickerButton canCreate onPick={(path) => {
                   if(path)
                       formik.setFieldValue('IncrBackupOutputDir', path);
@@ -240,19 +240,21 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
           </PaidOnly>
 
           {isAdmin && canReadCredentials && internalBackupPassword && (
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <Stack spacing={1}>
                 <InputLabel htmlFor="internal-backup-password">
                   {t('mgmt.config.general.internalBackupPasswordLabel')}
                 </InputLabel>
-                <Stack direction="row" spacing={1} alignItems="center">
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                   <TextField
                     id="internal-backup-password"
                     fullWidth
                     variant="outlined"
                     type={showInternalBackupPwd ? 'text' : 'password'}
                     value={internalBackupPassword}
-                    InputProps={{ readOnly: true, style: { fontFamily: 'monospace' } }}
+                    slotProps={{
+                      input: { readOnly: true, style: { fontFamily: 'monospace' } }
+                    }}
                   />
                   <Tooltip title={showInternalBackupPwd ? t('global.hide') : t('global.show')}>
                     <IconButton onClick={() => setShowInternalBackupPwd((s) => !s)}>
@@ -311,7 +313,7 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
 
             if (licenseResult.error === 'parse') {
               return (
-                <Grid item xs={12}>
+                <Grid size={{ xs: 12 }}>
                   <Alert severity="error">
                     {t('mgmt.config.general.licenceInput.licenseInvalid')}
                   </Alert>
@@ -321,7 +323,7 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
 
             if (licenseValidation.checked && !licenseValidation.valid) {
               return (
-                <Grid item xs={12}>
+                <Grid size={{ xs: 12 }}>
                   <Alert severity="error">
                     {t('mgmt.config.general.licenceInput.licenseSignatureInvalid')}
                   </Alert>
@@ -337,7 +339,7 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
             return (
               <>
                 {licenseData.email && (
-                  <Grid item xs={12}>
+                  <Grid size={{ xs: 12 }}>
                     <Alert severity="info">
                       {t('mgmt.config.general.licenceInput.licenseEmail', { email: licenseData.email })} <br/>
                       {t('mgmt.config.general.licenceInput.licenseType', { type: licenseData.subscriptionType })}
@@ -346,7 +348,7 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
                 )}
 
                 {licenseData.lifetime === false && isExpired && (
-                  <Grid item xs={12}>
+                  <Grid size={{ xs: 12 }}>
                     <Alert severity="warning" icon={<WarningFilled />}>
                       {t('mgmt.config.general.licenceInput.licenseExpired', {
                         date: new Date(licenseData.expiresAt * 1000).toLocaleDateString()
@@ -356,7 +358,7 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
                 )}
 
                 {licenseData.lifetime === false && (
-                  <Grid item xs={12}>
+                  <Grid size={{ xs: 12 }}>
                     <Stack spacing={1}>
                       <Button
                         href='https://billing.stripe.com/p/login/28obMlc7X1jgeqY144'

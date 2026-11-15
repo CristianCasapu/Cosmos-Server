@@ -165,10 +165,9 @@ const TurnstileWidget = ({ form }) => {
     />
     <Typography
       variant="caption"
-      color={problem ? 'error' : 'textSecondary'}
       role="status"
       aria-live="polite"
-      sx={{ overflowWrap: 'anywhere' }}
+      sx={{ color: problem ? 'error' : 'textSecondary', overflowWrap: 'anywhere' }}
     >
       {say(t, status)}
     </Typography>

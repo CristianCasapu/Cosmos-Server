@@ -6,7 +6,7 @@
 import * as React from 'react';
 import { Alert, Chip, Link, Stack, Tooltip, Typography } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
@@ -227,7 +227,7 @@ export const ReachPanel = ({ config, routeNames, ports, hostNetwork, containerNa
         {route.checks.map((check, index) => {
           const s = checkSentence(check, route.route);
           const addresses = checkAddresses(check);
-          return <Stack key={index} direction="row" spacing={1} alignItems="flex-start" style={{ minWidth: 0 }}>
+          return <Stack key={index} direction="row" spacing={1} sx={{ alignItems: 'flex-start' }} style={{ minWidth: 0 }}>
             <CheckIcon status={check.status} />
             <Typography variant="body2" style={{ overflowWrap: 'anywhere', minWidth: 0 }}>
               {sentence(check, route.route)}
@@ -250,12 +250,12 @@ export const ReachPanel = ({ config, routeNames, ports, hostNetwork, containerNa
       if (containerName && port.scope !== 'server') {
         return <RouterPortLine key={port.port + port.type} config={config} containerName={containerName} port={port} fallback={words} />;
       }
-      return <Stack key={port.port + port.type} direction="row" spacing={1} alignItems="flex-start">
+      return <Stack key={port.port + port.type} direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
         <QuestionCircleOutlined style={{ marginTop: 3, flexShrink: 0 }} />
         <Typography variant="body2" style={{ overflowWrap: 'anywhere', minWidth: 0 }}>{words}</Typography>
       </Stack>;
     })}
-    {summary.hostNetwork && <Stack direction="row" spacing={1} alignItems="flex-start">
+    {summary.hostNetwork && <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
       <QuestionCircleOutlined style={{ marginTop: 3, flexShrink: 0 }} />
       <Typography variant="body2">
         {t('mgmt.reach.port.host', 'Uses the server\'s own network: every port it listens on is a port of the server. From the internet only if your router forwards it.')}
@@ -276,7 +276,7 @@ export const ReachPanel = ({ config, routeNames, ports, hostNetwork, containerNa
           { time: new Date(data.checkedAt).toLocaleString() })}
     </Typography>
     {notice && <Alert severity="info">{notice}</Alert>}
-    <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+    <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1}>
       <LoadingButton size="small" variant="outlined" loading={state.loading} onClick={() => again(false)}>
         {t('mgmt.reach.checkAgain', 'Check again')}
       </LoadingButton>

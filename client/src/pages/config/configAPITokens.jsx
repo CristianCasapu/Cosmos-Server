@@ -22,7 +22,7 @@ import {
 } from "@mui/material";
 import { CosmosCheckbox, CosmosInputText } from "./users/formShortcuts";
 import { FormikProvider, useFormik } from "formik";
-import { LoadingButton } from "@mui/lab";
+import { Button as LoadingButton } from "@mui/material"; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import ResponsiveButton from "../../components/responseiveButton";
 import MenuButton from "../../components/MenuButton";
 import { useClientInfos } from "../../utils/hooks";
@@ -168,13 +168,15 @@ const TokenRevealDialog = ({ tokenData, onClose, t }) => {
           <Alert severity="warning">
             {t('mgmt.config.apiTokens.copyWarning')}
           </Alert>
-          <Stack direction="row" spacing={1} alignItems="center">
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
             <TextField
               fullWidth
               value={tokenData.token}
-              InputProps={{ readOnly: true }}
               size="small"
               sx={{ fontFamily: "monospace" }}
+              slotProps={{
+                input: { readOnly: true }
+              }}
             />
             <Tooltip title={copied ? t('global.copied') : t('global.copyFilenameSuffix')}>
               <IconButton onClick={handleCopy}>
@@ -321,7 +323,7 @@ const ConfigAPITokens = () => {
             {
               title: t('global.name'),
               field: (r) => (
-                <Stack direction="row" alignItems="center" spacing={1}>
+                <Stack direction="row" sx={{ alignItems: 'center' }} spacing={1}>
                   <span>{r.name}</span>
                   {r.tokenSuffix && (
                     <Chip

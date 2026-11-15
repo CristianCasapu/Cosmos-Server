@@ -38,7 +38,7 @@ const PlaceLine = ({ volume, choice, proposal, plan, onChoose, busy }) => {
   const reason = proposal ? say(placeText('reason.' + proposal.reason)) : '';
 
   return <Stack spacing={0.5} sx={{ minWidth: 0 }} data-place={volume.key}>
-    <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ minWidth: 0 }}>
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', minWidth: 0 }}>
       <HddOutlined style={{ marginTop: 4 }} />
       <Stack sx={{ minWidth: 0, flex: 1 }}>
         <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
@@ -54,7 +54,7 @@ const PlaceLine = ({ volume, choice, proposal, plan, onChoose, busy }) => {
     </Stack>
     <Collapse in={open} unmountOnExit>
       <Stack spacing={1} sx={{ pl: 3, minWidth: 0 }}>
-        <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+        <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1}>
           <Chip size="small" variant={choice && choice.keep ? 'filled' : 'outlined'} color={choice && choice.keep ? 'primary' : 'default'}
             label={volume.type === 'volume' ? t('mgmt.servapps.creation.place.keepVolume', 'A Docker volume, as the app has it') : t('mgmt.servapps.creation.place.keepBind', 'As the app has it')}
             onClick={() => onChoose({ keep: true })} />
@@ -65,7 +65,7 @@ const PlaceLine = ({ volume, choice, proposal, plan, onChoose, busy }) => {
               label={`${p.path} (${sizeText(p.free)})`} title={path} onClick={() => onChoose({ path })} sx={{ maxWidth: '100%' }} />;
           })}
         </Stack>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
           <FilePickerButton select="folder" canCreate value={typed || where.path} onPick={(path) => { if (path) { setTyped(path); onChoose({ path }); } }} />
           <TextField size="small" fullWidth value={typed} placeholder={t('mgmt.servapps.creation.place.other', 'Another folder on the server, for example /mnt/disk2/app')}
             onChange={(e) => setTyped(e.target.value)}

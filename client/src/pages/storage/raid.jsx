@@ -4,7 +4,7 @@ import * as API from "../../api";
 import PrettyTableView from "../../components/tableView/prettyTableView";
 import { AlertFilled, CheckCircleOutlined, CloudOutlined, DeleteOutlined, EditOutlined, ExclamationCircleOutlined, ReloadOutlined, WarningOutlined } from "@ant-design/icons";
 import { Alert, Button, CircularProgress, ListItemIcon, ListItemText, MenuItem, Stack } from "@mui/material";
-import { LoadingButton } from "@mui/lab";
+import { Button as LoadingButton } from "@mui/material"; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import ConfirmModal, { ConfirmModalDirect } from "../../components/confirmModal";
 import MenuButton from "../../components/MenuButton";
 import diskIcon from '../../assets/images/icons/disk.svg';
@@ -100,7 +100,7 @@ export const RAIDArrays = () => {
       />}
       <Stack spacing={2}>
         {containerized && <VMWarning />}
-        <Stack direction="row" spacing={2} justifyContent="flex-start">  
+        <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-start' }}>  
           <RaidDialog refresh={refresh} disabled={containerized}/>
           <ResponsiveButton 
             variant="outlined" 

@@ -22,7 +22,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { CheckOutlined, CopyOutlined } from '@ant-design/icons';
 import { useFormik } from 'formik';
 import { useTranslation } from 'react-i18next';
@@ -133,7 +133,7 @@ export const CreateUserDialog = ({ open, onClose, roles, users, onCreated }) => 
             value={formik.values.role}
             onChange={(role) => formik.setFieldValue('role', role)}
           />
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
             <Typography variant="caption" color="textSecondary" component="div">
               {{
                 mail: t('mgmt.usermgmt.fork.next.mail', 'Next: the account is created and Cosmos emails {{email}} a link to choose a password. You also get the link, in case the mail does not arrive.', { email: formik.values.email.trim() }),
@@ -142,7 +142,7 @@ export const CreateUserDialog = ({ open, onClose, roles, users, onCreated }) => 
               }[way]}
             </Typography>
           </Grid>
-          {formik.errors.submit && <Grid item xs={12}>
+          {formik.errors.submit && <Grid size={{ xs: 12 }}>
             <Alert severity="error" sx={{ overflowWrap: 'anywhere' }}>{formik.errors.submit}</Alert>
           </Grid>}
         </Grid>
@@ -217,7 +217,7 @@ export const EditUserDialog = ({ user, onClose, roles, onSaved }) => {
             onChange={(role) => formik.setFieldValue('role', role)}
             note={own ? t('mgmt.usermgmt.fork.role.own', 'This is your own account: another administrator has to change its role.') : undefined}
           />
-          {formik.errors.submit && <Grid item xs={12}>
+          {formik.errors.submit && <Grid size={{ xs: 12 }}>
             <Alert severity="error" sx={{ overflowWrap: 'anywhere' }}>{formik.errors.submit}</Alert>
           </Grid>}
         </Grid>

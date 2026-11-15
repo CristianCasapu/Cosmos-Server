@@ -115,7 +115,7 @@ const RClonePage = ({coStatus, containerized}) => {
           let percent = pings[r.name] ? pings[r.name].used / pings[r.name].total * 100 : 0;
           return pings[r.name] ?
            (pings[r.name].status === "OK" ? 
-           <Stack direction="row" alignItems="center" spacing={2}>
+           <Stack direction="row" sx={{ alignItems: 'center' }} spacing={2}>
             <CheckOutlined style={{color: "green"}}/>
             {(pings[r.name].hasOwnProperty('used') && pings[r.name].hasOwnProperty('total')) ?
             <Tooltip title={simplifyNumber(pings[r.name].used, 'B') + ' / ' + simplifyNumber(pings[r.name].total, 'B')}>
@@ -128,7 +128,7 @@ const RClonePage = ({coStatus, containerized}) => {
             {provStats[r.name] ? <>
               {provStats[r.name].hasOwnProperty('diskCache') ? <>
                 <Tooltip title={t('mgmt.storage.rclone.uploadsInProgress') + ': ' + provStats[r.name].diskCache.uploadsInProgress + '\n' + t('mgmt.storage.rclone.uploadsQueued') + ': ' + provStats[r.name].diskCache.uploadsQueued}>  
-                  <Stack direction={'row'} alignItems="center" spacing={1}>
+                  <Stack direction={'row'} sx={{ alignItems: 'center' }} spacing={1}>
                     <div>
                       <ArrowUpOutlined />
                     </div>
@@ -138,14 +138,14 @@ const RClonePage = ({coStatus, containerized}) => {
                   </Stack>
                 </Tooltip>
                 {provStats[r.name].diskCache.outOfSpace	&& <Tooltip title={t('mgmt.storage.rclone.outOfSpace')}>
-                  <Stack direction={'row'} alignItems="center" spacing={1}>
+                  <Stack direction={'row'} sx={{ alignItems: 'center' }} spacing={1}>
                     <div>
                       <ExclamationCircleOutlined style={{color: 'red'}} />
                     </div>
                   </Stack>  
                 </Tooltip>}
                 {provStats[r.name].diskCache.erroredFiles	? <Tooltip title={t('mgmt.storage.rclone.erroredFiles', provStats[r.name].diskCache.erroredFiles)}>
-                  <Stack direction={'row'} alignItems="center" spacing={1}>
+                  <Stack direction={'row'} sx={{ alignItems: 'center' }} spacing={1}>
                     <div>
                       <ExclamationCircleOutlined style={{color: 'red'}} />
                     </div>
@@ -179,7 +179,7 @@ const RClonePage = ({coStatus, containerized}) => {
       }
     ]}
   />
-    : <Stack spacing={2} direction="row" justifyContent="center">
+    : <Stack spacing={2} direction="row" sx={{ justifyContent: 'center' }}>
       <CircularProgress />
     </Stack>}
   </div>);

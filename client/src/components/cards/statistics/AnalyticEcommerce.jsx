@@ -11,20 +11,20 @@ import { RiseOutlined, FallOutlined } from '@ant-design/icons';
 
 // ==============================|| STATISTICS - ECOMMERCE CARD  ||============================== //
 
-const AnalyticEcommerce = ({ color, title, count, percentage, isLoss, extra }) => (
+const AnalyticEcommerce = ({ color = 'primary', title, count, percentage, isLoss, extra }) => ( // Fork addition: the default here (React 19 ignores defaultProps on function components)
     <MainCard contentSX={{ p: 2.25 }}>
         <Stack spacing={0.5}>
             <Typography variant="h6" color="textSecondary">
                 {title}
             </Typography>
-            <Grid container alignItems="center">
-                <Grid item>
-                    <Typography variant="h4" color="inherit">
+            <Grid container sx={{ alignItems: 'center' }}>
+                <Grid>
+                    <Typography variant="h4" sx={{ color: 'inherit' }}>
                         {count}
                     </Typography>
                 </Grid>
                 {percentage && (
-                    <Grid item>
+                    <Grid>
                         <Chip
                             variant="combined"
                             color={color}
@@ -61,10 +61,6 @@ AnalyticEcommerce.propTypes = {
     percentage: PropTypes.number,
     isLoss: PropTypes.bool,
     extra: PropTypes.oneOfType([PropTypes.node, PropTypes.string])
-};
-
-AnalyticEcommerce.defaultProps = {
-    color: 'primary'
 };
 
 export default AnalyticEcommerce;

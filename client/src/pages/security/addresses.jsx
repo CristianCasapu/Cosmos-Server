@@ -105,7 +105,7 @@ const Addresses = ({ overview, bans, bansKnown, catalogue, onShowAddress, onUnba
             title: t('security.addresses.now', 'Now'),
             screenMin: 'sm',
             phone: false, // Fork addition: the first column says it on a phone (narrow)
-            field: (a) => <Stack spacing={0.5} alignItems="flex-start">{blocked(a)}<EdgeBlockedChip address={a.ip} /></Stack>, // Fork addition: and Cloudflare's block
+            field: (a) => <Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>{blocked(a)}<EdgeBlockedChip address={a.ip} /></Stack>, // Fork addition: and Cloudflare's block
           } : null,
           {
             title: '',
