@@ -26,7 +26,14 @@
 //                                     and the pictures show the two zones hatched
 //     SHOT=viewport                   one screen per picture instead of the whole page (default: full), so
 //                                     that bars fixed to the bottom are where a user sees them
+//     CHECK=1                         after the run, fail (exit 1) when a view marked `guard` shows sideways
+//                                     scroll, text outside its card, text over other text, text squeezed to a
+//                                     word per line, an unnamed control or (on a phone) a target under 44 px
 //   node scripts/fork-ui-gallery.mjs summary     only rebuild <OUT>/summary.json from the .json files
+//
+// Storage and Users are pictured with made-up but realistic content (scripts/fork-ui-gallery-fixtures.mjs):
+// a test instance has no disks and few users, and those pages were never seen filled before. The pages'
+// service worker is blocked, or it would fetch past the answers given here.
 //
 // Each engine/viewport/mode combination is independent: run them as separate
 // containers (their addresses differ, so each has its own API allowance) and
@@ -34,6 +41,7 @@
 import { chromium, firefox, webkit } from 'playwright';
 import { mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { storageMock, usersPatch, notificationsMock, eventsMock } from './fork-ui-gallery-fixtures.mjs';
 
 const base = process.env.BASE || 'http://polish.test:18080';
 const out = process.env.OUT || 'gallery';
@@ -58,7 +66,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // The views. One view is one page load; its captures are taken one after the
 // other on that page (the page as loaded, then tabs and dialogs), each into
 // <view>.png or <view>--<capture>.png.
-//   tab: n          the n-th tab of the page's tab list (a select on a phone)
+//   tab: n          the n-th tab of the page's tab list (a select on a phone), or its title (a string:
+//                   the paid tabs are hidden without a licence, which moves the numbers)
+//   guard: true     checked by CHECK=1 (see above)
 //   open: fn        do something first (open a dialog, hover, press keys)
 //   close: fn       undo it (default after `open`: Escape)
 //   core: true      part of the small set
@@ -127,6 +137,18 @@ const marketMock = [['/cosmos/api/markets', { status: 'OK', data: { all: { 'cosm
 const noDnsMock = [['/cosmos/api/dns', { status: 'error', message: 'Internal server error: lookup jellyfin.polish.test on 127.0.0.11:53: server misbehaving', code: 'DNS001' }, 500],
   ['/cosmos/api/dns-check', { status: 'error', message: 'DNS Check error: lookup jellyfin.polish.test on 127.0.0.11:53: server misbehaving', code: 'DNS002' }, 500]];
 
+// the test instance runs in a container, which disables the storage commands: the owner's server does not
+const notContainerized = ['/cosmos/api/status', (j) => (j && j.data ? { ...j, data: { ...j.data, containerized: false } } : j)];
+// every disk and partition of the tree opened, down to the logical volumes
+const expandAll = async (page) => {
+  for (let round = 0; round < 12; round++) {
+    const closed = page.locator('main [role=treeitem][aria-expanded=false] > .MuiTreeItem-content .MuiTreeItem-iconContainer');
+    if (!(await closed.count())) return;
+    await closed.first().click();
+    await page.waitForTimeout(150);
+  }
+};
+
 const views = [
   { id: 'home', path: '/cosmos-ui/', core: true, captures: [
     {},
@@ -184,14 +206,37 @@ const views = [
     { id: 'events', tab: 4 },
   ] },
   { id: 'url-missing', path: '/cosmos-ui/config-url/No-Such-URL' },
-  { id: 'storage', path: '/cosmos-ui/storage', captures: [
+  // Storage as a server with disks shows it (fixtures): a hardware RAID's two virtual disks, an NVMe SSD with
+  // LVM, two SATA disks with S.M.A.R.T., a new empty disk, mounts, a merge and a parity set-up
+  { id: 'storage', path: '/cosmos-ui/storage', core: true, guard: true, wait: 800, mock: storageMock, patch: [notContainerized], captures: [
     {},
-    { id: 'mounts', tab: 1 },
-    { id: 'merge', tab: 4 },
-    { id: 'parity', tab: 5 },
-    { id: 'raid', tab: 6 },
+    { id: 'expanded', open: expandAll, close: async () => {} },
+    { id: 'smart-nvme', open: async (page) => { await page.locator('main button', { hasText: 'S.M.A.R.T.' }).nth(2).click(); }, wait: 600 },
+    { id: 'smart-ata', open: async (page) => { await page.locator('main button', { hasText: 'S.M.A.R.T.' }).nth(3).click(); }, wait: 600 },
+    { id: 'format', open: async (page) => { await page.locator('main button', { hasText: /^Format$/ }).first().click(); } },
+    { id: 'mount', open: async (page) => { await page.locator('main button', { hasText: /^Mount$/ }).first().click(); }, wait: 600 },
+    { id: 'unmount', open: async (page) => { await page.locator('main button', { hasText: /^Unmount$/ }).first().click(); }, wait: 600 },
+    { id: 'mounts', tab: 'Mounts' },
+    { id: 'mounts-new', open: create, wait: 600 },
+    { id: 'mounts-menu', open: async (page) => { await page.locator('main tbody tr').nth(3).locator('button').last().click(); } },
+    { id: 'merge', tab: 'Merge' },
+    { id: 'merge-new', open: create, wait: 600 },
+    { id: 'parity', tab: 'Parity' },
+    { id: 'parity-new', open: create, wait: 600 },
+    { id: 'raid', tab: 'RAID' },
   ] },
-  { id: 'users', path: '/cosmos-ui/config-users', core: true, captures: [{}, { id: 'new', open: create }] },
+  // what a server without disks (or where they cannot be read) shows
+  { id: 'storage-no-disks', path: '/cosmos-ui/storage' },
+  // (five users: the free limit, so "Create" is disabled here; users-create below opens the dialog)
+  { id: 'users', path: '/cosmos-ui/config-users', core: true, guard: true, patch: usersPatch, captures: [
+    {},
+    { id: 'edit', open: async (page) => { await page.locator('main tbody tr').nth(1).locator('td').first().click(); } },
+    { id: 'delete', open: async (page) => { await page.locator('main tbody tr').nth(1).locator('button', { hasText: /^Delete$/ }).click(); } },
+    { id: 'reset-2fa', open: async (page) => { await page.locator('main tbody tr').nth(1).locator('button', { hasText: /2FA/ }).click(); } },
+    { id: 'search', open: async (page) => { await page.locator('main input[placeholder]').first().fill('alexandru'); }, close: async (page) => { await page.locator('main input[placeholder]').first().fill(''); } },
+  ] },
+  // the instance's own users only (fewer than the free limit, so that "Create" works)
+  { id: 'users-create', path: '/cosmos-ui/config-users', guard: true, captures: [{ id: 'new', open: create }] },
   { id: 'openid', path: '/cosmos-ui/openid-manage', captures: [{}, { id: 'new', open: create }] },
   { id: 'cron', path: '/cosmos-ui/cron', captures: [{}, { id: 'new', open: create }] },
   { id: 'config', path: '/cosmos-ui/config-general/general', core: true, captures: [
@@ -260,6 +305,12 @@ const views = [
     {},
     { id: 'step-2', open: async (page) => { await page.locator('input[name=name]').first().fill('demo'); await page.locator('input[name=image]').first().fill('busybox:1.36'); await page.locator('button').filter({ hasText: /^Next$/ }).last().click(); }, close: async () => {} },
   ] },
+  // lists a test instance keeps short, at the length of a server that has run for a month (fixtures)
+  { id: 'notifications-long', path: '/cosmos-ui/', wait: 800, mock: notificationsMock, captures: [
+    { id: 'open', open: async (page) => { await page.locator('header button:has(.anticon-bell)').first().click(); }, wait: 600 },
+  ] },
+  { id: 'monitoring-events-many', path: '/cosmos-ui/monitoring', wait: 1200, mock: eventsMock, captures: [{ id: 'events', tab: 2, wait: 800 }] },
+  { id: 'container-events-many', path: '/cosmos-ui/servapps/containers/jellyfin', wait: 800, mock: eventsMock, captures: [{ id: 'events', tab: 3, wait: 800 }] },
   // upstream's licence-only pages: one picture each, for the record
   { id: 'paid-backups', path: '/cosmos-ui/backups' },
   { id: 'paid-constellation', path: '/cosmos-ui/constellation' },
@@ -457,6 +508,61 @@ const audit = () => {
     }
   }
 
+  // --- text against its card, against other text, and squeezed: measured on the text itself (a Range), not
+  // on its element, whose box can be narrower than the text it lets run out
+  result.cardOverflow = { count: 0, samples: [] };
+  result.textOverlaps = { count: 0, samples: [] };
+  result.squeezed = { count: 0, samples: [] };
+  const layer = (el) => { for (let e = el; e && e !== document.body; e = e.parentElement) { const p = getComputedStyle(e).position; if (p === 'fixed' || p === 'sticky') return e; } return null; };
+  // the box a text is drawn in: the nearest element with a fill or a border of its own (a card, a chip, a
+  // button, a table cell turned card); a box that scrolls in between lets its content run on on purpose
+  const boxOf = (el) => {
+    for (let e = el; e && e !== document.body && e !== document.documentElement; e = e.parentElement) {
+      const s = getComputedStyle(e);
+      if (e !== el && /auto|scroll/.test(s.overflowX)) return null;
+      const bg = parseColour(s.backgroundColor);
+      const filled = (bg && bg.a > 0.02) || (s.backgroundImage && s.backgroundImage !== 'none');
+      const framed = parseFloat(s.borderLeftWidth) > 0 && parseFloat(s.borderRightWidth) > 0;
+      if (filled || framed) return e;
+    }
+    return null;
+  };
+  const lines = [];
+  const textWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let node = textWalker.nextNode(); node && lines.length < 3000; node = textWalker.nextNode()) {
+    const text = node.nodeValue;
+    if (!text || !text.trim()) continue;
+    const el = node.parentElement;
+    if (!el || /^(SCRIPT|STYLE|NOSCRIPT|OPTION|TEXTAREA)$/.test(el.tagName) || el.closest('[aria-hidden="true"], .MuiTooltip-popper, .xterm, .monaco-editor, .cm-editor')) continue;
+    if (!visible(el) || opacityOf(el) < 0.05) continue;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const rects = [...range.getClientRects()].filter((r) => r.width > 1 && r.height > 1);
+    if (!rects.length) continue;
+    const box = boxOf(el);
+    if (box) {
+      const b = box.getBoundingClientRect();
+      const out = rects.find((r) => r.right > b.right + 2 || r.left < b.left - 2);
+      if (out) add(result.cardOverflow, { text: short(text), by: Math.round(Math.max(out.right - b.right, b.left - out.left)), at: describe(el), box: describe(box) });
+    }
+    // squeezed: two or more words drawn one per line in a narrow box ("32" / "TB")
+    const words = text.trim().split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w));
+    const tops = new Set(rects.map((r) => Math.round(r.top)));
+    if (words.length >= 2 && tops.size >= words.length && el.getBoundingClientRect().width < 160) add(result.squeezed, { text: short(text), lines: tops.size, at: describe(el) });
+    for (const r of rects) lines.push({ el, r, fixed: layer(el), text });
+  }
+  for (let i = 0; i < lines.length; i++) {
+    for (let j = i + 1; j < lines.length; j++) {
+      const a = lines[i], b = lines[j];
+      if (a.el === b.el || a.fixed !== b.fixed || a.el.contains(b.el) || b.el.contains(a.el)) continue;
+      const w = Math.min(a.r.right, b.r.right) - Math.max(a.r.left, b.r.left);
+      const h = Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top);
+      if (w <= 2 || h <= 3) continue;
+      if (w * h < 0.25 * Math.min(a.r.width * a.r.height, b.r.width * b.r.height)) continue;
+      add(result.textOverlaps, { a: short(a.text), b: short(b.text), at: describe(a.el) });
+    }
+  }
+
   // --- controls: a name for assistive technology, their size on a phone, overlaps
   const controls = [...document.querySelectorAll('button, a[href], [role=button], [role=tab], [role=menuitem], input:not([type=hidden]), select, textarea, [role=checkbox], [role=switch]')]
     .filter((el) => visible(el) && !el.closest('[aria-hidden="true"]'));
@@ -553,7 +659,7 @@ const run = async (engineName, viewport, mode) => {
   const phone = viewport.width < 600;
 
   const browser = await engines[engineName].launch();
-  const context = await browser.newContext({ viewport, colorScheme: mode, reducedMotion: 'reduce', ignoreHTTPSErrors: true, locale: 'en-GB', timezoneId: 'Europe/Bucharest' });
+  const context = await browser.newContext({ viewport, colorScheme: mode, reducedMotion: 'reduce', ignoreHTTPSErrors: true, locale: 'en-GB', timezoneId: 'Europe/Bucharest', serviceWorkers: 'block' });
   // the skin's own switch (client/public/skin/mode.js) reads this
   await context.addInitScript((m) => { try { window.localStorage.setItem('ct-mode', m); } catch (e) { /* no storage */ } }, mode);
   // the installed app: the page asks the browser "am I in a window of my own?" (client/src/utils/pwaInstall.js)
@@ -644,7 +750,11 @@ const run = async (engineName, viewport, mode) => {
   const openTab = async (index) => {
     // (a tablet in portrait gets the select too: ask the page which of the two it shows)
     const tabs = page.locator('main [role=tablist]').first();
-    if (!phone && await tabs.isVisible().catch(() => false)) { await tabs.locator('[role=tab]').nth(index).click(); return; }
+    const byName = typeof index === 'string';
+    if (!phone && await tabs.isVisible().catch(() => false)) {
+      await (byName ? tabs.locator('[role=tab]', { hasText: index }).first() : tabs.locator('[role=tab]').nth(index)).click();
+      return;
+    }
     const select = await page.evaluateHandle(() => {
       for (const s of document.querySelectorAll('main .MuiSelect-select')) {
         const root = s.closest('.MuiInputBase-root');
@@ -655,10 +765,10 @@ const run = async (engineName, viewport, mode) => {
     const element = select.asElement();
     if (!element) throw new Error('no tab select on this page');
     await element.click();
-    await page.locator('[role=listbox] li').nth(index).click();
+    await (byName ? page.locator('[role=listbox] li', { hasText: index }).first() : page.locator('[role=listbox] li').nth(index)).click();
   };
 
-  const capture = async (name, problems) => {
+  const capture = async (name, problems, guarded) => {
     const file = join(dir, name + '.png');
     // a full-page picture taken on a scrolled page draws the fixed top bar in the middle of it
     await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
@@ -674,7 +784,7 @@ const run = async (engineName, viewport, mode) => {
     try { measured = await page.evaluate(audit); } catch (e) { problems.push('audit: ' + String(e.message).slice(0, 200)); }
     const summary = {
       view: name, engine: engineName, viewport: `${viewport.width}x${viewport.height}`, mode,
-      url: page.url().replace(base, ''), file: `${label}/${name}.png`,
+      url: page.url().replace(base, ''), file: `${label}/${name}.png`, guard: !!guarded,
       errors: [...new Set(errors)], problems, ...(measured || {}),
     };
     errors = [];
@@ -687,6 +797,9 @@ const run = async (engineName, viewport, mode) => {
       m.smallText && m.smallText.count ? `small ${m.smallText.count}` : '',
       m.cutOff && m.cutOff.count ? `cut ${m.cutOff.count}` : '',
       m.overlaps && m.overlaps.count ? `overlap ${m.overlaps.count}` : '',
+      m.cardOverflow && m.cardOverflow.count ? `out-of-card ${m.cardOverflow.count}` : '',
+      m.textOverlaps && m.textOverlaps.count ? `text-over-text ${m.textOverlaps.count}` : '',
+      m.squeezed && m.squeezed.count ? `squeezed ${m.squeezed.count}` : '',
       problems.length ? 'PROBLEM ' + problems.join(' | ') : '');
   };
 
@@ -720,7 +833,7 @@ const run = async (engineName, viewport, mode) => {
         if (step.open) { await room(40); await step.open(page); }
         await settle(step.wait || 0);
       } catch (e) { problems.push('step: ' + String(e.message).split('\n')[0].slice(0, 200)); }
-      await capture(name, problems);
+      await capture(name, problems, view.guard);
       try {
         if (step.open) {
           if (step.close) await step.close(page); else await page.keyboard.press('Escape');
@@ -768,12 +881,14 @@ const summarise = () => {
         targetsBelow24: s.targets ? s.targets.below24 : null, targetsBelow44: s.targets ? s.targets.below44 : null,
         nestedFocus: s.nestedFocus ? s.nestedFocus.count : null, headingSkips: s.headingSkips ? s.headingSkips.count : null,
         headerMinGap: s.header ? s.header.minGap : null, headerSmallest: s.header ? s.header.smallest : null,
+        cardOverflow: s.cardOverflow ? s.cardOverflow.count : null, textOverlaps: s.textOverlaps ? s.textOverlaps.count : null, squeezed: s.squeezed ? s.squeezed.count : null,
+        guard: !!s.guard, phone: Number(String(s.viewport).split('x')[0]) < 600,
       });
     }
   }
   const totals = {};
   for (const row of rows) {
-    const t = totals[row.run] || (totals[row.run] = { captures: 0, errors: 0, problems: 0, sidewaysScroll: 0, contrast: 0, smallText: 0, cutOff: 0, truncated: 0, overlaps: 0, unnamed: 0, targetsBelow24: 0, targetsBelow44: 0, nestedFocus: 0, headingSkips: 0, headerMinGap: null, headerSmallest: null });
+    const t = totals[row.run] || (totals[row.run] = { captures: 0, errors: 0, problems: 0, sidewaysScroll: 0, contrast: 0, smallText: 0, cutOff: 0, truncated: 0, overlaps: 0, unnamed: 0, targetsBelow24: 0, targetsBelow44: 0, nestedFocus: 0, headingSkips: 0, cardOverflow: 0, textOverlaps: 0, squeezed: 0, headerMinGap: null, headerSmallest: null });
     t.captures++;
     for (const key of Object.keys(t)) if (key !== 'captures' && key !== 'headerMinGap' && key !== 'headerSmallest') t[key] += Number(row[key]) || 0;
     // the header: the worst seen in the run
@@ -782,9 +897,29 @@ const summarise = () => {
   writeFileSync(join(out, 'summary.json'), JSON.stringify({ totals, captures: rows }, null, 1));
   note('\nsummary:', join(out, 'summary.json'));
   for (const [run, t] of Object.entries(totals)) note(' ', run.padEnd(28), JSON.stringify(t));
+  return rows;
 };
 
 if (process.argv[2] !== 'summary') {
   for (const engineName of engineNames) for (const viewport of viewports) for (const mode of modes) await run(engineName, viewport, mode);
 }
-summarise();
+const rows = summarise();
+
+// CHECK=1: the guarded views (Storage and Users with content) must have none of these
+if (process.env.CHECK === '1') {
+  const bad = [];
+  for (const r of rows.filter((x) => x.guard)) {
+    const why = [];
+    if (r.sidewaysScroll) why.push('sideways scroll');
+    if (r.cardOverflow) why.push(r.cardOverflow + ' text out of its card');
+    if (r.textOverlaps) why.push(r.textOverlaps + ' text over text');
+    if (r.squeezed) why.push(r.squeezed + ' squeezed a word per line');
+    if (r.cutOff) why.push(r.cutOff + ' cut off');
+    if (r.unnamed) why.push(r.unnamed + ' unnamed');
+    if (r.phone && r.targetsBelow44) why.push(r.targetsBelow44 + ' targets under 44 px');
+    if (r.errors || r.problems) why.push((r.errors + r.problems) + ' errors/steps that failed');
+    if (why.length) bad.push(`${r.run}/${r.view}: ${why.join(', ')}`);
+  }
+  note(bad.length ? '\nCHECK FAILED:\n  ' + bad.join('\n  ') : '\nCHECK OK (' + rows.filter((x) => x.guard).length + ' guarded captures)');
+  if (bad.length) process.exitCode = 1;
+}
