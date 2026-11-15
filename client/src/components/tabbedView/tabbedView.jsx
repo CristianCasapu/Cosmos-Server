@@ -24,7 +24,7 @@ const TabPanel = (props) => {
     >
       {value === index && (
         <Box sx={{ p: isMobile ? 1 : 3 }} style={{paddingTop: 0}}>
-          <Typography>{children}</Typography>
+          <Typography component="div">{children}</Typography>{/* Fork addition: a div, as the panels hold blocks (a <p> may not) */}
         </Box>
       )}
     </div>

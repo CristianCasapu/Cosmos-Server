@@ -75,7 +75,7 @@ const OpenID = () => {
               {t('oidc.account')}</label>
             </div>
               : <div>
-                <input type="checkbox" name="scopes" hidden value={scope} checked={checkedScopes.includes(scope)} />
+                <input type="checkbox" name="scopes" hidden value={scope} checked={checkedScopes.includes(scope)} readOnly />{/* Fork addition: readOnly (React warns of a checked field without onChange) */}
                 <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}><Checkbox checked={checkedScopes.includes(scope)} onChange={(e) => onchange(e, scope)} />
                 {scope}</label>
               </div>

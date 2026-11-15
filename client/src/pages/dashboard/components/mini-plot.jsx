@@ -219,7 +219,7 @@ const _MiniPlotComponent = ({metrics, labels, noLabels, noBackground, agglo, tit
         }}>{title}</div>}
 
         {!noLabels && dataMetrics && dataMetrics.map((dataMetric, di) => 
-          <div>
+          <div key={dataMetric.Key || di}>{/* Fork addition: key */}
             <div style={{
               display: 'inline-block',
               width: '10px',

@@ -317,7 +317,7 @@ const ServApps = ({stack}) => {
             <Stack sx={{ justifyContent: 'space-around', padding: 2 }} direction="column" spacing={2} divider={<Divider orientation="horizontal" flexItem />}>
               <Stack direction="column" spacing={0} sx={{ alignItems: 'flex-start' }}>
                 <Stack style={{position: 'relative', overflowX: 'hidden', width: '100%'}} direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                  <Typography variant="body2" component="div" sx={{ color: 'text.secondary' }}>{/* Fork addition: a div, as it holds a Chip (a <p> may not) */}
                     {
                       (app.state !== 'running' && app.labels && app.labels['cosmos-lazy'] === 'true') ? (
                         <Chip label={t('mgmt.servApps.dormantChip.dormantLabel')} color="info" />

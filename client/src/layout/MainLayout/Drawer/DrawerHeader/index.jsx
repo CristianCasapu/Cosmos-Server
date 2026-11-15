@@ -15,7 +15,7 @@ const DrawerHeader = ({ open }) => {
     const theme = useTheme();
 
     return (
-        <DrawerHeaderStyled theme={theme} open={open}>
+        <DrawerHeaderStyled open={open}>{/* Fork addition: no theme prop (styled() takes it from the context; MUI 9 writes to it and React's frozen props refuse) */}
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                 <Logo />
             </Stack>
