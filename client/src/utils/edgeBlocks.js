@@ -3,7 +3,39 @@
 // [translation key, English text, values] triple, so that a test can check
 // each against the English translation file.
 
-export const PERMISSION_NAME = 'Zone > Firewall Services > Edit';
+// The permissions as the token editor names them, per way of blocking
+// (Cloudflare's permissions reference: zone "Firewall Services", zone "Zone
+// WAF", account "Account Firewall Access Rules").
+export const PERMISSIONS = {
+  zone_rules: 'Zone > Firewall Services > Edit',
+  waf: 'Zone > Zone WAF > Edit',
+  account_rules: 'Account > Account Firewall Access Rules > Edit',
+};
+// the one to ask for when nothing works: custom rules work for every kind of token
+export const PERMISSION_NAME = PERMISSIONS.waf;
+
+// How a domain's blocks are made.
+export const WAYS = {
+  zone_rules: ['mgmt.edge.via.zone', 'IP Access Rules of the domain'],
+  waf: ['mgmt.edge.via.waf', 'custom rules of the domain (WAF)'],
+  account_rules: ['mgmt.edge.via.account', 'IP Access Rules of the whole Cloudflare account'],
+};
+
+// What the switch-on test found for a domain.
+const OUTCOMES = {
+  zone_rules: ['mgmt.edge.outcome.zone', '{{zone}}: blocks are made as IP Access Rules of this domain.'],
+  waf: ['mgmt.edge.outcome.waf', '{{zone}}: blocks are made as custom rules of this domain (WAF): Cosmos keeps at most two of its own there (one to challenge, one to block), with up to 100 addresses each, and never touches yours.'],
+  account_rules: ['mgmt.edge.outcome.account', '{{zone}}: blocks are made as IP Access Rules of the whole Cloudflare account, as you chose: an address blocked here is blocked on every domain of the account.'],
+  waf_read_only: ['mgmt.edge.outcome.wafRead', '{{zone}}: the token may read this domain\'s custom rules but not change them. In Cloudflare\'s dashboard, add "{{waf}}" for this domain to the token, then test again.'],
+  waf_full: ['mgmt.edge.outcome.wafFull', '{{zone}}: the domain already has 5 custom rules, the most the Free plan allows, and Cosmos needs one or two. Delete one of yours, or add "{{zone_rules}}" to the token (IP Access Rules use no custom rule).'],
+  account_only: ['mgmt.edge.outcome.accountOnly', '{{zone}}: the token may only make IP Access Rules of the whole Cloudflare account. Such a rule blocks the address on every domain of your account, not only this one. Choose that below if you want it, or add "{{waf}}" for this domain to the token to keep the blocks to this domain.'],
+  none: ['mgmt.edge.outcome.none', '{{zone}}: the token may not make any kind of rule at Cloudflare. In Cloudflare\'s dashboard, add "{{waf}}" for this domain to the token (it works for every kind of token), then test again.'],
+  error: ['mgmt.edge.outcome.error', '{{zone}}: the test could not finish: {{problem}}'],
+};
+export const ACCOUNT_CHOICE = ['mgmt.edge.account.choice', 'Use IP Access Rules of the whole Cloudflare account'];
+export const ACCOUNT_CONSEQUENCE = ['mgmt.edge.account.consequence', 'An address blocked this way is blocked on every domain of your Cloudflare account, not only on this one. Cosmos still removes the rule when its time is up.'];
+export const ALSO_ACCOUNT = ['mgmt.edge.outcome.alsoAccount', 'The token may also make IP Access Rules of the whole account: you can choose that below instead.'];
+export const CREATED = ['mgmt.edge.outcome.created', 'The domain had no custom rules yet: Cosmos made its list of custom rules for the test (it stays, empty).'];
 export const TOKENS_URL = 'https://dash.cloudflare.com/profile/api-tokens';
 
 export const REASONS = {
@@ -53,7 +85,8 @@ export const MANUAL_MODES = [
 ];
 
 const PROBLEMS = {
-  permission: ['mgmt.edge.problem.permission', 'The token of {{zone}} may not manage IP Access Rules. In Cloudflare\'s dashboard (My Profile > API Tokens), edit the token and add the permission "{{permission}}" for this domain; then press "Try again".'],
+  permission: ['mgmt.edge.problem.permission', 'The token of {{zone}} may no longer make or lift the blocks ({{via}}). In Cloudflare\'s dashboard, edit the token and add the permission "{{permission}}" for this domain; then press "Try again now".'],
+  refused: ['mgmt.edge.problem.refused', 'Cloudflare refused a change of the blocks of {{zone}} (for custom rules: the list may be full). Cosmos tries again by itself (next try {{until}}).'],
   invalid_token: ['mgmt.edge.problem.token', 'Cloudflare refuses the token of {{zone}}. Put in a valid token for the domain.'],
   rate_limited: ['mgmt.edge.problem.rateLimited', 'Cloudflare asked to slow down: Cosmos waits until {{until}} and then goes on.'],
   unreachable: ['mgmt.edge.problem.unreachable', 'Cloudflare could not be reached for {{zone}}: Cosmos tries again by itself (next try {{until}}).'],
@@ -62,15 +95,9 @@ const PROBLEMS = {
   other: ['mgmt.edge.problem.other', 'Something went wrong talking to Cloudflare for {{zone}}: Cosmos tries again by itself (next try {{until}}).'],
 };
 
-const STEPS = {
-  zone: ['mgmt.edge.step.zone', 'find the domain'],
-  list: ['mgmt.edge.step.list', 'list the IP Access Rules'],
-  create: ['mgmt.edge.step.create', 'make a test rule'],
-  delete: ['mgmt.edge.step.delete', 'delete the test rule'],
-};
 
 const FAILURES = {
-  proof_failed: ['mgmt.edge.fail.proof', 'The test did not pass for every domain: nothing was switched on.'],
+  proof_failed: ['mgmt.edge.fail.proof', 'Not switched on: what each domain needs is said below.'],
   off: ['mgmt.edge.fail.off', 'Blocking at Cloudflare is off: switch it on first.'],
   not_an_address: ['mgmt.edge.fail.address', 'That is not an IP address.'],
   duration: ['mgmt.edge.fail.duration', 'Pick how long.'],
@@ -84,9 +111,7 @@ const FAILURES = {
 
 const UNKNOWN_FAILURE = ['mgmt.edge.fail.unknown', 'That did not work ({{reason}}).'];
 
-export const PROOF_OK = ['mgmt.edge.proof.ok', '{{zone}}: the token may list, make and delete IP Access Rules.'];
-export const PROOF_INFERRED = ['mgmt.edge.proof.inferred', '{{zone}}: the token may list and delete IP Access Rules; Cloudflare refused the test address itself, after checking the permission.'];
-export const PROOF_FAILED = ['mgmt.edge.proof.failed', '{{zone}}: the test stopped at "{{step}}". {{problem}}'];
+export const PROOF_INFERRED_NOTE = ['mgmt.edge.proof.inferredNote', 'Cloudflare refused the test address itself, after checking the permission: the permission is there.'];
 export const PROOF_LEFT = ['mgmt.edge.proof.left', 'The test rule for 192.0.2.1 could not be deleted yet: Cosmos deletes it as soon as it can.'];
 
 const fmtTime = (value, format) => (value ? format(value) : '');
@@ -95,7 +120,8 @@ const fmtTime = (value, format) => (value ? format(value) : '');
 export const problemText = (problem, format = (v) => v) => {
   if (!problem) return null;
   const text = PROBLEMS[problem.reason] || PROBLEMS.other;
-  return [text[0], text[1], { zone: problem.zone, permission: PERMISSION_NAME, until: fmtTime(problem.until, format) }];
+  const via = WAYS[problem.via] || WAYS.zone_rules;
+  return [text[0], text[1], { zone: problem.zone, permission: PERMISSIONS[problem.via] || PERMISSIONS.zone_rules, via: via[1], viaKey: via[0], until: fmtTime(problem.until, format) }];
 };
 
 // failureText turns the route's refusal into a sentence.
@@ -110,16 +136,33 @@ export const failureText = (res) => {
   return [UNKNOWN_FAILURE[0], UNKNOWN_FAILURE[1], { reason: String(reason).slice(0, 40) }];
 };
 
-// proofText says how the test of one zone went.
+// proofText says how the test of one domain went, and what is missing.
 export const proofText = (result) => {
-  if (result.ok && result.inferred) return [PROOF_INFERRED[0], PROOF_INFERRED[1], { zone: result.zone }];
-  if (result.ok) return [PROOF_OK[0], PROOF_OK[1], { zone: result.zone }];
-  const step = STEPS[result.step] || STEPS.list;
-  const problem = PROBLEMS[result.reason] || PROBLEMS.other;
-  return [PROOF_FAILED[0], PROOF_FAILED[1], {
-    zone: result.zone, step: step[1], stepKey: step[0], problem: problem[1], problemKey: problem[0], permission: PERMISSION_NAME, until: '',
-  }];
+  const values = { zone: result.zone, waf: PERMISSIONS.waf, zone_rules: PERMISSIONS.zone_rules, account_rules: PERMISSIONS.account_rules };
+  if (result.outcome === 'error' || !OUTCOMES[result.outcome]) {
+    const problem = PROBLEMS[result.reason] || PROBLEMS.other;
+    return [OUTCOMES.error[0], OUTCOMES.error[1], { ...values, problem: problem[1], problemKey: problem[0], until: '', permission: PERMISSIONS.waf }];
+  }
+  return [OUTCOMES[result.outcome][0], OUTCOMES[result.outcome][1], values];
 };
+
+// proofNotes are the sentences that follow: the account choice, what the
+// test left.
+export const proofNotes = (result) => {
+  const notes = [];
+  if (result.created) notes.push(CREATED);
+  if (result.outcome === 'waf_read_only' && result.accountRules === 'read') notes.push(ALSO_ACCOUNT);
+  if (result.inferred) notes.push(PROOF_INFERRED_NOTE);
+  if (result.leftTestRule) notes.push(PROOF_LEFT);
+  return notes;
+};
+
+// offersAccount says whether the card offers the account's rules: a test
+// found that the token may make them, and nothing narrower.
+// tests: the results the card just got (the status may not have them yet).
+export const offersAccount = (status, tests = []) => [...((status && status.zones) || []).map((zone) => zone.lastTest), ...(tests || [])]
+  .some((test) => test && ['account_only', 'waf_read_only', 'waf_full', 'none'].includes(test.outcome) && test.accountRules === 'read')
+  || !!(status && status.allowAccount);
 
 // durationText says a number of seconds in words, roughly.
 export const durationText = (seconds) => {
@@ -228,8 +271,9 @@ export const looksLocal = (address) => /^(10\.|127\.|192\.168\.|169\.254\.|172\.
 export const ALL_TEXTS = [
   ...Object.values(REASONS), ...Object.values(MODES), ...Object.values(STATES), ...Object.values(EXEMPT),
   ...DURATIONS.map((d) => d.label), ...MANUAL_MODES.flatMap((m) => [m.label, m.description]),
-  ...Object.values(PROBLEMS), ...Object.values(STEPS), ...Object.values(FAILURES), UNKNOWN_FAILURE,
-  PROOF_OK, PROOF_INFERRED, PROOF_FAILED, PROOF_LEFT,
+  ...Object.values(PROBLEMS), ...Object.values(FAILURES), UNKNOWN_FAILURE,
+  ...Object.values(WAYS), ...Object.values(OUTCOMES), ACCOUNT_CHOICE, ACCOUNT_CONSEQUENCE, ALSO_ACCOUNT, CREATED,
+  PROOF_INFERRED_NOTE, PROOF_LEFT,
   ['mgmt.edge.fail.exempt', 'This address is never blocked at Cloudflare: {{why}}.'],
   ['mgmt.edge.jail', '{{what}}: {{count}} within {{window}}, then {{mode}} for {{length}}'],
   ['mgmt.edge.time.week', 'a week'], ['mgmt.edge.time.weeks', '{{count}} weeks'], ['mgmt.edge.time.day', 'a day'], ['mgmt.edge.time.days', '{{count}} days'],

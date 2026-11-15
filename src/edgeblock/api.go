@@ -61,11 +61,30 @@ func failure(w http.ResponseWriter, status int, reason string, extra map[string]
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	body := map[string]interface{}{"status": "error", "code": "EB010", "message": "Edge blocks: " + reason, "reason": reason}
+	message, known := failureMessages[reason]
+	if !known {
+		message = "Edge blocks: refused (" + reason + ")"
+	}
+	body := map[string]interface{}{"status": "error", "code": "EB010", "message": message, "reason": reason}
 	for k, v := range extra {
 		body[k] = v
 	}
 	json.NewEncoder(w).Encode(body)
+}
+
+// failureMessages are the sentences of the refusals, for the panel's
+// one-line notice of a failed command (the card says more).
+var failureMessages = map[string]string{
+	"proof_failed":     "Not switched on: the card says what each domain's token needs.",
+	"off":              "Blocking at Cloudflare is off: switch it on first.",
+	"not_an_address":   "That is not an IP address.",
+	"duration":         "Pick how long.",
+	"mode":             "Pick block or challenge.",
+	"exempt":           "This address is never blocked at Cloudflare.",
+	"no_proven_zone":   "No domain has passed the test: switch the feature on again.",
+	"no_shielded_zone": "No address is served through Cloudflare's proxy yet.",
+	"full":             "Cosmos already keeps the most rules it may at Cloudflare.",
+	"not_blocked":      "This address is not blocked at Cloudflare.",
 }
 
 // ZoneState is what the card shows of a zone.

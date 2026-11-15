@@ -378,3 +378,15 @@ func TestAnAccountProofCountsOnlyWithTheOwnersChoice(t *testing.T) {
 		t.Fatal("shown as in use")
 	}
 }
+
+func TestRefusalsAreSentences(t *testing.T) {
+	env := setupWith(t, ownersToken, nil)
+	_, body := env.enableWith(false)
+	if message, _ := body["message"].(string); !strings.HasPrefix(message, "Not switched on") {
+		t.Fatalf("%v", body["message"])
+	}
+	_, body = env.post(map[string]interface{}{"action": "block", "address": "198.51.100.7", "duration": "1d"})
+	if message, _ := body["message"].(string); strings.Contains(message, "_") {
+		t.Fatalf("%v", body["message"])
+	}
+}
