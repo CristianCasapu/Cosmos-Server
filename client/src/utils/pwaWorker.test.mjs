@@ -253,6 +253,24 @@ test('no connection, or a proxy saying the server is gone: the offline page, as 
   }
 });
 
+// Fork addition: the offline page keeps the script policy it was served with (src/fork_csp.go)
+test('the offline page keeps its script policy', async () => {
+  const POLICY = "default-src 'self'; script-src 'self'; object-src 'none'";
+  for (const name of ['Content-Security-Policy', 'Content-Security-Policy-Report-Only']) {
+    const b = browser({ server: (key) => b.basic('content of ' + key, { status: 200, headers: { 'Content-Type': typeOf(key), [name]: POLICY } }) });
+    await b.install();
+    const offline = browser({ offline: true, caches: [...b.stores] });
+    const answer = await offline.request('/cosmos-ui/servapps', { mode: 'navigate' });
+    assert.equal(answer.status, 503);
+    assert.equal(answer.headers.get(name), POLICY, name);
+  }
+  // a page kept without one gets none (nothing is made up)
+  const plain = browser();
+  await plain.install();
+  const answer = await browser({ offline: true, caches: [...plain.stores] }).request('/cosmos-ui/', { mode: 'navigate' });
+  assert.equal(answer.headers.get('Content-Security-Policy'), null);
+});
+
 test('after a whole session the caches hold files of the build and nothing else', async () => {
   const b = browser();
   await b.install();

@@ -103,7 +103,7 @@ for (const name of names) for (const size of wanted) {
   await ports.getByText('8080 and 8443').click();
   await page.waitForTimeout(2500);
   let body = await page.locator('body').innerText();
-  expect(id + ': before saving, the new address is said', /The panel moves to http:\/\/forms3\.test:8080/.test(body), body.match(/The panel moves[^\n]*/));
+  expect(id + ': before saving, the new address is said', body.includes('The panel moves to http://' + new URL(base).hostname + ':8080'), body.match(/The panel moves[^\n]*/));
   expect(id + ': the check says the new port is free', /Port 8080 is free on this server/.test(body));
   expect(id + ': and that saving restarts the web server', /Saving restarts the web server/.test(body));
   await ports.getByText('Other ports').click();
@@ -118,7 +118,8 @@ for (const name of names) for (const size of wanted) {
   expect(id + ': the address in use is proposed for the admin whitelist', /The address you are connected from right now/.test(body), body.match(/Add \d[^\n]*/g));
   expect(id + ': and the network the admin shares with the server', /The local network you and the server are on/.test(body));
   await page.locator('#fork-whitelist-add').fill('10.0.0.0/8');
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  // the trusted proxies have an Add button of their own on the same tab: the whitelist's is next to its field
+  await page.locator('.MuiStack-root:has(#fork-whitelist-add):has(> button)').locator('> button', { hasText: /^Add$/ }).click();
   await page.waitForTimeout(2500);
   body = await page.locator('body').innerText();
   expect(id + ': a list without the address in use says it would lock the admin out', /This list would lock you out/.test(body));

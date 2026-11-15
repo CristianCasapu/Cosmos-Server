@@ -74,6 +74,8 @@ type APIError struct {
 	Status  int
 	Code    int
 	Message string
+	// RetryAfter: how long Cloudflare asked to wait (429), 0 when it did not say
+	RetryAfter time.Duration
 }
 
 func (e *APIError) Error() string {
@@ -211,6 +213,9 @@ func (c *Client) call(ctx context.Context, method string, path string, query url
 			apiErr.Kind = "not_found"
 		case resp.StatusCode == http.StatusTooManyRequests:
 			apiErr.Kind = "rate_limited"
+			if seconds, err := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After"))); err == nil && seconds > 0 && seconds <= 3600 {
+				apiErr.RetryAfter = time.Duration(seconds) * time.Second
+			}
 		case resp.StatusCode >= 500:
 			apiErr.Kind = "server"
 		case resp.StatusCode >= 300 && resp.StatusCode < 400:
@@ -267,6 +272,10 @@ type Zone struct {
 		Name     string `json:"name"`
 		LegacyID string `json:"legacy_id"`
 	} `json:"plan"`
+	// the account that holds the zone: where its Turnstile widgets are made
+	Account struct {
+		ID string `json:"id"`
+	} `json:"account"`
 }
 
 // ListZones lists the zones the token sees, at most 200; name narrows it to

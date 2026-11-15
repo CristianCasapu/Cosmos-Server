@@ -116,6 +116,9 @@ var catalogue = func() map[string]Kind {
 		incident(utils.SecResetRequested, SeverityLow, OutcomeOK, "Password reset asked for", "The \"forgot password\" form was sent with the name and email of an account: a reset link is mailed (at most one a minute). Target: the account. The form is open to anyone, hence an incident: harmless when the user did it."),
 		incident(utils.SecResetRejected, SeverityLow, OutcomeFailed, "Password reset for an unknown account", "The \"forgot password\" form was sent with a name and email that match no account. Target: the name that was tried."),
 		audit(utils.SecPasswordChanged, SeverityMedium, "Password changed", "A user set a new password through a reset link."),
+		incident(utils.SecTurnstileMissing, SeverityLow, OutcomeDenied, "Sign-in check missing", "A public form (sign-in, forgot password, invitation or reset link) was sent from the internet without Cloudflare's Turnstile check: a program that does not run the page, or a browser that blocked the check. Nothing of the form was looked at. Details: form."),
+		incident(utils.SecTurnstileFailed, SeverityMedium, OutcomeDenied, "Sign-in check refused", "Cloudflare's Turnstile check of a public form was refused: a token that is invalid, expired, used before, made for another address or form, or too many checks from one visitor. Nothing of the form was looked at. Details: form, reason."),
+		incident(utils.SecTurnstileUnavailable, SeverityLow, OutcomeFailed, "Sign-in check unavailable", "Cloudflare's Turnstile check could not be made: Cloudflare could not be reached or answered with an error, or it refused the secret key. Visitors from the internet could not use the public forms meanwhile; the local network is never asked. Details: reason."),
 		incident(utils.SecRegisterFailed, SeverityMedium, OutcomeFailed, "Bad invitation or reset link", "The registration form was sent with a key that is wrong or expired. Target: the name that was tried."),
 
 		audit(utils.SecUserCreated, SeverityMedium, "User created", "An administrator created an account. Target: the new account. Details: role."),
@@ -179,6 +182,10 @@ var catalogue = func() map[string]Kind {
 
 		audit(utils.SecExposeOpened, SeverityHigh, "App exposed to the internet", "An administrator made an app reachable from the internet: its web interface under a domain (web lists each name and whether it goes through Cloudflare or directly) and/or ports the router forwards (ports, each with the DNS-only name it is reached at). A port opened this way reaches the app directly, without Cosmos' login or SmartShield. Target: the container."),
 		audit(utils.SecExposeClosed, SeverityMedium, "App withdrawn from the internet", "An administrator withdrew internet addresses of an app: web lists the names whose URL was deleted, ports the router ports closed (their names go with them). Target: the container."),
+
+		incident(utils.SecEdgeBlocked, SeverityHigh, OutcomeBlocked, "Blocked at Cloudflare", "Cosmos asked Cloudflare to block or challenge an address that came through Cloudflare's proxy and kept offending: Cloudflare stops it before it reaches the server, until the time is up or an administrator lifts it. Target: the address or IPv6 network. Details: reason (auth, probe, scan, abuse, repeat), mode (block or managed_challenge), until, zone."),
+		audit(utils.SecEdgeBlockAdded, SeverityMedium, "Blocked at Cloudflare by hand", "An administrator asked Cloudflare to block or challenge an address. Target: the address or IPv6 network. Details: mode, until."),
+		audit(utils.SecEdgeUnblocked, SeverityMedium, "Block at Cloudflare lifted", "A block Cosmos made at Cloudflare was removed. Target: the address or IPv6 network. Details: reason is admin (lifted by an administrator), all (everything lifted), off (the feature was switched off), expired (its time was up), removed_at_cloudflare (somebody deleted it in Cloudflare's dashboard) or admin_seen (an administrator signed in from it)."),
 
 		incident(utils.SecRecorderDropped, SeverityMedium, OutcomeFailed, "Events lost", "The record could not keep up (the database did not answer): Count events were not stored."),
 	}

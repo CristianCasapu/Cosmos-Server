@@ -12,7 +12,7 @@ export default function createMetricsAPI(apiFetch: ApiFetch) {
 
   function reset(): Promise<ApiResponse> {
     return wrap(apiFetch('/cosmos/api/reset-metrics', {
-      method: 'GET',
+      method: 'POST', // Fork addition: a command, sent as POST (src/fork_post_only.go)
       headers: {
           'Content-Type': 'application/json'
       },

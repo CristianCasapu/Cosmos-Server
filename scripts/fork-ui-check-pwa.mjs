@@ -54,6 +54,19 @@ const modes = (process.env.MODES || 'dark').split(',');
 const admin = { nickname: process.env.ADMIN_NICKNAME || 'admin', password: process.env.ADMIN_PASSWORD || 'Test-Passw0rd!x' };
 const engines = { chromium, firefox, webkit };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Waits until the page no longer shows the offline page. Asked from here, not
+// with page.waitForFunction: that one runs its predicate in the page through
+// eval, which the panel's script policy refuses (WebKit then fails the wait at
+// once). page.title() needs no eval in the page.
+const leftOfflinePage = async (page, timeout) => {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) {
+    const title = await page.title().catch(() => '');
+    if (title && title !== 'Cosmos cannot be reached') return true;
+    await sleep(1000);
+  }
+  return false;
+};
 mkdirSync(out, { recursive: true });
 
 const results = [];
@@ -216,8 +229,7 @@ const phases = {
           await shot(page, `offline-${engine}-${size}-${mode}`);
           if (process.env.WAIT_BACK === '1' && size === 'desktop' && mode === modes[0]) {
             console.log(`[${engine}] waiting for the instance to come back…`);
-            const back = await page.waitForFunction(() => document.title !== 'Cosmos cannot be reached', null, { timeout: 180000, polling: 1000 })
-              .then(() => true, () => false);
+            const back = await leftOfflinePage(page, 180000);
             await page.waitForLoadState('networkidle').catch(() => {});
             check(engine, 'the panel opens by itself when the server is back', back, page.url());
             await shot(page, `offline-back-${engine}`);
@@ -341,8 +353,7 @@ const phases = {
         await shot(page, `offline-${engine}-${size}-${modes[0]}`);
       }
       console.log(`[${engine}] START THE INSTANCE AGAIN`);
-      const back = await page.waitForFunction(() => document.title !== 'Cosmos cannot be reached', null, { timeout: 240000, polling: 1000 })
-        .then(() => true, () => false);
+      const back = await leftOfflinePage(page, 240000);
       await page.waitForLoadState('networkidle').catch(() => {});
       check(engine, 'the panel opens by itself when the server is back', back, page.url());
       await shot(page, `offline-back-${engine}`);

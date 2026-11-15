@@ -3,7 +3,6 @@ package configapi
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/azukaar/cosmos-server/src/utils"
 )
@@ -92,6 +91,11 @@ func ConfigApiPatch(w http.ResponseWriter, req *http.Request) {
 		updateReq.NewRoute = &stripped
 	}
 
+	// Fork addition: a URL that serves a host folder needs the resources permission too, see fork_host_powers.go
+	if refusePatchedFolderRoute(w, req, updateReq.Operation, routes, routeIndex, updateReq.NewRoute) {
+		return
+	}
+
 	switch updateReq.Operation {
 		case "replace":
 			utils.Log("RouteSettingsUpdate: Replacing route: "+updateReq.RouteName)
@@ -159,9 +163,8 @@ func ConfigApiPatch(w http.ResponseWriter, req *http.Request) {
 	if updateReq.NewRoute != nil && updateReq.NewRoute.Mode == "SERVAPP" {
 		utils.Log("RouteSettingsUpdate: Service needs update: "+updateReq.NewRoute.Target)
 
-		target := updateReq.NewRoute.Target
-		tokens := strings.Split(target, ":")
-		name := tokens[1][2:]
+		// Fork addition: a target without "://" no longer panics after the save, see fork_patch_target.go
+		name := servAppTargetName(updateReq.NewRoute.Target)
 		
 		utils.Log("RouteSettingsUpdate: Service needs update: "+name)
 

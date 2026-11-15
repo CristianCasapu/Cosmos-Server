@@ -27,7 +27,7 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
 
   function restart() {
     return apiFetch('/cosmos/api/restart', {
-      method: 'GET',
+      method: 'POST', // Fork addition: a command, sent as POST (src/fork_post_only.go)
       headers: {
         'Content-Type': 'application/json'
       },
@@ -237,6 +237,7 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
         reason: answer.reason || '',
         detail: answer.detail || '',
         message: answer.message || '',
+        raw: answer, // Fork addition: the whole answer, for refusals that carry more than a reason (edge blocks)
       };
     }).catch(() => ({ ok: false, status: 0, data: null, reason: 'no_answer', detail: '', message: '' }));
   }
@@ -246,6 +247,12 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
   const homeNames = () => forkCall('/cosmos/api/home-names', 'GET');
   const homeNamesSet = (zone: string, label: string, enabled: boolean) => forkCall('/cosmos/api/home-names', 'POST', { zone, label, enabled });
   const homeNamesCheck = (zone: string) => forkCall('/cosmos/api/home-names/check', 'POST', { zone });
+  // Fork addition: Cloudflare Turnstile on the public forms (src/turnstile); answers like the calls above
+  const turnstileStatus = () => forkCall('/cosmos/api/turnstile', 'GET');
+  const turnstileChange = (body: any) => forkCall('/cosmos/api/turnstile', 'POST', body);
+  // Fork addition: blocks at Cloudflare's edge (src/edgeblock); answers like the calls above
+  const edgeBlocks = () => forkCall('/cosmos/api/cloudflare/edge-blocks', 'GET');
+  const edgeBlocksChange = (body: any) => forkCall('/cosmos/api/cloudflare/edge-blocks', 'POST', body);
 
   // Fork addition: certificates (src/certs)
   const certificatesStatus = () => certificatesCall('', 'GET');
@@ -525,6 +532,10 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     homeNames, // Fork addition: names for use at home
     homeNamesSet,
     homeNamesCheck,
+    turnstileStatus, // Fork addition: Cloudflare Turnstile
+    turnstileChange,
+    edgeBlocks, // Fork addition: blocks at Cloudflare's edge
+    edgeBlocksChange,
     cloudflareCheck,
     cloudflarePreview,
     cloudflareTakeOver,

@@ -35,8 +35,9 @@ func cleanHostDirectory(label string, value string) (string, error) {
 }
 
 // ensureDirectory makes sure dir exists and can be written to, creating it
-// and any missing parents. created tells whether it had to be created.
-func ensureDirectory(label string, dir string) (created bool, err error) {
+// and any missing parents. created tells whether it had to be created. An
+// existing folder must also pass check, when there is one.
+func ensureDirectory(label string, dir string, check func(shown string, info os.FileInfo) error) (created bool, err error) {
 	real := dir
 	if utils.IsInsideContainer {
 		real = "/mnt/host" + dir // where the host's files are mounted
@@ -46,6 +47,10 @@ func ensureDirectory(label string, dir string) (created bool, err error) {
 	switch {
 	case err == nil && !info.IsDir():
 		return false, fmt.Errorf("%s: %s exists but is not a folder", label, dir)
+	case err == nil && check != nil:
+		if err := check(dir, info); err != nil {
+			return false, fmt.Errorf("%s: %w", label, err)
+		}
 	case errors.Is(err, os.ErrNotExist):
 		// Holds copies of the configuration, which contains secrets: owner only.
 		if err := os.MkdirAll(real, 0700); err != nil {
@@ -102,7 +107,7 @@ func prepareConfigDirectories(request *utils.Config, current utils.Config) error
 	}
 
 	if backupDir != "" && backupDir != current.BackupOutputDir {
-		created, err := ensureDirectory("Backup output directory", backupDir)
+		created, err := ensureDirectory("Backup output directory", backupDir, nil)
 		if err != nil {
 			return err
 		}
@@ -115,7 +120,8 @@ func prepareConfigDirectories(request *utils.Config, current utils.Config) error
 	// or pointed somewhere else, not on every save: if its disk is missing
 	// later, a run must fail instead of filling the disk underneath.
 	if wanted := request.Snapshots; wanted.Enabled && (!current.Snapshots.Enabled || wanted.Destination != current.Snapshots.Destination) {
-		created, err := ensureDirectory("Incremental backup, destination", wanted.Destination)
+		// it must belong to Cosmos' user and be writable by nobody else
+		created, err := ensureDirectory("Incremental backup, destination", wanted.Destination, snapshots.CheckDestination)
 		if err != nil {
 			return err
 		}

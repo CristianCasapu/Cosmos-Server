@@ -143,7 +143,7 @@ note('job run', (await call('POST', 'jobs/run', { scheduler: 'Custom', name: 'ni
 
 // --- a few container actions, for the events and the audit page
 for (const [name, action] of [['radarr', 'restart'], ['pihole', 'start'], ['pihole', 'stop']]) {
-  note('container', name, action, (await call('GET', `servapps/${name}/manage/${action}`)).status);
+  note('container', name, action, (await call('POST', `servapps/${name}/manage/${action}`)).status);
   await sleep(800);
 }
 
