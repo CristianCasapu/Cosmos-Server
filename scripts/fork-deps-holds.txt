@@ -28,12 +28,13 @@ go github.com/jasonlvhit/gocron - unmaintained, upstream code; replacing it is a
 npm @jamesives/github-sponsors-readme-action - 1.6 ships lint tooling with advisories as runtime dependencies; upstream's sponsors script, nothing runs it
 npm eslint-config-airbnb-typescript - 17.1 pulls typescript-eslint 6.21 with an exact vulnerable minimatch; lint tooling nothing runs
 npm eslint-import-resolver-typescript - 3.10's optional peers do not resolve; lint tooling nothing runs
-npm react-apexcharts 1.5 1.6 and later need apexcharts 4 or newer (moved together by hand)
 group npm react react-dom
 group npm @emotion/react @emotion/styled @emotion/cache
-group npm @mui/material @mui/lab
+group npm @mui/material @mui/system @mui/icons-material
+group npm @mui/x-date-pickers @mui/x-tree-view
+group npm apexcharts react-apexcharts
+group npm @xterm/xterm @xterm/addon-fit
 group npm vite @vitejs/plugin-react rollup-plugin-visualizer
-group npm react-router react-router-dom
 group npm @reduxjs/toolkit react-redux redux
 group npm i18next react-i18next
 
@@ -47,8 +48,8 @@ image busybox - fixture image inside throwaway daemons (live tests and test data
 image debian - the mail stand-in's base and upstream's Dockerfiles, which the fork does not build
 
 # Bundled with the release, from upstream's release zip (not managed here at all)
-bundled nebula - used only by paid code; 1.10+ breaks it (plan 37); upstream's binary is shipped
-bundled restic - used only by paid code; upstream's binary is shipped
+bundled nebula - used only by paid code; fetched from its own release with a SHA-256 pinned in .github/actions/fork-build/action.yml; 1.10+ breaks the paid code (plan 37): raised by hand only
+bundled restic - used only by paid code; fetched from its own release with a SHA-256 pinned in .github/actions/fork-build/action.yml: raised by hand only, after a run of the paid code's command lines
 bundled GeoLite2-Country.mmdb - needs a MaxMind account; upstream's file is shipped
 
 # Paths the machine never changes (it changes no source file at all; the validator refuses these too)
