@@ -105,6 +105,11 @@ var (
 	longRandomPattern = regexp.MustCompile(`[A-Za-z0-9+/_=-]{32,}`)
 	botTokenPattern   = regexp.MustCompile(`\b[0-9]{5,15}:[A-Za-z0-9_-]{20,80}\b`)
 	hasLetterAndDigit = regexp.MustCompile(`[A-Za-z].*[0-9]|[0-9].*[A-Za-z]`)
+	// Fork addition: a link to a run, an issue or the actions of a GitHub
+	// repository (the dependency update notices build them from numbers,
+	// see src/fork_deps_status.go) is not taken for a random string: an
+	// owner and a repository name are not secrets.
+	githubLinkPattern = regexp.MustCompile(`https://github\.com/[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}/(?:actions/runs/[0-9]{1,16}|issues/[0-9]{1,16}|actions)\b`)
 )
 
 // MaskNotificationText hides what looks like a secret in a text shown in
@@ -131,7 +136,19 @@ func MaskNotificationText(text string) string {
 		}
 		return parts[1] + parts[2] + "[hidden]"
 	})
-	text = longRandomPattern.ReplaceAllStringFunc(text, func(whole string) string {
+	// the links of githubLinkPattern are kept as they are, the rest is looked at
+	kept := githubLinkPattern.FindAllStringIndex(text, -1)
+	masked, last := "", 0
+	for _, at := range kept {
+		masked += maskLongRandom(text[last:at[0]]) + text[at[0]:at[1]]
+		last = at[1]
+	}
+	return masked + maskLongRandom(text[last:])
+}
+
+// maskLongRandom hides long strings that look made up.
+func maskLongRandom(text string) string {
+	return longRandomPattern.ReplaceAllStringFunc(text, func(whole string) string {
 		if !hasLetterAndDigit.MatchString(whole) {
 			return whole
 		}
@@ -145,7 +162,6 @@ func MaskNotificationText(text string) string {
 		}
 		return "[hidden]"
 	})
-	return text
 }
 
 const notificationColumnsSQL = "id, title, message, vars, icon, link, date, level, read, recipient, actions," +

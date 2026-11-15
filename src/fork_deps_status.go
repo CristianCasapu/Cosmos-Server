@@ -39,7 +39,8 @@ import (
 )
 
 const (
-	depsThread      = "deps:updates"
+	depsThread      = "deps:updates" // failures, warnings, and what resolves them
+	depsNewsThread  = "deps:news"    // the rest: resolving a failure must not mark news resolved
 	depsToldFile    = "fork-deps-told.json"
 	depsStaleAfter  = 15 * 24 * time.Hour
 	depsDigestEvery = 28 * 24 * time.Hour
@@ -71,7 +72,7 @@ type depsTold struct {
 	Run        int64     `json:"run,omitempty"`
 	Outcome    string    `json:"outcome,omitempty"`
 	ToldAt     time.Time `json:"toldAt,omitzero"`
-	Digest     time.Time `json:"digest,omitzero"`   // the last monthly digest
+	Digest     time.Time `json:"digest,omitzero"`    // the last monthly digest
 	StaleRun   int64     `json:"staleRun,omitempty"` // the run the last "has not run" warning was about
 	StaleAt    time.Time `json:"staleAt,omitzero"`
 	FailedOpen bool      `json:"failedOpen,omitempty"`
@@ -224,7 +225,7 @@ func decideDeps(st forkrelease.DepsStatus, told depsTold, c depsContext) depsDec
 				d.next.FailedOpen, d.next.StaleOpen = false, false
 			}
 			if told.Outcome != "paused" {
-				d.notes = append(d.notes, depsPausedNotice(st))
+				d.notes = append(d.notes, depsPausedNotice(st, told.StaleOpen))
 			}
 		case "nothing":
 			if open {
@@ -378,7 +379,7 @@ func depsUpdatedNotice(st forkrelease.DepsStatus, c depsContext, resolves bool) 
 	}
 
 	info := &utils.NotificationInfo{
-		Kind: "deps.updated", Source: "updates", Thread: depsThread,
+		Kind: "deps.updated", Source: "updates", Thread: depsNewsThread,
 		Subject: &utils.NotificationSubject{Type: "release", Name: st.Release, Link: depsGeneralLink},
 		What:    utils.NText("notif.deps.updated.what."+variant, "summary", summary, "release", st.Release, "at", at),
 		Means:   utils.NText("notif.deps.updated.means"),
@@ -388,7 +389,7 @@ func depsUpdatedNotice(st forkrelease.DepsStatus, c depsContext, resolves bool) 
 		Raw:     depsList(st, ""),
 	}
 	if resolves {
-		info.Resolves = depsThread
+		info.Thread, info.Resolves = depsThread, depsThread
 	}
 	return utils.Notification{Recipient: "admin", Level: "info", Fork: info}
 }
@@ -418,12 +419,16 @@ func depsFailedNotice(st forkrelease.DepsStatus, c depsContext) utils.Notificati
 	}}
 }
 
-func depsPausedNotice(st forkrelease.DepsStatus) utils.Notification {
-	return utils.Notification{Recipient: "admin", Level: "info", Fork: &utils.NotificationInfo{
-		Kind: "deps.paused", Source: "updates", Thread: depsThread, Subject: depsJob(),
+func depsPausedNotice(st forkrelease.DepsStatus, resolves bool) utils.Notification {
+	info := &utils.NotificationInfo{
+		Kind: "deps.paused", Source: "updates", Thread: depsNewsThread, Subject: depsJob(),
 		What: utils.NText("notif.deps.paused.what"), Means: utils.NText("notif.deps.paused.means"),
 		Steps: []utils.NotificationStep{depsRunStep(st)}, Facts: depsRunFacts(st),
-	}}
+	}
+	if resolves {
+		info.Thread, info.Resolves = depsThread, depsThread
+	}
+	return utils.Notification{Recipient: "admin", Level: "info", Fork: info}
 }
 
 func depsRecoveredNotice(st forkrelease.DepsStatus) utils.Notification {
@@ -436,7 +441,7 @@ func depsRecoveredNotice(st forkrelease.DepsStatus) utils.Notification {
 
 func depsDigestNotice(st forkrelease.DepsStatus) utils.Notification {
 	return utils.Notification{Recipient: "admin", Level: "info", Fork: &utils.NotificationInfo{
-		Kind: "deps.quiet", Source: "updates", Thread: depsThread, Subject: depsJob(),
+		Kind: "deps.quiet", Source: "updates", Thread: depsNewsThread, Subject: depsJob(),
 		What:  utils.NText("notif.deps.quiet.what", "date", st.QuietSince.Format("2006-01-02")),
 		Facts: depsRunFacts(st), Raw: depsList(st, ""),
 	}}

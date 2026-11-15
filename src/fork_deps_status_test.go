@@ -82,7 +82,7 @@ func TestDepsUpdatedSaysWhenItIsInstalled(t *testing.T) {
 		if got := say(info.What); got != tc.want {
 			t.Errorf("%s:\n got %q\nwant %q", tc.name, got, tc.want)
 		}
-		if n.Level != "info" || n.Recipient != "admin" || info.Kind != "deps.updated" || info.Thread != depsThread || info.Source != "updates" || info.Resolves != "" {
+		if n.Level != "info" || n.Recipient != "admin" || info.Kind != "deps.updated" || info.Thread != depsNewsThread || info.Source != "updates" || info.Resolves != "" {
 			t.Errorf("%s: %+v %+v", tc.name, n, info)
 		}
 		if info.Subject.Type != "release" || info.Subject.Name != "0.24.0-fork.31" || info.Subject.Link != depsGeneralLink {
@@ -177,13 +177,13 @@ func TestDepsToldOnceAndResolved(t *testing.T) {
 	step("another failure", failed2, start.Add(21*24*time.Hour+time.Hour), []string{"deps.failed"}, false)
 	updated := depsStatus(t, depsJSON(5, start.Add(28*24*time.Hour), "updated", depsChanges))
 	d = step("an update after it", updated, start.Add(28*24*time.Hour+time.Hour), []string{"deps.updated"}, true)
-	if d.notes[0].Fork.Resolves != depsThread {
+	if d.notes[0].Fork.Resolves != depsThread || d.notes[0].Fork.Thread != depsThread {
 		t.Error("the update does not resolve the failure")
 	}
 	updated6 := depsStatus(t, depsJSON(6, start.Add(35*24*time.Hour), "updated", strings.Replace(depsChanges, "fork.31", "fork.32", 1)))
 	d = step("an update with nothing open", updated6, start.Add(35*24*time.Hour+time.Hour), []string{"deps.updated"}, false)
-	if d.notes[0].Fork.Resolves != "" {
-		t.Error("an update resolves nothing open")
+	if d.notes[0].Fork.Resolves != "" || d.notes[0].Fork.Thread != depsNewsThread {
+		t.Error("an update resolves nothing open: it is news, out of the thread of the failures")
 	}
 
 	paused := depsStatus(t, depsJSON(7, start.Add(42*24*time.Hour), "paused", ""))
@@ -230,7 +230,7 @@ func TestDepsStaleWarningOncePerRunAndResolvedByARun(t *testing.T) {
 	// a pause ends it too, without a follow-up of its own besides "paused"
 	paused := depsStatus(t, depsJSON(3, at.Add(20*24*time.Hour), "paused", ""))
 	d = decideDeps(paused, told, depsCtx(at.Add(20*24*time.Hour+time.Hour)))
-	if !d.resolve || d.next.StaleOpen || len(d.notes) != 1 || d.notes[0].Fork.Kind != "deps.paused" {
+	if !d.resolve || d.next.StaleOpen || len(d.notes) != 1 || d.notes[0].Fork.Kind != "deps.paused" || d.notes[0].Fork.Resolves != depsThread {
 		t.Errorf("a pause after the warning: %+v", d)
 	}
 }
