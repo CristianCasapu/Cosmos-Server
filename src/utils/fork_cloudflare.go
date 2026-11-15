@@ -69,6 +69,10 @@ type ForkEdgeBlocksConfig struct {
 	// it may list, create and delete IP Access Rules, and a digest of that
 	// token (a changed token needs a new test).
 	Proven []ForkEdgeProof `json:"Proven,omitempty"`
+	// AllowAccount: the owner chose IP Access Rules of the whole Cloudflare
+	// account (they block an address on every domain of the account) for a
+	// domain whose token may do nothing narrower. Never set by Cosmos itself.
+	AllowAccount bool `json:"AllowAccount,omitempty"`
 }
 
 // ForkEdgeProof is one passed test of a zone's token.
@@ -76,6 +80,11 @@ type ForkEdgeProof struct {
 	Zone  string    `json:"Zone"`
 	Token string    `json:"Token"` // digest, never the token
 	At    time.Time `json:"At"`
+	// Mode is how the domain's blocks are made: zone_rules (IP Access Rules
+	// of the zone), waf (custom rules of the zone), account_rules (IP Access
+	// Rules of the account); "" for the first version: zone_rules.
+	Mode    string `json:"Mode,omitempty"`
+	Account string `json:"Account,omitempty"` // the account id, for account_rules
 }
 
 // CloudflareMaxNames bounds the lists of hostnames kept in the configuration.

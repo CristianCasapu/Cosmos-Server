@@ -36,7 +36,20 @@ import (
 )
 
 // Limits.
+// How a domain's blocks are made at Cloudflare, in the order of preference.
 const (
+	ViaZone    = "zone_rules"    // IP Access Rules of the zone
+	ViaWAF     = "waf"           // custom rules of the zone, at most two of Cosmos' own
+	ViaAccount = "account_rules" // IP Access Rules of the account: only when the owner chose it
+)
+
+// ViaWords names a way of blocking in the record and on Telegram.
+var ViaWords = map[string]string{ViaZone: "IP Access Rules of the domain", ViaWAF: "a WAF custom rule of the domain", ViaAccount: "IP Access Rules of the whole account"}
+
+const (
+	// MaxWAFPerAction: addresses in one custom rule (an expression is at most
+	// 4096 characters; 100 IPv6 /64s with their spaces fit with room)
+	MaxWAFPerAction = 100
 	MaxRules        = 500 // rules Cosmos keeps at Cloudflare at once
 	MaxBlocksAnHour = 60  // new automatic blocks
 	maxEntries      = 1000
@@ -67,8 +80,10 @@ const (
 
 // Rule is one rule Cosmos made or wants at Cloudflare, in one zone.
 type Rule struct {
-	Key    string    `json:"key"` // an IPv4 address or an IPv6 /64
-	Zone   string    `json:"zone"`
+	Key  string `json:"key"` // an IPv4 address or an IPv6 /64
+	Zone string `json:"zone"`
+	// Via is how it is made (ViaZone when empty: the first version's rules)
+	Via    string    `json:"via,omitempty"`
 	RuleID string    `json:"ruleId,omitempty"`
 	Mode   string    `json:"mode"`
 	Reason string    `json:"reason"` // auth, probe, scan, abuse, repeat, manual, test
@@ -82,6 +97,14 @@ type Rule struct {
 	Why string `json:"why,omitempty"`
 	// Note: the last trouble with this rule, a fixed word
 	Note string `json:"note,omitempty"`
+}
+
+// how is how the rule is made.
+func (r *Rule) how() string {
+	if r.Via == "" {
+		return ViaZone
+	}
+	return r.Via
 }
 
 // Manual reports whether an administrator made the rule.
@@ -163,7 +186,10 @@ type Engine struct {
 	backoff     map[string]time.Duration
 	reconciled  map[string]time.Time
 	zoneIDs     map[string]string
+	accountIDs  map[string]string
 	leftovers   map[string][]Leftover
+	// the last switch-on test of each domain, for the card
+	proofs map[string]ProofResult
 
 	wake chan struct{}
 }
@@ -171,7 +197,8 @@ type Engine struct {
 // Problem is a lasting trouble with a zone, for the card.
 type Problem struct {
 	Zone   string    `json:"zone"`
-	Reason string    `json:"reason"` // permission, unreachable, rate_limited, server, invalid_token, other
+	Reason string    `json:"reason"` // permission, unreachable, rate_limited, server, invalid_token, refused, other
+	Via    string    `json:"via"`    // how the domain's blocks are made: what the permission is about
 	Since  time.Time `json:"since"`
 	Until  time.Time `json:"until,omitzero"`
 }
@@ -195,7 +222,9 @@ func newEngine(path func() string, now func() time.Time) *Engine {
 		backoff:     map[string]time.Duration{},
 		reconciled:  map[string]time.Time{},
 		zoneIDs:     map[string]string{},
+		accountIDs:  map[string]string{},
 		leftovers:   map[string][]Leftover{},
+		proofs:      map[string]ProofResult{},
 		wake:        make(chan struct{}, 1),
 	}
 	e.hourly = bucket{size: MaxBlocksAnHour, every: time.Hour / MaxBlocksAnHour}
@@ -336,11 +365,11 @@ func (e *Engine) issueLocked(key string, address string, j jail, limits utils.Fa
 		e.dirty = true
 		return
 	}
-	zones := provenZones()
-	if len(zones) == 0 {
+	targets := provenTargets()
+	if len(targets) == 0 {
 		return
 	}
-	if !e.makeRoomLocked(len(zones), now) {
+	if !e.makeRoomLocked(targets, mode, now) {
 		e.st.Dropped++
 		e.st.DroppedAt = now
 		e.dirty = true
@@ -351,11 +380,11 @@ func (e *Engine) issueLocked(key string, address string, j jail, limits utils.Fa
 		o.Blocks = o.Blocks[len(o.Blocks)-20:]
 	}
 	until := now.Add(length)
-	for _, zone := range zones {
-		e.addRuleLocked(&Rule{Key: key, Zone: zone, Mode: mode, Reason: reason, State: StatePending, Since: now, Until: until, Address: address})
+	for _, t := range targets {
+		e.addRuleLocked(&Rule{Key: key, Zone: t.Zone, Via: t.Via, Mode: mode, Reason: reason, State: StatePending, Since: now, Until: until, Address: address})
 	}
 	e.dirty = true
-	recordBlocked(key, address, reason, mode, until, zones)
+	recordBlocked(key, address, reason, mode, until, targets)
 	e.poke()
 }
 
@@ -370,13 +399,26 @@ func (e *Engine) liveLocked() int {
 	return n
 }
 
-// makeRoomLocked makes room for n new rules under MaxRules: the automatic
+// capacityLocked is how many rules Cosmos keeps at once: MaxRules, or two
+// custom rules' worth when a domain blocks through WAF custom rules.
+func capacity(targets []target) int {
+	for _, t := range targets {
+		if t.Via == ViaWAF {
+			return 2 * MaxWAFPerAction
+		}
+	}
+	return MaxRules
+}
+
+// makeRoomLocked makes room for one new block (one rule per target, in
+// mode): under the ceiling of all rules, and under the ceiling of the custom
+// rule of that mode in each domain that uses custom rules. The automatic
 // rules that end soonest go first; manual ones never make room.
-func (e *Engine) makeRoomLocked(n int, now time.Time) bool {
-	for e.liveLocked()+n > MaxRules {
+func (e *Engine) makeRoomLocked(targets []target, mode string, now time.Time) bool {
+	evictSoonest := func(match func(r *Rule) bool) bool {
 		var soonest *Rule
 		for _, r := range e.st.Rules {
-			if (r.State == StatePending || r.State == StateActive) && !r.Manual() && (soonest == nil || r.Until.Before(soonest.Until)) {
+			if (r.State == StatePending || r.State == StateActive) && !r.Manual() && match(r) && (soonest == nil || r.Until.Before(soonest.Until)) {
 				soonest = r
 			}
 		}
@@ -384,6 +426,33 @@ func (e *Engine) makeRoomLocked(n int, now time.Time) bool {
 			return false
 		}
 		e.liftLocked(soonest, "evicted")
+		return true
+	}
+	limit := capacity(targets)
+	for e.liveLocked()+len(targets) > limit {
+		if !evictSoonest(func(*Rule) bool { return true }) {
+			return false
+		}
+	}
+	for _, t := range targets {
+		if t.Via != ViaWAF {
+			continue
+		}
+		inSet := func(r *Rule) bool { return r.Zone == t.Zone && r.how() == ViaWAF && r.Mode == mode }
+		for {
+			n := 0
+			for _, r := range e.st.Rules {
+				if (r.State == StatePending || r.State == StateActive) && inSet(r) {
+					n++
+				}
+			}
+			if n < MaxWAFPerAction {
+				break
+			}
+			if !evictSoonest(inSet) {
+				return false
+			}
+		}
 	}
 	return true
 }
@@ -469,21 +538,53 @@ func (e *Engine) NoteAdmin(ip string) {
 	}
 }
 
-// provenZones are the zones blocks are made in: configured with a token,
-// shielded names under them, and a passed test with that same token.
-func provenZones() []string {
-	proven := map[string]string{}
+// target is where a block is made: a domain, and how.
+type target struct {
+	Zone    string
+	Via     string
+	Account string
+}
+
+// provenTargets are where blocks are made: domains configured with a token,
+// shielded names under them, and a passed test with that same token. Rules
+// of an account are made once per account, not once per domain.
+func provenTargets() []target {
+	proven := map[string]utils.ForkEdgeProof{}
 	for _, proof := range settings().Proven {
-		proven[proof.Zone] = proof.Token
+		proven[proof.Zone] = proof
 	}
-	zones := []string{}
-	for _, zone := range edgeZones() {
-		if zone.Shielded > 0 && proven[zone.Name] != "" && proven[zone.Name] == zone.TokenTag {
-			zones = append(zones, zone.Name)
+	allowAccount := settings().AllowAccount
+	targets := []target{}
+	accounts := map[string]bool{}
+	zones := edgeZones()
+	sort.Slice(zones, func(i, j int) bool { return zones[i].Name < zones[j].Name })
+	for _, zone := range zones {
+		proof, ok := proven[zone.Name]
+		if zone.Shielded == 0 || !ok || proof.Token == "" || proof.Token != zone.TokenTag {
+			continue
 		}
+		via := proof.Mode
+		if via == "" {
+			via = ViaZone
+		}
+		if via == ViaAccount {
+			if !allowAccount || proof.Account == "" || accounts[proof.Account] {
+				continue
+			}
+			accounts[proof.Account] = true
+		}
+		targets = append(targets, target{Zone: zone.Name, Via: via, Account: proof.Account})
 	}
-	sort.Strings(zones)
-	return zones
+	return targets
+}
+
+// provenZones are the names of the domains of provenTargets.
+func provenZones() []string {
+	names := []string{}
+	for _, t := range provenTargets() {
+		names = append(names, t.Zone)
+	}
+	return names
 }
 
 // bucket is a token bucket.
