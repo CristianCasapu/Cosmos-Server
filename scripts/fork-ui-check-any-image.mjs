@@ -66,6 +66,9 @@ const run = async (name, cmd, env = []) => {
   return (await out.text()).replace(/[^\x20-\x7e\n]/g, '');
 };
 
+// one user may describe 8 images a minute: a run right after another waits for the minute to pass
+if (process.env.NO_WAIT !== '1') await sleep(61000);
+
 // --- the wizard and the settings, once
 {
   let fresh = false;
@@ -106,7 +109,7 @@ const run = async (name, cmd, env = []) => {
   r = await post('/cosmos/api/images/describe', { reference: 'postgres:17' });
   expect(r.body.data.declared.volumes.join() === '/var/lib/postgresql/data', 'describe postgres:17: the older data folder');
   r = await post('/cosmos/api/images/describe', { reference: 'private.example.org/team/app:1' });
-  expect(r.body.data.problem === 'unauthorized' && r.body.data.loggedIn === false, `a private registry: ${r.body.data.problem}, logged in ${r.body.data.loggedIn}`);
+  expect(r.body.data.problem === 'unauthorized' && r.body.data.loggedIn === undefined, `a private registry: ${r.body.data.problem}, nothing said of the server's logins`);
   r = await post('/cosmos/api/images/describe', { reference: '192.168.1.2:5000/app' });
   expect(r.body.data.problem === 'internal', 'a registry on the local network without a login is refused');
   r = await post('/cosmos/api/images/describe', { reference: 'example/armonly:1' });
@@ -115,6 +118,22 @@ const run = async (name, cmd, env = []) => {
   expect(r.body.data.declared && !r.body.data.declared.ports.length && !r.body.data.declared.volumes.length, 'busybox declares nothing');
   r = await post('/cosmos/api/images/search', { query: 'a b' });
   expect(r.status === 400, 'search words with a space are refused');
+  // the edit route asks for a device too (review F3), and not again for what the container has
+  const update = (query, data) => ctx.post(base + '/cosmos/api/servapps/web1/update' + query, { data });
+  // a device web1 does not have yet (a second run on the same instance finds the first one there)
+  const had = ((await inspect('web1')).HostConfig.Devices || []).map((d) => d.PathOnHost);
+  const hostDevice = ['/dev/null', '/dev/zero', '/dev/urandom', '/dev/random'].find((d) => !had.includes(d));
+  const device = { devices: [...had.map((d) => `${d}:/dev/cosmos-${d.split('/').pop()}`), `${hostDevice}:/dev/cosmos-${hostDevice.split('/').pop()}`] };
+  let u = await update('', device);
+  let ub = await u.json().catch(() => ({}));
+  expect(u.status() === 409 && ub.code === 'DS010' && ub.data.sensitive[0].kind === 'device', `edit: a new device is refused without its tick (${u.status()} ${ub.code})`);
+  u = await update('?confirm=' + encodeURIComponent('web1|device|' + hostDevice), device);
+  expect(u.status() === 200, `edit: with the tick it is saved (${u.status()})`);
+  await until('web1 has the device', async () => { const c = await inspect('web1'); return c && (c.HostConfig.Devices || []).some((d) => d.PathOnHost === hostDevice); }, 60);
+  await serverUp();
+  u = await update('', { ...device, labels: { 'cosmos-test': 'again' } });
+  expect(u.status() === 200, `edit: what the container has is not asked again (${u.status()})`);
+  await serverUp();
   const get = await ctx.get(base + '/cosmos/api/images/describe');
   expect(get.status() === 405, 'describe takes POST only');
   const anonymous = await (await request.newContext({ ignoreHTTPSErrors: true })).post(base + '/cosmos/api/images/describe', { data: { reference: 'postgres' } });
@@ -178,6 +197,8 @@ for (const engine of engines) {
     for (const mode of modes) {
       const viewport = size === 'm' ? { width: 393, height: 851 } : { width: 1366, height: 900 };
       const name = `${engine}-${size === 'm' ? 393 : 1366}-${mode}`;
+      // the server allows one user 8 image descriptions a minute (src/anyimage/limits.go): a run makes about 7
+      await sleep(61000);
       const { browser, page } = await open({ chromium, firefox, webkit }[engine], name, viewport, mode);
       let decisions = 0;
       const decide = async (locator) => { decisions += 1; await locator.click(); };
@@ -319,7 +340,7 @@ for (const engine of engines) {
         await page.locator('[data-any-image-field] input').fill('private.example.org/team/app:1');
         await page.locator('[data-any-image-search]').click();
         await page.locator('[data-any-image-problem]').waitFor({ timeout: 30000 });
-        expect(/not logged in to private\.example\.org/.test(await page.locator('[data-any-image-problem]').innerText()), `${name}: a private registry: "the server is not logged in"`);
+        expect(/docker login private\.example\.org/.test(await page.locator('[data-any-image-problem]').innerText()), `${name}: a private registry: what to do, in words`);
         await shotDialog(page, name, '11-private');
         await page.locator('[data-any-image-back]').click();
         await page.locator('[data-any-image-field] input').fill('example/armonly:1');

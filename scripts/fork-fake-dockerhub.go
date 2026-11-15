@@ -9,6 +9,9 @@
 //   GET /v2/namespaces/{ns}/repositories/{repo}/tags     from the tags the
 //       test registry at REGISTRY (https://registry-1.docker.io on the test
 //       network, CA trusted through SSL_CERT_FILE) holds for that repository
+//   GET /v2/namespaces/{ns}/repositories/{repo}/tags/{tag}  the tag's
+//       platforms with their manifests' digests and sizes, read from that
+//       registry's manifests (as Docker Hub's API answers them)
 // Run on the test's --internal network with the network alias hub.docker.com:
 //   go run scripts/fork-fake-dockerhub.go
 package main
@@ -57,6 +60,16 @@ func main() {
 	})
 	mux.HandleFunc("/v2/namespaces/", func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/v2/namespaces/"), "/")
+		if len(parts) == 5 && parts[1] == "repositories" && parts[3] == "tags" {
+			log.Printf("tag %s/%s:%s", parts[0], parts[2], parts[4])
+			answer, ok := tagInfo(client, registry, parts[0]+"/"+parts[2], parts[4])
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			json.NewEncoder(w).Encode(answer)
+			return
+		}
 		if len(parts) != 4 || parts[1] != "repositories" || parts[3] != "tags" {
 			http.NotFound(w, r)
 			return
@@ -83,4 +96,77 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]interface{}{"count": len(results), "next": nil, "results": results})
 	})
 	log.Fatal(http.ListenAndServeTLS(":443", os.Getenv("CERT"), os.Getenv("KEY"), mux))
+}
+
+var accept = "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json"
+
+type manifest struct {
+	Manifests []struct {
+		Digest   string `json:"digest"`
+		Platform *struct {
+			OS           string `json:"os"`
+			Architecture string `json:"architecture"`
+			Variant      string `json:"variant"`
+		} `json:"platform"`
+	} `json:"manifests"`
+	Config struct {
+		Digest string `json:"digest"`
+	} `json:"config"`
+	Layers []struct {
+		Size int64 `json:"size"`
+	} `json:"layers"`
+}
+
+func fetch(client *http.Client, address string, into interface{}) (string, bool) {
+	req, _ := http.NewRequest("GET", address, nil)
+	req.Header.Set("Accept", accept)
+	res, err := client.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return "", false
+	}
+	return res.Header.Get("Docker-Content-Digest"), json.NewDecoder(res.Body).Decode(into) == nil
+}
+
+func size(m manifest) int64 {
+	var n int64
+	for _, l := range m.Layers {
+		n += l.Size
+	}
+	return n
+}
+
+// tagInfo answers like Docker Hub's API for one tag.
+func tagInfo(client *http.Client, registry, repo, tag string) (map[string]interface{}, bool) {
+	var top manifest
+	digest, ok := fetch(client, registry+"/v2/"+repo+"/manifests/"+tag, &top)
+	if !ok {
+		return nil, false
+	}
+	images := []map[string]interface{}{}
+	if len(top.Manifests) > 0 {
+		for _, m := range top.Manifests {
+			if m.Platform == nil {
+				continue
+			}
+			var one manifest
+			fetch(client, registry+"/v2/"+repo+"/manifests/"+m.Digest, &one)
+			var variant interface{}
+			if m.Platform.Variant != "" {
+				variant = m.Platform.Variant
+			}
+			images = append(images, map[string]interface{}{"os": m.Platform.OS, "architecture": m.Platform.Architecture, "variant": variant, "digest": m.Digest, "size": size(one)})
+		}
+	} else {
+		var config struct {
+			OS           string `json:"os"`
+			Architecture string `json:"architecture"`
+		}
+		fetch(client, registry+"/v2/"+repo+"/blobs/"+top.Config.Digest, &config)
+		images = append(images, map[string]interface{}{"os": config.OS, "architecture": config.Architecture, "variant": nil, "digest": digest, "size": size(top)})
+	}
+	return map[string]interface{}{"name": tag, "digest": digest, "images": images}, true
 }
