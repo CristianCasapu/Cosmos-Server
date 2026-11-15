@@ -146,6 +146,9 @@ func stateNow(d utils.NotificationDetails) *contextState {
 	if d.Subject != nil {
 		subject = d.Subject.Name
 	}
+	if state := reachWatchState(d); state != nil { // Fork addition: the reachability watch, see fork_reach_watch.go
+		return state
+	}
 	switch d.Source {
 	case "upnp":
 		return upnpState(d)

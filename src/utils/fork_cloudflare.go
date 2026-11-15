@@ -56,6 +56,10 @@ type ForkCloudflareConfig struct {
 	// at Cloudflare (IP Access Rules of the zone), see src/edgeblock. Off
 	// until the admin switches it on.
 	EdgeBlocks ForkEdgeBlocksConfig `json:"EdgeBlocks,omitzero"`
+	// Watch: the watch of the server's reachability from the internet
+	// through Cloudflare's proxy, see fork_reach_watch.go and src/reachwatch.
+	// On unless switched off. Fork addition (reachability watch).
+	Watch ForkReachWatchConfig `json:"Watch,omitzero"`
 }
 
 // ForkEdgeBlocksConfig is HTTPConfig.Cloudflare.EdgeBlocks.

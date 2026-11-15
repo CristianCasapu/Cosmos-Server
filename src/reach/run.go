@@ -249,6 +249,7 @@ func Run(opts Options) Response {
 		panel := EvaluatePanel(env)
 		resp.Panel = &panel
 	}
+	annotateOutside(&resp) // Fork addition: what the reachability watch saw from the internet, see fork_watch.go
 	sort.SliceStable(resp.Routes, func(i, j int) bool { return resp.Routes[i].Route < resp.Routes[j].Route })
 	return resp
 }
