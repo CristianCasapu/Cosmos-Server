@@ -183,6 +183,10 @@ var catalogue = func() map[string]Kind {
 		audit(utils.SecExposeOpened, SeverityHigh, "App exposed to the internet", "An administrator made an app reachable from the internet: its web interface under a domain (web lists each name and whether it goes through Cloudflare or directly) and/or ports the router forwards (ports, each with the DNS-only name it is reached at). A port opened this way reaches the app directly, without Cosmos' login or SmartShield. Target: the container."),
 		audit(utils.SecExposeClosed, SeverityMedium, "App withdrawn from the internet", "An administrator withdrew internet addresses of an app: web lists the names whose URL was deleted, ports the router ports closed (their names go with them). Target: the container."),
 
+		incident(utils.SecEdgeBlocked, SeverityHigh, OutcomeBlocked, "Blocked at Cloudflare", "Cosmos asked Cloudflare to block or challenge an address that came through Cloudflare's proxy and kept offending: Cloudflare stops it before it reaches the server, until the time is up or an administrator lifts it. Target: the address or IPv6 network. Details: reason (auth, probe, scan, abuse, repeat), mode (block or managed_challenge), until, zone."),
+		audit(utils.SecEdgeBlockAdded, SeverityMedium, "Blocked at Cloudflare by hand", "An administrator asked Cloudflare to block or challenge an address. Target: the address or IPv6 network. Details: mode, until."),
+		audit(utils.SecEdgeUnblocked, SeverityMedium, "Block at Cloudflare lifted", "A block Cosmos made at Cloudflare was removed. Target: the address or IPv6 network. Details: reason is admin (lifted by an administrator), all (everything lifted), off (the feature was switched off), expired (its time was up), removed_at_cloudflare (somebody deleted it in Cloudflare's dashboard) or admin_seen (an administrator signed in from it)."),
+
 		incident(utils.SecRecorderDropped, SeverityMedium, OutcomeFailed, "Events lost", "The record could not keep up (the database did not answer): Count events were not stored."),
 	}
 	byKind := make(map[string]Kind, len(kinds))

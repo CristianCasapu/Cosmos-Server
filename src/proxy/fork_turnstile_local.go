@@ -23,3 +23,9 @@ func IsLocalVisitorRequest(req *http.Request) bool {
 	}
 	return isLocalVisitor(visitor, serverNetworks())
 }
+
+// IsLocalAddress is the same rule for an address (Fork addition: edge
+// blocks at Cloudflare, src/edgeblock, never send a local address).
+func IsLocalAddress(address string) bool {
+	return isLocalVisitor(address, serverNetworks())
+}

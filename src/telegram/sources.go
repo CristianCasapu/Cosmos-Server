@@ -254,6 +254,9 @@ const (
 	// raised by src/turnstile/watch.go (Fork addition)
 	titleTurnstileProblem      = "header.notification.title.turnstileProblem"
 	messageTurnstileKeyRefused = "header.notification.message.turnstileKeyRefused"
+	// raised by src/edgeblock/events.go (Fork addition)
+	titleEdgeBlocksProblem = "header.notification.title.edgeBlocksProblem"
+	messageEdgeBlocksToken = "header.notification.message.edgeBlocksToken"
 	// TitleDeliveryFailed is this package's own notification. It is never
 	// forwarded: Telegram is what does not work.
 	TitleDeliveryFailed   = "header.notification.title.telegramFailed"
@@ -361,6 +364,16 @@ func noticeFromNotification(n utils.Notification, config utils.Config) (notice, 
 		if n.Message == messageTurnstileKeyRefused {
 			nt.key = "turnstile.key"
 			nt.title = "Cloudflare refuses the secret key of the sign-in check (Turnstile): visitors from the internet cannot sign in. Put in a new key in Configuration > Domains > Sign-in check, from the home network."
+		}
+		return nt, true
+
+	case titleEdgeBlocksProblem:
+		nt := notice{category: CategorySystem, key: "edgeblocks.permission", label: "Blocks at Cloudflare paused", priority: priorityNormal,
+			title:   "Cosmos cannot make or lift blocks at Cloudflare: the token of the domain may not manage IP Access Rules. Add the permission Zone > Firewall Services > Edit to it in Cloudflare's dashboard.",
+			details: withVars("Domain ", "")}
+		if n.Message == messageEdgeBlocksToken {
+			nt.key = "edgeblocks.token"
+			nt.title = "Cosmos cannot make or lift blocks at Cloudflare: Cloudflare refuses the token of the domain."
 		}
 		return nt, true
 
