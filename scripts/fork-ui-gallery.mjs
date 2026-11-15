@@ -24,6 +24,7 @@
 //     SAFE_AREA=47,0,34,0             top,right,bottom,left in px: the parts of the screen a phone keeps for
 //                                     itself (notch, home indicator). The skin's --ct-safe-* take these values
 //                                     and the pictures show the two zones hatched
+//     SERVICE_WORKERS=block           no service worker (Firefox and WebKit: the views' own answers then reach the page)
 //     SHOT=viewport                   one screen per picture instead of the whole page (default: full), so
 //                                     that bars fixed to the bottom are where a user sees them
 //   node scripts/fork-ui-gallery.mjs summary     only rebuild <OUT>/summary.json from the .json files
@@ -60,9 +61,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // <view>.png or <view>--<capture>.png.
 //   tab: n          the n-th tab of the page's tab list (a select on a phone)
 //   open: fn        do something first (open a dialog, hover, press keys)
+//   at: selector    one screen with the first match (its card) just under the top bar, instead of the whole page;
+//                   prev:<selector> the card before that one
 //   close: fn       undo it (default after `open`: Escape)
 //   core: true      part of the small set
-//   mock: [[path, body]]  answer the API calls under `path` with `body` instead of asking the server
+//   mock: [[path, body, status, headers]]  answer the calls under `path` (any origin) with `body` instead of asking the server
 //   patch: [[path, fn]]   ask the server, then change its JSON answer with fn(json, url) before the page gets it
 // A step that cannot be done is reported in the summary, not fatal.
 // ---------------------------------------------------------------------------
@@ -102,14 +105,17 @@ const anonymousViews = [
 // the install review with a name the server cannot look up (a server without DNS)
 const svg = (a, b, text) => 'data:image/svg+xml;base64,' + Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="1280" height="720" fill="url(#g)"/><rect x="60" y="60" width="1160" height="70" rx="12" fill="#fff" opacity=".35"/><rect x="60" y="170" width="360" height="480" rx="16" fill="#fff" opacity=".25"/><rect x="460" y="170" width="760" height="220" rx="16" fill="#fff" opacity=".25"/><rect x="460" y="430" width="760" height="220" rx="16" fill="#fff" opacity=".25"/><text x="80" y="110" font-family="sans-serif" font-size="36" fill="#fff">${text}</text></svg>`).toString('base64');
 const icon = (c) => 'data:image/svg+xml;base64,' + Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" rx="14" fill="${c}"/><circle cx="32" cy="32" r="14" fill="#fff"/></svg>`).toString('base64');
-const compose = (name) => 'data:text/plain;base64,' + Buffer.from(JSON.stringify({
+// The compose files come from an HTTPS address answered by the browser (with the CORS header a market host
+// sends): the panel's script policy lets it fetch https: addresses only, never data: ones
+const composeBody = {
   'cosmos-installer': {},
   name: '{ServiceName}',
   services: { '{ServiceName}': { image: 'jellyfin/jellyfin:latest', container_name: '{ServiceName}', restart: 'unless-stopped',
     volumes: [{ type: 'volume', source: '{ServiceName}-config', target: '/config' }],
     routes: [{ name: '{ServiceName}', description: 'Web UI', useHost: true, target: 'http://{ServiceName}:8096', mode: 'SERVAPP', Timeout: 14400000, ThrottlePerMinute: 10000, BlockCommonBots: true, SmartShield: { Enabled: true } }] } },
   volumes: { '{ServiceName}-config': {} },
-})).toString('base64');
+};
+const compose = (name) => 'https://market.example.org/compose/' + encodeURIComponent(name.toLowerCase()) + '.json';
 const marketApp = (name, colours, tags, description) => ({
   name, description, tags, icon: icon(colours[0]), compose: compose(name), supported_architectures: ['amd64', 'arm64'],
   screenshots: [svg(colours[0], colours[1], name + ' — library'), svg(colours[1], colours[0], name + ' — settings')],
@@ -123,9 +129,55 @@ const marketApps = [
   marketApp('Immich', ['#4250af', '#fa2921'], ['photos', 'backup'], 'Photos and videos from your phone, backed up automatically.'),
   marketApp('Home Assistant', ['#18bcf2', '#0b6a8c'], ['home', 'automation'], 'Lights, heating and sensors in one place, without a cloud account.'),
 ];
-const marketMock = [['/cosmos/api/markets', { status: 'OK', data: { all: { 'cosmos-cloud': marketApps, 'community': marketApps.slice(0, 2).map((a) => ({ ...a, name: a.name })) }, showcase: marketApps.slice(0, 3) } }]];
+const marketMock = [['/cosmos/api/markets', { status: 'OK', data: { all: { 'cosmos-cloud': marketApps, 'community': marketApps.slice(0, 2).map((a) => ({ ...a, name: a.name })) }, showcase: marketApps.slice(0, 3) } }],
+  ['/compose/', composeBody, 200, { 'Access-Control-Allow-Origin': '*' }]];
 const noDnsMock = [['/cosmos/api/dns', { status: 'error', message: 'Internal server error: lookup jellyfin.polish.test on 127.0.0.11:53: server misbehaving', code: 'DNS001' }, 500],
   ['/cosmos/api/dns-check', { status: 'error', message: 'DNS Check error: lookup jellyfin.polish.test on 127.0.0.11:53: server misbehaving', code: 'DNS002' }, 500]];
+
+// the OpenID client the gallery makes and removes again: a name of its own per run (runs share an instance)
+const openidClient = 'gallery-' + Math.random().toString(36).slice(2, 8);
+// the sign-in check of Cloudflare failing in both ways the server reports (src/turnstile/watch.go)
+const turnstileProblems = [
+  { reason: 'key_refused', since: '2026-11-14T08:10:00Z', last: '2026-11-14T09:40:00Z', count: 3 },
+  { reason: 'unreachable', since: '2026-11-14T09:00:00Z', last: '2026-11-14T09:41:00Z', count: 12 },
+];
+// an app reached under its local address and two names of a domain: one tile on the home page
+const withExtraAddresses = (j) => {
+  const routes = (((j || {}).data || {}).HTTPConfig || {}).ProxyConfig ? j.data.HTTPConfig.ProxyConfig.Routes || [] : null;
+  if (!routes) return j;
+  const jellyfin = routes.find((r) => r.Name === 'Jellyfin');
+  if (!jellyfin || routes.some((r) => r.Name === 'Jellyfin-example.org')) return j;
+  const extra = [
+    { ...jellyfin, Name: 'Jellyfin-example.org', Host: 'jellyfin.example.org' },
+    { ...jellyfin, Name: 'Jellyfin-media', Host: 'media.example.org' },
+  ];
+  return { ...j, data: { ...j.data, HTTPConfig: { ...j.data.HTTPConfig, ProxyConfig: { ...j.data.HTTPConfig.ProxyConfig, Routes: [...routes, ...extra] } } } };
+};
+// the storage dialogs' lists (as scripts/fork-ui-check-forms4.mjs and -settings-forms.mjs answer them)
+const TB = 1e12;
+const storageMock = [
+  ['/cosmos/api/storage/candidates', { status: 'OK', data: {
+    devices: [
+      { device: '/dev/sdb1', disk: '/dev/sdb', type: 'part', fstype: 'ext4', label: 'Media', uuid: '1b2c3d4e-0000-4000-8000-000000000001', model: 'WDC WD40', size: 4 * TB, mountable: true, use: { code: '', detail: '' } },
+      { device: '/dev/sdc1', disk: '/dev/sdc', type: 'part', fstype: 'ext4', label: '', size: 2 * TB, mountable: false, use: { code: 'mounted', detail: '/mnt/d1' } },
+    ],
+    mounts: [
+      { path: '/', device: '/dev/nvme0n1p2', disk: '/dev/nvme0n1', fstype: 'ext4', size: TB / 2, free: TB / 4, permanent: true, kind: 'system' },
+      { path: '/mnt/d1', device: '/dev/sdc1', disk: '/dev/sdc', fstype: 'ext4', size: 2 * TB, free: TB, permanent: true, kind: 'data' },
+      { path: '/mnt/d2', device: '/dev/sdf1', disk: '/dev/sdf', fstype: 'xfs', size: 4 * TB, free: 3 * TB, permanent: true, kind: 'data' },
+      { path: '/mnt/p2', device: '/dev/sdh1', disk: '/dev/sdh', fstype: 'ext4', size: 6 * TB, free: 6 * TB, permanent: true, kind: 'data' },
+    ],
+    base: '/mnt', inContainer: false,
+  } }],
+  ['/cosmos/api/mounts', { status: 'OK', data: [{ device: '/dev/sdc1', path: '/mnt/d1', type: 'ext4', opts: ['rw'], permenant: true }, { device: '/dev/sdf1', path: '/mnt/d2', type: 'xfs', opts: ['rw'], permenant: true }] }],
+  ['/cosmos/api/storage/unmount-check', { status: 'OK', data: { mountPoint: '/mnt/d1', device: '/dev/sdc1', permanent: true, system: false, users: [{ pid: 4242, name: 'jellyfin', how: 'files' }] } }],
+  ['/cosmos/api/disks', { status: 'OK', data: [
+    { name: '/dev/sdz', type: 'disk', model: 'Test USB', size: 64000000000, rota: false, children: [{ name: '/dev/sdz1', type: 'part', fstype: 'exfat', size: 64000000000, children: [] }] },
+    { name: '/dev/sdy', type: 'disk', model: 'System', size: 500000000000, rota: false, children: [{ name: '/dev/sdy1', type: 'part', fstype: 'ext4', mountpoint: '/', size: 500000000000, children: [] }] },
+  ] }],
+  ['/cosmos/api/snapraid', { status: 'OK', data: [] }],
+  ['/cosmos/api/smart-def', { status: 'OK', data: {} }],
+];
 
 const views = [
   { id: 'home', path: '/cosmos-ui/', core: true, captures: [
@@ -187,9 +239,9 @@ const views = [
   { id: 'storage', path: '/cosmos-ui/storage', captures: [
     {},
     { id: 'mounts', tab: 1 },
-    { id: 'merge', tab: 4 },
-    { id: 'parity', tab: 5 },
-    { id: 'raid', tab: 6 },
+    { id: 'merge', tab: 2 },
+    { id: 'parity', tab: 3 },
+    { id: 'raid', tab: 4 },
   ] },
   { id: 'users', path: '/cosmos-ui/config-users', core: true, captures: [{}, { id: 'new', open: create }] },
   { id: 'openid', path: '/cosmos-ui/openid-manage', captures: [{}, { id: 'new', open: create }] },
@@ -254,11 +306,67 @@ const views = [
     {},
     { id: 'review', wait: 2500, open: async (page) => { await page.getByRole('button', { name: /Install$/ }).first().click(); /* the app's page is drawn over the list: its button comes first */ } },
     // an address under a domain on a server that cannot look names up (the stand-in answers like Go's resolver)
-    { id: 'review-no-dns', wait: 2500, open: async (page) => { await page.getByRole('button', { name: /Install$/ }).first().click(); await page.locator('[role=dialog] .MuiChip-root', { hasText: 'polish.test' }).first().click(); }, close: async (page) => { await page.keyboard.press('Escape'); } },
+    { id: 'review-no-dns', wait: 2500, open: async (page) => { await page.getByRole('button', { name: /Install$/ }).first().click(); await page.locator('[role=dialog] .MuiChip-root', { hasText: new URL(base).hostname }).first().click(); }, close: async (page) => { await page.keyboard.press('Escape'); } },
   ] },
   { id: 'new-container-steps', path: '/cosmos-ui/servapps/new-service', captures: [
     {},
     { id: 'step-2', open: async (page) => { await page.locator('input[name=name]').first().fill('demo'); await page.locator('input[name=image]').first().fill('busybox:1.36'); await page.locator('button').filter({ hasText: /^Next$/ }).last().click(); }, close: async () => {} },
+  ] },
+  // the home page with several notices at once (a restart needed, the sign-in check of Cloudflare failing)
+  // and an app reached under several addresses (one tile per app, utils/homeTiles.js)
+  { id: 'home-notices', path: '/cosmos-ui/', core: true, wait: 1500, patch: [
+    ['/cosmos/api/status', (j) => ({ ...j, data: { ...(j.data || {}), needsRestart: true, domain: true } })],
+    ['/cosmos/api/turnstile', (j) => ({ ...j, data: { ...(j.data || {}), enabled: true, consoleOff: false, problems: turnstileProblems } })],
+    ['/cosmos/api/config', (j) => withExtraAddresses(j)],
+  ], captures: [
+    {},
+    { id: 'expanded', open: async (page) => { await page.locator('main [data-notices] button[aria-expanded=false]').first().click(); }, close: async () => {} },
+  ] },
+  { id: 'home-turnstile-console', path: '/cosmos-ui/', wait: 1500, patch: [
+    ['/cosmos/api/turnstile', (j) => ({ ...j, data: { ...(j.data || {}), enabled: true, consoleOff: true, problems: [] } })],
+  ] },
+  // Configuration > Domains: the certificates, home names, Cloudflare and Turnstile cards; the Turnstile card in its states
+  { id: 'domains-cards', path: '/cosmos-ui/config-general/https', wait: 2000, captures: [
+    { id: 'cloudflare-turnstile', at: 'prev:[data-turnstile-card]' },
+    { id: 'turnstile', at: '[data-turnstile-card]' },
+  ] },
+  { id: 'domains-turnstile-problems', path: '/cosmos-ui/config-general/https', wait: 2000, patch: [
+    ['/cosmos/api/turnstile', (j) => ({ ...j, data: { ...(j.data || {}), enabled: true, active: true, consoleOff: false, siteKey: '1x00000000000000000000AA', secretKey: '***', confirmed: true, problems: turnstileProblems } })],
+  ], captures: [{ at: '[data-turnstile-card]' }] },
+  { id: 'domains-turnstile-console', path: '/cosmos-ui/config-general/https', wait: 2000, patch: [
+    ['/cosmos/api/turnstile', (j) => ({ ...j, data: { ...(j.data || {}), enabled: true, active: false, consoleOff: true, siteKey: '1x00000000000000000000AA', secretKey: '***', confirmed: true, problems: [] } })],
+  ], captures: [{ at: '[data-turnstile-card]' }] },
+  // the OpenID client form, its values to copy, and the new secret
+  { id: 'openid-client', path: '/cosmos-ui/openid-manage', wait: 800, captures: [
+    { id: 'form', open: async (page) => {
+      await create(page);
+      await page.locator('#fork-openid-id').fill(openidClient);
+      await page.locator('#fork-openid-redirect').fill(new URL(base).origin.replace('://', '://jellyfin.') + '/auth/callback');
+      await page.locator('[role=dialog]').getByRole('button', { name: 'Add', exact: true }).click();
+    }, close: async () => {} },
+    { id: 'values', wait: 1500, open: async (page) => { await page.locator('[role=dialog]').getByRole('button', { name: 'Create' }).click(); }, close: async (page) => { await page.locator('[role=dialog]').getByRole('button', { name: 'Done' }).click(); } },
+    { id: 'reset-secret', open: async (page) => { await page.getByRole('button', { name: 'Reset Secret' }).first().click(); },
+      close: async (page) => { await page.keyboard.press('Escape'); await page.evaluate((id) => fetch('/cosmos/api/openid/' + id, { method: 'DELETE' }), openidClient); } },
+  ] },
+  // the storage dialogs, answered by the browser (no disk is ever touched): mount, unmount, merge, parity, format
+  { id: 'storage-dialogs', path: '/cosmos-ui/storage', wait: 1500, mock: storageMock, patch: [['/cosmos/api/status', (j) => ({ ...j, data: { ...(j.data || {}), containerized: false } })]], captures: [
+    { id: 'format', open: async (page) => { await page.getByRole('button', { name: 'Format' }).first().click(); } },
+    { id: 'mount', tab: 1, open: async (page) => { await page.getByRole('button', { name: 'New Mount' }).first().click(); await page.locator('[role=dialog]').getByRole('button', { name: /sdb1/ }).click(); } },
+    { id: 'unmount', open: async (page) => { await page.getByRole('button', { name: 'More actions' }).first().click(); await page.getByRole('menuitem', { name: 'Unmount' }).first().click(); await page.locator('#fork-storage-confirm').fill('/mnt/d1'); },
+      close: async (page) => { await page.keyboard.press('Escape'); await page.waitForTimeout(300); await page.keyboard.press('Escape'); } },
+    { id: 'merge', tab: 2, open: async (page) => { await page.getByRole('button', { name: 'Create Merge' }).first().click(); await page.locator('[role=dialog]').getByRole('checkbox', { name: '/mnt/d1' }).check(); await page.locator('[role=dialog]').getByRole('checkbox', { name: '/mnt/d2' }).check(); } },
+    { id: 'parity', tab: 3, open: async (page) => { await page.getByRole('button', { name: 'New Parity Disks' }).first().click(); await page.locator('[role=dialog]').getByRole('checkbox', { name: '/mnt/d1' }).first().check(); /* the next one is proposed as the parity disk */ } },
+  ] },
+  // the small forms: a new network, a new volume, a Market source, a Shield whitelist entry
+  { id: 'small-forms', path: '/cosmos-ui/servapps', wait: 1200, captures: [
+    { id: 'network', tab: 2, open: async (page) => { await page.getByRole('button', { name: 'New Network' }).first().click(); await page.locator('#name').fill('lan-apps'); } },
+    { id: 'volume', tab: 1, open: async (page) => { await page.getByRole('button', { name: /New Volume/ }).first().click(); await page.locator('#name').fill('photos-cache'); } },
+  ] },
+  { id: 'market-source', path: '/cosmos-ui/market-listing', wait: 1500, mock: marketMock, captures: [
+    { open: async (page) => { await page.getByRole('button', { name: 'Sources' }).first().click(); await page.locator('[role=dialog]').getByRole('button', { name: 'Add Source' }).click(); await page.locator('[role=dialog] input[name$=".Url"]').last().fill('https://apps.example.org/servapps.json'); } },
+  ] },
+  { id: 'whitelist-entry', path: '/cosmos-ui/config-url/whitelist', wait: 1200, captures: [
+    { open: async (page) => { await page.getByRole('button', { name: 'Add IP' }).first().click(); } },
   ] },
   // upstream's licence-only pages: one picture each, for the record
   { id: 'paid-backups', path: '/cosmos-ui/backups' },
@@ -553,7 +661,8 @@ const run = async (engineName, viewport, mode) => {
   const phone = viewport.width < 600;
 
   const browser = await engines[engineName].launch();
-  const context = await browser.newContext({ viewport, colorScheme: mode, reducedMotion: 'reduce', ignoreHTTPSErrors: true, locale: 'en-GB', timezoneId: 'Europe/Bucharest' });
+  // SERVICE_WORKERS=block: the panel's worker would fetch past the answers a view gives itself (Firefox, WebKit)
+  const context = await browser.newContext({ viewport, colorScheme: mode, reducedMotion: 'reduce', ignoreHTTPSErrors: true, locale: 'en-GB', timezoneId: 'Europe/Bucharest', serviceWorkers: process.env.SERVICE_WORKERS === 'block' ? 'block' : 'allow' });
   // the skin's own switch (client/public/skin/mode.js) reads this
   await context.addInitScript((m) => { try { window.localStorage.setItem('ct-mode', m); } catch (e) { /* no storage */ } }, mode);
   // the installed app: the page asks the browser "am I in a window of my own?" (client/src/utils/pwaInstall.js)
@@ -658,15 +767,33 @@ const run = async (engineName, viewport, mode) => {
     await page.locator('[role=listbox] li').nth(index).click();
   };
 
-  const capture = async (name, problems) => {
+  const capture = async (name, problems, at) => {
     const file = join(dir, name + '.png');
     // a full-page picture taken on a scrolled page draws the fixed top bar in the middle of it
-    await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
+    // (`at`: one screen, scrolled so that the first element matching the selector is just under the bar)
+    if (at) {
+      const found = await page.evaluate((selector) => {
+        // "prev:<selector>": the card before the one that holds the match (two cards one under the other)
+        const previous = selector.startsWith('prev:');
+        const el = document.querySelector(previous ? selector.slice(5) : selector);
+        if (!el) return false;
+        let card = el.closest('.MuiCard-root, .MuiPaper-root') || el;
+        if (previous) {
+          let up = card;
+          while (up && !up.previousElementSibling) up = up.parentElement;
+          if (up && up.previousElementSibling) card = up.previousElementSibling;
+        }
+        const bar = document.querySelector('header.MuiAppBar-root');
+        window.scrollTo(0, Math.max(0, card.getBoundingClientRect().top + window.scrollY - (bar ? bar.getBoundingClientRect().height : 0) - 12));
+        return true;
+      }, at).catch(() => false);
+      if (!found) problems.push('step: nothing matches ' + at);
+    } else await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
     await page.waitForTimeout(120);
     const height = await page.evaluate(() => document.documentElement.scrollHeight).catch(() => viewport.height);
     const limit = viewport.height * (phone ? 6 : 4);
     try {
-      if (viewportShots) await page.screenshot({ path: file });
+      if (viewportShots || at) await page.screenshot({ path: file });
       else if (height > limit) await page.screenshot({ path: file, fullPage: true, clip: { x: 0, y: 0, width: viewport.width, height: limit } });
       else await page.screenshot({ path: file, fullPage: true });
     } catch (e) { problems.push('screenshot: ' + String(e.message).slice(0, 200)); }
@@ -695,7 +822,7 @@ const run = async (engineName, viewport, mode) => {
     if (smallSet && !view.core) return;
     await room(perLoad);
     const before = stamps.length;
-    for (const [part, body, status] of view.mock || []) await page.route((url) => url.pathname.startsWith(part), (route) => route.fulfill({ status: status || 200, json: body }));
+    for (const [part, body, status, headers] of view.mock || []) await page.route((url) => url.pathname.startsWith(part), (route) => route.fulfill({ status: status || 200, json: body, headers }));
     for (const part of view.abort || []) await page.route((url) => url.pathname.startsWith(part), (route) => route.abort('connectionrefused'));
     for (const [part, change] of view.patch || []) {
       await page.route((url) => url.pathname === part || url.pathname.startsWith(part + '?'), async (route) => {
@@ -720,7 +847,7 @@ const run = async (engineName, viewport, mode) => {
         if (step.open) { await room(40); await step.open(page); }
         await settle(step.wait || 0);
       } catch (e) { problems.push('step: ' + String(e.message).split('\n')[0].slice(0, 200)); }
-      await capture(name, problems);
+      await capture(name, problems, step.at);
       try {
         if (step.open) {
           if (step.close) await step.close(page); else await page.keyboard.press('Escape');
