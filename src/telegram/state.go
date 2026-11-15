@@ -150,6 +150,7 @@ func startNotice(previous *runState, version string, now time.Time) (*notice, ru
 		nt.details = func(c *composer) {
 			c.fixed("From version ").value(from, maxValue).fixed(" to ").value(version, maxValue).fixed(".")
 		}
+		nt.details = withDependencyUpdate(nt.details) // Fork addition: says when it was an automatic dependency update, see fork_deps.go
 	case previous.Exit == exitRestart:
 		nt.priority = priorityLow
 		nt.title = "Cosmos restarted, as asked for in the panel or after a change of settings."
