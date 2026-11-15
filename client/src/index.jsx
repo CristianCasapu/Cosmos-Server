@@ -11,7 +11,7 @@ import './utils/locales/i18n';
 import { dayjsLocale, getLanguage } from './utils/locales/i18n';
 
 // scroll bar
-import 'simplebar/src/simplebar.css';
+import 'simplebar-react/dist/simplebar.min.css'; // Fork addition: simplebar 6 publishes its style here
 
 // third-party
 import { Provider as ReduxProvider } from 'react-redux';
