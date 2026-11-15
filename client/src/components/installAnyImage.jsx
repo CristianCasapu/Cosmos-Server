@@ -87,7 +87,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
   const { t } = useTranslation();
   const say = useSay();
   const phone = useMediaQuery((theme) => theme.breakpoints.down('sm'));
-  const [query, setQuery] = React.useState('');
+  const [query, setQuery] = React.useState(initial || ''); // the words are there from the first paint
   const [results, setResults] = React.useState(null);
   const [searchProblem, setSearchProblem] = React.useState('');
   const [busy, setBusy] = React.useState(false);
