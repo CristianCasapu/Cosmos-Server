@@ -361,6 +361,9 @@ const follow = async (call, response) => {
     finish(call, false, message);
   } else if (text.includes('[OPERATION FAILED]')) {
     finish(call, false, '');
+  } else if (/\[START CHECK\][^\n]*"failing":true/.test(text)) {
+    // Fork addition (plan 43): created, but a new container does not start: the review says why
+    finish(call, false, tr('activity.startFailed', 'created, but it does not start: the review says why'));
   } else {
     finish(call, true);
   }

@@ -291,6 +291,7 @@ if (phase === 'story' || phase === 'bad') {
       expect(await problem.count() === 1, `${name}: the creation says pgbad does not start`);
       const reason = await problem.locator('[data-start-reason]').innerText().catch(() => '');
       expect(/needs POSTGRESQL_PASSWORD/.test(reason), `${name}: and why (${reason.slice(0, 100)})`);
+      expect(await page.getByText(/created, but it does not start/).count() > 0, `${name}: the toast does not say "done"`);
       expect(await problem.locator('[data-repair-setting="ALLOW_EMPTY_PASSWORD"]').count() === 0, `${name}: the switch for an empty password is not the repair`);
       const notes = (await (await session.get('/cosmos/api/notifications')).json()).data || [];
       expect(notes.filter((n) => n.Title === 'notif.container.startFailed.title' && n.Vars === 'pgbad').length === 1, `${name}: one notification for the administrators`);

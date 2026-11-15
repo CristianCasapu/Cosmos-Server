@@ -1065,6 +1065,7 @@
 	"activity.image.pull": "Download the image",
 	"activity.install": "Install the application",
 	"activity.interrupted": "the connection was interrupted",
+	"activity.startFailed": "created, but it does not start: the review says why",
 	"activity.job.delete": "Delete the job",
 	"activity.job.run": "Start the job",
 	"activity.job.stop": "Stop the job",
