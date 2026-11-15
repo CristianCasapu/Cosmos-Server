@@ -84,7 +84,7 @@ const RCloneServePage = ({containerized}) => {
       }
     ]}
   />
-    : <Stack spacing={2} direction="row" justifyContent="center">
+    : <Stack spacing={2} direction="row" sx={{ justifyContent: 'center' }}>
       <CircularProgress />
     </Stack>}
   </div>);

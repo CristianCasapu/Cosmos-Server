@@ -1,4 +1,4 @@
-import { LoadingButton } from "@mui/lab";
+import { Button as LoadingButton } from "@mui/material"; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { Alert, Grid, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, FormHelperText, Stack, TextField } from "@mui/material";
 import React, {useState} from "react";
 import { CosmosCheckbox } from "../config/users/formShortcuts";
@@ -93,7 +93,7 @@ const MountDiskDialogInternal = ({disk, unmount, refresh, open, setOpen }) => {
                         /> {t('mgmt.storage.mount.permanent')} {unmount ? t('global.unmount') : t('global.mount')}
                       </div>
                       {formik.errors.submit && (
-                        <Grid item xs={12}>
+                        <Grid size={{ xs: 12 }}>
                           <FormHelperText error>{formik.errors.submit}</FormHelperText>
                         </Grid>
                       )}

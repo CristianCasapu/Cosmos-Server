@@ -2,12 +2,12 @@
 import * as React from 'react';
 import { Alert, Box, Button, Checkbox, CircularProgress, FormControl, FormHelperText, Grid, Icon, IconButton, InputLabel, List, ListItem, ListItemButton, MenuItem, NativeSelect, Select, Stack, TextField, Typography } from '@mui/material';
 import Dialog from '@mui/material/Dialog';
-import {TreeItem, TreeView} from '@mui/x-tree-view';
+import {TreeItem, SimpleTreeView} from '@mui/x-tree-view';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { useFormik, FormikProvider } from 'formik';
 import * as Yup from 'yup';
 import { useTranslation } from 'react-i18next';

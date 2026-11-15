@@ -1,6 +1,3 @@
-// material-ui
-import { alpha } from '@mui/material/styles';
-
 // ==============================|| OVERRIDES - BUTTON ||============================== //
 
 export default function Button(theme) {
@@ -96,12 +93,12 @@ export default function Button(theme) {
                 // --- Text: gradient tint on hover ---
                 text: {
                     '&:hover': {
-                        backgroundColor: alpha(primaryMain, 0.06),
+                        backgroundColor: theme.alpha(primaryMain, 0.06),
                     },
                 },
                 textPrimary: {
                     '&:hover': {
-                        backgroundImage: `linear-gradient(135deg, ${alpha(primaryMain, 0.06)}, ${alpha(secondaryMain, 0.06)})`,
+                        backgroundImage: `linear-gradient(135deg, ${theme.alpha(primaryMain, 0.06)}, ${theme.alpha(secondaryMain, 0.06)})`,
                         backgroundColor: 'transparent',
                     },
                 },

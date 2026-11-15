@@ -72,7 +72,7 @@ export const Repositories = () => {
 
   if (loading) {
     return (
-      <Stack direction="row" spacing={2} justifyContent="center" alignContent={"center"} alignItems={"center"}>
+      <Stack direction="row" spacing={2} sx={{ justifyContent: 'center', alignContent: 'center', alignItems: 'center' }}>
         <CircularProgress />
       </Stack>
     );
@@ -87,7 +87,7 @@ export const Repositories = () => {
 
   return  <div style={{ maxWidth: "1200px", margin: "auto" }}>
     {(repositories) ? <>
-      <Stack direction="row" spacing={2} justifyContent="flex-start">
+      <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-start' }}>
         <ResponsiveButton variant="outlined" startIcon={<ReloadOutlined />} onClick={refresh}>
           {t('global.refresh')}
         </ResponsiveButton>
@@ -143,7 +143,7 @@ export const Repositories = () => {
               const lockDate = new Date(lock.time);
               const ago = Math.round((Date.now() - lockDate.getTime()) / 1000 / 60);
               const agoText = ago < 60 ? `${ago}m ago` : ago < 1440 ? `${Math.round(ago / 60)}h ago` : `${Math.round(ago / 1440)}d ago`;
-              return <Stack direction="row" spacing={1} alignItems="center">
+              return <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                 <Chip
                   icon={<LockOutlined />}
                   label={`Locked (${agoText})`}

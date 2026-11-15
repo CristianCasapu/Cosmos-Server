@@ -15,7 +15,7 @@ import {
 import MainCard from "../../../components/MainCard";
 import { PlusCircleOutlined } from "@ant-design/icons";
 import * as API from "../../../api";
-import { LoadingButton } from "@mui/lab";
+import { Button as LoadingButton } from "@mui/material"; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import PrettyTableView from "../../../components/tableView/prettyTableView";
 import ResponsiveButton from "../../../components/responseiveButton";
 import { useTranslation } from 'react-i18next';
@@ -152,7 +152,7 @@ const VolumeContainerSetup = ({
               {wrapCard(
                 <>
                   <Grid container spacing={4}>
-                    <Grid item xs={12}>
+                    <Grid size={{ xs: 12 }}>
                       {volumes && (
                         <PrettyTableView
             empty={{ title: t('emptyState.containerVolumes.title', 'No volumes or folders'), text: t('emptyState.containerVolumes.text', 'This app keeps nothing outside its container: its data is lost when it is re-created. Add a volume or a folder of the server with the + button above.') }} /* Fork addition: what this list is for and how it fills */
@@ -200,11 +200,13 @@ const VolumeContainerSetup = ({
                                     disabled={frozenVolumes.includes(r.Source)}
                                     variant="outlined"
                                     id="Type"
-                                    SelectProps={{ SelectDisplayProps: { 'aria-label': t('mgmt.servapps.volumes.typeLabel', 'Type of mount') } }} /* Fork addition: a name */
-                                    select
-                                    value={r.Type}
+                                    /* Fork addition: a name */
+                                    select value={r.Type}
                                     name={`volumes[${k}].Type`}
                                     onChange={formik.handleChange}
+                                    slotProps={{
+                                      select: { SelectDisplayProps: { 'aria-label': t('mgmt.servapps.volumes.typeLabel', 'Type of mount') } }
+                                    }}
                                   >
                                     <MenuItem value="bind">{t('mgmt.servapps.newContainer.volumes.bindInput')}</MenuItem>
                                     <MenuItem value="volume">{t('global.volume')}</MenuItem>
@@ -236,13 +238,15 @@ const VolumeContainerSetup = ({
                                       variant="outlined"
                                       name={`volumes[${k}].Source`}
                                       id="Source"
-                                      inputProps={{ 'aria-label': t('global.source') }} /* Fork addition: a name */
+                                      /* Fork addition: a name */
                                       disabled={frozenVolumes.includes(
                                         r.Source
-                                      )}
-                                      style={{ minWidth: "200px" }}
+                                      )} style={{ minWidth: "200px" }}
                                       value={r.Source}
                                       onChange={formik.handleChange}
+                                      slotProps={{
+                                        htmlInput: { 'aria-label': t('global.source') }
+                                      }}
                                     />
                                     </Stack>
                                   ) : r.Type == "tmpfs" ? (
@@ -250,9 +254,11 @@ const VolumeContainerSetup = ({
                                       className="px-2 my-2"
                                       variant="outlined"
                                       disabled
-                                      inputProps={{ 'aria-label': t('global.source') }} /* Fork addition: a name */
-                                      style={{ minWidth: "200px" }}
-                                      value="(memory)"
+                                      /* Fork addition: a name */
+                                      style={{ minWidth: "200px" }} value="(memory)"
+                                      slotProps={{
+                                        htmlInput: { 'aria-label': t('global.source') }
+                                      }}
                                     />
                                   ) : (
                                     <TextField
@@ -264,10 +270,12 @@ const VolumeContainerSetup = ({
                                         r.Source
                                       )}
                                       select
-                                      SelectProps={{ SelectDisplayProps: { 'aria-label': t('global.source') } }} /* Fork addition: a name */
-                                      style={{ minWidth: "200px" }}
-                                      value={r.Source}
+                                      /* Fork addition: a name */
+                                      style={{ minWidth: "200px" }} value={r.Source}
                                       onChange={formik.handleChange}
+                                      slotProps={{
+                                        select: { SelectDisplayProps: { 'aria-label': t('global.source') } }
+                                      }}
                                     >
                                       {[...volumes, r].map((volume) => (
                                         <MenuItem
@@ -299,11 +307,13 @@ const VolumeContainerSetup = ({
                                     variant="outlined"
                                     name={`volumes[${k}].Target`}
                                     id="Target"
-                                    inputProps={{ 'aria-label': t('global.target') }} /* Fork addition: a name */
-                                    disabled={frozenVolumes.includes(r.Source)}
-                                    style={{ minWidth: "200px" }}
+                                    /* Fork addition: a name */
+                                    disabled={frozenVolumes.includes(r.Source)} style={{ minWidth: "200px" }}
                                     value={r.Target}
                                     onChange={formik.handleChange}
+                                    slotProps={{
+                                      htmlInput: { 'aria-label': t('global.target') }
+                                    }}
                                   />
                                 </div>
                               ),
@@ -350,10 +360,10 @@ const VolumeContainerSetup = ({
                         </div>
                       )}
                     </Grid>
-                    <Grid item xs={12}>
+                    <Grid size={{ xs: 12 }}>
                       <Stack direction="column" spacing={2}>
                         {formik.errors.submit && (
-                          <Grid item xs={12}>
+                          <Grid size={{ xs: 12 }}>
                             <FormHelperText error>
                               {formik.errors.submit}
                             </FormHelperText>

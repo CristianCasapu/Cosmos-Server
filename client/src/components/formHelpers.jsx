@@ -16,7 +16,7 @@ import ChoiceChips from './choiceChips';
 // sentence under the chips. `note` is about the whole choice and is shown as
 // well (why it cannot be changed, for instance).
 export const ChoiceRow = ({ name, label, required, options, value, onChange, error, disabled, note, children }) => (
-  <Grid item xs={12}>
+  <Grid size={{ xs: 12 }}>
     <Stack spacing={1}>
       <ChoiceChips
         id={name}

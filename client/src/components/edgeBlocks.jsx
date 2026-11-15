@@ -12,7 +12,7 @@ import dayjs from 'dayjs';
 import {
   Alert, Box, Button, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Link, Stack, Tooltip, Typography, useMediaQuery,
 } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import {
   CheckCircleOutlined, CloseCircleOutlined, DownOutlined, ExclamationCircleOutlined, InfoCircleOutlined, StopOutlined, UpOutlined,
 } from '@ant-design/icons';
@@ -135,7 +135,7 @@ const RulesList = ({ status, busy, onAction }) => {
       callback={() => onAction(confirm === '*' ? { action: 'unblockAll' } : { action: 'unblock', key: confirm })}
       onClose={() => setConfirm(null)}
     />}
-    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center" justifyContent="space-between">
+    <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
       <Typography variant="subtitle1">{t('mgmt.edge.list.title', 'Blocked at Cloudflare now')}</Typography>
       {rules.some(canUnblock) && <PermissionGuard permission={PERM_CONFIGURATION}>
         <Button size={narrow ? 'medium' : 'small'} variant="outlined" color="error" disabled={!!busy} onClick={() => setConfirm('*')} data-edge-action="unblockAll">
@@ -161,7 +161,7 @@ const RulesList = ({ status, busy, onAction }) => {
         {
           title: t('mgmt.edge.list.why', 'Why'),
           search: (rule) => t(...ruleLabel(rule)),
-          field: (rule) => <Stack spacing={0.5} alignItems="flex-start">
+          field: (rule) => <Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
             <span style={{ overflowWrap: 'anywhere' }}>{t(...ruleLabel(rule))}{rule.actor ? ' (' + rule.actor + ')' : ''}</span>
             <Chip size="small" variant="outlined" color={rule.mode === 'block' ? 'error' : 'warning'} label={t(...modeLabel(rule))} />
           </Stack>,
@@ -232,7 +232,7 @@ export const EdgeBlocksCard = () => {
         {t('mgmt.edge.intro', 'Visitors who come through Cloudflare\'s proxy cannot be banned by Fail2ban: their connections are Cloudflare\'s. Switched on, an address that keeps offending through Cloudflare (failed sign-ins, probes, scans, abuse SmartShield stopped) is challenged or blocked by Cloudflare itself, for a limited time, before anything reaches your home connection. Direct visitors stay with Fail2ban.')}
       </Typography>
 
-      {state && <Stack direction="row" spacing={1} alignItems="flex-start" data-edge-state-line={status.enabled ? 'on' : 'off'}>
+      {state && <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }} data-edge-state-line={status.enabled ? 'on' : 'off'}>
         <LevelIcon level={state[0]} />
         <Typography variant="body2" sx={{ overflowWrap: 'anywhere', minWidth: 0 }}>{say(t, state[1])}</Typography>
       </Stack>}
@@ -292,7 +292,7 @@ export const EdgeBlocksCard = () => {
             <Door id="edge-steps" open={stepsOpen} onClick={() => setStepsOpen(!stepsOpen)}>{t('mgmt.edge.steps.door', 'How to add it')}</Door>
             <Collapse id="edge-steps" in={stepsOpen} unmountOnExit><PermissionSteps /></Collapse>
           </>}
-          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+          <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
             {!status.enabled && zones.length > 0 && <LoadingButton variant="contained" size="small" loading={busy === 'enable'} disabled={!!busy} onClick={() => act({ action: 'enable' })} data-edge-action="enable">
               {t('mgmt.edge.enable', 'Test and switch on')}
             </LoadingButton>}

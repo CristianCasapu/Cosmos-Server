@@ -72,7 +72,7 @@ export const HostSeenHint = ({ values }) => {
   if (!host || (mode !== 'SERVAPP' && mode !== 'PROXY')) {
     return null;
   }
-  return <Grid item xs={12}>
+  return <Grid size={{ xs: 12 }}>
     <Typography variant="caption" color="textSecondary" component="div" sx={{ overflowWrap: 'anywhere' }}>
       {overwrite
         ? t('mgmt.urls.guide.hostSeenOverwrite',
@@ -306,9 +306,9 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
       access: t('mgmt.urls.guide.why.access', 'its access settings do not match one of the three choices'),
     };
     return <>
-      {!readOnly && <Grid item xs={12}>
+      {!readOnly && <Grid size={{ xs: 12 }}>
         {fit.fits
-          ? <Stack direction="row" justifyContent="flex-end">
+          ? <Stack direction="row" sx={{ justifyContent: 'flex-end' }}>
             <Button size="small" startIcon={<ThunderboltOutlined />} onClick={() => setView('simple')}>
               {t('mgmt.urls.guide.toSimple', 'Back to the simple view')}
             </Button>
@@ -319,7 +319,7 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
           </Alert>}
       </Grid>}
       {children}
-      {addressExtra && <Grid item xs={12}>{addressExtra}</Grid>}
+      {addressExtra && <Grid size={{ xs: 12 }}>{addressExtra}</Grid>}
     </>;
   }
 
@@ -346,9 +346,10 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
     : null;
   const nameError = formik.errors.Name;
 
-  return <>
-    <Grid item xs={12}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1} useFlexGap flexWrap="wrap">
+  return (
+    <>
+    <Grid size={{ xs: 12 }}>
+      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }} spacing={1} useFlexGap>
         <Typography variant="body2" color="textSecondary">
           {t('mgmt.urls.guide.intro', 'Pick the address. The rest is proposed; change what does not fit.')}
         </Typography>
@@ -370,7 +371,7 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
       ]}
     />}
 
-    {mode === 'SERVAPP' && !lockTarget && <Grid item xs={12}>
+    {mode === 'SERVAPP' && !lockTarget && <Grid size={{ xs: 12 }}>
       <Stack spacing={1}>
         <InputLabel htmlFor="guide-app" required>{t('mgmt.urls.guide.app.label', 'App')}</InputLabel>
         <Autocomplete
@@ -418,13 +419,13 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
         },
       }}
     />
-    <Grid item xs={12} sx={{ pt: '8px !important' }}>
+    <Grid size={{ xs: 12 }} sx={{ pt: '8px !important' }}>
       <HostnameSuggestions inline name={appName || values.Name} value={values.Host} config={config} onPick={setHost} />
     </Grid>
-    {hostError && <Grid item xs={12}>
+    {hostError && <Grid size={{ xs: 12 }}>
       <Alert severity="warning">{hostError}</Alert>{/* Fork addition: severity, so the icon is a warning too (color alone kept the success icon) */}
     </Grid>}
-    {addressExtra && <Grid item xs={12}>{addressExtra}</Grid>}
+    {addressExtra && <Grid size={{ xs: 12 }}>{addressExtra}</Grid>}
 
     {mode === 'SERVAPP' && (lockTarget || appName) && <>
       <ChoiceRow
@@ -451,16 +452,18 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
         {typedPort && <TextField
           size="small"
           sx={{ maxWidth: 160 }}
-          inputProps={{ inputMode: 'numeric', 'aria-label': t('mgmt.urls.guide.port.label', 'Port of the app') }}
           placeholder="8080"
           value={parts.port}
           onChange={(event) => setPort(event.target.value.replace(/\D/g, '').slice(0, 5))}
+            slotProps={{
+              htmlInput: { inputMode: 'numeric', 'aria-label': t('mgmt.urls.guide.port.label', 'Port of the app') }
+            }}
         />}
         <ProposalNote>{portNote}</ProposalNote>
       </ChoiceRow>
 
       {/* the app's usual port, when the URL leads elsewhere: it waits here with its button */}
-      {container && proposal.source === 'usual' && parts.port !== '' && portNumber !== proposal.port && <Grid item xs={12}>
+      {container && proposal.source === 'usual' && parts.port !== '' && portNumber !== proposal.port && <Grid size={{ xs: 12 }}>
         <ProposalBox
           title={t('mgmt.urls.guide.port.usualTitle', '{{app}} usually answers on port {{port}}', { app: shortImage(imageOf(container)), port: proposal.port })}
           source={t('mgmt.urls.guide.port.usualHeld', 'This URL leads to port {{current}}. If the address shows "502 Bad Gateway", the port is the first thing to check.', { current: parts.port })}
@@ -512,7 +515,7 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
 
     <HostSeenHint values={values} />
 
-    <Grid item xs={12}>
+    <Grid size={{ xs: 12 }}>
       {showName || nameError
         ? <Grid container spacing={2}>
           <CosmosInputText
@@ -527,7 +530,7 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
             formik={formik}
           />
         </Grid>
-        : <Stack direction="row" alignItems="center" spacing={1} useFlexGap flexWrap="wrap">
+        : <Stack direction="row" sx={{ alignItems: 'center', flexWrap: 'wrap' }} spacing={1} useFlexGap>
           <Typography variant="caption" color="textSecondary" sx={{ overflowWrap: 'anywhere' }}>
             {values._SmartShield_Enabled
               ? t('mgmt.urls.guide.summary',
@@ -540,7 +543,8 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
           </Button>
         </Stack>}
     </Grid>
-  </>;
+    </>
+  );
 };
 
 export default ForkRouteGuide;

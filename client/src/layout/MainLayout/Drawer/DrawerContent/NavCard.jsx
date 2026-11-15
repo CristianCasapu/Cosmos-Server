@@ -12,8 +12,8 @@ import AnimateButton from '../../../../components/@extended/AnimateButton';
 
 const NavCard = () => (
     <MainCard sx={{ bgcolor: 'grey.50', m: 3 }}>
-        <Stack alignItems="center" spacing={2.5}>
-            <Stack alignItems="center">
+        <Stack sx={{ alignItems: 'center' }} spacing={2.5}>
+            <Stack sx={{ alignItems: 'center' }}>
                 <Typography variant="h5">Cosmos Pro</Typography>
                 <Typography variant="h6" color="secondary">
                     Checkout pro features

@@ -233,7 +233,7 @@ const EmailSettings = ({ formik, config }) => {
 
     {/* 2. what was found for the address */}
     <Stack spacing={1.5}>
-      <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap flexWrap="wrap">
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
         <Typography variant="subtitle1">{t('mgmt.config.email.server.title', 'Mail server')}</Typography>
         <PermissionGuard permission={PERM_ADMIN}>
           <Button
@@ -248,7 +248,7 @@ const EmailSettings = ({ formik, config }) => {
         </PermissionGuard>
       </Stack>
 
-      {found && found.state === 'looking' && <Stack direction="row" spacing={1.5} alignItems="center" role="status">
+      {found && found.state === 'looking' && <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }} role="status">
         <CircularProgress size={16} />
         <Typography variant="body2">
           {t('mgmt.config.email.detect.looking', 'Looking for the mail servers of {{domain}}: a few seconds…', { domain: found.domain })}
@@ -299,10 +299,10 @@ const EmailSettings = ({ formik, config }) => {
         </Button>
         <Collapse in={showOthers} id="Email_Others" unmountOnExit>
           <Stack spacing={1} sx={{ pt: 1 }}>
-            {others.map((other) => <Stack key={other.host + ':' + other.port} direction="row" spacing={1.5} alignItems="center" justifyContent="space-between">
+            {others.map((other) => <Stack key={other.host + ':' + other.port} direction="row" spacing={1.5} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
               <Stack sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
                 <Typography variant="body2">{candidateLine(other)}</Typography>
-                <Typography variant="caption" color="text.secondary">
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                   {tr(sourceText(other, result, providers))}{' · '}{tr(checkText(other).short)}
                 </Typography>
               </Stack>
@@ -324,15 +324,15 @@ const EmailSettings = ({ formik, config }) => {
         {values.Email_Host
           ? <>
             <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
-              <Typography variant="body2" component="span" color="text.secondary">{t('mgmt.config.email.summary.server', 'Sends through:')}</Typography>
+              <Typography variant="body2" component="span" sx={{ color: 'text.secondary' }}>{t('mgmt.config.email.summary.server', 'Sends through:')}</Typography>
               {' '}{String(values.Email_Host).trim()}, {tr(connectionInWords(values.Email_Port, values.Email_UseTLS))}
             </Typography>
             <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
-              <Typography variant="body2" component="span" color="text.secondary">{t('mgmt.config.email.summary.user', 'Signs in as:')}</Typography>
+              <Typography variant="body2" component="span" sx={{ color: 'text.secondary' }}>{t('mgmt.config.email.summary.user', 'Signs in as:')}</Typography>
               {' '}{values.Email_Username || t('mgmt.config.email.summary.noUser', 'nobody (the server is asked for no sign-in)')}
             </Typography>
           </>
-          : <Typography variant="body2" color="text.secondary">
+          : <Typography variant="body2" sx={{ color: 'text.secondary' }}>
             {t('mgmt.config.email.summary.none', 'No mail server yet. Enter the email address above and its settings are looked for, or open the custom settings.')}
           </Typography>}
       </Stack>
@@ -448,7 +448,7 @@ const EmailSettings = ({ formik, config }) => {
     {/* 4. try it, then save */}
     <EmailTest formik={formik} provider={hintProvider} unsaved={unsaved} needsPassword={needsPassword} hasProblems={Object.keys(problems).length > 0} />
 
-    {unsaved && <Typography variant="body2" color="text.secondary" role="status">
+    {unsaved && <Typography variant="body2" sx={{ color: 'text.secondary' }} role="status">
       {t('mgmt.config.email.unsaved', 'The email settings shown here are not saved yet. Press Save below to keep them.')}
     </Typography>}
 

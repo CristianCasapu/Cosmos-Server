@@ -4,7 +4,7 @@ import { TextField, Select, MenuItem, FormControl, InputLabel, Button, Typograph
 import { ServeConfig } from './rclone-serve';
 import { CosmosCollapse, CosmosFormDivider } from '../../config/users/formShortcuts';
 import * as API from '../../../api';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { useTranslation } from 'react-i18next';
 import { FilePickerButton } from '../../../components/filePicker';
 
@@ -115,7 +115,7 @@ const RCloneNewServeConfig = ({ onClose, initialValues }) => {
               margin="normal"
               required
             />
-            <Stack direction="row" spacing={2} alignItems="center">
+            <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
               <Field
                 type="checkbox"
                 name="SmartShield"

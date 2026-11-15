@@ -19,7 +19,7 @@ const OutcomeChip = ({ outcome }) => {
 const TrailRow = ({ event, onOpen }) => {
     const { t } = useTranslation();
     const theme = useTheme();
-    const content = <Stack direction="row" spacing={1.5} alignItems="flex-start" sx={{ width: '100%', textAlign: 'left', py: 1, px: 1.5 }}>
+    const content = <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start', width: '100%', textAlign: 'left', py: 1, px: 1.5 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography variant="body1" sx={wrapAnywhere}>{auditSentence(event, t)}</Typography>
             <Typography variant="caption" color="textSecondary">{formatTime(event.time)}</Typography>

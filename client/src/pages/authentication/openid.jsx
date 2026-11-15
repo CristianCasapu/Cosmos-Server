@@ -7,7 +7,7 @@ import { Checkbox, Grid, Stack, Typography } from '@mui/material';
 import AuthLogin from './auth-forms/AuthLogin';
 import AuthWrapper from './AuthWrapper';
 import { getOpenIDClientFaviconURL } from '../../utils/routes';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { Field, useFormik } from 'formik';
 import { useEffect, useRef, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
@@ -48,10 +48,10 @@ const OpenID = () => {
 
   return (<AuthWrapper>
     <Grid container spacing={3}>
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         <Stack spacing={2}>
           <Typography variant="h3">{t('oidc.title', {client_id: client_id})}</Typography>
-          <Stack direction="row" justifyContent="space-between" alignItems="baseline" spacing={2} style={{
+          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline' }} spacing={2} style={{
             alignItems: 'center',
           }}>
             <img src={icon} alt={'icon'} width="64px" />
@@ -63,7 +63,7 @@ const OpenID = () => {
           </Stack>
         </Stack>
       </Grid>
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
 			  <link rel="openid2.provider openid.server" href={selfHostname + "/oauth2/auth"} />
         <form action={"/oauth2/auth?" + entireSearch} method="post" ref={formRef}>
           <input type="hidden" name="client_id" value={client_id} />

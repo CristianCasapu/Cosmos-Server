@@ -50,17 +50,17 @@ export default function Chip(theme) {
                     color: theme.palette.primary.main,
                     backgroundColor: theme.palette.primary.lighter,
                     borderColor: theme.palette.primary.light,
-                    '&.MuiChip-lightError': {
+                    '&.MuiChip-light.MuiChip-colorError': {
                         color: theme.palette.error.main,
                         backgroundColor: theme.palette.error.lighter,
                         borderColor: theme.palette.error.light
                     },
-                    '&.MuiChip-lightSuccess': {
+                    '&.MuiChip-light.MuiChip-colorSuccess': {
                         color: theme.palette.success.main,
                         backgroundColor: theme.palette.success.lighter,
                         borderColor: theme.palette.success.light
                     },
-                    '&.MuiChip-lightWarning': {
+                    '&.MuiChip-light.MuiChip-colorWarning': {
                         color: theme.palette.warning.main,
                         backgroundColor: theme.palette.warning.lighter,
                         borderColor: theme.palette.warning.light

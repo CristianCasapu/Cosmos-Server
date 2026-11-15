@@ -35,7 +35,7 @@ import { strengthColor, strengthIndicator } from '../../../utils/password-streng
 
 // assets
 import { EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { redirectToLocal } from '../../../utils/indexs';
 
 // ============================|| FIREBASE - REGISTER ||============================ //
@@ -101,12 +101,12 @@ const AuthRegister = ({nickname, isRegister, isInviteLink, regkey}) => {
                 {({ errors, handleBlur, handleChange, handleSubmit, isSubmitting, touched, values }) => (
                     <form noValidate onSubmit={handleSubmit}>
                         <Grid container spacing={3}>
-                            {isInviteLink ? <Grid item xs={12}>
+                            {isInviteLink ? <Grid size={{ xs: 12 }}>
                                 <Alert severity="info">
                                      <Trans i18nKey='auth.invite.inviteTitle'/>
                                 </Alert>
                             </Grid> : ''}
-                            {isInviteLink ? <Grid item xs={12}>
+                            {isInviteLink ? <Grid size={{ xs: 12 }}>
                                 <Stack spacing={1}>
                                     <InputLabel htmlFor="nickname-login">{t('global.nicknameLabel')}</InputLabel>{/* Fork addition: points at the field (it named an id that does not exist) */}
                                     <OutlinedInput
@@ -128,7 +128,7 @@ const AuthRegister = ({nickname, isRegister, isInviteLink, regkey}) => {
                                     )}
                                 </Stack>
                             </Grid> : ''}
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}>
                                 <Stack spacing={1}>
                                     <InputLabel htmlFor="password-signup">{t('auth.pwd')}</InputLabel>
                                     <OutlinedInput
@@ -166,12 +166,12 @@ const AuthRegister = ({nickname, isRegister, isInviteLink, regkey}) => {
                                     )}
                                 </Stack>
                                 <FormControl fullWidth sx={{ mt: 2 }}>
-                                    <Grid container spacing={2} alignItems="center">
-                                        <Grid item>
+                                    <Grid container spacing={2} sx={{ alignItems: 'center' }}>
+                                        <Grid>
                                             <Box sx={{ bgcolor: level?.color, width: 85, height: 8, borderRadius: '7px' }} />
                                         </Grid>
-                                        <Grid item>
-                                            <Typography variant="subtitle1" fontSize="0.75rem">
+                                        <Grid>
+                                            <Typography variant="subtitle1" sx={{ fontSize: '0.75rem' }}>
                                                 {level?.label}
                                             </Typography>
                                         </Grid>
@@ -179,12 +179,12 @@ const AuthRegister = ({nickname, isRegister, isInviteLink, regkey}) => {
                                 </FormControl>
                             </Grid>
                             {errors.submit && (
-                                <Grid item xs={12}>
+                                <Grid size={{ xs: 12 }}>
                                     <FormHelperText error>{errors.submit}</FormHelperText>
                                 </Grid>
                             )}
-                            <Grid item xs={12}><TurnstileWidget form="register" /></Grid>{/* Fork addition: shows nothing unless the check applies to this visitor */}
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}><TurnstileWidget form="register" /></Grid>{/* Fork addition: shows nothing unless the check applies to this visitor */}
+                            <Grid size={{ xs: 12 }}>
                                     <LoadingButton
                                         disableElevation
                                         loading={isSubmitting}

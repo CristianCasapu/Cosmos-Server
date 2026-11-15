@@ -204,10 +204,10 @@ const _MiniPlotComponent = ({metrics, labels, noLabels, noBackground, agglo, tit
 
   // Fork addition: the classes let the skin give the box its own surface; no chart is built without a series, a word instead
   return <Stack direction='row' spacing={3} className={'ct-miniplot' + (series.length ? '' : ' ct-miniplot-empty')}
-                alignItems='center' sx={{padding: '0px 20px', width: '100%', backgroundColor: noBackground ? '' : 'rgba(0,0,0,0.075)'}}
-                justifyContent={'space-around'}>
+ sx={{ alignItems: 'center', justifyContent: 'space-around',padding: '0px 20px', width: '100%', backgroundColor: noBackground ? '' : 'rgba(0,0,0,0.075)'}}
+>
 
-        <Stack direction='column' justifyContent={'center'} alignItems={'flex-start'} spacing={0} style={{
+        <Stack direction='column' sx={{ justifyContent: 'center', alignItems: 'flex-start' }} spacing={0} style={{
           width: '160px',
           whiteSpace: 'nowrap',
         }}>

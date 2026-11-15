@@ -23,7 +23,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
@@ -122,7 +122,7 @@ const CopyValue = ({ label, value }) => {
   };
   return <Stack spacing={0.25} sx={{ minWidth: 0 }}>
     <Typography variant="caption" color="textSecondary">{label}</Typography>
-    <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0 }}>
+    <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', minWidth: 0 }}>
       <Typography variant="body2" component="code" sx={{ ...wrap, fontFamily: 'monospace', userSelect: 'all', minWidth: 0 }}>{value}</Typography>
       <Tooltip title={copied ? t('mgmt.certs.copied', 'Copied') : t('mgmt.certs.copy', 'Copy')}>
         <IconButton size="small" onClick={copy} aria-label={t('mgmt.certs.copy', 'Copy')}><CopyOutlined /></IconButton>
@@ -153,7 +153,7 @@ const DomainCertificate = ({ cert, hosts, now, onRenew, busy, notice }) => {
   const uncovered = cert.uncovered || [];
 
   return <Stack spacing={1} data-certs-domain={cert.domain} sx={{ minWidth: 0 }}>
-    <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
       <Typography variant="subtitle1" sx={wrap}><SafetyCertificateOutlined /> {cert.domain}</Typography>
       <Chip size="small" color={state.level} variant={state.level === 'default' ? 'outlined' : 'filled'} label={tr(state.label)} data-certs-state={state.level} />
     </Stack>
@@ -200,7 +200,7 @@ const DomainCertificate = ({ cert, hosts, now, onRenew, busy, notice }) => {
     {hosts.length > 0 && <Stack spacing={0.5}>
       {hosts.map((host) => {
         const view = hostState(host, dateTime);
-        return <Stack key={host.host} direction="row" spacing={1} alignItems="flex-start" data-certs-host={host.host} data-certs-trusted={host.trusted ? 'yes' : 'no'}>
+        return <Stack key={host.host} direction="row" spacing={1} sx={{ alignItems: 'flex-start' }} data-certs-host={host.host} data-certs-trusted={host.trusted ? 'yes' : 'no'}>
           <LevelIcon level={view.level} />
           <Typography variant="body2" sx={{ ...wrap, minWidth: 0 }}>
             <strong>{host.host}</strong> · {tr(view.sentence)}{view.detail ? ' ' + tr(view.detail) : ''}
@@ -212,7 +212,7 @@ const DomainCertificate = ({ cert, hosts, now, onRenew, busy, notice }) => {
     {notice && <Alert severity={notice.severity} sx={wrap}>{notice.text}</Alert>}
 
     {cert.kind === 'acme' && <PermissionGuard permission={PERM_CONFIGURATION}>
-      <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
         <Tooltip title={cert.canRenew
           ? t('mgmt.certs.renewTip', 'Orders the certificate again now, without waiting for its renewal date or for the pause after a failed order.')
           : (blocked ? tr(blocked) : '')}>
@@ -255,7 +255,7 @@ const ChallengeSetting = ({ challenges }) => {
   return <Stack spacing={1} data-certs-challenge={challenges.http}>
     {note && <Alert severity={note.level} sx={{ ...wrap, '& .MuiAlert-message': { minWidth: 0 } }}>{tr(note.sentence)}</Alert>}
     <PermissionGuard permission={PERM_CONFIGURATION}>
-      <Stack spacing={1} alignItems="flex-start">
+      <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
         <Button size="small" color="inherit" onClick={() => setOpen(!open)} endIcon={open ? <UpOutlined /> : <DownOutlined />} aria-expanded={open}>
           {t('mgmt.certs.challenge.door', 'Custom settings')}
         </Button>
@@ -336,7 +336,7 @@ export const CertificatesOverview = () => {
           />)}
         </Stack>}
 
-      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
         <Button size="small" variant="outlined" startIcon={<ReloadOutlined />} onClick={() => loadCertificates()} disabled={state.loading}>
           {t('mgmt.certs.refresh', 'Read again')}
         </Button>
@@ -524,7 +524,7 @@ export const AnotherDomain = ({ zones, onClose, onCloudflare, onManual }) => {
                 onChange={(value) => setVariables({ ...variables, [field.name]: value })}
                 helperText={t('mgmt.certs.add.variableHelp', 'The provider\'s name for this setting: {{name}}. Leave empty what your account does not use.', { name: field.name })}
               />)}
-              {provider && fields.custom.length > 0 && <Stack spacing={1} alignItems="flex-start">
+              {provider && fields.custom.length > 0 && <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
                 <Button size="small" color="inherit" onClick={() => setShowCustom(!showCustom)} endIcon={showCustom ? <UpOutlined /> : <DownOutlined />} aria-expanded={showCustom}>
                   {t('mgmt.certs.challenge.door', 'Custom settings')}
                 </Button>
@@ -559,7 +559,7 @@ export const AnotherDomain = ({ zones, onClose, onCloudflare, onManual }) => {
                   {t('mgmt.certs.add.recordIntro', 'Create this record where the DNS of {{domain}} is edited. It is the only thing to do there, once; it lets certificate authorities find the proof for {{domain}} in {{via}}, where Cosmos writes it.', { domain: name, via })}
                 </Typography>
                 <DelegationRecord record={offer} />
-                <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
                   <LoadingButton size="small" variant="outlined" loading={checking} onClick={checkRecord} data-certs-check>
                     {t('mgmt.certs.add.check', 'Check the record')}
                   </LoadingButton>

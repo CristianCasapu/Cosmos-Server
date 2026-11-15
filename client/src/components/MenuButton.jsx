@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { styled, alpha } from '@mui/material/styles';
+import { styled } from '@mui/material/styles';
 import Button from '@mui/material/Button';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
@@ -45,10 +45,7 @@ const StyledMenu = styled((props) => (
         marginRight: theme.spacing(1.5),
       },
       '&:active': {
-        backgroundColor: alpha(
-          theme.palette.primary.main,
-          theme.palette.action.selectedOpacity,
-        ),
+        backgroundColor: theme.alpha(theme.palette.primary.main, theme.palette.action.selectedOpacity),
       },
     },
   },

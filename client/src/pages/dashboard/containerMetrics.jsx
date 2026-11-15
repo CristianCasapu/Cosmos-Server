@@ -111,9 +111,9 @@ const ContainerMetrics = ({containerName}) => {
         {metrics && <div style={{zIndex:2, maxWidth: "1000px", margin: "auto"}}>
             {!hasMeasurements(metrics) && <NoMeasurements sx={{ mb: 3 }} />}{/* Fork addition */}
             <Grid container rowSpacing={4.5} columnSpacing={2.75} >
-                <Grid item xs={12}  xl={12} sx={{ mb: -2.25 }}>
+                <Grid size={{ xs: 12, xl: 12 }} sx={{ mb: -2.25 }}>
                     <Typography variant="h4">{containerName} Monitoring</Typography>
-                    <Stack direction="row" alignItems="center" spacing={0} style={{marginTop: 10}}>
+                    <Stack direction="row" sx={{ alignItems: 'center' }} spacing={0} style={{marginTop: 10}}>
                         <Button
                             size="small"
                             onClick={() => {setSlot('latest'); resetZoom()}}
@@ -154,11 +154,11 @@ const ContainerMetrics = ({containerName}) => {
                     </Stack>
                 </Grid>
                 
-                <Grid item xs={12} xl={12}>
+                <Grid size={{ xs: 12, xl: 12 }}>
                     <PlotComponent xAxis={xAxis} zoom={zoom} setZoom={setZoom} slot={slot} title={t('navigation.monitoring.resourcesTitle')} data={[metrics[metricsKey.CPU], metrics[metricsKey.RAM]]}/>
                 </Grid>
                
-                <Grid item xs={12} xl={12}>
+                <Grid size={{ xs: 12, xl: 12 }}>
                     <PlotComponent xAxis={xAxis} zoom={zoom} setZoom={setZoom} slot={slot} title={t('global.network')} data={[metrics[metricsKey.NET_TX], metrics[metricsKey.NET_RX]]}/>
                 </Grid>
             </Grid>

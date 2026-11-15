@@ -54,7 +54,7 @@ const ContainerIndex = () => {
 
   return <div>
     <Stack spacing={1}>
-      <Stack direction="row" spacing={1} alignItems="center">
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
         <Back />
         <div>{containerName}</div>
       </Stack>

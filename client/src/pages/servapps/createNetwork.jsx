@@ -7,7 +7,7 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { useFormik, FormikProvider } from 'formik';
 import * as Yup from 'yup';
 
@@ -74,7 +74,7 @@ const NewNetworkButton = ({ fullWidth, refresh }) => {
                 </Stack>
               </form>
               {formik.errors.submit && (
-                <Grid item xs={12}>
+                <Grid size={{ xs: 12 }}>
                   <FormHelperText error>{formik.errors.submit}</FormHelperText>
                 </Grid>
               )}

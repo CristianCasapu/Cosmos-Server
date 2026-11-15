@@ -8,9 +8,9 @@ import { Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent, 
 import { CosmosCheckbox, CosmosFormDivider, CosmosInputText } from "../config/users/formShortcuts";
 import MainCard from "../../components/MainCard";
 import { Formik } from "formik";
-import { LoadingButton } from "@mui/lab";
+import { Button as LoadingButton } from "@mui/material"; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 // Fork addition: the tree moved to @mui/x-tree-view; @mui/lab 5.0.0-alpha.177 only keeps stubs that render nothing
-import { TreeItem, TreeView } from "@mui/x-tree-view";
+import { TreeItem, SimpleTreeView } from "@mui/x-tree-view";
 import ApiModal from "../../components/apiModal";
 import ConfirmModal from "../../components/confirmModal";
 import { PascalToSnake, isDomain } from "../../utils/indexs";

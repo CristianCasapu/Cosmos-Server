@@ -50,7 +50,7 @@ export const ForkZoneMode = ({ formik, isNew }) => {
     >
       {proposal && !held && <FormHelperText sx={{ m: 0, overflowWrap: 'anywhere' }}>{tr(t, proposal.source)}</FormHelperText>}
     </ChoiceRow>
-    {held && <Grid item xs={12}>
+    {held && <Grid size={{ xs: 12 }}>
       <ProposalBox
         title={t('mgmt.config.zones.fork.modeProposed', 'Proposed for {{name}}: {{mode}}', { name: zone, mode: t(LABELS[proposal.mode][0], LABELS[proposal.mode][1]) })}
         source={tr(t, proposal.source)}
@@ -97,12 +97,12 @@ export const ForkZoneProvider = ({ formik, isNew }) => {
   }, [wanted, zone]);
 
   if (!isNew || !info || info.domain !== zone) {
-    return failure && wanted ? <Grid item xs={12}><FormHelperText>{failure}</FormHelperText></Grid> : null;
+    return failure && wanted ? <Grid size={{ xs: 12 }}><FormHelperText>{failure}</FormHelperText></Grid> : null;
   }
   const found = proposalFor(info);
   const providerName = info.providerName || info.provider;
   const chosen = formik.values.DNSChallengeProvider;
-  return <Grid item xs={12}>
+  return <Grid size={{ xs: 12 }}>
     {info.provider && chosen && chosen !== info.provider
       ? <ProposalBox
         title={t('mgmt.config.zones.fork.providerProposed', 'Proposed DNS provider: {{provider}}', { provider: providerName })}

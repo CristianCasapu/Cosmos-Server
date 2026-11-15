@@ -9,7 +9,7 @@ import { Alert, Button, CircularProgress, InputLabel, Stack } from "@mui/materia
 import { CosmosCheckbox, CosmosFormDivider, CosmosInputText } from "../config/users/formShortcuts";
 import MainCard from "../../components/MainCard";
 import { Formik } from "formik";
-import { LoadingButton } from "@mui/lab";
+import { Button as LoadingButton } from "@mui/material"; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import ApiModal from "../../components/apiModal";
 import { isDomain } from "../../utils/indexs";
 import ConfirmModal from "../../components/confirmModal";
@@ -75,7 +75,7 @@ export const ConstellationDNS = () => {
 
                   <InputLabel>{t('mgmt.constellation.setup.dnsBlocklistUrls.label')}</InputLabel>
                   {formik.values.DNSAdditionalBlocklists && formik.values.DNSAdditionalBlocklists.map((item, index) => (
-                    <Stack direction={"row"} spacing={2} key={`DNSAdditionalBlocklists${item}`} width={"100%"}>
+                    <Stack direction={"row"} spacing={2} key={`DNSAdditionalBlocklists${item}`} sx={{ width: '100%' }}>
                       <DeleteButton onDelete={() => {
                         formik.setFieldValue("DNSAdditionalBlocklists", [...formik.values.DNSAdditionalBlocklists.slice(0, index), ...formik.values.DNSAdditionalBlocklists.slice(index + 1)]);
                       }} />
@@ -109,7 +109,7 @@ export const ConstellationDNS = () => {
 
                   <InputLabel>{t('mgmt.constellation.setup.dns.customEntries')}</InputLabel>
                   {formik.values.CustomDNSEntries && formik.values.CustomDNSEntries.map((item, index) => (
-                    <Stack direction={"row"} spacing={2} key={`CustomDNSEntries${item}`} width={"100%"}>
+                    <Stack direction={"row"} spacing={2} key={`CustomDNSEntries${item}`} sx={{ width: '100%' }}>
                       <DeleteButton onDelete={() => {
                         formik.setFieldValue("CustomDNSEntries", [...formik.values.CustomDNSEntries.slice(0, index), ...formik.values.CustomDNSEntries.slice(index + 1)]);
                       }} />

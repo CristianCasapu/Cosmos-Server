@@ -7,7 +7,7 @@
 // the server checks the fields again (src/configapi/fork_api_tokens.go).
 import * as React from 'react';
 import { Alert, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, FormHelperText, Stack, Typography } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import * as API from '../../api';
 import ChoiceChips from '../../components/choiceChips';
 import { FormField, FormSelect } from '../../components/formField';

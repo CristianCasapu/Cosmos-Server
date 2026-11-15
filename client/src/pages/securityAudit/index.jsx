@@ -140,7 +140,8 @@ const SecurityAuditPage = () => {
 
     const userOptions = filters.user && !users.includes(filters.user) ? [filters.user, ...users] : users;
 
-    return <Stack spacing={2} sx={{ maxWidth: '1200px', margin: 'auto', minWidth: 0 }}>
+    return (
+        <Stack spacing={2} sx={{ maxWidth: '1200px', margin: 'auto', minWidth: 0 }}>
         <MainCard title={t('securityAudit.title', 'Audit')}>
             <Stack spacing={2}>
                 <Typography variant="body2">
@@ -151,49 +152,63 @@ const SecurityAuditPage = () => {
                 </Typography>
 
                 <Grid container spacing={2}>
-                    <Grid item xs={12} sm={6} md={4}>
+                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                         {canReadUsers
-                            ? <TextField select fullWidth size="small" label={t('securityAudit.filter.user', 'User')} value={filters.user}
-                                SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}
-                                onChange={(e) => setFilters({ user: e.target.value })}>
+                                ? <TextField
+                                select
+                                fullWidth
+                                size="small"
+                                label={t('securityAudit.filter.user', 'User')}
+                                value={filters.user}
+                                onChange={(e) => setFilters({ user: e.target.value })}
+                                slotProps={{
+                                    select: { displayEmpty: true },
+                                    inputLabel: { shrink: true }
+                                }}>
                                 <MenuItem value="">{t('securityAudit.filter.allUsers', 'All users')}</MenuItem>
                                 {userOptions.map((u) => <MenuItem key={u} value={u} sx={{ overflowWrap: 'anywhere', whiteSpace: 'normal' }}>{u}</MenuItem>)}
                             </TextField>
                             : <TextField fullWidth size="small" label={t('securityAudit.filter.user', 'User')} value={filters.user}
-                                onChange={(e) => setFilters({ user: e.target.value })} inputProps={{ maxLength: 64 }} />}
+                                    onChange={(e) => setFilters({ user: e.target.value })} slotProps={{
+                                htmlInput: { maxLength: 64 }
+                            }} />}
                     </Grid>
-                    <Grid item xs={12} sm={6} md={4}>
+                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                         <TextField select fullWidth size="small" label={t('securityAudit.filter.group', 'What')} value={filters.group}
                             onChange={(e) => setFilters({ group: e.target.value })}>
                             <MenuItem value="all">{t('securityAudit.group.all', 'Everything')}</MenuItem>
                             {KIND_GROUPS.map((g) => <MenuItem key={g.id} value={g.id}>{t('securityAudit.group.' + g.id, g.label)}</MenuItem>)}
                         </TextField>
                     </Grid>
-                    <Grid item xs={12} sm={6} md={4}>
+                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                         <TextField select fullWidth size="small" label={t('securityAudit.filter.outcome', 'Outcome')} value={filters.outcome}
                             onChange={(e) => setFilters({ outcome: e.target.value })}>
                             {OUTCOMES.map((o) => <MenuItem key={o.id} value={o.id}>{t('securityAudit.outcomeFilter.' + o.id, o.label)}</MenuItem>)}
                         </TextField>
                     </Grid>
-                    <Grid item xs={12} sm={6} md={4}>
+                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                         <TextField select fullWidth size="small" label={t('securityAudit.filter.period', 'Period')} value={filters.period}
                             onChange={(e) => setFilters({ period: e.target.value })}>
                             {PERIODS.map((p) => <MenuItem key={p.id} value={p.id}>{t('securityAudit.period.' + p.id, p.label)}</MenuItem>)}
                         </TextField>
                     </Grid>
-                    <Grid item xs={12} sm={6} md={4}>
+                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                         <TextField fullWidth size="small" label={t('securityAudit.filter.ip', 'Address')} value={ipText}
-                            onChange={(e) => setIpText(e.target.value)} inputProps={{ maxLength: 45 }}
-                            error={ipInvalid} helperText={ipInvalid ? t('securityAudit.filter.ipInvalid', 'An IP address, like 192.168.1.20') : ''} />
+                                onChange={(e) => setIpText(e.target.value)} error={ipInvalid}
+                                helperText={ipInvalid ? t('securityAudit.filter.ipInvalid', 'An IP address, like 192.168.1.20') : ''} slotProps={{
+                                htmlInput: { maxLength: 45 }
+                            }} />
                     </Grid>
-                    <Grid item xs={12} sm={6} md={4}>
+                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                         <TextField fullWidth size="small" label={t('securityAudit.filter.text', 'Text')} value={qText}
-                            onChange={(e) => setQText(e.target.value)} inputProps={{ maxLength: MAX_TEXT }}
-                            placeholder={t('securityAudit.filter.textPlaceholder', 'a name, a path, a container...')} />
+                                onChange={(e) => setQText(e.target.value)} placeholder={t('securityAudit.filter.textPlaceholder', 'a name, a path, a container...')}
+                                slotProps={{
+                                    htmlInput: { maxLength: MAX_TEXT }
+                                }} />
                     </Grid>
                 </Grid>
 
-                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
                     <Button variant="outlined" startIcon={<SyncOutlined />} onClick={() => load(false)}>{t('global.refresh', 'Refresh')}</Button>
                     <Tooltip title={t('securityAudit.export.tooltip', 'Download the lines these filters select as a CSV file, at most {{max}} (the newest).', { max: EXPORT_MAX_ROWS })}>
                         <span>
@@ -231,7 +246,8 @@ const SecurityAuditPage = () => {
         </MainCard>
 
         <EventDetails event={selected} onClose={() => setSelected(null)} />
-    </Stack>;
+        </Stack>
+    );
 };
 
 export default SecurityAuditPage;

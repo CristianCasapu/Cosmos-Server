@@ -66,7 +66,7 @@ export default function BackupRestore({backupName}) {
 
   if (loading) {
     return (
-      <Stack spacing={2} justifyContent={'center'} alignItems={'center'}>
+      <Stack spacing={2} sx={{ justifyContent: 'center', alignItems: 'center' }}>
         <CircularProgress />
       </Stack>
     );

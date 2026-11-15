@@ -186,7 +186,8 @@ export function CosmosContainerPicker({formik, nameOnly, lockTarget, TargetConta
     }
   }, [newTarget])
 
-  return ( <Grid item xs={12}>
+  return (
+    <Grid size={{ xs: 12 }}>
     <Stack spacing={1}>
     <InputLabel htmlFor={name + "-autocomplete"} required={required}>{label || t('mgmt.config.containerPicker.containerNameSelection.containerNameLabel')}</InputLabel>
     {!loading && <Autocomplete
@@ -216,14 +217,18 @@ export function CosmosContainerPicker({formik, nameOnly, lockTarget, TargetConta
       renderInput={(params) => (
         <TextField
           {...params}
-          InputProps={{
-            ...params.InputProps,
+            slotProps={{
+              ...params.slotProps,
+
+              input: {
+                ...params.slotProps.input,
             endAdornment: (
               <React.Fragment>
                 {loading ? <CircularProgress color="inherit" size={20} /> : null}
-                {params.InputProps.endAdornment}
+                    {params.slotProps.input.endAdornment}
               </React.Fragment>
             ),
+              }
           }}
         />
       )}

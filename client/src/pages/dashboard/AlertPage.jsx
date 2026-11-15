@@ -104,7 +104,7 @@ const EditAlertModal = ({ open, onClose, onSave, metrics, names }) => { // Fork 
               required
             />
             {/* Fork addition: one below the other on a phone; side by side the value field and the percent checkbox ran out of the dialog */}
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'stretch', sm: 'center' }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}>
               <CosmosSelect
                 name="conditionOperator"
                 label={t('navigation.monitoring.alerts.conditionOperatorLabel')}
@@ -449,7 +449,7 @@ const AlertPage = () => {
       metrics={metrics} names={Object.keys((config && config.MonitoringAlerts) || {})} /* Fork addition */ />}
 
     {/* Fork addition: useFlexGap flexWrap, the buttons go to a second line on a phone instead of being squeezed */}
-    <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap" style={{marginBottom: '15px'}}>
+    <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }} style={{marginBottom: '15px'}}>
       <Button variant="contained" color="primary" startIcon={<SyncOutlined />} onClick={() => {
           refresh();
       }}>{t('global.refresh')}</Button>

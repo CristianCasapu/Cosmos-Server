@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Alert, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, FormControl, FormControlLabel, FormHelperText, FormLabel, Grid, InputLabel, MenuItem, Select, Stack, TextField } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { useTranslation } from 'react-i18next';
 import { useFormik, FormikProvider } from 'formik';
 import * as yup from 'yup';
@@ -173,7 +173,7 @@ export const RaidDialogInternal = ({ refresh, open, setOpen, data = {} }) => {
                   multiple={true}
                 />
                 {formik.touched.devices && formik.errors.devices && (
-                  <Grid item xs={12}>
+                  <Grid size={{ xs: 12 }}>
                     <FormHelperText error>{formik.errors.devices}</FormHelperText>
                   </Grid>
                 )}
@@ -202,7 +202,7 @@ export const RaidDialogInternal = ({ refresh, open, setOpen, data = {} }) => {
                 </FormControl>
 
                 {formik.errors.submit && (
-                  <Grid item xs={12}>
+                  <Grid size={{ xs: 12 }}>
                     <FormHelperText error>{formik.errors.submit}</FormHelperText>
                   </Grid>
                 )}

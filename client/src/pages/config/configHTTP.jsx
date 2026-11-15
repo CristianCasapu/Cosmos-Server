@@ -32,7 +32,7 @@ const ConfigHTTP = ({ formik }) => {
       <ForkHttpBeforeSave formik={formik} check={check} />{/* Fork addition: what saving this tab will do */}
       <MainCard title="HTTP">
         <Grid container spacing={3}>
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
             <Stack spacing={1}>
               <InputLabel htmlFor="Hostname-login">{t('mgmt.config.http.hostnameInput.HostnameLabel')}</InputLabel>
               <OutlinedInput
@@ -57,7 +57,7 @@ const ConfigHTTP = ({ formik }) => {
           </Grid>
 
           {(formik.values.HTTPSCertificateMode != "DISABLED" || isDomain(formik.values.Hostname)) ? (
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
               <CosmosCheckbox
                 label={<span>{t('mgmt.config.http.allowInsecureLocalAccessCheckbox.allowInsecureLocalAccessLabel')} &nbsp;
                   <Tooltip title={<span style={{fontSize:'110%'}}><Trans i18nKey="mgmt.config.http.allowInsecureLocalAccessCheckbox.allowInsecureLocalAccessTooltip" /></span>}>
@@ -72,7 +72,7 @@ const ConfigHTTP = ({ formik }) => {
           {/* Fork addition: the two ports as one choice, checked against this server (forkHttpSettings.jsx); upstream had two free text fields */}
           <ForkHttpPorts formik={formik} check={check} />
 
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
             <Alert severity="info">
               {t('mgmt.config.http.allowSearchIndexCheckbox')}<br />
             </Alert>
@@ -82,7 +82,7 @@ const ConfigHTTP = ({ formik }) => {
               formik={formik}
             />
           </Grid>
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
             <Alert severity="info">
               {t('mgmt.config.http.publishMDNSCheckbox')}
             </Alert>
@@ -111,7 +111,7 @@ const ConfigHTTP = ({ formik }) => {
             formik={formik}
           />
 
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
               <InputLabel htmlFor="GeoBlocking">
                 {t('mgmt.config.security.geoBlockSelection.geoBlockLabel', {blockAllow: formik.values.CountryBlacklistIsWhitelist ? t('mgmt.config.security.geoBlockSelection.geoBlockLabel.varAllow') : t('mgmt.config.security.geoBlockSelection.geoBlockLabel.varBlock')
                   })}
@@ -121,7 +121,7 @@ const ConfigHTTP = ({ formik }) => {
           <CountrySelect name="GeoBlocking" label={t('mgmt.config.security.geoBlockSelection', { blockAllow: formik.values.CountryBlacklistIsWhitelist ? t('mgmt.config.security.geoBlockSelection.varAllow') : t('mgmt.config.security.geoBlockSelection.varBlock') })} formik={formik} />
           <ForkGeoOwnCountry formik={formik} check={check} />{/* Fork addition: the country the admin is in, refused by the list */}
 
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
             <Button onClick={() => {
               // Fork addition: the default list without the country the admin or the server is in (utils/geoDefaults.js); upstream's list blocks sixteen countries, the admin's own included
               const { list, leftOut } = safeDefaultBlocked(ownCountries({
@@ -144,7 +144,7 @@ const ConfigHTTP = ({ formik }) => {
 
           <CosmosFormDivider title={t('mgmt.config.security.adminRestrictionsTitle')} />
 
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
             <Alert severity="info">{t('mgmt.config.security.adminRestrictions.adminRestrictionsInfo')}</Alert>
           </Grid>
 

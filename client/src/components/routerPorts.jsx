@@ -27,7 +27,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { CheckCircleOutlined, CloseCircleOutlined, CopyOutlined, GlobalOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import * as API from '../api';
@@ -155,7 +155,8 @@ export const OpenPortDialog = ({ containerName, port, routes, config, onClose, o
       .catch((e) => { setError(e.message || String(e)); setBusy(false); });
   };
 
-  return <Dialog open onClose={() => { if (!busy) onClose(); }} fullWidth maxWidth="sm" data-router-dialog>
+  return (
+    <Dialog open onClose={() => { if (!busy) onClose(); }} fullWidth maxWidth="sm" data-router-dialog>
     <DialogTitle sx={{ overflowWrap: 'anywhere' }}>
       {t('mgmt.router.dialog.title', 'Open port {{port}} ({{protocol}}) of {{name}} on the router?',
         { port: port.port, protocol: proto, name: containerName })}
@@ -199,12 +200,14 @@ export const OpenPortDialog = ({ containerName, port, routes, config, onClose, o
           label={t('mgmt.router.dialog.externalLabel', 'Port on the router (optional)')}
           value={external}
           placeholder={String(port.hostPort || '')}
-          inputProps={{ inputMode: 'numeric', 'aria-label': t('mgmt.router.dialog.externalLabel', 'Port on the router (optional)') }}
           error={Boolean(externalError)}
           onChange={(event) => setExternal(event.target.value)}
           helperText={externalError || t('mgmt.router.dialog.externalHelp',
             'Empty: {{port}}, the port the container publishes. If the router has it taken, Cosmos uses the next free port above it and says so; it never takes a port from another device.',
             { port: port.hostPort || port.port })}
+            slotProps={{
+              htmlInput: { inputMode: 'numeric', 'aria-label': t('mgmt.router.dialog.externalLabel', 'Port on the router (optional)') }
+            }}
         />
 
         <Typography variant="caption" color="textSecondary">
@@ -220,7 +223,8 @@ export const OpenPortDialog = ({ containerName, port, routes, config, onClose, o
         {t('mgmt.router.dialog.confirm', 'Open port {{port}} of {{name}}', { port: port.port, name: containerName })}
       </LoadingButton>
     </DialogActions>
-  </Dialog>;
+    </Dialog>
+  );
 };
 
 // The address of a forwarded port: a link when an admin said it is a web
@@ -275,8 +279,9 @@ export const RouterPortLine = ({ config, containerName, port, fallback }) => {
   };
 
   const Icon = !mapping ? QuestionCircleOutlined : mapping.active ? CheckCircleOutlined : mapping.state === 'failed' ? CloseCircleOutlined : QuestionCircleOutlined;
-  return <Stack spacing={0.5} style={{ minWidth: 0 }} data-router-port={portKey(containerName, port.privatePort, port.type)}>
-    <Stack direction="row" spacing={1} alignItems="flex-start" style={{ minWidth: 0 }}>
+  return (
+    <Stack spacing={0.5} style={{ minWidth: 0 }} data-router-port={portKey(containerName, port.privatePort, port.type)}>
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }} style={{ minWidth: 0 }}>
       <Icon style={{ marginTop: 3, flexShrink: 0 }} />
       <Typography variant="body2" style={{ overflowWrap: 'anywhere', minWidth: 0 }}>
         {mapping
@@ -296,8 +301,10 @@ export const RouterPortLine = ({ config, containerName, port, fallback }) => {
             size="small"
             checked={Boolean(mapping)}
             disabled={busy}
-            inputProps={{ 'aria-label': label }}
             onChange={(event) => (event.target.checked ? setDialog(true) : close())}
+              slotProps={{
+                input: { 'aria-label': label }
+              }}
           />}
           label={<Typography variant="body2">{label}</Typography>}
         />
@@ -310,7 +317,8 @@ export const RouterPortLine = ({ config, containerName, port, fallback }) => {
       config={config}
       onClose={() => setDialog(false)}
     />}
-  </Stack>;
+    </Stack>
+  );
 };
 
 // The forwarded ports of an app (or of the containers of a stack) as chips:
@@ -498,14 +506,14 @@ export const MappingsOverview = ({ status, onStatus, formik }) => {
 
   return <Stack spacing={1} data-router-overview>
     <Typography variant="subtitle1">{t('mgmt.router.overview.title', 'Ports open on the router')}</Typography>
-    {rows.length === 0 && <Typography variant="body2" color="text.secondary">
+    {rows.length === 0 && <Typography variant="body2" sx={{ color: 'text.secondary' }}>
       {t('mgmt.router.overview.none', 'Cosmos holds no port open on the router.')}
     </Typography>}
     {rows.map((m) => {
       const own = m.kind !== 'app';
       const note = portNote(m);
       return <Stack key={m.kind + m.name} spacing={0.5} data-router-row={m.name}>
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
           <Chip
             size="small"
             color={m.active ? 'success' : m.state === 'failed' ? 'error' : 'default'}
@@ -534,7 +542,7 @@ export const MappingsOverview = ({ status, onStatus, formik }) => {
         {own && !m.active && m.holder && <Typography variant="caption" color="textSecondary" sx={{ overflowWrap: 'anywhere' }}>
           {t('mgmt.router.overview.holder', 'Port {{port}} is used by {{holder}}: another device on your network. Cosmos does not take it.', { port: m.wantedPort, holder: m.holder })}
         </Typography>}
-        {own && !m.active && m.suggested > 0 && <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+        {own && !m.active && m.suggested > 0 && <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
           <Typography variant="caption" color="textSecondary" sx={{ overflowWrap: 'anywhere', minWidth: 0 }}>
             {t('mgmt.router.overview.suggest',
               'Port {{port}} looks free on the router. Cosmos does not move its own port by itself: another external port changes every external address of your apps, and behind Cloudflare only 443, 2053, 2083, 2087, 2096 and 8443 work.',
@@ -551,13 +559,13 @@ export const MappingsOverview = ({ status, onStatus, formik }) => {
     })}
 
     <Typography variant="subtitle1" sx={{ pt: 1 }}>{t('mgmt.router.foreign.title', 'Other ports open on the router (not Cosmos\')')}</Typography>
-    {!status.gatewayIP && <Typography variant="body2" color="text.secondary">
+    {!status.gatewayIP && <Typography variant="body2" sx={{ color: 'text.secondary' }}>
       {t('mgmt.router.foreign.notAsked', 'Cosmos has not talked to the router: it does so when a port is to be opened, or on "Check now" while something is switched on.')}
     </Typography>}
-    {status.gatewayIP && !status.foreignListed && <Typography variant="body2" color="text.secondary">
+    {status.gatewayIP && !status.foreignListed && <Typography variant="body2" sx={{ color: 'text.secondary' }}>
       {t('mgmt.router.foreign.notListed', 'This router does not let its port mappings be listed.')}
     </Typography>}
-    {status.gatewayIP && status.foreignListed && foreign.length === 0 && <Typography variant="body2" color="text.secondary">
+    {status.gatewayIP && status.foreignListed && foreign.length === 0 && <Typography variant="body2" sx={{ color: 'text.secondary' }}>
       {t('mgmt.router.foreign.none', 'The router lists no other port mapping.')}
     </Typography>}
     {foreign.map((f) => <Typography key={f.protocol + f.externalPort} variant="body2" sx={{ overflowWrap: 'anywhere' }} data-router-foreign>
@@ -570,7 +578,7 @@ export const MappingsOverview = ({ status, onStatus, formik }) => {
     {status.foreignTruncated && <Typography variant="caption" color="textSecondary">
       {t('mgmt.router.foreign.truncated', 'The list is longer than what Cosmos reads (128 entries).')}
     </Typography>}
-    <Typography variant="caption" color="text.secondary">
+    <Typography variant="caption" sx={{ color: 'text.secondary' }}>
       {t('mgmt.router.foreign.limits',
         'This is what the router shows over UPnP. Forwards entered in the router\'s own pages are often not in it, and Cosmos cannot see them: asked for such a port, a router may refuse, or accept without any effect. Cosmos never changes or removes a mapping it did not create. Only IPv4 is forwarded this way.')}
     </Typography>

@@ -203,22 +203,25 @@ const PlotComponent = ({ title, slot, data, SimpleDesign, withSelector, xAxis, z
     }
   }, [zoom]);
 
-  return <>
-    <Grid container alignItems="center">
-      <Grid item>
+  return (
+    <>
+    <Grid container sx={{ alignItems: 'center' }}>
+      <Grid>
         <Typography variant="h5">{title}</Typography>
       </Grid>
-      <Grid item>
+      <Grid>
           {withSelector && 
           <div style={{ marginLeft: 15 }}>
           <TextField
               id="standard-select-currency"
               size="small"
-              SelectProps={{ SelectDisplayProps: { 'aria-label': t('metrics.seriesPicker', 'Series shown') } }} /* Fork addition: a name */
-              select
-              value={selected}
+                /* Fork addition: a name */
+                select value={selected}
               onChange={(e) => setSelected(e.target.value)}
               sx={{ '& .MuiInputBase-input': { py: 0.5, fontSize: '0.875rem',  } }}
+                slotProps={{
+                  select: { SelectDisplayProps: { 'aria-label': t('metrics.seriesPicker', 'Series shown') } }
+                }}
           >
               {data.map((option, i) => (
                   <MenuItem key={i} value={i}>
@@ -235,7 +238,7 @@ const PlotComponent = ({ title, slot, data, SimpleDesign, withSelector, xAxis, z
       </Box>
       {/* Fork addition: the scale of the series whose axis is not drawn on a phone */}
       {scaleNotes.length > 0 && <Box component="ul" className="ct-chart-scales" sx={{ m: 0, px: 2, pb: 1.5, pt: 0, listStyle: 'none' }}>
-        {scaleNotes.map((note) => <Typography component="li" variant="caption" color="text.secondary" key={note.name}>
+        {scaleNotes.map((note) => <Typography component="li" variant="caption" sx={{ color: 'text.secondary' }} key={note.name}>
           {note.top
             ? t('metrics.scaleNoteMax', '{{name}}: {{range}} here, on a scale of 0 – {{top}} (axis not drawn)', { ...note, interpolation: { escapeValue: false } })
             : t('metrics.scaleNote', '{{name}}: {{range}} here, on a scale of its own (axis not drawn)', { ...note, interpolation: { escapeValue: false } })}
@@ -243,6 +246,7 @@ const PlotComponent = ({ title, slot, data, SimpleDesign, withSelector, xAxis, z
       </Box>}
     </MainCard>
   </>
+  );
 }
 
 export default PlotComponent;

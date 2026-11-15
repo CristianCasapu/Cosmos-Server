@@ -85,7 +85,7 @@ export const PortConflictHint = ({ ports, index, holders, options, style }) => {
   const problems = findPortConflicts(ports, holders, options)[index] || [];
   if (problems.length === 0) return null;
 
-  return <Grid item xs={12} style={style}>
+  return <Grid size={{ xs: 12 }} style={style}>
     {problems.map((problem, i) => (
       <FormHelperText key={i} error={!!(problem.invalid || problem.certain)} sx={{ mt: 0 }}>
         {sentence(problem, t)}

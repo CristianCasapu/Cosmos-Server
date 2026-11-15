@@ -10,9 +10,8 @@ const AuthFooter = () => {
         <Container maxWidth="xl">
             <Stack
                 direction={matchDownSM ? 'column' : 'row'}
-                justifyContent={matchDownSM ? 'center' : 'space-between'}
+                sx={{ justifyContent: matchDownSM ? 'center' : 'space-between', textAlign: matchDownSM ? 'center' : 'inherit' }}
                 spacing={2}
-                textAlign={matchDownSM ? 'center' : 'inherit'}
             >
             </Stack>
         </Container>

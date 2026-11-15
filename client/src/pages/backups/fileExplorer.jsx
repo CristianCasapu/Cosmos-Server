@@ -2,12 +2,12 @@
 import * as React from 'react';
 import { Alert, Box, Button, Checkbox, CircularProgress, FormControl, FormHelperText, Grid, Icon, IconButton, InputLabel, List, ListItem, ListItemButton, MenuItem, NativeSelect, Select, Stack, TextField, Typography } from '@mui/material';
 import Dialog from '@mui/material/Dialog';
-import {TreeItem, TreeView} from '@mui/x-tree-view';
+import {TreeItem, SimpleTreeView} from '@mui/x-tree-view';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
-import { LoadingButton } from '@mui/lab';
+import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { useFormik, FormikProvider } from 'formik';
 import * as Yup from 'yup';
 import { useTranslation } from 'react-i18next';
@@ -187,10 +187,10 @@ const BackupFileExplorer = ({ getFile, onSelect, selectedSnapshot, backupName, b
       return (
         <TreeItem 
           key={node.path} 
-          nodeId={selectedSnapshot + "@" + node.path}
+          itemId={selectedSnapshot + "@" + node.path}
           label={
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-              <Stack direction="row" spacing={2} alignItems="center">
+              <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
                 {nodeCounter > 1 ? <Checkbox style={{zIndex: 1000}} onClick={(e) => {
                     e.stopPropagation();
                     if(candidatePaths.some(path => node.path == path)) {
@@ -207,13 +207,13 @@ const BackupFileExplorer = ({ getFile, onSelect, selectedSnapshot, backupName, b
               <div style={{opacity: 0.8}}>{metaData(node.file)}</div>
             </div>
           }
-          icon={node.file && node.file.type == "dir" ? null : <FileOutlined className="h-4 w-4" />}
+          slots={{ icon: node.file && node.file.type == "dir" ? undefined : FileOutlined }}
         >
           {Array.isArray(node.children)
             ? node.children.map((child) => renderTree(child))
             : (
               (node.file && node.file.type == "dir") ? 
-              <TreeItem key={node.id + "load"} nodeId={(++nodeCounter).toString()} label={"Loading..."} icon={<LoadingOutlined />} />
+              <TreeItem key={node.id + "load"} itemId={(++nodeCounter).toString()} label={"Loading..."} slots={{ icon: LoadingOutlined }} />
               : null
             )}
         </TreeItem>
@@ -225,7 +225,7 @@ const BackupFileExplorer = ({ getFile, onSelect, selectedSnapshot, backupName, b
 
   if(Object.keys(directoriesAsTree).length === 0) {
     return (
-      <Stack spacing={2} justifyContent={'center'} alignItems={'center'}>
+      <Stack spacing={2} sx={{ justifyContent: 'center', alignItems: 'center' }}>
         <CircularProgress />
       </Stack>
     );
@@ -233,16 +233,15 @@ const BackupFileExplorer = ({ getFile, onSelect, selectedSnapshot, backupName, b
 
   return (
     <Stack spacing={2} className={className}>
-      <Stack direction="row" spacing={2} justifyContent="flex-start">
+      <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-start' }}>
         <RestoreDialog originalSource={backup.Source} candidatePaths={candidatePaths} selectedSnapshot={selectedSnapshot} backupName={backupName} />
       </Stack>
-      <TreeView
-        onNodeSelect={handleToggleNode}
-        defaultCollapseIcon={<FolderOpenOutlined className="h-4 w-4" />}
-        defaultExpandIcon={<FolderFilled className="h-4 w-4" />}
+      <SimpleTreeView
+        onSelectedItemsChange={handleToggleNode}
+        slots={{ collapseIcon: FolderOpenOutlined, expandIcon: FolderFilled }}
       >
         {Object.keys(directoriesAsTree).length > 0 && renderAllTree(directoriesAsTree)}
-      </TreeView>
+      </SimpleTreeView>
     </Stack>
   );
 };

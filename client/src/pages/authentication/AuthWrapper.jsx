@@ -24,34 +24,31 @@ const AuthWrapper = ({ children }) => {
         <Grid
             container
             direction="column"
-            justifyContent="flex-end"
-            sx={{
+            sx={{ justifyContent: 'flex-end',
                 minHeight: '100vh'
             }}
         >
-            <Grid item xs={12} sx={{ ml: 3, mt: 3 }}>
+            <Grid size={{ xs: 12 }} sx={{ ml: 3, mt: 3 }}>
                 <Logo />
             </Grid>
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
                 <Grid
-                    item
-                    xs={12}
+
+ size={{ xs: 12 }}
                     container
-                    justifyContent="center"
-                    alignItems="center"
-                    sx={{ 
+                    sx={{ justifyContent: 'center', alignItems: 'center', 
                         minHeight: { 
                             xs: 'calc(100vh - 134px)',
                             md: 'calc(100vh - 112px)'
                         } 
                     }}
                 >
-                    <Grid item>
+                    <Grid>
                         <AuthCard>{children}</AuthCard>
                     </Grid>
                 </Grid>
             </Grid>
-            <Grid item xs={12} sx={{ m: 3, mt: 1 }}>
+            <Grid size={{ xs: 12 }} sx={{ m: 3, mt: 1 }}>
                 <AuthFooter />
             </Grid>
         </Grid>

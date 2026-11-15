@@ -53,7 +53,7 @@ const RouteConfigPage = () => {
   return <div>
     <h2>
       <Stack spacing={1}>
-      <Stack direction="row" spacing={1} alignItems="center">
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
         <Back />
         <div>{routeName}</div>
       </Stack>
@@ -63,7 +63,7 @@ const RouteConfigPage = () => {
       </div>}
 
       {config && currentRoute && owner && <Alert severity="info" icon={false}>
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
           <span>{t('mgmt.urls.managedNote')}</span>
           <ManagedByChip route={currentRoute} />
         </Stack>

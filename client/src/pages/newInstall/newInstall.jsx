@@ -351,10 +351,10 @@ const NewInstall = () => {
                             </>
                         )}
                         
-                        {hostError && <Grid item xs={12}>
+                        {hostError && <Grid size={{ xs: 12 }}>
                           <Alert severity='warning' /* Fork addition: a warning with its own icon (color alone showed the success icon); the setup goes on */>{hostError}</Alert>
                         </Grid>}
-                        {hostIp && <Grid item xs={12}>
+                        {hostIp && <Grid size={{ xs: 12 }}>
                             <Alert severity='info' /* Fork addition */><Trans i18nKey="newInstall.hostnamePointsToInfo" values={{hostIp: hostIp}} /></Alert>
                         </Grid>}
 
@@ -373,7 +373,7 @@ const NewInstall = () => {
                         
                         
                         {formik.values.HTTPSCertificateMode != "" && (formik.values.HTTPSCertificateMode != "DISABLED" || isDomain(formik.values.Hostname)) ? (
-                        <Grid item xs={12}>
+                        <Grid size={{ xs: 12 }}>
                         <CosmosCheckbox 
                             label={<span>{t('mgmt.config.http.allowInsecureLocalAccessCheckbox.allowInsecureLocalAccessLabel')} &nbsp;
                             <Tooltip title={<span style={{fontSize:'110%'}}><Trans i18nKey="mgmt.config.http.allowInsecureLocalAccessCheckbox.allowInsecureLocalAccessTooltip" /></span>}>
@@ -386,7 +386,7 @@ const NewInstall = () => {
                         </Grid>) : ""}
 
                         {formik.errors.submit && (
-                          <Grid item xs={12}>
+                          <Grid size={{ xs: 12 }}>
                             <FormHelperText error>{formik.errors.submit}</FormHelperText>
                           </Grid>
                         )}
@@ -482,7 +482,7 @@ const NewInstall = () => {
                                 type="password"
                             />
                             {formik.errors.submit && (
-                                <Grid item xs={12}>
+                                <Grid size={{ xs: 12 }}>
                                     <FormHelperText error>{formik.errors.submit}</FormHelperText>
                                 </Grid>
                             )}
@@ -517,12 +517,12 @@ const NewInstall = () => {
 
     return <AuthWrapper>
         <Grid container spacing={3}>
-            <Grid item xs={12}>
-                <Stack direction="row" justifyContent="space-between" alignItems="baseline" sx={{ mb: { xs: -0.5, sm: 0.5 } }}>
+            <Grid size={{ xs: 12 }}>
+                <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline', mb: { xs: -0.5, sm: 0.5 } }}>
                     <Typography variant="h3">{steps[activeStep].label}</Typography>
                 </Stack>
             </Grid>
-            <Grid item xs={12} spacing={2}>
+            <Grid size={{ xs: 12 }} spacing={2}>
                 {steps[activeStep].component}
 
                 {/*JSON.stringify(status)*/}

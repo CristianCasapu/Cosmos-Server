@@ -1,7 +1,7 @@
 // material-ui
 import { AppstoreAddOutlined, PlusCircleOutlined, ReloadOutlined, SearchOutlined, SettingOutlined } from '@ant-design/icons';
 import { Alert, Badge, Button, Card, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Divider, Input, InputAdornment, TextField, Tooltip, Typography } from '@mui/material';
-import Grid2 from '@mui/material/Unstable_Grid2/Grid2';
+import Grid2 from '@mui/material/Grid';
 import { Stack } from '@mui/system';
 import { useEffect, useState } from 'react';
 import Paper from '@mui/material/Paper';

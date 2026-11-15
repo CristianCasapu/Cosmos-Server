@@ -23,7 +23,7 @@ const ChoiceChips = ({ id, label, value, options, onChange, helperText, error, d
   };
   return <Stack spacing={1}>
     {label && <InputLabel id={id + '-label'}>{label}</InputLabel>}
-    <Stack id={id} direction="row" useFlexGap flexWrap="wrap" spacing={1} role="radiogroup" aria-labelledby={label ? id + '-label' : undefined}>
+    <Stack id={id} direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1} role="radiogroup" aria-labelledby={label ? id + '-label' : undefined}>
       {options.map((option, index) => {
         const on = option.value === value;
         return <Chip

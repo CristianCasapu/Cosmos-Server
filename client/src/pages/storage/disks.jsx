@@ -8,9 +8,9 @@ import { Alert, Button, CircularProgress, InputLabel, LinearProgress, ListItemIc
 import { CosmosCheckbox, CosmosFormDivider, CosmosInputText } from "../config/users/formShortcuts";
 import MainCard from "../../components/MainCard";
 import { Formik } from "formik";
-import { LoadingButton } from "@mui/lab";
+import { Button as LoadingButton } from "@mui/material"; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 // Fork addition: the tree moved to @mui/x-tree-view; @mui/lab 5.0.0-alpha.177 only keeps stubs that render nothing
-import { TreeItem, TreeView } from "@mui/x-tree-view";
+import { TreeItem, SimpleTreeView } from "@mui/x-tree-view";
 import ApiModal from "../../components/apiModal";
 import ConfirmModal from "../../components/confirmModal";
 import { isDomain } from "../../utils/indexs";
@@ -130,7 +130,7 @@ const Disk = ({disk, refresh, SetSMARTDialogOpened, containerized}) => {
         color: 'red !important',
         backgroundColor: 'red'
       }
-    }} style={diskStyle} nodeId={disk.name} label={
+    }} style={diskStyle} itemId={disk.name} label={
       <div style={{
         width: "100%",
         padding: "10px",
@@ -140,10 +140,10 @@ const Disk = ({disk, refresh, SetSMARTDialogOpened, containerized}) => {
         backgroundColor: darkMode ? "#333" : "#fff",
         color: darkMode ? "#fff" : "#000",
       }}>
-        <Stack direction="row" justifyContent="space-between" style={{
+        <Stack direction="row" sx={{ justifyContent: 'space-between' }} style={{
             borderLeft: "4px solid " + (disk.smart ? diskColor(disk) : "gray")
           }}>
-          <Stack direction="row" spacing={2} alignItems="center" sx={{paddingLeft: '5px'}}>
+          <Stack direction="row" spacing={2} sx={{ alignItems: 'center',paddingLeft: '5px'}}>
             <div>
               {(disk.smart && disk.smart.Temperature) ? <div style={{
                   position: 'absolute',
@@ -192,7 +192,7 @@ const Disk = ({disk, refresh, SetSMARTDialogOpened, containerized}) => {
                 }</div>
               })}
             </Stack>
-            <Stack spacing={2} direction="column" justifyContent={"center"}>
+            <Stack spacing={2} direction="column" sx={{ justifyContent: 'center' }}>
               {(disk.type == "disk" || disk.type == "part") ? <FormatButton disabled={containerized} disk={disk} refresh={refresh}/> : ""}
 
               {disk.mountpoint ? <MountDiskDialog disabled={containerized} disk={disk} unmount={true} refresh={refresh} /> : ""}
@@ -247,7 +247,8 @@ export const StorageDisks = () => {
     })();
   }, []);
 
-  return  <div style={{ maxWidth: "1200px", margin: "auto" }}>
+  return (
+    <div style={{ maxWidth: "1200px", margin: "auto" }}>
     {(config) ? <>
       <SMARTDialog disk={SMARTDialogOpened} OnClose={() => SetSMARTDialogOpened(false)} />
 
@@ -259,13 +260,12 @@ export const StorageDisks = () => {
         }}>{t('global.refresh')}</ResponsiveButton>
       </div>
       <div>
-      <TreeView
-        className="ct-disk-tree" /* Fork addition: the skin's tree (theme.css) */
-        selected={[""]}
+        <SimpleTreeView
+          className="ct-disk-tree" /* Fork addition: the skin's tree (theme.css) */
+        selectedItems={[""]}
         style={{userSelect: 'none' }}
         aria-label="Disks"
-        defaultCollapseIcon={<MinusCircleFilled />}
-        defaultExpandIcon={<PlusCircleFilled />}
+        slots={{ collapseIcon: MinusCircleFilled, expandIcon: PlusCircleFilled }}
       >
         {disks && disks.map((disk, index) => {
           // Fork addition: the card of forkDiskCard.jsx (fits a phone, the skin's surfaces); upstream: <Disk ...>
@@ -275,11 +275,12 @@ export const StorageDisks = () => {
           }} />
         })}
 
-      </TreeView>
+        </SimpleTreeView>
       </div>  
       </Stack>
     </> : <center>
       <CircularProgress color="inherit" size={20} />
     </center>}
   </div>
+  );
 };

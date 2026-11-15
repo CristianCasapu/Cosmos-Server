@@ -96,7 +96,7 @@ export const ShowFieldErrors = ({ when, fields }) => {
 // mandatory with MUI's own asterisk after the label.
 export const CosmosInputText = ({ name, style, value, errors, multiline, type, placeholder, onChange, label, formik, disabled, autoComplete, inputProps, helperText, required }) => {
   disabled = disabled || React.useContext(FormReadOnlyContext);
-  return <Grid item xs={12}>
+  return <Grid size={{ xs: 12 }}>
     <Stack spacing={1} style={style}>
       {label && <InputLabel htmlFor={name} required={required}>{label}</InputLabel>}
       <OutlinedInput
@@ -155,7 +155,7 @@ export const CosmosInputPassword = ({ name, noStrength, type, placeholder, autoC
       changePassword('');
   }, []);
 
-  return <Grid item xs={12}>
+  return <Grid size={{ xs: 12 }}>
     <Stack spacing={1}>
       <InputLabel htmlFor={name}>{label}</InputLabel>
       <OutlinedInput
@@ -195,12 +195,12 @@ export const CosmosInputPassword = ({ name, noStrength, type, placeholder, autoC
       <FieldHelp text={helperText} label={label} error={formik.touched[name] && formik.errors[name]} />
 
       {!noStrength && <FormControl fullWidth sx={{ mt: 2 }}>
-          <Grid container spacing={2} alignItems="center">
-              <Grid item>
+          <Grid container spacing={2} sx={{ alignItems: 'center' }}>
+              <Grid>
                   <Box sx={{ bgcolor: level?.color, width: 85, height: 8, borderRadius: '7px' }} />
               </Grid>
-              <Grid item>
-                  <Typography variant="subtitle1" fontSize="0.75rem">
+              <Grid>
+                  <Typography variant="subtitle1" sx={{ fontSize: '0.75rem' }}>
                       {level?.label}
                   </Typography>
               </Grid>
@@ -214,7 +214,7 @@ export const CosmosInputPassword = ({ name, noStrength, type, placeholder, autoC
 export const CosmosSelect = ({ name, onChange, label, formik, disabled, options, style, helperText, required }) => {
   disabled = disabled || React.useContext(FormReadOnlyContext);
   return (
-    <Grid item xs={12}>
+    <Grid size={{ xs: 12 }}>
       <Stack spacing={1}>
         <InputLabel htmlFor={name} required={required}>{label}</InputLabel>
         <FormControl variant="outlined" fullWidth error={getNestedValue(formik.touched, name) && Boolean(getNestedValue(formik.errors, name))} disabled={disabled} style={style}>
@@ -249,8 +249,8 @@ export const CosmosSelect = ({ name, onChange, label, formik, disabled, options,
 
 export const CosmosCheckbox = ({ name, label, formik, style, disabled, helperText }) => {
   disabled = disabled || React.useContext(FormReadOnlyContext);
-  return <Grid item xs={12}>
-    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+  return <Grid size={{ xs: 12 }}>
+    <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }} spacing={2}>
       <Field
         type="checkbox"
         name={name}
@@ -274,7 +274,7 @@ export const CosmosCheckbox = ({ name, label, formik, style, disabled, helperTex
 
 export const CosmosCollapse = ({ children, title }) => {
   const [open, setOpen] = React.useState(false);
-  return <Grid item xs={12}>
+  return <Grid size={{ xs: 12 }}>
     <Stack spacing={1}>
       <Accordion>
           <AccordionSummary
@@ -295,7 +295,7 @@ export const CosmosCollapse = ({ children, title }) => {
 }
 
 export function CosmosFormDivider({title}) {
-  return <Grid item xs={12}>
+  return <Grid size={{ xs: 12 }}>
     <Divider>
     {title && <Chip label={title} />}
     </Divider>
