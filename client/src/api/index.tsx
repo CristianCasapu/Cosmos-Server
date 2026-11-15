@@ -23,6 +23,7 @@ import createShieldAPI from './shield';
 import createStateAPI from './state';
 import createSecurityAPI from './security'; // Fork addition: security dashboard
 import createNotificationsAPI from './notifications'; // Fork addition: the notifications page
+import createReachWatchAPI from './reachWatch'; // Fork addition: the watch of the reachability from the internet
 
 import * as authDemo from './authentication.demo';
 import * as usersDemo from './users.demo';
@@ -84,6 +85,7 @@ export function createClient({ baseUrl, token }) {
     state: createStateAPI(apiFetch),
     security: createSecurityAPI(apiFetch), // Fork addition: security dashboard
     notifications: createNotificationsAPI(apiFetch), // Fork addition: the notifications page
+    reachWatch: createReachWatchAPI(apiFetch), // Fork addition: the watch of the reachability from the internet
 
     getStatus: () => {
       return wrap(apiFetch('/cosmos/api/status', {
@@ -447,6 +449,7 @@ let shield = createShieldAPI(defaultFetch);
 let state = createStateAPI(defaultFetch);
 let security = createSecurityAPI(defaultFetch); // Fork addition: security dashboard
 let notifications = createNotificationsAPI(defaultFetch); // Fork addition: the notifications page
+let reachWatch = createReachWatchAPI(defaultFetch); // Fork addition: the watch of the reachability from the internet
 
 if(isDemo) {
   auth = authDemo;
@@ -511,4 +514,5 @@ export {
   state,
   security, // Fork addition: security dashboard
   notifications, // Fork addition: the notifications page
+  reachWatch, // Fork addition: the watch of the reachability from the internet
 };
