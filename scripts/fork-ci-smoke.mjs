@@ -37,6 +37,10 @@ const KNOWN = [
   // the instance has no Docker on purpose: the volumes, networks and install pages ask it anyway and the
   // panel lets the refusal through as an unhandled rejection
   /^(error: )?Internal server error: Docker Connection - Cannot ping Daemon\. Is it running\?$/,
+  // the panel checks in the background whether each app's address answers (?__cosmos_probe=1); the
+  // seeded apps' names lead nowhere on a test instance, and the browser logs the refused answer on
+  // whatever page is open when it comes back (seen once in five runs on Storage)
+  /^(console: )?Access to fetch at 'http:\/\/[a-z0-9-]+\.localhost:\d+\/\?__cosmos_probe=1' from origin 'http:\/\/(localhost|127\.0\.0\.1):\d+' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource\.$/,
 ];
 const known = (message) => KNOWN.some((k) => k.test(message));
 mkdirSync(join(out, 'shots'), { recursive: true });
@@ -274,6 +278,7 @@ if (process.env.GALLERY !== '0') {
     const dir = join(out, 'gallery', size);
     const r = await runScript('gallery-' + size, 'fork-ui-gallery.mjs', {
       BASE: base, OUT: dir, ENGINES: 'chromium', VIEWPORTS: size, MODES: 'light', SET: 'smoke', CHECK: '1', TIMEOUT: '8000',
+      KNOWN_MESSAGES: KNOWN.map((k) => `(?:${k.source})`).join('|'),
       API_PER_MINUTE: String(Math.floor(460 / viewports.length)),
     });
     return { size, dir, ...r };

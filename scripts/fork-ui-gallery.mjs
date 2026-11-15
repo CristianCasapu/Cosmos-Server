@@ -860,8 +860,12 @@ const run = async (engineName, viewport, mode) => {
   };
 
   let errors = [];
-  page.on('pageerror', (e) => errors.push('error: ' + e.message.slice(0, 300)));
-  page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|status of (4|5)\d\d|net::ERR|WebSocket|favicon/i.test(m.text())) errors.push('console: ' + m.text().slice(0, 300)); });
+  const knownSeen = []; // KNOWN_MESSAGES let through (counted in the log only)
+  // KNOWN_MESSAGES: messages a throwaway instance shows by design (the smoke passes its list), kept apart
+  const knownMessages = process.env.KNOWN_MESSAGES ? new RegExp(process.env.KNOWN_MESSAGES) : null;
+  const record = (text) => { if (knownMessages && knownMessages.test(text)) knownSeen.push(text); else errors.push(text); };
+  page.on('pageerror', (e) => record('error: ' + e.message.slice(0, 300)));
+  page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|status of (4|5)\d\d|net::ERR|WebSocket|favicon/i.test(m.text())) record('console: ' + m.text().slice(0, 300)); });
 
   // the page's tab list: tabs on a desktop, a select on a phone
   const openTab = async (index) => {
