@@ -8,7 +8,10 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Nothing merged into `custom` since `0.24.0-fork.28` yet.
+Merged into `custom` since `0.24.0-fork.28`, to be part of the next release:
+
+### Changed
+- The installed app (PWA) opens full screen where the device allows it: on Android without the status bar and the navigation bar. On desktop browsers and on iOS it keeps its own app window, as before.
 
 Work in progress on separate branches (not released, and may change before it is): the major versions of the frontend's build tool and libraries, and automatic dependency updates.
 
