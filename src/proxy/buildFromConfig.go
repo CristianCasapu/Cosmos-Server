@@ -12,6 +12,7 @@ import (
 
 func BuildFromConfig(router *mux.Router, config utils.ProxyConfig) *mux.Router {
 	router.HandleFunc("/_health", func(w http.ResponseWriter, r *http.Request) {
+		utils.NoteWatchProbe(r) // Fork addition: a request of the reachability watch came back in from outside, see utils/fork_reach_watch.go
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
