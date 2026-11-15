@@ -8,7 +8,8 @@
 import React from 'react';
 import { Button, LinearProgress, Tooltip } from '@mui/material';
 import { CompassOutlined } from '@ant-design/icons';
-import { TreeItem } from '@mui/lab';
+// the tree moved to @mui/x-tree-view; @mui/lab 5.0.0-alpha.177 only keeps stubs that render nothing
+import { TreeItem } from '@mui/x-tree-view';
 import { useTranslation } from 'react-i18next';
 import MountDiskDialog from './mountDiskDialog';
 import { diskChip, diskColor } from './smart';

@@ -8,7 +8,9 @@ import { Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent, 
 import { CosmosCheckbox, CosmosFormDivider, CosmosInputText } from "../config/users/formShortcuts";
 import MainCard from "../../components/MainCard";
 import { Formik, FormikProvider, useFormik } from "formik";
-import { LoadingButton, TreeItem, TreeView } from "@mui/lab";
+import { LoadingButton } from "@mui/lab";
+// Fork addition: the tree moved to @mui/x-tree-view; @mui/lab 5.0.0-alpha.177 only keeps stubs that render nothing
+import { TreeItem, TreeView } from "@mui/x-tree-view";
 import ApiModal from "../../components/apiModal";
 import ConfirmModal from "../../components/confirmModal";
 import { PascalToSnake, crontabToText, isDomain } from "../../utils/indexs";
