@@ -228,11 +228,11 @@ for (const engine of engines) {
             expect(Object.keys(c.HostConfig.PortBindings || {}).length === 0, `${name}: no port published on the server`);
             await sleep(5000);
             // over the network (127.0.0.1 is trusted by the image's own pg_hba.conf)
-            const psql = (sql) => ['sh', '-c', `psql -h "$(hostname -i | cut -d' ' -f1)" -U app -d app -tAc "${sql}"`];
+            const psql = (sql) => ['sh', '-c', `psql -h "$(hostname -i | cut -d' ' -f1)" -U app -d app -tAc "${sql}" 2>&1; echo "exit=$?"`];
             const good = await run('postgres', psql('select 40+2'), [`PGPASSWORD=${secret}`]);
             expect(/42/.test(good), `${name}: the password shown works (${good.trim().slice(0, 80)})`);
             const bad = await run('postgres', psql('select 1'), ['PGPASSWORD=wrong']);
-            expect(/password authentication failed/.test(bad), `${name}: a wrong password is refused (${bad.trim().slice(0, 120)})`);
+            expect(/password authentication failed|exit=2/.test(bad) && !/exit=0/.test(bad), `${name}: a wrong password is refused (${bad.trim().slice(0, 120)})`);
             const files = await run('postgres', ['ls', '/var/lib/postgresql/18/docker']);
             expect(/PG_VERSION/.test(files), `${name}: PostgreSQL 18 keeps its files in the mounted folder`);
           }
