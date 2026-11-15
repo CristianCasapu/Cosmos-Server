@@ -135,6 +135,14 @@ func Describe(ctx context.Context, text string, user string) Description {
 		return Description{Reference: clean(text, 255), Problem: codeOf(err), Platforms: []string{}, Tags: TagList{List: []string{}}}
 	}
 	recipe := recipeFor(ref)
+	// the publisher's description, read alongside the image; with a recipe only
+	// from the cache (the recipe says more, and a read is a call of Docker Hub's API)
+	hints := make(chan *Requirements, 1)
+	go func(ref Reference) {
+		hintCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+		defer cancel()
+		hints <- descriptionHints(hintCtx, ref, recipe == nil)
+	}(ref)
 	tags := TagList{List: []string{}}
 	tagsRead := false
 	if !typedTag(text) {
@@ -152,6 +160,7 @@ func Describe(ctx context.Context, text string, user string) Description {
 	}
 	desc.Tags = tags
 	desc.Databases = databaseRecipes()
+	desc.Hints = withDocs(<-hints, desc.Declared)
 	if desc.Tags.List == nil {
 		desc.Tags.List = []string{}
 	}

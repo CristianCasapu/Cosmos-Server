@@ -89,6 +89,8 @@ type Description struct {
 	Size int64 `json:"size"`
 	// Databases: the recipes of databases, for "add a database to this app"
 	Databases []Recipe `json:"databases"`
+	// Hints: what the publisher's description says the image needs (readme.go); hints, never values
+	Hints *Requirements `json:"hints,omitempty"`
 }
 
 type descriptor struct {
