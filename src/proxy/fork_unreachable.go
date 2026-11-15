@@ -278,3 +278,33 @@ code{color:#e6e9ee}
 </body>
 </html>
 `
+
+// forkProxyError answers a request the proxy could not deliver. A container
+// that stopped or restarts since its address was cached gets the same page
+// as the guard gives (its address is forgotten, so the next request asks
+// Docker again); anything else is upstream's 502, logged once per URL and
+// minute instead of once per request.
+func forkProxyError(route utils.ProxyRouteConfig, target *url.URL) func(http.ResponseWriter, *http.Request, error) {
+	return func(w http.ResponseWriter, r *http.Request, err error) {
+		if r.Context().Err() != nil {
+			// the visitor went away: nothing to answer
+			unreachableNote(route.Name, "canceled", "the visitor left before the app answered")
+			w.WriteHeader(499)
+			return
+		}
+		if route.Mode == "SERVAPP" && (!utils.IsInsideContainer || utils.IsHostNetwork) && target != nil {
+			name := target.Hostname()
+			forgetTarget(name)
+			if _, state, terr := dockerContainerTarget(name); terr != nil {
+				unreachableNote(route.Name, string(state), "container "+name+" is "+stateWords(state)+": answered 503")
+				writeUnreachable(w, r, http.StatusServiceUnavailable, string(state), name)
+				return
+			}
+		}
+		unreachableNote(route.Name, "error", "the app did not answer: "+printable(err.Error(), 200))
+		w.WriteHeader(http.StatusBadGateway)
+	}
+}
+
+// forgetTarget is a variable so that tests keep their stub.
+var forgetTarget = docker.ForgetTarget

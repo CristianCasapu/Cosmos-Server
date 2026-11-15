@@ -110,6 +110,7 @@ func NewProxy(targetHost string, AcceptInsecureHTTPSTarget bool, DisableHeaderHa
 	proxy := &httputil.ReverseProxy{
 		Transport:     transport,
 		FlushInterval: -1,
+		ErrorHandler:  forkProxyError(route, targetURL), // Fork addition: an app that stopped since its address was known is said so, once per minute in the log (fork_unreachable.go)
 	}
 
 	proxy.Director = func(req *http.Request) {

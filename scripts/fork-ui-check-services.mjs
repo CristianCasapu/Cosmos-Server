@@ -124,9 +124,11 @@ const card = async (page, app) => {
   await page.waitForTimeout(1000);
   await later(page);
 };
+// the tile of one app (a search for "postgresql" also finds "postgresql-old")
+const tile = (page, app) => page.locator('.MuiPaper-root').filter({ has: page.locator(`.ct-app-name[title="${app}"]`) }).last();
 const newUrl = async (page, app) => {
   await card(page, app);
-  await page.locator('.MuiChip-root', { has: page.locator('.MuiChip-label', { hasText: /^New$/ }) }).first().click();
+  await tile(page, app).locator('.MuiChip-root', { has: page.locator('.MuiChip-label', { hasText: /^New$/ }) }).first().click();
   await page.locator('[data-new-url-dialog]').waitFor({ timeout: 30000 });
   await page.waitForTimeout(1500);
   return page.locator('[data-new-url-dialog]');
@@ -240,7 +242,7 @@ if (phase === 'story' || phase === 'bad') {
 
       // --- 5. the Internet dialog of the database
       await card(page, 'postgresql');
-      await page.locator('[data-expose-open]').first().click();
+      await tile(page, 'postgresql').locator('[data-expose-open]').first().click();
       await page.locator('[data-expose-dialog] [data-service-info]').waitFor({ timeout: 30000 }).catch(() => {});
       expect(await page.locator('[data-expose-dialog] [data-service-info]').count() === 1 && await page.locator('[data-expose-save]').count() === 0, `${name}: the Internet dialog says what the database is, proposes nothing for the internet`);
       await shot(page, name, '10-internet-database');
@@ -330,7 +332,7 @@ if (phase === 'look') {
           await fits(page, name, '[data-new-url-dialog]', 'New URL of the database');
           await page.locator('[data-new-url-dialog] button', { hasText: 'Cancel' }).click().catch(() => {});
           await card(page, 'postgresql');
-          await page.locator('[data-expose-open]').first().click();
+          await tile(page, 'postgresql').locator('[data-expose-open]').first().click();
           await page.locator('[data-expose-dialog] [data-service-info]').waitFor({ timeout: 30000 }).catch(() => {});
           await shot(page, name, '03-internet-database');
           await fits(page, name, '[data-expose-dialog]', 'Internet of the database');

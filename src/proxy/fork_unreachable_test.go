@@ -230,3 +230,35 @@ func TestUnreachablePageEscapes(t *testing.T) {
 		t.Fatal(rec.Body.String())
 	}
 }
+
+// An address cached while the app ran a moment: the dial fails, Docker is
+// asked again, and the visitor gets the page, not a bare 502.
+func TestAProxyErrorAsksDockerAgain(t *testing.T) {
+	bareMetal(t)
+	logs := countLogs(t)
+	prevForget := forgetTarget
+	forgot := 0
+	forgetTarget = func(string) { forgot++ }
+	t.Cleanup(func() { forgetTarget = prevForget })
+	asked := 0
+	stubTarget(t, func(string) (string, docker.TargetState, error) {
+		asked++
+		if asked%2 == 1 { // the guard's question: it runs (port 1: nothing listens)
+			return "127.0.0.1", docker.TargetRunning, nil
+		}
+		return "", docker.TargetRestarting, docker.ErrTargetDown // after the failed dial: it stopped
+	})
+	route := utils.ProxyRouteConfig{Name: "pg", Mode: "SERVAPP", Target: "http://crashing:1"}
+	h := routeHandlerForTarget(route.Target, route)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "http://pg.local/", nil))
+	if rec.Code != http.StatusServiceUnavailable || forgot != 1 || rec.Header().Get(ProbeHeader) != "restarting" {
+		t.Fatalf("status %d forgot %d", rec.Code, forgot)
+	}
+	for i := 0; i < 50; i++ {
+		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "http://pg.local/", nil))
+	}
+	if len(*logs) != 1 {
+		t.Fatalf("lines %v", *logs)
+	}
+}
