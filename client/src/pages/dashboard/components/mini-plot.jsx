@@ -242,8 +242,9 @@ const _MiniPlotComponent = ({metrics, labels, noLabels, noBackground, agglo, tit
       <div style={{
         margin: '-10px 0px -20px 10px',
         flexGrow: 1,
+        flexBasis: 0, minWidth: 0, // Fork addition: the chart takes the width that is left (apexcharts 8 drew it 300 px wide past the card)
       }} ref={ref}>
-        {series.length > 0 && <Chart options={chartOptions} series={series} type="line" height={90} />}
+        {series.length > 0 && <Chart options={chartOptions} series={series} type="line" height={90} width="100%" /* Fork addition: react-apexcharts 2 has no 100% default */ />}
         {series.length === 0 && answered && <div className="ct-miniplot-none">{t('monitoring.noMeasurementsShort', 'No measurements yet')}</div>}
       </div>
     </Stack>

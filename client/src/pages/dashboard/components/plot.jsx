@@ -234,7 +234,7 @@ const PlotComponent = ({ title, slot, data, SimpleDesign, withSelector, xAxis, z
     <MainCard content={false} sx={{ mt: 1.5 }} >
       <Box sx={{ pt: 1, pr: 2}}>
 
-        <Chart options={options} series={series} type="area" height={450} />
+        <Chart options={options} series={series} type="area" height={450} width="100%" /* Fork addition: react-apexcharts 2 has no 100% default */ />
       </Box>
       {/* Fork addition: the scale of the series whose axis is not drawn on a phone */}
       {scaleNotes.length > 0 && <Box component="ul" className="ct-chart-scales" sx={{ m: 0, px: 2, pb: 1.5, pt: 0, listStyle: 'none' }}>

@@ -71,6 +71,7 @@ const Timeline = ({ overview }) => {
             series={series.map((s) => ({ name: t(...groupLabel(s.id)), data: s.data }))}
             type="bar"
             height={300}
+            width="100%" /* Fork addition: react-apexcharts 2 has no 100% default */
           />
         </Box>
       )}
