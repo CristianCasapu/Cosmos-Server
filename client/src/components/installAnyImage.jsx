@@ -33,7 +33,7 @@ const wrap = { overflowWrap: 'anywhere', minWidth: 0, '& .MuiAlert-message': { m
 // a finger's height on a phone (the skin gives it to buttons in a page's main area, not in dialogs);
 // '&&&' outweighs the skin's doubled classes
 const touch = { '&&&': { minHeight: { xs: 44, sm: 0 } } };
-const touchChip = { '&&&': { height: { xs: 'auto', sm: 32 }, minHeight: { xs: 44, sm: 0 } }, '& .MuiChip-label': { whiteSpace: 'normal' } };
+const touchChip = { '&&&': { height: { xs: 'auto', sm: 32 }, minHeight: { xs: 44, sm: 0 }, minWidth: { xs: 44, sm: 0 } }, '& .MuiChip-label': { whiteSpace: 'normal' } };
 const touchLink = { display: { xs: 'inline-flex', sm: 'inline' }, alignItems: 'center', minHeight: { xs: 44, sm: 0 } };
 
 const useSay = () => {
