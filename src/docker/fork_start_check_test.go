@@ -42,17 +42,17 @@ func exited(code int, restarting bool, env ...string) types.ContainerJSON {
 // and what is proposed for each: never the switch that allows an empty password.
 func TestRecognisedNeeds(t *testing.T) {
 	cases := map[string][]string{
-		"bitnami-postgresql.log": {"POSTGRESQL_PASSWORD"},
-		"postgres-official.log":  {"POSTGRES_PASSWORD"},
-		"mariadb-official.log":   {"MARIADB_ROOT_PASSWORD"},
-		"mysql-official.log":     {"MYSQL_ROOT_PASSWORD"},
-		"generic-required.log":   {"SECRET_KEY_BASE"},
-		"no-variable.log":        {},
-		"permission.log":         {},
-		"percona-server.log":     {"MYSQL_ROOT_PASSWORD"},
-		"pgadmin4.log":           {"PGADMIN_DEFAULT_EMAIL", "PGADMIN_DEFAULT_PASSWORD"},
-		"opensearch.log":         {"OPENSEARCH_INITIAL_ADMIN_PASSWORD"},
-		"bitnami-mongodb.log":    {"MONGODB_ROOT_PASSWORD"},
+		"bitnami-postgresql.txt": {"POSTGRESQL_PASSWORD"},
+		"postgres-official.txt":  {"POSTGRES_PASSWORD"},
+		"mariadb-official.txt":   {"MARIADB_ROOT_PASSWORD"},
+		"mysql-official.txt":     {"MYSQL_ROOT_PASSWORD"},
+		"generic-required.txt":   {"SECRET_KEY_BASE"},
+		"no-variable.txt":        {},
+		"permission.txt":         {},
+		"percona-server.txt":     {"MYSQL_ROOT_PASSWORD"},
+		"pgadmin4.txt":           {"PGADMIN_DEFAULT_EMAIL", "PGADMIN_DEFAULT_PASSWORD"},
+		"opensearch.txt":         {"OPENSEARCH_INITIAL_ADMIN_PASSWORD"},
+		"bitnami-mongodb.txt":    {"MONGODB_ROOT_PASSWORD"},
 	}
 	for file, want := range cases {
 		data, err := os.ReadFile("testdata/startlogs/" + file)
@@ -81,27 +81,27 @@ func TestRecognisedNeeds(t *testing.T) {
 // The reason in one word, from the state and the log.
 func TestStartReasons(t *testing.T) {
 	read := func(file string) []byte { d, _ := os.ReadFile("testdata/startlogs/" + file); return d }
-	if r := reportFrom(exited(1, true), read("bitnami-postgresql.log"), false, nil); r.Reason != "missingSetting" || !r.Failing {
+	if r := reportFrom(exited(1, true), read("bitnami-postgresql.txt"), false, nil); r.Reason != "missingSetting" || !r.Failing {
 		t.Errorf("%+v", r.Reason)
 	}
-	if r := reportFrom(exited(1, false), read("permission.log"), false, nil); r.Reason != "permission" {
+	if r := reportFrom(exited(1, false), read("permission.txt"), false, nil); r.Reason != "permission" {
 		t.Errorf("%v", r.Reason)
 	}
 	if r := reportFrom(exited(132, false), nil, false, nil); r.Reason != "processor" {
 		t.Errorf("%v", r.Reason)
 	}
-	if r := reportFrom(exited(1, true), read("no-variable.log"), false, nil); r.Reason != "restarting" {
+	if r := reportFrom(exited(1, true), read("no-variable.txt"), false, nil); r.Reason != "restarting" {
 		t.Errorf("%v", r.Reason)
 	}
 	// a variable that is set is not missing, even if an old line said so
-	if r := reportFrom(exited(1, true, "POSTGRESQL_PASSWORD=s3cret-value"), read("bitnami-postgresql.log"), false, nil); len(r.Needs) != 0 {
+	if r := reportFrom(exited(1, true, "POSTGRESQL_PASSWORD=s3cret-value"), read("bitnami-postgresql.txt"), false, nil); len(r.Needs) != 0 {
 		t.Errorf("%+v", r.Needs)
 	}
 	// a container that runs well is not failing and nothing is recognised
 	ok := exited(0, false)
 	ok.State = &types.ContainerState{Status: "running", Running: true, StartedAt: time.Now().Add(-time.Hour).Format(time.RFC3339Nano)}
 	ok.RestartCount = 0
-	if r := reportFrom(ok, read("bitnami-postgresql.log"), false, nil); r.Failing || len(r.Needs) != 0 || r.Reason != "" {
+	if r := reportFrom(ok, read("bitnami-postgresql.txt"), false, nil); r.Failing || len(r.Needs) != 0 || r.Reason != "" {
 		t.Errorf("%+v", r)
 	}
 }
@@ -183,7 +183,7 @@ func TestWatchCreationReportsTheOneThatDoesNotStart(t *testing.T) {
 	defer func() { startReportOf = prevReport }()
 	startReportOf = func(ctx context.Context, name string, secrets []string) (StartReport, error) {
 		reported = append(reported, name)
-		data, _ := os.ReadFile("testdata/startlogs/bitnami-postgresql.log")
+		data, _ := os.ReadFile("testdata/startlogs/bitnami-postgresql.txt")
 		return reportFrom(exited(1, true), data, false, secrets), nil
 	}
 	out := []string{}

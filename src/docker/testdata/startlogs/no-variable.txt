@@ -1,0 +1,3 @@
+listening on 0.0.0.0:8080
+ERROR: connection refused to db:5432, retrying
+ERROR: too many retries
