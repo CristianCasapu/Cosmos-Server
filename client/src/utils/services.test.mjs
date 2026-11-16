@@ -189,3 +189,21 @@ test('a new database is offered once per software; other publishers still recogn
   const found = existingDatabases([{ Names: ['/pg'], Image: 'bitnami/postgresql:latest', State: 'running' }], recipes, ['postgres']);
   assert.equal(found.length, 1);
 });
+
+test('a recipe without a password of its own that has a web page is proposed for administrators only, behind the sign-in', async () => {
+  const { serviceFor, parseReference } = await import('./anyImage.js');
+  const { proposeAccess } = await import('./exposure.js');
+  const withWeb = recipes.filter((r) => r.web);
+  assert.ok(withWeb.some((r) => (r.notes || []).includes('noAuth')), 'at least one such recipe is checked');
+  for (const r of withWeb) {
+    const ref = parseReference(r.images[0]);
+    const { service } = serviceFor({ ref, tag: 'latest', name: r.id, recipe: r, declared: { ports: [], volumes: [], env: [] }, settings: [], host: r.id + '.local' });
+    const route = (service.routes || [])[0];
+    assert.ok(route, r.id + ' gets its address');
+    if ((r.notes || []).includes('noAuth')) {
+      assert.equal(route.AuthEnabled, true, r.id);
+      assert.equal(route.AdminOnly, true, r.id);
+      for (const image of r.images) assert.equal(proposeAccess(image).access, 'admins', image + ' on the internet too');
+    }
+  }
+});

@@ -438,7 +438,8 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
   const web = webPortOf(recipe, declared);
   if (web && host) {
     // a tool that controls the server or its data opens behind Cosmos' sign-in, for administrators (exposure.js)
-    const admins = proposeAccess(image).access === 'admins';
+    // plan 43 (review E1): so does the web page of a service that has no password of its own (a recipe's noAuth)
+    const admins = proposeAccess(image).access === 'admins' || !!(recipe && (recipe.notes || []).includes('noAuth'));
     service.routes = [{
       name, description: `${name} in Cosmos`, useHost: true, host, target: `http://${name}:${web}`, mode: 'SERVAPP',
       Timeout: 14400000, ThrottlePerMinute: 10000, BlockCommonBots: true, SmartShield: { Enabled: true },
