@@ -389,11 +389,13 @@ export const managerEnv = (manager, db) => {
     if (variable && conn[role] !== undefined && conn[role] !== '') out[variable] = String(conn[role]);
   });
   if (needs.servers) {
+    // pgAdmin in server mode reads a pass file only inside the user's storage folder: the image copies
+    // its PGPASS_FILE there as .pgpass at first start, which "/.pgpass" names (measured by the live test)
     const server = {
       Name: db.name, Group: 'Servers', Host: db.name, Port: Number(conn.port) || 5432,
-      MaintenanceDB: conn.database || conn.user || 'postgres', Username: conn.user || 'postgres', SSLMode: 'prefer',
+      MaintenanceDB: conn.database || conn.user || 'postgres', Username: conn.user || 'postgres',
+      ConnectionParameters: { sslmode: 'prefer', connect_timeout: 10, ...(needs.passFile && conn.password ? { passfile: '/.pgpass' } : {}) },
     };
-    if (needs.passFile && conn.password && needs.passFilePath) server.PassFile = needs.passFilePath;
     out[needs.servers] = JSON.stringify({ Servers: { 1: server } });
   }
   if (needs.passFile && conn.password) {

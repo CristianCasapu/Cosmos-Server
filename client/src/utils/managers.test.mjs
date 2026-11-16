@@ -2,6 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
+import fs from 'node:fs';
 import { backupCommand, buildDefinition, managerDefinition, managerEnv, managersFor, parseReference, proposedSettings } from './anyImage.js';
 import { composeVarDefault, followsRule, marketFieldDefault, marketFormValue, LABEL, MANAGER_LABEL } from './signIn.js';
 
@@ -24,7 +25,7 @@ const pgadmin = {
   entrypoint: ['/bin/sh', '-c', 'wrapper'],
   volumes: [{ target: '/var/lib/pgadmin', keepVolume: true }],
   env: [{ name: 'PGADMIN_DEFAULT_EMAIL', type: 'name', value: 'admin@example.org' }, { name: 'PGADMIN_DEFAULT_PASSWORD', type: 'secret' }],
-  needs: { kinds: ['postgres'], optional: true, env: {}, servers: 'PGADMIN_FORK_SERVERS', passFile: 'PGADMIN_FORK_PGPASS', passFilePath: '/var/lib/pgadmin/pgpass' },
+  needs: { kinds: ['postgres'], optional: true, env: {}, servers: 'PGADMIN_COSMOS_SERVERS', passFile: 'PGADMIN_COSMOS_PGPASS' },
   login: {
     where: 'web', accounts: [{ role: 'app', email: 'PGADMIN_DEFAULT_EMAIL', password: 'PGADMIN_DEFAULT_PASSWORD', defaults: true }],
     email: { refuseSpecialUse: true }, password: { min: 6, max: 64, symbols: '-._~', require: [] },
@@ -56,14 +57,14 @@ test('Install any image takes the defaults in the form the app takes, and the ru
 test('pgAdmin is pointed at its database without a password in its list of servers', () => {
   const values = { POSTGRES_USER: 'owner_name', POSTGRES_DB: 'notes', POSTGRES_PASSWORD: 'Pw-1~x.y_z' };
   const env = managerEnv(pgadmin, { name: 'notes-db', recipe: pg, values });
-  const servers = JSON.parse(env.PGADMIN_FORK_SERVERS);
-  assert.deepEqual(servers.Servers['1'], { Name: 'notes-db', Group: 'Servers', Host: 'notes-db', Port: 5432, MaintenanceDB: 'notes', Username: 'owner_name', SSLMode: 'prefer', PassFile: '/var/lib/pgadmin/pgpass' });
-  assert.ok(!env.PGADMIN_FORK_SERVERS.includes(values.POSTGRES_PASSWORD));
-  assert.equal(env.PGADMIN_FORK_PGPASS, 'notes-db:5432:*:owner_name:Pw-1~x.y_z');
+  const servers = JSON.parse(env.PGADMIN_COSMOS_SERVERS);
+  assert.deepEqual(servers.Servers['1'], { Name: 'notes-db', Group: 'Servers', Host: 'notes-db', Port: 5432, MaintenanceDB: 'notes', Username: 'owner_name', ConnectionParameters: { sslmode: 'prefer', connect_timeout: 10, passfile: '/.pgpass' } });
+  assert.ok(!env.PGADMIN_COSMOS_SERVERS.includes(values.POSTGRES_PASSWORD));
+  assert.equal(env.PGADMIN_COSMOS_PGPASS, 'notes-db:5432:*:owner_name:Pw-1~x.y_z');
   // a colon or a backslash in a password is escaped as .pgpass wants
-  assert.equal(managerEnv(pgadmin, { name: 'db', recipe: pg, values: { ...values, POSTGRES_PASSWORD: 'a:b\\c' } }).PGADMIN_FORK_PGPASS, 'db:5432:*:owner_name:a\\:b\\\\c');
+  assert.equal(managerEnv(pgadmin, { name: 'db', recipe: pg, values: { ...values, POSTGRES_PASSWORD: 'a:b\\c' } }).PGADMIN_COSMOS_PGPASS, 'db:5432:*:owner_name:a\\:b\\\\c');
   // an unset user is the image's own
-  assert.equal(JSON.parse(managerEnv(pgadmin, { name: 'db', recipe: pg, values: { POSTGRES_PASSWORD: 'x' } }).PGADMIN_FORK_SERVERS).Servers['1'].Username, 'postgres');
+  assert.equal(JSON.parse(managerEnv(pgadmin, { name: 'db', recipe: pg, values: { POSTGRES_PASSWORD: 'x' } }).PGADMIN_COSMOS_SERVERS).Servers['1'].Username, 'postgres');
   assert.deepEqual(managerEnv(adminer, { name: 'notes-db', recipe: pg, values }), { ADMINER_DEFAULT_SERVER: 'notes-db' });
 });
 
@@ -141,6 +142,19 @@ test('the backup command uses the user the settings really have', () => {
   assert.equal(backupCommand(r, [{ name: 'POSTGRES_USER', value: 'app' }]), 'pg_dumpall -U app');
   assert.equal(backupCommand(r, [{ name: 'POSTGRES_USER', value: 'bad name; rm' }]), 'pg_dumpall -U app');
   assert.equal(backupCommand({ ...r, backup: 'pg_dumpall -U application' }, [{ name: 'POSTGRES_USER', value: 'x' }]), 'pg_dumpall -U application');
+});
+
+test('the real recipes give pgAdmin what the live test proved', () => {
+  const all = JSON.parse(fs.readFileSync(new URL('../../../src/anyimage/recipes.json', import.meta.url), 'utf8')).recipes;
+  const real = all.find((r) => r.id === 'pgadmin');
+  const db = all.find((r) => r.id === 'postgres');
+  const env = managerEnv(real, { name: 'db', recipe: db, values: { POSTGRES_USER: 'u', POSTGRES_PASSWORD: 'p-1', POSTGRES_DB: 'd' } });
+  assert.equal(JSON.parse(env[real.needs.servers]).Servers['1'].ConnectionParameters.passfile, '/.pgpass');
+  assert.equal(env[real.needs.passFile], 'db:5432:*:u:p-1');
+  assert.ok(real.entrypoint && !real.entrypoint.join(' ').includes('p-1'));
+  assert.deepEqual(managersFor(all, 'postgres').map((r) => r.id), ['pgadmin', 'adminer']);
+  assert.deepEqual(managersFor(all, 'mysql').map((r) => r.id), ['phpmyadmin', 'adminer']);
+  assert.deepEqual(managersFor(all, 'redis').map((r) => r.id), ['redisinsight']);
 });
 
 test('the label of the review never carries a value', () => {

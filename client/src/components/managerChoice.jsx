@@ -26,7 +26,7 @@ const NOTES = {
   pgadmin: ['mgmt.servapps.manager.note.pgadmin', 'The database is already registered in it: no host to type. Sign in to pgAdmin with the e-mail and password below; the first time you open the database it may ask for the database\'s password once (its Sign-in details show it).'],
   phpmyadmin: ['mgmt.servapps.manager.note.phpmyadmin', 'It opens on this database: sign in with the database\'s own user and password (its Sign-in details show them).'],
   adminer: ['mgmt.servapps.manager.note.adminer', 'It opens on this database: sign in with the database\'s own user and password (its Sign-in details show them).'],
-  redisinsight: ['mgmt.servapps.manager.note.redisinsight', 'The database is already registered in it. It has no sign-in of its own: only administrators reach it, behind Cosmos\' sign-in.'],
+  redisinsight: ['mgmt.servapps.manager.note.redisinsight', 'The database is already registered in it; the first time you open it, it asks you to accept Redis\' terms, then lists it. It has no sign-in of its own: only administrators reach it, behind Cosmos\' sign-in.'],
   'mongo-express': ['mgmt.servapps.manager.note.mongoexpress', 'It opens on this database. Sign in with the username and password below.'],
 };
 

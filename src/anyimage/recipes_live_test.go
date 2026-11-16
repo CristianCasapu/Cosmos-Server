@@ -77,6 +77,7 @@ var withoutVariables = map[string]withoutWant{
 	"bitnami-redis":            {true, "The REDIS_PASSWORD environment variable is empty or not set. Set the environment variable ALLOW_EMPTY_PASSWORD=yes to allow the container to be started with blank passwords. This is recommended only for development."},
 	"bitnami-valkey":           {true, "The VALKEY_PASSWORD environment variable is empty or not set. Set the environment variable ALLOW_EMPTY_PASSWORD=yes to allow the container to be started with blank passwords. This is recommended only for development."},
 	"bitnami-mongodb":          {true, "The MONGODB_ROOT_PASSWORD environment variable is empty or not set. Set the environment variable ALLOW_EMPTY_PASSWORD=yes to allow the container to be started with blank passwords. This is only recommended for development."},
+	"redisinsight":             {false, ""}, // its encryption key is optional
 }
 
 // withoutOwner: an image that runs as a user of its own, its data folder
@@ -92,6 +93,7 @@ var withoutOwner = map[string]string{
 	"bitnami-valkey":           "Permission denied",
 	"bitnami-mongodb":          "Permission denied",
 	"rustfs":                   "Permission denied",
+	"redisinsight":             "EACCES: permission denied, mkdir '/data/logs'",
 }
 
 func TestRecipesLive(t *testing.T) {
