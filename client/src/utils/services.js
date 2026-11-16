@@ -286,6 +286,10 @@ export const connectionTemplate = (classification, host, port) => {
 const NEVER_LAN = {
   23: 'noPassword', 2375: 'control', 2376: 'control', 2379: 'control', 2380: 'control', 6443: 'control', 10250: 'control',
   11211: 'noPassword', 5900: 'noPassword', 9042: 'noPassword', 2181: 'noPassword', 9092: 'noPassword', 4222: 'noPassword',
+  // more protocols that ask for nothing by default: Elasticsearch's transport, Cassandra between nodes, RethinkDB,
+  // rsync, NFS and its port mapper, a SOCKS proxy
+  9300: 'noPassword', 7000: 'noPassword', 7001: 'noPassword', 28015: 'noPassword', 873: 'noPassword', 2049: 'noPassword',
+  111: 'noPassword', 1080: 'noPassword',
 };
 // Ports whose service asks for a password only when one was set (the
 // official Redis, Valkey and MongoDB images start without one).
@@ -305,11 +309,24 @@ export const hasOwnPassword = (env) => (env || []).some((line) => {
 // lanPlan: may this service be reached from the home network, and what the warning says.
 //   { allowed: false, why: 'control' | 'noPassword' }
 //   { allowed: true, why: 'password' }   its protocol asks for the password set when it was created
-export const lanPlan = (classification, env) => {
+export const lanPlan = (classification, env, image) => {
   const port = Number(classification && classification.port);
   if (NEVER_LAN[port]) return { allowed: false, why: NEVER_LAN[port] };
+  if (port === 6379 && !redisHasPassword(env, image)) return { allowed: false, why: 'noPassword' };
   if (PASSWORD_IF_SET.has(port) && !hasOwnPassword(env)) return { allowed: false, why: 'noPassword' };
   return { allowed: true, why: 'password' };
+};
+
+// Redis and Valkey: the official images ignore a REDIS_PASSWORD variable (a
+// password is only set with --requirepass); the Bitnami images read
+// REDIS_PASSWORD / VALKEY_PASSWORD. Without the image's name only
+// --requirepass counts, so that a Redis without a password is never
+// published by mistake.
+export const redisHasPassword = (env, image) => {
+  const lines = (env || []).map(String);
+  if (lines.some((line) => /--requirepass\s+\S/.test(line.slice(line.indexOf('=') + 1)))) return true;
+  if (!/(^|\/)bitnami(legacy|secure)?\//i.test(String(image || ''))) return false;
+  return lines.some((line) => /^(REDIS|VALKEY)_PASSWORD=./.test(line));
 };
 
 // The port bindings of a container with one more port published on one of

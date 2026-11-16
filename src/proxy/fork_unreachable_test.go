@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -197,6 +198,86 @@ func TestServappTargetsThatAreNotContainers(t *testing.T) {
 	}
 }
 
+// Second review R2: a one-word target Docker does not know is a container
+// that is gone: 503, and the name is never looked up or dialled (a search
+// domain could answer for it). host.docker.internal, outside Docker, is this
+// server.
+func TestAContainerThatIsGoneIsNeverLookedUp(t *testing.T) {
+	bareMetal(t)
+	countLogs(t)
+	stubOwnPorts(t, "1")
+	stubTarget(t, func(name string) (string, docker.TargetState, error) {
+		return "", docker.TargetMissing, docker.ErrTargetDown
+	})
+	for host, want := range map[string]bool{"jellyfin": false, "my-db_1": false, "localhost": true, "127.0.0.1": true, "::1": true,
+		"nas.lan": true, "host.docker.internal": true} {
+		if dialledAsWritten(host) != want {
+			t.Errorf("%s dialled as written: %v", host, !want)
+		}
+	}
+	reached := int32(0)
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { atomic.AddInt32(&reached, 1) })
+	rec := httptest.NewRecorder()
+	forkTargetGuard(utils.ProxyRouteConfig{Name: "gone", Mode: "SERVAPP", Target: "http://jellyfin:8096"})(next).ServeHTTP(rec, httptest.NewRequest("GET", "http://gone.local/", nil))
+	if rec.Code != http.StatusServiceUnavailable || atomic.LoadInt32(&reached) != 0 {
+		t.Fatalf("a container that is gone: status %d, proxy reached %d", rec.Code, reached)
+	}
+	app, hits := listener(t)
+	port := app.URL[strings.LastIndex(app.URL, ":")+1:]
+	target := "http://host.docker.internal:" + port
+	rec = httptest.NewRecorder()
+	routeHandlerForTarget(target, utils.ProxyRouteConfig{Name: "hdi", Mode: "SERVAPP", Target: target}).ServeHTTP(rec, httptest.NewRequest("GET", "http://hdi.local/", nil))
+	if rec.Code != 200 || atomic.LoadInt32(hits) != 1 {
+		t.Fatalf("host.docker.internal outside Docker: status %d, reached %d", rec.Code, *hits)
+	}
+}
+
+// Second review R1 and R3: the list of this server's addresses is replaced,
+// never refilled in place (run with -race), and a dial to another machine
+// never asks for Cosmos' ports (their list waits on a lock while the port
+// routes restart).
+func TestTheGuardSharesNothingAndAsksPortsOnlyForThisServer(t *testing.T) {
+	prevAddrs, prevPorts := interfaceAddrs, ownPorts
+	asked := int32(0)
+	ownPorts = func() []string { atomic.AddInt32(&asked, 1); return []string{"2053"} }
+	interfaceAddrs = func() ([]net.Addr, error) {
+		return []net.Addr{&net.IPNet{IP: net.ParseIP("192.0.2.44"), Mask: net.CIDRMask(24, 32)}, &net.IPNet{IP: net.ParseIP("2001:db8::44"), Mask: net.CIDRMask(64, 128)}}, nil
+	}
+	t.Cleanup(func() {
+		interfaceAddrs, ownPorts = prevAddrs, prevPorts
+		ownAddrMu.Lock()
+		ownAddrAt = time.Time{}
+		ownAddrMu.Unlock()
+	})
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 300; j++ {
+				ownAddrMu.Lock()
+				ownAddrAt = time.Time{} // every call refreshes
+				ownAddrMu.Unlock()
+				if !ownAddress(net.ParseIP("192.0.2.44")) || ownAddress(net.ParseIP("198.51.100.7")) {
+					t.Error("a wrong answer while the list was refreshed")
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	atomic.StoreInt32(&asked, 0)
+	if dialsCosmos("198.51.100.7:2053") || dialsCosmos("[2001:db8::99]:2053") || atomic.LoadInt32(&asked) != 0 {
+		t.Errorf("a dial to another machine asked for the ports %d time(s)", asked)
+	}
+	if !dialsCosmos("192.0.2.44:2053") || !dialsCosmos("[2001:db8::44]:02053") || !dialsCosmos("[::1%lo]:2053") {
+		t.Error("this server on its own port is not recognised")
+	}
+	if dialsCosmos("192.0.2.44:2054") {
+		t.Error("another port of this server is refused")
+	}
+}
+
 // The dial refuses Cosmos itself, whatever the name used for it (loopback,
 // unspecified, empty, one of the server's own addresses); another port of
 // the same server is fine.
@@ -219,7 +300,8 @@ func TestTheDialRefusesCosmosItself(t *testing.T) {
 		ownAddrMu.Unlock()
 	})
 	dial := forkGuardDial(&net.Dialer{Timeout: time.Second})
-	for _, address := range []string{"127.0.0.1:" + port, "localhost:" + port, "0.0.0.0:" + port, ":" + port, "192.0.2.44:" + port} {
+	for _, address := range []string{"127.0.0.1:" + port, "localhost:" + port, "0.0.0.0:" + port, ":" + port, "192.0.2.44:" + port,
+		"127.0.0.1:0" + port, "[::1]:" + port, "[::ffff:127.0.0.1]:" + port} { // a port written with a leading zero, IPv6 and mapped forms too
 		if _, err := dial(context.Background(), "tcp", address); !errors.Is(err, errDialsCosmos) {
 			t.Errorf("%s: %v", address, err)
 		}

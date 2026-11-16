@@ -16,17 +16,20 @@ package proxy
 // Now:
 //   - forkTargetGuard resolves a SERVAPP URL's container before the proxy
 //     runs; a container that is restarting, stopped or without an address
-//     gets a 503 page, and the proxy never dials. A target that is not a
-//     container at all (localhost:8123, host.docker.internal, an address, a
-//     name of the network) is dialled as written, as a PROXY URL would be:
+//     gets a 503 page, and the proxy never dials. A target that cannot be
+//     a container's name (localhost:8123, host.docker.internal, an address,
+//     a name with a dot) is dialled as written, as a PROXY URL would be:
 //     upstream's Director reached such targets by accident, and they must
-//     keep working.
+//     keep working. A one-word name Docker does not know is a container that
+//     is gone: 503, never a DNS lookup (see dialledAsWritten).
 //   - forkGuardDial, the proxy's own dialer, refuses an address that is this
 //     server (loopback, unspecified, one of its interfaces' addresses) on a
 //     port Cosmos itself listens on (its HTTP and HTTPS ports, the ports of
 //     its port routes): a request can never be sent back into Cosmos, for
-//     whatever reason, in every route mode. This is decided on the address
-//     about to be dialled, so it needs no header (an earlier version added
+//     whatever reason, in every route mode (so a URL whose target is
+//     another URL of this same Cosmos is refused too: point it at the app).
+//     This is decided on each address the standard dialer is about to
+//     connect to (its Control hook), so it needs no header (an earlier version added
 //     X-Cosmos-Hop to every request, which gave every backend a fingerprint of
 //     this process and cut an app that called its own URL back), and an app
 //     calling its own URL is never mistaken for a loop. What it cannot see is
@@ -46,8 +49,10 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/azukaar/cosmos-server/src/docker"
@@ -76,9 +81,16 @@ func forkDirectorHost(req *http.Request, target *url.URL) string {
 	found, ok := req.Context().Value(resolvedKey{}).(resolvedTarget)
 	if !ok {
 		ip, state, _ := dockerContainerTarget(target.Hostname())
-		found = resolvedTarget{ip: ip, direct: state == docker.TargetMissing}
+		found = resolvedTarget{ip: ip, direct: state == docker.TargetMissing && dialledAsWritten(target.Hostname())}
 	}
 	if found.direct {
+		if strings.EqualFold(target.Hostname(), "host.docker.internal") && !utils.IsInsideContainer {
+			// outside Docker that name means this server (and usually does not resolve)
+			if target.Port() == "" {
+				return "127.0.0.1"
+			}
+			return net.JoinHostPort("127.0.0.1", target.Port())
+		}
 		return target.Host
 	}
 	if found.ip == "" {
@@ -102,7 +114,7 @@ func forkTargetGuard(route utils.ProxyRouteConfig) func(http.Handler) http.Handl
 			found := resolvedTarget{ip: ip}
 			switch {
 			case err == nil:
-			case state == docker.TargetMissing:
+			case state == docker.TargetMissing && dialledAsWritten(container):
 				// not a container: dialled as written (forkGuardDial still refuses Cosmos itself)
 				found = resolvedTarget{direct: true}
 			default:
@@ -113,6 +125,16 @@ func forkTargetGuard(route utils.ProxyRouteConfig) func(http.Handler) http.Handl
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), resolvedKey{}, found)))
 		})
 	}
+}
+
+// dialledAsWritten: a SERVAPP target Docker does not know is dialled as a
+// PROXY target would be only when it cannot be a container's name: an
+// address, localhost, or a name with a dot. A plain one-word name is a
+// container that is gone (or not there yet, during a recreate): looking it
+// up in DNS would hand the visitor's request, cookies and all, to whatever
+// machine of a search domain happens to carry that name. That one is a 503.
+func dialledAsWritten(host string) bool {
+	return net.ParseIP(host) != nil || strings.EqualFold(host, "localhost") || strings.Contains(host, ".")
 }
 
 func stateWords(state docker.TargetState) string {
@@ -165,14 +187,16 @@ func ownAddress(ip net.IP) bool {
 	}
 	ownAddrMu.Lock()
 	if time.Since(ownAddrAt) > 30*time.Second {
-		ownAddrCache = ownAddrCache[:0]
+		// a new list each time: a dial that took the old one keeps reading it
 		if addrs, err := interfaceAddrs(); err == nil {
+			fresh := make([]net.IP, 0, len(addrs))
 			for _, a := range addrs {
 				if n, ok := a.(*net.IPNet); ok {
-					ownAddrCache = append(ownAddrCache, n.IP)
+					fresh = append(fresh, n.IP)
 				}
 			}
-		}
+			ownAddrCache = fresh
+		} // on an error the list read before stays
 		ownAddrAt = time.Now()
 	}
 	list := ownAddrCache
@@ -185,61 +209,60 @@ func ownAddress(ip net.IP) bool {
 	return false
 }
 
+// ownPort: one of the ports Cosmos listens on, compared as numbers.
 func ownPort(port string) bool {
+	number, err := strconv.Atoi(port)
+	if err != nil {
+		return false
+	}
 	for _, p := range ownPorts() {
-		if p != "" && p == port {
+		if n, err := strconv.Atoi(strings.TrimSpace(p)); err == nil && n == number {
 			return true
 		}
 	}
 	return false
 }
 
-// forkGuardDial dials as the proxy's dialer does, but resolves the name
-// first and refuses an address that is this Cosmos itself.
-func forkGuardDial(dialer *net.Dialer) func(ctx context.Context, network, address string) (net.Conn, error) {
-	return func(ctx context.Context, network, address string) (net.Conn, error) {
-		host, port, err := net.SplitHostPort(address)
-		if err != nil {
-			return nil, err
-		}
-		var ips []net.IP
-		if ip := net.ParseIP(host); ip != nil {
-			ips = []net.IP{ip}
-		} else if host == "" {
-			ips = []net.IP{net.IPv4zero}
-		} else {
-			resolver := dialer.Resolver
-			if resolver == nil {
-				resolver = net.DefaultResolver
-			}
-			addrs, err := resolver.LookupIPAddr(ctx, host)
-			if err != nil {
-				return nil, err
-			}
-			for _, a := range addrs {
-				ips = append(ips, a.IP)
-			}
-		}
-		if ownPort(port) {
-			for _, ip := range ips {
-				if ownAddress(ip) {
-					return nil, errDialsCosmos
-				}
-			}
-		}
-		var last error = errors.New("no address for " + host)
-		for _, ip := range ips {
-			conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
-			if err == nil {
-				return conn, nil
-			}
-			last = err
-			if ctx.Err() != nil {
-				break
-			}
-		}
-		return nil, last
+// dialsCosmos: the address about to be connected to ("ip:port", as the
+// dialer resolved it) is this server on a port Cosmos listens on. The
+// address is looked at first: only a dial to this server asks for the ports
+// (their list waits on the port routes' lock while those restart).
+func dialsCosmos(address string) bool {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return false
 	}
+	if i := strings.IndexByte(host, '%'); i >= 0 {
+		host = host[:i] // the zone of a link-local address
+	}
+	if host == "" {
+		return ownPort(port) // no address at all (":port") is this server
+	}
+	return ownAddress(net.ParseIP(host)) && ownPort(port)
+}
+
+// forkGuardDial is the proxy's dialer with one check added: just before a
+// connection is made, the address it goes to (after the name was resolved,
+// for every address tried) is refused when it is this Cosmos itself. The
+// dialer itself is the standard one, so names are resolved once, IPv4 and
+// IPv6 are tried as before and the time allowed is shared between them.
+func forkGuardDial(dialer *net.Dialer) func(ctx context.Context, network, address string) (net.Conn, error) {
+	guarded := *dialer
+	control, controlContext := dialer.Control, dialer.ControlContext
+	guarded.Control = nil
+	guarded.ControlContext = func(ctx context.Context, network, address string, c syscall.RawConn) error {
+		if dialsCosmos(address) {
+			return errDialsCosmos
+		}
+		if controlContext != nil {
+			return controlContext(ctx, network, address, c)
+		}
+		if control != nil {
+			return control(network, address, c)
+		}
+		return nil
+	}
+	return guarded.DialContext
 }
 
 // ---- after a failed dial ---------------------------------------------------------

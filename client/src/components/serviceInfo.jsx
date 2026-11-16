@@ -78,7 +78,7 @@ export const ServiceInfo = ({ containerName, classification, onInsist, insistLab
       });
     }
   };
-  const plan = lanInfo ? lanPlan(c, lanInfo.env) : null;
+  const plan = lanInfo ? lanPlan(c, lanInfo.env, lanInfo.info.Config && lanInfo.info.Config.Image) : null;
 
   const openReach = () => {
     setReachOpen(!reachOpen);
