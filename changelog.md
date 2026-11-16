@@ -8,9 +8,16 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Nothing merged into `custom` since `0.24.0-fork.31` yet.
+Merged into `custom` since `0.24.0-fork.31`, to be part of the next release:
 
-Work in progress on a separate branch (not released, and may change before it is): apps without a web interface.
+### Added
+- An app that does not start is said so, with the reason: after a creation Cosmos watches the new container for half a minute; if it stops or keeps restarting, the result says why, with the end of its log (secrets hidden), and when the log names a missing setting (for example a database password) the panel offers a field for it, with a generated value, and starts the app again. ServApps shows "Why?" on an app that keeps stopping.
+- What an image needs, for any image: besides the built-in settings (15 more, among them the Bitnami images, pgvector, PostGIS, TimescaleDB, Percona), Cosmos reads the publisher's description without pulling the image and proposes the variables it names.
+- Databases and other services without a web page are not offered a web address any more: Cosmos says what they are, gives the address other apps use (`name:port`), and offers to let chosen apps reach them, or to publish the port on the home network only (never for protocols without a password).
+
+### Fixed
+- A URL whose app is stopped or restarting answers at once with a plain page. Before, such a request could be sent to the server itself and come back thousands of times a minute.
+- Saving an app's settings from an account that may not read secrets no longer replaces the hidden values.
 
 ## Fork 0.24.0-fork.31 — 2026-11-16
 

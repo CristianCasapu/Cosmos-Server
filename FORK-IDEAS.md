@@ -358,6 +358,23 @@ with the Docker socket behind a tick, and the limits of image look-ups
 (20 a minute for the server and 8 per user; 20 counted Docker Hub reads an
 hour, 8 per user; a reserve of 25 pulls).
 
+## Apps without a web interface: left for later (2026-11-16)
+
+An app on the host network is dialled at `127.0.0.1`, not `localhost` (one
+that listens only on `::1` is not reached), and a container on a macvlan
+and a bridge is dialled at its macvlan address. No test compares the old
+and the new way of finding a container's address on real multi-network
+containers. A loop through another machine (a router sending the request
+back) is bounded only by the shield. A TCP route as a choice for services;
+checking a port by itself when a dialog opens; the publisher's page on
+GitHub for images of ghcr.io (a new outside host with 60 requests an hour:
+not built); hotio and most small projects publish no description to read.
+What cannot be known before the first start: settings described only on
+linked pages or in entrypoints, "one of these" choices, conditional
+settings, folder ownership, names in mixed case. A password of exactly
+eight characters that is an ordinary word is hidden wherever that word
+appears in the log shown.
+
 ## Installable app: left for later (2026-11-14)
 
 - Never tried on real devices (iPhone notch and status-bar colours, the
