@@ -67,7 +67,7 @@ const SettingField = ({ setting, onChange, busy }) => {
   const [copied, setCopied] = React.useState(false);
   const helper = hintHelp(t, setting) /* Fork addition (plan 43) */ || (setting.fromDefaults /* Fork addition (plan 45) */ ? (setting.variant
     ? t('mgmt.servapps.signIn.fromDefaultsVariant', 'From Configuration > Sign-in details for new apps: {{typed}} in the form this app takes.', { typed: setting.typed, interpolation: { escapeValue: false } })
-    : t('mgmt.servapps.signIn.fromDefaults', 'From Configuration > Sign-in details for new apps.')) : setting.type === 'secret' ? t('mgmt.servapps.anyImage.ui.secretHelp', 'Generated for you. Copy it now: it is not shown again after the creation.')
+    : t('mgmt.servapps.signIn.fromDefaults', 'From Configuration > Sign-in details for new apps.')) : setting.type === 'secret' ? t('mgmt.servapps.anyImage.ui.secretHelp', 'Generated for you. After the creation it is on the app\'s page, under Sign-in details (or in its settings).')
     : setting.type === 'name' ? t('mgmt.servapps.anyImage.ui.nameHelp', 'Proposed: change it if you like.')
       : setting.type === 'declared' ? t('mgmt.servapps.anyImage.ui.declaredHelp', 'The image\'s default.')
         : setting.type === 'fixed' ? t('mgmt.servapps.anyImage.ui.fixedHelp', 'Needed by this image as it is set here.') : t('mgmt.servapps.anyImage.ui.optionalHelp', 'Optional.'));

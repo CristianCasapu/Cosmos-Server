@@ -52,7 +52,7 @@ export const TEXT = {
   'fact.declaredPort': 'The image listens on port {{port}}{{web}}.',
   'fact.declaredPortWeb': ' (looks like a web interface)',
   'fact.declaredSecretDefault': 'The image sets {{name}} to "{{value}}" unless told otherwise: anyone who knows the image knows that value. Cosmos proposes a generated one instead.',
-  'fact.secretsWhere': 'The generated values are shown here once. Cosmos keeps them only in the container\'s settings, which every administrator can read on its page.',
+  'fact.secretsWhere': 'Cosmos keeps the generated values only in the container\'s settings. After the creation they are on its page, under Sign-in details (or in its settings), for those who may read credentials, after the password confirmation.',
   'why.risky': 'a service other apps use, not for the house or the internet',
   'why.other': 'not needed by the app\'s users',
   'why.xProtocol': 'MySQL\'s X protocol, for MySQL Shell',
@@ -587,6 +587,17 @@ export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, ho
 
 // ---- what the panel says -------------------------------------------------------------------
 
+// plan 45: a recipe's backup command with the user the settings really have
+// ("pg_dumpall -U app" becomes "-U owner_name" when the defaults gave that).
+export const backupCommand = (recipe, settings) => {
+  const command = String((recipe && recipe.backup) || '');
+  const userVar = recipe && recipe.client && recipe.client.user;
+  const own = userVar && (recipe.env || []).find((e) => e.name === userVar);
+  const now = userVar && (settings || []).find((s) => s.name === userVar);
+  if (!own || !own.value || !now || !now.value || now.value === own.value || !/^[A-Za-z0-9_.@-]+$/.test(now.value)) return command;
+  return command.replace(new RegExp('(-U|-u|--user[= ])\\s*' + own.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z0-9_])'), (m, flag) => `${flag}${/[= ]$/.test(flag) ? '' : ' '}${now.value}`);
+};
+
 // The sentences about an image and the choices, as { key, text, params }
 // (and `why`, a second text for the {{why}} of a closed port): what it is
 // reached at, what stays closed, where its data is, notes.
@@ -609,7 +620,7 @@ export const facts = ({ recipe, declared, name, tag, host, settings, size }) => 
       lines.push({ ...text('fact.portKept', { port: p.port }), why: text('why.' + p.why) });
     });
     recipeVolumes(recipe, tag, declared).forEach((v) => lines.push(text(v.keepVolume ? 'fact.dataKept' : 'fact.data', { target: v.target })));
-    if (recipe.backup) lines.push(text('fact.backup', { command: recipe.backup }));
+    if (recipe.backup) lines.push(text('fact.backup', { command: backupCommand(recipe, settings) }));
     if (recipe.memory) lines.push(text('fact.memory', { memory: recipe.memory }));
     if (recipe.healthcheck && !(declared && declared.healthcheck)) lines.push(text('fact.healthcheck', { test: recipe.healthcheck.test.filter((x) => !/^CMD(-SHELL)?$/.test(x)).join(' ') }));
     (recipe.notes || []).forEach((n) => lines.push(text('note.' + n)));

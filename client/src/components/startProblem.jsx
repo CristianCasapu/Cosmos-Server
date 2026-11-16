@@ -73,7 +73,7 @@ export const StartProblem = ({ report, onApply, busy, rounds = 0, applyLabel }) 
         <TextField size="small" fullWidth label={v.name} value={v.value} disabled={busy}
           onChange={(e) => setValues((old) => old.map((o) => (o.name === v.name ? { ...o, value: e.target.value.slice(0, 4096) } : o)))}
           helperText={v.secret
-            ? t('mgmt.servapps.anyImage.ui.secretHelp', 'Generated for you. Copy it now: it is not shown again after the creation.')
+            ? t('mgmt.servapps.anyImage.ui.secretHelp', 'Generated for you. After the creation it is on the app\'s page, under Sign-in details (or in its settings).')
             : t('mgmt.services.start.valueHelp', 'Its value: the image\'s documentation says what it expects.')} />
         {v.secret && <CopyButton value={v.value} />}
       </Stack>)}
