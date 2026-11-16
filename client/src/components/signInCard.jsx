@@ -149,7 +149,7 @@ export const SignInDetails = ({ containerInfo, refresh }) => {
   }, [details]);
 
   if (!hasRolePermission(PERM_CREDENTIALS_READ)) return null;
-  const nothing = details && !details.accounts.length && !details.firstRun && !details.via && details.where !== 'database';
+  const nothing = details && !details.accounts.length && !details.firstRun && !details.via && details.where !== 'database' && !details.noAuth;
   const sourceText = details && {
     recipe: t('mgmt.servapps.signIn.card.source.recipe', 'As Cosmos knows {{name}}.', { name: details.name || details.image }),
     label: t('mgmt.servapps.signIn.card.source.label', 'As its installation recorded it.'),
@@ -182,6 +182,9 @@ export const SignInDetails = ({ containerInfo, refresh }) => {
             ? <>{t('mgmt.servapps.signIn.card.via', 'You sign in to it with the user and password of the database {{name}}:', { name: details.viaContainer })} <Link to={`/cosmos-ui/servapps/containers/${encodeURIComponent(details.viaContainer)}#sign-in`}>{t('mgmt.servapps.signIn.card.viaLink', 'its sign-in details')}</Link>.</>
             : t('mgmt.servapps.signIn.card.viaAny', 'You sign in to it with the user and password of the database it manages.')}
         </Typography>}
+        {details.noAuth && <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }} data-signin-noauth>
+          {t('mgmt.servapps.signIn.card.noAuth', 'It has no sign-in of its own: only the apps you let reach it can use it, and its web page (if it has one) is open to administrators only, behind Cosmos\' sign-in.')}
+        </Typography>}
         {details.firstRun && <Alert severity="info" sx={wrap} data-signin-firstrun>
           {details.firstRun.note === 'logPassword'
             ? t('mgmt.servapps.signIn.card.logPassword', 'It prints a temporary password in its log the first time it starts (Logs tab), for the username {{user}}. Cosmos did not set it and does not keep it.', { user: details.firstRun.user || 'admin' })
@@ -194,7 +197,7 @@ export const SignInDetails = ({ containerInfo, refresh }) => {
         {details.accounts.some((a) => a.password) && <Typography variant="caption" sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }}>
           {t('mgmt.servapps.signIn.card.note', 'Shown as the app was installed: a password changed inside the app since then is not known to Cosmos. The values live in the container\'s settings (and so in Cosmos\' backup of container definitions, readable by the server\'s administrator only). Each Show and Copy is written to the security record, without the value.')}
         </Typography>}
-        {details.where === 'database' && <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }} data-signin-managers>
+        {['postgres', 'mysql', 'mongo', 'redis'].includes(details.provides) && <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }} data-signin-managers>
           {managers.map((m) => <Chip key={m} component={Link} to={`/cosmos-ui/servapps/containers/${encodeURIComponent(m)}`} clickable label={t('mgmt.servapps.signIn.card.manager', 'Its web manager: {{name}}', { name: m })} />)}
           <PermissionGuard permission={PERM_RESOURCES}>
             <Button size="small" variant="outlined" sx={touch} onClick={() => setAdding(true)} data-add-manager-open>{t('mgmt.servapps.signIn.card.addManager', 'Add a web manager')}</Button>

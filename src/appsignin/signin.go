@@ -107,6 +107,10 @@ type Details struct {
 	Accounts     []Account  `json:"accounts"`
 	FirstRun     *FirstRun  `json:"firstRun,omitempty"`
 	Data         []DataPlace `json:"data"`
+	// NoAuth: its recipe says it has no sign-in of its own (Redis, Redis Insight)
+	NoAuth bool `json:"noAuth,omitempty"`
+	// Provides: the kind of database it is (postgres, mysql, mongo, redis), for "Add a web manager"
+	Provides string `json:"provides,omitempty"`
 
 	// the variables of each secret id; never sent
 	secrets map[string]secretSource
@@ -216,6 +220,16 @@ func resolve(c containerInfo, routes []utils.ProxyRouteConfig, serverURL func(ho
 	d := Details{Container: name, Image: c.Image, Name: l.name, Source: l.source, Where: l.where, Via: l.via,
 		Addresses: addressesOf(name, routes, serverURL), Accounts: []Account{}, FirstRun: l.firstRun,
 		Data: dataOf(c.Mounts), secrets: map[string]secretSource{}}
+	if recipe := anyimage.RecipeForImage(c.Image); recipe != nil && (recipe.Kind == "database" || recipe.Kind == "cache") {
+		d.Provides = recipe.Provides
+	}
+	if recipe := anyimage.RecipeForImage(c.Image); recipe != nil && recipe.Login == nil {
+		for _, note := range recipe.Notes {
+			if note == "noAuth" {
+				d.NoAuth = true
+			}
+		}
+	}
 	if manager := c.Labels[ManagerLabel]; manager != "" && validContainerName(manager) {
 		d.ManagerOf = manager
 	}
