@@ -189,6 +189,9 @@ func NewProxy(targetHost string, AcceptInsecureHTTPSTarget bool, DisableHeaderHa
 			req.Header.Set("X-Forwarded-Port", hostPort)
 		}
 
+		// Fork addition: the public address with its port, or the app's own as Host when asked, see fork_public_host.go
+		forkPublicHeaders(req, route, originalScheme, targetURL.String())
+
 		// spoof hostname
 		if route.SpoofHostname {
 			req.Header.Del("X-Forwarded-Port")
@@ -239,6 +242,8 @@ func NewProxy(targetHost string, AcceptInsecureHTTPSTarget bool, DisableHeaderHa
 	proxy.ModifyResponse = func(resp *http.Response) error {
 		utils.Debug("Response from backend: " + resp.Status)
 		utils.Debug("URL was " + resp.Request.URL.String())
+
+		forkFixLocation(resp) // Fork addition: a redirect to http on the URL's own HTTPS port, see fork_public_host.go
 		
 		if !DisableHeaderHardening {
 			resp.Header.Del("Access-Control-Allow-Origin")
