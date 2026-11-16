@@ -36,6 +36,10 @@ var (
 // noteContainerEvent looks at one Docker event: only the exits and the
 // kills of containers matter here.
 func noteContainerEvent(kind string, action string, attributes map[string]string) {
+	// plan 43: the proxy's view of the container is read again at its next request
+	if kind == "container" && attributes["name"] != "" && (action == "start" || action == "die" || action == "destroy" || action == "rename") {
+		ForgetTarget(attributes["name"])
+	}
 	if kind != "container" || (action != "die" && action != "kill") {
 		return
 	}

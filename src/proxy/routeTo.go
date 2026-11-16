@@ -94,12 +94,12 @@ func NewProxy(targetHost string, AcceptInsecureHTTPSTarget bool, DisableHeaderHa
 		transport = &http2.Transport{
 			AllowHTTP: true,
 			DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
-				return dialer.DialContext(ctx, network, addr)
+				return forkGuardDial(dialer)(ctx, network, addr) // Fork addition: never Cosmos itself, see fork_unreachable.go
 			},
 		}
 	} else {
 		customTransport := &http.Transport{
-			DialContext: dialer.DialContext,
+			DialContext: forkGuardDial(dialer), // Fork addition: never Cosmos itself, see fork_unreachable.go
 		}
 		if AcceptInsecureHTTPSTarget {
 			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
@@ -131,10 +131,8 @@ func NewProxy(targetHost string, AcceptInsecureHTTPSTarget bool, DisableHeaderHa
 		req.URL.Host = targetURL.Host
 		
 		if route.Mode == "SERVAPP" && (!utils.IsInsideContainer || utils.IsHostNetwork) {
-			targetHost := targetURL.Hostname()
-
 			// Fork addition: resolved by forkTargetGuard, never "" + ":port" (this server itself), see fork_unreachable.go
-			req.URL.Host = forkDirectorHost(req, targetHost, targetURL.Port())
+			req.URL.Host = forkDirectorHost(req, targetURL)
 		}
 
 
