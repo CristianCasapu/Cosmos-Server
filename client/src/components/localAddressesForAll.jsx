@@ -124,6 +124,7 @@ export const useLocalAddressNotice = ({ config, containers, selfName, refresh })
   const whyLeftOut = (entry) => ({
     stopped: t('mgmt.urls.all.why.stopped', 'not running, so its ports are not known: start it first'),
     hostNetwork: t('mgmt.urls.all.why.hostNetwork', 'uses the server\'s own network: it is reached at the server\'s address and its own port'),
+    service: t('mgmt.urls.all.why.service', 'is not a web app (port {{port}} speaks another protocol): other apps reach it by its name, it needs no web address', { port: entry.port }), // Fork addition (plan 43)
     taken: entry.host
       ? t('mgmt.urls.all.why.taken', 'the address {{host}} or the name is already used by another URL', { host: entry.host })
       : t('mgmt.urls.all.why.noAddress', 'no free address could be proposed'),

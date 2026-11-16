@@ -14,7 +14,6 @@ import (
 	"net"
 
 	"github.com/azukaar/cosmos-server/src/utils"
-	"github.com/azukaar/cosmos-server/src/docker"
 	"github.com/azukaar/cosmos-server/src/constellation"
 
 	"golang.org/x/net/http2"
@@ -95,12 +94,12 @@ func NewProxy(targetHost string, AcceptInsecureHTTPSTarget bool, DisableHeaderHa
 		transport = &http2.Transport{
 			AllowHTTP: true,
 			DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
-				return dialer.DialContext(ctx, network, addr)
+				return forkGuardDial(dialer)(ctx, network, addr) // Fork addition: never Cosmos itself, see fork_unreachable.go
 			},
 		}
 	} else {
 		customTransport := &http.Transport{
-			DialContext: dialer.DialContext,
+			DialContext: forkGuardDial(dialer), // Fork addition: never Cosmos itself, see fork_unreachable.go
 		}
 		if AcceptInsecureHTTPSTarget {
 			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
@@ -111,6 +110,7 @@ func NewProxy(targetHost string, AcceptInsecureHTTPSTarget bool, DisableHeaderHa
 	proxy := &httputil.ReverseProxy{
 		Transport:     transport,
 		FlushInterval: -1,
+		ErrorHandler:  forkProxyError(route, targetURL), // Fork addition: an app that stopped since its address was known is said so, once per minute in the log (fork_unreachable.go)
 	}
 
 	proxy.Director = func(req *http.Request) {
@@ -131,14 +131,8 @@ func NewProxy(targetHost string, AcceptInsecureHTTPSTarget bool, DisableHeaderHa
 		req.URL.Host = targetURL.Host
 		
 		if route.Mode == "SERVAPP" && (!utils.IsInsideContainer || utils.IsHostNetwork) {
-			targetHost := targetURL.Hostname()
-
-			targetIP, err := docker.GetContainerIPByName(targetHost)
-			if err != nil {
-				utils.Error("Director Route", err)
-			}
-			utils.Debug("Dockerless Target IP: " + targetIP)
-			req.URL.Host = targetIP + ":" + targetURL.Port()
+			// Fork addition: resolved by forkTargetGuard, never "" + ":port" (this server itself), see fork_unreachable.go
+			req.URL.Host = forkDirectorHost(req, targetURL)
 		}
 
 
@@ -411,7 +405,7 @@ func routeHandlerForTarget(target string, route utils.ProxyRouteConfig) http.Han
 		// innermost wrapper; targetRoute pins the exact LB target about to be dialed
 		targetRoute := route
 		targetRoute.Target = destination
-		return lazyMiddleware(targetRoute)(proxy)
+		return lazyMiddleware(targetRoute)(forkTargetGuard(targetRoute)(proxy)) // Fork addition: forkTargetGuard, see fork_unreachable.go
 	} else if routeType == "STATIC" {
 		return http.FileServer(http.Dir(destination))
 	} else if routeType == "SPA" {

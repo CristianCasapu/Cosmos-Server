@@ -117,8 +117,15 @@ const openDialog = async (page, container) => {
   await page.locator('[data-expose-open]').first().waitFor({ timeout: 45000 });
   await page.waitForTimeout(1000);
   await page.locator('[data-expose-open]').first().click();
-  await page.locator('[data-expose-form]').waitFor({ timeout: 30000 });
+  // plan 43: a service without a web page (a database) shows its address first; "Show the internet choices anyway" opens the form
+  await page.locator('[data-expose-form], [data-expose-dialog] [data-service-insist]').first().waitFor({ timeout: 30000 });
+  const asService = (await page.locator('[data-expose-dialog] [data-service-insist]').count()) > 0;
+  if (asService) {
+    await page.locator('[data-expose-dialog] [data-service-insist]').click();
+    await page.locator('[data-expose-form]').waitFor({ timeout: 30000 });
+  }
   await page.waitForTimeout(800);
+  return asService;
 };
 
 let changedOnce = false;
@@ -174,7 +181,7 @@ for (const engine of engines) {
       await page.keyboard.press('Escape');
 
       // a database port is behind the door, and needs the risk said
-      await openDialog(page, 'db');
+      expect(await openDialog(page, 'db'), `${name}: the database shows its address first, the internet choices on insisting`);
       const door = page.locator('[data-expose-door]');
       expect(await door.count() === 1, `${name}: the database port is behind the door`);
       expect(await page.locator('[data-expose-port="db:5432/tcp"]').isVisible() === false, `${name}: and not shown until it is opened`);

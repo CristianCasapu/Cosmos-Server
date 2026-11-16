@@ -26,6 +26,8 @@ type dyingContainer struct {
 	exits    []time.Time
 	killedAt time.Time
 	toldAt   time.Time
+	// startToldAt: the creation's own check said it does not start (plan 43); a quieter, shorter silence
+	startToldAt time.Time
 }
 
 var (
@@ -36,6 +38,10 @@ var (
 // noteContainerEvent looks at one Docker event: only the exits and the
 // kills of containers matter here.
 func noteContainerEvent(kind string, action string, attributes map[string]string) {
+	// plan 43: the proxy's view of the container is read again at its next request
+	if kind == "container" && attributes["name"] != "" && (action == "start" || action == "die" || action == "destroy" || action == "rename") {
+		ForgetTarget(attributes["name"])
+	}
 	if kind != "container" || (action != "die" && action != "kill") {
 		return
 	}
@@ -44,7 +50,8 @@ func noteContainerEvent(kind string, action string, attributes map[string]string
 		return
 	}
 	if report, code := containerDied(name, action, attributes["exitCode"], time.Now()); report {
-		notifyDying(name, dyingExits, code) // a notification in the panel, which Telegram forwards (fork_notify.go)
+		// plan 43: in its own goroutine: it reads the container's log (bounded in time), never in Docker's event loop
+		dispatchNotice(func() { notifyDying(name, dyingExits, code) }) // a notification in the panel, which Telegram forwards (fork_notify.go)
 	}
 }
 
@@ -89,10 +96,36 @@ func containerDied(name string, action string, exitCode string, now time.Time) (
 	}
 	c.exits = append(recent, now)
 
-	if len(c.exits) < dyingExits || now.Sub(c.toldAt) < dyingQuiet {
+	if len(c.exits) < dyingExits || now.Sub(c.toldAt) < dyingQuiet || now.Sub(c.startToldAt) < startToldQuiet {
 		return false, ""
 	}
 	c.toldAt = now
 	c.exits = nil
 	return true, exitCode
 }
+
+// markDyingTold counts a container as told about (plan 43: the creation's
+// own check said it does not start; the "keeps stopping" notice would say
+// the same minutes later).
+func markDyingTold(name string, now time.Time) {
+	dyingMu.Lock()
+	defer dyingMu.Unlock()
+	c := dyingContainers[name]
+	if c == nil {
+		if len(dyingContainers) >= dyingTracked {
+			return
+		}
+		c = &dyingContainer{}
+		dyingContainers[name] = c
+	}
+	c.startToldAt = now
+	c.exits = nil
+}
+
+// startToldQuiet: after the creation's check said a container does not
+// start, the "keeps stopping" notice waits this long (not the 6 hours of
+// dyingQuiet): a later failure, of another kind, is still told.
+const startToldQuiet = 30 * time.Minute
+
+// dispatchNotice runs a notice off Docker's event loop; a variable so that tests wait for it.
+var dispatchNotice = func(notice func()) { go notice() }

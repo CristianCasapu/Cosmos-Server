@@ -20,9 +20,12 @@ import PermissionGuard from './permissionGuard';
 import { PERM_RESOURCES } from '../utils/permissions';
 import { localAddress } from './hostnameSuggestions';
 import {
-  browserRandom, buildDefinition, databaseNeed, databaseRecipes, existingDatabases, facts, isDirectReference, marketMatch,
+  browserRandom, buildDefinition, databaseNeed, declaredSettings, databaseRecipes, existingDatabases, facts, isDirectReference, marketMatch,
   connectionOf, filledNames as namesFilled, isMasked, isShellOnly, nameFor, parseReference, problemText, proposedSettings, text as aiText, withCustom,
 } from '../utils/anyImage';
+
+import { HandSettings, ImageNeeds, hintHelp } from './imageNeeds'; // Fork addition (plan 43): what an image needs, and where that is known from
+import { hintSettings } from '../utils/services'; // Fork addition (plan 43)
 
 // "NAME=value" lines typed by the administrator, as settings.
 const linesToSettings = (text) => String(text || '').split('\n').map((l) => l.trim())
@@ -61,13 +64,13 @@ const allApps = (answer) => Object.entries((answer && answer.all) || {}).flatMap
 const SettingField = ({ setting, onChange, busy }) => {
   const { t } = useTranslation();
   const [copied, setCopied] = React.useState(false);
-  const helper = setting.type === 'secret' ? t('mgmt.servapps.anyImage.ui.secretHelp', 'Generated for you. Copy it now: it is not shown again after the creation.')
+  const helper = hintHelp(t, setting) /* Fork addition (plan 43) */ || (setting.type === 'secret' ? t('mgmt.servapps.anyImage.ui.secretHelp', 'Generated for you. Copy it now: it is not shown again after the creation.')
     : setting.type === 'name' ? t('mgmt.servapps.anyImage.ui.nameHelp', 'Proposed: change it if you like.')
       : setting.type === 'declared' ? t('mgmt.servapps.anyImage.ui.declaredHelp', 'The image\'s default.')
-        : setting.type === 'fixed' ? t('mgmt.servapps.anyImage.ui.fixedHelp', 'Needed by this image as it is set here.') : t('mgmt.servapps.anyImage.ui.optionalHelp', 'Optional.');
+        : setting.type === 'fixed' ? t('mgmt.servapps.anyImage.ui.fixedHelp', 'Needed by this image as it is set here.') : t('mgmt.servapps.anyImage.ui.optionalHelp', 'Optional.'));
   return <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', minWidth: 0 }} data-setting={setting.name}>
     <TextField size="small" fullWidth label={setting.name} value={setting.value} disabled={busy}
-      onChange={(e) => onChange(e.target.value)} helperText={helper} />
+      onChange={(e) => onChange(e.target.value)} helperText={helper} error={setting.type === 'needed' && !setting.value /* Fork addition (plan 43) */} />
     {setting.type === 'secret' && <Button size="small" variant="outlined" sx={{ flexShrink: 0, mt: 0.25, ...touch }} startIcon={<CopyOutlined />} data-copy-secret
       onClick={() => {
         try {
@@ -129,7 +132,9 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
       setDesc(answer);
       const ref = parseReference(answer.reference || reference);
       if (!keepName) setName(nameFor(ref, containers.map((c) => (c.Names || [''])[0])));
-      setSettings(proposedSettings(answer.recipe || null, answer.declared || null, browserRandom));
+      // Fork addition (plan 43): without a recipe, what the publisher's description names is proposed too (marked as such)
+      setSettings([...proposedSettings(answer.recipe || null, answer.declared || null, browserRandom),
+        ...(answer.recipe ? [] : hintSettings(answer.hints, declaredSettings(answer.declared).map((s) => s.name), browserRandom))]);
       setDb({ mode: '' }); setDbDesc(null); setDbSettings([]); setDbEnv([]);
     }).catch((e) => {
       if (ticket === asked.current) setDesc({ reference, problem: 'unreachable' });
@@ -172,7 +177,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
   // an image without recipe that says little gets the open fields: a folder, a port, a command, settings
   const openFields = !!rawDeclared && !(desc && desc.recipe) && ((!(rawDeclared.ports || []).length && !(rawDeclared.volumes || []).length) || isShellOnly(rawDeclared));
   const declared = openFields ? withCustom(rawDeclared, custom) : rawDeclared;
-  const extraSettings = openFields ? linesToSettings(custom.env) : [];
+  const extraSettings = linesToSettings(custom.env); // Fork addition (plan 43): settings by hand for every image (was: only for one that declares nothing)
   const marketApp = ref ? marketMatch(market, ref.name, desc.market) : null;
   const need = desc && !desc.problem ? databaseNeed(recipe, declared) : null;
   const dbRecipes = need ? databaseRecipes(desc.databases, need.kinds) : [];
@@ -211,7 +216,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
     } else if (db.mode === 'existing') {
       database = { mode: 'existing', container: db.container, recipe: db.recipe, env: dbEnv };
     }
-    return buildDefinition({ ref, tag: desc.tag, name, recipe, declared, settings: [...settings, ...extraSettings], host, reachers, database, need, command: openFields ? custom.command : '' }).definition;
+    return buildDefinition({ ref, tag: desc.tag, name, recipe, declared, settings: [...settings.filter((s) => !extraSettings.some((e) => e.name === s.name)), ...extraSettings] /* Fork addition (plan 43): a name typed by hand replaces the proposal */, host, reachers, database, need, command: openFields ? custom.command : '' }).definition;
   }, [ready, desc, name, settings, host, reachers, db, dbDesc, dbSettings, dbEnv, custom]);
 
   const lines = desc && rawDeclared ? facts({ recipe, declared: rawDeclared, name: name || 'app', tag: desc.tag, host: definition && definition.services[name] && definition.services[name].routes ? host : '', settings, size: desc.size }) : [];
@@ -311,6 +316,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
             <Stack spacing={0.5} sx={{ minWidth: 0 }} data-any-image-facts>
               {lines.map((line, i) => <Typography key={i} variant="body2" sx={{ overflowWrap: 'anywhere' }}>{say(line)}</Typography>)}
             </Stack>
+            <ImageNeeds desc={desc} recipe={recipe} declared={rawDeclared} reference={ref && ref.name} />{/* Fork addition (plan 43) */}
 
             {openFields && <Stack spacing={1.5} sx={{ minWidth: 0 }} data-any-image-open-fields>
               <TextField size="small" label={t('mgmt.servapps.anyImage.ui.command', 'Command to run')} value={custom.command} disabled={busy}
@@ -335,6 +341,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
             {optionalCount > 0 && <Button size="small" sx={{ alignSelf: 'flex-start', ...touch }} onClick={() => setShowOptional(!showOptional)} endIcon={showOptional ? <DownOutlined /> : <RightOutlined />}>
               {t('mgmt.servapps.anyImage.ui.optional', 'Optional settings ({{count}})', { count: optionalCount })}
             </Button>}
+            {!openFields && <HandSettings value={custom.env} busy={busy} onChange={(env) => setCustom({ ...custom, env })} />}{/* Fork addition (plan 43) */}
 
             {isService && others.length > 0 && <Stack spacing={1} sx={{ minWidth: 0 }} data-any-image-reach>
               <Typography variant="subtitle1">{t('mgmt.servapps.anyImage.ui.reachTitle', 'Let these apps reach it')}</Typography>

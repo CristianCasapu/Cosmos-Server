@@ -30,6 +30,8 @@ import { useTranslation } from 'react-i18next';
 import PermissionGuard from '../../components/permissionGuard';
 import { PERM_RESOURCES, PERM_CREDENTIALS_READ } from '../../utils/permissions';
 import { RouterPortLinks } from '../../components/routerPorts'; // Fork addition: the app's ports the router forwards
+import { StartProblemButton } from '../../components/startProblem'; // Fork addition (plan 43): why an app keeps stopping, and the repair
+import { ServiceChip } from '../../components/serviceInfo'; // Fork addition (plan 43): a service's address for other apps
 
 // Exported: the Constellation feature pages reuse this card.
 export const Item = styled(Paper)(({ theme }) => ({
@@ -332,6 +334,8 @@ const ServApps = ({stack}) => {
                       })[app.state]
                     }
                   </Typography>
+                  {/* Fork addition (plan 43): an app that keeps stopping or stopped with an error says why */}
+                  {app.type !== 'stack' && (app.state === 'restarting' || (app.state === 'exited' && !/\(0\)/.test(String(app.app.Status || '')))) && <StartProblemButton containerName={app.name.replace('/', '')} refresh={refreshServApps} />}
                   <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }} className="ct-app-title">{/* Fork addition: the class lets the name shrink to the card (see ct-app-name below) */}
                     {app.type === 'app' && <ServAppIcon container={app.app} route={getFirstRoute(app.app)} className="loading-image" width="40px"/>}
                     {app.type === 'stack' && <StyledBadge  overlap="circular"
@@ -405,6 +409,7 @@ const ServApps = ({stack}) => {
                 <Stack style={noOver} spacing={1} direction="row" sx={{ alignItems: 'center' }} >
                   {/* Fork addition: local links first, each group under its icon */}
                   <AppLinks routes={getContainersRoutes(config, app.name.replace('/', ''))} />
+                  {app.type !== 'stack' && !getContainersRoutes(config, app.name.replace('/', '')).length && <ServiceChip container={app.app} />}{/* Fork addition (plan 43) */}
                   {/* Fork addition: the ports the router forwards for the app, as external addresses */}
                   <RouterPortLinks config={config} containerNames={app.apps.map((one) => one.Names[0].replace('/', ''))} />
                   {app.networkSettings && app.networkSettings.Networks && app.networkSettings.Networks['host'] &&

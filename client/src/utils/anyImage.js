@@ -32,7 +32,7 @@ export const TEXT = {
   'tag.pinMajor': 'The newest major version, {{tag}}. A database is pinned to its major version: it then gets the fixes of {{tag}}, and moving to the next major (which needs its data converted) stays your decision.',
   'tag.pinMajorApp': 'The newest major version, {{tag}}: it gets the updates of {{tag}}, and moving to the next major stays your decision.',
   'tag.newest': 'The newest version the registry lists.',
-  'tag.prefer': 'The long-term support line ({{tag}}).',
+  'tag.prefer': 'The line the recipe follows ({{tag}}): it gets that line\'s fixes, and moving to another one stays your decision.',
   'tag.latest': 'The registry lists no version numbers: "latest" is what it offers.',
   'tag.typed': 'The tag you typed.',
   'fact.reach': 'Other apps reach it at {{host}}:{{port}} once they share a network with it. Nothing is published on the server.',
@@ -61,6 +61,10 @@ export const TEXT = {
   'why.cluster': 'between the nodes of a cluster: this is one node',
   'why.cosmosProxies': 'Cosmos already answers on 80 and 443 for this server',
   'why.admin': 'its administration interface, never to be open',
+  'note.latestOnly': 'Its publisher offers only "latest": an update can bring a new major version, whose data must be converted first. Check the version before you update it.',
+  'note.bitnamiDevelopment': 'Bitnami publishes these free images for development since August 2025 (only "latest"); its supported images are paid.',
+  'note.bitnamiLegacyFrozen': 'Bitnami Legacy has been frozen since 28 August 2025: no updates and no security fixes. Use it only to move to another image.',
+  'note.redisStackFrozen': 'Redis Stack has had no new image since November 2025; Redis 8 and newer (the redis image) include its search, JSON, time series and probabilistic types.',
   'note.majorUpgrade': 'Moving to another major version needs a dump and a restore (or pg_upgrade): a new tag of the same major is safe.',
   'note.pgdata18': 'From PostgreSQL 18 the image keeps its data under /var/lib/postgresql (each major in its own folder); up to 17 in /var/lib/postgresql/data. Cosmos mounts the right one for the tag.',
   'note.noAuth': 'It has no password: only the apps you let reach it can use it, and it is not published.',
@@ -245,7 +249,8 @@ export const isSecretName = (name) => SECRET_NAME.test(String(name || '')) && !/
 // Variables an image keeps for itself: never copied, never shown as settings.
 const INTERNAL_ENV = (key) => ['PATH', 'HOME', 'HOSTNAME', 'TERM', 'LANG', 'LANGUAGE', 'LC_ALL', 'SHELL', 'container', 'LD_LIBRARY_PATH', 'JAVA_HOME', 'PYTHONPATH'].includes(key)
   || /(^|_)(VERSION|RELEASE|MAJOR|SHA\d*|CHECKSUM|GPG_KEYS?|PGP_KEY_ID|DOWNLOAD_URL|URL|DEPS|CFLAGS|CPPFLAGS|LDFLAGS|INI_DIR|PREFIX|PACKAGE|REPO)$/.test(key)
-  || /^(PHP|PYTHON|NODE|GOSU|JSYAML|ERLANG|OPENSSL|APACHE|NGINX|NJS|PKG|DYNPKG|ACME)_/.test(key);
+  || /^(PHP|PYTHON|NODE|GOSU|JSYAML|ERLANG|OPENSSL|APACHE|NGINX|NJS|PKG|DYNPKG|ACME)_/.test(key)
+  || /^(OS_ARCH|OS_FLAVOUR|OS_NAME|NSS_WRAPPER_LIB|IMAGE_REVISION)$|^BITNAMI_/.test(key); // plan 43: Bitnami's own description of its build
 
 const envKey = (line) => String(line).split('=')[0];
 const envValue = (line) => { const s = String(line); const i = s.indexOf('='); return i < 0 ? '' : s.slice(i + 1); };
@@ -398,7 +403,7 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
   const env = [];
   const declaredMap = Object.fromEntries(declaredSettings(declared).map((s) => [s.name, s.value]));
   (settings || []).forEach((s) => {
-    if (s.type === 'optional' && !s.value) return;
+    if ((s.type === 'optional' || s.type === 'needed') && !s.value) return; // plan 43: 'needed' (from a description) and left empty: not set
     if (s.type === 'declared' && declaredMap[s.name] === s.value) return;
     env.push(`${s.name}=${s.value}`);
   });
@@ -433,7 +438,8 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
   const web = webPortOf(recipe, declared);
   if (web && host) {
     // a tool that controls the server or its data opens behind Cosmos' sign-in, for administrators (exposure.js)
-    const admins = proposeAccess(image).access === 'admins';
+    // plan 43 (review E1): so does the web page of a service that has no password of its own (a recipe's noAuth)
+    const admins = proposeAccess(image).access === 'admins' || !!(recipe && (recipe.notes || []).includes('noAuth'));
     service.routes = [{
       name, description: `${name} in Cosmos`, useHost: true, host, target: `http://${name}:${web}`, mode: 'SERVAPP',
       Timeout: 14400000, ThrottlePerMinute: 10000, BlockCommonBots: true, SmartShield: { Enabled: true },
@@ -555,7 +561,8 @@ export const problemText = (desc) => {
 };
 
 // The databases recipes, for "a new one": those providing one of the kinds.
-export const databaseRecipes = (all, kinds) => (all || []).filter((r) => r && (kinds || []).includes(r.provides) && r.kind === 'database');
+// plan 43: one "new database" per software; the other publishers' recipes (`family`) still recognise existing containers
+export const databaseRecipes = (all, kinds) => (all || []).filter((r) => r && !r.family && (kinds || []).includes(r.provides) && r.kind === 'database');
 
 // Containers on the server that look like a database of these kinds: [{ name, recipe, env }].
 // `containers`: the ServApps list (Names, Image, Config.Env when known).

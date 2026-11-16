@@ -59,6 +59,7 @@ func (c *Cache) Delete(key string) {
 // ForgetContainerIP drops the cached IP of a container.
 func ForgetContainerIP(containerName string) {
 	cache.Delete(containerName)
+	ForgetTarget(containerName) // Fork addition: the proxy's own cache too (fork_target.go), so a woken container is reached at once
 }
 
 func _getContainerIPByName(containerName string) (string, error) {

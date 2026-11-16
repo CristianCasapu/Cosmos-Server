@@ -123,6 +123,14 @@ func forkServeFavicon(w http.ResponseWriter, cacheKey string, siteurl string, co
 		sendFallback(w)
 		return true
 	}
+	// A container that is not running has no address: nothing to ask (plan 43;
+	// before, the container's name was looked up in the server's DNS instead)
+	if container != "" && (!utils.IsInsideContainer || utils.IsHostNetwork) {
+		if _, _, err := docker.ContainerTarget(container); err != nil {
+			sendFallback(w)
+			return true
+		}
+	}
 	dial := faviconDialURL(siteurl, container)
 	lookup := startIconLookup(cacheKey, func() *CachedImage { return findIcon(dial) })
 	timer := time.NewTimer(iconWait)

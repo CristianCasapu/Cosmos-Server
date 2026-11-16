@@ -40,7 +40,8 @@ type fakeRegistry struct {
 	indexDigest    string
 	served         []string // manifests answered with a body (what Docker Hub would count)
 	manifestDigest string
-	ratelimit      string // the ratelimit-remaining header sent with manifests
+	ratelimit      string                                        // the ratelimit-remaining header sent with manifests
+	hubAPIHandler  func(http.ResponseWriter, *http.Request) bool // answers more of Docker Hub's API when it returns true
 }
 
 const fakeToken = "tok" + "en-for-tests"
@@ -103,6 +104,9 @@ func newFakeRegistry(t *testing.T, setup func(*fakeRegistry)) *fakeRegistry {
 		f.mu.Unlock()
 		if f.slow > 0 {
 			time.Sleep(f.slow)
+		}
+		if f.hubAPIHandler != nil && f.hubAPIHandler(w, r) {
+			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/v2/namespaces/team/repositories/app/tags/") {
 			// Docker Hub's API: a tag's platforms and their manifests' digests

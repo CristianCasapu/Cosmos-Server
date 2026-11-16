@@ -1,0 +1,2 @@
+Enabling OpenSearch Security Plugin
+No custom admin password found. Please provide a password via the environment variable OPENSEARCH_INITIAL_ADMIN_PASSWORD.

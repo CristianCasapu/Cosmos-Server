@@ -221,6 +221,29 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
     }))
   }
 
+  // Fork addition (plan 43): why a container does not start (state, the end of its log, what it says it needs)
+  function startReport(containerId: string): Promise<ApiResponse> {
+    return wrap(apiFetch('/cosmos/api/servapps/' + encodeURIComponent(containerId) + '/start-report', {
+      method: 'GET',
+    }))
+  }
+
+  // Fork addition (plan 43): does a port of the container speak web (asked once by the server)
+  function probePort(containerId: string, port: number): Promise<ApiResponse> {
+    return wrap(apiFetch('/cosmos/api/servapps/' + encodeURIComponent(containerId) + '/probe', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ port }),
+    }))
+  }
+
+  // Fork addition (plan 43): the server's addresses on the home network (src/proxy/fork_lan_addresses.go)
+  function lanAddresses(): Promise<ApiResponse> {
+    return wrap(apiFetch('/cosmos/api/lan-addresses', { method: 'GET' }))
+  }
+
   function detachNetwork(containerId: string, networkId: string): Promise<ApiResponse> {
     return wrap(apiFetch('/cosmos/api/servapps/' + containerId + '/network/' + networkId, {
       method: 'DELETE',
@@ -482,6 +505,9 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
     createNetwork,
     attachNetwork,
     detachNetwork,
+    startReport, // Fork addition (plan 43)
+    probePort, // Fork addition (plan 43)
+    lanAddresses, // Fork addition (plan 43)
     createVolume,
     attachTerminal,
     createTerminal,

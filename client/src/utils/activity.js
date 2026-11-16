@@ -68,7 +68,7 @@ const IGNORED = [
   /^\/api\/cloudflare\/origin-pulls\b/, // Fork addition: the card says what each step gave, in words, where it was asked for
   /^\/api\/turnstile\b/, // Fork addition: the sign-in check's card says what each step gave, in words
   /^\/api\/reach-watch\/check\b/, // Fork addition: the watch's card and the notification say what "Test now" started, in words
-  /^\/api\/servapps\/[^/]+\/(logs|terminal|export|check-update)\b/,
+  /^\/api\/servapps\/[^/]+\/(logs|terminal|export|check-update|probe|start-report)\b/, // Fork addition (plan 43): probe, start-report: the dialogs show the answer where it was asked
   /^\/api\/constellation\/(ping|devices\/[^/]+\/ping)\b/,
   /^\/rclone\/(config\/(dump|listremotes)|operations\/about|vfs\/stats|core\/stats)\b/,
 ];
@@ -361,6 +361,9 @@ const follow = async (call, response) => {
     finish(call, false, message);
   } else if (text.includes('[OPERATION FAILED]')) {
     finish(call, false, '');
+  } else if (/\[START CHECK\][^\n]*"failing":true/.test(text)) {
+    // Fork addition (plan 43): created, but a new container does not start: the review says why
+    finish(call, false, tr('activity.startFailed', 'created, but it does not start: the review says why'));
   } else {
     finish(call, true);
   }

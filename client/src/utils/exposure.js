@@ -84,7 +84,9 @@ const zoneOf = (host, domains) => (domains.find((domain) => underZone(host, doma
 // Tools that control the server or come without a sign-in of their own: their
 // address from the internet is proposed behind Cosmos' sign-in.
 const CONTROL_TOOLS = ['portainer', 'dockge', 'yacht', 'code-server', 'codeserver', 'ttyd', 'wetty', 'dozzle', 'adminer',
-  'phpmyadmin', 'pgadmin', 'pgadmin4', 'cockpit', 'webmin', 'filebrowser', 'traefik'];
+  'phpmyadmin', 'pgadmin', 'pgadmin4', 'cockpit', 'webmin', 'filebrowser', 'traefik',
+  // plan 43 (review E1): Redis Insight has no sign-in and Redis Stack no password
+  'redis-stack', 'redisinsight'];
 const NO_SIGN_IN = ['glances', 'netdata', 'homepage', 'dashy', 'heimdall', 'homarr', 'it-tools', 'cyberchef', 'transmission',
   'zigbee2mqtt', 'esphome', 'node-red', 'scrutiny', 'duplicati', 'syncthing', 'jdownloader', 'jdownloader-2', 'stirling-pdf'];
 

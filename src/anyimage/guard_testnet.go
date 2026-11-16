@@ -15,6 +15,11 @@ import (
 )
 
 func init() {
+	// plan 43: the browser check plays the owner's case without the help of a
+	// recipe (COSMOS_ANYIMAGE_TEST_NO_RECIPES=1) and without the publisher's
+	// description (COSMOS_ANYIMAGE_TEST_NO_DESCRIPTIONS=1)
+	recipesDisabled = os.Getenv("COSMOS_ANYIMAGE_TEST_NO_RECIPES") == "1"
+	descriptionsDisabled = os.Getenv("COSMOS_ANYIMAGE_TEST_NO_DESCRIPTIONS") == "1"
 	for _, text := range strings.Split(os.Getenv("COSMOS_ANYIMAGE_TEST_ALLOW"), ",") {
 		if prefix, err := netip.ParsePrefix(strings.TrimSpace(text)); err == nil {
 			testAllowedPrefixes = append(testAllowedPrefixes, prefix)

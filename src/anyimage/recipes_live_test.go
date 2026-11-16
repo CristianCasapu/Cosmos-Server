@@ -13,11 +13,24 @@ package anyimage
 // without a pull must be what the daemon sees after the pull. A recipe
 // cannot drift from its image silently. Pulls count against Docker Hub's
 // anonymous limit (one per image).
+//
+// Then the image is started again without what the recipe adds, and must
+// fail the way it did when the recipe was written (withoutVariables,
+// withoutOwner): without the recipe's variables (a database refuses to start
+// without its password, and its log says why), and, for an image that runs
+// as a user of its own, with a data folder that user cannot write. Those
+// sentences are the images' own words, kept here as they were seen.
+//
+// LIVE_HUB_MIRROR=mirror.gcr.io reads Docker Hub's images from that mirror
+// (as the Docker in Docker pulls them with --registry-mirror), so that the
+// test spends none of the server's Docker Hub allowance.
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,7 +42,57 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 )
+
+// withoutWant is what an image does without what its recipe adds: stops
+// (the container ends) or keeps running, and a sentence of its log.
+type withoutWant struct {
+	stops bool
+	says  string
+}
+
+// withoutVariables: started without the recipe's variables (every recipe
+// that generates a secret is here).
+var withoutVariables = map[string]withoutWant{
+	"postgres":                 {true, "Database is uninitialized and superuser password is not specified."},
+	"mariadb":                  {true, "You need to specify one of MARIADB_ROOT_PASSWORD, MARIADB_ROOT_PASSWORD_HASH, MARIADB_ALLOW_EMPTY_ROOT_PASSWORD and MARIADB_RANDOM_ROOT_PASSWORD"},
+	"mysql":                    {true, "You need to specify one of the following as an environment variable:"},
+	"mongo":                    {false, ""},
+	"pgadmin":                  {true, "You need to define the PGADMIN_DEFAULT_EMAIL and PGADMIN_DEFAULT_PASSWORD or PGADMIN_DEFAULT_PASSWORD_FILE environment variables."},
+	"rabbitmq":                 {false, ""},
+	"elasticsearch":            {false, ""},
+	"opensearch":               {true, "No custom admin password found. Please provide a password via the environment variable OPENSEARCH_INITIAL_ADMIN_PASSWORD."},
+	"rustfs":                   {false, ""},
+	"bitnami-postgresql":       {true, "The POSTGRESQL_PASSWORD environment variable is empty or not set. Set the environment variable ALLOW_EMPTY_PASSWORD=yes to allow the container to be started with blank passwords. This is recommended only for development."},
+	"bitnamilegacy-postgresql": {true, "The POSTGRESQL_PASSWORD environment variable is empty or not set. Set the environment variable ALLOW_EMPTY_PASSWORD=yes to allow the container to be started with blank passwords. This is recommended only for development."},
+	"pgvector":                 {true, "Database is uninitialized and superuser password is not specified."},
+	"postgis":                  {true, "Database is uninitialized and superuser password is not specified."},
+	"timescaledb":              {true, "Database is uninitialized and superuser password is not specified."},
+	"timescaledb-ha":           {true, "Database is uninitialized and superuser password is not specified."},
+	"chainguard-postgres":      {true, "Database is uninitialized and superuser password is not specified."},
+	"bitnami-mariadb":          {true, "The MARIADB_ROOT_PASSWORD environment variable is empty or not set. Set the environment variable ALLOW_EMPTY_PASSWORD=yes to allow the container to be started with blank passwords. This is recommended only for development."},
+	"linuxserver-mariadb":      {false, "No root password or too short a password, min of 4 characters"},
+	"percona-server":           {true, "You need to specify one of MYSQL_ROOT_PASSWORD, MYSQL_ALLOW_EMPTY_PASSWORD and MYSQL_RANDOM_ROOT_PASSWORD"},
+	"bitnami-redis":            {true, "The REDIS_PASSWORD environment variable is empty or not set. Set the environment variable ALLOW_EMPTY_PASSWORD=yes to allow the container to be started with blank passwords. This is recommended only for development."},
+	"bitnami-valkey":           {true, "The VALKEY_PASSWORD environment variable is empty or not set. Set the environment variable ALLOW_EMPTY_PASSWORD=yes to allow the container to be started with blank passwords. This is recommended only for development."},
+	"bitnami-mongodb":          {true, "The MONGODB_ROOT_PASSWORD environment variable is empty or not set. Set the environment variable ALLOW_EMPTY_PASSWORD=yes to allow the container to be started with blank passwords. This is only recommended for development."},
+}
+
+// withoutOwner: an image that runs as a user of its own, its data folder
+// made as for a container running as root (owned by root, mode 0750), that
+// is without the recipe's runAs. It stops, and its log says so.
+var withoutOwner = map[string]string{
+	"bitnami-postgresql":       "Permission denied",
+	"bitnamilegacy-postgresql": "Permission denied",
+	"timescaledb-ha":           "Permission denied",
+	"bitnami-mariadb":          "Permission denied",
+	"percona-server":           "The designated data directory /var/lib/mysql/ is unusable.",
+	"bitnami-redis":            "Permission denied",
+	"bitnami-valkey":           "Permission denied",
+	"bitnami-mongodb":          "Permission denied",
+	"rustfs":                   "Permission denied",
+}
 
 func TestRecipesLive(t *testing.T) {
 	if os.Getenv("COSMOS_FORK_LIVE_DOCKER") != "1" || os.Getenv("DOCKER_HOST") == "" {
@@ -40,6 +103,10 @@ func TestRecipesLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	serverPlatform = func() Platform { return Platform{OS: "linux", Arch: "amd64"} }
+	if mirror := os.Getenv("LIVE_HUB_MIRROR"); mirror != "" {
+		hubRegistryHost = mirror
+		defer func() { hubRegistryHost = "registry-1.docker.io" }()
+	}
 	only := os.Getenv("ONLY")
 	for _, recipe := range recipes.Recipes {
 		if only != "" && !strings.Contains(","+only+",", ","+recipe.ID+",") {
@@ -56,6 +123,9 @@ func TestRecipesLive(t *testing.T) {
 					reference += ":" + tag
 				}
 				t.Run(recipe.ID+"/"+reference, func(t *testing.T) {
+					if os.Getenv("LIVE_HUB_MIRROR") != "" {
+						hubBudget = &hubAllowance{remaining: -1} // reads of the mirror are not Docker Hub's
+					}
 					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 					defer cancel()
 					desc := Describe(ctx, reference, "user:live")
@@ -68,12 +138,27 @@ func TestRecipesLive(t *testing.T) {
 							LastUpdated string `json:"last_updated"`
 						}
 						if getJSON(ctx, hubAPI+"/v2/repositories/"+ref.Repository+"/", 64<<10, &repo) == nil {
-							if last, err := time.Parse(time.RFC3339, repo.LastUpdated); err == nil && time.Since(last) > 365*24*time.Hour {
+							if last, err := time.Parse(time.RFC3339, repo.LastUpdated); err == nil && time.Since(last) > 365*24*time.Hour && !frozen(recipe) {
 								t.Errorf("%s was last published on %s: is it still maintained? (recipes.json says %s)", ref.Name(), repo.LastUpdated[:10], recipe.Maintained.LastImage)
 							}
 						}
 					}
 					t.Logf("%s: proposed tag %s (%s)", reference, desc.Tag, desc.Tags.Why)
+					// the recipe's tag rule works with the tags the publisher has
+					if tag == "" {
+						want := ""
+						switch {
+						case len(recipe.Prefer) > 0:
+							want = "prefer"
+						case recipe.Pin == "major":
+							want = "pinMajor"
+						case contains(recipe.Notes, "latestOnly"):
+							want = "latest"
+						}
+						if want != "" && desc.Tags.Why != want {
+							t.Errorf("%s: the recipe's tag rule gives %s (%s), not a %s tag: does the publisher still have such tags?", reference, desc.Tag, desc.Tags.Why, want)
+						}
+					}
 					pull, err := docker.ImagePull(ctx, full, image.PullOptions{Platform: "linux/amd64"})
 					if err != nil {
 						t.Fatalf("pull %s: %v", full, err)
@@ -162,6 +247,26 @@ func TestRecipesLive(t *testing.T) {
 						t.Logf("%s now has a healthcheck of its own (%v): the recipe's is not added", full, cfg.Healthcheck.Test)
 					}
 					startRecipe(t, ctx, docker, recipe, full, desc.Tag, targets)
+					secret := false
+					for _, e := range recipe.Env {
+						secret = secret || e.Type == "secret"
+					}
+					if secret {
+						want, known := withoutVariables[recipe.ID]
+						stopped, logs := startWithout(t, ctx, docker, recipe, full, desc.Tag, targets, false, want)
+						t.Logf("%s without the recipe's variables: stopped %v, its log: %s", full, stopped, lastLines(logs, 6))
+						if !known || stopped != want.stops || !strings.Contains(logs, want.says) {
+							t.Errorf("%s without the recipe's variables: stopped %v (want %v), its log does not say %q", full, stopped, want.stops, want.says)
+						}
+					}
+					if runAsFor(recipe, desc.Tag) != "" && cfg.User != "" && cfg.User != "0" && cfg.User != "root" && !strings.HasPrefix(cfg.User, "0:") {
+						says, known := withoutOwner[recipe.ID]
+						stopped, logs := startWithout(t, ctx, docker, recipe, full, desc.Tag, targets, true, withoutWant{true, says})
+						t.Logf("%s with a data folder its user %s cannot write: stopped %v, its log: %s", full, cfg.User, stopped, lastLines(logs, 6))
+						if !known || !stopped || !strings.Contains(logs, says) {
+							t.Errorf("%s with a data folder its user cannot write: stopped %v, its log does not say %q", full, stopped, says)
+						}
+					}
 					docker.ImageRemove(ctx, full, image.RemoveOptions{Force: true, PruneChildren: true})
 				})
 			}
@@ -176,41 +281,9 @@ func TestRecipesLive(t *testing.T) {
 func startRecipe(t *testing.T, ctx context.Context, docker *client.Client, recipe Recipe, full, tag string, targets []string) {
 	name := "livetest-" + recipe.ID
 	docker.ContainerRemove(ctx, name, container.RemoveOptions{Force: true, RemoveVolumes: true})
-	env := []string{}
-	for _, e := range recipe.Env {
-		value := e.Value
-		if e.Type == "secret" {
-			value = "Lt" + strconv.FormatInt(time.Now().UnixNano()%1e12, 36) + "x9-Q"
-		}
-		if e.Type != "optional" {
-			env = append(env, e.Name+"="+value)
-		}
-	}
+	env := recipeEnv(recipe)
 	runAs := runAsFor(recipe, tag)
-	mounts := []mount.Mount{}
-	for i, target := range targets {
-		keep := false
-		for _, v := range recipe.Volumes {
-			keep = keep || (v.Target == target && v.KeepVolume)
-		}
-		if keep {
-			mounts = append(mounts, mount.Mount{Type: mount.TypeVolume, Source: name + "-" + strconv.Itoa(i), Target: target})
-			continue
-		}
-		folder := "/livetest/" + recipe.ID + "/" + strconv.Itoa(i)
-		owner := "0:0"
-		if runAs != "" {
-			owner = runAs
-		}
-		made := helper(t, ctx, docker, "rm -rf "+folder+" && mkdir -p "+folder+" && chmod 750 "+folder+" && chown "+owner+" "+folder+" && stat -c %a:%u:%g "+folder)
-		if !strings.Contains(made, "750:"+owner) {
-			t.Fatalf("the data folder was not made as Cosmos makes it: %q", made)
-		}
-		mounts = append(mounts, mount.Mount{Type: mount.TypeBind, Source: folder, Target: target})
-	}
-	for _, b := range recipe.Binds {
-		mounts = append(mounts, mount.Mount{Type: mount.TypeBind, Source: b.Source, Target: b.Target, ReadOnly: b.ReadOnly})
-	}
+	mounts := recipeMounts(t, ctx, docker, recipe, name, runAs, targets)
 	config := &container.Config{Image: full, Env: env, User: runAs, Cmd: recipe.Command, Labels: recipe.Labels}
 	if recipe.Hostname {
 		config.Hostname = name
@@ -228,13 +301,7 @@ func startRecipe(t *testing.T, ctx context.Context, docker *client.Client, recip
 		time.Sleep(5 * time.Second)
 		state, err := docker.ContainerInspect(ctx, name)
 		if err != nil || !state.State.Running || state.RestartCount > 0 {
-			logs, _ := docker.ContainerLogs(ctx, name, container.LogsOptions{ShowStdout: true, ShowStderr: true, Tail: "15"})
-			text := ""
-			if logs != nil {
-				data, _ := io.ReadAll(logs)
-				text = string(data)
-			}
-			t.Fatalf("%s stopped with the recipe's settings: %s", full, text)
+			t.Fatalf("%s stopped with the recipe's settings: %s", full, lastLines(containerLogs(ctx, docker, name), 15))
 		}
 		if !healthy {
 			cmd := recipe.Healthcheck.Test[1:]
@@ -262,6 +329,111 @@ func startRecipe(t *testing.T, ctx context.Context, docker *client.Client, recip
 	if !healthy {
 		t.Errorf("%s: the recipe's health check never passed: %v", full, recipe.Healthcheck.Test)
 	}
+}
+
+// startWithout runs the image without what the recipe adds: without its
+// variables, or (asImage) as the image's own user with data folders made as
+// for root. It answers whether the container stopped within 90 s, and its log.
+func startWithout(t *testing.T, ctx context.Context, docker *client.Client, recipe Recipe, full, tag string, targets []string, asImage bool, want withoutWant) (bool, string) {
+	name := "livetest-without-" + recipe.ID
+	docker.ContainerRemove(ctx, name, container.RemoveOptions{Force: true, RemoveVolumes: true})
+	env := []string{}
+	runAs := runAsFor(recipe, tag)
+	if asImage {
+		env, runAs = recipeEnv(recipe), ""
+	}
+	mounts := recipeMounts(t, ctx, docker, recipe, name, runAs, targets)
+	config := &container.Config{Image: full, Env: env, User: runAs, Cmd: recipe.Command, Labels: recipe.Labels}
+	if recipe.Hostname {
+		config.Hostname = name
+	}
+	if _, err := docker.ContainerCreate(ctx, config, &container.HostConfig{Mounts: mounts}, nil, nil, name); err != nil {
+		t.Fatalf("create %s: %v", name, err)
+	}
+	defer docker.ContainerRemove(context.Background(), name, container.RemoveOptions{Force: true, RemoveVolumes: true})
+	if err := docker.ContainerStart(ctx, name, container.StartOptions{}); err != nil {
+		t.Fatalf("start %s: %v", name, err)
+	}
+	started := time.Now()
+	for time.Since(started) < 90*time.Second {
+		time.Sleep(3 * time.Second)
+		state, err := docker.ContainerInspect(ctx, name)
+		if err != nil || !state.State.Running {
+			return true, containerLogs(ctx, docker, name)
+		}
+		// an image that runs without them: once it has said so, or after 30 s
+		if !want.stops && time.Since(started) > 30*time.Second && strings.Contains(containerLogs(ctx, docker, name), want.says) {
+			break
+		}
+	}
+	return false, containerLogs(ctx, docker, name)
+}
+
+// recipeEnv is the recipe's variables, a secret generated as the panel does.
+func recipeEnv(recipe Recipe) []string {
+	env := []string{}
+	for _, e := range recipe.Env {
+		value := e.Value
+		if e.Type == "secret" {
+			value = "Lt" + strconv.FormatInt(time.Now().UnixNano()%1e12, 36) + "x9-Q"
+		}
+		if e.Type != "optional" {
+			env = append(env, e.Name+"="+value)
+		}
+	}
+	return env
+}
+
+var ansi = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
+
+// containerLogs is a container's log, its two streams together, without colours.
+func containerLogs(ctx context.Context, docker *client.Client, name string) string {
+	logs, err := docker.ContainerLogs(ctx, name, container.LogsOptions{ShowStdout: true, ShowStderr: true})
+	if err != nil {
+		return ""
+	}
+	defer logs.Close()
+	var out bytes.Buffer
+	stdcopy.StdCopy(&out, &out, logs)
+	return ansi.ReplaceAllString(out.String(), "")
+}
+
+func lastLines(text string, n int) string {
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, " | ")
+}
+
+// recipeMounts makes the recipe's data folders the way Cosmos makes them
+// (mode 0750, owned by root unless the recipe runs the container as a user).
+func recipeMounts(t *testing.T, ctx context.Context, docker *client.Client, recipe Recipe, name, runAs string, targets []string) []mount.Mount {
+	mounts := []mount.Mount{}
+	for i, target := range targets {
+		keep := false
+		for _, v := range recipe.Volumes {
+			keep = keep || (v.Target == target && v.KeepVolume)
+		}
+		if keep {
+			mounts = append(mounts, mount.Mount{Type: mount.TypeVolume, Source: name + "-" + strconv.Itoa(i), Target: target})
+			continue
+		}
+		folder := "/livetest/" + name + "/" + strconv.Itoa(i)
+		owner := "0:0"
+		if runAs != "" {
+			owner = runAs
+		}
+		made := helper(t, ctx, docker, "rm -rf "+folder+" && mkdir -p "+folder+" && chmod 750 "+folder+" && chown "+owner+" "+folder+" && stat -c %a:%u:%g "+folder)
+		if !strings.Contains(made, "750:"+owner) {
+			t.Fatalf("the data folder was not made as Cosmos makes it: %q", made)
+		}
+		mounts = append(mounts, mount.Mount{Type: mount.TypeBind, Source: folder, Target: target})
+	}
+	for _, b := range recipe.Binds {
+		mounts = append(mounts, mount.Mount{Type: mount.TypeBind, Source: b.Source, Target: b.Target, ReadOnly: b.ReadOnly})
+	}
+	return mounts
 }
 
 // helper runs a shell command in a busybox container with /livetest bound and answers its output.

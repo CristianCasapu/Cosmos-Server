@@ -1,0 +1,2 @@
+mongodb 22:30:01.12 INFO  ==> ** Starting MongoDB setup **
+mongodb 22:30:01.15 ERROR ==> The MONGODB_ROOT_PASSWORD environment variable is empty or not set. Set the environment variable ALLOW_EMPTY_PASSWORD=yes to allow the container to be started with blank passwords. This is only recommended for development.

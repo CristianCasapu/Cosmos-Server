@@ -198,7 +198,7 @@ test('the plan for the apps without a URL', () => {
   assert.deepEqual(plan.map((entry) => [entry.name, entry.state, entry.host, entry.port, entry.source]), [
     ['radarr', 'ready', 'radarr.local', 7878, 'usual'],
     ['sonarr', 'ready', 'sonarr.local', 8989, 'usual'],
-    ['db1', 'noPort', '', null, 'none'],
+    ['db1', 'service', '', 5432, 'none'], // plan 43: a database, not a web app
     ['old', 'stopped', '', null, 'none'],
     ['pihole', 'hostNetwork', '', null, 'none'],
     ['plain', 'noPort', '', 6767, 'usualOnly'],
@@ -240,4 +240,15 @@ test('a pasted address is reduced to the name', () => {
   assert.equal(tidyAddress('http://192.168.1.10:7200/login?x=1'), '192.168.1.10:7200');
   assert.equal(tidyAddress('radarr.local'), 'radarr.local');
   assert.equal(tidyAddress(undefined), '');
+});
+
+// plan 43: a database gets no web address from "an address for every app"; a
+// service with a web page of its own gets that page's port, not its protocol's
+test('an address for every app leaves the services out', () => {
+  const run = (name, image, ports) => ({ Names: ['/' + name], Image: image, State: 'running', Ports: ports.map((p) => ({ PrivatePort: p, Type: 'tcp' })), NetworkSettings: { Networks: { bridge: {} } } });
+  const plan = planLocalAddresses({
+    containers: [run('postgresql', 'bitnami/postgresql:latest', [5432]), run('rabbit', 'rabbitmq:4-management', [5672, 15672]), run('web1', 'nginx:1', [80])],
+    routes: [], defaults: { overrides: {}, priority: [80, 8080] }, hostFor: (name) => name + '.local',
+  });
+  assert.deepEqual(plan.map((e) => [e.name, e.state, e.port]), [['postgresql', 'service', 5432], ['rabbit', 'ready', 15672], ['web1', 'ready', 80]]);
 });

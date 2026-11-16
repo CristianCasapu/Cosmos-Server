@@ -1,0 +1,16 @@
+[38;5;6mpostgresql [38;5;5m21:59:12.27 [0m[38;5;2mINFO [0m ==> 
+[38;5;6mpostgresql [38;5;5m21:59:12.27 [0m[38;5;2mINFO [0m ==> [1mWelcome to the Bitnami postgresql container[0m
+[38;5;6mpostgresql [38;5;5m21:59:12.27 [0m[38;5;2mINFO [0m ==> 
+[38;5;6mpostgresql [38;5;5m21:59:12.30 [0m[38;5;2mINFO [0m ==> ** Starting PostgreSQL setup **
+[38;5;6mpostgresql [38;5;5m21:59:12.34 [0m[38;5;2mINFO [0m ==> Validating settings in POSTGRESQL_* env vars..
+[38;5;6mpostgresql [38;5;5m21:59:12.35 [0m[38;5;3mWARN [0m ==> POSTGRESQL_AUTH_METHOD is 'md5': md5 format is vulnerable to pass-the-hash attacks. Please consider using 'scram-sha-256' instead.
+[38;5;6mpostgresql [38;5;5m21:59:12.35 [0m[38;5;1mERROR[0m ==> The POSTGRESQL_PASSWORD environment variable is empty or not set. Set the environment variable ALLOW_EMPTY_PASSWORD=yes to allow the container to be started with blank passwords. This is recommended only for development.
+[38;5;6mpostgresql [38;5;5m21:59:12.35 [0m[38;5;1mERROR[0m ==> The POSTGRESQL_PASSWORD environment variable is empty or not set. Set the environment variable ALLOW_EMPTY_PASSWORD=yes to allow the container to be started with blank passwords. This is recommended only for development.
+[38;5;6mpostgresql [38;5;5m21:59:12.27 [0m[38;5;2mINFO [0m ==> 
+[38;5;6mpostgresql [38;5;5m21:59:12.27 [0m[38;5;2mINFO [0m ==> [1mWelcome to the Bitnami postgresql container[0m
+[38;5;6mpostgresql [38;5;5m21:59:12.27 [0m[38;5;2mINFO [0m ==> 
+[38;5;6mpostgresql [38;5;5m21:59:12.30 [0m[38;5;2mINFO [0m ==> ** Starting PostgreSQL setup **
+[38;5;6mpostgresql [38;5;5m21:59:12.34 [0m[38;5;2mINFO [0m ==> Validating settings in POSTGRESQL_* env vars..
+[38;5;6mpostgresql [38;5;5m21:59:12.35 [0m[38;5;3mWARN [0m ==> POSTGRESQL_AUTH_METHOD is 'md5': md5 format is vulnerable to pass-the-hash attacks. Please consider using 'scram-sha-256' instead.
+[38;5;6mpostgresql [38;5;5m21:59:12.35 [0m[38;5;1mERROR[0m ==> The POSTGRESQL_PASSWORD environment variable is empty or not set. Set the environment variable ALLOW_EMPTY_PASSWORD=yes to allow the container to be started with blank passwords. This is recommended only for development.
+[38;5;6mpostgresql [38;5;5m21:59:12.35 [0m[38;5;1mERROR[0m ==> The POSTGRESQL_PASSWORD environment variable is empty or not set. Set the environment variable ALLOW_EMPTY_PASSWORD=yes t

@@ -24,6 +24,8 @@ import { useTranslation } from 'react-i18next';
 import { InstallExposure } from '../../../components/exposure'; // Fork addition: the internet, proposed and optional
 import CreationReview, { reviewHolds, useCreation } from '../../../components/creationReview'; // Fork addition
 import { sensitiveAccess } from '../../../utils/sensitiveAccess'; // Fork addition
+import { StartProblem } from '../../../components/startProblem'; // Fork addition (plan 43): a new app that does not start
+import { START_MARKER, parseStartCheck, repairDefinition, withoutStartCheck } from '../../../utils/services'; // Fork addition (plan 43)
 
 import Editor from 'react-simple-code-editor';
 import { highlight, languages } from 'prismjs/components/prism-core';
@@ -70,6 +72,11 @@ const NewDockerService = ({service, refresh, edit, notes, holdReason}) => {
   const [isDone, setIsDone] = React.useState(false);
   const [failed, setFailed] = React.useState(''); // Fork addition: a failed creation gives the button back, with the reason
   const preRef = React.useRef(null);
+  // Fork addition (plan 43): what the server's start check said after the creation, and the repairs made
+  const [startCheck, setStartCheck] = React.useState(null);
+  const [watching, setWatching] = React.useState(false);
+  const [repairs, setRepairs] = React.useState(0);
+  const streamed = React.useRef('');
   const screenMin = useMediaQuery((theme) => theme.breakpoints.up('sm'))
 
   let installer = {...service['cosmos-installer']};
@@ -92,11 +99,11 @@ const NewDockerService = ({service, refresh, edit, notes, holdReason}) => {
   const sensitive = sensitiveAccess(current, creation.plan && creation.plan.protected);
   const hold = holdReason || reviewHolds(t, { notes, sensitive, confirmed, plan: creation.plan, anyArch, edit });
 
-  const create = () => {
+  const create = (repaired) => {
     // Fork addition: a definition that is not JSON or YAML is said, not thrown; a failure ends the wait
     let definition;
     try {
-      definition = JSON.parse(dockerCompose);
+      definition = repaired || JSON.parse(dockerCompose); // Fork addition (plan 43): the repair sends its definition
     } catch (e) {
       setFailed(t('mgmt.servapps.create.notJson', 'The definition above is not valid JSON: {{error}}', { error: e.message }));
       return;
@@ -105,7 +112,16 @@ const NewDockerService = ({service, refresh, edit, notes, holdReason}) => {
     setLog([
       'Creating Service...                              ',
     ])
+    streamed.current = '';
+    setStartCheck(null);
     API.docker.createService(definition, (newlog) => {
+      // Fork addition (plan 43): the start check's line is read, not shown
+      streamed.current = (streamed.current + newlog).slice(-262144);
+      if (newlog.includes('Checking that the new app starts')) setWatching(true);
+      const check = streamed.current.includes(START_MARKER) ? parseStartCheck(streamed.current) : null;
+      if (check) { setStartCheck(check); setWatching(false); streamed.current = ''; }
+      newlog = withoutStartCheck(newlog);
+      if (!newlog.trim()) return;
       setLog((old) => smartDockerLogConcat(old, newlog));
       if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight;
       if (newlog.includes('[OPERATION SUCCEEDED]')) {
@@ -116,9 +132,21 @@ const NewDockerService = ({service, refresh, edit, notes, holdReason}) => {
         const reason = newlog.replace(/^.*\[OPERATION FAILED\][.\s]*/, '').trim();
         setFailed(reason && !/rolled ?back/i.test(reason) ? reason : t('mgmt.servapps.create.failed', 'The creation failed and what was made has been removed again: the reason is in the log below.'));
       }
-    }, !!edit, sensitiveAccess(definition, creation.plan && creation.plan.protected).map((item) => item.id).filter((id) => confirmed.includes(id)), anyArch)
-      .catch((e) => setFailed(e.message || String(e)));
+    }, !!edit || !!repaired /* Fork addition (plan 43): the repair replaces what the creation made */, sensitiveAccess(definition, creation.plan && creation.plan.protected).map((item) => item.id).filter((id) => confirmed.includes(id)), anyArch)
+      .catch((e) => setFailed(e.message || String(e)))
+      .finally(() => setWatching(false)); // Fork addition (plan 43)
   }
+
+  // Fork addition (plan 43): the variables the image named, set, and the same creation again
+  const repair = (report, values) => {
+    const next = repairDefinition(current, report.name, values);
+    setEdited(JSON.stringify(next, null, 2));
+    setRepairs(repairs + 1);
+    setIsDone(false);
+    setLog([]);
+    create(next);
+  };
+  const failing = ((startCheck && startCheck.containers) || []).filter((r) => r.failing);
 
   let isJSON = false;
   if(dockerCompose.trim().startsWith('{') && dockerCompose.trim().endsWith('}')) {
@@ -138,7 +166,7 @@ const NewDockerService = ({service, refresh, edit, notes, holdReason}) => {
       {hold && !isDone && !log.length && <Alert severity="info" sx={{ overflowWrap: 'anywhere' }} data-create-hold>{hold}</Alert>}
       {!isDone && <LoadingButton 
         disabled={!!hold}
-        onClick={create}
+        onClick={() => create() /* Fork addition (plan 43): not the click event as the definition */}
         variant="contained"
         color="primary"
         fullWidth
@@ -146,7 +174,10 @@ const NewDockerService = ({service, refresh, edit, notes, holdReason}) => {
         loading={!!log.length && !isDone && !failed}
         startIcon={edit ? <SyncOutlined /> : <PlusCircleOutlined />}
       >{edit ? t('global.edit'): t('global.createAction')}</LoadingButton>}
-      {isDone && <Stack spacing={1}>
+      {/* Fork addition (plan 43): the start check: watching, then why a new container does not run, and the repair */}
+      {isDone && watching && <Alert severity="info" data-start-watching>{t('mgmt.services.start.watching', 'Created. Cosmos watches it for up to 30 seconds to see that it starts…')}</Alert>}
+      {failing.map((report) => <StartProblem key={report.name} report={report} rounds={repairs} busy={!!log.length && !isDone && !failed} onApply={(values) => repair(report, values)} />)}
+      {isDone && !failing.length && <Stack spacing={1}>
         <Alert severity="success">{t('mgmt.servapps.container.compose.createServiceSuccess')}</Alert>
         {installer && installer['post-install'] && installer['post-install'].map(m =>{
           return <Alert severity={m.type}>{

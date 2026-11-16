@@ -99,7 +99,13 @@ func UpdateContainerRoute(w http.ResponseWriter, req *http.Request) {
 			container.HostConfig.RestartPolicy = containerType.RestartPolicy{Name: containerType.RestartPolicyMode(form.RestartPolicy)}
 		}
 		if(form.Env != nil) {
-			container.Config.Env = form.Env
+			// Fork addition: a masked value (***) from an account that may not read credentials keeps the current value (fork_masked_env.go)
+			env, err := keepMaskedEnv(container.Config.Env, form.Env, utils.HasPermission(req, utils.PERM_CREDENTIALS_READ))
+			if err != nil {
+				utils.HTTPError(w, err.Error(), http.StatusBadRequest, "DS024")
+				return
+			}
+			container.Config.Env = env
 		}
 		
 		if(form.Devices != nil) {
