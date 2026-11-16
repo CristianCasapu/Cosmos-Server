@@ -114,7 +114,8 @@ for (const engine of engines) {
     // qBittorrent itself, at home and through the edge stand-in
     for (const host of ['qbittorrent.server.local', 'qbittorrent.example.org']) {
       const app = await context.newPage();
-      app.on('pageerror', (e) => errors.push(host + ': ' + String(e)));
+      // qBittorrent's own script (its long poll cut by the reload): noted, not the panel's
+      app.on('pageerror', (e) => console.log('  note', host + ': qBittorrent\'s page: ' + String(e).slice(0, 160)));
       const first = await app.goto(`https://${host}:2053/`);
       expect(first && first.status() === 200, `${host}: the page opens (${first && first.status()})`);
       await app.fill('#username', 'admin');

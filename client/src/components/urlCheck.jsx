@@ -384,7 +384,7 @@ export const UrlProblemMark = ({ routeNames, refresh }) => {
     {bad.length > 0 && <Tooltip title={t('mgmt.urlCheck.markTip', 'Cosmos asked the app as a visitor arrives: see why and how to repair it')}>
       <Button size="small" variant="outlined" color={error ? 'error' : 'warning'} startIcon={<ExclamationCircleOutlined />}
         onClick={(e) => { e.stopPropagation(); setShown(names); setOpen(true); }} data-url-problem={bad.map((r) => r.route).join(',')}
-        sx={{ py: 0, minHeight: 0, lineHeight: 1.6, whiteSpace: 'nowrap' }}>
+        sx={{ py: 0, minHeight: 0, lineHeight: 1.6, whiteSpace: 'nowrap', flexShrink: 0, minWidth: 'max-content', mr: '5px' }}>
         {error ? t('mgmt.urlCheck.mark', 'Does not open') : t('mgmt.urlCheck.markWarning', 'Needs a setting')}
       </Button>
     </Tooltip>}
