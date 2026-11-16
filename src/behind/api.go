@@ -4,7 +4,8 @@ package behind
 //
 //   POST /cosmos/api/url-check        {"route": "<name>"}                  check one URL now
 //   POST /cosmos/api/url-checks       {"routes": ["<name>", ...]}          the last checks, and up to 6 stale ones checked
-//   POST /cosmos/api/url-check/apply  {"route": "<name>", "appOwnHost": b} change that one setting of that one URL, then check it
+//   POST /cosmos/api/url-check/apply  {"route": "<name>", "appOwnHost": b} or {"route": "<name>", "noVisitorAddress": b}
+//                                     change that one setting of that one URL, then check it
 //   GET  /cosmos/api/known-apps                                            what Cosmos knows of apps behind a proxy (resources-read)
 
 import (
@@ -201,9 +202,10 @@ func ApplyRoute(w http.ResponseWriter, req *http.Request) {
 	}
 	var body struct {
 		Route      string `json:"route"`
-		AppOwnHost *bool  `json:"appOwnHost"`
+		AppOwnHost       *bool  `json:"appOwnHost"`
+		NoVisitorAddress *bool  `json:"noVisitorAddress"`
 	}
-	if err := json.NewDecoder(io.LimitReader(req.Body, bodyMax)).Decode(&body); err != nil || !routeNamePattern.MatchString(body.Route) || body.AppOwnHost == nil {
+	if err := json.NewDecoder(io.LimitReader(req.Body, bodyMax)).Decode(&body); err != nil || !routeNamePattern.MatchString(body.Route) || (body.AppOwnHost == nil) == (body.NoVisitorAddress == nil) {
 		utils.HTTPError(w, "Name the URL and the setting", http.StatusBadRequest, "URC001")
 		return
 	}
@@ -214,7 +216,11 @@ func ApplyRoute(w http.ResponseWriter, req *http.Request) {
 		if r.Mode != "SERVAPP" && r.Mode != "PROXY" {
 			return errNotProxy
 		}
-		r.ForkAppOwnHost = *body.AppOwnHost
+		if body.AppOwnHost != nil {
+			r.ForkAppOwnHost = *body.AppOwnHost
+		} else {
+			r.ForkNoVisitorAddress = *body.NoVisitorAddress
+		}
 		return nil
 	})
 	if err != nil {
@@ -225,11 +231,15 @@ func ApplyRoute(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "The URL was not changed: "+err.Error(), status, "URC004")
 		return
 	}
+	setting, value := "appOwnHost", body.AppOwnHost
+	if value == nil {
+		setting, value = "noVisitorAddress", body.NoVisitorAddress
+	}
 	on := "off"
-	if *body.AppOwnHost {
+	if *value {
 		on = "on"
 	}
-	utils.AuditSecurity(req, utils.SecRouteUpdated, body.Route, "appOwnHost", on)
+	utils.AuditSecurity(req, utils.SecRouteUpdated, body.Route, setting, on)
 	reloadRoutes()
 	if !allowed(userOf(req), 1, time.Now()) {
 		answer(w, Result{Route: body.Route, Verdict: "notChecked", Reason: "tooMany", Attempts: []Attempt{}, Repairs: []Repair{}})

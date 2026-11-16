@@ -49,7 +49,8 @@ const (
 
 // Attempt is one request and what the app answered.
 type Attempt struct {
-	AppOwnHost    bool   `json:"appOwnHost"`
+	AppOwnHost       bool   `json:"appOwnHost"`
+	NoVisitorAddress bool   `json:"noVisitorAddress,omitempty"`
 	Host          string `json:"host"`
 	ForwardedHost string `json:"forwardedHost"`
 	Status        int    `json:"status,omitempty"`
@@ -63,9 +64,10 @@ func (a Attempt) ok() bool { return a.Error == "" && a.Status > 0 && a.Status < 
 
 // Repair is something that makes the app accept its address.
 type Repair struct {
-	Kind string `json:"kind"` // route, env, file
-	// AppOwnHost: the value of the URL's setting (kind route)
-	AppOwnHost bool `json:"appOwnHost,omitempty"`
+	Kind string `json:"kind"` // route, env, file, command
+	// Setting: the URL's setting (kind route): appOwnHost or noVisitorAddress, On its value
+	Setting string `json:"setting,omitempty"`
+	On      bool   `json:"on,omitempty"`
 	// Seen: Cosmos tried it and the app then answered
 	Seen  bool     `json:"seen"`
 	Name  string   `json:"name,omitempty"`  // env
@@ -73,6 +75,7 @@ type Repair struct {
 	Now   string   `json:"now,omitempty"`   // env: its value today, "" when not set
 	Path    string `json:"path,omitempty"`    // file
 	Section string `json:"section,omitempty"` // file
+	User    string `json:"user,omitempty"`    // command: the user to run it as
 	Lines []string `json:"lines,omitempty"` // file
 	When  string   `json:"when,omitempty"`
 	Why   string   `json:"why,omitempty"`
@@ -95,7 +98,10 @@ type Result struct {
 	Attempts   []Attempt `json:"attempts"`
 	Repairs    []Repair  `json:"repairs"`
 	Notes      []string  `json:"notes,omitempty"`
-	AppOwnHost bool      `json:"appOwnHost"`
+	AppOwnHost       bool      `json:"appOwnHost"`
+	NoVisitorAddress bool      `json:"noVisitorAddress"`
+	// Proxy: the address the app sees Cosmos at (for an app's trusted-proxy setting)
+	Proxy     string    `json:"proxy,omitempty"`
 	CheckedAt  time.Time `json:"checkedAt"`
 	key        string
 }
@@ -174,7 +180,7 @@ func usableAddress(ip string) bool {
 
 // ask sends one request to the app: GET path at ip:port, as headers say.
 func ask(ctx context.Context, ip, port, targetScheme, path string, h proxy.AppHeaders, ownHost bool) (Attempt, string) {
-	attempt := Attempt{AppOwnHost: ownHost, Host: h.Host, ForwardedHost: h.ForwardedHost}
+	attempt := Attempt{AppOwnHost: ownHost, NoVisitorAddress: h.NoVisitorAddress, Host: h.Host, ForwardedHost: h.ForwardedHost}
 	ctx, cancel := context.WithTimeout(ctx, askWait)
 	defer cancel()
 	conn, err := dialApp(ctx, net.JoinHostPort(ip, port))
@@ -218,8 +224,10 @@ func ask(ctx context.Context, ip, port, targetScheme, path string, h proxy.AppHe
 	if h.ForwardedProto == "https" {
 		req.Header.Set("X-Forwarded-Ssl", "on")
 	}
-	req.Header.Set("X-Forwarded-For", peer)
-	req.Header.Set("X-Real-IP", peer)
+	if !h.NoVisitorAddress {
+		req.Header.Set("X-Forwarded-For", peer)
+		req.Header.Set("X-Real-IP", peer)
+	}
 	req.Header.Set("User-Agent", "Cosmos-URL-check")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
 	req.Header.Set("Sec-Fetch-Site", "none")
@@ -422,7 +430,7 @@ func Check(ctx context.Context, routeName string) Result {
 		result.Verdict, result.Reason = "notChecked", "noRoute"
 		return result
 	}
-	result.AppOwnHost = route.ForkAppOwnHost
+	result.AppOwnHost, result.NoVisitorAddress = route.ForkAppOwnHost, route.ForkNoVisitorAddress
 	result.key = fingerprint(*route)
 	container, port, targetScheme, path := containerOf(*route)
 	if container == "" {
@@ -456,20 +464,31 @@ func Check(ctx context.Context, routeName string) Result {
 	checkMu.Lock()
 	defer checkMu.Unlock()
 	since := time.Now().Add(-time.Second)
-	headers := func(own bool) proxy.AppHeaders {
+	headers := func(own, noVisitor bool) proxy.AppHeaders {
 		r := *route
-		r.ForkAppOwnHost = own
+		r.ForkAppOwnHost, r.ForkNoVisitorAddress = own, noVisitor
 		return proxy.AppHeadersFor(r, public, scheme, net.JoinHostPort(facts.IP, port), targetScheme)
 	}
-	first, peer := ask(ctx, facts.IP, port, targetScheme, path, headers(route.ForkAppOwnHost), route.ForkAppOwnHost)
-	first.Location = proxy.FixLocation(first.Location, public, scheme) // as the visitor gets it
-	result.Attempts = append(result.Attempts, first)
+	try := func(own, noVisitor bool) (Attempt, string) {
+		a, peer := ask(ctx, facts.IP, port, targetScheme, path, headers(own, noVisitor), own)
+		a.Location = proxy.FixLocation(a.Location, public, scheme) // as the visitor gets it
+		result.Attempts = append(result.Attempts, a)
+		return a, peer
+	}
+	first, peer := try(route.ForkAppOwnHost, route.ForkNoVisitorAddress)
 	if first.Error != "" {
 		result.Verdict, result.Reason = "unreachable", first.Error
+		if first.Error == "refused" {
+			result.Reason = "portRefused"
+		}
 		return result
 	}
 	f := fillFor(config, *route, container, public, scheme, peer)
 	f.image = facts.Image
+	result.Proxy = peer
+	if app != nil {
+		result.Notes = app.Notes
+	}
 
 	if first.ok() {
 		result.Verdict = "works"
@@ -479,20 +498,38 @@ func Check(ctx context.Context, routeName string) Result {
 		}
 		if needs := appRepairs(app, facts, f, "always"); len(needs) > 0 {
 			if result.Verdict == "works" {
-				result.Verdict, result.Reason = "warning", "csrfOrigin"
+				result.Verdict, result.Reason = "warning", needs[0].Why
 			}
 			result.Repairs = append(result.Repairs, needs...)
 		}
-		result.Repairs = append(result.Repairs, adviceOf(app, f)...)
+		result.Repairs = append(result.Repairs, adviceOf(app, facts, f)...)
 		return result
 	}
 
-	// the other way of telling the app its address, unless the app's data says it breaks the app
-	second := Attempt{Error: "notTried"}
+	// the other ways of telling the app about the visitor, unless the app's data says they break it:
+	// its own address as Host (or the public one again), then no visitor's address at all
+	type variant struct {
+		setting   string
+		own, none bool
+	}
+	variants := []variant{}
 	if route.ForkAppOwnHost || app == nil || !app.NoOwnHost {
-		second, _ = ask(ctx, facts.IP, port, targetScheme, path, headers(!route.ForkAppOwnHost), !route.ForkAppOwnHost)
-		second.Location = proxy.FixLocation(second.Location, public, scheme)
-		result.Attempts = append(result.Attempts, second)
+		variants = append(variants, variant{"appOwnHost", !route.ForkAppOwnHost, route.ForkNoVisitorAddress})
+	}
+	if !route.ForkNoVisitorAddress {
+		variants = append(variants, variant{"noVisitorAddress", route.ForkAppOwnHost, true})
+	} else {
+		variants = append(variants, variant{"noVisitorAddress", route.ForkAppOwnHost, false})
+	}
+	var worked *variant
+	answers := []Attempt{}
+	for i := range variants {
+		a, _ := try(variants[i].own, variants[i].none)
+		answers = append(answers, a)
+		if a.ok() && !wrongLocation(a.Location, public, scheme) {
+			worked = &variants[i]
+			break
+		}
 	}
 	var log []string
 	if facts.ID != "" {
@@ -508,23 +545,36 @@ func Check(ctx context.Context, routeName string) Result {
 		result.App, result.AppName = app.ID, app.Name
 	}
 	// an app known to break with its own address as Host is never told so, whatever one answer said
-	ownBreaks := app != nil && app.NoOwnHost && !route.ForkAppOwnHost
-	if second.ok() && !wrongLocation(second.Location, public, scheme) && !ownBreaks {
+	if worked != nil && worked.setting == "appOwnHost" && worked.own && app != nil && app.NoOwnHost {
+		worked = nil
+	}
+	if worked != nil {
 		result.Verdict = "refused"
-		result.Reason = "hostPort"
-		if route.ForkAppOwnHost {
+		switch {
+		case worked.setting == "appOwnHost" && !worked.own:
 			result.Reason = "ownHostBreaks"
-		} else if sig != nil {
+		case worked.setting == "noVisitorAddress" && !worked.none:
+			result.Reason = "noVisitorBreaks"
+		case sig != nil:
 			result.Reason = sig.Reason
+		case worked.setting == "noVisitorAddress":
+			result.Reason = "untrustedProxy"
+		default:
+			result.Reason = "hostPort"
 		}
 		result.Line = line
 		if result.Line == "" {
 			result.Line = first.First
 		}
-		result.Repairs = append(result.Repairs, Repair{Kind: "route", AppOwnHost: !route.ForkAppOwnHost, Seen: true})
+		on := worked.own
+		if worked.setting == "noVisitorAddress" {
+			on = worked.none
+		}
+		result.Repairs = append(result.Repairs, Repair{Kind: "route", Setting: worked.setting, On: on, Seen: true})
 		result.Repairs = append(result.Repairs, appRepairs(app, facts, f, "refused")...)
 		result.Repairs = append(result.Repairs, appRepairs(app, facts, f, "always")...)
-		result.Repairs = append(result.Repairs, adviceOf(app, f)...)
+		result.Repairs = append(result.Repairs, filesOf(app, f, "refused")...)
+		result.Repairs = append(result.Repairs, adviceOf(app, facts, f)...)
 		return result
 	}
 	if sig != nil {
@@ -532,13 +582,20 @@ func Check(ctx context.Context, routeName string) Result {
 		result.Repairs = append(result.Repairs, appRepairs(app, facts, f, "refused")...)
 		result.Repairs = append(result.Repairs, appRepairs(app, facts, f, "always")...)
 		result.Repairs = append(result.Repairs, filesOf(app, f, "refused")...)
-		result.Repairs = append(result.Repairs, adviceOf(app, f)...)
+		result.Repairs = append(result.Repairs, adviceOf(app, facts, f)...)
 		return result
 	}
-	if second.Error == "" && second.Status == first.Status {
+	same := len(answers) > 0
+	for _, a := range answers {
+		if a.Error != "" || a.Status != first.Status {
+			same = false
+		}
+	}
+	if same {
 		// the same under every name: what it answers is the app's own business
 		result.Verdict, result.Reason = "answers", "sameAnswer"
 		result.Repairs = append(result.Repairs, appRepairs(app, facts, f, "always")...)
+		result.Repairs = append(result.Repairs, adviceOf(app, facts, f)...)
 		return result
 	}
 	result.Verdict, result.Reason, result.Line = "refused", "refused", first.First
@@ -555,6 +612,15 @@ func appRepairs(app *App, facts docker.URLCheckFacts, f fillFacts, when string) 
 	}
 	for _, e := range app.Env {
 		if e.When != when && !(when == "always" && e.When == "ifSet") {
+			continue
+		}
+		satisfied := false
+		for _, other := range e.Unless {
+			if facts.Env[other] != "" {
+				satisfied = true
+			}
+		}
+		if satisfied {
 			continue
 		}
 		now, set := facts.Env[e.Name]
@@ -584,21 +650,32 @@ func filesOf(app *App, f fillFacts, when string) []Repair {
 		}
 		lines := []string{}
 		for _, l := range file.Lines {
+			if strings.Contains(l, "{each}") {
+				// one line per name of the app's URLs, numbered from {from}
+				for i, name := range f.names {
+					lines = append(lines, fill(strings.NewReplacer("{each}", name, "{i}", strconv.Itoa(file.From+i)).Replace(l), f))
+				}
+				continue
+			}
 			lines = append(lines, fill(l, f))
 		}
-		out = append(out, Repair{Kind: "file", Path: file.Path, Section: file.Section, Lines: lines, When: file.When, Why: file.Why})
+		kind := "file"
+		if file.Command {
+			kind = "command"
+		}
+		out = append(out, Repair{Kind: kind, Path: file.Path, Section: file.Section, User: file.User, Lines: lines, When: file.When, Why: file.Why})
 	}
 	return out
 }
 
-// adviceOf are the lines a known app is better with (the visitor's address, for example).
-func adviceOf(app *App, f fillFacts) []Repair {
-	return filesOf(app, f, "advice")
+// adviceOf is what a known app is better with (the visitor's address, its own links).
+func adviceOf(app *App, facts docker.URLCheckFacts, f fillFacts) []Repair {
+	return append(appRepairs(app, facts, f, "advice"), filesOf(app, f, "advice")...)
 }
 
 // fingerprint: what of a URL changes the check's answer.
 func fingerprint(route utils.ProxyRouteConfig) string {
-	return strings.Join([]string{route.Target, route.Host, strconv.FormatBool(route.UseHost), strconv.FormatBool(route.ForkAppOwnHost),
+	return strings.Join([]string{route.Target, route.Host, strconv.FormatBool(route.UseHost), strconv.FormatBool(route.ForkAppOwnHost), strconv.FormatBool(route.ForkNoVisitorAddress),
 		strconv.FormatBool(route.SpoofHostname), route.OverwriteHostHeader, route.PathPrefix, string(route.Mode)}, "|")
 }
 

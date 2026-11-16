@@ -131,7 +131,7 @@ func TestQBittorrentIsRecognisedAndTheRepairSeenWorking(t *testing.T) {
 	if r.Attempts[0].Host != "qbittorrent.server.local:2053" || r.Attempts[1].Host != appIP+":8080" || r.Attempts[1].ForwardedHost != "qbittorrent.server.local:2053" {
 		t.Errorf("hosts sent: %+v", r.Attempts)
 	}
-	if len(r.Repairs) == 0 || r.Repairs[0].Kind != "route" || !r.Repairs[0].AppOwnHost || !r.Repairs[0].Seen {
+	if len(r.Repairs) == 0 || r.Repairs[0].Kind != "route" || r.Repairs[0].Setting != "appOwnHost" || !r.Repairs[0].On || !r.Repairs[0].Seen {
 		t.Errorf("the first repair must be the URL's setting, seen working: %+v", r.Repairs)
 	}
 	if s.count() != 2 {
@@ -263,7 +263,7 @@ func TestOwnHostThatBreaksTheAppIsSaid(t *testing.T) {
 		}
 	})
 	r := Check(context.Background(), "app")
-	if r.Verdict != "refused" || r.Reason != "ownHostBreaks" || len(r.Repairs) == 0 || r.Repairs[0].AppOwnHost || !r.Repairs[0].Seen {
+	if r.Verdict != "refused" || r.Reason != "ownHostBreaks" || len(r.Repairs) == 0 || r.Repairs[0].Setting != "appOwnHost" || r.Repairs[0].On || !r.Repairs[0].Seen {
 		t.Errorf("verdict %q reason %q repairs %+v", r.Verdict, r.Reason, r.Repairs)
 	}
 }
@@ -355,5 +355,85 @@ func TestChecksAreBounded(t *testing.T) {
 	}
 	if !allowed("bounded", 1, now.Add(61*time.Second)) {
 		t.Error("still refused a minute later")
+	}
+}
+
+func TestAppThatRefusesTheVisitorsAddressIsOpenedWithout(t *testing.T) {
+	// as Home Assistant: an empty 400 to any X-Forwarded-For from a peer it does not trust, said in its log
+	s := withApp(t, "ghcr.io/home-assistant/home-assistant:stable", nil,
+		[]string{"2026-11-16 08:00:00.000 ERROR (MainThread) [homeassistant.components.http.forwarded] A request from a reverse proxy was received from 172.30.0.1, but your HTTP integration is not set-up for reverse proxies"},
+		[]utils.ProxyRouteConfig{urlTo("ha", "homeassistant.server.local", false)}, func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("X-Forwarded-For") != "" {
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte("400: Bad Request"))
+				return
+			}
+			http.Redirect(w, r, "/onboarding.html", http.StatusFound)
+		})
+	r := Check(context.Background(), "ha")
+	if r.Verdict != "refused" || r.Reason != "untrustedProxy" || !strings.Contains(r.Line, "reverse proxy") {
+		t.Fatalf("verdict %q reason %q line %q", r.Verdict, r.Reason, r.Line)
+	}
+	if r.Repairs[0].Setting != "noVisitorAddress" || !r.Repairs[0].On || !r.Repairs[0].Seen {
+		t.Errorf("repairs %+v", r.Repairs)
+	}
+	if s.count() != 3 {
+		t.Errorf("asked %d times, want 3 (at most)", s.count())
+	}
+	last := s.requests[2]
+	if last.Header.Get("X-Forwarded-For") != "" || last.Header.Get("X-Real-Ip") != "" {
+		t.Error("the third request still told the visitor's address")
+	}
+}
+
+func TestASignInThatWillFailIsSaidWithTheVariable(t *testing.T) {
+	// Paperless opens, but Django refuses the sign-in's Origin until it is told the addresses
+	handler := func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/accounts/login/?next=/", http.StatusFound) }
+	routes := []utils.ProxyRouteConfig{urlTo("paperless", "paperless.server.local", false), urlTo("paperless-ext", "paperless.example.org", false)}
+	withApp(t, "ghcr.io/paperless-ngx/paperless-ngx:latest", nil, nil, routes, handler)
+	r := Check(context.Background(), "paperless")
+	if r.Verdict != "warning" || r.Reason != "csrfOrigin" || len(r.Repairs) == 0 {
+		t.Fatalf("verdict %q reason %q repairs %+v", r.Verdict, r.Reason, r.Repairs)
+	}
+	e := r.Repairs[0]
+	if e.Kind != "env" || e.Name != "PAPERLESS_CSRF_TRUSTED_ORIGINS" || e.Value != "https://paperless.server.local:2053,https://paperless.example.org:2053" {
+		t.Errorf("repair %+v", e)
+	}
+	// told already, or told the scheme instead: nothing to say
+	for _, env := range []map[string]string{
+		{"PAPERLESS_CSRF_TRUSTED_ORIGINS": "https://paperless.server.local:2053,https://paperless.example.org:2053"},
+		{"PAPERLESS_PROXY_SSL_HEADER": `["HTTP_X_FORWARDED_PROTO","https"]`},
+	} {
+		withApp(t, "ghcr.io/paperless-ngx/paperless-ngx:latest", env, nil, routes, handler)
+		if r := Check(context.Background(), "paperless"); r.Verdict != "works" {
+			t.Errorf("with %v: %q %+v", env, r.Verdict, r.Repairs)
+		}
+	}
+}
+
+func TestCommandsAreWrittenForEachName(t *testing.T) {
+	withApp(t, "nextcloud:35", map[string]string{"OVERWRITEPROTOCOL": "https"}, nil,
+		[]utils.ProxyRouteConfig{urlTo("nc", "nextcloud.server.local", false), urlTo("nc-ext", "nextcloud.example.org", false)},
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("<html><title>Access through untrusted domain</title><body>Please contact your administrator.</body></html>"))
+		})
+	r := Check(context.Background(), "nc")
+	if r.Verdict != "refused" || r.Reason != "untrustedDomain" {
+		t.Fatalf("%q %q", r.Verdict, r.Reason)
+	}
+	var cmd *Repair
+	for i := range r.Repairs {
+		if r.Repairs[i].Kind == "command" {
+			cmd = &r.Repairs[i]
+		}
+		if r.Repairs[i].Kind == "route" {
+			t.Errorf("a URL setting was proposed for Nextcloud: %+v", r.Repairs[i])
+		}
+	}
+	if cmd == nil || cmd.User != "www-data" || len(cmd.Lines) != 2 ||
+		cmd.Lines[0] != "php occ config:system:set trusted_domains 10 --value=nextcloud.server.local" ||
+		cmd.Lines[1] != "php occ config:system:set trusted_domains 11 --value=nextcloud.example.org" {
+		t.Errorf("command %+v", cmd)
 	}
 }

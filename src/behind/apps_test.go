@@ -10,7 +10,7 @@ import (
 )
 
 var placeholder = regexp.MustCompile(`\{[a-z]+\}`)
-var knownPlaceholders = map[string]bool{"{url}": true, "{urls}": true, "{host}": true, "{hosts}": true, "{name}": true, "{names}": true, "{port}": true, "{proxy}": true}
+var knownPlaceholders = map[string]bool{"{mainurl}": true, "{each}": true, "{i}": true, "{url}": true, "{urls}": true, "{host}": true, "{hosts}": true, "{name}": true, "{names}": true, "{port}": true, "{proxy}": true}
 
 func TestEveryKnownAppIsSourcedAndConsistent(t *testing.T) {
 	if len(Apps()) < 15 {
@@ -44,7 +44,7 @@ func TestEveryKnownAppIsSourcedAndConsistent(t *testing.T) {
 		}
 		texts := []string{}
 		for _, e := range app.Env {
-			if !envName.MatchString(e.Name) || (e.When != "always" && e.When != "refused" && e.When != "ifSet") || e.Why == "" {
+			if !envName.MatchString(e.Name) || (e.When != "always" && e.When != "refused" && e.When != "ifSet" && e.When != "advice") || e.Why == "" {
 				t.Errorf("%s: variable %+v", app.ID, e)
 			}
 			if forbidden.MatchString(e.Name + "=" + e.Value) {
@@ -53,7 +53,7 @@ func TestEveryKnownAppIsSourcedAndConsistent(t *testing.T) {
 			texts = append(texts, e.Value, e.Contains)
 		}
 		for _, f := range app.File {
-			if f.Path == "" || len(f.Lines) == 0 || (f.When != "refused" && f.When != "advice") || f.Why == "" {
+			if (f.Path == "" && !f.Command) || len(f.Lines) == 0 || (f.When != "refused" && f.When != "advice") || f.Why == "" {
 				t.Errorf("%s: file %+v", app.ID, f)
 			}
 			for _, image := range f.Images {

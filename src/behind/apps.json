@@ -4,45 +4,121 @@
     {
       "id": "qbittorrent",
       "name": "qBittorrent",
-      "images": ["linuxserver/qbittorrent", "hotio/qbittorrent", "qbittorrentofficial/qbittorrent-nox"],
+      "images": [
+        "linuxserver/qbittorrent",
+        "hotio/qbittorrent",
+        "qbittorrentofficial/qbittorrent-nox"
+      ],
       "port": 8080,
-      "source": ["https://github.com/qbittorrent/qBittorrent/wiki/NGINX-Reverse-Proxy-for-Web-UI", "https://github.com/qbittorrent/qBittorrent/blob/release-5.3.0/src/webui/webapplication.cpp"],
+      "source": [
+        "https://github.com/qbittorrent/qBittorrent/wiki/NGINX-Reverse-Proxy-for-Web-UI",
+        "https://github.com/qbittorrent/qBittorrent/blob/release-5.3.0/src/webui/webapplication.cpp"
+      ],
       "checked": "2026-11-16",
       "version": "5.3.0 (linuxserver 5.3.0_v2.1.2-ls487, hotio release, qbittorrentofficial 5.3.0-2)",
       "appOwnHost": true,
       "signatures": [
-        { "reason": "hostPort", "status": [401], "body": "^Unauthorized$", "example": "Unauthorized" },
-        { "reason": "hostPort", "log": "WebUI: Invalid Host header", "example": "(W) 2026-11-16T07:29:43 - WebUI: Invalid Host header, port mismatch. Request source IP: '::ffff:172.30.0.1'. Server port: '8080'. Received Host header: 'qbittorrent.server.local:2053'" }
+        {
+          "reason": "hostPort",
+          "status": [
+            401
+          ],
+          "body": "^Unauthorized$",
+          "example": "Unauthorized"
+        },
+        {
+          "reason": "hostPort",
+          "log": "WebUI: Invalid Host header",
+          "example": "(W) 2026-11-16T07:29:43 - WebUI: Invalid Host header, port mismatch. Request source IP: '::ffff:172.30.0.1'. Server port: '8080'. Received Host header: 'qbittorrent.server.local:2053'"
+        }
       ],
       "file": [
-        { "path": "/config/qBittorrent/qBittorrent.conf", "images": ["linuxserver/qbittorrent"], "section": "[WebUI]", "lines": ["ReverseProxySupportEnabled=true", "TrustedReverseProxiesList={proxy}"], "when": "advice", "why": "visitorAddressQbt" },
-        { "path": "/config/config/qBittorrent.conf", "images": ["hotio/qbittorrent"], "section": "[WebUI]", "lines": ["ReverseProxySupportEnabled=true", "TrustedReverseProxiesList={proxy}"], "when": "advice", "why": "visitorAddressQbt" },
-        { "path": "/config/qBittorrent/config/qBittorrent.conf", "images": ["qbittorrentofficial/qbittorrent-nox"], "section": "[WebUI]", "lines": ["ReverseProxySupportEnabled=true", "TrustedReverseProxiesList={proxy}"], "when": "advice", "why": "visitorAddressQbt" }
+        {
+          "path": "/config/qBittorrent/qBittorrent.conf",
+          "images": [
+            "linuxserver/qbittorrent"
+          ],
+          "section": "[WebUI]",
+          "lines": [
+            "ReverseProxySupportEnabled=true",
+            "TrustedReverseProxiesList={proxy}"
+          ],
+          "when": "advice",
+          "why": "visitorAddressQbt"
+        },
+        {
+          "path": "/config/config/qBittorrent.conf",
+          "images": [
+            "hotio/qbittorrent"
+          ],
+          "section": "[WebUI]",
+          "lines": [
+            "ReverseProxySupportEnabled=true",
+            "TrustedReverseProxiesList={proxy}"
+          ],
+          "when": "advice",
+          "why": "visitorAddressQbt"
+        },
+        {
+          "path": "/config/qBittorrent/config/qBittorrent.conf",
+          "images": [
+            "qbittorrentofficial/qbittorrent-nox"
+          ],
+          "section": "[WebUI]",
+          "lines": [
+            "ReverseProxySupportEnabled=true",
+            "TrustedReverseProxiesList={proxy}"
+          ],
+          "when": "advice",
+          "why": "visitorAddressQbt"
+        }
       ]
     },
     {
       "id": "transmission",
       "name": "Transmission",
-      "images": ["linuxserver/transmission"],
+      "images": [
+        "linuxserver/transmission"
+      ],
       "port": 9091,
-      "source": ["https://github.com/transmission/transmission/blob/main/docs/Editing-Configuration-Files.md", "https://docs.linuxserver.io/images/docker-transmission/"],
+      "source": [
+        "https://github.com/transmission/transmission/blob/main/docs/Editing-Configuration-Files.md",
+        "https://docs.linuxserver.io/images/docker-transmission/"
+      ],
       "checked": "2026-11-16",
       "version": "4.1.4 (linuxserver 4.1.4-r0-ls369)",
       "noOwnHost": true,
       "works": true,
       "env": [
-        { "name": "HOST_WHITELIST", "value": "{names}", "contains": "{name}", "when": "ifSet", "why": "hostWhitelist" }
+        {
+          "name": "HOST_WHITELIST",
+          "value": "{names}",
+          "contains": "{name}",
+          "when": "ifSet",
+          "why": "hostWhitelist"
+        }
       ],
       "signatures": [
-        { "reason": "hostNotAllowed", "status": [421], "body": "hostname was unrecognized", "example": "421: Misdirected Request Transmission received your request, but the hostname was unrecognized." }
+        {
+          "reason": "hostNotAllowed",
+          "status": [
+            421
+          ],
+          "body": "hostname was unrecognized",
+          "example": "421: Misdirected Request Transmission received your request, but the hostname was unrecognized."
+        }
       ]
     },
     {
       "id": "deluge",
       "name": "Deluge",
-      "images": ["linuxserver/deluge"],
+      "images": [
+        "linuxserver/deluge"
+      ],
       "port": 8112,
-      "source": ["https://deluge.readthedocs.io/en/latest/how-to/nginx-webui-reverse-proxy.html"],
+      "source": [
+        "https://deluge.readthedocs.io/en/latest/how-to/nginx-webui-reverse-proxy.html"
+      ],
       "checked": "2026-11-16",
       "version": "2.2.0 (linuxserver 2.2.0-ls387)",
       "works": true
@@ -50,57 +126,138 @@
     {
       "id": "sonarr",
       "name": "Sonarr",
-      "images": ["linuxserver/sonarr", "hotio/sonarr"],
+      "images": [
+        "linuxserver/sonarr",
+        "hotio/sonarr"
+      ],
       "port": 8989,
-      "source": ["https://wiki.servarr.com/sonarr/settings", "https://github.com/Sonarr/Sonarr/blob/main/src/NzbDrone.Host/Startup.cs"],
+      "source": [
+        "https://wiki.servarr.com/sonarr/settings",
+        "https://github.com/Sonarr/Sonarr/blob/main/src/NzbDrone.Host/Startup.cs"
+      ],
       "checked": "2026-11-16",
       "version": "4.0.20 (linuxserver)",
       "noOwnHost": true,
       "works": true,
       "signatures": [
-        { "reason": "hostNotAllowed", "status": [400], "body": "Invalid Hostname", "example": "Bad Request - Invalid Hostname HTTP Error 400. The request hostname is invalid." }
+        {
+          "reason": "hostNotAllowed",
+          "status": [
+            400
+          ],
+          "body": "Invalid Hostname",
+          "example": "Bad Request - Invalid Hostname HTTP Error 400. The request hostname is invalid."
+        }
       ],
       "file": [
-        { "path": "/config/config.xml", "section": "<Config>", "lines": ["<TrustedNetworks>{proxy}/32</TrustedNetworks>"], "when": "advice", "why": "visitorAddressArr" }
+        {
+          "path": "/config/config.xml",
+          "section": "<Config>",
+          "lines": [
+            "<TrustedNetworks>{proxy}/32</TrustedNetworks>"
+          ],
+          "when": "advice",
+          "why": "visitorAddressArr"
+        }
       ]
     },
     {
       "id": "radarr",
       "name": "Radarr",
-      "images": ["linuxserver/radarr", "hotio/radarr"],
+      "images": [
+        "linuxserver/radarr",
+        "hotio/radarr"
+      ],
       "port": 7878,
-      "source": ["https://wiki.servarr.com/radarr/settings", "https://github.com/Radarr/Radarr/blob/develop/src/NzbDrone.Host/Startup.cs"],
+      "source": [
+        "https://wiki.servarr.com/radarr/settings",
+        "https://github.com/Radarr/Radarr/blob/develop/src/NzbDrone.Host/Startup.cs"
+      ],
       "checked": "2026-11-16",
       "version": "7.0.3 (linuxserver)",
       "noOwnHost": true,
       "works": true,
       "signatures": [
-        { "reason": "hostNotAllowed", "status": [400], "body": "Invalid Hostname", "example": "Bad Request - Invalid Hostname HTTP Error 400. The request hostname is invalid." }
+        {
+          "reason": "hostNotAllowed",
+          "status": [
+            400
+          ],
+          "body": "Invalid Hostname",
+          "example": "Bad Request - Invalid Hostname HTTP Error 400. The request hostname is invalid."
+        }
       ],
       "file": [
-        { "path": "/config/config.xml", "section": "<Config>", "lines": ["<TrustedNetworks>{proxy}/32</TrustedNetworks>"], "when": "advice", "why": "visitorAddressArr" }
+        {
+          "path": "/config/config.xml",
+          "section": "<Config>",
+          "lines": [
+            "<TrustedNetworks>{proxy}/32</TrustedNetworks>"
+          ],
+          "when": "advice",
+          "why": "visitorAddressArr"
+        }
       ]
     },
     {
       "id": "jellyfin",
       "name": "Jellyfin",
-      "images": ["linuxserver/jellyfin", "jellyfin/jellyfin", "hotio/jellyfin"],
+      "images": [
+        "linuxserver/jellyfin",
+        "jellyfin/jellyfin",
+        "hotio/jellyfin"
+      ],
       "port": 8096,
-      "source": ["https://jellyfin.org/docs/general/post-install/networking/reverse-proxy/", "https://jellyfin.org/docs/general/post-install/networking/"],
+      "source": [
+        "https://jellyfin.org/docs/general/post-install/networking/reverse-proxy/",
+        "https://jellyfin.org/docs/general/post-install/networking/"
+      ],
       "checked": "2026-11-16",
       "version": "10.11 (linuxserver 12.4.0)",
       "works": true,
       "file": [
-        { "path": "/config/network.xml", "images": ["linuxserver/jellyfin"], "section": "<NetworkConfiguration>", "lines": ["<KnownProxies>", "  <string>{proxy}</string>", "</KnownProxies>"], "when": "advice", "why": "visitorAddressJellyfin" },
-        { "path": "/config/config/network.xml", "images": ["jellyfin/jellyfin", "hotio/jellyfin"], "section": "<NetworkConfiguration>", "lines": ["<KnownProxies>", "  <string>{proxy}</string>", "</KnownProxies>"], "when": "advice", "why": "visitorAddressJellyfin" }
+        {
+          "path": "/config/network.xml",
+          "images": [
+            "linuxserver/jellyfin"
+          ],
+          "section": "<NetworkConfiguration>",
+          "lines": [
+            "<KnownProxies>",
+            "  <string>{proxy}</string>",
+            "</KnownProxies>"
+          ],
+          "when": "advice",
+          "why": "visitorAddressJellyfin"
+        },
+        {
+          "path": "/config/config/network.xml",
+          "images": [
+            "jellyfin/jellyfin",
+            "hotio/jellyfin"
+          ],
+          "section": "<NetworkConfiguration>",
+          "lines": [
+            "<KnownProxies>",
+            "  <string>{proxy}</string>",
+            "</KnownProxies>"
+          ],
+          "when": "advice",
+          "why": "visitorAddressJellyfin"
+        }
       ]
     },
     {
       "id": "emby",
       "name": "Emby",
-      "images": ["linuxserver/emby", "emby/embyserver"],
+      "images": [
+        "linuxserver/emby",
+        "emby/embyserver"
+      ],
       "port": 8096,
-      "source": ["https://emby.media/support/articles/Reverse-Proxy.html"],
+      "source": [
+        "https://emby.media/support/articles/Reverse-Proxy.html"
+      ],
       "checked": "2026-11-16",
       "version": "4.10.2.0 (linuxserver)",
       "works": true
@@ -108,9 +265,15 @@
     {
       "id": "codeserver",
       "name": "code-server",
-      "images": ["codercom/code-server", "linuxserver/code-server"],
+      "images": [
+        "codercom/code-server",
+        "linuxserver/code-server"
+      ],
       "port": 8080,
-      "source": ["https://coder.com/docs/code-server/guide#using-a-reverse-proxy", "https://github.com/coder/code-server/blob/main/src/node/http.ts"],
+      "source": [
+        "https://coder.com/docs/code-server/guide#using-a-reverse-proxy",
+        "https://github.com/coder/code-server/blob/main/src/node/http.ts"
+      ],
       "checked": "2026-11-16",
       "version": "4.145.2",
       "works": true
@@ -118,9 +281,15 @@
     {
       "id": "portainer",
       "name": "Portainer",
-      "images": ["portainer/portainer-ce", "portainer/portainer-ee"],
+      "images": [
+        "portainer/portainer-ce",
+        "portainer/portainer-ee"
+      ],
       "port": 9000,
-      "source": ["https://docs.portainer.io/advanced/reverse-proxy", "https://docs.portainer.io/advanced/cli"],
+      "source": [
+        "https://docs.portainer.io/advanced/reverse-proxy",
+        "https://docs.portainer.io/advanced/cli"
+      ],
       "checked": "2026-11-16",
       "version": "2.45.3",
       "noOwnHost": true,
@@ -129,9 +298,13 @@
     {
       "id": "uptimekuma",
       "name": "Uptime Kuma",
-      "images": ["louislam/uptime-kuma"],
+      "images": [
+        "louislam/uptime-kuma"
+      ],
       "port": 3001,
-      "source": ["https://github.com/louislam/uptime-kuma/wiki/Reverse-Proxy"],
+      "source": [
+        "https://github.com/louislam/uptime-kuma/wiki/Reverse-Proxy"
+      ],
       "checked": "2026-11-16",
       "version": "1.23.17 and 2.5.11",
       "noOwnHost": true,
@@ -140,9 +313,14 @@
     {
       "id": "syncthing",
       "name": "Syncthing",
-      "images": ["syncthing/syncthing", "linuxserver/syncthing"],
+      "images": [
+        "syncthing/syncthing",
+        "linuxserver/syncthing"
+      ],
       "port": 8384,
-      "source": ["https://docs.syncthing.net/users/reverseproxy.html"],
+      "source": [
+        "https://docs.syncthing.net/users/reverseproxy.html"
+      ],
       "checked": "2026-11-16",
       "version": "2.1.7",
       "works": true
@@ -150,9 +328,13 @@
     {
       "id": "pihole",
       "name": "Pi-hole",
-      "images": ["pihole/pihole"],
+      "images": [
+        "pihole/pihole"
+      ],
       "port": 80,
-      "source": ["https://docs.pi-hole.net/docker/"],
+      "source": [
+        "https://docs.pi-hole.net/docker/"
+      ],
       "checked": "2026-11-16",
       "version": "6.6",
       "works": true
@@ -160,9 +342,13 @@
     {
       "id": "adguard",
       "name": "AdGuard Home",
-      "images": ["adguard/adguardhome"],
+      "images": [
+        "adguard/adguardhome"
+      ],
       "port": 3000,
-      "source": ["https://github.com/AdguardTeam/AdGuardHome/wiki/Configuration"],
+      "source": [
+        "https://github.com/AdguardTeam/AdGuardHome/wiki/Configuration"
+      ],
       "checked": "2026-11-16",
       "version": "0.107.80",
       "works": true
@@ -172,15 +358,30 @@
       "name": "Vite dev server",
       "images": [],
       "port": 5173,
-      "source": ["https://vite.dev/config/server-options#server-allowedhosts"],
+      "source": [
+        "https://vite.dev/config/server-options#server-allowedhosts"
+      ],
       "checked": "2026-11-16",
       "version": "8.3.8",
       "noOwnHost": true,
       "env": [
-        { "name": "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS", "value": "{names}", "contains": "{name}", "when": "refused", "why": "viteAllowedHosts" }
+        {
+          "name": "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS",
+          "value": "{names}",
+          "contains": "{name}",
+          "when": "refused",
+          "why": "viteAllowedHosts"
+        }
       ],
       "signatures": [
-        { "reason": "hostNotAllowed", "status": [403], "body": "Blocked request\\. This host", "example": "Blocked request. This host (\"vite.server.local\") is not allowed. To allow this host, add \"vite.server.local\" to `server.allowedHosts` in vite.config.js." }
+        {
+          "reason": "hostNotAllowed",
+          "status": [
+            403
+          ],
+          "body": "Blocked request\\. This host",
+          "example": "Blocked request. This host (\"vite.server.local\") is not allowed. To allow this host, add \"vite.server.local\" to `server.allowedHosts` in vite.config.js."
+        }
       ]
     },
     {
@@ -188,23 +389,46 @@
       "name": "webpack dev server",
       "images": [],
       "port": 8080,
-      "source": ["https://webpack.js.org/configuration/dev-server/#devserverallowedhosts"],
+      "source": [
+        "https://webpack.js.org/configuration/dev-server/#devserverallowedhosts"
+      ],
       "checked": "2026-11-16",
       "version": "6.1.0",
       "noOwnHost": true,
       "signatures": [
-        { "reason": "hostNotAllowed", "status": [403], "body": "^Invalid Host header$", "example": "Invalid Host header" }
+        {
+          "reason": "hostNotAllowed",
+          "status": [
+            403
+          ],
+          "body": "^Invalid Host header$",
+          "example": "Invalid Host header"
+        }
       ],
       "file": [
-        { "path": "webpack.config.js", "section": "devServer", "lines": ["allowedHosts: [{names}],"], "when": "refused", "why": "webpackAllowedHosts" }
+        {
+          "path": "webpack.config.js",
+          "section": "devServer",
+          "lines": [
+            "allowedHosts: [{names}],"
+          ],
+          "when": "refused",
+          "why": "webpackAllowedHosts"
+        }
       ]
     },
     {
       "id": "phpmyadmin",
       "name": "phpMyAdmin",
-      "images": ["phpmyadmin", "phpmyadmin/phpmyadmin", "linuxserver/phpmyadmin"],
+      "images": [
+        "phpmyadmin",
+        "phpmyadmin/phpmyadmin",
+        "linuxserver/phpmyadmin"
+      ],
       "port": 80,
-      "source": ["https://docs.phpmyadmin.net/en/latest/setup.html#docker-environment-variables"],
+      "source": [
+        "https://docs.phpmyadmin.net/en/latest/setup.html#docker-environment-variables"
+      ],
       "checked": "2026-11-16",
       "version": "5.2.3",
       "works": true
@@ -212,9 +436,13 @@
     {
       "id": "adminer",
       "name": "Adminer",
-      "images": ["adminer"],
+      "images": [
+        "adminer"
+      ],
       "port": 8080,
-      "source": ["https://hub.docker.com/_/adminer"],
+      "source": [
+        "https://hub.docker.com/_/adminer"
+      ],
       "checked": "2026-11-16",
       "version": "6.3.0",
       "works": true
@@ -222,12 +450,244 @@
     {
       "id": "pgadmin",
       "name": "pgAdmin 4",
-      "images": ["dpage/pgadmin4"],
+      "images": [
+        "dpage/pgadmin4"
+      ],
       "port": 80,
-      "source": ["https://www.pgadmin.org/docs/pgadmin4/latest/container_deployment.html#reverse-proxying"],
+      "source": [
+        "https://www.pgadmin.org/docs/pgadmin4/latest/container_deployment.html#reverse-proxying"
+      ],
       "checked": "2026-11-16",
       "version": "9.19",
       "works": true
+    },
+    {
+      "id": "homeassistant",
+      "name": "Home Assistant",
+      "images": [
+        "home-assistant/home-assistant",
+        "homeassistant/home-assistant",
+        "linuxserver/homeassistant"
+      ],
+      "port": 8123,
+      "source": [
+        "https://www.home-assistant.io/integrations/http/",
+        "https://github.com/home-assistant/core/blob/dev/homeassistant/components/http/forwarded.py"
+      ],
+      "checked": "2026-11-16",
+      "version": "2026.11.1",
+      "signatures": [
+        {
+          "reason": "untrustedProxy",
+          "status": [
+            400
+          ],
+          "log": "request from a reverse proxy was received from",
+          "example": "ERROR (MainThread) [homeassistant.components.http.forwarded] A request from a reverse proxy was received from 172.30.0.1, but your HTTP integration is not set-up for reverse proxies"
+        },
+        {
+          "reason": "untrustedProxy",
+          "status": [
+            400
+          ],
+          "log": "Received X-Forwarded-For header from an untrusted proxy",
+          "example": "Received X-Forwarded-For header from an untrusted proxy 172.30.0.1"
+        }
+      ],
+      "notes": [
+        "haTrustProxy"
+      ]
+    },
+    {
+      "id": "nextcloud",
+      "name": "Nextcloud",
+      "images": [
+        "nextcloud",
+        "linuxserver/nextcloud"
+      ],
+      "port": 80,
+      "source": [
+        "https://docs.nextcloud.com/server/latest/admin_manual/configuration_server/reverse_proxy_configuration.html",
+        "https://docs.nextcloud.com/server/latest/admin_manual/installation/installation_wizard.html#trusted-domains",
+        "https://github.com/nextcloud/docker#auto-configuration-via-environment-variables"
+      ],
+      "checked": "2026-11-16",
+      "version": "35.0.3 (nextcloud, Apache)",
+      "noOwnHost": true,
+      "env": [
+        {
+          "name": "OVERWRITEPROTOCOL",
+          "value": "https",
+          "contains": "https",
+          "when": "always",
+          "why": "httpLinks",
+          "unless": [
+            "TRUSTED_PROXIES"
+          ]
+        },
+        {
+          "name": "OVERWRITECLIURL",
+          "value": "{mainurl}",
+          "when": "advice",
+          "why": "mainUrl"
+        }
+      ],
+      "signatures": [
+        {
+          "reason": "untrustedDomain",
+          "status": [
+            400
+          ],
+          "body": "Access through untrusted domain",
+          "example": "Access through untrusted domain Please contact your administrator. If you are an administrator, edit the \"trusted_domains\" setting in config/config.php like the example in config.sample.php."
+        }
+      ],
+      "file": [
+        {
+          "path": "",
+          "command": true,
+          "user": "www-data",
+          "from": 10,
+          "lines": [
+            "php occ config:system:set trusted_domains {i} --value={each}"
+          ],
+          "when": "refused",
+          "why": "trustedDomains"
+        }
+      ]
+    },
+    {
+      "id": "paperless",
+      "name": "Paperless-ngx",
+      "images": [
+        "paperless-ngx/paperless-ngx"
+      ],
+      "port": 8000,
+      "source": [
+        "https://docs.paperless-ngx.com/configuration/#hosting-security",
+        "https://docs.djangoproject.com/en/5.2/ref/csrf/#how-it-works"
+      ],
+      "checked": "2026-11-16",
+      "version": "latest (Django 5.2.18)",
+      "noOwnHost": true,
+      "env": [
+        {
+          "name": "PAPERLESS_CSRF_TRUSTED_ORIGINS",
+          "value": "{urls}",
+          "contains": "{url}",
+          "when": "always",
+          "why": "csrfOrigin",
+          "unless": [
+            "PAPERLESS_PROXY_SSL_HEADER"
+          ]
+        }
+      ],
+      "signatures": [
+        {
+          "reason": "csrfOrigin",
+          "status": [
+            403
+          ],
+          "body": "CSRF verification failed",
+          "example": "403 Forbidden CSRF verification failed. Request aborted."
+        }
+      ]
+    },
+    {
+      "id": "vaultwarden",
+      "name": "Vaultwarden",
+      "images": [
+        "vaultwarden/server"
+      ],
+      "port": 80,
+      "source": [
+        "https://github.com/dani-garcia/vaultwarden/wiki/Proxy-examples",
+        "https://github.com/dani-garcia/vaultwarden/blob/main/.env.template"
+      ],
+      "checked": "2026-11-16",
+      "version": "1.37.5",
+      "works": true,
+      "env": [
+        {
+          "name": "DOMAIN",
+          "value": "{mainurl}",
+          "when": "advice",
+          "why": "vaultwardenDomain"
+        }
+      ]
+    },
+    {
+      "id": "gitea",
+      "name": "Gitea",
+      "images": [
+        "gitea/gitea"
+      ],
+      "port": 3000,
+      "source": [
+        "https://docs.gitea.com/administration/reverse-proxies",
+        "https://docs.gitea.com/administration/config-cheat-sheet#server-server"
+      ],
+      "checked": "2026-11-16",
+      "version": "1.26 (28.4.0 image)",
+      "noOwnHost": true,
+      "works": true,
+      "env": [
+        {
+          "name": "GITEA__server__ROOT_URL",
+          "value": "{mainurl}/",
+          "when": "advice",
+          "why": "mainUrl"
+        }
+      ]
+    },
+    {
+      "id": "forgejo",
+      "name": "Forgejo",
+      "images": [
+        "forgejo/forgejo"
+      ],
+      "port": 3000,
+      "source": [
+        "https://forgejo.org/docs/latest/admin/reverse-proxy/",
+        "https://forgejo.org/docs/latest/admin/config-cheat-sheet/#server-server"
+      ],
+      "checked": "2026-11-16",
+      "version": "11.0.16",
+      "noOwnHost": true,
+      "env": [
+        {
+          "name": "FORGEJO__server__ROOT_URL",
+          "value": "{mainurl}/",
+          "when": "always",
+          "why": "rootUrl"
+        }
+      ]
+    },
+    {
+      "id": "grafana",
+      "name": "Grafana",
+      "images": [
+        "grafana/grafana",
+        "grafana/grafana-oss",
+        "grafana/grafana-enterprise"
+      ],
+      "port": 3000,
+      "source": [
+        "https://grafana.com/tutorials/run-grafana-behind-a-proxy/",
+        "https://grafana.com/docs/grafana/latest/setup-grafana/configure-grafana/#root_url"
+      ],
+      "checked": "2026-11-16",
+      "version": "13.3.1",
+      "noOwnHost": true,
+      "works": true,
+      "env": [
+        {
+          "name": "GF_SERVER_ROOT_URL",
+          "value": "{mainurl}/",
+          "when": "advice",
+          "why": "mainUrl"
+        }
+      ]
     }
   ]
 }

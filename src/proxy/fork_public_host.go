@@ -25,6 +25,13 @@ package proxy
 //     comes from the URL's target, never from the request, so a visitor
 //     cannot reach another virtual host of the same backend with it.
 //
+// With ForkNoVisitorAddress the app is not told the visitor's address at all
+// (no X-Forwarded-For, X-Real-IP or Cloudflare's headers): for an app that
+// refuses a proxy it does not trust until it is configured (Home Assistant
+// answers 400 to any X-Forwarded-For from an untrusted peer), so that its own
+// settings page can be reached to trust Cosmos. The app then sees every
+// visitor as Cosmos.
+//
 // Upstream's own options keep their meaning: OverwriteHostHeader (also used
 // by the tunnels) and SpoofHostname, which runs after this and removes
 // X-Forwarded-Host and -Port as before. Port routes (":8080") answer every
@@ -183,13 +190,15 @@ type AppHeaders struct {
 	ForwardedHost  string
 	ForwardedPort  string
 	ForwardedProto string
+	// NoVisitorAddress: no X-Forwarded-For nor X-Real-IP
+	NoVisitorAddress bool
 }
 
 // AppHeadersFor is what a route tells its app, for the check of
 // src/behind as for the proxy: public is where the visitor arrived, dialled
 // the address Cosmos connects to.
 func AppHeadersFor(route utils.ProxyRouteConfig, public PublicAddress, scheme, dialled, targetScheme string) AppHeaders {
-	out := AppHeaders{Host: public.Host, ForwardedHost: public.Host, ForwardedPort: public.Port, ForwardedProto: scheme}
+	out := AppHeaders{Host: public.Host, ForwardedHost: public.Host, ForwardedPort: public.Port, ForwardedProto: scheme, NoVisitorAddress: route.ForkNoVisitorAddress}
 	if route.ForkAppOwnHost && dialled != "" {
 		out.Host = ownHost(dialled, targetScheme)
 	}
@@ -224,6 +233,13 @@ func PublicAddressFor(route utils.ProxyRouteConfig) (PublicAddress, string, bool
 // forkPublicHeaders is the Director's hook (routeTo.go), after upstream set
 // its X-Forwarded-* and before SpoofHostname and the route's extra headers.
 func forkPublicHeaders(req *http.Request, route utils.ProxyRouteConfig, scheme string, target string) {
+	if route.ForkNoVisitorAddress {
+		// a nil value keeps the reverse proxy from adding X-Forwarded-For itself
+		req.Header["X-Forwarded-For"] = nil
+		for _, h := range []string{"X-Real-Ip", "Cf-Connecting-Ip", "Cf-Connecting-Ipv6", "True-Client-Ip"} {
+			req.Header.Del(h)
+		}
+	}
 	public, ok := publicAddressOf(route, req.Host, localPortOf(req), scheme)
 	if !ok {
 		return

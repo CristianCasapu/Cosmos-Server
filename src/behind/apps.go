@@ -37,9 +37,12 @@ type EnvNeed struct {
 	// Contains: the variable must contain this (filled in the same way) for the app to work; empty: it only has to be set
 	Contains string `json:"contains,omitempty"`
 	// When: "always" (the app fails without it: sign-in, links), "refused" (proposed only when the app refuses),
+	// "advice" (works without it; links or features need it),
 	// "ifSet" (only when the container has the variable and it does not contain what it must)
 	When string `json:"when"`
 	Why  string `json:"why"`
+	// Unless: the need is met when one of these variables is set (another documented way)
+	Unless []string `json:"unless,omitempty"`
 }
 
 // FileNeed is a line of the app's own configuration file.
@@ -51,6 +54,11 @@ type FileNeed struct {
 	// Images: only for these images (the file is elsewhere in others), empty: all of the app's
 	Images []string `json:"images,omitempty"`
 	When   string   `json:"when"` // "refused" or "advice"
+	// Command: the lines are commands to run in the container (as User), not lines of a file;
+	// a line with {each} is repeated for each name of the app's URLs, {i} counting from From
+	Command bool   `json:"command,omitempty"`
+	User    string `json:"user,omitempty"`
+	From    int    `json:"from,omitempty"`
 	Why   string   `json:"why"`
 }
 
@@ -158,7 +166,7 @@ func AppFor(image string) *App {
 func fill(text string, f fillFacts) string {
 	return strings.NewReplacer(
 		"{url}", f.url, "{urls}", strings.Join(f.urls, ","), "{host}", f.host, "{hosts}", strings.Join(f.hosts, ","),
-		"{name}", f.name, "{names}", strings.Join(f.names, ","), "{port}", f.port, "{proxy}", f.proxy,
+		"{name}", f.name, "{names}", strings.Join(f.names, ","), "{port}", f.port, "{proxy}", f.proxy, "{mainurl}", f.mainURL(),
 	).Replace(text)
 }
 
@@ -166,4 +174,15 @@ type fillFacts struct {
 	url, host, name, port, proxy string
 	image                        string
 	urls, hosts, names          []string
+}
+
+// mainURL is the address to give an app that takes one: the first public one
+// that is not a name of the local network, else the URL's own.
+func (f fillFacts) mainURL() string {
+	for _, u := range f.urls {
+		if !strings.Contains(u, ".local:") && !strings.HasSuffix(u, ".local") {
+			return u
+		}
+	}
+	return f.url
 }

@@ -264,3 +264,15 @@ func TestRedirectThroughTheProxy(t *testing.T) {
 		t.Errorf("the visitor was sent to %s", got)
 	}
 }
+
+func TestNoVisitorAddressTellsTheAppNothingAboutTheVisitor(t *testing.T) {
+	onServer(t, nil)
+	route := utils.ProxyRouteConfig{Name: "ha", UseHost: true, Host: "homeassistant.server.local", ForkNoVisitorAddress: true}
+	got, _ := asApp(t, route, "homeassistant.server.local:2053", "2053", map[string]string{"X-Forwarded-For": "203.0.113.7", "X-Real-IP": "203.0.113.7"})
+	for _, h := range []string{"X-Forwarded-For", "X-Real-Ip", "Cf-Connecting-Ip", "True-Client-Ip", "Http_x_forwarded_for", "Http_x_real_ip"} {
+		if v := got.header.Values(h); len(v) > 0 {
+			t.Errorf("the app was told %s = %q", h, v)
+		}
+	}
+	expectApp(t, got, "homeassistant.server.local:2053", "homeassistant.server.local:2053", "2053", "https")
+}
