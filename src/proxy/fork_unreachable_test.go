@@ -93,7 +93,9 @@ func TestAStrangerSeesNoDetails(t *testing.T) {
 	bareMetal(t)
 	countLogs(t)
 	details(t, false)
-	stubTarget(t, func(string) (string, docker.TargetState, error) { return "", docker.TargetRestarting, docker.ErrTargetDown })
+	stubTarget(t, func(string) (string, docker.TargetState, error) {
+		return "", docker.TargetRestarting, docker.ErrTargetDown
+	})
 	h := forkTargetGuard(utils.ProxyRouteConfig{Name: "secret-db-url", Mode: "SERVAPP", Target: "http://internal-billing-db:5432"})(http.NotFoundHandler())
 	for _, accept := range []string{"text/html", "*/*"} {
 		req := httptest.NewRequest("GET", "http://x.example.org/", nil)
@@ -111,7 +113,9 @@ func TestAStrangerSeesNoDetails(t *testing.T) {
 func TestGuardLogsOncePerURLAndMinute(t *testing.T) {
 	bareMetal(t)
 	logs := countLogs(t)
-	stubTarget(t, func(string) (string, docker.TargetState, error) { return "", docker.TargetRestarting, docker.ErrTargetDown })
+	stubTarget(t, func(string) (string, docker.TargetState, error) {
+		return "", docker.TargetRestarting, docker.ErrTargetDown
+	})
 	h := forkTargetGuard(utils.ProxyRouteConfig{Name: "pg", Mode: "SERVAPP", Target: "http://postgresql:5432"})(http.NotFoundHandler())
 	for i := 0; i < 1000; i++ {
 		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "http://pg.local/", nil))
@@ -125,7 +129,9 @@ func TestGuardLogsOncePerURLAndMinute(t *testing.T) {
 // fails without dialing (upstream gave ":8080": this server itself).
 func TestDirectorNeverDialsAnEmptyAddress(t *testing.T) {
 	bareMetal(t)
-	stubTarget(t, func(string) (string, docker.TargetState, error) { return "", docker.TargetRestarting, docker.ErrTargetDown })
+	stubTarget(t, func(string) (string, docker.TargetState, error) {
+		return "", docker.TargetRestarting, docker.ErrTargetDown
+	})
 	proxy, err := NewProxy("http://web:8080", false, false, utils.ProxyRouteConfig{Name: "web", Mode: "SERVAPP", Target: "http://web:8080"})
 	if err != nil {
 		t.Fatal(err)
