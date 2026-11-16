@@ -15,6 +15,9 @@ import * as API from '../api';
 import { applyPlaces, dataVolumes, finalPlace, placeOf, proposeDefaults, proposePlaces, reviewSentences, sizeText, text as placeText } from '../utils/dataPlaces';
 import { text as noteText } from '../utils/composeImport';
 import { sentence as sensitiveSentence } from '../utils/sensitiveAccess';
+import { proposeSignIn } from '../utils/signIn'; // plan 45
+import { browserRandom } from '../utils/anyImage'; // plan 45
+import SignInReview from './signInReview'; // plan 45
 
 const useSay = () => {
   const { t } = useTranslation();
@@ -82,7 +85,7 @@ const PlaceLine = ({ volume, choice, proposal, plan, onChoose, busy }) => {
 // `sensitive`: sensitiveAccess(definition); `confirmed`/`onConfirm`: the
 // ticks; `choices`/`onChoices`: where the data goes; `anyArch`/`onAnyArch`.
 const CreationReview = ({
-  definition, base, plan, notes, proposed, frozen, sensitive, confirmed, onConfirm, choices, onChoices, anyArch, onAnyArch, busy, edit,
+  definition, base, plan, notes, proposed, frozen, sensitive, confirmed, onConfirm, choices, onChoices, anyArch, onAnyArch, busy, edit, signIn, signInMail,
 }) => {
   const { t } = useTranslation();
   const say = useSay();
@@ -112,6 +115,8 @@ const CreationReview = ({
         </Collapse>
       </>}
     </Stack>}
+
+    {!edit && <SignInReview lines={signIn} mail={signInMail} />}
 
     {!edit && volumes.length > 0 && <Stack spacing={1} sx={{ minWidth: 0 }}>
       <Typography variant="subtitle1">{t('mgmt.servapps.creation.dataTitle', 'Where the data goes')}</Typography>
@@ -199,7 +204,22 @@ export const useCreation = (service, { edit, frozen } = {}) => {
     return () => { live = false; };
   }, [imagesKey]);
 
-  const defaults = React.useMemo(() => (edit ? { definition: service, proposed: [] } : proposeDefaults(service, plan)), [service, plan, edit]);
+  // plan 45: the sign-in of every door, filled where empty, once the plan says what each image takes
+  const [signInDefaults, setSignInDefaults] = React.useState(null);
+  const signInCache = React.useRef(new Map());
+  React.useEffect(() => {
+    if (edit || !API.signIn) return undefined;
+    let live = true;
+    API.signIn.defaults().then((res) => { if (live && res && res.data) setSignInDefaults(res.data); }).catch(() => {});
+    return () => { live = false; };
+  }, [edit]);
+  const defaults = React.useMemo(() => {
+    if (edit) return { definition: service, proposed: [], signIn: [] };
+    const base = proposeDefaults(service, plan);
+    if (!plan) return { ...base, signIn: [] };
+    const signed = proposeSignIn(base.definition, plan, signInDefaults, signInCache.current, browserRandom);
+    return { definition: signed.definition, proposed: [...base.proposed, ...signed.proposed], signIn: signed.lines };
+  }, [service, plan, edit, signInDefaults]);
   const volumes = React.useMemo(() => dataVolumes(defaults.definition, frozen || []), [defaults, frozen]);
   const proposals = React.useMemo(() => (plan && !edit ? proposePlaces(volumes, plan, null) : {}), [volumes, plan, edit]);
   const choices = React.useMemo(() => {
@@ -212,5 +232,5 @@ export const useCreation = (service, { edit, frozen } = {}) => {
   }, [volumes, proposals, picked]);
   const final = React.useMemo(() => (edit ? service : applyPlaces(defaults.definition, volumes, choices)), [defaults, volumes, choices, edit, service]);
 
-  return { plan, final, base: defaults.definition, proposed: defaults.proposed, choices, setChoices: setPicked };
+  return { plan, final, base: defaults.definition, proposed: defaults.proposed, choices, setChoices: setPicked, signIn: defaults.signIn, signInMail: signInDefaults && signInDefaults.mail };
 };

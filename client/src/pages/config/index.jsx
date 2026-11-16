@@ -50,6 +50,7 @@ import { PWASettings } from '../../components/pwa'; // Fork addition: the instal
 import ConfigAPITokens from './configAPITokens';
 import { refreshPaidVisibility } from '../../components/paidVisibility'; // Fork addition
 import { httpSettingsValidation } from './forkHttpSettings'; // Fork addition
+import { appSignInConfig, appSignInValidation, appSignInValues } from './appSignIn'; // Fork addition (plan 45)
 import ReadOnlyNotice from '../../components/readOnlyNotice'; // Fork addition
 
 const SaveButton = ({ formik, saveLabel, sticky }) => {
@@ -180,6 +181,7 @@ const ConfigManagement = () => {
           HidePaidFeatures: !config.ShowPaidFeatures, // Fork addition: stored inverted
           OfferWebApp: !config.DisableWebApp, // Fork addition: stored inverted
           DependencyNotices: !config.DependencyNoticesOff, // Fork addition: stored inverted
+          ...appSignInValues(config), // Fork addition (plan 45): sign-in details for new apps
 
           Licence: config.Licence,
           ServerToken: config.ServerToken,
@@ -266,6 +268,7 @@ const ConfigManagement = () => {
             t('mgmt.config.internet.reserved.validation', 'Enter port numbers separated by commas, "none", or leave it empty for the usual list')),
           ...snapshotsValidation(t), // fork addition
           ...telegramValidation(t, config), // fork addition
+          ...appSignInValidation(t), // fork addition (plan 45)
           ...httpSettingsValidation(t, config), // fork addition: hostname, ports and address lists, only when changed (forkHttpSettings.jsx)
         })}
 
@@ -297,6 +300,7 @@ const ConfigManagement = () => {
             ShowPaidFeatures: !values.HidePaidFeatures, // Fork addition
             DisableWebApp: !values.OfferWebApp, // Fork addition
             DependencyNoticesOff: !values.DependencyNotices, // Fork addition
+            AppSignIn: appSignInConfig(values), // Fork addition (plan 45)
             BlockedCountries: values.GeoBlocking,
             CountryBlacklistIsWhitelist: values.CountryBlacklistIsWhitelist,
             MonitoringDisabled: !values.MonitoringEnabled,

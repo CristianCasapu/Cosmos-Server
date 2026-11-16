@@ -238,6 +238,15 @@ const SENTENCES = {
     },
   },
   'host.terminal.opened': { text: '{{actor}} opened a terminal on the server itself, as root', ip: true },
+  // Fork addition (plan 45): src/appsignin, the app's Sign-in details; the value is never recorded
+  'credentials.revealed': {
+    text: '{{actor}} saw a password of the app {{target}}', ip: true,
+    pick: (e) => detail(e, 'purpose'),
+    variants: {
+      show: '{{actor}} showed a password of the app {{target}} on its page',
+      copy: '{{actor}} copied a password of the app {{target}} from its page',
+    },
+  },
   'server.update.started': {
     text: '{{actor}} started a server update', ip: true,
     pick: (e) => (e.target ? 'version' : ''),
@@ -402,7 +411,7 @@ export const KIND_GROUPS = [
   { id: 'accounts', label: 'Accounts', kinds: ['user.*'] },
   { id: 'tokens', label: 'API tokens', kinds: ['token.*'] },
   { id: 'settings', label: 'Settings and URLs', kinds: ['config.*', 'route.*'] },
-  { id: 'containers', label: 'Containers and terminals', kinds: ['container.*', 'host.*', 'snapshot.*'] },
+  { id: 'containers', label: 'Containers and terminals', kinds: ['container.*', 'host.*', 'snapshot.*', 'credentials.*' /* Fork addition (plan 45) */] },
   { id: 'server', label: 'Server and SmartShield', kinds: ['server.*', 'shield.unban', 'firewall.unban', 'firewall.settings.saved', 'upnp.*', 'expose.*', 'edge.block.added', 'edge.unblocked'] },
   { id: 'refused', label: 'Permissions refused', kinds: ['access.*'] },
   { id: 'other', label: 'Other changes', kinds: ['api.change'] },

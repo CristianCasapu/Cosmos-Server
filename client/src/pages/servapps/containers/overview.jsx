@@ -13,6 +13,7 @@ import ExposeModal from '../exposeModal';
 import * as API from '../../../api';
 import { RouterPortLinks } from '../../../components/routerPorts'; // Fork addition: the app's ports the router forwards
 import { OverviewServiceNotes } from '../../../components/serviceInfo'; // Fork addition (plan 43)
+import SignInDetails from '../../../components/signInCard'; // Fork addition (plan 45)
 import GetActions from '../actionBar';
 import { ServAppIcon } from '../../../utils/servapp-icon';
 import MiniPlotComponent from '../../dashboard/components/mini-plot';
@@ -256,6 +257,7 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
               <AppDomains config={config} containerName={Name.replace('/', '')} refresh={refreshAll} style={{ margin: '5px' }} image={Image} />
             </div>
             <OverviewServiceNotes containerInfo={containerInfo} hasRoutes={routes.length > 0} refresh={refreshAll} />{/* Fork addition (plan 43): why it does not run; a service's address */}
+            <SignInDetails containerInfo={containerInfo} refresh={refreshAll} />{/* Fork addition (plan 45): its sign-in details, for those who may read credentials */}
             {/* Fork addition: the addresses under a Cloudflare domain, each with its record and its switch */}
             <div style={{ margin: '5px', maxWidth: '100%' }}>
               <AppShields hosts={routes.filter((route) => route.UseHost).map((route) => route.Host)} image={Image} name={Name.replace('/', '')} title dense />

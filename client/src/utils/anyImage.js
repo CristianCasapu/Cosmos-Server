@@ -9,6 +9,7 @@ import { looksLikeWeb } from './routerPorts.js';
 import { proposeAccess } from './exposure.js';
 import { isRiskyPort } from './exposure.js';
 import { sizeText } from './dataPlaces.js';
+import { emailVariant, generatePassword, MANAGER_LABEL, userVariant } from './signIn.js'; // plan 45
 
 const P = 'mgmt.servapps.anyImage.';
 
@@ -365,19 +366,99 @@ export const fillFromConnection = (need, conn, dbKind) => {
   return out;
 };
 
+// ---- a web manager with a database (plan 45) -------------------------------------------------
+
+// The managers of a kind of database ("postgres", "mysql", "redis", "mongo"), the proposal first.
+export const managersFor = (all, kind) => (all || [])
+  .filter((r) => r && r.manager && (r.manager.for || []).includes(kind))
+  .sort((a, b) => (a.manager.rank || 9) - (b.manager.rank || 9));
+
+// a field of a .pgpass line: backslash and colon escaped (PostgreSQL's format)
+const pgpassField = (v) => String(v == null ? '' : v).replace(/\\/g, '\\\\').replace(/:/g, '\\:');
+
+// The manager's variables for a database `db` ({ name, recipe, values }):
+// what its recipe's needs map (host, port, user, password, database, url),
+// pgAdmin's list of servers (no password in it) and its password file.
+export const managerEnv = (manager, db) => {
+  const needs = (manager && manager.needs) || {};
+  const conn = connectionOf(db.recipe, db.name, db.values || {});
+  const account = ((db.recipe && db.recipe.login && db.recipe.login.accounts) || [])[0] || {};
+  if (!conn.user) conn.user = account.userFixed || account.userUnset || '';
+  const out = {};
+  Object.entries(needs.env || {}).forEach(([role, variable]) => {
+    if (variable && conn[role] !== undefined && conn[role] !== '') out[variable] = String(conn[role]);
+  });
+  if (needs.servers) {
+    const server = {
+      Name: db.name, Group: 'Servers', Host: db.name, Port: Number(conn.port) || 5432,
+      MaintenanceDB: conn.database || conn.user || 'postgres', Username: conn.user || 'postgres', SSLMode: 'prefer',
+    };
+    if (needs.passFile && conn.password && needs.passFilePath) server.PassFile = needs.passFilePath;
+    out[needs.servers] = JSON.stringify({ Servers: { 1: server } });
+  }
+  if (needs.passFile && conn.password) {
+    out[needs.passFile] = [db.name, conn.port || '*', '*', pgpassField(conn.user), pgpassField(conn.password)].join(':');
+  }
+  return out;
+};
+
+// The manager as a service of the definition: on a network only it and its
+// database share, an address in Cosmos for administrators only behind
+// Cosmos' sign-in (a tool that controls data), never a published port.
+// `existing`: the database is already on the server; the two get a network of
+// their own through upstream's links (the database is not changed).
+export const managerService = ({ manager, ref, tag, name, settings, db, host, existing = false }) => {
+  const network = `${db.name}-manager`;
+  const { service, frozen } = serviceFor({
+    ref, tag, name, recipe: manager, declared: null, settings, host, extraEnv: managerEnv(manager, db),
+    networks: existing ? [] : [network], links: existing ? [db.name] : [],
+  });
+  if (service.routes) service.routes = service.routes.map((r) => ({ ...r, AuthEnabled: true, AdminOnly: true }));
+  service.ports = [];
+  service.labels = { ...(service.labels || {}), [MANAGER_LABEL]: db.name };
+  return { service, frozen, network };
+};
+
+// The definition that adds a manager to a database already on the server.
+export const managerDefinition = (args) => {
+  const { service, frozen } = managerService({ ...args, existing: true });
+  const definition = { services: { [args.name]: service } };
+  if (frozen.length) definition['cosmos-installer'] = { 'frozen-volumes': frozen };
+  return definition;
+};
+
 // ---- the definition ---------------------------------------------------------------------------
 
 const folderOf = (target) => (String(target).replace(/\/+$/, '').split('/').pop() || 'data').replace(/[^A-Za-z0-9_.-]+/g, '-');
 
 // The settings proposed for a recipe or a declaration, before the
 // administrator changes them: [{ name, value, type: secret|name|optional|fixed|declared }].
-export const proposedSettings = (recipe, declared, random) => {
+// plan 45: `defaults` ({ user, email, length }, Configuration > Sign-in details
+// for new apps) go to the account of the recipe's login that takes them, as the
+// form the app accepts; secrets follow the login's password rule.
+export const proposedSettings = (recipe, declared, random, defaults = null) => {
   if (recipe) {
-    return (recipe.env || []).map((e) => ({
-      name: e.name,
-      type: e.type,
-      value: e.type === 'secret' ? generateSecret(random, { strong: !!e.strong }) : (e.value || ''),
-    }));
+    const login = recipe.login || null;
+    const account = login && defaults ? (login.accounts || []).find((a) => a.defaults) : null;
+    return (recipe.env || []).map((e) => {
+      const setting = {
+        name: e.name,
+        type: e.type,
+        value: e.type === 'secret'
+          ? (login && login.password ? generatePassword(login.password, random, defaults && defaults.length) : generateSecret(random, { strong: !!e.strong }))
+          : (e.value || ''),
+      };
+      if (account && e.name === account.user && defaults.user) {
+        const variant = userVariant(defaults.user, login.user);
+        if (variant.value) Object.assign(setting, { value: variant.value, fromDefaults: 'user', ...(variant.changed ? { variant: variant.reason, typed: defaults.user } : {}) });
+      }
+      if (account && e.name === account.email) {
+        const mail = emailVariant(defaults.email, login.email);
+        if (mail.ok) Object.assign(setting, { value: mail.value, fromDefaults: 'email' });
+        else if (defaults.email) setting.refused = mail.reason;
+      }
+      return setting;
+    });
   }
   // a secret the image sets itself is known to everyone who knows the image: a generated one is proposed
   return declaredSettings(declared).map((s) => (s.secret
@@ -431,6 +512,7 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
   const runAs = runAsFor(recipe, tag);
   if (runAs) service.user = runAs;
   if (recipe && recipe.command) service.command = recipe.command;
+  if (recipe && recipe.entrypoint) service.entrypoint = recipe.entrypoint; // plan 45: pgAdmin's wrapper that writes its list of servers
   if (recipe && recipe.labels) service.labels = { ...recipe.labels };
   if (command && String(command).trim()) service.command = String(command).trim();
   if (recipe && recipe.hostname) service.hostname = name;
@@ -454,7 +536,9 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
 // The whole definition: the image, and its new database when one is added.
 // `database`: { mode: 'new', ref, tag, recipe, name, settings } |
 // { mode: 'existing', container, recipe, env } | { mode: 'none' } | null.
-export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, host, reachers = [], database = null, need = null, command = '' }) => {
+// plan 45: `manager` ({ recipe, ref, tag, name, settings, host }): a web manager
+// created with this database, on a network the two share.
+export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, host, reachers = [], database = null, need = null, command = '', manager = null }) => {
   const services = {};
   const networks = {};
   let frozen = [];
@@ -476,11 +560,23 @@ export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, ho
     const values = Object.fromEntries(((database.env || [])).map((line) => [envKey(line), envValue(line)]));
     extraEnv = fillFromConnection(need, connectionOf(database.recipe, database.container, values), database.recipe && database.recipe.provides);
   }
+  let managed = null;
+  if (manager && manager.recipe && recipe) {
+    const values = Object.fromEntries((settings || []).map((s) => [s.name, s.value]));
+    managed = managerService({ manager: manager.recipe, ref: manager.ref, tag: manager.tag, name: manager.name, settings: manager.settings, host: manager.host, db: { name, recipe, values } });
+    networks[managed.network] = { driver: 'bridge' };
+    appNetworks = [...appNetworks, managed.network];
+  }
   const app = serviceFor({ ref, tag, name, recipe, declared, settings, host, extraEnv, links: [...appLinks, ...reachers], networks: appNetworks, command });
   services[name] = app.service;
-  if (Object.keys(services).length > 1) {
+  if (database && database.mode === 'new' && Object.keys(services).length > 1) {
     services[name].labels = { 'cosmos-stack': name, 'cosmos-stack-main': name };
     services[name].depends_on = { [database.name]: { condition: 'service_started' } };
+  }
+  if (managed) {
+    services[manager.name] = { ...managed.service, labels: { ...managed.service.labels, 'cosmos-stack': name, 'cosmos-stack-main': name }, depends_on: { [name]: { condition: 'service_started' } } };
+    services[name].labels = { ...(services[name].labels || {}), 'cosmos-stack': name, 'cosmos-stack-main': name };
+    frozen = frozen.concat(managed.frozen);
   }
   frozen = frozen.concat(app.frozen);
   const definition = { services: { ...services } };

@@ -32,6 +32,7 @@ import { PERM_RESOURCES, PERM_CREDENTIALS_READ } from '../../utils/permissions';
 import { RouterPortLinks } from '../../components/routerPorts'; // Fork addition: the app's ports the router forwards
 import { StartProblemButton } from '../../components/startProblem'; // Fork addition (plan 43): why an app keeps stopping, and the repair
 import { ServiceChip } from '../../components/serviceInfo'; // Fork addition (plan 43): a service's address for other apps
+import { SignInLink } from '../../components/signInCard'; // Fork addition (plan 45)
 
 // Exported: the Constellation feature pages reuse this card.
 export const Item = styled(Paper)(({ theme }) => ({
@@ -336,6 +337,7 @@ const ServApps = ({stack}) => {
                   </Typography>
                   {/* Fork addition (plan 43): an app that keeps stopping or stopped with an error says why */}
                   {app.type !== 'stack' && (app.state === 'restarting' || (app.state === 'exited' && !/\(0\)/.test(String(app.app.Status || '')))) && <StartProblemButton containerName={app.name.replace('/', '')} refresh={refreshServApps} />}
+                  {app.type !== 'stack' && <SignInLink containerName={app.name.replace('/', '')} />}{/* Fork addition (plan 45) */}
                   <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }} className="ct-app-title">{/* Fork addition: the class lets the name shrink to the card (see ct-app-name below) */}
                     {app.type === 'app' && <ServAppIcon container={app.app} route={getFirstRoute(app.app)} className="loading-image" width="40px"/>}
                     {app.type === 'stack' && <StyledBadge  overlap="circular"

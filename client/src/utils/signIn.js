@@ -202,6 +202,70 @@ export const guessSignIn = (names) => {
   return best ? { ...best } : null;
 };
 
+// ---- the Market's install forms ------------------------------------------------------------
+
+// What a field of a Market template's form (cosmos-installer.form) starts
+// with: the configured username or e-mail for a field named like one, a
+// generated password for a password field, when the template's own value is
+// empty or a placeholder ("admin", "change-me", "user@example.com"); the
+// template's value otherwise. { value, filled: 'user'|'email'|'password'|'' }.
+export const marketFieldDefault = (field, defaults, random, length) => {
+  const initial = field && field.initialValue;
+  const name = String((field && field.name) || '');
+  const words = name.toUpperCase().split(/[_-]/);
+  const last = words[words.length - 1];
+  const foreign = words.slice(0, -1).some((w) => FOREIGN_WORDS.includes(w));
+  const keep = { value: initial, filled: '' };
+  if (!field || foreign) return keep;
+  if (field.type === 'password') {
+    if (typeof initial === 'string' || initial === undefined) {
+      if (isPlaceholder(initial, 'password')) return { value: generatePassword(PLAIN_RULE, random, length), filled: 'password' };
+    }
+    return keep;
+  }
+  if ((field.type === 'text' || field.type === 'email' || !field.type) && defaults && (typeof initial === 'string' || initial === undefined)) {
+    if ((USER_WORDS.includes(last) || /USER(NAME)?$/.test(last)) && isPlaceholder(initial, 'user') && defaults.user) return { value: defaults.user, filled: 'user' };
+    if ((EMAIL_WORDS.includes(last) || /EMAIL$/.test(last)) && isPlaceholder(initial, 'email') && defaults.email) return { value: defaults.email, filled: 'email' };
+  }
+  return keep;
+};
+
+// The compose import's `${VAR}` lines: a variable the file leaves to the
+// installer gets a generated value when it is a secret (shared by the file's
+// services, so an app and its database get the same), the configured name or
+// e-mail when it is an administrator's; "" otherwise. A secret of another
+// service the app talks to (a mail relay, a directory, a bucket) is left empty.
+const OUTSIDE_WORDS = ['SMTP', 'MAILER', 'IMAP', 'POP', 'POP3', 'LDAP', 'OIDC', 'OAUTH', 'SSO', 'SAML', 'S3', 'AWS', 'B2', 'MINIO', 'PROXY', 'FTP', 'SFTP', 'SSH', 'VPN', 'REGISTRY', 'DOCKER', 'GITHUB', 'GITLAB', 'ACME', 'PLEX', 'TRAKT', 'API', 'CLOUDFLARE', 'CF', 'TELEGRAM', 'DISCORD', 'SLACK', 'OPENAI'];
+export const composeVarDefault = (name, defaults, random) => {
+  const words = String(name || '').toUpperCase().split('_');
+  const last = words[words.length - 1];
+  const before = words.slice(0, -1);
+  if (!ENV_NAME.test(String(name || '')) || before.some((w) => OUTSIDE_WORDS.includes(w)) || /_FILE$/i.test(String(name))) return '';
+  if (PASSWORD_WORDS.includes(last) || ['SECRET', 'TOKEN'].includes(last) || (last === 'KEY' && before.some((w) => ['SECRET', 'APP', 'ENCRYPTION', 'JWT', 'SESSION', 'SIGNING'].includes(w)))) {
+    return generatePassword(PLAIN_RULE, random, defaults && defaults.length);
+  }
+  const admin = before.some((w) => ADMIN_WORDS.includes(w));
+  if (admin && defaults && USER_WORDS.includes(last) && defaults.user) return defaults.user;
+  if (admin && defaults && EMAIL_WORDS.includes(last) && defaults.email) return defaults.email;
+  return '';
+};
+
+// The value a form field should take now, or undefined to leave it as it is:
+// once when it has none, and once more when the defaults arrive while it
+// still holds the template's placeholder. Never twice, never over a typed value.
+export const marketFormValue = (field, current, defaults, random) => {
+  const length = defaults && defaults.length;
+  if (current === undefined) {
+    const d = marketFieldDefault(field, defaults, random, length);
+    return d.filled ? d.value : undefined;
+  }
+  if (defaults && field && current === field.initialValue) {
+    const d = marketFieldDefault(field, defaults, random, length);
+    if ((d.filled === 'user' || d.filled === 'email') && d.value !== current) return d.value;
+  }
+  return undefined;
+};
+
 // ---- the label the review sets (src/appsignin/label.go) -----------------------------------
 
 export const LABEL = 'cosmos-fork-signin';
@@ -275,7 +339,7 @@ export const proposeSignIn = (definition, plan, defaults, cache, random) => {
     const login = info && info.login;
     if (login && (login.accounts || []).length) {
       (login.accounts || []).slice(0, 4).forEach((account) => {
-        const line = { service: name, app: info.name || '', kind: 'account', role: account.role, where: login.where, source: 'recipe' };
+        const line = { service: name, app: info.name || '', kind: 'account', role: account.role, where: login.where, source: 'recipe', rule: login.password || PLAIN_RULE };
         if (account.defaults && defaults) {
           const variant = userVariant(defaults.user, login.user);
           if (account.user && fill(account.user, 'user', () => variant.value)) {
@@ -314,7 +378,7 @@ export const proposeSignIn = (definition, plan, defaults, cache, random) => {
         }
         const generated = fill(guess.password, 'password', () => remember(`${key}/${guess.password}`, () => generatePassword(PLAIN_RULE, random, length)));
         const isOurs = generated || cache.get(`${key}/${guess.password}`) === values[guess.password];
-        lines.push({ service: name, kind: 'guess', user: (guess.user && values[guess.user]) || '', email: (guess.email && values[guess.email]) || '', passwordVar: guess.password, generated: isOurs, value: isOurs ? values[guess.password] : '', source: 'guess' });
+        lines.push({ service: name, kind: 'guess', rule: PLAIN_RULE, user: (guess.user && values[guess.user]) || '', email: (guess.email && values[guess.email]) || '', passwordVar: guess.password, generated: isOurs, value: isOurs ? values[guess.password] : '', source: 'guess' });
         const existing = (service.labels || {})[LABEL];
         if (!existing) service.labels = { ...(service.labels || {}), [LABEL]: signInLabel({ where: 'web', user: guess.user, email: guess.email, password: guess.password, from: 'guess' }) };
       }
