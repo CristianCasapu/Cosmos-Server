@@ -1,0 +1,19 @@
+{
+  "about": "Plan 45: the guess of an app's sign-in by its variables' names, read by src/appsignin/guess_test.go and client/src/utils/signIn.test.mjs (the same rules on both sides). want null: nothing counts.",
+  "cases": [
+    { "names": ["MOODLE_USERNAME", "MOODLE_PASSWORD", "MOODLE_EMAIL", "MOODLE_DATABASE_PASSWORD"], "want": { "user": "MOODLE_USERNAME", "email": "MOODLE_EMAIL", "password": "MOODLE_PASSWORD" } },
+    { "names": ["KEYCLOAK_ADMIN_USER", "KEYCLOAK_ADMIN_PASSWORD", "KC_DB_PASSWORD"], "want": { "user": "KEYCLOAK_ADMIN_USER", "email": "", "password": "KEYCLOAK_ADMIN_PASSWORD" } },
+    { "names": ["ADMIN_EMAIL", "ADMIN_USERNAME", "ADMIN_PASSWORD"], "want": { "user": "ADMIN_USERNAME", "email": "ADMIN_EMAIL", "password": "ADMIN_PASSWORD" } },
+    { "names": ["PASSWORD", "TZ", "PUID"], "want": { "user": "", "email": "", "password": "PASSWORD" } },
+    { "names": ["SMTP_LOGIN", "SMTP_PASSWORD", "SMTP_SERVER"], "want": null },
+    { "names": ["DB_USER", "DB_PASSWORD", "DB_HOST"], "want": null },
+    { "names": ["POSTGRES_USER", "POSTGRES_PASSWORD"], "want": null },
+    { "names": ["MAILER_PASSWORD", "LDAP_BIND_PASSWORD", "S3_SECRET_KEY"], "want": null },
+    { "names": ["SOME_PASSWORD"], "want": null },
+    { "names": ["WEBUI_PASSWORD"], "want": { "user": "", "email": "", "password": "WEBUI_PASSWORD" } },
+    { "names": ["ADMIN_PASSWORD_FILE", "ADMIN_USER"], "want": null },
+    { "names": ["SUITECRM_USERNAME", "SUITECRM_PASSWORD", "SUITECRM_DATABASE_PASSWORD", "SUITECRM_DATABASE_USER"], "want": { "user": "SUITECRM_USERNAME", "email": "", "password": "SUITECRM_PASSWORD" } },
+    { "names": ["ACME_EMAIL", "API_TOKEN"], "want": null },
+    { "names": ["bad name", "ADMIN_PASSWORD"], "want": { "user": "", "email": "", "password": "ADMIN_PASSWORD" } }
+  ]
+}

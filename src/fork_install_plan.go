@@ -58,6 +58,32 @@ type installPlanAnswer struct {
 	DataOwner string `json:"dataOwner"`
 	// This server's folders that need a confirmation besides the system's (docker/fork_sensitive_access.go)
 	Protected []string `json:"protected"`
+	// Plan 45: per image, how one signs in to it and what its passwords
+	// must be (its recipe's login), or that it makes its first account in its
+	// own page; the review fills the sign-in of every door from it
+	SignIn map[string]installSignIn `json:"signIn"`
+}
+
+type installSignIn struct {
+	Name     string                `json:"name,omitempty"`
+	Login    *anyimage.RecipeLogin `json:"login,omitempty"`
+	FirstRun *anyimage.FirstRunApp `json:"firstRun,omitempty"`
+}
+
+func signInOfImages(images []string) map[string]installSignIn {
+	out := map[string]installSignIn{}
+	for _, image := range images {
+		entry := installSignIn{}
+		if recipe := anyimage.RecipeForImage(image); recipe != nil && recipe.Login != nil {
+			entry.Name, entry.Login = recipe.Name, recipe.Login
+		} else if first := anyimage.FirstRunForImage(image); first != nil {
+			entry.Name, entry.FirstRun = first.Name, first
+		}
+		if entry.Login != nil || entry.FirstRun != nil {
+			out[image] = entry
+		}
+	}
+	return out
 }
 
 // hostFile is where a host path is seen from Cosmos.
@@ -178,6 +204,7 @@ func buildInstallPlan(images []string, config utils.Config) installPlanAnswer {
 	add("/", "system")
 	answer.Places = places
 	answer.Protected = protectedForPlan()
+	answer.SignIn = signInOfImages(images)
 
 	if answer.DataPath != "" {
 		answer.DataOwner = ownerOf(answer.DataPath)

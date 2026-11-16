@@ -160,6 +160,7 @@ func Describe(ctx context.Context, text string, user string) Description {
 	}
 	desc.Tags = tags
 	desc.Databases = databaseRecipes()
+	desc.Managers = managerRecipes() // plan 45
 	desc.Hints = withDocs(<-hints, desc.Declared)
 	if desc.Tags.List == nil {
 		desc.Tags.List = []string{}

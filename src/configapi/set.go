@@ -318,6 +318,13 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
+		// Fork addition (plan 45): the sign-in details for new apps, kept when masked and checked when changed, see fork_app_signin.go
+		if errA := keepAppSignIn(&request, config); errA != nil {
+			utils.Error("SettingsUpdate: "+errA.Error(), nil)
+			utils.HTTPError(w, errA.Error(), http.StatusBadRequest, "UC014")
+			return
+		}
+
 		// Fork addition: OpenID clients keep their stored secret, new and changed ones are checked, see fork_openid.go
 		if problem := keepOpenIDSecrets(&request, config); problem != nil {
 			utils.Error("SettingsUpdate: "+problem.Message, nil)

@@ -290,7 +290,7 @@ func CreateServiceRoute(w http.ResponseWriter, req *http.Request) {
 			}
 		// Fork addition: the new containers are watched for a moment, and one that does not start is said (fork_start_watch.go)
 		if CreateService(serviceRequest, onLog) == nil {
-			WatchCreation(req.Context(), serviceRequest, onLog)
+			forkAfterCreation(req, serviceRequest, WatchCreation(req.Context(), serviceRequest, onLog)) // Fork addition (plan 45): the e-mail with the sign-in details, fork_after_creation.go
 		}
 	} else {
 		utils.Error("CreateService: Method not allowed" + req.Method, nil)

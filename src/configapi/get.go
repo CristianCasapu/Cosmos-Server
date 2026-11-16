@@ -74,6 +74,7 @@ func ConfigApiGet(w http.ResponseWriter, req *http.Request) {
 
 		maskTelegram(&config, canReadCredentials) // Fork addition: the Telegram token is never sent to a client, see fork_telegram.go
 		maskTurnstile(&config) // Fork addition: the Turnstile secret key is never sent to a client, see fork_turnstile.go
+		maskAppSignIn(&config, canReadCredentials) // Fork addition (plan 45): see fork_app_signin.go
 
 		if !isAdmin {
 			// filter admin only routes

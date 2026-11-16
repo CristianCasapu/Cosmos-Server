@@ -100,6 +100,7 @@ const (
 	SecContainerCreated     = "container.created"
 	SecContainerEdited      = "container.edited"
 	SecContainerTerminal    = "container.terminal.opened"
+	SecCredentialsRevealed  = "credentials.revealed" // plan 45: a password of an app shown or copied (src/appsignin)
 	SecHostTerminal         = "host.terminal.opened"
 	SecServerUpdate         = "server.update.started"
 	SecServerUpdateRejected = "server.update.rejected"

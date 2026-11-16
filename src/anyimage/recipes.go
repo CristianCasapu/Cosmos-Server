@@ -63,6 +63,10 @@ type RecipeNeeds struct {
 	Kinds    []string          `json:"kinds"`
 	Optional bool              `json:"optional"`
 	Env      map[string]string `json:"env"`
+	// Plan 45: the variable that carries a manager's list of servers
+	// (pgAdmin's servers.json) and the one that carries its password file
+	Servers  string `json:"servers,omitempty"`
+	PassFile string `json:"passFile,omitempty"`
 }
 
 type RecipeClient struct {
@@ -70,6 +74,71 @@ type RecipeClient struct {
 	User     string `json:"user,omitempty"`
 	Password string `json:"password,omitempty"`
 	Database string `json:"database,omitempty"`
+}
+
+// RecipeLoginAccount is one account of an app: which of its variables hold
+// the username, the e-mail, the password and the database (plan 45).
+type RecipeLoginAccount struct {
+	// Role: "app" (the account apps and people use), "admin" or "root"
+	Role string `json:"role"`
+	// User is the variable that holds the username, UserFixed a username the
+	// image fixes (elastic), UserUnset the username when User is not set
+	User      string `json:"user,omitempty"`
+	UserFixed string `json:"userFixed,omitempty"`
+	UserUnset string `json:"userUnset,omitempty"`
+	Email     string `json:"email,omitempty"`
+	Password  string `json:"password,omitempty"`
+	Database  string `json:"database,omitempty"`
+	// Defaults: this account takes the username and e-mail of the
+	// configuration (Configuration > Sign-in details for new apps)
+	Defaults bool `json:"defaults,omitempty"`
+}
+
+// RecipeUserRule is the form a username must have for this app.
+type RecipeUserRule struct {
+	// Pattern is a regular expression both Go and JavaScript read the same way
+	Pattern  string   `json:"pattern"`
+	Max      int      `json:"max"`
+	Reserved []string `json:"reserved,omitempty"`
+	Evidence string   `json:"evidence"`
+}
+
+// RecipeEmailRule: what the app's e-mail check refuses.
+type RecipeEmailRule struct {
+	// RefuseSpecialUse: domains such as .local, .test, .invalid, .localhost are refused
+	RefuseSpecialUse bool   `json:"refuseSpecialUse,omitempty"`
+	Evidence         string `json:"evidence"`
+}
+
+// RecipePasswordRule is what a generated password must be for this app.
+type RecipePasswordRule struct {
+	Min int `json:"min"`
+	Max int `json:"max"`
+	// Symbols are the symbols that may be used besides letters and digits,
+	// a subset of the URL-unreserved "-._~"
+	Symbols string `json:"symbols"`
+	// Require: the classes that must appear: lower, upper, digit, symbol
+	Require  []string `json:"require,omitempty"`
+	Evidence string   `json:"evidence"`
+}
+
+// RecipeLogin says how one signs in to the app and what its passwords must be.
+type RecipeLogin struct {
+	// Where: "database" (its protocol, with a client), "web" (its page),
+	// "s3", "amqp", "http" (an API with basic authentication)
+	Where    string               `json:"where"`
+	Accounts []RecipeLoginAccount `json:"accounts,omitempty"`
+	// Via "database": a tool one signs in to with the database's own accounts
+	Via      string              `json:"via,omitempty"`
+	User     *RecipeUserRule     `json:"user,omitempty"`
+	Email    *RecipeEmailRule    `json:"email,omitempty"`
+	Password *RecipePasswordRule `json:"password,omitempty"`
+}
+
+// RecipeManager marks a web tool that manages databases of these kinds.
+type RecipeManager struct {
+	For  []string `json:"for"`
+	Rank int      `json:"rank"`
 }
 
 // Recipe is one image's settings, as Cosmos proposes them.
@@ -104,6 +173,23 @@ type Recipe struct {
 	// Family: the id of the recipe of the same software from its main
 	// publisher (this one is another publisher's image of it)
 	Family string `json:"family,omitempty"`
+	// Plan 45: how one signs in, the password rules, and the managers
+	Login      *RecipeLogin   `json:"login,omitempty"`
+	Manager    *RecipeManager `json:"manager,omitempty"`
+	Entrypoint []string       `json:"entrypoint,omitempty"`
+}
+
+// FirstRunApp is an app that makes its first account in its own page: Cosmos
+// cannot set it, only propose what to type there (plan 45).
+type FirstRunApp struct {
+	ID     string   `json:"id"`
+	Name   string   `json:"name"`
+	Images []string `json:"images"`
+	Source string   `json:"source"`
+	// Note: "firstRunPage" (the page asks for the first account) or
+	// "logPassword" (a temporary password is printed in its log; User is fixed)
+	Note string `json:"note"`
+	User string `json:"user,omitempty"`
 }
 
 // MarketAlias names the Market entry to prefer for some images.
@@ -113,8 +199,9 @@ type MarketAlias struct {
 }
 
 type recipeFile struct {
-	Recipes []Recipe      `json:"recipes"`
-	Market  []MarketAlias `json:"market"`
+	Recipes  []Recipe      `json:"recipes"`
+	Market   []MarketAlias `json:"market"`
+	FirstRun []FirstRunApp `json:"firstRun,omitempty"`
 }
 
 var recipes = func() recipeFile {
@@ -171,6 +258,80 @@ func marketFor(ref Reference) string {
 		}
 	}
 	return ""
+}
+
+// anyRegistry lets a container's image name a registry on the local network:
+// it is only matched against the recipes here, never read.
+func anyRegistry(string) bool { return true }
+
+// RecipeForImage is the recipe of an image as a container names it
+// ("postgres:18", "ghcr.io/a/b@sha256:…"), nil when there is none (plan 45).
+func RecipeForImage(image string) *Recipe {
+	ref, err := Parse(strings.TrimSpace(image), anyRegistry)
+	if err != nil {
+		return nil
+	}
+	return recipeFor(ref)
+}
+
+// FirstRunForImage is the first-run entry of an image, nil when there is none.
+func FirstRunForImage(image string) *FirstRunApp {
+	ref, err := Parse(strings.TrimSpace(image), anyRegistry)
+	if err != nil {
+		return nil
+	}
+	name := imageName(ref)
+	for i := range recipes.FirstRun {
+		for _, candidate := range recipes.FirstRun[i].Images {
+			if candidate == name {
+				entry := recipes.FirstRun[i]
+				return &entry
+			}
+		}
+	}
+	return nil
+}
+
+// FirstRunApps is the whole first-run list, for the panel.
+func FirstRunApps() []FirstRunApp {
+	return append([]FirstRunApp{}, recipes.FirstRun...)
+}
+
+// Managers are the recipes of web tools that manage a database of a kind, by rank.
+func Managers(kind string) []Recipe {
+	out := []Recipe{}
+	for _, r := range recipes.Recipes {
+		if r.Manager == nil {
+			continue
+		}
+		for _, k := range r.Manager.For {
+			if k == kind {
+				out = append(out, r)
+				break
+			}
+		}
+	}
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j].Manager.Rank < out[j-1].Manager.Rank; j-- {
+			out[j], out[j-1] = out[j-1], out[j]
+		}
+	}
+	return out
+}
+
+// managerRecipes are every manager's recipe, by rank (the panel picks per kind).
+func managerRecipes() []Recipe {
+	out := []Recipe{}
+	seen := map[string]bool{}
+	for _, kind := range []string{"postgres", "mysql", "mongo", "redis"} {
+		for _, r := range Managers(kind) {
+			if !seen[r.ID] {
+				seen[r.ID] = true
+				out = append(out, r)
+			}
+		}
+	}
+	return out
 }
 
 // databaseRecipes are the recipes of databases an app can be given.
