@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -14,12 +16,16 @@ import (
 	"time"
 )
 
-// The real descriptions in testdata/readmes were saved once from Docker
-// Hub's API (full_description only, 2026-11-15). The expected variables were
-// written by reading each text: the settings the text documents for this
-// image (not those of another service in its compose example, not *_FILE /
-// FILE__ variants, which give the same setting from a file), and which ones
-// the text itself calls required without a condition.
+// The descriptions in testdata/readmes were read once from Docker Hub's API
+// (full_description only, 2026-11-15) and cut down to extracts: the parts
+// the parser reads (the run and compose examples, the sections, tables and
+// lines about variables, every line naming an expected variable), the rest
+// dropped where that changed nothing the parser finds. The first line of each
+// names its source in an HTML comment (TestFixtureHeaders). The expected
+// variables were written by reading each full text: the settings the text
+// documents for this image (not those of another service in its compose
+// example, not *_FILE / FILE__ variants, which give the same setting from a
+// file), and which ones the text itself calls required without a condition.
 type fixtureWant struct {
 	repo     string
 	env      []string
@@ -148,8 +154,13 @@ func setOf(list []string) map[string]bool {
 
 func TestDescriptionFixtures(t *testing.T) {
 	files, _ := filepath.Glob("testdata/readmes/*.md")
-	if len(files) < 15 {
-		t.Fatalf("%d fixtures", len(files))
+	if len(files) < 20 {
+		t.Fatalf("only %d description fixtures in testdata/readmes (20 at least): the measurement would prove nothing", len(files))
+	}
+	for name := range fixtures {
+		if _, err := os.Stat(filepath.Join("testdata/readmes", name)); err != nil {
+			t.Errorf("the fixture %s is expected but missing", name)
+		}
 	}
 	names := make([]string, 0, len(files))
 	for _, file := range files {
@@ -178,8 +189,8 @@ func TestDescriptionFixtures(t *testing.T) {
 			if e.AllowEmpty && e.Required {
 				t.Errorf("%s: %s allows an empty password and is required", name, e.Name)
 			}
-			if e.Secret && e.Example != "" {
-				t.Errorf("%s: secret %s carries an example", name, e.Name)
+			if e.Secret && (e.Example != "" || e.Default != "") {
+				t.Errorf("%s: secret %s carries an example or a default", name, e.Name)
 			}
 		}
 		var r, m, i, rr, rm, ri []string
@@ -244,6 +255,49 @@ func TestDescriptionFixtures(t *testing.T) {
 		len(names), expected, right, missed, invented, reqRight, reqMissed, reqInvented)
 	if right*100 < expected*80 {
 		t.Errorf("recall fell under 80%%: %d of %d", right, expected)
+	}
+}
+
+// Each fixture is an extract of a publisher's text: its first line names the
+// source and the day it was read, in an HTML comment the parser ignores.
+var fixtureHeader = regexp.MustCompile(`^<!-- source: https://hub\.docker\.com/(?:_/[a-z0-9-]+|r/[a-z0-9-]+/[a-z0-9-]+) fetched 2026-11-15, extract[^>]*-->$`)
+
+func TestFixtureHeaders(t *testing.T) {
+	files, _ := filepath.Glob("testdata/readmes/*.md")
+	if len(files) < 20 {
+		t.Fatalf("only %d description fixtures", len(files))
+	}
+	for _, file := range files {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		first, rest, _ := strings.Cut(string(raw), "\n")
+		if !fixtureHeader.MatchString(first) {
+			t.Errorf("%s: no source line: %q", file, first)
+			continue
+		}
+		name := strings.TrimSuffix(filepath.Base(file), ".md")
+		ns, repo, _ := strings.Cut(name, "_")
+		source := "/r/" + ns + "/" + repo + " "
+		if ns == "library" {
+			source = "/_/" + repo + " "
+		}
+		if !strings.Contains(first, source) {
+			t.Errorf("%s: the source line names another repository: %q", file, first)
+		}
+		// the line changes nothing the parser finds
+		repoName := fixtures[filepath.Base(file)].repo
+		with, _ := json.Marshal(parseRequirements(string(raw), repoName))
+		without, _ := json.Marshal(parseRequirements(rest, repoName))
+		if string(with) != string(without) {
+			t.Errorf("%s: the source line is read:\n%s\n%s", file, with, without)
+		}
+	}
+	// and the form is ignored even where its words would be read
+	got := parseRequirements("## Environment variables\n\n<!-- source: https://hub.docker.com/r/team/app fetched 2026-11-15, extract `-e A_B=1` -->\n- `C_D`: x\n", "team/app")
+	if len(got.Env) != 1 || got.Env[0].Name != "C_D" {
+		t.Fatalf("%+v", got.Env)
 	}
 }
 
@@ -694,5 +748,195 @@ func TestDescriptionLive(t *testing.T) {
 	t.Logf("postgres: %d variables, first %+v", len(hints.Env), hints.Env[0])
 	if hints.Env[0].Name != "POSTGRES_PASSWORD" || !hints.Env[0].Required || !hints.Env[0].Secret {
 		t.Fatalf("%+v", hints.Env[0])
+	}
+}
+
+// ---- the cost of a hostile text ----
+
+// hostileTexts are the worst cases found for the parser's time: each took
+// up to 17 s before the parse was bounded (see TestHostileTextsAreQuick).
+func hostileTexts() map[string]string {
+	const k = 128 << 10
+	heading := "## Environment variables\n\n### `A_ONE`, `A_TWO`, `A_THREE`, `A_FOUR`, `A_FIVE`, `A_SIX`, `A_SEVEN`, `A_EIGHT`\n\n"
+	lines := func(c string, width int) string { return strings.Repeat(strings.Repeat(c, width-1)+"\n", k/width) }
+	out := map[string]string{
+		"128 KiB of <":                                 strings.Repeat("<", k),
+		"128 KiB of < in lines":                        lines("<", 64),
+		"128 KiB of < under a heading":                 heading + lines("<", 64),
+		"128 KiB of [":                                 strings.Repeat("[", k),
+		"128 KiB of [ under a heading":                 heading + lines("[", 64),
+		"128 KiB of `":                                 strings.Repeat("`", k),
+		"128 KiB of ` under a heading":                 heading + lines("`", 64),
+		"128 KiB of ` in a variables section":          "## Environment variables\n\n" + lines("`", 64),
+		"128 KiB of <!--":                              strings.Repeat("<!--", k/4),
+		"128 KiB of ![](":                              strings.Repeat("![x](", k/5),
+		"nested fences":                                strings.Repeat("```\n~~~\n", k/8),
+		"fences in fences":                             strings.Repeat("````\n```yaml\n~~~\n  image: team/app\n", k/40),
+		"a 4 KiB line repeated":                        lines("x", 4096),
+		"a 4 KiB line of <[ repeated under a heading":  heading + strings.Repeat(strings.Repeat("<[", 2047)+"\n", 32),
+		"a 4 KiB line of code spans repeated":          "## Environment variables\n\n" + strings.Repeat("`A_B=c` "+strings.Repeat("`x", 2040)+"\n", 32),
+		"a 4 KiB code span opening repeated":           "## Environment variables\n\n" + strings.Repeat("`"+strings.Repeat("a", 4095)+"\n", 32),
+		"a table of 4 KiB cells of <":                  "## Environment variables\n\n| Name | Description |\n|---|---|\n" + strings.Repeat("| `A_B` | "+strings.Repeat("<", 4080)+" |\n", 32),
+		"a 25 000-character text of < under a heading": heading + strings.Repeat(strings.Repeat("<", 99)+"\n", 250),
+		"a 4 KiB docker run line repeated":             strings.Repeat("docker run "+strings.Repeat("-e A=1 ", 583)+"\\\n", 32),
+		"a 25 000-character realistic text":            realisticText(25000),
+	}
+	var c strings.Builder
+	c.WriteString("```yaml\nservices:\n")
+	for c.Len() < k-200 {
+		c.WriteString("  app:\n    image: team/app\n    environment:\n      - A_B=1\n")
+	}
+	out["a compose block of thousands of services"] = c.String()
+	var d strings.Builder
+	d.WriteString("```yaml\nservices:\n  app:\n")
+	for d.Len() < k-200 {
+		d.WriteString("    image: team/app\n")
+	}
+	out["a compose block of thousands of image lines"] = d.String()
+	var e strings.Builder
+	e.WriteString("```yaml\nservices:\n")
+	for i := 0; e.Len() < k-200; i++ {
+		e.WriteString(strings.Repeat(" ", 2+i%2000) + "image: team/app\n")
+	}
+	out["a compose block of image lines ever deeper"] = e.String()
+	return out
+}
+
+// realisticText is a description shaped as the publishers write them, n bytes long.
+func realisticText(n int) string {
+	var b strings.Builder
+	for i := 0; b.Len() < n; i++ {
+		fmt.Fprintf(&b, "# Section %d\n\nThis [image](https://example.org/docs/%d) runs the <b>app</b>. See ![badge](https://example.org/b.svg) and **more**.\n\n", i, i)
+		fmt.Fprintf(&b, "```console\n$ docker run -d --name app%d -e APP_MODE_%d=prod -e APP_PASSWORD=x -v data:/data -p 80%02d:80 team/app:%d\n```\n\n", i, i, i%100, i)
+		fmt.Fprintf(&b, "```yaml\nservices:\n  app:\n    image: team/app\n    environment:\n      - APP_LEVEL_%d=info # optional\n    volumes:\n      - ./d:/var/lib/app%d\n```\n\n", i, i)
+		b.WriteString("## Environment variables\n\n| Variable | Default | Description |\n|---|---|---|\n")
+		for j := 0; j < 8; j++ {
+			fmt.Fprintf(&b, "| `APP_SETTING_%d_%d` | `%d` | The setting, see [docs](https://example.org/s). This is required if you use LDAP. |\n", i, j, j)
+		}
+		fmt.Fprintf(&b, "\n- `APP_LIST_%d`: a value. Default: `x`.\n\n### `APP_HEAD_%d`\n\nThe text of the heading, optional.\n\n", i, i)
+	}
+	return b.String()[:n]
+}
+
+// TestHostileTextsAreQuick: no text costs the server more than a fraction
+// of a second (measured before the parse was bounded: 128 KiB of < under a
+// heading 15.8 s, of [ 9.6 s, a compose block of image lines 5.9 s, 4 KiB
+// lines of <[ under a heading 13.6 s). Measured without the parse's own
+// time limit, so that it shows the work, not the limit.
+func TestHostileTextsAreQuick(t *testing.T) {
+	names := []string{}
+	cases := hostileTexts()
+	for name := range cases {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		start := time.Now()
+		got, stopped := parseRequirementsBy(cases[name], "team/app", time.Time{})
+		took := time.Since(start)
+		t.Logf("%-48s %v", name, took)
+		if took > 300*time.Millisecond {
+			t.Errorf("%s took %v", name, took)
+		}
+		if stopped || len(got.Env) > maxHintEnv {
+			t.Errorf("%s: stopped %v, %d variables", name, stopped, len(got.Env))
+		}
+	}
+	// the realistic text is still read
+	got := parseRequirements(cases["a 25 000-character realistic text"], "team/app")
+	if len(got.Env) == 0 || len(got.Volumes) == 0 || len(got.Ports) == 0 {
+		t.Fatalf("%+v", got)
+	}
+}
+
+// The parse stops at its time and answers what it found, marked truncated
+// (and descriptionHints does not keep such an answer).
+func TestParseStopsAtItsTime(t *testing.T) {
+	text := realisticText(25000)
+	got, stopped := parseRequirementsBy(text, "team/app", time.Now().Add(-time.Second))
+	if !stopped || !got.Truncated || len(got.Env) != 0 {
+		t.Fatalf("stopped %v %+v", stopped, got)
+	}
+	got, stopped = parseRequirementsBy(text, "team/app", time.Now().Add(time.Minute))
+	if stopped || len(got.Env) == 0 {
+		t.Fatalf("stopped %v %d", stopped, len(got.Env))
+	}
+	// within the bounds, the parse finds what it found before them
+	f := &found{until: time.Now().Add(-time.Second)}
+	if !f.late() || !f.more || !f.late() {
+		t.Fatal("late once, late for good")
+	}
+	if (&found{}).late() {
+		t.Fatal("no time limit")
+	}
+}
+
+// A compose block is read up to readmeBlockLines lines, and a service once.
+func TestComposeBlockBounded(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("```yaml\nservices:\n  app:\n    image: team/app\n    environment:\n      - A_ONE=1\n")
+	for b.Len() < 64<<10 {
+		b.WriteString("    image: team/app\n")
+	}
+	b.WriteString("  other:\n    image: team/app\n    environment:\n      - A_LATE=1\n```\n")
+	got := parseRequirements(b.String(), "team/app")
+	if len(got.Env) != 1 || got.Env[0].Name != "A_ONE" || !got.Truncated {
+		t.Fatalf("%+v", got)
+	}
+}
+
+// The one-pass strippers do what the former expressions did.
+func TestStrippersMatchTheExpressions(t *testing.T) {
+	htmlTag := regexp.MustCompile(`<[^>]{0,500}>`)
+	mdImage := regexp.MustCompile(`!\[[^\]]{0,300}\]\([^)]{0,600}\)`)
+	mdLink := regexp.MustCompile(`\[([^\]]{0,300})\]\([^)]{0,600}\)`)
+	check := func(text string) {
+		t.Helper()
+		if want, got := htmlTag.ReplaceAllString(text, ""), stripTags(text); got != want {
+			t.Fatalf("tags of %q:\n%q\n%q", text, got, want)
+		}
+		if want, got := mdImage.ReplaceAllString(text, ""), stripLinks(text, true); got != want {
+			t.Fatalf("images of %q:\n%q\n%q", text, got, want)
+		}
+		if want, got := mdLink.ReplaceAllString(text, "$1"), stripLinks(text, false); got != want {
+			t.Fatalf("links of %q:\n%q\n%q", text, got, want)
+		}
+	}
+	for _, text := range []string{"", "a <b>c</b> d", "<<a>>", "a < b > c", "<" + strings.Repeat("x", 500) + ">", "<" + strings.Repeat("x", 501) + ">",
+		"[a](b)", "![a](b) [c](d)", "[[a](b)", "[a]](b)", "[a] (b)", "[![x](y)](z)", "!![a](b)", "[" + strings.Repeat("x", 300) + "](y)",
+		"[" + strings.Repeat("x", 301) + "](y)", "[x](" + strings.Repeat("y", 600) + ")", "[x](" + strings.Repeat("y", 601) + ")", "[a](b(c))", "[a](", "[a]", "<", "!["} {
+		check(text)
+	}
+	r := rand.New(rand.NewSource(1))
+	pieces := []string{"<", ">", "[", "]", "(", ")", "!", "a", " ", "\n", "é", strings.Repeat("x", 290), strings.Repeat("y", 590)}
+	for i := 0; i < 3000; i++ {
+		var b strings.Builder
+		for n := r.Intn(40); n > 0; n-- {
+			b.WriteString(pieces[r.Intn(len(pieces))])
+		}
+		check(b.String())
+	}
+}
+
+// A secret's documented value is never given as a hint: neither its
+// example nor its default (the panel shows the example, or else the default).
+func TestSecretDefaultIsNoHint(t *testing.T) {
+	text := "## Environment variables\n\n" +
+		"- `DB_PASSWORD`: the password. Default: `changeme`\n" +
+		"- `DB_USER`: the user. Default: `admin`\n\n" +
+		"| Variable | Default | Description |\n|---|---|---|\n| `API_TOKEN` | `t0ken` | the token |\n| `API_PORT` | `8080` | the port |\n\n" +
+		"```\ndocker run -e DB_PASSWORD=secret -e DB_USER=me team/app\n```\n"
+	got := parseRequirements(text, "team/app")
+	byName := map[string]HintEnv{}
+	for _, e := range got.Env {
+		byName[e.Name] = e
+	}
+	for _, name := range []string{"DB_PASSWORD", "API_TOKEN"} {
+		if e := byName[name]; !e.Secret || e.Default != "" || e.Example != "" {
+			t.Errorf("%+v", e)
+		}
+	}
+	if byName["DB_USER"].Default != "admin" || byName["DB_USER"].Example != "me" || byName["API_PORT"].Default != "8080" {
+		t.Fatalf("%+v", got.Env)
 	}
 }

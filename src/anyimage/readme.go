@@ -34,9 +34,11 @@ const (
 	readmeTextLimit   = 128 << 10 // the text that is read (Docker Hub cuts at 25 000 characters)
 	readmeMaxLines    = 8000
 	readmeLineLimit   = 4 << 10
-	readmeJoinLimit   = 16 << 10 // a command continued over lines
-	readmeMaxCommands = 64       // docker run examples looked at
-	readmeMaxWords    = 256      // words of one command
+	readmeJoinLimit   = 16 << 10               // a command continued over lines
+	readmeMaxCommands = 64                     // docker run examples looked at
+	readmeMaxWords    = 256                    // words of one command
+	readmeBlockLines  = 500                    // lines of one code block read as a compose file
+	readmeParseBudget = 500 * time.Millisecond // the most a parse may take (it takes milliseconds)
 
 	maxHintEnv     = 64
 	maxHintVolumes = 16
@@ -168,9 +170,16 @@ func descriptionHints(ctx context.Context, ref Reference, mayRead bool) *Require
 	if ref.Registry == "quay.io" {
 		text = answer.Description
 	}
-	found := parseRequirements(text, repo)
-	raw, _ := json.Marshal(found)
-	readmes.put(key, cacheItem{data: raw, size: len(raw) + 64})
+	until := time.Now().Add(readmeParseBudget)
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(until) {
+		until = deadline // the describe's own time comes first
+	}
+	found, stopped := parseRequirementsBy(text, repo, until)
+	if !stopped {
+		// (a parse cut by the time is answered, not kept for 6 hours)
+		raw, _ := json.Marshal(found)
+		readmes.put(key, cacheItem{data: raw, size: len(raw) + 64})
+	}
 	return &found
 }
 
@@ -228,10 +237,7 @@ var (
 	headingLine    = regexp.MustCompile(`^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$`)
 	bulletLine     = regexp.MustCompile(`^\s*[-*+]\s+(.*)$`)
 	codeSpan       = regexp.MustCompile("`([^`]{1,200})`")
-	htmlTag        = regexp.MustCompile(`<[^>]{0,500}>`)
 	htmlComment    = regexp.MustCompile(`(?s)<!--.*?-->`)
-	mdImage        = regexp.MustCompile(`!\[[^\]]{0,300}\]\([^)]{0,600}\)`)
-	mdLink         = regexp.MustCompile(`\[([^\]]{0,300})\]\([^)]{0,600}\)`)
 	imageLine      = regexp.MustCompile(`^(\s*)image:\s*["']?([^\s"'#]+)`)
 	keyLine        = regexp.MustCompile(`^(\s*)([A-Za-z_][A-Za-z0-9_.-]*):(?:\s+(.*))?$`)
 	defaultWords   = regexp.MustCompile("(?i)\\(?\\bdefaults?(?: value)?(?:\\s+(?:to|is))?\\s*:?\\s*`([^`]{0,128})`")
@@ -285,19 +291,97 @@ func fileVariant(name string) (string, bool) {
 	return "", false
 }
 
-// plainText turns a piece of markdown into bounded plain text.
+// stripTags removes what looks like an HTML tag: a < with a > at most 500
+// bytes after it (the rule of the former <[^>]{0,500}> expression), in one
+// pass: the regular expression took seconds on a text of thousands of <.
+func stripTags(text string) string {
+	if !strings.Contains(text, "<") {
+		return text
+	}
+	var b strings.Builder
+	b.Grow(len(text))
+	next := -1 // the position of the next >, or len(text) when there is none
+	for i := 0; i < len(text); i++ {
+		if text[i] != '<' {
+			b.WriteByte(text[i])
+			continue
+		}
+		if next <= i {
+			next = len(text)
+			if j := strings.IndexByte(text[i+1:], '>'); j >= 0 {
+				next = i + 1 + j
+			}
+		}
+		if next < len(text) && next-i-1 <= 500 {
+			i = next // the tag is dropped
+			continue
+		}
+		b.WriteByte('<')
+	}
+	return b.String()
+}
+
+// stripLinks replaces the markdown links [text](address) by their text, or
+// removes the images ![text](address) when image is set, in one pass (the
+// rules of the former expressions: text up to 300 bytes, address up to 600).
+func stripLinks(text string, image bool) string {
+	if !strings.Contains(text, "](") {
+		return text
+	}
+	var b strings.Builder
+	b.Grow(len(text))
+	closeBracket, closeParen := -1, -1 // the next ] and ), or len(text)
+	nextOf := func(cached *int, from int, c byte) int {
+		if *cached < from {
+			*cached = len(text)
+			if j := strings.IndexByte(text[from:], c); j >= 0 {
+				*cached = from + j
+			}
+		}
+		return *cached
+	}
+	for i := 0; i < len(text); i++ {
+		open := i // the [
+		if image {
+			if text[i] != '!' || i+1 >= len(text) || text[i+1] != '[' {
+				b.WriteByte(text[i])
+				continue
+			}
+			open = i + 1
+		} else if text[i] != '[' {
+			b.WriteByte(text[i])
+			continue
+		}
+		end := nextOf(&closeBracket, open+1, ']')
+		if end < len(text) && end-open-1 <= 300 && end+1 < len(text) && text[end+1] == '(' {
+			if paren := nextOf(&closeParen, end+2, ')'); paren < len(text) && paren-end-2 <= 600 {
+				if !image {
+					b.WriteString(text[open+1 : end])
+				}
+				i = paren
+				continue
+			}
+		}
+		b.WriteByte(text[i])
+	}
+	return b.String()
+}
+
+// plainText turns a piece of markdown into bounded plain text. The text is
+// cut first: nothing past readmeLineLimit is ever looked at.
 func plainText(text string, n int) string {
-	text = mdImage.ReplaceAllString(text, "")
-	text = mdLink.ReplaceAllString(text, "$1")
-	text = htmlTag.ReplaceAllString(text, "")
+	text = clean(text, readmeLineLimit)
+	text = stripLinks(text, true)
+	text = stripLinks(text, false)
+	text = stripTags(text)
 	text = strings.NewReplacer("`", "", "**", "", "<", "", ">", "", "\\|", "|").Replace(text)
-	text = strings.Join(strings.Fields(clean(text, readmeLineLimit)), " ")
+	text = strings.Join(strings.Fields(text), " ")
 	return clean(text, n)
 }
 
 // hintValue is an example or a default: plain, bounded, without markup.
 func hintValue(text string) string {
-	text = strings.TrimSpace(htmlTag.ReplaceAllString(text, ""))
+	text = strings.TrimSpace(stripTags(clean(text, readmeLineLimit)))
 	text = strings.NewReplacer("<", "", ">", "", "`", "").Replace(text)
 	if text == "nil" || text == "null" {
 		return ""
@@ -374,6 +458,16 @@ type found struct {
 	ports   []string
 	runs    []map[string]bool // the variables of each docker run example of the image
 	more    bool
+	until   time.Time // the parse stops at this time, with what it found
+	stopped bool      // it did
+}
+
+// late tells whether the parse is past its time; once it is, it stays so.
+func (f *found) late() bool {
+	if !f.stopped && !f.until.IsZero() && time.Now().After(f.until) {
+		f.stopped, f.more = true, true
+	}
+	return f.stopped
 }
 
 // rank of a source: what examples set comes before what tables merely list
@@ -635,9 +729,12 @@ func (f *found) runExample(command string) {
 }
 
 // commands finds the docker run commands of the text, continued lines joined.
-func commands(lines []string) []string {
+func (f *found) commands(lines []string) []string {
 	out := []string{}
-	for i := 0; i < len(lines) && len(out) < readmeMaxCommands; i++ {
+	for i := 0; i < len(lines) && len(out) < readmeMaxCommands && !f.late(); i++ {
+		if !strings.Contains(lines[i], " run") {
+			continue // (the expression needs it: a cheap test first)
+		}
 		m := runCommand.FindStringSubmatch(lines[i])
 		if m == nil {
 			continue
@@ -683,13 +780,37 @@ func yamlScalar(text string) (string, string) {
 }
 
 // compose reads the services of a compose file in a code block that run the image.
+// A service is read once (an image line inside a service already read, at
+// the same indent, is the same service), at most readmeMaxCommands of them,
+// so the work is bounded by readmeMaxCommands passes over a block of at most
+// readmeBlockLines lines (it was a pass per image line: seconds for a block
+// of thousands of them).
 func (f *found) compose(block []string) {
+	if len(block) > readmeBlockLines {
+		block, f.more = block[:readmeBlockLines], true
+	}
+	readUntil := map[int]int{} // by indent: the end of the last service read
+	services := 0
 	for i, line := range block {
+		if f.late() {
+			return
+		}
+		if !strings.Contains(line, "image:") {
+			continue
+		}
 		m := imageLine.FindStringSubmatch(line)
 		if m == nil || !imageMatches(m[2], f.repo) {
 			continue
 		}
 		keyIndent := len(m[1])
+		if i < readUntil[keyIndent] {
+			continue // the same service
+		}
+		if services >= readmeMaxCommands {
+			f.more = true
+			return
+		}
+		services++
 		// the service's block: up to the image line, back to its header; after it, while deeper
 		start := i
 		for start > 0 {
@@ -707,7 +828,11 @@ func (f *found) compose(block []string) {
 			}
 			end++
 		}
+		readUntil[keyIndent] = end
 		for k := start; k < end; k++ {
+			if indentOf(block[k]) != keyIndent {
+				continue // (a cheap test before the expression)
+			}
 			key := keyLine.FindStringSubmatch(block[k])
 			if key == nil || len(key[1]) != keyIndent {
 				continue
@@ -1012,16 +1137,29 @@ func (f *found) inline(line string, env bool) {
 // when its own text says so without a condition, or when every docker run
 // example of the image (two at least) sets it.
 func parseRequirements(text, repo string) Requirements {
+	out, _ := parseRequirementsBy(text, repo, time.Now().Add(readmeParseBudget))
+	return out
+}
+
+// parseRequirementsBy parses until the time until at the latest (zero: no
+// limit) and then answers what it found, Truncated, and stopped true.
+func parseRequirementsBy(text, repo string, until time.Time) (Requirements, bool) {
 	lines, truncated := prepareText(text)
-	f := &found{repo: repo, env: map[string]*HintEnv{}, rank: map[string]int{}, more: truncated}
+	f := &found{repo: repo, env: map[string]*HintEnv{}, rank: map[string]int{}, more: truncated, until: until}
 
 	// examples: docker run anywhere, compose in code blocks
-	for _, command := range commands(lines) {
+	for _, command := range f.commands(lines) {
+		if f.late() {
+			break
+		}
 		f.runExample(command)
 	}
 	inFence := false
 	var block []string
 	for _, line := range lines {
+		if f.late() {
+			break
+		}
 		t := strings.TrimSpace(line)
 		if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
 			if inFence {
@@ -1031,11 +1169,11 @@ func parseRequirements(text, repo string) Requirements {
 			inFence = !inFence
 			continue
 		}
-		if inFence && len(block) < 2000 {
-			block = append(block, line)
+		if inFence && len(block) <= readmeBlockLines {
+			block = append(block, line) // (one more than compose reads: it tells the block was cut)
 		}
 	}
-	if inFence {
+	if inFence && !f.late() {
 		f.compose(block)
 	}
 
@@ -1048,16 +1186,18 @@ func parseRequirements(text, repo string) Requirements {
 	var table []string
 	lastProse := ""
 	inList := false
+	paragraphSize := 0
 	flushParagraph := func() {
 		if len(headingVars) > 0 && len(paragraph) > 0 {
-			about := strings.Join(paragraph, " ")
+			// (cut: it is read once per name of the heading)
+			about := clean(strings.Join(paragraph, " "), readmeLineLimit)
 			for _, n := range headingVars {
 				optional := saysOptional(about)
 				f.describe(n, "heading", about, "", explicitRequired(about) && !optional, optional)
 			}
 			headingVars = nil
 		}
-		paragraph = nil
+		paragraph, paragraphSize = nil, 0
 	}
 	flushTable := func() {
 		if len(table) > 0 {
@@ -1066,6 +1206,9 @@ func parseRequirements(text, repo string) Requirements {
 		table = nil
 	}
 	for _, line := range lines {
+		if f.late() {
+			break
+		}
 		t := strings.TrimSpace(line)
 		if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
 			flushTable()
@@ -1088,7 +1231,7 @@ func parseRequirements(text, repo string) Requirements {
 			}
 			headingVars = nil
 			level := len(m[1])
-			title := strings.TrimSpace(htmlTag.ReplaceAllString(m[2], ""))
+			title := strings.TrimSpace(stripTags(m[2]))
 			for len(stack) > 0 && stack[len(stack)-1].level >= level {
 				stack = stack[:len(stack)-1]
 			}
@@ -1121,8 +1264,9 @@ func parseRequirements(text, repo string) Requirements {
 			continue // the rest of a list item
 		}
 		inList = false
-		if len(headingVars) > 0 {
+		if len(headingVars) > 0 && paragraphSize < readmeLineLimit {
 			paragraph = append(paragraph, t)
+			paragraphSize += len(t) + 1
 		}
 		f.inline(t, inEnv())
 		lastProse = t
@@ -1186,7 +1330,9 @@ func parseRequirements(text, repo string) Requirements {
 			e.Required = false // the text disagrees with itself: not required
 		}
 		if e.Secret {
-			e.Example = "" // a documented password is never offered
+			// a documented password is never offered: the panel shows the
+			// example, or else the default, as the hint
+			e.Example, e.Default = "", ""
 		}
 		e.Name = clean(e.Name, 64)
 		if len(out.Env) >= maxHintEnv {
@@ -1195,5 +1341,5 @@ func parseRequirements(text, repo string) Requirements {
 		}
 		out.Env = append(out.Env, e)
 	}
-	return out
+	return out, f.stopped
 }

@@ -1,11 +1,4 @@
-# Bitnami Secure Image for PostgreSQL
-
-> PostgreSQL (Postgres) is an open source object-relational database known for reliability and data integrity. ACID-compliant, it supports foreign keys, joins, views, triggers and stored procedures.
-
-[Overview of PostgreSQL](https://www.postgresql.org)
-Trademarks: This software listing is packaged by Bitnami. The respective trademarks mentioned in the offering are owned by the respective companies, and use of them does not imply any affiliation or endorsement.
-
-## <a id="tl-dr"></a> TL;DR
+<!-- source: https://hub.docker.com/r/bitnami/postgresql fetched 2026-11-15, extract -->
 
 ```console
 docker run --name postgresql REGISTRY_NAME/bitnami/postgresql:latest
@@ -13,53 +6,7 @@ docker run --name postgresql REGISTRY_NAME/bitnami/postgresql:latest
 
 > Note: You need to substitute the `REGISTRY_NAME` placeholder with a reference to your container registry.
 
-## <a id="using-docker-compose-yml"></a> Using `docker-compose.yml`
-
-The docker-compose.yaml file of this container can be found in the [Bitnami Containers repository](https://github.com/bitnami/containers/).
-
-[https://github.com/bitnami/containers/tree/main/bitnami/postgresql/docker-compose.yml](https://github.com/bitnami/containers/tree/main/bitnami/postgresql/docker-compose.yml)
-
-Please be aware this file has not undergone internal testing. Consequently, we advise its use exclusively for development or testing purposes. For production-ready deployments, we highly recommend utilizing its associated [Bitnami Helm chart](https://github.com/bitnami/charts/tree/main/bitnami/postgresql).
-
-## <a id="how-to-deploy-postgresql-in"></a> How to deploy PostgreSQL in Kubernetes?
-
-Deploying Bitnami applications as Helm Charts is the easiest way to get started with our applications on Kubernetes. Read more about the installation in the [Bitnami PostgreSQL Chart GitHub repository](https://github.com/bitnami/charts/tree/master/bitnami/postgresql).
-
-## <a id="why-use-a-non-root"></a> Why use a non-root container?
-
-Non-root container images add an extra layer of security and are generally recommended for production environments. However, because they run as a non-root user, privileged tasks are typically off-limits. Learn more about non-root containers [in our docs](https://techdocs.broadcom.com/us/en/vmware-tanzu/application-catalog/tanzu-application-catalog/services/tac-doc/apps-tutorials-work-with-non-root-containers-index.html).
-
-## <a id="supported-tags-and-respective-dockerfile"></a> Supported tags and respective `Dockerfile` links
-
-Learn more about the Bitnami tagging policy and the difference between rolling tags and immutable tags [in our documentation page](https://techdocs.broadcom.com/us/en/vmware-tanzu/application-catalog/tanzu-application-catalog/services/tac-doc/apps-tutorials-understand-rolling-tags-containers-index.html).
-
-## <a id="get-this-image"></a> Get this image
-
-The Bitnami PostgreSQL Docker image is only available to [Bitnami Secure Images](https://bitnami.com) customers.
-
-## <a id="persisting-your-database"></a> Persisting your database
-
-If you remove the container all your data and configurations will be lost, and the next time you run the image the database will be reinitialized. To avoid this loss of data, you should mount a volume that will persist even after the container is removed.
-
-For persistence you should mount a directory at the `/bitnami/postgresql` path. If the mounted directory is empty, it will be initialized on the first run.
-
-> **NOTE** As this is a non-root container, the mounted files and directories must have the proper permissions for the UID `1001`.
-
-## <a id="connecting-to-other-containers"></a> Connecting to other containers
-
-Using [Docker container networking](https://docs.docker.com/engine/userguide/networking/), a PostgreSQL server running inside a container can easily be accessed by your application containers.
-
-Containers attached to the same network can communicate with each other using the container name as the hostname.
-
-## <a id="configuration"></a> Configuration
-
 The following section describes the supported environment variables
-
-### <a id="environment-variables"></a> Environment variables
-
-The following tables list the main variables you can set.
-
-#### Customizable environment variables
 
 | Name                                       | Description                                                                                          | Default Value                           |
 |--------------------------------------------|------------------------------------------------------------------------------------------------------|-----------------------------------------|
@@ -144,10 +91,6 @@ The following tables list the main variables you can set.
 | `POSTGRESQL_REPLICATION_NODES`             | Override value for synchronous_standby_names in postgresql.conf. Should be set if `REPMGR_NODE_NAME` | `nil`                                   |
 | `POSTGRESQL_PERFORM_RESTORE`               | Flag to skip deletion of `recovery.signal` file to enable native recovery. e.g by using `wal-g`      | `no`                                    |
 
-#### Read-only environment variables
-
-| Name                                         | Description                                                     | Value                                         |
-|----------------------------------------------|-----------------------------------------------------------------|-----------------------------------------------|
 | `POSTGRESQL_BASE_DIR`                        | PostgreSQL installation directory                               | `/opt/bitnami/postgresql`                     |
 | `POSTGRESQL_DEFAULT_CONF_DIR`                | PostgreSQL configuration directory                              | `$POSTGRESQL_BASE_DIR/conf.default`           |
 | `POSTGRESQL_CONF_DIR`                        | PostgreSQL configuration directory                              | `$POSTGRESQL_BASE_DIR/conf`                   |
@@ -173,16 +116,5 @@ The following tables list the main variables you can set.
 | `POSTGRESQL_FIRST_BOOT`                      | Flag for startup (necessary for repmgr)                         | `yes`                                         |
 | `NSS_WRAPPER_LIB`                            | Flag for startup (necessary for repmgr)                         | `/opt/bitnami/common/lib/libnss_wrapper.so`   |
 
-### <a id="on-container-start"></a> On container start
-
-When the container is executed, it will execute the files with extension `.sh` located at `/docker-entrypoint-preinitdb.d` before initializing or starting postgresql.
-
-In order to have your custom files inside the docker image you can mount them as a volume.
-
-### <a id="passing-extra-command-line-flags"></a> Passing extra command-line flags to PostgreSQL
-
-Passing extra command-line flags to the postgresql service command is possible through the following env var:
-
 - `POSTGRESQL_EXTRA_FLAGS`: F
 
-_Note: the README for this container is longer than the DockerHub length limit of 25000, so it has been trimmed. The full README can be found at https://techdocs.broadcom.com/us/en/vmware-tanzu/bitnami-secure-images/bitnami-secure-images/services/bsi-app-doc/apps-containers-postgresql-index.html_
