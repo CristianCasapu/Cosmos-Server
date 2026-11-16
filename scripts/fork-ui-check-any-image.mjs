@@ -227,7 +227,12 @@ for (const engine of engines) {
         expect(/PostgreSQL/.test(about) && /Version \(tag\): 18/.test(about) && /pinned to its major/.test(about), `${name}: PostgreSQL 18 proposed, and why`);
         expect(/reach it at postgres(-\d+)?:5432/.test(about) && /Nothing is published/.test(about), `${name}: the address other apps use, nothing published`);
         const secret = await page.locator('[data-setting="POSTGRES_PASSWORD"] input').inputValue();
-        expect(/^[A-Za-z0-9]{24}$/.test(secret), `${name}: a generated password is shown`);
+        // plan 45: the recipe's rule (letters, digits and - . _ ~), the configuration's length (24 by default)
+        expect(/^[A-Za-z0-9][A-Za-z0-9._~-]{14,62}[A-Za-z0-9]$/.test(secret) && /[a-z]/.test(secret) && /[A-Z]/.test(secret) && /[0-9]/.test(secret), `${name}: a generated password is shown`);
+        // plan 45: the user is the configuration's default (the administrator's name as PostgreSQL takes it)
+        const pgUser = await page.locator('[data-setting="POSTGRES_USER"] input').inputValue();
+        const pgDb = await page.locator('[data-setting="POSTGRES_DB"] input').inputValue();
+        expect(/^[a-z_][a-z0-9_]*$/.test(pgUser), `${name}: the user is a name PostgreSQL takes (${pgUser})`);
         const review = await page.locator('[data-any-image-review]').innerText();
         expect(/Publishes no port on the server/.test(review), `${name}: the review says no port is published`);
         expect(/\/mnt\/data\/cosmos-storage\/postgres(-\d+)?\/postgresql/.test(review), `${name}: the data folder is proposed on the data disk`);
@@ -249,7 +254,7 @@ for (const engine of engines) {
             expect(Object.keys(c.HostConfig.PortBindings || {}).length === 0, `${name}: no port published on the server`);
             await sleep(5000);
             // over the network (127.0.0.1 is trusted by the image's own pg_hba.conf)
-            const psql = (sql) => ['sh', '-c', `psql -h "$(hostname -i | cut -d' ' -f1)" -U app -d app -tAc "${sql}" 2>&1; echo "exit=$?"`];
+            const psql = (sql) => ['sh', '-c', `psql -h "$(hostname -i | cut -d' ' -f1)" -U ${pgUser} -d ${pgDb} -tAc "${sql}" 2>&1; echo "exit=$?"`];
             const good = await run('postgres', psql('select 40+2'), [`PGPASSWORD=${secret}`]);
             expect(/42/.test(good), `${name}: the password shown works (${good.trim().slice(0, 80)})`);
             const bad = await run('postgres', psql('select 1'), ['PGPASSWORD=wrong']);
