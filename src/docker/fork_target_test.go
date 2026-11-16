@@ -87,3 +87,27 @@ func TestContainerTargetCachesFailures(t *testing.T) {
 		t.Fatalf("state %v", state)
 	}
 }
+
+// Review A5: a lazy wake forgets the container's address (ForgetContainerIP,
+// lazy.go): the proxy's own cache is dropped too, so a woken container is
+// reached at once, not after a stale "stopped" answer.
+func TestAWakeForgetsTheProxysView(t *testing.T) {
+	running := false
+	prev := inspectForTarget
+	inspectForTarget = func(name string) (types.ContainerJSON, error) {
+		if running {
+			return inspected(types.ContainerState{Running: true}, "bridge", map[string]string{"bridge": "172.17.0.8"}), nil
+		}
+		return inspected(types.ContainerState{Status: "exited"}, "bridge", nil), nil
+	}
+	defer func() { inspectForTarget = prev }()
+	ForgetTarget("sleeper")
+	if _, state, _ := ContainerTarget("sleeper"); state != TargetStopped {
+		t.Fatalf("%v", state)
+	}
+	running = true
+	ForgetContainerIP("sleeper")
+	if ip, state, _ := ContainerTarget("sleeper"); state != TargetRunning || ip != "172.17.0.8" {
+		t.Fatalf("%v %q", state, ip)
+	}
+}
