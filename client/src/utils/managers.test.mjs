@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
-import { buildDefinition, managerDefinition, managerEnv, managersFor, parseReference, proposedSettings } from './anyImage.js';
+import { backupCommand, buildDefinition, managerDefinition, managerEnv, managersFor, parseReference, proposedSettings } from './anyImage.js';
 import { composeVarDefault, followsRule, marketFieldDefault, marketFormValue, LABEL, MANAGER_LABEL } from './signIn.js';
 
 const random = (n) => { const a = new Uint32Array(n); webcrypto.getRandomValues(a); return a; };
@@ -133,6 +133,14 @@ test('a compose file\'s open secrets are generated, an outside service\'s left e
   assert.equal(composeVarDefault('ADMIN_EMAIL', defaults, random), 'owner@example.org');
   assert.equal(composeVarDefault('TZ', defaults, random), '');
   assert.equal(composeVarDefault('DB_USER', defaults, random), '');
+});
+
+test('the backup command uses the user the settings really have', () => {
+  const r = { ...pg, backup: 'pg_dumpall -U app' };
+  assert.equal(backupCommand(r, [{ name: 'POSTGRES_USER', value: 'owner_name' }]), 'pg_dumpall -U owner_name');
+  assert.equal(backupCommand(r, [{ name: 'POSTGRES_USER', value: 'app' }]), 'pg_dumpall -U app');
+  assert.equal(backupCommand(r, [{ name: 'POSTGRES_USER', value: 'bad name; rm' }]), 'pg_dumpall -U app');
+  assert.equal(backupCommand({ ...r, backup: 'pg_dumpall -U application' }, [{ name: 'POSTGRES_USER', value: 'x' }]), 'pg_dumpall -U application');
 });
 
 test('the label of the review never carries a value', () => {
