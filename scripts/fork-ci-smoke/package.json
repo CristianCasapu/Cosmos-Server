@@ -1,0 +1,9 @@
+{
+  "name": "fork-ci-smoke",
+  "private": true,
+  "description": "Fork addition: the browser smoke of the CI (scripts/fork-ci-smoke.sh). playwright must stay at the version of the Playwright image the script runs.",
+  "license": "SEE LICENSE IN LICENCE AND FORK-LICENCE.md",
+  "dependencies": {
+    "playwright": "1.65.1"
+  }
+}

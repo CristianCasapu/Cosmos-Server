@@ -25,14 +25,18 @@ inputs:
 runs:
   using: composite
   steps:
+    # A release build restores no cache: runs on custom execute the
+    # dependencies' code and write the default branch's cache, which
+    # production may restore (cache poisoning). Checks keep the cache.
     - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: go.mod
+        cache: ${{ inputs.release != 'true' }}
 
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version: 26
-        cache: npm
+        cache: ${{ inputs.release != 'true' && 'npm' || '' }}
 
     # GeoLite2 is not in the repository; upstream's CI downloads it (it
     # needs a MaxMind key). Take the file upstream shipped for the version
@@ -118,7 +122,9 @@ runs:
         FORK_REQUIRE_RELEASE_KEY: ${{ inputs.release == 'true' && '1' || '' }}
       run: |
         node --test "client/src/utils/*.test.mjs"
+        node --test scripts/fork-deps-lib.test.mjs scripts/fork-deps-update.test.mjs scripts/fork-deps-ci.test.mjs
         go test ./src/forkrelease/ -count=1
+        cp src/update.go src/launcher/update.go && go test ./src/launcher/ -count=1 && rm src/launcher/update.go
         go test ./src/utils/ ./src/authorizationserver/ -count=1
         go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ ./src/telegram/ ./src/fail2ban/ ./src/maildetect/ ./src/dnsrecords/ ./src/cloudflare/... ./src/certs/ ./src/market/ ./src/turnstile/ ./src/edgeblock/ ./src/reachwatch/ ./src/anyimage/ -count=1
         go test ./src/ -skip TestEveryRouteIsDocumented -count=1
@@ -169,6 +175,12 @@ runs:
         cp -r build "$RUNNER_TEMP/smoke"
         mkdir "$RUNNER_TEMP/smoke-config"
         cd "$RUNNER_TEMP/smoke"
+        # start.sh runs the launcher before every start: a launcher that fails
+        # with nothing to install would keep the server from starting at all
+        if ! ./cosmos-launcher > "$RUNNER_TEMP/launcher.log" 2>&1; then
+          cat "$RUNNER_TEMP/launcher.log"; echo "::error::The launcher failed with no update to install"; exit 1
+        fi
+        grep -q "No updates to install" "$RUNNER_TEMP/launcher.log" || { cat "$RUNNER_TEMP/launcher.log"; echo "::error::The launcher did not say it had nothing to install"; exit 1; }
         COSMOS_CONFIG_FOLDER="$RUNNER_TEMP/smoke-config/" COSMOS_HTTP_PORT=18080 COSMOS_HTTPS_PORT=18443 \
           ./cosmos > "$RUNNER_TEMP/smoke.log" 2>&1 &
         pid=$!

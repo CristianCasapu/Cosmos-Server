@@ -15,6 +15,7 @@ import (
 // notifications for the administrators and utils.ForkNotice reach it; with
 // the notifications switched off none of that sends anything.
 func startTelegram() {
+	telegram.SetDependencyUpdate(installedForkDependencies()) // the "update installed" message says when it was a dependency update
 	telegram.Start(GetCosmosVersion())
 }
 

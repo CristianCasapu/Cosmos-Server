@@ -1,0 +1,329 @@
+# Fork addition: once a week, brings every dependency to its newest version
+# that has been out for at least seven days, checks it like any change, and,
+# when everything passes, releases it; the server installs the release at its
+# maintenance time. The owner decided this on 2026-11-15 (FORK.md).
+#
+#   guard      may it run? The kill switch (repository variable
+#              FORK_DEPS_UPDATE = off), a sync, a rollback or a release under way.
+#   prepare    contents: read, no secret, no cache. Runs the update
+#              (scripts/fork-deps-update.mjs) on custom, majors one by one with
+#              the quick checks: the only job where a new dependency's code runs
+#              before the full checks. Hands over a git bundle and a report.
+#   candidate  contents: write. Runs no code of the candidate or of any
+#              dependency: custom's own validator decides that the bundle only
+#              changes dependency versions, then the branch deps/<day> is pushed.
+#   verify     the full checks (fork-ci.yml: build, tests, one start, the browser
+#              smoke) on the candidate.
+#   finish     git, gh and jq only. Passed: custom and production move to the
+#              candidate in one atomic, non-forced push, the release is started
+#              and the status says so. Failed with a major in it: the newest major
+#              is dropped and the shorter candidate is checked again by a new run
+#              (mode "verify"). Failed otherwise: an issue, the status "failed",
+#              the candidate branch kept, nothing published.
+#
+# The signing key is never reachable from here: it is a secret of the
+# environment "release", which only runs on production may use; the release
+# is built and signed by fork-release.yml exactly like any other.
+#
+# The status the server reads is status.json on the branch fork-deps-status
+# (public, unsigned: the server treats it as untrusted text).
+name: Automatic dependency update
+
+on:
+  # Enabled by the owner once the first run by hand passed:
+  # schedule:
+  #   - cron: '17 15 * * 6'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "update: make a new candidate; verify: check a candidate again (used by the update itself)"
+        type: choice
+        options: [update, verify]
+        default: update
+      candidate:
+        description: "verify only: the candidate branch (deps/YYYY-MM-DD)"
+        type: string
+        default: ''
+      sha:
+        description: "verify only: the candidate's commit"
+        type: string
+        default: ''
+      base:
+        description: "verify only: the custom commit the candidate is on"
+        type: string
+        default: ''
+      attempt:
+        description: "how many times this week's update started over because custom moved"
+        type: string
+        default: '1'
+
+permissions: {}
+
+# never two updates at once; a run started by an update waits for it to end
+concurrency:
+  group: fork-deps-update
+  cancel-in-progress: false
+
+env:
+  COOLDOWN_DAYS: 7
+  MAX_MAJORS: 6
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      state: ${{ steps.guard.outputs.state }}
+      base: ${{ steps.guard.outputs.base }}
+      day: ${{ steps.guard.outputs.day }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: custom
+          persist-credentials: false
+      - name: May the update run now?
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORK_DEPS_UPDATE: ${{ vars.FORK_DEPS_UPDATE }}
+          MODE: ${{ inputs.mode || 'update' }}
+          IN_CANDIDATE: ${{ inputs.candidate }}
+          IN_SHA: ${{ inputs.sha }}
+          IN_BASE: ${{ inputs.base }}
+        run: |
+          state=$(bash scripts/fork-deps-ci.sh guard)
+          echo "state=${state%% *}" >> "$GITHUB_OUTPUT"
+          echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+          echo "Guard: $state"
+          if [ "$MODE" = "verify" ]; then
+            [[ "$IN_CANDIDATE" =~ ^deps/[0-9]{4}-[0-9]{2}-[0-9]{2}$ && "$IN_SHA" =~ ^[0-9a-f]{40}$ && "$IN_BASE" =~ ^[0-9a-f]{40}$ ]] \
+              || { echo "::error::verify needs a deps/<day> branch and two commits"; exit 1; }
+            echo "base=$IN_BASE" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+  prepare:
+    needs: guard
+    if: needs.guard.outputs.state == 'go' && (inputs.mode || 'update') == 'update'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.update.outputs.changed }}
+      failed: ${{ steps.update.outputs.failed }}
+    steps:
+      # The quick checks run the new dependencies' code: no token on disk,
+      # no cache read or written (a default-branch cache is what release
+      # builds would restore).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.base }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+      - name: Update the dependencies
+        id: update
+        env:
+          # read-only, for the API's rate limit; the quick checks do not get it
+          GITHUB_TOKEN: ${{ github.token }}
+          FORK_DEPS_TODAY: ${{ needs.guard.outputs.day }}
+          OUT: ${{ runner.temp }}/report.json
+          SKIP_TRIED: ${{ runner.temp }}/last-status.json
+        run: |
+          curl -fsS -m 20 --max-filesize 65536 -o "$SKIP_TRIED" \
+            "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/refs/heads/fork-deps-status/status.json" || rm -f "$SKIP_TRIED"
+          code=0
+          node scripts/fork-deps-update.mjs || code=$?
+          if [ ! -s "$OUT" ]; then
+            printf '{"failedStep":"update","failure":"the update stopped before it wrote its report (exit %s)","changed":false}\n' "$code" > "$OUT"
+          fi
+          changed=$(jq -r '.changed // false' "$OUT")
+          failed=$(jq -r '.failedStep // ""' "$OUT")
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/handover"
+          cp "$OUT" "$RUNNER_TEMP/handover/report.json"
+          if [ "$changed" = "true" ]; then
+            git bundle create "$RUNNER_TEMP/handover/update.bundle" "${{ needs.guard.outputs.base }}..HEAD"
+          fi
+          jq -r '"Updated: \(.changes | length), tried and failed: \(.tried | length), left: \(.left | length)"' "$OUT" >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: update
+          path: ${{ runner.temp }}/handover/
+          if-no-files-found: error
+          retention-days: 14
+
+  candidate:
+    needs: [guard, prepare]
+    if: needs.prepare.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.receive.outputs.sha }}
+      branch: ${{ steps.receive.outputs.branch }}
+    steps:
+      # custom's own copy: its validator is what decides, not the candidate's
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.base }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: update
+          path: ${{ runner.temp }}/handover
+      - name: Check that the update only changes versions, then push the candidate
+        id: receive
+        env:
+          BASE: ${{ needs.guard.outputs.base }}
+          DAY: ${{ needs.guard.outputs.day }}
+        run: |
+          sha=$(bash scripts/fork-deps-ci.sh receive "$RUNNER_TEMP/handover/update.bundle" "$BASE" "$DAY")
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "branch=deps/$DAY" >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: [guard, prepare, candidate]
+    # a new candidate without a failed step, or a candidate handed to this run
+    if: >-
+      always() && needs.guard.outputs.state == 'go' &&
+      ((needs.candidate.result == 'success' && needs.prepare.outputs.failed == '') ||
+       (inputs.mode == 'verify' && inputs.sha != ''))
+    permissions:
+      contents: read
+    uses: ./.github/workflows/fork-ci.yml
+    with:
+      ref: ${{ needs.candidate.outputs.sha || inputs.sha }}
+
+  finish:
+    needs: [guard, prepare, candidate, verify]
+    if: always() && needs.guard.result == 'success' && needs.guard.outputs.state != 'busy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    permissions:
+      contents: write
+      issues: write
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BASE: ${{ needs.guard.outputs.base }}
+      SHA: ${{ needs.candidate.outputs.sha || inputs.sha }}
+      CANDIDATE: ${{ needs.candidate.outputs.branch || inputs.candidate }}
+      STATE: ${{ needs.guard.outputs.state }}
+      PREPARE: ${{ needs.prepare.result }}
+      FAILED: ${{ needs.prepare.outputs.failed }}
+      CHANGED: ${{ needs.prepare.outputs.changed }}
+      CANDIDATE_RESULT: ${{ needs.candidate.result }}
+      VERIFY: ${{ needs.verify.result }}
+      ATTEMPT: ${{ inputs.attempt || '1' }}
+    steps:
+      # git, gh and jq only, and custom's own scripts: nothing of the candidate runs here
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: custom
+          fetch-depth: 0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: needs.prepare.result != 'skipped'
+        continue-on-error: true
+        with:
+          name: update
+          path: ${{ runner.temp }}/handover
+      - name: Promote, check again without the newest major, or report
+        run: |
+          ci() { bash scripts/fork-deps-ci.sh "$@"; }
+          export REPORT="$RUNNER_TEMP/handover/report.json"
+          [ -f "$REPORT" ] || unset REPORT
+          failure="$RUNNER_TEMP/failure.txt"
+          : > "$failure"
+          [ -n "$CANDIDATE" ] && git fetch -q origin "refs/heads/$CANDIDATE" 2>/dev/null || true
+
+          fail() { # step, then the failure text is in $failure
+            echo "::error::The automatic dependency update failed at: $1"
+            ISSUE=$(ci issue "$failure" || true) ci status failed "$1" "$failure"
+            exit 1
+          }
+
+          if [ "$STATE" = "paused" ]; then
+            echo "::notice::Paused by the repository variable FORK_DEPS_UPDATE."
+            ci status paused; exit 0
+          fi
+          if [ "$PREPARE" = "failure" ] || [ -n "$FAILED" ]; then
+            if [ -n "${REPORT:-}" ]; then jq -r '.failure // "the update failed"' "$REPORT" > "$failure"; else echo "the update job failed; see the run" > "$failure"; fi
+            fail "${FAILED:-update}"
+          fi
+          if [ "$PREPARE" = "success" ] && [ "$CHANGED" != "true" ]; then
+            echo "Nothing to update this week."
+            ci status nothing; exit 0
+          fi
+          if [ "$CANDIDATE_RESULT" = "failure" ]; then
+            echo "The update's commits were refused by the validator or could not be pushed; see the candidate job." > "$failure"
+            fail push
+          fi
+
+          if [ "$VERIFY" = "success" ]; then
+            outcome=$(ci promote "$SHA" "$BASE")
+            case "$outcome" in
+              promoted)
+                git push -q origin --delete "$CANDIDATE" || true
+                gh workflow run fork-ci.yml --repo "$GITHUB_REPOSITORY" --ref custom
+                gh workflow run fork-release.yml --repo "$GITHUB_REPOSITORY" --ref production
+                if version=$(ci wait-release "$SHA"); then
+                  RELEASE=$version ci status updated
+                  ci resolved "The automatic dependency update of $(date -u +%F) passed and was released as $version."
+                else
+                  echo "custom and production were moved to $SHA, but fork-release.yml did not publish a release of it within the wait. Look at its run; production is ahead of the last release until it does." > "$failure"
+                  fail release
+                fi ;;
+              custom-moved)
+                if [ "$ATTEMPT" = "1" ]; then
+                  echo "::notice::custom moved while the update worked: starting over from the new custom."
+                  gh workflow run fork-deps-update.yml --repo "$GITHUB_REPOSITORY" --ref custom -f mode=update -f attempt=2
+                  exit 0
+                fi
+                echo "custom moved twice while the update worked; it is tried again next week. Nothing was changed." > "$failure"
+                ci status failed custom-moved "$failure"; exit 0 ;;
+              production-ahead)
+                echo "production has commits that custom lacks (an upstream sync or a rollback): merge origin/production into custom; the update is tried again next week." > "$failure"
+                fail push ;;
+              *)
+                echo "the push of custom and production was refused ($outcome)" > "$failure"
+                fail push ;;
+            esac
+            exit 0
+          fi
+
+          # the full checks failed: without the newest major, if there is one
+          majors=$(ci majors "$SHA" "$BASE")
+          if [ "${majors:-0}" -gt 0 ]; then
+            next=$(ci drop "$SHA" "$BASE" "full checks failed in run $GITHUB_RUN_ID")
+            git push -q --force origin "$next:refs/heads/$CANDIDATE"
+            echo "::notice::The full checks failed; checking again without the newest major ($next)."
+            gh workflow run fork-deps-update.yml --repo "$GITHUB_REPOSITORY" --ref custom \
+              -f mode=verify -f candidate="$CANDIDATE" -f sha="$next" -f base="$BASE" -f attempt="$ATTEMPT"
+            exit 0
+          fi
+          {
+            echo "The full checks (fork-ci.yml) failed on the candidate, which has no major left to drop."
+            echo
+            gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --json jobs \
+              --jq '.jobs[] | select(.conclusion == "failure") | "Job: \(.name)", (.steps[] | select(.conclusion == "failure") | "  failed step: \(.name)")' || true
+            echo
+            # the run is still going (this job): read the finished failed jobs' logs one by one
+            for job in $(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" --jq '.jobs[] | select(.conclusion == "failure") | .id' | head -n 3); do
+              gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$job/logs" 2>/dev/null | sed -E 's/^[0-9T:.-]+Z //' \
+                | grep -E -i -B2 -A8 'error|fail|panic' | grep -v '^\s*$' | tail -n 60 || true
+            done
+          } > "$failure"
+          fail checks

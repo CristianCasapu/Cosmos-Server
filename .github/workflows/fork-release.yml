@@ -119,6 +119,17 @@ jobs:
           PREVIOUS: ${{ steps.version.outputs.previous }}
         run: |
           pkg="cosmos-cloud-$VERSION"
+          mkdir release
+
+          # What this release changes in its dependencies, from the lines the
+          # automatic update writes into its commits: dependencies.json for
+          # the release, a section of the notes, and a summary in meta.json,
+          # which is signed with the zip (the server reads it after installing).
+          deps=$(node scripts/fork-deps-notes.mjs "$PREVIOUS" release "$(date -u +%F)")
+          if [ "$deps" != "{}" ]; then
+            jq --argjson d "$deps" '.forkDependencies = $d' build/meta.json > build/meta.json.new
+            mv build/meta.json.new build/meta.json
+          fi
 
           mkdir "$pkg"
           cp -r build/* "$pkg/"
@@ -130,7 +141,6 @@ jobs:
           mv "$pkg-arm64/cosmos-launcher-arm64" "$pkg-arm64/cosmos-launcher"
           mv "$pkg-arm64/restic-arm" "$pkg-arm64/restic"
 
-          mkdir release
           zip -qr "release/$pkg-amd64.zip" "$pkg"
           zip -qr "release/$pkg-arm64.zip" "$pkg-arm64"
           (cd release && md5sum "$pkg-amd64.zip" > "$pkg-amd64.zip.md5" && md5sum "$pkg-arm64.zip" > "$pkg-arm64.zip.md5")
@@ -142,7 +152,9 @@ jobs:
               echo
               git log --no-merges --format='- %s' "$PREVIOUS..HEAD" | head -n 40
             fi
+            cat release/dependencies.md
           } > release/notes.md
+          rm release/dependencies.md
           ls -l release
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -187,7 +199,7 @@ jobs:
           fi
           cd release
           expected=$(printf '%s\n' "cosmos-cloud-$VERSION-amd64.zip" "cosmos-cloud-$VERSION-amd64.zip.md5" \
-            "cosmos-cloud-$VERSION-arm64.zip" "cosmos-cloud-$VERSION-arm64.zip.md5" notes.md | sort)
+            "cosmos-cloud-$VERSION-arm64.zip" "cosmos-cloud-$VERSION-arm64.zip.md5" notes.md dependencies.json | sort)
           found=$(find . -mindepth 1 -printf '%P\n' | sort)
           if [ "$found" != "$expected" ]; then
             echo "::error::The build handed over other files than a release has"; printf '%s\n' "$found"; exit 1
@@ -195,6 +207,10 @@ jobs:
           for f in $expected; do
             if [ ! -f "$f" ] || [ -L "$f" ]; then echo "::error::$f is not a plain file"; exit 1; fi
           done
+          # dependencies.json is data for people and scripts: bounded and well-formed, nothing more
+          if [ "$(stat -c %s dependencies.json)" -gt 262144 ] || ! jq -e '.schema == 1 and (.changes | type) == "array"' dependencies.json > /dev/null; then
+            echo "::error::dependencies.json is not what the build writes"; exit 1
+          fi
           for arch in amd64 arm64; do
             zip="cosmos-cloud-$VERSION-$arch.zip"
             if [ "$(stat -c %s "$zip")" -gt 1073741824 ]; then
@@ -337,7 +353,7 @@ jobs:
           gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" \
             "cosmos-cloud-$VERSION-amd64.zip" "cosmos-cloud-$VERSION-amd64.zip.md5" \
             "cosmos-cloud-$VERSION-arm64.zip" "cosmos-cloud-$VERSION-arm64.zip.md5" \
-            "cosmos-cloud-$VERSION.sig" \
+            "cosmos-cloud-$VERSION.sig" dependencies.json \
             --target "$GITHUB_SHA" \
             --title "$VERSION" \
             --latest \

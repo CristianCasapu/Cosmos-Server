@@ -180,7 +180,7 @@ func markExitAt(path string, reason string, updateTo string) {
 // announceStart tells that Cosmos started, and what that start follows.
 func announceStart(version string, now time.Time) {
 	nt := recordStart(statePath(), version, now)
-	if n := std.Load(); nt != nil && n != nil {
+	if n := std.Load(); nt != nil && n != nil && !quietStart.Load() {
 		n.Notify(*nt)
 	}
 }

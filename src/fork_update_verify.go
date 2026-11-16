@@ -79,12 +79,18 @@ var notifyRejectedUpdate = func(summary string) {
 // update was not installed.
 func reportRejectedUpdate(version string, reason string, by string) {
 	version, reason = forkrelease.SafeText(version), forkrelease.SafeText(reason)
-	utils.Error("Update: release "+version+" was NOT installed ("+by+"): "+reason, nil)
-	utils.RecordSecurityEvent(utils.SecurityEvent{
-		Kind:    utils.SecServerUpdateRejected,
-		Target:  version,
-		Details: map[string]string{"reason": reason, "by": by},
-	})
+	what := "release " + version
+	if version == "" {
+		what = "the update" // the launcher's note names no version
+	}
+	utils.Error("Update: "+what+" was NOT installed ("+by+"): "+reason, nil)
+	if forkrelease.SecurityRefusal(reason) { // a full disk is not a security incident
+		utils.RecordSecurityEvent(utils.SecurityEvent{
+			Kind:    utils.SecServerUpdateRejected,
+			Target:  version,
+			Details: map[string]string{"reason": reason, "by": by},
+		})
+	}
 
 	rejectedUpdatesMu.Lock()
 	seen := rejectedUpdates[version+"\x00"+reason]
@@ -113,6 +119,28 @@ func reportLauncherRefusal() {
 	// cleanUpUpdateFiles (upstream) removed the zip just before; its signature file goes with it
 	forkrelease.ClearStaged(folder)
 	if reason := forkrelease.TakeLauncherRefusal(folder); reason != "" {
+		// told once the databases are open (flushLauncherRefusal): this
+		// runs before them, and the panel would not get the notification
+		pendingRefusalMu.Lock()
+		pendingRefusal = reason
+		pendingRefusalMu.Unlock()
+	}
+}
+
+var (
+	pendingRefusalMu sync.Mutex
+	pendingRefusal   string
+)
+
+// flushLauncherRefusal reports what reportLauncherRefusal found, once the
+// databases are open (called by startUpdateTrial, just before the server
+// listens).
+func flushLauncherRefusal() {
+	pendingRefusalMu.Lock()
+	reason := pendingRefusal
+	pendingRefusal = ""
+	pendingRefusalMu.Unlock()
+	if reason != "" {
 		reportRejectedUpdate("", reason, "launcher")
 	}
 }

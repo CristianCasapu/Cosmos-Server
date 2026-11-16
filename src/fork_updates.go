@@ -70,6 +70,7 @@ func refreshServerUpdateStatus() ServerUpdateStatus {
 			status.LatestVersion = check.LatestVersion
 			status.UpdateAvailable = check.UpdateAvailable
 		}
+		go checkDependencyStatus() // Fork addition: notices about the automatic dependency updates, see fork_deps_status.go
 	}
 
 	updateStatusMu.Lock()

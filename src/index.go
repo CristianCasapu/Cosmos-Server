@@ -187,6 +187,7 @@ WantedBy=multi-user.target`
 }
 
 func main() {
+	armUpdateTrialStop() // Fork addition: a stop of a version on trial is noted as clean from here on, see fork_update_trial.go
 	docker.IsInsideContainer()
 
 	if utils.IsInsideContainer && pro.IsPro() {
@@ -391,6 +392,7 @@ func cosmos() {
 		utils.Log("Starting server...")
 	}
 
+	startUpdateTrial() // Fork addition: a new version proves it started properly, a return to this one is reported, see fork_update_trial.go
 	StartServer()
 }
 

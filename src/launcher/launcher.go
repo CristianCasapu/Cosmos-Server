@@ -126,6 +126,8 @@ func unzip(src string, dest string) error {
 
 
 func main() {
+	if forkrelease.RunWatchdog(os.Args) { return } // Fork addition: started as the watchdog of an update on trial, see src/forkrelease/trial.go
+
 	fmt.Println("-- Cosmos Cloud Launcher (" + edition + ") --")
 
 	utils.IsPro = func() bool { return edition == "pro" }
@@ -146,6 +148,8 @@ func main() {
 
 	dlPath := currentFolder + "/cosmos-update.zip"
 	betaFile := currentFolder + "/.BETA"
+
+	forkrelease.LauncherTrial(currentFolder, updateRepo) // Fork addition: a new version on trial gets another start or goes back by itself, see src/forkrelease/trial.go
 
 	// if there's no updates
 	if _, err := os.Stat(dlPath); err != nil {
@@ -203,11 +207,14 @@ func main() {
 
 		// extract the file
 		fmt.Println("MD5 hash matches, extracting update...")
+		if !forkrelease.KeepReplaced(currentFolder) { return } // Fork addition: the files the update replaces are kept first, see src/forkrelease/trial.go
 		err = unzip(dlPath, currentFolder)
 		if err != nil {
 			fmt.Println(err)
+			forkrelease.UndoInstall(currentFolder, err) // Fork addition: what was kept goes back at once
 			return
 		}
+		forkrelease.BeginTrial(currentFolder) // Fork addition: the new version starts on trial, watched
 
 		// delete the file
 		os.Remove(dlPath)
