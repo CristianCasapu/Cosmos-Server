@@ -59,7 +59,8 @@ const AppLinks = ({ routes, chipStyle, rows }) => {
     </React.Fragment>;
   });
   if (!mark) return groups;
-  return [...groups, rows ? <div key="url-problem" style={chipStyle}>{mark}</div> : mark];
+  // first, so that a row that scrolls sideways on a phone does not hide it
+  return [rows ? <div key="url-problem" style={chipStyle}>{mark}</div> : mark, ...groups];
 };
 
 // The "Internet" chip of an app: its addresses under the configured domains

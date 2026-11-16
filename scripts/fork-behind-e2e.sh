@@ -49,7 +49,7 @@ docker exec -e PASSWORD="$PASSWORD" "$D" sh -c '
   s "{\"step\":\"2\",\"mongodbMode\":\"Create\"}"
   s "{\"step\":\"3\",\"httpsCertificateMode\":\"SELFSIGNED\",\"hostname\":\"server.example.org\",\"allowHTTPLocalIPAccess\":true}"
   s "{\"step\":\"4\",\"nickname\":\"admin\",\"password\":\"$PASSWORD\",\"email\":\"admin@example.org\"}"
-  s "{\"step\":\"5\"}"'
+  s "{\"step\":\"5\"}"; true' # step 5 ends the server: no answer
 for _ in $(seq 1 60); do [ "$(docker exec "$D" curl -sk -o /dev/null -w '%{http_code}' --resolve server.example.org:2053:127.0.0.1 https://server.example.org:2053/cosmos-ui/)" = 200 ] && break; sleep 1; done
 docker cp "$here/fork-behind-e2e-inner.sh" "$D:/e2e.sh"
 status=0

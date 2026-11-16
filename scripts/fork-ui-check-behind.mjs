@@ -67,7 +67,8 @@ for (const engine of engines) {
     const context = await browser.newContext({ viewport: viewports[size], ignoreHTTPSErrors: true, serviceWorkers: 'block' });
     const page = await context.newPage();
     const errors = [];
-    page.on('pageerror', (e) => errors.push(String(e)));
+    // (WebKit reports the app chips' own reachability probe, refused by the apps' CORS, as a page error: upstream's, not this page's)
+    page.on('pageerror', (e) => { if (!String(e).includes('__cosmos_probe')) errors.push(String(e)); });
 
     // sign in to the panel, confirm the password
     await page.goto(panel + '/cosmos-ui/login');
@@ -90,6 +91,7 @@ for (const engine of engines) {
     await mark.waitFor({ timeout: 45000 }).catch(() => {});
     expect(await mark.isVisible(), 'ServApps says the URL does not open');
     expect((await mark.textContent() || '').includes('Does not open'), 'in those words');
+    await mark.scrollIntoViewIfNeeded().catch(() => {});
     await noSideScroll(page, 'ServApps');
     await page.screenshot({ path: `${shots}/${tag}-1-servapps.png` });
 

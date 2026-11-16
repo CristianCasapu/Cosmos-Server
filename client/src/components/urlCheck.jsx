@@ -302,7 +302,7 @@ export const UrlCheckDialog = ({ routeNames, initial, recheck = true, onClose, r
         {fixed.map((name) => <Alert key={name} severity="success" sx={wrap} data-url-check-fixed={name}>
           {t('mgmt.urlCheck.opensNow', '{{url}} opens now.', { url: (results[name] && results[name].url) || name, interpolation: { escapeValue: false } })}
         </Alert>)}
-        {names.map((name) => results[name] && <UrlCheckResult key={name} result={results[name]} />)}
+        {names.map((name) => results[name] && !fixed.includes(name) && <UrlCheckResult key={name} result={results[name]} />)}
         {lead && noteWords(lead).map((n) => <Alert key={n.id} severity="info" sx={wrap} data-url-check-note={n.id}>{t(n.key, n.text, { ...n.params, interpolation: { escapeValue: false } })}</Alert>)}
 
         {lead && repairs.route && <Stack spacing={1} sx={{ minWidth: 0 }} data-url-check-route-repair>
@@ -377,17 +377,17 @@ export const UrlProblemMark = ({ routeNames, refresh }) => {
   const [shown, setShown] = React.useState([]);
   const bad = (routeNames || []).map((n) => results[n]).filter((r) => attentionOf(r));
   const dialog = open && <UrlCheckDialog routeNames={shown} initial={results} recheck={false} onClose={() => setOpen(false)} refresh={refresh} />;
-  if (!bad.length) return dialog || null;
   const error = bad.some((r) => attentionOf(r) === 'error');
   const names = [...bad.map((r) => r.route), ...(routeNames || []).filter((n) => !bad.some((r) => r.route === n))];
+  // one shape whether the mark is shown or not, so the open dialog keeps what it did
   return <>
-    <Tooltip title={t('mgmt.urlCheck.markTip', 'Cosmos asked the app as a visitor arrives: see why and how to repair it')}>
+    {bad.length > 0 && <Tooltip title={t('mgmt.urlCheck.markTip', 'Cosmos asked the app as a visitor arrives: see why and how to repair it')}>
       <Button size="small" variant="outlined" color={error ? 'error' : 'warning'} startIcon={<ExclamationCircleOutlined />}
         onClick={(e) => { e.stopPropagation(); setShown(names); setOpen(true); }} data-url-problem={bad.map((r) => r.route).join(',')}
         sx={{ py: 0, minHeight: 0, lineHeight: 1.6, whiteSpace: 'nowrap' }}>
         {error ? t('mgmt.urlCheck.mark', 'Does not open') : t('mgmt.urlCheck.markWarning', 'Needs a setting')}
       </Button>
-    </Tooltip>
+    </Tooltip>}
     {dialog}
   </>;
 };
