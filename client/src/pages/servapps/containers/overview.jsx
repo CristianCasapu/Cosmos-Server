@@ -5,6 +5,7 @@ import { ContainerOutlined, DashboardOutlined, DesktopOutlined, InfoCircleOutlin
 import { getFaviconURL, getContainersRoutes } from '../../../utils/routes';
 import HostChip from '../../../components/hostChip';
 import AppLinks, { AppDomains } from '../../../components/appLinks'; // Fork addition
+import { UrlCheckButton } from '../../../components/urlCheck'; // Fork addition (plan 44)
 import { ReachPanel } from '../../../components/reachability'; // Fork addition
 import { AppShields } from '../../../components/cloudflare'; // Fork addition
 import { portsFromInspect } from '../../../utils/reachability'; // Fork addition
@@ -254,6 +255,7 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
               </PermissionGuard>
               {/* Fork addition: attach or detach a domain */}
               <AppDomains config={config} containerName={Name.replace('/', '')} refresh={refreshAll} style={{ margin: '5px' }} image={Image} />
+              <UrlCheckButton routeNames={routes.filter((route) => route.Mode === 'SERVAPP' && route.UseHost).map((route) => route.Name)} refresh={refreshAll} sx={{ m: '5px' }} />{/* Fork addition (plan 44) */}
             </div>
             <OverviewServiceNotes containerInfo={containerInfo} hasRoutes={routes.length > 0} refresh={refreshAll} />{/* Fork addition (plan 43): why it does not run; a service's address */}
             {/* Fork addition: the addresses under a Cloudflare domain, each with its record and its switch */}

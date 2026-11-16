@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/azukaar/cosmos-server/src/utils"
 	"github.com/docker/docker/api/types/container"
 )
 
@@ -72,4 +73,33 @@ var URLCheckLogSince = func(ctx context.Context, id string, tty bool, since time
 		secrets = secretValues(c.Config.Env)
 	}
 	return splitLog(maskText(string(text), secrets))
+}
+
+// KnownRouteSetting is set by src/behind: whether the known app of an image
+// is to be told its own address as Host, and the app's name ("" when unknown).
+var KnownRouteSetting func(image string) (appOwnHost bool, app string)
+
+// forkKnownRoute gives a new URL of a compose (the Market, Install any image)
+// what its app is known to need, said in the install's log: a known app that
+// only answers its own address (qBittorrent) is told it. A URL that says
+// otherwise for itself is left as it is.
+func forkKnownRoute(spec DockerServiceCreateRequest, route utils.ProxyRouteConfig, onLog func(string)) utils.ProxyRouteConfig {
+	if KnownRouteSetting == nil || route.Mode != "SERVAPP" || route.ForkAppOwnHost || route.SpoofHostname || route.OverwriteHostHeader != "" {
+		return route
+	}
+	for _, svc := range spec.Services {
+		for _, r := range svc.Routes {
+			if r.Name != route.Name {
+				continue
+			}
+			if own, app := KnownRouteSetting(svc.Image); own {
+				route.ForkAppOwnHost = true
+				if onLog != nil {
+					onLog(utils.DoSuccess("%s", "URL "+route.Name+" tells "+app+" its own address (it only answers that one)\n"))
+				}
+			}
+			return route
+		}
+	}
+	return route
 }

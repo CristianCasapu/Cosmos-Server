@@ -28,6 +28,10 @@ import HostnameSuggestions, { localAddress } from '../../../components/hostnameS
 import { ChoiceRow, ProposalNote } from '../../../components/formHelpers';
 import ProposalBox from '../../../components/proposalBox';
 import { applyProposal, isEmptyValue, stillProposed } from '../../../utils/proposals';
+import { KnownAppHint, useKnownApps } from '../../../components/urlCheck'; // Fork addition (plan 44)
+import { knownAppFor } from '../../../utils/urlCheck';
+import { useCosmosPorts } from '../../../components/routerPorts';
+import { shownAddress } from '../../../utils/routerPorts';
 import defaultport from '../../servapps/defaultport.json';
 import {
   accessFields, accessOf, buildTarget, containerPorts, describeAddress, freeName, guideFits,
@@ -62,23 +66,35 @@ export const portSourceText = (t, proposal, image) => {
 };
 
 // One line on the name the app sees. Cosmos passes the address the visitor
-// typed on to the app unchanged (src/proxy/routeTo.go); apps that only answer
-// names they know refuse it until the name is allowed in their own settings.
-export const HostSeenHint = ({ values }) => {
+// used, with its port, on to the app (src/proxy/fork_public_host.go); apps
+// that only answer names they know refuse it until the name is allowed in
+// their own settings. Fork addition (plan 44): for a known app, what it needs
+// behind Cosmos (components/urlCheck.jsx' KnownAppHint) in place of the line.
+export const HostSeenHint = ({ values, image, config, isNew, onAppOwnHost }) => {
   const { t } = useTranslation();
+  const ports = useCosmosPorts(config || null);
+  const apps = useKnownApps();
   const overwrite = String((values && values.OverwriteHostHeader) || '').trim();
   const host = overwrite || String((values && values.UseHost && values.Host) || '').trim();
   const mode = (values && values.Mode) || 'SERVAPP';
   if (!host || (mode !== 'SERVAPP' && mode !== 'PROXY')) {
     return null;
   }
+  const shown = shownAddress(host, ports, 'https');
+  const known = !overwrite && image && knownAppFor(apps, image);
+  if (known) {
+    const port = (shown.match(/:(\d+)$/) || [])[1] || '443';
+    return <Grid size={{ xs: 12 }}>
+      <KnownAppHint image={image} host={host} port={port} appOwnHost={!!(values && values.ForkAppOwnHost)} isNew={isNew} onSet={onAppOwnHost} />
+    </Grid>;
+  }
   return <Grid size={{ xs: 12 }}>
     <Typography variant="caption" color="textSecondary" component="div" sx={{ overflowWrap: 'anywhere' }}>
       {overwrite
         ? t('mgmt.urls.guide.hostSeenOverwrite',
           'The app receives its requests under the name {{host}} (set in "Overwrite Host Header"), not under the address above.', { host })
-        : t('mgmt.urls.guide.hostSeen',
-          'The app receives its requests under the name {{host}}. Some apps only answer to names they know (Radarr and Sonarr say "Invalid Hostname", others speak of allowed or trusted hosts): if the app refuses, add {{host}} in the app\'s own settings.', { host })}
+        : t('mgmt.urls.guide.hostSeenPort',
+          'The app receives its requests under the name {{host}}, with the port visitors use. Some apps only answer names they know (they speak of allowed or trusted hosts): if it refuses, "Check this URL" on the URL\'s page says why and proposes the repair.', { host: shown })}
     </Typography>
   </Grid>;
 };
@@ -513,7 +529,7 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
       ]}
     />
 
-    <HostSeenHint values={values} />
+    <HostSeenHint values={values} image={imageOf(container)} config={config} isNew={isNew} onAppOwnHost={(on) => change({ ForkAppOwnHost: on })} />
 
     <Grid size={{ xs: 12 }}>
       {showName || nameError

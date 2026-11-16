@@ -13,6 +13,7 @@ import { ExposeChip } from './exposure';
 import { groupAppRoutes, routeHost, withHomeRoutes } from '../utils/appLinks';
 import { useLocalNamesTitle } from './localNames'; // Fork addition
 import { useHomeRoutes } from './homeNames'; // Fork addition: names for use at home
+import { UrlProblemMark } from './urlCheck'; // Fork addition (plan 44): a URL whose app refuses its address
 
 // The chips of an app's routes, local links first. In a row of chips each
 // group starts with its icon; with `rows` each group gets a line of its own,
@@ -27,7 +28,11 @@ const AppLinks = ({ routes, chipStyle, rows }) => {
   // Fork addition: the app's names for use at home lead the local group, see homeNames.jsx
   const homeRoutes = useHomeRoutes(routes);
 
-  return withHomeRoutes(groupAppRoutes(routes, window.location.host), homeRoutes).map((group) => {
+  // Fork addition (plan 44): for administrators, "Does not open" when the app refuses the address it is reached at
+  const checked = (routes || []).filter((route) => route && route.Mode === 'SERVAPP' && route.UseHost).map((route) => route.Name);
+  const mark = checked.length > 0 ? <UrlProblemMark key="url-problem" routeNames={checked} /> : null;
+
+  const groups = withHomeRoutes(groupAppRoutes(routes, window.location.host), homeRoutes).map((group) => {
     const Icon = group.local ? HomeOutlined : GlobalOutlined;
     const label = group.local
       ? t('mgmt.urls.links.local', 'Local network')
@@ -53,6 +58,8 @@ const AppLinks = ({ routes, chipStyle, rows }) => {
       {chips}
     </React.Fragment>;
   });
+  if (!mark) return groups;
+  return [...groups, rows ? <div key="url-problem" style={chipStyle}>{mark}</div> : mark];
 };
 
 // The "Internet" chip of an app: its addresses under the configured domains

@@ -16,6 +16,7 @@ import UploadButtons from '../../../components/fileUpload';
 import { useTranslation } from 'react-i18next';
 import { HostZoneInfo } from '../configZones';
 import { LocalNameState } from '../../../components/localNames'; // Fork addition
+import { UrlCheckButton } from '../../../components/urlCheck'; // Fork addition (plan 44): does the app accept the address
 
 const info = {
   backgroundColor: 'rgba(0, 0, 0, 0.1)',
@@ -71,7 +72,7 @@ const RouteOverview = ({ routeConfig, refreshConfig, readOnly = false }) => {
             <strong><ContainerOutlined /> {t('global.description')}</strong>
             <div style={info}>{routeConfig.Description}</div>
             <strong><NodeExpandOutlined /> {t('mgmt.config.proxy.urlTitle')}</strong>
-            <div><HostChip route={routeConfig} /></div>
+            <div><HostChip route={routeConfig} />{routeConfig.Mode === 'SERVAPP' && routeConfig.UseHost && <UrlCheckButton routeNames={[routeConfig.Name]} sx={{ ml: 1 }} />}</div>{/* Fork addition (plan 44): Check this URL */}
             {routeConfig.UseHost && <LocalNameState host={routeConfig.Host} help />}{/* Fork addition: is the .local name published and answered, see components/localNames.jsx */}
             {routeConfig.UseHost && <>
               <strong><LockOutlined /> {t('mgmt.config.zones.zoneAndCertificate')}</strong>

@@ -32,6 +32,7 @@ import { PERM_CONFIGURATION } from '../../../utils/permissions';
 import proFeatures from '../../../pro';
 import ForkRouteGuide, { HostSeenHint } from './forkRouteGuide'; // Fork addition: the simple view of this form
 import { PaidOnly } from '../../../components/paidVisibility'; // Fork addition
+import { UrlCheckNotice } from '../../../components/urlCheck'; // Fork addition (plan 44): does the saved URL open
 
 const Hide = ({ children, h }) => {
   return h ? <div style={{ display: 'none' }}>
@@ -66,6 +67,7 @@ const checkHost = debounce((host, setHostError) => {
 const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noControls = false, lockTarget = false, title, setRouteConfig, submitButton = false, newRoute, readOnly = false, showErrors, addressExtra, onSaved }) => {
   const { t } = useTranslation();
   const [hostError, setHostError] = React.useState(null);
+  const [checkSaved, setCheckSaved] = React.useState(null); // Fork addition (plan 44): the URL just saved, checked
 
   const [tunnels, setTunnels] = React.useState([]);
 
@@ -105,6 +107,8 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
           RestrictToConstellation: routeConfig.RestrictToConstellation === true,
           SkipURLClean: routeConfig.SkipURLClean === true,
           OverwriteHostHeader: routeConfig.OverwriteHostHeader,
+          ForkAppOwnHost: routeConfig.ForkAppOwnHost === true, // Fork addition (plan 44)
+          ForkNoVisitorAddress: routeConfig.ForkNoVisitorAddress === true, // Fork addition (plan 44)
           Tunnel: routeConfig.Tunnel,
           TunneledHost: routeConfig.TunneledHost,
           WhitelistInboundIPs: routeConfig.WhitelistInboundIPs && routeConfig.WhitelistInboundIPs.join(', '),
@@ -169,6 +173,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                 snackit(t('mgmt.urls.edit.updateSuccess'), 'success')
                 setSubmitting(false);
                 onSaved && onSaved(); // Fork addition
+                if (fullValues.Mode === 'SERVAPP' && fullValues.UseHost) setCheckSaved({ name: fullValues.Name, at: Date.now() }); // Fork addition (plan 44)
               } else {
                 setStatus({ success: false });
                 setErrors({ submit: res.status });
@@ -470,6 +475,20 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                         formik={formik}
                       />
 
+                      {/* Fork addition (plan 44): the app's own address as Host, the public one in X-Forwarded-Host (src/proxy/fork_public_host.go) */}
+                      {(formik.values.Mode === "SERVAPP" || formik.values.Mode === "PROXY") && <CosmosCheckbox
+                        name="ForkAppOwnHost"
+                        label={t('mgmt.urls.edit.advancedSettings.appOwnHost', 'Tell the app its own address')}
+                        helperText={t('mgmt.urls.edit.advancedSettings.appOwnHostHelp', 'The app receives its own address as Host and the public one in X-Forwarded-Host. For apps that only answer their own address, such as qBittorrent.')}
+                        formik={formik}
+                      />}
+                      {(formik.values.Mode === "SERVAPP" || formik.values.Mode === "PROXY") && <CosmosCheckbox
+                        name="ForkNoVisitorAddress"
+                        label={t('mgmt.urls.edit.advancedSettings.noVisitorAddress', 'Do not tell the app the visitor\'s address')}
+                        helperText={t('mgmt.urls.edit.advancedSettings.noVisitorAddressHelp', 'No X-Forwarded-For or X-Real-IP is sent: the app then sees every visitor as Cosmos. Only for an app that refuses them until it trusts Cosmos, such as Home Assistant; switch it off once the app trusts Cosmos.')}
+                        formik={formik}
+                      />}
+
                       <CosmosInputText
                         name="PublicOpenIDName"
                         label={t('mgmt.urls.edit.advancedSettings.publicOpenIDNameInput.publicOpenIDNameLabel')}
@@ -593,6 +612,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
               >
                 {t('global.saveAction')}
               </Button></PermissionGuard></MainCard>}
+              {checkSaved && <UrlCheckNotice key={checkSaved.at} routeNames={[checkSaved.name]} delay={2500} />}{/* Fork addition (plan 44): does the saved URL open */}
             </Stack>
             </ReadOnlyForm>
           </form>

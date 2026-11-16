@@ -416,7 +416,7 @@ func TestCommandsAreWrittenForEachName(t *testing.T) {
 		[]utils.ProxyRouteConfig{urlTo("nc", "nextcloud.server.local", false), urlTo("nc-ext", "nextcloud.example.org", false)},
 		func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("<html><title>Access through untrusted domain</title><body>Please contact your administrator.</body></html>"))
+			w.Write([]byte("<html><head><style>" + strings.Repeat("body{margin:0}", 40) + "</style><script>var x = 1;</script></head><body><h2>Access through untrusted domain</h2>Please contact your administrator.</body></html>"))
 		})
 	r := Check(context.Background(), "nc")
 	if r.Verdict != "refused" || r.Reason != "untrustedDomain" {

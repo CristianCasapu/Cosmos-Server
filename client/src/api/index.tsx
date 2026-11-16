@@ -24,6 +24,7 @@ import createStateAPI from './state';
 import createSecurityAPI from './security'; // Fork addition: security dashboard
 import createNotificationsAPI from './notifications'; // Fork addition: the notifications page
 import createReachWatchAPI from './reachWatch'; // Fork addition: the watch of the reachability from the internet
+import createUrlCheckAPI from './urlCheck'; // Fork addition (plan 44): does an app accept its address
 
 import * as authDemo from './authentication.demo';
 import * as usersDemo from './users.demo';
@@ -86,6 +87,7 @@ export function createClient({ baseUrl, token }) {
     security: createSecurityAPI(apiFetch), // Fork addition: security dashboard
     notifications: createNotificationsAPI(apiFetch), // Fork addition: the notifications page
     reachWatch: createReachWatchAPI(apiFetch), // Fork addition: the watch of the reachability from the internet
+    urlCheck: createUrlCheckAPI(apiFetch), // Fork addition (plan 44)
 
     getStatus: () => {
       return wrap(apiFetch('/cosmos/api/status', {
@@ -450,6 +452,7 @@ let state = createStateAPI(defaultFetch);
 let security = createSecurityAPI(defaultFetch); // Fork addition: security dashboard
 let notifications = createNotificationsAPI(defaultFetch); // Fork addition: the notifications page
 let reachWatch = createReachWatchAPI(defaultFetch); // Fork addition: the watch of the reachability from the internet
+let urlCheck = createUrlCheckAPI(defaultFetch); // Fork addition (plan 44): does an app accept its address
 
 if(isDemo) {
   auth = authDemo;
@@ -515,4 +518,5 @@ export {
   security, // Fork addition: security dashboard
   notifications, // Fork addition: the notifications page
   reachWatch, // Fork addition: the watch of the reachability from the internet
+  urlCheck, // Fork addition (plan 44)
 };

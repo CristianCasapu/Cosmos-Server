@@ -16,7 +16,7 @@ package behind
 // never this server's own addresses, never a name looked up anywhere), on
 // the URL's own port; at most two requests, GET of the URL's own path, no
 // body, no cookie, no credentials, no sign-in; redirects are read, never
-// followed; 4 s and 8 KiB per answer; one check at a time on the server. The
+// followed; 4 s and 64 KiB per answer; one check at a time on the server. The
 // only input is the URL's name: nothing of the request reaches the app.
 
 import (
@@ -40,7 +40,7 @@ import (
 
 const (
 	askWait   = 4 * time.Second
-	askRead   = 8 << 10
+	askRead   = 64 << 10
 	firstMax  = 160
 	logKept   = 40
 	cacheFor  = 30 * time.Minute
@@ -58,6 +58,7 @@ type Attempt struct {
 	First         string `json:"first,omitempty"`
 	// Error: refused (nothing listens), unreachable, timeout, tls
 	Error string `json:"error,omitempty"`
+	text  string // the whole answer as text, for the signatures
 }
 
 func (a Attempt) ok() bool { return a.Error == "" && a.Status > 0 && a.Status < 400 }
@@ -246,6 +247,7 @@ func ask(ctx context.Context, ip, port, targetScheme, path string, h proxy.AppHe
 	attempt.Status = resp.StatusCode
 	attempt.Location = clean(resp.Header.Get("Location"), 300)
 	attempt.First = firstText(body)
+	attempt.text = answerText(body)
 	return attempt, peer
 }
 
@@ -265,9 +267,17 @@ func clean(text string, max int) string {
 	return strings.TrimSpace(string(out))
 }
 
+var scriptOrStyle = regexp.MustCompile(`(?is)<(script|style)\b.*?(</(script|style)\s*>|$)`)
+
 // firstText is the start of an answer as text: tags removed, spaces folded.
 func firstText(body []byte) string {
-	text := string(body)
+	return clean(answerText(body), firstMax)
+}
+
+// answerText is an answer as text: scripts, styles and tags removed, spaces
+// folded (what the signatures are matched with).
+func answerText(body []byte) string {
+	text := scriptOrStyle.ReplaceAllString(string(body), " ")
 	var b strings.Builder
 	inTag := false
 	for _, r := range text {
@@ -281,7 +291,7 @@ func firstText(body []byte) string {
 			b.WriteRune(r)
 		}
 	}
-	return clean(strings.Join(strings.Fields(b.String()), " "), firstMax)
+	return strings.Join(strings.Fields(b.String()), " ")
 }
 
 // matchSignature finds the first signature of an app (then the generic
@@ -312,8 +322,11 @@ func matchSignature(app *App, a Attempt, raw string, log []string) (*Signature, 
 			if s.body == nil && s.log == nil {
 				return s, "", l.app
 			}
-			if s.body != nil && s.body.MatchString(raw) {
-				return s, a.First, l.app
+			if s.body != nil {
+				if at := s.body.FindStringIndex(raw); at != nil {
+					// the words where the app says it, not the start of its page
+					return s, clean(raw[at[0]:], firstMax), l.app
+				}
 			}
 			if s.log != nil {
 				for _, line := range log {
@@ -539,7 +552,7 @@ func Check(ctx context.Context, routeName string) Result {
 		}
 		log = lines
 	}
-	sig, line, matched := matchSignature(app, first, first.First, log)
+	sig, line, matched := matchSignature(app, first, first.text, log)
 	if app == nil && matched != nil {
 		app = matched
 		result.App, result.AppName = app.ID, app.Name

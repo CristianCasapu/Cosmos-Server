@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+
+	"github.com/azukaar/cosmos-server/src/docker"
 )
 
 //go:embed apps.json
@@ -89,6 +91,16 @@ type appsFile struct {
 }
 
 var known = mustLoad(appsJSON)
+
+func init() {
+	// a new URL of an install is told what its known app needs (src/docker/fork_url_check.go)
+	docker.KnownRouteSetting = func(image string) (bool, string) {
+		if app := AppFor(image); app != nil {
+			return app.AppOwnHost, app.Name
+		}
+		return false, ""
+	}
+}
 
 func mustLoad(data []byte) []App {
 	apps, err := load(data)
