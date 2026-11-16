@@ -224,7 +224,13 @@ test('review F1: what may be reached from the home network, and why not', async 
   assert.equal(lanPlan({ port: 11211 }).why, 'noPassword');
   // Redis without a password: no; with one (or requirepass, or masked ***): yes
   assert.equal(lanPlan({ port: 6379 }, ['REDIS_ARGS=--appendonly yes']).allowed, false);
-  assert.equal(lanPlan({ port: 6379 }, ['REDIS_PASSWORD=***']).allowed, true);
+  assert.equal(lanPlan({ port: 6379 }, ['REDIS_PASSWORD=***'], 'bitnami/redis:8').allowed, true);
+  assert.equal(lanPlan({ port: 6379 }, ['VALKEY_PASSWORD=x'], 'docker.io/bitnamilegacy/valkey:8').allowed, true);
+  // the official images ignore REDIS_PASSWORD: it is no password there, nor without the image's name
+  assert.equal(lanPlan({ port: 6379 }, ['REDIS_PASSWORD=secret'], 'redis:8').allowed, false);
+  assert.equal(lanPlan({ port: 6379 }, ['REDIS_PASSWORD=secret']).allowed, false);
+  assert.equal(lanPlan({ port: 6379 }, ['REDIS_PASSWORD='], 'bitnami/redis:8').allowed, false);
+  for (const port of [9300, 7000, 7001, 28015, 873, 2049, 111, 1080]) assert.equal(lanPlan({ port }, ['A_PASSWORD=x']).allowed, false, String(port));
   assert.equal(lanPlan({ port: 6379 }, ['REDIS_ARGS=--requirepass s3cret']).allowed, true);
   assert.equal(lanPlan({ port: 6379 }, ['ALLOW_EMPTY_PASSWORD=yes']).allowed, false);
   assert.equal(lanPlan({ port: 27017 }, ['MONGO_INITDB_ROOT_PASSWORD=']).allowed, false);
