@@ -45,6 +45,9 @@ export const StartLog = ({ report }) => {
     <Button size="small" sx={{ alignSelf: 'flex-start' }} onClick={() => setOpen(!open)} data-start-log-door>
       {open ? t('mgmt.services.start.hideLog', 'Hide its log') : t('mgmt.services.start.showLog', 'Its log (the last {{count}} lines)', { count: lines.length })}
     </Button>
+    {open && <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+      {t('mgmt.services.start.logOwn', 'This is the container\'s own log: it may show whatever the image prints, a password included. The values Cosmos knows to be secret are shown as <hidden>.')}
+    </Typography>}
     {open && <Box component="pre" data-start-log sx={{ m: 0, p: 1.5, maxHeight: 260, overflow: 'auto', fontSize: 12, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', bgcolor: 'action.hover', borderRadius: 1 }}>
       {lines.join('\n')}
     </Box>}

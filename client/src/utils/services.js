@@ -174,8 +174,16 @@ export const reasonWords = (report) => {
 const VAR = /^[A-Z_][A-Z0-9_]{0,63}$/;
 
 // The values the repair proposes: a generated one for a secret, empty for the rest.
+// Names never proposed by a repair, whatever a log says (as the server's deniedName):
+// what changes how programs load or where they connect, the shell's own, Docker's and Cosmos'.
+const DENIED = new Set(['PATH', 'HOME', 'HOSTNAME', 'USER', 'SHELL', 'TERM', 'PWD', 'IFS', 'ENV', 'BASH_ENV', 'PS4', 'SHELLOPTS', 'LANG', 'LC_ALL',
+  'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'ALL_PROXY', 'FTP_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'CURL_CA_BUNDLE', 'REQUESTS_CA_BUNDLE',
+  'NODE_EXTRA_CA_CERTS', 'NODE_OPTIONS', 'JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS', 'JDK_JAVA_OPTIONS', 'GODEBUG', 'GOFLAGS', 'PYTHONPATH',
+  'PYTHONSTARTUP', 'PYTHONHOME', 'PERL5LIB', 'PERL5OPT', 'RUBYOPT', 'RUBYLIB']);
+export const deniedName = (name) => DENIED.has(name) || /^(LD_|DOCKER_|COSMOS_|DYLD_|GCONV_)/.test(name);
+
 export const repairValues = (needs, random) => (needs || [])
-  .filter((n) => n && VAR.test(String(n.name || '')))
+  .filter((n) => n && VAR.test(String(n.name || '')) && !deniedName(n.name))
   .slice(0, 8)
   .map((n) => ({ name: n.name, secret: !!n.secret || isSecretName(n.name), value: (n.secret || isSecretName(n.name)) ? generateSecret(random) : '' }));
 
@@ -270,16 +278,57 @@ export const connectionTemplate = (classification, host, port) => {
   return '';
 };
 
-// The port bindings of a container with one more port published on every
-// address of the server (as the Network tab sends them: what it has stays).
-export const withPublishedPort = (inspected, port, protocol = 'tcp') => {
+// ---- reaching a service from the home network (review F1) ------------------------------------
+//
+// Ports whose protocol has no authentication of its own, or that give
+// control of the server: never published for the home network, whatever the
+// app; only "let these apps reach it" is offered.
+const NEVER_LAN = {
+  23: 'noPassword', 2375: 'control', 2376: 'control', 2379: 'control', 2380: 'control', 6443: 'control', 10250: 'control',
+  11211: 'noPassword', 5900: 'noPassword', 9042: 'noPassword', 2181: 'noPassword', 9092: 'noPassword', 4222: 'noPassword',
+};
+// Ports whose service asks for a password only when one was set (the
+// official Redis, Valkey and MongoDB images start without one).
+const PASSWORD_IF_SET = new Set([6379, 27017, 1883, 8883]);
+
+// Whether a container's settings give its service a password: a secret
+// variable with a value (*** counts: an account that may not read the values
+// sees them masked), or Redis' requirepass.
+export const hasOwnPassword = (env) => (env || []).some((line) => {
+  const text = String(line);
+  const at = text.indexOf('=');
+  const name = at < 0 ? text : text.slice(0, at);
+  const value = at < 0 ? '' : text.slice(at + 1);
+  return (/PASS(WORD)?$|PASSWD$/i.test(name) && !/ALLOW_EMPTY/i.test(name) && value.trim() !== '') || /--requirepass\s+\S/.test(value);
+});
+
+// lanPlan: may this service be reached from the home network, and what the warning says.
+//   { allowed: false, why: 'control' | 'noPassword' }
+//   { allowed: true, why: 'password' }   its protocol asks for the password set when it was created
+export const lanPlan = (classification, env) => {
+  const port = Number(classification && classification.port);
+  if (NEVER_LAN[port]) return { allowed: false, why: NEVER_LAN[port] };
+  if (PASSWORD_IF_SET.has(port) && !hasOwnPassword(env)) return { allowed: false, why: 'noPassword' };
+  return { allowed: true, why: 'password' };
+};
+
+// The port bindings of a container with one more port published on one of
+// the server's home-network addresses (what it has stays).
+export const withPublishedPort = (inspected, port, hostIp, protocol = 'tcp') => {
+  if (!/^(10|172|192)\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(String(hostIp || ''))) {
+    throw new Error('a home-network address is needed');
+  }
   const bindings = JSON.parse(JSON.stringify((inspected && inspected.HostConfig && inspected.HostConfig.PortBindings) || {}));
   const key = `${port}/${protocol}`;
-  if (!(bindings[key] || []).some((b) => String(b.HostPort) === String(port))) {
-    bindings[key] = [...(bindings[key] || []), { HostIp: '', HostPort: String(port) }];
+  if (!(bindings[key] || []).some((b) => String(b.HostPort) === String(port) && (b.HostIp || '') === hostIp)) {
+    bindings[key] = [...(bindings[key] || []), { HostIp: hostIp, HostPort: String(port) }];
   }
   return bindings;
 };
 
-// The network made to let one app reach another (as "Link containers" names it).
-export const linkNetworkName = (service, app, suffix) => `link-${service}-${app}-${suffix}`.replace(/[^a-zA-Z0-9_.-]/g, '-').slice(0, 63);
+// The network made to let one app reach another (as "Link containers" names
+// it); a long name is shortened before the random part, which is kept.
+export const linkNetworkName = (service, app, suffix) => {
+  const tail = '-' + String(suffix).replace(/[^a-zA-Z0-9_.-]/g, '-');
+  return (`link-${service}-${app}`.replace(/[^a-zA-Z0-9_.-]/g, '-').slice(0, 63 - tail.length)) + tail;
+};

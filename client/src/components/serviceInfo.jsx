@@ -16,7 +16,7 @@ import { useTranslation } from 'react-i18next';
 
 import * as API from '../api';
 import { CopyButton, StartProblemButton } from './startProblem';
-import { classifyService as classifyServiceOf0, connectionTemplate, linkNetworkName, probeWords, serviceAddress, withPublishedPort } from '../utils/services';
+import { classifyService as classifyServiceOf0, connectionTemplate, lanPlan, linkNetworkName, probeWords, serviceAddress, withPublishedPort } from '../utils/services';
 import { containerPorts } from '../utils/routeGuide';
 
 const classifyServiceOf = (container) => classifyServiceOf0({ image: container.Image, ports: containerPorts(container) });
@@ -63,6 +63,22 @@ export const ServiceInfo = ({ containerName, classification, onInsist, insistLab
   const [published, setPublished] = React.useState(false);
   const [error, setError] = React.useState('');
   const [reachOpen, setReachOpen] = React.useState(false);
+  // the home network: the container's settings (does its service have a password?) and the server's LAN addresses
+  const [lanInfo, setLanInfo] = React.useState(null);
+  const [hostIp, setHostIp] = React.useState('');
+
+  const openLan = () => {
+    setLan(!lan);
+    if (lanInfo === null) {
+      Promise.all([API.docker.get(name).catch(() => null), API.docker.lanAddresses().catch(() => null)]).then(([inspected, addresses]) => {
+        const info = (inspected && inspected.data) || {};
+        const list = (addresses && addresses.data) || [];
+        setLanInfo({ info, env: (info.Config && info.Config.Env) || [], addresses: list });
+        setHostIp((list.find((a) => a.defaultRoute) || list[0] || {}).address || '');
+      });
+    }
+  };
+  const plan = lanInfo ? lanPlan(c, lanInfo.env) : null;
 
   const openReach = () => {
     setReachOpen(!reachOpen);
@@ -78,8 +94,15 @@ export const ServiceInfo = ({ containerName, classification, onInsist, insistLab
       for (const app of picked) {
         const network = linkNetworkName(name, app, randomString(3));
         await API.docker.createNetwork({ name: network, driver: 'bridge', attachCosmos: false });
-        await API.docker.attachNetwork(name, network);
-        await API.docker.attachNetwork(app, network);
+        try {
+          await API.docker.attachNetwork(name, network);
+          await API.docker.attachNetwork(app, network);
+        } catch (e) {
+          // review F3: no network left behind half made
+          await API.docker.detachNetwork(name, network).catch(() => {});
+          await API.docker.networkDelete(network).catch(() => {});
+          throw e;
+        }
       }
       setLinked(picked.join(', '));
       setPicked([]);
@@ -95,10 +118,8 @@ export const ServiceInfo = ({ containerName, classification, onInsist, insistLab
     try {
       const inspected = await API.docker.get(name);
       const info = (inspected && inspected.data) || {};
-      await API.docker.updateContainer(name, {
-        portBindings: withPublishedPort(info, c.port),
-        networkMode: (info.HostConfig && info.HostConfig.NetworkMode) || '',
-      });
+      // on the chosen home-network address only, never every address of the server; the network mode is left as it is
+      await API.docker.updateContainer(name, { portBindings: withPublishedPort(info, c.port, hostIp) });
       setPublished(true);
       refresh && refresh();
     } catch (e) {
@@ -150,22 +171,37 @@ export const ServiceInfo = ({ containerName, classification, onInsist, insistLab
         {linked && <Alert severity="success" sx={wrap} data-service-linked>{t('mgmt.services.linked', '{{apps}} can now reach it at {{address}}.', { apps: linked, address })}</Alert>}
       </Stack>}
 
-      <Button size="small" variant="outlined" sx={{ alignSelf: 'flex-start' }} onClick={() => setLan(!lan)} data-service-lan-door>
+      <Button size="small" variant="outlined" sx={{ alignSelf: 'flex-start' }} onClick={openLan} data-service-lan-door>
         {t('mgmt.services.lan', 'Reach it from my home network')}
       </Button>
       {lan && <Stack spacing={1} sx={{ minWidth: 0 }} data-service-lan>
-        <Alert severity="warning" sx={wrap}>
-          {t('mgmt.services.lanRisk', 'Port {{port}} of this server then leads to {{software}} for every device on your home network, and only its password protects it. Cosmos does not open it on your router; forwarding this port on the router would put it on the internet, which is not safe for a database.', { port: c.port, software: c.name || name, interpolation: { escapeValue: false } })}
-        </Alert>
-        <FormControlLabel control={<Checkbox checked={understood} disabled={publishing || published} onChange={(e) => setUnderstood(e.target.checked)} data-service-lan-tick />}
-          label={t('mgmt.services.lanTick', 'I understand: publish port {{port}} on this server', { port: c.port })} />
-        <Button size="small" variant="contained" sx={{ alignSelf: 'flex-start' }} disabled={!understood || publishing || published} onClick={publish} data-service-publish>
-          {t('mgmt.services.publish', 'Publish port {{port}}', { port: c.port })}
-        </Button>
-        {published && <Alert severity="success" sx={wrap} data-service-published>{t('mgmt.services.published', 'Done: devices on your home network reach it at this server\'s address, port {{port}}. It was created again for this.', { port: c.port })}</Alert>}
-        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-          {t('mgmt.services.tcpRoute', 'Cosmos can also forward a port itself (a URL whose address carries a port and whose target has no http://), with its shield in front. For a database on the home network, publishing the port is the simpler way.')}
-        </Typography>
+        {!lanInfo && <Typography variant="body2">…</Typography>}
+        {plan && !plan.allowed && <Alert severity="info" sx={wrap} data-service-lan-refused={plan.why}>
+          {plan.why === 'control'
+            ? t('mgmt.services.lanControl', 'Port {{port}} gives control of the server or of its containers, and anyone who reaches it can use it: Cosmos does not publish it, not even for the home network. Let the apps that need it reach it instead.', { port: c.port })
+            : t('mgmt.services.lanNoPassword', '{{software}} on port {{port}} asks for no password as it is set up here: every device of your home network could read and change its data. Cosmos does not publish it; let the apps that need it reach it instead, or set a password for it first.', { port: c.port, software: c.name || name, interpolation: { escapeValue: false } })}
+        </Alert>}
+        {plan && plan.allowed && lanInfo.addresses.length === 0 && <Alert severity="info" sx={wrap} data-service-lan-noaddress>
+          {t('mgmt.services.lanNoAddress', 'Cosmos found no address of this server on a home network (a private IPv4 address): nothing is published.')}
+        </Alert>}
+        {plan && plan.allowed && lanInfo.addresses.length > 0 && <>
+          {lanInfo.addresses.length > 1 && <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap' }} spacing={1} data-service-lan-addresses>
+            {lanInfo.addresses.map((a) => <Chip key={a.address} label={a.address + ' (' + a.interface + ')'} clickable disabled={publishing || published}
+              color={hostIp === a.address ? 'primary' : 'default'} variant={hostIp === a.address ? 'filled' : 'outlined'} onClick={() => setHostIp(a.address)} />)}
+          </Stack>}
+          <Alert severity="warning" sx={wrap}>
+            {t('mgmt.services.lanRiskPassword', '{{address}} will answer as {{software}} for every device on your home network, and {{software}} asks for the password set when it was created: whoever knows it can use it. Cosmos does not open this port on your router; forwarding it there would put it on the internet, which is not safe.', { address: hostIp + ':' + c.port, software: c.name || name, interpolation: { escapeValue: false } })}
+          </Alert>
+          <FormControlLabel control={<Checkbox checked={understood} disabled={publishing || published} onChange={(e) => setUnderstood(e.target.checked)} data-service-lan-tick />}
+            label={t('mgmt.services.lanTickAddress', 'I understand: publish it at {{address}}', { address: hostIp + ':' + c.port })} />
+          <Button size="small" variant="contained" sx={{ alignSelf: 'flex-start' }} disabled={!understood || publishing || published || !hostIp} onClick={publish} data-service-publish>
+            {t('mgmt.services.publish', 'Publish port {{port}}', { port: c.port })}
+          </Button>
+          {published && <Alert severity="success" sx={wrap} data-service-published>{t('mgmt.services.publishedAt', 'Done: devices on your home network reach it at {{address}}. It was created again for this.', { address: hostIp + ':' + c.port })}</Alert>}
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+            {t('mgmt.services.tcpRoute', 'Cosmos can also forward a port itself (a URL whose address carries a port and whose target has no http://), with its shield in front. For a database on the home network, publishing the port is the simpler way.')}
+          </Typography>
+        </>}
       </Stack>}
     </>}
 

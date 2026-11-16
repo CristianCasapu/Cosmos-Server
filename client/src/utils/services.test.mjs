@@ -170,10 +170,16 @@ test('the connection string has placeholders, never a password; publishing keeps
   assert.equal(connectionTemplate({ name: 'PostgreSQL' }, 'postgresql', 5432), 'postgresql://USER:PASSWORD@postgresql:5432/DATABASE');
   assert.equal(connectionTemplate({ name: 'MQTT' }, 'm', 1883), '');
   const inspected = { HostConfig: { PortBindings: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '8080' }] } } };
-  assert.deepEqual(withPublishedPort(inspected, 5432), { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '8080' }], '5432/tcp': [{ HostIp: '', HostPort: '5432' }] });
-  assert.deepEqual(withPublishedPort({ HostConfig: { PortBindings: { '5432/tcp': [{ HostIp: '', HostPort: '5432' }] } } }, 5432)['5432/tcp'].length, 1);
+  assert.deepEqual(withPublishedPort(inspected, 5432, '192.168.1.10'), { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '8080' }], '5432/tcp': [{ HostIp: '192.168.1.10', HostPort: '5432' }] });
+  assert.equal(withPublishedPort({ HostConfig: { PortBindings: { '5432/tcp': [{ HostIp: '192.168.1.10', HostPort: '5432' }] } } }, 5432, '192.168.1.10')['5432/tcp'].length, 1);
+  // never every address of the server
+  assert.throws(() => withPublishedPort(inspected, 5432, ''));
+  assert.throws(() => withPublishedPort(inspected, 5432, '0.0.0.0'));
   assert.deepEqual(inspected.HostConfig.PortBindings['5432/tcp'], undefined, 'the inspected container is not changed');
   assert.equal(linkNetworkName('postgresql', 'my app', 'x1'), 'link-postgresql-my-app-x1');
+  // review F3: a long name keeps its random part
+  const long = linkNetworkName('a'.repeat(60), 'b'.repeat(60), 'Zq9');
+  assert.ok(long.length <= 63 && long.endsWith('-Zq9'), long);
 });
 
 test('Bitnami\'s description of its own build is not a setting', async () => {
@@ -206,4 +212,28 @@ test('a recipe without a password of its own that has a web page is proposed for
       for (const image of r.images) assert.equal(proposeAccess(image).access, 'admins', image + ' on the internet too');
     }
   }
+});
+
+
+test('review F1: what may be reached from the home network, and why not', async () => {
+  const { lanPlan, hasOwnPassword } = await import('./services.js');
+  for (const port of [2375, 2376, 2379, 6443, 10250, 23, 11211, 5900]) {
+    assert.equal(lanPlan({ port }, ['A_PASSWORD=x']).allowed, false, String(port));
+  }
+  assert.equal(lanPlan({ port: 2375 }).why, 'control');
+  assert.equal(lanPlan({ port: 11211 }).why, 'noPassword');
+  // Redis without a password: no; with one (or requirepass, or masked ***): yes
+  assert.equal(lanPlan({ port: 6379 }, ['REDIS_ARGS=--appendonly yes']).allowed, false);
+  assert.equal(lanPlan({ port: 6379 }, ['REDIS_PASSWORD=***']).allowed, true);
+  assert.equal(lanPlan({ port: 6379 }, ['REDIS_ARGS=--requirepass s3cret']).allowed, true);
+  assert.equal(lanPlan({ port: 6379 }, ['ALLOW_EMPTY_PASSWORD=yes']).allowed, false);
+  assert.equal(lanPlan({ port: 27017 }, ['MONGO_INITDB_ROOT_PASSWORD=']).allowed, false);
+  assert.deepEqual(lanPlan({ port: 5432 }, []), { allowed: true, why: 'password' });
+  assert.equal(hasOwnPassword(['POSTGRES_PASSWORD=x']), true);
+});
+
+test('review B4: a repair never proposes what changes how programs load or connect', async () => {
+  const { repairValues } = await import('./services.js');
+  const names = repairValues(['LD_PRELOAD', 'PATH', 'DOCKER_HOST', 'COSMOS_X', 'NODE_OPTIONS', 'HTTP_PROXY', 'APP_KEY'].map((name) => ({ name })), random).map((v) => v.name);
+  assert.deepEqual(names, ['APP_KEY']);
 });

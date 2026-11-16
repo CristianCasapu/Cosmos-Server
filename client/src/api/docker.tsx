@@ -239,6 +239,11 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
     }))
   }
 
+  // Fork addition (plan 43): the server's addresses on the home network (src/proxy/fork_lan_addresses.go)
+  function lanAddresses(): Promise<ApiResponse> {
+    return wrap(apiFetch('/cosmos/api/lan-addresses', { method: 'GET' }))
+  }
+
   function detachNetwork(containerId: string, networkId: string): Promise<ApiResponse> {
     return wrap(apiFetch('/cosmos/api/servapps/' + containerId + '/network/' + networkId, {
       method: 'DELETE',
@@ -502,6 +507,7 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
     detachNetwork,
     startReport, // Fork addition (plan 43)
     probePort, // Fork addition (plan 43)
+    lanAddresses, // Fork addition (plan 43)
     createVolume,
     attachTerminal,
     createTerminal,
