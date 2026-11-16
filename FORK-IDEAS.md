@@ -373,7 +373,16 @@ What cannot be known before the first start: settings described only on
 linked pages or in entrypoints, "one of these" choices, conditional
 settings, folder ownership, names in mixed case. A password of exactly
 eight characters that is an ordinary word is hidden wherever that word
-appears in the log shown.
+appears in the log shown. A URL that chains to another URL of this same
+Cosmos is refused like a loop (508). The rule that keeps a value sent as
+`***` is on the edit route only: a creation that replaces a container,
+from an account that may not read secrets, would still write `***` (the
+panel's editors refuse that in the browser). The adapted checks lost a
+little: `fork-ui-check-expose.mjs` would not notice a web app shown as a
+service, `fork-ui-check-new-url.mjs` ignores "Failed to fetch" for the
+whole run. The home-network address is validated in the browser only, as
+on the Network tab. A container renamed keeps its old name in the proxy's
+cache for up to 10 s.
 
 ## Installable app: left for later (2026-11-14)
 
