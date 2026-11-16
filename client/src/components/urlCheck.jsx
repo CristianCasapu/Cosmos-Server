@@ -40,15 +40,29 @@ export const rememberResult = (result) => {
     notify();
   }
 };
-const flush = () => {
+// in batches of 64 (the server's bound); the server checks a few stale ones per call, so the
+// names it did not answer yet are asked again, until a call brings nothing new
+const flush = async () => {
   store.timer = null;
-  const names = [...store.pending].slice(0, 64);
+  let queue = [...store.pending];
   store.pending.clear();
-  if (!names.length) return;
-  API.urlCheck.checks(names).then((res) => {
-    Object.values((res && res.data) || {}).forEach((r) => { if (r && r.route) store.results[r.route] = r; });
+  while (queue.length) {
+    const batch = queue.slice(0, 64);
+    let res;
+    try {
+      res = await API.urlCheck.checks(batch);
+    } catch (e) {
+      return; // not known (or too many checks for now): nothing is marked
+    }
+    const answered = Object.values((res && res.data) || {}).filter((r) => r && r.route);
+    answered.forEach((r) => { store.results[r.route] = r; });
     notify();
-  }).catch(() => { /* not known: nothing is marked */ });
+    const done = new Set(answered.map((r) => r.route));
+    const left = [...batch.filter((n) => !done.has(n)), ...queue.slice(64)];
+    if (left.length === queue.length) return; // nothing new: the rest is not checked now (not running, no web address…)
+    queue = left;
+    await sleep(1000);
+  }
 };
 
 // The last checks of these URLs (administrators only), { name: result }.
@@ -184,7 +198,7 @@ const routeRepairWords = (t, repair, app) => {
   if (repair.setting === 'noVisitorAddress') {
     return repair.on
       ? { title: t('mgmt.urlCheck.noVisitorTitle', 'Open it without telling it the visitor\'s address', p),
-        help: t('mgmt.urlCheck.noVisitorHelp', 'Cosmos then sends {{app}} no X-Forwarded-For: {{app}} sees every visitor as Cosmos until it is told to trust Cosmos (see below), after which this setting should be switched off again.', p) }
+        help: t('mgmt.urlCheck.noVisitorHelp', 'A temporary step, to reach {{app}}\'s own settings: Cosmos then sends it no visitor\'s address, so {{app}} sees every visitor at Cosmos\' private address. Anything in {{app}} that trusts local addresses then admits everyone, the whole internet included (Home Assistant\'s trusted networks, Jellyfin\'s local network, Sonarr\'s and Radarr\'s "disabled for local addresses"), and one stranger\'s failed sign-ins make {{app}} ban Cosmos\' address, which locks everyone out. Do the step below at once, then switch this off again.', p) }
       : { title: t('mgmt.urlCheck.visitorTitle', 'Tell {{app}} the visitor\'s address again', p),
         help: t('mgmt.urlCheck.visitorHelp', 'Cosmos then sends {{app}} the visitor\'s address in X-Forwarded-For, as it does for most apps.', p) };
   }

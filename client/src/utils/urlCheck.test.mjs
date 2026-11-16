@@ -124,3 +124,16 @@ test('the URLs of a container', () => {
   ];
   assert.deepEqual(routesOfContainer(routes, 'qbittorrent').map((r) => r.Name), ['a']);
 });
+
+test('hiding the visitor is said as a temporary step with what it opens', () => {
+  const base = { route: 'ha', url: 'https://homeassistant.server.local:2053', appName: 'Home Assistant', verdict: 'warning' };
+  const local = resultWords({ ...base, reason: 'noVisitorLocalTrust' });
+  assert.equal(local.severity, 'warning');
+  assert.equal(local.key, 'mgmt.urlCheck.reason.noVisitorLocalTrust');
+  assert.match(local.text, /admits the whole internet/);
+  assert.match(resultWords({ ...base, reason: 'noVisitorOn' }).text, /lock everyone out/);
+  assert.match(resultWords({ ...base, verdict: 'notChecked', reason: 'tunnel' }).text, /tunnel/);
+  const repairs = orderedRepairs({ ...base, reason: 'noVisitorLocalTrust', repairs: [{ kind: 'route', setting: 'noVisitorAddress', on: false }] });
+  assert.equal(repairs.route.setting, 'noVisitorAddress');
+  assert.equal(repairs.route.on, false);
+});

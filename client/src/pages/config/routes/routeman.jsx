@@ -17,6 +17,7 @@ import {
   FormHelperText,
   TextField,
   MenuItem,
+  Typography, // Fork addition (plan 44)
 } from '@mui/material';
 import { DeleteOutlined, PlusCircleOutlined } from '@ant-design/icons';
 import { CosmosCheckbox, CosmosCollapse, CosmosFormDivider, CosmosInputText, CosmosSelect, ReadOnlyForm, ShowFieldErrors } from '../users/formShortcuts';
@@ -475,17 +476,20 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                         formik={formik}
                       />
 
-                      {/* Fork addition (plan 44): the app's own address as Host, the public one in X-Forwarded-Host (src/proxy/fork_public_host.go) */}
-                      {(formik.values.Mode === "SERVAPP" || formik.values.Mode === "PROXY") && <CosmosCheckbox
+                      {/* Fork addition (plan 44): the app's own address as Host, the public one in X-Forwarded-Host (src/proxy/fork_public_host.go); never for a tunnelled URL */}
+                      {(formik.values.Mode === "SERVAPP" || formik.values.Mode === "PROXY") && formik.values.Tunnel && <Typography variant="caption" color="textSecondary" component="div">
+                        {t('mgmt.urls.edit.advancedSettings.tunnelled', 'These two settings are not used for a URL that goes through a tunnel: set them on the server that runs the app.')}
+                      </Typography>}
+                      {(formik.values.Mode === "SERVAPP" || formik.values.Mode === "PROXY") && !formik.values.Tunnel && <CosmosCheckbox
                         name="ForkAppOwnHost"
                         label={t('mgmt.urls.edit.advancedSettings.appOwnHost', 'Tell the app its own address')}
                         helperText={t('mgmt.urls.edit.advancedSettings.appOwnHostHelp', 'The app receives its own address as Host and the public one in X-Forwarded-Host. For apps that only answer their own address, such as qBittorrent.')}
                         formik={formik}
                       />}
-                      {(formik.values.Mode === "SERVAPP" || formik.values.Mode === "PROXY") && <CosmosCheckbox
+                      {(formik.values.Mode === "SERVAPP" || formik.values.Mode === "PROXY") && !formik.values.Tunnel && <CosmosCheckbox
                         name="ForkNoVisitorAddress"
                         label={t('mgmt.urls.edit.advancedSettings.noVisitorAddress', 'Do not tell the app the visitor\'s address')}
-                        helperText={t('mgmt.urls.edit.advancedSettings.noVisitorAddressHelp', 'No X-Forwarded-For or X-Real-IP is sent: the app then sees every visitor as Cosmos. Only for an app that refuses them until it trusts Cosmos, such as Home Assistant; switch it off once the app trusts Cosmos.')}
+                        helperText={t('mgmt.urls.edit.advancedSettings.noVisitorAddressHelp', 'A temporary step for an app that refuses visitors\' addresses until it trusts Cosmos (Home Assistant). No X-Forwarded-For or X-Real-IP is sent, so the app sees every visitor at Cosmos\' private address: what the app lets in from local addresses without a sign-in (Home Assistant\'s trusted networks, Jellyfin\'s local network, Sonarr\'s and Radarr\'s "disabled for local addresses") then admits the whole internet, and the app\'s own banning locks everyone out after one stranger\'s failed sign-ins. Switch it off as soon as the app trusts Cosmos.')}
                         formik={formik}
                       />}
 

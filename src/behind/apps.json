@@ -149,17 +149,7 @@
           "example": "Bad Request - Invalid Hostname HTTP Error 400. The request hostname is invalid."
         }
       ],
-      "file": [
-        {
-          "path": "/config/config.xml",
-          "section": "<Config>",
-          "lines": [
-            "<TrustedNetworks>{proxy}/32</TrustedNetworks>"
-          ],
-          "when": "advice",
-          "why": "visitorAddressArr"
-        }
-      ]
+      "trustsLocal": true
     },
     {
       "id": "radarr",
@@ -187,17 +177,7 @@
           "example": "Bad Request - Invalid Hostname HTTP Error 400. The request hostname is invalid."
         }
       ],
-      "file": [
-        {
-          "path": "/config/config.xml",
-          "section": "<Config>",
-          "lines": [
-            "<TrustedNetworks>{proxy}/32</TrustedNetworks>"
-          ],
-          "when": "advice",
-          "why": "visitorAddressArr"
-        }
-      ]
+      "trustsLocal": true
     },
     {
       "id": "jellyfin",
@@ -245,7 +225,8 @@
           "when": "advice",
           "why": "visitorAddressJellyfin"
         }
-      ]
+      ],
+      "trustsLocal": true
     },
     {
       "id": "emby",
@@ -498,7 +479,8 @@
       ],
       "notes": [
         "haTrustProxy"
-      ]
+      ],
+      "trustsLocal": true
     },
     {
       "id": "nextcloud",

@@ -75,6 +75,9 @@ type App struct {
 	Version string   `json:"version"`
 	// AppOwnHost: the URL tells the app its own address as Host (the route's ForkAppOwnHost)
 	AppOwnHost bool        `json:"appOwnHost,omitempty"`
+	// TrustsLocal: the app can admit visitors from local addresses without a sign-in (said when the
+	// URL hides the visitor's address, which makes every visitor look local)
+	TrustsLocal bool `json:"trustsLocal,omitempty"`
 	// NoOwnHost: never tell the app its own address (its origin check compares Origin with Host only)
 	NoOwnHost  bool        `json:"noOwnHost,omitempty"`
 	Env        []EnvNeed   `json:"env,omitempty"`
@@ -176,15 +179,31 @@ func AppFor(image string) *App {
 
 // fill puts the URL's facts into a value of the data.
 func fill(text string, f fillFacts) string {
-	return strings.NewReplacer(
+	return fillWith(text, f, nil, func(v string) string { return v })
+}
+
+// fillWith fills placeholders (and the extra ones given), each value passed
+// through quote (a shell's single quotes for a command).
+func fillWith(text string, f fillFacts, extra map[string]string, quote func(string) string) string {
+	pairs := []string{
 		"{url}", f.url, "{urls}", strings.Join(f.urls, ","), "{host}", f.host, "{hosts}", strings.Join(f.hosts, ","),
 		"{name}", f.name, "{names}", strings.Join(f.names, ","), "{port}", f.port, "{proxy}", f.proxy, "{mainurl}", f.mainURL(),
-	).Replace(text)
+	}
+	for k, v := range extra {
+		pairs = append(pairs, k, v)
+	}
+	for i := 1; i < len(pairs); i += 2 {
+		pairs[i] = quote(pairs[i])
+	}
+	return strings.NewReplacer(pairs...).Replace(text)
 }
+
 
 type fillFacts struct {
 	url, host, name, port, proxy string
 	image                        string
+	// valid: the URL's own name and port and the proxy's address are what they must be (checked by fillFor)
+	valid bool
 	urls, hosts, names          []string
 }
 

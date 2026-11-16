@@ -130,10 +130,21 @@ var (
 	ownAddresses = net.InterfaceAddrs
 )
 
+// dialledAddress is what the proxy dials for a container, which an app told
+// its own address receives as Host: its address outside Docker, its name
+// when Cosmos runs in a container of its own (Docker's DNS).
+var dialledAddress = func(container, ip, port string) string {
+	if utils.IsInsideContainer && !utils.IsHostNetwork {
+		return net.JoinHostPort(container, port)
+	}
+	return net.JoinHostPort(ip, port)
+}
+
 // addressAllowed is a variable so that tests use documentation addresses
 var addressAllowed = usableAddress
 
-var checkMu sync.Mutex // one check at a time on the server
+// one check at a time on the server; a check waits for its turn only as long as its request may
+var checkSlot = make(chan struct{}, 1)
 
 // containerOf is the container a SERVAPP URL leads to, its port and scheme.
 func containerOf(route utils.ProxyRouteConfig) (string, string, string, string) {
@@ -401,10 +412,17 @@ func wrongLocation(location string, public proxy.PublicAddress, scheme string) b
 }
 
 // facts for the values of the data: every public address of the container's URLs
+// Only names that are host names (letters, digits, dots and hyphens) and
+// numeric ports are ever put into a value, a line or a command; a URL whose
+// own name is not one gets no such repair at all (fillFacts.valid).
 func fillFor(config utils.Config, route utils.ProxyRouteConfig, container string, public proxy.PublicAddress, scheme, peer string) fillFacts {
 	f := fillFacts{url: scheme + "://" + public.Host, host: public.Host, name: public.Name, port: public.Port, proxy: peer}
+	f.valid = hostName.MatchString(public.Name) && portNumber.MatchString(public.Port) && net.ParseIP(peer) != nil
 	seen := map[string]bool{}
 	add := func(p proxy.PublicAddress, s string) {
+		if !hostName.MatchString(p.Name) || !portNumber.MatchString(p.Port) {
+			return
+		}
 		u := s + "://" + p.Host
 		if seen[u] {
 			return
@@ -428,6 +446,16 @@ func fillFor(config utils.Config, route utils.ProxyRouteConfig, container string
 	return f
 }
 
+var (
+	hostName   = regexp.MustCompile(`^(?i)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`)
+	portNumber = regexp.MustCompile(`^[1-9][0-9]{0,4}$`)
+)
+
+// shellQuote makes a value one word for a POSIX shell.
+func shellQuote(v string) string {
+	return "'" + strings.ReplaceAll(v, "'", `'"'"'`) + "'"
+}
+
 // Check asks the app of one URL.
 func Check(ctx context.Context, routeName string) Result {
 	result := Result{Route: routeName, Attempts: []Attempt{}, Repairs: []Repair{}, CheckedAt: time.Now()}
@@ -445,6 +473,10 @@ func Check(ctx context.Context, routeName string) Result {
 	}
 	result.AppOwnHost, result.NoVisitorAddress = route.ForkAppOwnHost, route.ForkNoVisitorAddress
 	result.key = fingerprint(*route)
+	if route.Tunnel != "" || route.Const_IsTunneled {
+		result.Verdict, result.Reason = "notChecked", "tunnel"
+		return result
+	}
 	container, port, targetScheme, path := containerOf(*route)
 	if container == "" {
 		result.Verdict, result.Reason = "notChecked", path
@@ -474,13 +506,18 @@ func Check(ctx context.Context, routeName string) Result {
 		return result
 	}
 
-	checkMu.Lock()
-	defer checkMu.Unlock()
+	select {
+	case checkSlot <- struct{}{}:
+		defer func() { <-checkSlot }()
+	case <-ctx.Done():
+		result.Verdict, result.Reason = "notChecked", "busy"
+		return result
+	}
 	since := time.Now().Add(-time.Second)
 	headers := func(own, noVisitor bool) proxy.AppHeaders {
 		r := *route
 		r.ForkAppOwnHost, r.ForkNoVisitorAddress = own, noVisitor
-		return proxy.AppHeadersFor(r, public, scheme, net.JoinHostPort(facts.IP, port), targetScheme)
+		return proxy.AppHeadersFor(r, public, scheme, dialledAddress(container, facts.IP, port), targetScheme)
 	}
 	try := func(own, noVisitor bool) (Attempt, string) {
 		a, peer := ask(ctx, facts.IP, port, targetScheme, path, headers(own, noVisitor), own)
@@ -514,6 +551,14 @@ func Check(ctx context.Context, routeName string) Result {
 				result.Verdict, result.Reason = "warning", needs[0].Why
 			}
 			result.Repairs = append(result.Repairs, needs...)
+		}
+		if route.ForkNoVisitorAddress && result.Verdict == "works" {
+			// a step meant to be temporary: the app sees every visitor at Cosmos' private address
+			result.Verdict, result.Reason = "warning", "noVisitorOn"
+			if app != nil && app.TrustsLocal {
+				result.Reason = "noVisitorLocalTrust"
+			}
+			result.Repairs = append([]Repair{{Kind: "route", Setting: "noVisitorAddress", On: false}}, result.Repairs...)
 		}
 		result.Repairs = append(result.Repairs, adviceOf(app, facts, f)...)
 		return result
@@ -620,7 +665,7 @@ func Check(ctx context.Context, routeName string) Result {
 // appRepairs are the variables of a known app that are missing or wrong.
 func appRepairs(app *App, facts docker.URLCheckFacts, f fillFacts, when string) []Repair {
 	out := []Repair{}
-	if app == nil {
+	if app == nil || !f.valid {
 		return out
 	}
 	for _, e := range app.Env {
@@ -654,10 +699,15 @@ func appRepairs(app *App, facts docker.URLCheckFacts, f fillFacts, when string) 
 // filesOf are a known app's configuration lines for a refusal.
 func filesOf(app *App, f fillFacts, when string) []Repair {
 	out := []Repair{}
-	if app == nil {
+	if app == nil || !f.valid {
 		return out
 	}
+	quote := func(v string) string { return v }
 	for _, file := range app.File {
+		quote = func(v string) string { return v }
+		if file.Command {
+			quote = shellQuote // a command is copied into a shell: every value one quoted word
+		}
 		if file.When != when || (len(file.Images) > 0 && !imageIn(file.Images, f.image)) {
 			continue
 		}
@@ -666,11 +716,11 @@ func filesOf(app *App, f fillFacts, when string) []Repair {
 			if strings.Contains(l, "{each}") {
 				// one line per name of the app's URLs, numbered from {from}
 				for i, name := range f.names {
-					lines = append(lines, fill(strings.NewReplacer("{each}", name, "{i}", strconv.Itoa(file.From+i)).Replace(l), f))
+					lines = append(lines, fillWith(strings.NewReplacer("{i}", strconv.Itoa(file.From+i)).Replace(l), f, map[string]string{"{each}": name}, quote))
 				}
 				continue
 			}
-			lines = append(lines, fill(l, f))
+			lines = append(lines, fillWith(l, f, nil, quote))
 		}
 		kind := "file"
 		if file.Command {
@@ -708,12 +758,13 @@ func remember(r Result) {
 	cache[r.Route] = r
 }
 
-// remembered is the last check of a URL while it still describes the URL as it is.
-func remembered(route utils.ProxyRouteConfig) (Result, bool) {
+// remembered is the last check of a URL while it still describes the URL
+// as it is: the same settings and the same container (id).
+func remembered(route utils.ProxyRouteConfig, containerID string) (Result, bool) {
 	cacheMu.Lock()
 	defer cacheMu.Unlock()
 	r, ok := cache[route.Name]
-	if !ok || time.Since(r.CheckedAt) > cacheFor || !strings.HasPrefix(r.key, fingerprint(route)) {
+	if !ok || time.Since(r.CheckedAt) > cacheFor || r.key != fingerprint(route)+"|"+containerID {
 		return Result{}, false
 	}
 	return r, true

@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/azukaar/cosmos-server/src/docker"
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
@@ -73,6 +74,15 @@ func userOf(req *http.Request) string {
 func answer(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "OK", "data": data})
+}
+
+// containerIDOf is the id of the container a URL leads to now ("" when none), for the kept results.
+var containerIDOf = func(ctx context.Context, route utils.ProxyRouteConfig) string {
+	name, _, _, _ := containerOf(route)
+	if name == "" {
+		return ""
+	}
+	return docker.URLCheckFactsOf(ctx, name, nil).ID
 }
 
 func routeOf(name string) (utils.ProxyRouteConfig, bool) {
@@ -146,7 +156,7 @@ func ChecksRoute(w http.ResponseWriter, req *http.Request) {
 		if !ok {
 			continue
 		}
-		if r, ok := remembered(route); ok {
+		if r, ok := remembered(route, containerIDOf(req.Context(), route)); ok {
 			out[name] = r
 		} else if route.Mode == "SERVAPP" && !route.Disabled && len(stale) < staleChecksAtMax {
 			stale = append(stale, name)
@@ -186,6 +196,7 @@ const (
 	errNoRoute  = refusal("there is no such URL")
 	errManaged  = refusal("this URL is managed elsewhere and can only be changed from there")
 	errNotProxy = refusal("this URL does not lead to an app")
+	errTunnel   = refusal("this URL goes through a tunnel: the address it tells the app is the tunnel's, and the visitor's address is what the other node's shield works with, so these settings are never used for it")
 )
 
 var reloadRoutes = func() { go utils.RestartHTTPServer() }
@@ -216,6 +227,9 @@ func ApplyRoute(w http.ResponseWriter, req *http.Request) {
 		if r.Mode != "SERVAPP" && r.Mode != "PROXY" {
 			return errNotProxy
 		}
+		if r.Tunnel != "" {
+			return errTunnel
+		}
 		if body.AppOwnHost != nil {
 			r.ForkAppOwnHost = *body.AppOwnHost
 		} else {
@@ -240,11 +254,19 @@ func ApplyRoute(w http.ResponseWriter, req *http.Request) {
 		on = "on"
 	}
 	utils.AuditSecurity(req, utils.SecRouteUpdated, body.Route, setting, on)
+	utils.Log("Route updated: " + body.Route + " (" + setting + " " + on + ")")
+	utils.TriggerEvent("cosmos.routes", "Route updated: "+body.Route, "success", "", map[string]interface{}{}) // as a save of the URL form
 	// the check reads the saved setting (it composes the request itself); the
 	// routes are reloaded after the answer, since reloading ends the connections
+	// saved; the check waits its turn only a few seconds (another check may be asking an app): then the panel asks again
 	result := Result{Route: body.Route, Verdict: "notChecked", Reason: "tooMany", Attempts: []Attempt{}, Repairs: []Repair{}}
 	if allowed(userOf(req), 1, time.Now()) {
-		result = checkNow(req, body.Route)
+		ctx, cancel := context.WithTimeout(req.Context(), 12*time.Second)
+		result = Check(ctx, body.Route)
+		cancel()
+		if result.Reason != "busy" {
+			remember(result)
+		}
 	}
 	answer(w, result)
 	if f, ok := w.(http.Flusher); ok {

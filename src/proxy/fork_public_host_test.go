@@ -5,6 +5,7 @@ package proxy
 
 import (
 	"bufio"
+	"crypto/tls"
 	"context"
 	"net"
 	"net/http"
@@ -113,21 +114,95 @@ func TestAppIsToldThePublicAddressWithItsPort(t *testing.T) {
 	expectApp(t, got, "qbittorrent.example.org", "qbittorrent.example.org", "443", "https")
 }
 
-func TestVisitorCannotChooseTheNameOrPortTheAppIsTold(t *testing.T) {
+func TestTheVisitorsHostIsPassedAsReceived(t *testing.T) {
 	onServer(t, nil)
 	route := utils.ProxyRouteConfig{Name: "app", UseHost: true, Host: "app.example.org"}
 
-	// a port this server is not reached at becomes the port of the connection
+	// Cosmos cannot know the public port in general: the visitor's is passed, in Host and the forwarded headers alike
 	got, _ := asApp(t, route, "app.example.org:9999", "2053", nil)
-	expectApp(t, got, "app.example.org:2053", "app.example.org:2053", "2053", "https")
+	expectApp(t, got, "app.example.org:9999", "app.example.org:9999", "9999", "https")
 
-	// the name is the URL's, whatever the case the visitor wrote it in, and its own headers are dropped
+	// as written, and the visitor's own forwarded headers are dropped
 	got, _ = asApp(t, route, "APP.Example.ORG:2053", "2053", map[string]string{
 		"X-Forwarded-Host":  "evil.example.net",
 		"X-Forwarded-Port":  "1",
 		"X-Forwarded-Proto": "gopher",
 	})
+	expectApp(t, got, "APP.Example.ORG:2053", "APP.Example.ORG:2053", "2053", "https")
+
+	// an upper-case URL name changes nothing of what the visitor sent
+	upper := utils.ProxyRouteConfig{Name: "up", UseHost: true, Host: "App.Example.ORG"}
+	got, _ = asApp(t, upper, "app.example.org:2053", "2053", nil)
 	expectApp(t, got, "app.example.org:2053", "app.example.org:2053", "2053", "https")
+}
+
+// Cosmos in Docker with `-p 2053:443` (its HTTPS port 443), no UPnP: the
+// connection arrives on 443, the visitor typed 2053. A signed S3 request
+// depends on Host reaching the backend byte for byte, in every setup.
+func TestDockerRemappedPortAndSignedRequests(t *testing.T) {
+	onServer(t, func(c *utils.Config) { c.HTTPConfig.HTTPSPort = "443" })
+	s3 := "s3.example.org:2053"
+	for _, route := range []utils.ProxyRouteConfig{
+		{Name: "s3", UseHost: true, Host: "s3.example.org"},
+		{Name: "bucket", UseHost: true, Host: "{bucket:[a-z0-9-]+}.s3.example.org"},
+		{Name: "path", UsePathPrefix: true, PathPrefix: "/"},
+		{Name: "upper", UseHost: true, Host: "S3.example.org"},
+	} {
+		for _, host := range []string{s3, "photos.s3.example.org:2053", "s3.example.org", "192.0.2.10:2053"} {
+			got, _ := asApp(t, route, host, "443", nil)
+			if got.host != host {
+				t.Errorf("%s: Host %q reached the backend as %q", route.Name, host, got.host)
+			}
+		}
+	}
+	got, _ := asApp(t, utils.ProxyRouteConfig{Name: "s3", UseHost: true, Host: "s3.example.org"}, s3, "443", nil)
+	expectApp(t, got, s3, s3, "2053", "https")
+}
+
+func TestTheOptionsNeverApplyToATunnelledURL(t *testing.T) {
+	onServer(t, nil)
+	for _, route := range []utils.ProxyRouteConfig{
+		{Name: "t1", UseHost: true, Host: "app.example.org", Tunnel: "node-b", ForkAppOwnHost: true, ForkNoVisitorAddress: true},
+		{Name: "t2", UseHost: true, Host: "app.example.org", Const_IsTunneled: true, ForkAppOwnHost: true, ForkNoVisitorAddress: true},
+	} {
+		got, _ := asApp(t, route, "app.example.org:2053", "2053", nil)
+		if got.host != "app.example.org:2053" || got.header.Get("X-Forwarded-For") == "" {
+			t.Errorf("%s: Host %q, X-Forwarded-For %q: an option travelled with the tunnel", route.Name, got.host, got.header.Get("X-Forwarded-For"))
+		}
+	}
+}
+
+func TestNoLookAlikeTellsTheAppAnything(t *testing.T) {
+	onServer(t, nil)
+	sent := map[string]string{}
+	for _, h := range addressLookAlikes {
+		sent[h] = "evil.example.net"
+	}
+	sent["X_Forwarded_Server"] = "evil.example.net"
+	sent["HTTP_X_ORIGINAL_HOST"] = "evil.example.net"
+	for _, served := range []string{"https", "http"} {
+		if served == "http" {
+			utils.HTTPSListening = false
+		}
+		got, _ := asApp(t, utils.ProxyRouteConfig{Name: "app", UseHost: true, Host: "app.example.org"}, "app.example.org:2053", "2053", sent)
+		for name := range got.header {
+			for _, v := range got.header.Values(name) {
+				if strings.Contains(v, "evil") {
+					t.Errorf("%s: the app was told %s = %q", served, name, v)
+				}
+			}
+		}
+		if served == "http" && got.header.Get("X-Forwarded-Ssl") != "" {
+			t.Error("X-Forwarded-Ssl on a name served over plain HTTP")
+		}
+	}
+	// the URL's own extra headers still may set them, and override X-Forwarded-Host/-Port
+	extra := utils.ProxyRouteConfig{Name: "app", UseHost: true, Host: "app.example.org",
+		ExtraHeaders: map[string]string{"X-Forwarded-Prefix": "/app", "X-Forwarded-Host": "inner.example.org", "X-Forwarded-Port": "8443"}}
+	got, _ := asApp(t, extra, "app.example.org:2053", "2053", map[string]string{"X-Forwarded-Prefix": "/evil"})
+	if got.header.Get("X-Forwarded-Prefix") != "/app" || got.header.Get("X-Forwarded-Host") != "inner.example.org" || got.header.Get("X-Forwarded-Port") != "8443" {
+		t.Errorf("extra headers: %v", got.header)
+	}
 }
 
 func TestRouterPortIsAPortTheAppMayBeTold(t *testing.T) {
@@ -184,9 +259,9 @@ func TestURLWithoutANameOfItsOwn(t *testing.T) {
 	route := utils.ProxyRouteConfig{Name: "path", UsePathPrefix: true, PathPrefix: "/app"}
 	got, _ := asApp(t, route, "server.example.org:2053", "2053", nil)
 	expectApp(t, got, "server.example.org:2053", "server.example.org:2053", "2053", "https")
-	// a name that is not the server's is not passed on
-	got, _ = asApp(t, route, "other.example.net:2053", "2053", nil)
-	expectApp(t, got, "server.example.org:2053", "server.example.org:2053", "2053", "https")
+	// reached by an address (a visitor at home): the app keeps that, as before
+	got, _ = asApp(t, route, "192.168.1.10:2053", "2053", nil)
+	expectApp(t, got, "192.168.1.10:2053", "192.168.1.10:2053", "2053", "https")
 }
 
 func TestAppOwnHostOverWebSocket(t *testing.T) {
@@ -257,6 +332,7 @@ func TestRedirectThroughTheProxy(t *testing.T) {
 	proxy, _ := NewProxy(backend.URL, false, false, route)
 	r := httptest.NewRequest("GET", "http://placeholder/", nil)
 	r.Host = "sonarr.server.local:2053"
+	r.TLS = &tls.ConnectionState{}
 	r = r.WithContext(context.WithValue(r.Context(), http.LocalAddrContextKey, &net.TCPAddr{IP: net.ParseIP("192.0.2.10"), Port: 2053}))
 	rec := httptest.NewRecorder()
 	proxy.ServeHTTP(rec, r)

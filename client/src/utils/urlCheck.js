@@ -71,6 +71,10 @@ const REASONS = {
   untrustedProxy: ['mgmt.urlCheck.reason.untrustedProxy', '{{app}} refuses requests that come through a proxy it does not know: it has to be told that Cosmos is its proxy.'],
   csrfOrigin: ['mgmt.urlCheck.reason.csrfOrigin', '{{url}} opens, but signing in to {{app}} will fail: {{app}} has to be told the address it is reached at.'],
   wrongAddress: ['mgmt.urlCheck.reason.wrongAddress', '{{app}} sends visitors to another address than {{url}}: it does not know the address it is reached at.'],
+  noVisitorOn: ['mgmt.urlCheck.reason.noVisitorOn', '{{url}} opens, but it does not tell {{app}} the visitor\'s address: {{app}} sees every visitor at Cosmos\' private address, and its own banning would lock everyone out. Meant only for a moment: switch it off once {{app}} trusts Cosmos.'],
+  noVisitorLocalTrust: ['mgmt.urlCheck.reason.noVisitorLocalTrust', '{{url}} does not tell {{app}} the visitor\'s address, so every visitor looks local to {{app}}: what it lets in from local addresses without a sign-in (Home Assistant\'s trusted networks, Jellyfin\'s local network, Sonarr\'s and Radarr\'s "disabled for local addresses") then admits the whole internet. Switch it off as soon as {{app}} trusts Cosmos.'],
+  tunnel: ['mgmt.urlCheck.reason.tunnel', 'This URL goes through a tunnel to another server: Cosmos checks the app on the server that runs it.'],
+  busy: ['mgmt.urlCheck.reason.busy', 'The setting is saved; Cosmos was still asking another app. Check again in a moment.'],
   noVisitorBreaks: ['mgmt.urlCheck.reason.noVisitorBreaks', '{{app}} needs the visitor\'s address, and this URL does not tell it: the setting "Do not tell the app the visitor\'s address" is wrong for it.'],
   httpLinks: ['mgmt.urlCheck.reason.httpLinks', '{{url}} opens, but {{app}} makes links that start with http:// instead of https://: it has to be told that it is reached over HTTPS.'],
   rootUrl: ['mgmt.urlCheck.reason.rootUrl', '{{url}} opens, but {{app}} names another address (localhost) in its links: it has to be told the address it is reached at.'],
@@ -147,7 +151,7 @@ export const whyWords = (why) => {
 
 // The notes of a result, in words ({{proxy}}: the address the app sees Cosmos at).
 const NOTES = {
-  haTrustProxy: ['mgmt.urlCheck.note.haTrustProxy', 'To give Home Assistant the visitors\' addresses: Settings > System > Network > HTTP server: turn on X-Forwarded-For, add {{proxy}} as trusted proxy, confirm within 5 minutes; then switch off "Do not tell the app the visitor\'s address" on this URL.'],
+  haTrustProxy: ['mgmt.urlCheck.note.haTrustProxy', 'Next, at once: in Home Assistant, Settings > System > Network > HTTP server: turn on "Use X-Forwarded-For", add {{proxy}} as trusted proxy, and confirm within 5 minutes. Then switch off "Do not tell the app the visitor\'s address" on this URL: until then Home Assistant sees every visitor at Cosmos\' private address (its trusted networks, if you use them, admit everyone; its ban list would ban Cosmos).'],
 };
 export const noteWords = (result) => ((result && result.notes) || []).filter((id) => NOTES[id])
   .map((id) => ({ id, key: NOTES[id][0], text: NOTES[id][1], params: { proxy: (result && result.proxy) || 'Cosmos\' address' } }));

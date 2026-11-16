@@ -432,8 +432,82 @@ func TestCommandsAreWrittenForEachName(t *testing.T) {
 		}
 	}
 	if cmd == nil || cmd.User != "www-data" || len(cmd.Lines) != 2 ||
-		cmd.Lines[0] != "php occ config:system:set trusted_domains 10 --value=nextcloud.server.local" ||
-		cmd.Lines[1] != "php occ config:system:set trusted_domains 11 --value=nextcloud.example.org" {
+		cmd.Lines[0] != "php occ config:system:set trusted_domains 10 --value='nextcloud.server.local'" ||
+		cmd.Lines[1] != "php occ config:system:set trusted_domains 11 --value='nextcloud.example.org'" {
 		t.Errorf("command %+v", cmd)
+	}
+}
+
+func TestTheCheckWaitsItsTurnOnlyAsLongAsItsRequest(t *testing.T) {
+	withApp(t, "example/app:1", nil, nil, []utils.ProxyRouteConfig{urlTo("app", "app.example.org", false)}, func(w http.ResponseWriter, r *http.Request) {})
+	checkSlot <- struct{}{} // another check is asking an app
+	defer func() { <-checkSlot }()
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	r := Check(ctx, "app")
+	if r.Verdict != "notChecked" || r.Reason != "busy" || time.Since(start) > 2*time.Second {
+		t.Errorf("%q %q after %s", r.Verdict, r.Reason, time.Since(start))
+	}
+}
+
+func TestKeptResultsFollowTheContainer(t *testing.T) {
+	withApp(t, "example/app:1", nil, nil, []utils.ProxyRouteConfig{urlTo("app", "app.example.org", false)}, func(w http.ResponseWriter, r *http.Request) {})
+	remember(Check(context.Background(), "app"))
+	route := utils.GetMainConfig().HTTPConfig.ProxyConfig.Routes[0]
+	if _, ok := remembered(route, "c0ffee"); !ok {
+		t.Error("the result of the same container was not kept")
+	}
+	if _, ok := remembered(route, "re-created"); ok {
+		t.Error("a re-created container kept the old result")
+	}
+}
+
+func TestHidingTheVisitorIsSaidToBeTemporary(t *testing.T) {
+	route := urlTo("ha", "homeassistant.server.local", false)
+	route.ForkNoVisitorAddress = true
+	withApp(t, "ghcr.io/home-assistant/home-assistant:stable", nil, nil, []utils.ProxyRouteConfig{route}, func(w http.ResponseWriter, r *http.Request) {})
+	r := Check(context.Background(), "ha")
+	if r.Verdict != "warning" || r.Reason != "noVisitorLocalTrust" || len(r.Repairs) == 0 || r.Repairs[0].Setting != "noVisitorAddress" || r.Repairs[0].On {
+		t.Errorf("%q %q %+v", r.Verdict, r.Reason, r.Repairs)
+	}
+	withApp(t, "example/app:1", nil, nil, []utils.ProxyRouteConfig{route}, func(w http.ResponseWriter, r *http.Request) {})
+	if r := Check(context.Background(), "ha"); r.Reason != "noVisitorOn" {
+		t.Errorf("an unknown app: %q", r.Reason)
+	}
+}
+
+func TestTunnelledURLsAreNeitherCheckedNorChanged(t *testing.T) {
+	tunnelled := urlTo("t", "app.example.org", false)
+	tunnelled.Tunnel = "node-b"
+	withApp(t, "example/app:1", nil, nil, []utils.ProxyRouteConfig{tunnelled}, func(w http.ResponseWriter, r *http.Request) {})
+	if r := Check(context.Background(), "t"); r.Reason != "tunnel" {
+		t.Errorf("checked: %q", r.Reason)
+	}
+	oldUpdate := updateRoute
+	updateRoute = func(name string, change func(*utils.ProxyRouteConfig) error) error {
+		r := utils.GetMainConfig().HTTPConfig.ProxyConfig.Routes[0]
+		return change(&r)
+	}
+	defer func() { updateRoute = oldUpdate }()
+	req := httptest.NewRequest("POST", "/cosmos/api/url-check/apply", strings.NewReader(`{"route":"t","appOwnHost":true}`))
+	req = req.WithContext(context.WithValue(req.Context(), utils.AuthCtxKey, &utils.AuthContext{Nickname: "admin", Permissions: []utils.Permission{utils.PERM_LOGIN, utils.PERM_ADMIN}, IsSudoed: true, UserRole: utils.ADMIN}))
+	rec := httptest.NewRecorder()
+	ApplyRoute(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "tunnel") {
+		t.Errorf("apply on a tunnelled URL: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestOwnAddressIsWhatTheProxyDials(t *testing.T) {
+	inside, host := utils.IsInsideContainer, utils.IsHostNetwork
+	defer func() { utils.IsInsideContainer, utils.IsHostNetwork = inside, host }()
+	utils.IsInsideContainer, utils.IsHostNetwork = true, false
+	if got := dialledAddress("qbittorrent", "172.30.0.2", "8080"); got != "qbittorrent:8080" {
+		t.Errorf("Cosmos in a container: %s", got)
+	}
+	utils.IsInsideContainer = false
+	if got := dialledAddress("qbittorrent", "172.30.0.2", "8080"); got != "172.30.0.2:8080" {
+		t.Errorf("Cosmos outside Docker: %s", got)
 	}
 }

@@ -6121,7 +6121,7 @@
 	"mgmt.urlCheck.adviceIntroSection": "Recommended in {{path}}, in the section {{section}}, then restart the app:",
 	"mgmt.urlCheck.fileIntroSection": "Add these lines to {{path}}, in the section {{section}}, then restart the app:",
 	"mgmt.urlCheck.noVisitorTitle": "Open it without telling it the visitor's address",
-	"mgmt.urlCheck.noVisitorHelp": "Cosmos then sends {{app}} no X-Forwarded-For: {{app}} sees every visitor as Cosmos until it is told to trust Cosmos (see below), after which this setting should be switched off again.",
+	"mgmt.urlCheck.noVisitorHelp": "A temporary step, to reach {{app}}'s own settings: Cosmos then sends it no visitor's address, so {{app}} sees every visitor at Cosmos' private address. Anything in {{app}} that trusts local addresses then admits everyone, the whole internet included (Home Assistant's trusted networks, Jellyfin's local network, Sonarr's and Radarr's \"disabled for local addresses\"), and one stranger's failed sign-ins make {{app}} ban Cosmos' address, which locks everyone out. Do the step below at once, then switch this off again.",
 	"mgmt.urlCheck.visitorTitle": "Tell {{app}} the visitor's address again",
 	"mgmt.urlCheck.visitorHelp": "Cosmos then sends {{app}} the visitor's address in X-Forwarded-For, as it does for most apps.",
 	"mgmt.urlCheck.reason.noVisitorBreaks": "{{app}} needs the visitor's address, and this URL does not tell it: the setting \"Do not tell the app the visitor's address\" is wrong for it.",
@@ -6139,7 +6139,12 @@
 	"mgmt.urlCheck.why.csrfOrigin": "Signing in checks that the page comes from this address: without it, signing in fails.",
 	"mgmt.urlCheck.why.httpLinks": "Tells the app that it is reached over HTTPS, so that its links and redirects keep https://.",
 	"mgmt.urlCheck.why.rootUrl": "The address the app names in its links and redirects (otherwise localhost).",
-	"mgmt.urlCheck.note.haTrustProxy": "To give Home Assistant the visitors' addresses: Settings > System > Network > HTTP server: turn on X-Forwarded-For, add {{proxy}} as trusted proxy, confirm within 5 minutes; then switch off \"Do not tell the app the visitor's address\" on this URL.",
+	"mgmt.urlCheck.note.haTrustProxy": "Next, at once: in Home Assistant, Settings > System > Network > HTTP server: turn on \"Use X-Forwarded-For\", add {{proxy}} as trusted proxy, and confirm within 5 minutes. Then switch off \"Do not tell the app the visitor's address\" on this URL: until then Home Assistant sees every visitor at Cosmos' private address (its trusted networks, if you use them, admit everyone; its ban list would ban Cosmos).",
 	"mgmt.urls.edit.advancedSettings.noVisitorAddress": "Do not tell the app the visitor's address",
-	"mgmt.urls.edit.advancedSettings.noVisitorAddressHelp": "No X-Forwarded-For or X-Real-IP is sent: the app then sees every visitor as Cosmos. Only for an app that refuses them until it trusts Cosmos, such as Home Assistant; switch it off once the app trusts Cosmos."
+	"mgmt.urls.edit.advancedSettings.noVisitorAddressHelp": "A temporary step for an app that refuses visitors' addresses until it trusts Cosmos (Home Assistant). No X-Forwarded-For or X-Real-IP is sent, so the app sees every visitor at Cosmos' private address: what the app lets in from local addresses without a sign-in (Home Assistant's trusted networks, Jellyfin's local network, Sonarr's and Radarr's \"disabled for local addresses\") then admits the whole internet, and the app's own banning locks everyone out after one stranger's failed sign-ins. Switch it off as soon as the app trusts Cosmos.",
+	"mgmt.urlCheck.reason.noVisitorOn": "{{url}} opens, but it does not tell {{app}} the visitor's address: {{app}} sees every visitor at Cosmos' private address, and its own banning would lock everyone out. Meant only for a moment: switch it off once {{app}} trusts Cosmos.",
+	"mgmt.urlCheck.reason.noVisitorLocalTrust": "{{url}} does not tell {{app}} the visitor's address, so every visitor looks local to {{app}}: what it lets in from local addresses without a sign-in (Home Assistant's trusted networks, Jellyfin's local network, Sonarr's and Radarr's \"disabled for local addresses\") then admits the whole internet. Switch it off as soon as {{app}} trusts Cosmos.",
+	"mgmt.urlCheck.reason.tunnel": "This URL goes through a tunnel to another server: Cosmos checks the app on the server that runs it.",
+	"mgmt.urlCheck.reason.busy": "The setting is saved; Cosmos was still asking another app. Check again in a moment.",
+	"mgmt.urls.edit.advancedSettings.tunnelled": "These two settings are not used for a URL that goes through a tunnel: set them on the server that runs the app."
 }

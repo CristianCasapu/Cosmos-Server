@@ -8,16 +8,19 @@ package proxy
 // server whose HTTPS port is not 443 (2053, for Cloudflare's sake) an app that
 // builds links or checks origins from those headers got them wrong: links to
 // port 443, an Origin "https://app.example.org:2053" compared with
-// "app.example.org". Now, for a URL with a name of its own:
+// "app.example.org". Now:
 //
-//   - Host and X-Forwarded-Host are the URL's own name with the port the
-//     visitor used, X-Forwarded-Port that port (443 or 80 too), as Traefik
-//     and Caddy pass them. The name is the URL's (the visitor's Host only
-//     matched it); the port is the visitor's only when it is one this server
-//     answers on or is reached at (the port of the connection, Cosmos' HTTP
-//     and HTTPS ports, the router's port for Cosmos), or none at all (the
-//     scheme's own); any other port becomes the port of the connection. So
-//     neither can carry a value the visitor chose beyond the URL they reached.
+//   - Host is passed as the visitor sent it, byte for byte (as before: a signed
+//     S3 request depends on it), and X-Forwarded-Host is that same Host, port
+//     included, X-Forwarded-Port its port (the scheme's own when it names
+//     none), as Traefik and Caddy pass them. The name in it matched the URL;
+//     the port is the visitor's, because Cosmos cannot know the public port in
+//     general (Docker publishing 2053 to Cosmos' 443, a router or Cloudflare
+//     forwarding another port, a port forwarded by hand): replacing it would be
+//     a guess, and wrong exactly where the app compares it with the browser's
+//     Origin. So the forwarded headers never say anything the Host the app
+//     receives does not already say; whatever the visitor sends as
+//     X-Forwarded-Host/-Port/-Proto and their look-alikes is dropped.
 //   - With ForkAppOwnHost ("tell the app its own address"), Host is the
 //     address Cosmos connects to (the app's own, as its documentation for
 //     reverse proxies asks of nginx: `proxy_set_header Host $proxy_host`)
@@ -35,7 +38,9 @@ package proxy
 // Upstream's own options keep their meaning: OverwriteHostHeader (also used
 // by the tunnels) and SpoofHostname, which runs after this and removes
 // X-Forwarded-Host and -Port as before. Port routes (":8080") answer every
-// name and are left as upstream has them.
+// name and are left as upstream has them. The two fork options never apply
+// to a tunnelled URL (its copy on another node would send the hosting node an
+// address it does not route, or hide the visitor from its shield).
 
 import (
 	"context"
@@ -82,96 +87,36 @@ func splitHost(host string) (string, string) {
 	return strings.TrimSuffix(strings.TrimPrefix(host, "["), "]"), ""
 }
 
-// knownPorts are the ports a visitor may truthfully name in Host: this
-// server's own and the ones it is reached at through the router.
-func knownPorts(localPort string) map[string]bool {
-	known := map[string]bool{"80": true, "443": true}
-	if localPort != "" {
-		known[localPort] = true
-	}
-	config := utils.GetMainConfig().HTTPConfig
-	for _, p := range []string{config.HTTPPort, config.HTTPSPort} {
-		if p = strings.TrimSpace(p); p != "" {
-			known[p] = true
-		}
-	}
-	if p := utils.PublicHTTPSPort(config); p > 0 {
-		known[strconv.Itoa(p)] = true
-	}
-	if config.UPnP.Enabled && config.UPnP.ForwardHTTP {
-		if p := strings.TrimSpace(config.UPnP.ExternalHTTPPort); p != "" {
-			known[p] = true
-		}
-	}
-	return known
-}
-
-// visitorPort is the port the app is told: the one in the visitor's Host when
-// this server answers on it, the scheme's own when Host has none, else the
-// port the connection came in on.
-func visitorPort(hostPort, localPort, scheme string) string {
-	if hostPort == "" {
-		return defaultPort(scheme)
-	}
-	if n, err := strconv.Atoi(hostPort); err == nil && n > 0 && n < 65536 && knownPorts(localPort)[strconv.Itoa(n)] {
-		return strconv.Itoa(n)
-	}
-	if localPort != "" {
-		return localPort
-	}
-	return defaultPort(scheme)
-}
-
-// localPortOf is the port of this server the request came in on.
-func localPortOf(req *http.Request) string {
-	if port, ok := HandoffPort(req); ok {
-		return port
-	}
-	if addr, ok := req.Context().Value(http.LocalAddrContextKey).(net.Addr); ok && addr != nil {
-		if _, port, err := net.SplitHostPort(addr.String()); err == nil {
-			return port
-		}
-	}
-	return ""
-}
-
-// publicAddressOf works out the address an app is told about. requestHost is
-// the visitor's Host. ok is false for the URLs left as upstream has them.
-func publicAddressOf(route utils.ProxyRouteConfig, requestHost, localPort, scheme string) (PublicAddress, bool) {
+// publicAddressOf works out the address an app is told about from the
+// visitor's Host as received. ok is false for the URLs left as upstream has
+// them (OverwriteHostHeader, port routes) and for a request without a Host.
+func publicAddressOf(route utils.ProxyRouteConfig, requestHost, scheme string) (PublicAddress, bool) {
 	if route.OverwriteHostHeader != "" {
 		return PublicAddress{}, false
 	}
-	_, askedPort := splitHost(requestHost)
-	var name, port string
 	if route.UseHost {
-		if strings.ContainsAny(route.Host, ", ") {
-			return PublicAddress{}, false
-		}
-		routeName, routePort := splitHost(strings.TrimSpace(route.Host))
+		routeName, _ := splitHost(strings.TrimSpace(route.Host))
 		if routeName == "" || routeName == "0.0.0.0" {
 			return PublicAddress{}, false // a port route answers any name
 		}
-		name, port = routeName, routePort
-	} else {
-		// a URL without a name of its own answers the server's names: the one
-		// the visitor used when it is one of them, else the server's own
-		asked, _ := splitHost(requestHost)
-		name, _ = splitHost(utils.GetMainConfig().HTTPConfig.Hostname)
-		for _, known := range utils.GetAllHostnames(true) {
-			if asked != "" && strings.EqualFold(known, asked) {
-				name = known
-				break
-			}
-		}
-		if name == "" || name == "0.0.0.0" {
-			return PublicAddress{}, false
-		}
+	}
+	host := strings.TrimSpace(requestHost)
+	name, port := splitHost(host)
+	if name == "" {
+		return PublicAddress{}, false
 	}
 	if port == "" {
-		port = visitorPort(askedPort, localPort, scheme)
+		port = defaultPort(scheme)
 	}
-	name = strings.ToLower(name)
-	return PublicAddress{Name: name, Port: port, Host: joinPublic(name, port, scheme)}, true
+	return PublicAddress{Name: strings.ToLower(name), Port: port, Host: host}, true
+}
+
+// forkOptions are the fork's options of a URL as they apply: never on a tunnelled URL.
+func forkOptions(route utils.ProxyRouteConfig) (appOwnHost bool, noVisitorAddress bool) {
+	if route.Tunnel != "" || route.Const_IsTunneled {
+		return false, false
+	}
+	return route.ForkAppOwnHost, route.ForkNoVisitorAddress
 }
 
 // ownHost is the Host an app is told with ForkAppOwnHost: the address Cosmos
@@ -198,8 +143,9 @@ type AppHeaders struct {
 // src/behind as for the proxy: public is where the visitor arrived, dialled
 // the address Cosmos connects to.
 func AppHeadersFor(route utils.ProxyRouteConfig, public PublicAddress, scheme, dialled, targetScheme string) AppHeaders {
-	out := AppHeaders{Host: public.Host, ForwardedHost: public.Host, ForwardedPort: public.Port, ForwardedProto: scheme, NoVisitorAddress: route.ForkNoVisitorAddress}
-	if route.ForkAppOwnHost && dialled != "" {
+	own, noVisitor := forkOptions(route)
+	out := AppHeaders{Host: public.Host, ForwardedHost: public.Host, ForwardedPort: public.Port, ForwardedProto: scheme, NoVisitorAddress: noVisitor}
+	if own && dialled != "" {
 		out.Host = ownHost(dialled, targetScheme)
 	}
 	return out
@@ -226,21 +172,25 @@ func PublicAddressFor(route utils.ProxyRouteConfig) (PublicAddress, string, bool
 		port = defaultPort(scheme)
 	}
 	name, _ := splitHost(host)
-	public, ok := publicAddressOf(route, joinPublic(name, port, scheme), port, scheme)
+	if !route.UseHost || name == "" || strings.ContainsAny(host, "{}, ") {
+		return PublicAddress{}, scheme, false // no name of its own, or a template: no single address to ask with
+	}
+	public, ok := publicAddressOf(route, joinPublic(strings.ToLower(name), port, scheme), scheme)
 	return public, scheme, ok
 }
 
 // forkPublicHeaders is the Director's hook (routeTo.go), after upstream set
 // its X-Forwarded-* and before SpoofHostname and the route's extra headers.
 func forkPublicHeaders(req *http.Request, route utils.ProxyRouteConfig, scheme string, target string) {
-	if route.ForkNoVisitorAddress {
+	_, noVisitor := forkOptions(route)
+	if noVisitor {
 		// a nil value keeps the reverse proxy from adding X-Forwarded-For itself
 		req.Header["X-Forwarded-For"] = nil
 		for _, h := range []string{"X-Real-Ip", "Cf-Connecting-Ip", "Cf-Connecting-Ipv6", "True-Client-Ip"} {
 			req.Header.Del(h)
 		}
 	}
-	public, ok := publicAddressOf(route, req.Host, localPortOf(req), scheme)
+	public, ok := publicAddressOf(route, req.Host, scheme)
 	if !ok {
 		return
 	}
@@ -252,8 +202,10 @@ func forkPublicHeaders(req *http.Request, route utils.ProxyRouteConfig, scheme s
 	req.Host = h.Host
 	req.Header.Set("X-Forwarded-Host", h.ForwardedHost)
 	req.Header.Set("X-Forwarded-Port", h.ForwardedPort)
-	// for the answer: where the visitor arrived (forkFixLocation)
-	*req = *req.WithContext(context.WithValue(req.Context(), publicKey{}, publicSeen{public, scheme}))
+	// for the answer: where the visitor arrived, when it arrived over TLS (forkFixLocation)
+	if req.TLS != nil {
+		*req = *req.WithContext(context.WithValue(req.Context(), publicKey{}, publicSeen{public, scheme}))
+	}
 }
 
 type publicKey struct{}
