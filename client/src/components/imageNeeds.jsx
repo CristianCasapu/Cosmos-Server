@@ -13,6 +13,8 @@ import { useTranslation } from 'react-i18next';
 import { looksLikeDatabase } from '../utils/services';
 
 const wrap = { overflowWrap: 'anywhere', minWidth: 0, '& .MuiAlert-message': { minWidth: 0 } };
+// a finger's height on a phone, as the dialog's other links (installAnyImage.jsx)
+const touchLink = { display: { xs: 'inline-flex', sm: 'inline' }, alignItems: 'center', minHeight: { xs: 44, sm: 0 }, overflowWrap: 'anywhere' };
 const httpsOnly = (u) => /^https:\/\/[^\s"'<>]+$/i.test(String(u || ''));
 
 export const ImageNeeds = ({ desc, recipe, declared, reference }) => {
@@ -36,10 +38,10 @@ export const ImageNeeds = ({ desc, recipe, declared, reference }) => {
       {t('mgmt.services.needs.watch', 'After the creation Cosmos watches its first start: if the image says it is missing a setting, Cosmos proposes it then.')}
     </Alert>
     {(docs.length > 0 || desc.page) && <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap', minWidth: 0 }}>
-      {desc.page && <Box component="a" href={desc.page} target="_blank" rel="noopener noreferrer" sx={{ overflowWrap: 'anywhere' }} data-image-needs-page>
+      {desc.page && <Box component="a" href={desc.page} target="_blank" rel="noopener noreferrer" sx={touchLink} data-image-needs-page>
         {t('mgmt.services.needs.page', 'What its publisher says it needs')}
       </Box>}
-      {docs.filter((d) => d !== desc.page).map((d) => <Box key={d} component="a" href={d} target="_blank" rel="noopener noreferrer" sx={{ overflowWrap: 'anywhere' }} data-image-needs-doc>
+      {docs.filter((d) => d !== desc.page).map((d) => <Box key={d} component="a" href={d} target="_blank" rel="noopener noreferrer" sx={touchLink} data-image-needs-doc>
         {d.replace(/^https:\/\//, '')}
       </Box>)}
     </Stack>}
