@@ -199,7 +199,25 @@ const (
 	errTunnel   = refusal("this URL goes through a tunnel: the address it tells the app is the tunnel's, and the visitor's address is what the other node's shield works with, so these settings are never used for it")
 )
 
-var reloadRoutes = func() { go utils.RestartHTTPServer() }
+// reloadRoutes reloads the URLs once for changes made close together (the
+// panel applies a repair to each of an app's URLs in a row): restarts of the
+// HTTP server that overlap can leave its HTTPS listener refusing every
+// connection until Cosmos is started again (upstream's RestartHTTPServer
+// shuts the server down from a goroutine while the next one starts).
+var reloadRoutes = func() {
+	reloadMu.Lock()
+	defer reloadMu.Unlock()
+	if reloadTimer != nil {
+		reloadTimer.Stop()
+	}
+	reloadTimer = time.AfterFunc(reloadAfter, utils.RestartHTTPServer)
+}
+
+var (
+	reloadMu    sync.Mutex
+	reloadTimer *time.Timer
+	reloadAfter = 3 * time.Second
+)
 
 // ApplyRoute answers POST /cosmos/api/url-check/apply: the one setting of
 // the one URL named, nothing else, then the URL is checked again.

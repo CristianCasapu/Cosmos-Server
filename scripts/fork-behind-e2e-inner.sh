@@ -35,7 +35,7 @@ route() { # name host target
   fi
 }
 check() { api POST url-check -d "{\"route\":\"$1\"}" > /tmp/check.json; jq -r '.data.verdict + " " + (.data.reason // "")' /tmp/check.json; }
-apply() { api POST url-check/apply -d "{\"route\":\"$1\",\"$2\":$3}" > /tmp/check.json; sleep 3; login; jq -r '.data.verdict' /tmp/check.json; }
+apply() { api POST url-check/apply -d "{\"route\":\"$1\",\"$2\":$3}" > /tmp/check.json; sleep 6; login; jq -r '.data.verdict' /tmp/check.json; }
 repair() { jq -c "[.data.repairs[] | select(.kind == \"$1\")][0]" /tmp/check.json; }
 # a browser's request through Cosmos: visit HOST PATH [curl args]; status in $code, headers in /tmp/h, body in /tmp/b
 visit() {
@@ -99,7 +99,9 @@ qbt() { # container image
   run "$c" -e PUID=1000 -e PGID=1000 -e WEBUI_PORT=8080 "$image"
   route "$c-local" "$c.server.local" "http://$c:8080"; route "$c-ext" "$c.example.org" "http://$c:8080"
   wait_for "$c" 8080/ 60
-  sleep 3
+  # the story starts where the owner was: a URL kept from an earlier run is told nothing special
+  for r in "$c-local" "$c-ext"; do api POST url-check/apply -d "{\"route\":\"$r\",\"appOwnHost\":false}" >/dev/null; done
+  sleep 6; login
   pw=$(docker logs "$c" 2>&1 | sed -n 's/.*temporary password is provided for this session: //p' | tail -1 | tr -d '\r ')
   visit "$c.server.local" /; ok "$code" 401 "opens today? 401 Unauthorized"
   ok "$(check "$c-local")" "refused hostPort" "the check says why"
@@ -155,11 +157,13 @@ for app in $APPS; do
     say "== Home Assistant"
     run homeassistant ghcr.io/home-assistant/home-assistant:stable
     route homeassistant-local homeassistant.server.local http://homeassistant:8123
+    api POST url-check/apply -d '{"route":"homeassistant-local","noVisitorAddress":false}' >/dev/null; sleep 6; login
     wait_for homeassistant 8123/ 120
     visit homeassistant.server.local /; ok "$code" 400 "opens today? 400"
     ok "$(check homeassistant-local)" "refused untrustedProxy" "the check recognises its log line"
     ok "$(repair route | jq -r '.setting + " " + (.seen|tostring)')" "noVisitorAddress true" "it proposes not to tell the visitor's address, seen working"
-    ok "$(apply homeassistant-local noVisitorAddress true)" works "after one confirmation it opens"
+    api POST url-check/apply -d '{"route":"homeassistant-local","noVisitorAddress":true}' > /tmp/check.json; sleep 6; login
+    ok "$(jq -r '.data.verdict + " " + .data.reason' /tmp/check.json)" "warning noVisitorLocalTrust" "after one confirmation it opens, and the check warns while the visitor's address is hidden"
     visit homeassistant.server.local /; ok "$code $(location)" "302 /onboarding.html" "the onboarding page"
     ;;
   nextcloud)
