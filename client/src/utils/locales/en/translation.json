@@ -6177,5 +6177,6 @@
 	"mgmt.servapps.creation.proposed.signIn.password": "{{service}}: {{name}}, a generated password that follows the app's rules.",
 	"securityAudit.sentence.credentials.revealed": "{{actor}} saw a password of the app {{target}}",
 	"securityAudit.sentence.credentials.revealed.show": "{{actor}} showed a password of the app {{target}} on its page",
-	"securityAudit.sentence.credentials.revealed.copy": "{{actor}} copied a password of the app {{target}} from its page"
+	"securityAudit.sentence.credentials.revealed.copy": "{{actor}} copied a password of the app {{target}} from its page",
+	"mgmt.servapps.manager.alsoDelete": "Also delete its web manager ({{list}})"
 }

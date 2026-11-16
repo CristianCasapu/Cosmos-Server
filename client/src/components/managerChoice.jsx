@@ -17,6 +17,7 @@ import * as API from '../api';
 import NewDockerService from '../pages/servapps/containers/newService';
 import { localAddress } from './hostnameSuggestions';
 import { browserRandom, managerDefinition, managersFor, parseReference, proposedSettings } from '../utils/anyImage';
+import { MANAGER_LABEL } from '../utils/signIn';
 
 const wrap = { overflowWrap: 'anywhere', minWidth: 0, '& .MuiAlert-message': { minWidth: 0 } };
 const touchChip = { '&&&': { height: { xs: 'auto', sm: 32 }, minHeight: { xs: 44, sm: 0 } }, '& .MuiChip-label': { whiteSpace: 'normal' } };
@@ -93,6 +94,34 @@ export const ManagerChoice = ({ state, busy, dbLabel }) => {
       <ManagerSettings settings={state.settings} onChange={state.setSettings} busy={busy} />
     </>}
   </Stack>;
+};
+
+// The web managers of the containers about to be deleted (containers of the
+// ServApps list whose label names one of them), not already among them.
+export const useManagersOf = (open, containers) => {
+  const [managers, setManagers] = React.useState([]);
+  const names = (containers || []).map((c) => String(c.Name || (c.Names && c.Names[0]) || '').replace(/^\//, '')).filter(Boolean);
+  const key = names.join(' ');
+  React.useEffect(() => {
+    if (!open || !names.length) { setManagers([]); return; }
+    let live = true;
+    API.docker.list().then((res) => {
+      if (!live) return;
+      const found = ((res && res.data) || []).filter((c) => c && c.Labels && names.includes(c.Labels[MANAGER_LABEL])
+        && !names.includes(String((c.Names && c.Names[0]) || '').replace(/^\//, '')));
+      setManagers(found.map((c) => ({ ...c, Name: c.Names[0] })));
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [open, key]);
+  return managers;
+};
+
+export const ManagersOffer = ({ managers, on, onChange, busy }) => {
+  const { t } = useTranslation();
+  if (!(managers || []).length) return null;
+  const list = managers.map((m) => String(m.Name).replace(/^\//, '')).join(', ');
+  return <FormControlLabel control={<Switch checked={on} disabled={busy} onChange={(e) => onChange(e.target.checked)} data-delete-managers />}
+    label={t('mgmt.servapps.manager.alsoDelete', 'Also delete its web manager ({{list}})', { list })} />;
 };
 
 const envOf = (container) => Object.fromEntries(((container && container.Config && container.Config.Env) || []).map((line) => [String(line).split('=')[0], String(line).slice(String(line).indexOf('=') + 1)]));
