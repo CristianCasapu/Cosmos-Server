@@ -22,8 +22,8 @@ import (
 
 const (
 	bodyMax          = 4 << 10
-	checksPerMin     = 12 // per user
-	serverChecksMin  = 40 // for the whole server
+	checksPerMin     = 30 // per user
+	serverChecksMin  = 60 // for the whole server
 	listMax          = 64
 	staleChecksAtMax = 6
 )
@@ -240,12 +240,17 @@ func ApplyRoute(w http.ResponseWriter, req *http.Request) {
 		on = "on"
 	}
 	utils.AuditSecurity(req, utils.SecRouteUpdated, body.Route, setting, on)
-	reloadRoutes()
-	if !allowed(userOf(req), 1, time.Now()) {
-		answer(w, Result{Route: body.Route, Verdict: "notChecked", Reason: "tooMany", Attempts: []Attempt{}, Repairs: []Repair{}})
-		return
+	// the check reads the saved setting (it composes the request itself); the
+	// routes are reloaded after the answer, since reloading ends the connections
+	result := Result{Route: body.Route, Verdict: "notChecked", Reason: "tooMany", Attempts: []Attempt{}, Repairs: []Repair{}}
+	if allowed(userOf(req), 1, time.Now()) {
+		result = checkNow(req, body.Route)
 	}
-	answer(w, checkNow(req, body.Route))
+	answer(w, result)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+	reloadRoutes()
 }
 
 // KnownAppsRoute answers GET /cosmos/api/known-apps.

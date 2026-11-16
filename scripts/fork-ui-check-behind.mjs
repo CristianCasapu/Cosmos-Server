@@ -41,9 +41,17 @@ const expect = (ok, what) => { console.log(ok ? '  ok  ' : '  FAIL', what); if (
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // an API call from a panel page (the same-origin check refuses other callers' browser headers)
+// (sent again when it met the moment the server reloads its URLs after a change)
 const call = (page, path, body) => page.evaluate(async ([p, b]) => {
-  const r = await fetch('/cosmos/api/' + p, { method: b ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json' }, body: b ? JSON.stringify(b) : undefined });
-  return { status: r.status, json: await r.json().catch(() => null) };
+  for (let i = 0; ; i++) {
+    try {
+      const r = await fetch('/cosmos/api/' + p, { method: b ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json' }, body: b ? JSON.stringify(b) : undefined });
+      return { status: r.status, json: await r.json().catch(() => null) };
+    } catch (e) {
+      if (i >= 4) throw e;
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
 }, [path, body]);
 
 const noSideScroll = async (page, what) => {
@@ -67,6 +75,8 @@ for (const engine of engines) {
     await page.fill('input[name=password]', password);
     await page.click('button[type=submit]');
     await page.waitForURL(/cosmos-ui\/(?!login)/, { timeout: 30000 });
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await sleep(1500);
     await call(page, 'sudo', { password });
 
     // the story starts where the owner was: neither URL tells qBittorrent its own address

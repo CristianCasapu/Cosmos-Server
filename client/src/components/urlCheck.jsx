@@ -373,19 +373,22 @@ export const UrlProblemMark = ({ routeNames, refresh }) => {
   const { t } = useTranslation();
   const results = useUrlChecks(routeNames);
   const [open, setOpen] = React.useState(false);
+  // the URLs the dialog was opened for: it stays while open, though a repair that worked takes the mark away under it
+  const [shown, setShown] = React.useState([]);
   const bad = (routeNames || []).map((n) => results[n]).filter((r) => attentionOf(r));
-  if (!bad.length) return null;
+  const dialog = open && <UrlCheckDialog routeNames={shown} initial={results} recheck={false} onClose={() => setOpen(false)} refresh={refresh} />;
+  if (!bad.length) return dialog || null;
   const error = bad.some((r) => attentionOf(r) === 'error');
   const names = [...bad.map((r) => r.route), ...(routeNames || []).filter((n) => !bad.some((r) => r.route === n))];
   return <>
     <Tooltip title={t('mgmt.urlCheck.markTip', 'Cosmos asked the app as a visitor arrives: see why and how to repair it')}>
       <Button size="small" variant="outlined" color={error ? 'error' : 'warning'} startIcon={<ExclamationCircleOutlined />}
-        onClick={(e) => { e.stopPropagation(); setOpen(true); }} data-url-problem={bad.map((r) => r.route).join(',')}
+        onClick={(e) => { e.stopPropagation(); setShown(names); setOpen(true); }} data-url-problem={bad.map((r) => r.route).join(',')}
         sx={{ py: 0, minHeight: 0, lineHeight: 1.6, whiteSpace: 'nowrap' }}>
         {error ? t('mgmt.urlCheck.mark', 'Does not open') : t('mgmt.urlCheck.markWarning', 'Needs a setting')}
       </Button>
     </Tooltip>
-    {open && <UrlCheckDialog routeNames={names} initial={results} onClose={() => setOpen(false)} refresh={refresh} />}
+    {dialog}
   </>;
 };
 
