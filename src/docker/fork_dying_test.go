@@ -99,6 +99,9 @@ func TestDyingEventsReachTheNotice(t *testing.T) {
 	previous := notifyDying
 	notifyDying = func(name string, exits int, code string) { got = append(got, seen{name, exits, code}) }
 	defer func() { notifyDying = previous }()
+	previousDispatch := dispatchNotice
+	dispatchNotice = func(notice func()) { notice() }
+	defer func() { dispatchNotice = previousDispatch }()
 
 	for i := 0; i < 3; i++ {
 		noteContainerEvent("container", "start", map[string]string{"name": "db"})

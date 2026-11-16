@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/azukaar/cosmos-server/src/utils"
@@ -48,7 +49,9 @@ var (
 	startReportOf     = StartReportOf
 	notifyStartFailed = func(r StartReport) {
 		markDyingTold(r.Name, time.Now())
-		writeStartFailedNotice(r)
+		if startFailedNew(r.Name, r.Reason, time.Now()) {
+			writeStartFailedNotice(r)
+		}
 	}
 )
 
@@ -156,7 +159,9 @@ func WatchCreation(ctx context.Context, request DockerServiceCreateRequest, OnLo
 			}
 			continue
 		}
-		report, _ := startReportOf(context.Background(), n, secrets)
+		readCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		report, _ := startReportOf(readCtx, n, secrets)
+		cancel()
 		if report.Name == "" {
 			report.Name = n
 		}
@@ -201,4 +206,25 @@ func reasonWords(r StartReport) string {
 		return "it was not found"
 	}
 	return fmt.Sprintf("it stopped with exit code %d", r.ExitCode)
+}
+
+// One notification per container and kind of failure: the rounds of a
+// repair that fail for the same reason are not told again for an hour.
+var (
+	startFailedMu   sync.Mutex
+	startFailedSeen = map[string]time.Time{}
+)
+
+func startFailedNew(name, reason string, now time.Time) bool {
+	startFailedMu.Lock()
+	defer startFailedMu.Unlock()
+	key := name + "\x00" + reason
+	if at, ok := startFailedSeen[key]; ok && now.Sub(at) < time.Hour {
+		return false
+	}
+	if len(startFailedSeen) >= 256 {
+		startFailedSeen = map[string]time.Time{}
+	}
+	startFailedSeen[key] = now
+	return true
 }

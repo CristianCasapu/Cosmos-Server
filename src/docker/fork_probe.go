@@ -31,14 +31,16 @@ import (
 	"time"
 
 	"github.com/azukaar/cosmos-server/src/utils"
+	"github.com/docker/docker/api/types"
 	"github.com/gorilla/mux"
 )
 
 const (
-	probeWait     = 3 * time.Second
-	probeRead     = 512
-	probePerMin   = 20
-	probeBodySize = 1 << 10
+	probeWait         = 3 * time.Second
+	probeRead         = 512
+	probePerMin       = 20
+	probeServerPerMin = 60 // for the whole server, every user together
+	probeBodySize     = 1 << 10
 )
 
 // ProbeResult is the answer of POST /api/servapps/{containerId}/probe.
@@ -67,12 +69,22 @@ var probeAddress = func(ctx context.Context, name string) (string, string) {
 	if err != nil {
 		return "", "missing"
 	}
+	return probeAddressOf(c)
+}
+
+// probeAddressOf is where a container's port may be asked, from its inspect.
+func probeAddressOf(c types.ContainerJSON) (string, string) {
 	if c.HostConfig != nil && string(c.HostConfig.NetworkMode) == "host" {
 		return "", "hostNetwork"
 	}
 	ip, state := targetOf(c, 0)
 	if state != TargetRunning {
 		return "", "notRunning"
+	}
+	// review C1: never the server itself, whatever the mode (a container in
+	// "container:" mode of one on the host's network answers 127.0.0.1)
+	if parsed := net.ParseIP(ip); parsed == nil || parsed.IsLoopback() || parsed.IsUnspecified() {
+		return "", "hostNetwork"
 	}
 	return ip, ""
 }
@@ -215,7 +227,11 @@ func probeAllowed(user string, now time.Time) bool {
 			recent = append(recent, at)
 		}
 	}
-	if len(recent) >= probePerMin {
+	limit := probePerMin
+	if user == "\x00server" {
+		limit = probeServerPerMin
+	}
+	if len(recent) >= limit {
 		probeUsers[user] = recent
 		return false
 	}
@@ -244,7 +260,7 @@ func ProbeRoute(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "Invalid port", http.StatusBadRequest, "DS021")
 		return
 	}
-	if !probeAllowed(probeUser(req), time.Now()) {
+	if !probeAllowed(probeUser(req), time.Now()) || !probeAllowed("\x00server", time.Now()) {
 		utils.HTTPError(w, "Too many port checks: wait a minute", http.StatusTooManyRequests, "DS022")
 		return
 	}

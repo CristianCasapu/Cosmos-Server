@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -117,7 +119,8 @@ func TestStartLogIsCleanedAndMasked(t *testing.T) {
 		frames = append(frames, "line\n")
 	}
 	frames = append(frames, "key=other-secret-9\n")
-	r := reportFrom(exited(1, true, "APP_PASSWORD="+secret, "TZ=UTC"), multiplexed(frames...), false, []string{"API_TOKEN=other-secret-9"})
+	text, _ := demuxTail(bytes.NewReader(multiplexed(frames...)), false)
+	r := reportFrom(exited(1, true, "APP_PASSWORD="+secret, "TZ=UTC"), text, false, []string{"API_TOKEN=other-secret-9"})
 	all := strings.Join(r.Log, "\n")
 	if strings.Contains(all, secret) || strings.Contains(all, "other-secret-9") {
 		t.Fatalf("a secret is shown: %q", all)
@@ -125,8 +128,9 @@ func TestStartLogIsCleanedAndMasked(t *testing.T) {
 	if len(r.Log) != startLogLines || !r.LogCut {
 		t.Fatalf("%d lines, cut %v", len(r.Log), r.LogCut)
 	}
-	short := reportFrom(exited(1, true, "APP_PASSWORD="+secret), multiplexed(frames[:2]...), false, nil)
-	if short.Log[0] != "ERROR ==> bad password ***" || len(short.Log[1]) > startLineMax+4 {
+	shortText, _ := demuxTail(bytes.NewReader(multiplexed(frames[:2]...)), false)
+	short := reportFrom(exited(1, true, "APP_PASSWORD="+secret), shortText, false, nil)
+	if short.Log[0] != "ERROR ==> bad password <hidden>" || len(short.Log[1]) > startLineMax+4 {
 		t.Fatalf("%q", short.Log)
 	}
 }
@@ -336,5 +340,135 @@ func TestProbeOnlyAsksTheContainersOwnAddress(t *testing.T) {
 	}
 	if probeAllowed("user:test", time.Now()) {
 		t.Fatal("unbounded")
+	}
+}
+
+// Review B3: masked before the cut (a secret at the 400-byte mark), inside
+// multi-line values and values with a tab, the password of an address; a
+// short value is not masked (masking every "postgres" would tell the
+// password: values under maskMinLength); bidirectional overrides removed.
+func TestMaskingBeforeTheCut(t *testing.T) {
+	secret := "LongSecretValue-1234567890"
+	padding := strings.Repeat("x", startLineMax-10)
+	multi := "line-one-of-the-key\nline-two-of-the-key"
+	tabbed := "tab\tseparated-secret"
+	log := padding + secret + "\n" +
+		"key: line-two-of-the-key\n" +
+		"got tab\tseparated-secret\n" +
+		"connecting to postgres://app:pw@db:5432/app\n" +
+		"user example connected\n" +
+		"evil \u202emirrored\n"
+	r := reportFrom(exited(1, true, "APP_PASSWORD="+secret, "TLS_PRIVATE_KEY="+multi, "SOME_TOKEN="+tabbed, "DATABASE_URL=postgres://app:pw@db:5432/app", "POSTGRES_PASSWORD=example"), []byte(log), false, nil)
+	all := strings.Join(r.Log, "\n")
+	for _, leak := range []string{"LongSecret", "line-two-of-the-key", "separated-secret", ":pw@", "\u202e"} {
+		if strings.Contains(all, leak) {
+			t.Errorf("%q is shown: %q", leak, all)
+		}
+	}
+	if !strings.Contains(all, "user example connected") {
+		t.Errorf("a short value masked everywhere: %q", all)
+	}
+}
+
+// Review B4: names that change how programs load or connect are never proposed.
+func TestDeniedNamesAreNeverProposed(t *testing.T) {
+	lines := []string{"LD_PRELOAD is required", "PATH must be set", "DOCKER_HOST is not set", "COSMOS_TOKEN is required", "HTTP_PROXY is required", "NODE_OPTIONS must be set", "APP_SECRET is required"}
+	needs := recogniseNeeds(lines, nil)
+	if len(needs) != 1 || needs[0].Name != "APP_SECRET" {
+		t.Fatalf("%+v", needs)
+	}
+}
+
+// Review B5: the END of a long log is kept, frames stay aligned, and the read is bounded.
+func TestTheEndOfALongLogIsKept(t *testing.T) {
+	frames := []string{}
+	for i := 0; i < 3000; i++ {
+		frames = append(frames, fmt.Sprintf("noise line %d %s\n", i, strings.Repeat("y", 60)))
+	}
+	frames = append(frames, "The LAST_VAR environment variable is empty or not set.\n")
+	text, cut := demuxTail(bytes.NewReader(multiplexed(frames...)), false)
+	if !cut || len(text) > startLogBytes || !strings.HasSuffix(string(text), "The LAST_VAR environment variable is empty or not set.\n") || strings.Contains(string(text), "\x00") {
+		t.Fatalf("cut %v, %d bytes, ends %q", cut, len(text), string(text[len(text)-60:]))
+	}
+	r := reportFrom(exited(1, true), text, cut, nil)
+	if len(r.Needs) != 1 || r.Needs[0].Name != "LAST_VAR" {
+		t.Fatalf("%+v", r.Needs)
+	}
+	// an endless stream: at most startReadMax is read
+	start := time.Now()
+	demuxTail(io.LimitReader(zeroFrames{}, 64<<20), false)
+	if time.Since(start) > 2*time.Second {
+		t.Fatalf("%v", time.Since(start))
+	}
+}
+
+type zeroFrames struct{}
+
+func (zeroFrames) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 'a'
+	}
+	return len(p), nil
+}
+
+// Review B5: one notification per container and kind of failure; the start
+// check's silence on "keeps stopping" is short, and a later failure is told.
+func TestStartFailureNotificationsAreNotRepeated(t *testing.T) {
+	now := time.Now()
+	if !startFailedNew("pgx", "missingSetting", now) || startFailedNew("pgx", "missingSetting", now.Add(time.Minute)) {
+		t.Fatal("the same failure twice")
+	}
+	if !startFailedNew("pgx", "permission", now.Add(2*time.Minute)) || !startFailedNew("pgx", "missingSetting", now.Add(2*time.Hour)) {
+		t.Fatal("another failure, or the same much later, is told")
+	}
+	dyingMu.Lock()
+	delete(dyingContainers, "pgy")
+	dyingMu.Unlock()
+	markDyingTold("pgy", now)
+	told := false
+	for i := 0; i < dyingExits; i++ {
+		if ok, _ := containerDied("pgy", "die", "1", now.Add(time.Duration(i)*time.Minute)); ok {
+			told = true
+		}
+	}
+	if told {
+		t.Fatal("told again minutes after the start check")
+	}
+	for i := 0; i < dyingExits; i++ {
+		if ok, _ := containerDied("pgy", "die", "1", now.Add(40*time.Minute+time.Duration(i)*time.Minute)); ok {
+			told = true
+		}
+	}
+	if !told {
+		t.Fatal("a failure 40 minutes later is not told")
+	}
+}
+
+// Review C1: the port check never asks the server itself: not a container on
+// the host's network, nor one that shares the network of such a container.
+func TestProbeNeverAsksTheServerItself(t *testing.T) {
+	prev := inspectForTarget
+	defer func() { inspectForTarget = prev }()
+	inspectForTarget = func(name string) (types.ContainerJSON, error) {
+		return inspected(types.ContainerState{Running: true}, "host", nil), nil
+	}
+	sidecar := inspected(types.ContainerState{Running: true}, "container:hostapp", nil)
+	if ip, why := probeAddressOf(sidecar); ip != "" || why != "hostNetwork" {
+		t.Fatalf("container: mode of a host-network container: %q %q", ip, why)
+	}
+	if ip, why := probeAddressOf(inspected(types.ContainerState{Running: true}, "host", nil)); ip != "" || why != "hostNetwork" {
+		t.Fatalf("host mode: %q %q", ip, why)
+	}
+	if ip, _ := probeAddressOf(inspected(types.ContainerState{Running: true}, "bridge", map[string]string{"bridge": "172.17.0.4"})); ip != "172.17.0.4" {
+		t.Fatalf("bridge: %q", ip)
+	}
+	// the whole server's bound
+	for i := 0; i < probeServerPerMin; i++ {
+		if !probeAllowed("\x00server", time.Now()) {
+			t.Fatalf("refused at %d", i)
+		}
+	}
+	if probeAllowed("\x00server", time.Now()) {
+		t.Fatal("unbounded for the server")
 	}
 }
