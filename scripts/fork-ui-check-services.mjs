@@ -5,7 +5,9 @@
 //
 // Setup, on one --internal Docker network with a documentation range
 // (198.51.100.0/24, which the image reader's guard treats as the internet):
-// - docker:29-dind at .5 (DIND), started with --privileged -e DOCKER_TLS_CERTDIR=,
+// - docker:29-dind at .5 (DIND, SERVER_IP), started with --privileged -e DOCKER_TLS_CERTDIR=,
+//   also on a second --internal network with a private subnet (LAN_IP, e.g. 192.168.77.5: the
+//   server's home-network address, where "Reach it from my home network" publishes),
 //   whose system bundle trusts a test authority and whose /etc/hosts maps
 //   registry-1.docker.io and index.docker.io to .7 and hub.docker.com to .6;
 //   the test Cosmos runs INSIDE it (as on a server where Cosmos runs outside
@@ -19,7 +21,9 @@
 //   src/anyimage/testdata/readmes (the repository's description);
 // - in the Docker in Docker: "web1" (nginx:1-alpine, running) and
 //   "postgresql-old" (bitnami/postgresql:latest created as the owner had it:
-//   no variable, restart unless-stopped: it restarts forever).
+//   no variable, restart unless-stopped: it restarts forever), "envkeeper" (busybox:1.36 sleeping,
+//   SECRET_ONE=real-secret-value-1, PLAIN=two) and "cache" (busybox tagged example/redis:1,
+//   sleeping: a Redis without a password, by its name).
 // The browser container: --network <net> --add-host cosmos-test.example.org:198.51.100.5,
 // the scratch run folder mounted read-only at /cosmos (for LOG).
 //
@@ -37,7 +41,9 @@ import { chromium, firefox, webkit, request } from 'playwright';
 import { readFileSync } from 'node:fs';
 
 const base = process.env.BASE || 'http://cosmos-test.example.org:2052';
-const dind = process.env.DIND || 'http://198.51.100.5:2375';
+const server = process.env.SERVER_IP || '198.51.100.5';
+const dind = process.env.DIND || `http://${server}:2375`;
+const lanIp = process.env.LAN_IP || '192.168.77.5';
 const logFile = process.env.LOG || '/cosmos/cosmos.log';
 const password = process.env.PASSWORD || 'Test-Passw0rd!x';
 const phase = process.env.PHASE || 'look';
@@ -219,13 +225,17 @@ if (phase === 'story' || phase === 'bad') {
       expect(/reached/.test(ping), `${name}: web1 reaches postgresql:5432 by name`);
       await dialog.locator('[data-service-lan-door]').click();
       expect(await dialog.locator('[data-service-publish]').isDisabled(), `${name}: publishing waits for the tick`);
-      expect(/not safe for a database/.test(await dialog.locator('[data-service-lan]').innerText()), `${name}: the risk is said`);
+      await dialog.locator('[data-service-lan-tick]').waitFor({ timeout: 20000 });
+      const lanText = await dialog.locator('[data-service-lan]').innerText();
+      expect(lanText.includes(lanIp + ':5432') && /asks for the password/.test(lanText), `${name}: the risk is said, with the exact address (${lanText.slice(0, 160)})`);
       await shot(page, name, '07-lan-risk');
       await dialog.locator('[data-service-lan-tick]').click();
       await dialog.locator('[data-service-publish]').click();
       await dialog.locator('[data-service-published]').waitFor({ timeout: 90000 }).catch(() => {});
       const published = await until('5432 published', async () => { const c = await inspect('postgresql'); return c && ((c.HostConfig.PortBindings || {})['5432/tcp'] || []).some((b) => b.HostPort === '5432'); }, 60);
-      expect(published, `${name}: port 5432 published on the server after the tick`);
+      const bindings = ((await inspect('postgresql')).HostConfig.PortBindings || {})['5432/tcp'] || [];
+      expect(published && bindings.every((b) => b.HostIp === lanIp), `${name}: port 5432 published on the home-network address only (${JSON.stringify(bindings)})`);
+      expect((await inspect('postgresql')).HostConfig.NetworkMode === 'bridge' || !Object.keys((await inspect('postgresql')).Config.Labels || {}).includes('cosmos-force-network-mode'), `${name}: publishing does not write a network mode`);
       await dialog.locator('[data-service-insist]').click();
       await dialog.locator('[data-new-url-confirm]').waitFor({ timeout: 10000 });
       await page.locator('[data-port-check]').waitFor({ timeout: 15000 }).catch(() => {});
@@ -263,7 +273,7 @@ if (phase === 'story' || phase === 'bad') {
       await sleep(6000);
       const ask = async (host) => {
         const before = logLines().length;
-        const res = await api.get('http://198.51.100.5:2052/', { headers: { Host: host, Accept: 'text/html' }, timeout: 15000 }).catch((e) => null);
+        const res = await api.get(`http://${server}:2052/`, { headers: { Host: host, Accept: 'text/html' }, timeout: 15000 }).catch((e) => null);
         await sleep(1500);
         const added = logLines().slice(before);
         return { status: res && res.status(), body: res ? await res.text() : '', loops: added.filter((l) => /REQ/.test(l) && /from 127\.0\.0\.1/.test(l)).length, notes: added.filter((l) => l.includes('[proxy] URL')).length, noIP: added.filter((l) => /no IP address found/.test(l)).length };
@@ -271,12 +281,40 @@ if (phase === 'story' || phase === 'bad') {
       await until('crashing restarts', async () => { const c = await inspect('crashing'); return c && c.RestartCount > 0; }, 30);
       let a = await ask('crashing.example.org');
       for (let i = 0; i < 5 && a.status === 502; i++) a = await ask('crashing.example.org'); // it may be up for a second
-      expect(a.status === 503 && /restarting|not running/.test(a.body) && a.loops === 0 && a.noIP === 0, `the proxy: one answer for an app that is restarting (${a.status}, ${a.loops} requests from loopback, ${a.noIP} address errors)`);
+      expect(a.status === 503 && /not available/.test(a.body) && !/crashing|restart/i.test(a.body) && a.loops === 0 && a.noIP === 0, `the proxy: one answer for an app that is restarting, nothing said to a stranger (${a.status}, ${a.loops} requests from loopback, ${a.noIP} address errors, ${a.body.slice(0, 80)})`);
       const b = await ask('crashing.example.org');
       expect(b.notes === 0, `the proxy: the second request logs nothing more (${b.notes} lines)`);
       const l = await ask('self-loop.example.org');
       expect(l.status === 508 && l.loops <= 1, `the proxy: a URL that points back at Cosmos is cut at once (${l.status}, ${l.loops} request(s) back)`);
-      await page.goto('http://198.51.100.5:2052/').catch(() => {});
+      
+    }
+
+    if (phase === 'story') {
+      // --- review B1: an account that may not read credentials applies a repair: the other values stay
+      const made = await (await session.post('/cosmos/api/api-tokens', { data: { name: 'repair-check-' + Date.now(), permissions: [20, 21], expiryDays: 1 } })).json();
+      const token = made.data && (made.data.token || made.data.Token);
+      expect(!!token, 'an API token with resources but without credentials-read');
+      if (token) {
+        const asToken = await request.newContext({ baseURL: base, extraHTTPHeaders: { Authorization: 'Bearer ' + token } });
+        const seen = (await (await asToken.get('/cosmos/api/servapps/envkeeper/')).json()).data;
+        const env = (seen && seen.Config && seen.Config.Env) || [];
+        expect(env.includes('SECRET_ONE=***'), `the token reads masked values (${env.filter((e) => e.startsWith('SECRET')).join()})`);
+        const res = await asToken.post('/cosmos/api/servapps/envkeeper/update', { data: { envVars: [...env, 'NEW_PASSWORD=Generated-1234567890'] } });
+        expect(res.status() === 200, `the repair is accepted (${res.status()})`);
+        const kept = await until('envkeeper recreated', async () => { const c = await inspect('envkeeper'); return c && (c.Config.Env || []).includes('NEW_PASSWORD=Generated-1234567890'); }, 60);
+        const after = (await inspect('envkeeper')).Config.Env;
+        expect(kept && after.includes('SECRET_ONE=real-secret-value-1') && after.includes('PLAIN=two') && !after.some((e) => e.endsWith('=***')), `every other variable keeps its real value (${after.filter((e) => /SECRET|PLAIN/.test(e)).join()})`);
+        const refused = await asToken.post('/cosmos/api/servapps/envkeeper/update', { data: { envVars: ['UNKNOWN_SECRET=***'] } });
+        expect(refused.status() === 400, `a mask for a variable it does not have is refused (${refused.status()})`);
+        await asToken.dispose();
+      }
+      // --- review F1: a Redis without a password is never published for the home network
+      const cacheDialog = await newUrl(page, 'cache');
+      await cacheDialog.locator('[data-service-lan-door]').click();
+      await cacheDialog.locator('[data-service-lan-refused]').waitFor({ timeout: 20000 }).catch(() => {});
+      expect(await cacheDialog.locator('[data-service-lan-refused="noPassword"]').count() === 1 && await cacheDialog.locator('[data-service-publish]').count() === 0, `${name}: a Redis without a password is not offered for the home network`);
+      await shot(page, name, '11-lan-refused');
+      await page.locator('[data-new-url-dialog] button', { hasText: 'Cancel' }).click().catch(() => {});
     }
 
     if (phase === 'bad') {
