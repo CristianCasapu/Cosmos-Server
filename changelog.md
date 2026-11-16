@@ -8,7 +8,9 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Merged into `custom` since `0.24.0-fork.31`, to be part of the next release:
+Nothing merged into `custom` since `0.24.0-fork.32` yet.
+
+## Fork 0.24.0-fork.32 — 2026-11-16
 
 ### Added
 - An app that does not start is said so, with the reason: after a creation Cosmos watches the new container for half a minute; if it stops or keeps restarting, the result says why, with the end of its log (secrets hidden), and when the log names a missing setting (for example a database password) the panel offers a field for it, with a generated value, and starts the app again. ServApps shows "Why?" on an app that keeps stopping.
