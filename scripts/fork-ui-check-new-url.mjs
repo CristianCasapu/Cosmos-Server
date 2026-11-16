@@ -98,7 +98,11 @@ const open = async (type, name, viewport) => {
   const browser = await type.launch();
   const ctx = await browser.newContext({ viewport, ignoreHTTPSErrors: true });
   const page = await ctx.newPage();
-  page.on('pageerror', (e) => failures.push(`${name} PAGEERROR: ${e.message.slice(0, 300)} ${String(e.stack || '').split('\n').slice(1, 3).join(' ').slice(0, 300)}`));
+  page.on('pageerror', (e) => {
+    // the server reloads after a new URL: a poll of the page in flight then fails (as the any-image and sensitive-edit checks count it)
+    if (/Failed to fetch|Load failed|NetworkError/.test(e.message)) return;
+    failures.push(`${name} PAGEERROR: ${e.message.slice(0, 300)} ${String(e.stack || '').split('\n').slice(1, 3).join(' ').slice(0, 300)}`);
+  });
   const a = await ctx.request.post(base + '/cosmos/api/login', { data: { nickname: 'admin', password } });
   const b = await ctx.request.post(base + '/cosmos/api/sudo', { data: { password } });
   note(`\n== ${name}: login ${a.status()}/${b.status()}`);
