@@ -126,6 +126,9 @@ const CA_PATH = { pwsh: '/work/cosmos-ca.pem', docker: '/work/cosmos-ca.pem', ph
 
 // checks run after a chain, in the same container (the test's own, not the guide's): each must exit 0
 const POST = {
+  rustfs: [
+    ['the administrator\'s key is not left in rc\'s settings', 'rc alias list | grep -q adm && exit 1; ! grep -q "secret" "$HOME/.config/rc/config.toml"'],
+  ],
   linux: [
     ['secret files are mode 600', 'test "$(stat -c %a /root/.s3-backup.env)" = 600 && test "$(stat -c %a /root/.restic-password)" = 600'],
     ['the timer\'s units are valid', 'systemd-analyze verify /etc/systemd/system/s3-backup.service /etc/systemd/system/s3-backup.timer 2>&1 | grep -v -E "^$|Failed to (connect|open)|Cannot (add|access)|Unit is bound to inactive" | grep . && exit 1 || true'],
@@ -200,7 +203,7 @@ const runChain = (chain, blocks, place, facts) => {
     if (runner === 'linux' && chain !== 'linux') return;
     const file = 'post' + i + '.sh';
     writeFileSync(dir + '/' + file, script.replace('DB_STEP', dbStep) + '\n');
-    driver.push('echo "=== check ' + i + '"', '(cd /work && bash -e /steps/' + file + ') && echo "=== check ok ' + i + '" || echo "=== check failed ' + i + '"');
+    driver.push('echo "=== check ' + i + '"', '("$(command -v bash || echo sh)" -e /steps/' + file + ') && echo "=== check ok ' + i + '" || echo "=== check failed ' + i + '"');
   });
   writeFileSync(dir + '/driver.sh', driver.join('\n') + '\n');
   let res;
@@ -329,8 +332,9 @@ for (const key of PLACES) {
 }
 
 // the limits, proven: one request of 150 MB through the stand-in is refused, through the home address it passes
+// (a RustFS just started may answer 503 for a moment: up to three tries, the last answer counts)
 const proof = (net, endpoint, extra) => docker('run', '--rm', ...net, ...extra, 'gx-curl', 'sh', '-c',
-  'head -c 157286400 /dev/zero > /tmp/big && curl -sS -o /dev/null -w "%{http_code}" --aws-sigv4 "aws:amz:us-east-1:s3" --user "gx-admin:Gx-test-admin-secret-0420" --upload-file /tmp/big ' + endpoint + '/backups-home1/proof/big.bin');
+  'head -c 157286400 /dev/zero > /tmp/big && for i in 1 2 3; do c=$(curl -sS -o /dev/null -w "%{http_code}" --aws-sigv4 "aws:amz:us-east-1:s3" --user "gx-admin:Gx-test-admin-secret-0420" --upload-file /tmp/big ' + endpoint + '/backups-home1/proof/big.bin); [ "$c" = 503 ] || break; sleep 5; done; printf %s "$c"');
 if (PLACES.includes('internet')) {
   const r = proof(PLACE_NET.internet, 'https://s3.example.org:2053', []);
   const ok = r.stdout.trim() === '413';
@@ -358,8 +362,10 @@ if (homePlace) {
     "cat > /etc/ssl/cosmos-ca.pem <<'COSMOS_CA_END'\n" + facts.values.ca_pem + '\nCOSMOS_CA_END',
     'set -a; . /root/.s3-backup.env; set +a', script].join('\n'));
   const many = 'rclone copy --retries 1 --low-level-retries 1 /usr/share/doc store:' + facts.values.bucket + '/limits-$RANDOM 2>&1 | tail -3';
-  const shielded = run('s3s.local', many + '; exit ${PIPESTATUS[0]}');
-  const refused = shielded.status !== 0 && /429|Too many requests/i.test(shielded.stdout + shielded.stderr);
+  // the example fails, and the answers it gets are Cosmos' 429 (a client already over its budget is
+  // refused from its first request; rclone then reports what it made of that answer)
+  const shielded = run('s3s.local', many + '; status=${PIPESTATUS[0]}; for i in $(seq 1 30); do curl -s -o /dev/null -w "%{http_code}\\n" --cacert /etc/ssl/cosmos-ca.pem --aws-sigv4 "aws:amz:us-east-1:s3" --user "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY" "$AWS_ENDPOINT_URL/' + facts.values.bucket + '?list-type=2"; done | sort | uniq -c; exit $status');
+  const refused = shielded.status !== 0 && /\d+ 429/.test(shielded.stdout || '');
   results.push({ place: 'home', id: 'shield-on-refuses-a-backup', ok: refused, note: (shielded.stdout || '').trim().slice(-160) });
   log((refused ? 'ok   ' : 'FAIL ') + 'home: the rclone example through a URL with Cosmos\' shield on is refused with 429');
   const free = run('s3.local', many + '; exit ${PIPESTATUS[0]}');
@@ -367,7 +373,7 @@ if (homePlace) {
   log((free.status === 0 ? 'ok   ' : 'FAIL ') + 'home: the same through the URL without Cosmos\' limits passes');
   const slow = 'head -c 40000000 /dev/urandom > /tmp/slow.bin && curl -sS -o /dev/null -w "%{http_code} %{time_total}" --cacert /etc/ssl/cosmos-ca.pem --limit-rate 1M --aws-sigv4 "aws:amz:us-east-1:s3" --user "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY" --upload-file /tmp/slow.bin "$AWS_ENDPOINT_URL/' + facts.values.bucket + '/limits/slow.bin" || true';
   const cut = run('s3t.local', slow);
-  const cutOk = !/^200 /.test((cut.stdout || '').trim());
+  const cutOk = /^\d{3} /.test((cut.stdout || '').trim()) && !/^200 /.test((cut.stdout || '').trim()) && Number((cut.stdout || '').trim().split(' ')[1]) < 35;
   results.push({ place: 'home', id: 'a-timeout-cuts-a-long-request', ok: cutOk, note: (cut.stdout || '').trim() });
   log((cutOk ? 'ok   ' : 'FAIL ') + 'home: a 40-second upload through a URL with a 20 s timeout is cut (' + (cut.stdout || '').trim() + ')');
   const whole = run('s3.local', slow);

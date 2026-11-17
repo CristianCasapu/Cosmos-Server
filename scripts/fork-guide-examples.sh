@@ -101,7 +101,7 @@ EOF
 RUN update-ca-certificates >/dev/null 2>&1 || true'
   cat > "$w/linux.Dockerfile" <<EOF
 FROM debian:13
-RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mariadb-server mariadb-client ca-certificates diffutils systemd >/dev/null
+RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mariadb-server mariadb-client ca-certificates diffutils systemd curl >/dev/null
 COPY --from=restic/restic:latest /usr/bin/restic /usr/local/bin/restic
 COPY --from=rclone/rclone:latest /usr/local/bin/rclone /usr/local/bin/rclone
 $trust_deb
