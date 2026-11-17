@@ -236,11 +236,11 @@ start_dind() {
 machine_image() { # system [variant]
 	local sys=$1 variant=${2:-bare} base tag
 	base=$(image_of "$sys")
-	tag=$PREFIX-$sys-$variant:1
-	if D image inspect "$tag" >/dev/null 2>&1; then echo "$tag"; return; fi
 	local extra=""
 	# docker: Docker from the distribution and the tools already there
-	[ "$variant" != docker ] || extra="docker.io ca-certificates curl unzip openssl"
+	[ "$variant" != docker ] || extra="docker.io docker-cli ca-certificates curl unzip openssl"
+	tag=$PREFIX-$sys-$variant:$(printf '%s' "$base $extra" | md5sum | cut -c1-8)
+	if D image inspect "$tag" >/dev/null 2>&1; then echo "$tag"; return; fi
 	D build -q -t "$tag" - >/dev/null <<EOF
 FROM $base
 ENV DEBIAN_FRONTEND=noninteractive
@@ -273,6 +273,7 @@ start_machine() { # system, case, variant -> machine name
 	local sys=$1 case=$2 variant=${3:-bare} name=$PREFIX-$1-$2 image
 	image=$(machine_image "$sys" "$variant")
 	D rm -f -v "$name" >/dev/null 2>&1 || true
+	rm -rf "$SCRATCH/out/$sys-$case"
 	mkdir -p "$SCRATCH/out/$sys-$case"
 	D run -d --name "$name" --hostname "srv-$case" --privileged --cgroupns=private \
 		--tmpfs /run --tmpfs /run/lock --tmpfs /tmp -v /var/lib/docker -v /var/lib/containerd \
@@ -393,8 +394,8 @@ case_refusals() { # existing installations that are not the fork's own run
 		printf "nonsense=1\n" >/root/bad-answers
 		expect_exit 2 '"$INSTALL_A"' --answers /root/bad-answers </dev/null
 		expect_exit 5 setpriv --reuid=65534 --regid=65534 --clear-groups bash /e2e/releases/v'"$VA"'/install.sh </dev/null
-		cp /etc/os-release /root/os-release; sed -i "s/^VERSION_ID=.*/VERSION_ID=\"99\"/" /etc/os-release
-		expect_exit 3 '"$INSTALL_A"' --yes </dev/null; cp /root/os-release /etc/os-release
+		real=$(readlink -f /etc/os-release); cp -a "$real" /root/os-release; sed -i "s/^VERSION_ID=.*/VERSION_ID=\"99\"/" "$real"
+		expect_exit 3 '"$INSTALL_A"' --yes </dev/null; cp -a /root/os-release "$real"
 		rm -f /root/bad-answers /root/os-release
 		snap end2; same before end2'
 }
@@ -457,9 +458,9 @@ case_interrupt() { # kill -9 at three points, each followed by another run
 		M "$m" '(setsid bash -c "echo \$\$ >/e2e/out/pgid; exec '"$INSTALL_A"' --yes </dev/null >/e2e/out/run-'"$point"'.txt 2>&1" &)
 			killed=0
 			for i in $(seq 1 3000); do
-				s=$(sed -n "s/^step=//p" /var/lib/cosmos-installer/state 2>/dev/null | tail -n1)
+				s=$(sed -n "s/^step=//p" /var/lib/cosmos-installer/state 2>/dev/null | tail -n1 || true)
 				if [ "$s" = '"$point"' ]; then
-					if [ '"$point"' = packages ]; then pgrep -x dpkg >/dev/null || { sleep 0.2; continue; }; sleep 2; fi
+					if [ '"$point"' = packages ]; then grep -qsx dpkg /proc/[0-9]*/comm || { sleep 0.2; continue; }; sleep 2; fi
 					kill -9 -- -$(cat /e2e/out/pgid); echo "killed at '"$point"'"; killed=1; break
 				fi
 				sleep 0.2
@@ -510,6 +511,10 @@ run_case() { # system case
 	local sys=$1 c=$2 f rc=0
 	f=$RESULTS/$sys-$c
 	log "$sys: $c ..."
+	# every case starts with the GitHub stand-in in its plain state
+	github "$sys" "/cut?asset=" >/dev/null 2>&1 || true
+	github "$sys" "/latest?tag=" >/dev/null 2>&1 || true
+	github "$sys" "/down?set=0" >/dev/null 2>&1 || true
 	local start=$SECONDS
 	# not under || nor &&: set -e must stay in force inside the case
 	set +e

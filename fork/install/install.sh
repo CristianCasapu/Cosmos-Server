@@ -524,9 +524,19 @@ version_at_least() { # have, want (x.y)
 	[ -n "$hm" ] && { [ "$hm" -gt "$wm" ] || { [ "$hm" -eq "$wm" ] && [ "$hn" -ge "$wn" ]; }; }
 }
 DOCKER_PLAN=install DOCKER_NOTE=""
-if command -v docker >/dev/null 2>&1 || [ -e /snap/bin/docker ]; then
-	docker_bin=$(command -v docker || echo /snap/bin/docker)
-	server_version=$(timeout 30 "$docker_bin" version --format '{{.Server.Version}}' 2>/dev/null | head -n 1 | tr -cd 'A-Za-z0-9.+~-' || true)
+# docker_answers: the daemon's version, from the docker command, or when
+# there is none (Debian's docker.io without docker-cli) from dockerd itself
+# while its service is active (Cosmos talks to the socket, not the command).
+docker_answers() {
+	if command -v docker >/dev/null 2>&1 || [ -e /snap/bin/docker ]; then
+		timeout 30 "$(command -v docker || echo /snap/bin/docker)" version --format '{{.Server.Version}}' 2>/dev/null | head -n 1 | tr -cd 'A-Za-z0-9.+~-' || true
+	elif command -v dockerd >/dev/null 2>&1 && [ -S /var/run/docker.sock ] && systemctl is-active --quiet docker.service; then
+		dockerd --version 2>/dev/null | sed -n 's/^Docker version \([0-9][0-9.]*\).*/\1/p' | head -n 1
+	fi
+}
+if command -v docker >/dev/null 2>&1 || [ -e /snap/bin/docker ] || command -v dockerd >/dev/null 2>&1; then
+	docker_bin=$(command -v docker || command -v dockerd || echo /snap/bin/docker)
+	server_version=$(docker_answers)
 	origin="installed by hand"
 	if [ "$docker_bin" = /snap/bin/docker ] || { command -v snap >/dev/null && snap list docker >/dev/null 2>&1; }; then
 		origin="the snap package"
@@ -591,7 +601,7 @@ missing_of() { local p; for p in "$@"; do installed "$p" || echo "$p"; done; }
 
 # shellcheck disable=SC2034 # read by apt_get through the array
 APT_ENV=(env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a NEEDRESTART_SUSPEND=1 APT_LISTCHANGES_FRONTEND=none)
-APT_OPTS=(-y -q -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
+APT_OPTS=(-y -q -o Acquire::Retries=3 -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
 # apt_get <args>: apt itself waits (up to 10 minutes) while another program
 # holds the package database, as unattended-upgrades does at first boot, and
 # says so as it waits; a lock it does not wait for (the lists) is tried
@@ -644,7 +654,14 @@ simulate() { # packages
 	local out rc=0
 	[ $# -gt 0 ] || return 0
 	sim_opts
-	if ! out=$("${APT_ENV[@]}" apt-get -q "${SIM_OPTS[@]}" update </dev/null 2>&1); then
+	local try
+	for try in 1 2 3; do
+		rc=0
+		out=$("${APT_ENV[@]}" apt-get -q -o Acquire::Retries=3 "${SIM_OPTS[@]}" update </dev/null 2>&1) || rc=$?
+		if [ "$rc" = 0 ] && ! printf '%s' "$out" | grep -qE '^(W|E): (Failed to fetch|Some index files failed)'; then break; fi
+		[ "$try" = 3 ] || sleep 10
+	done
+	if [ "$rc" != 0 ]; then
 		printf '%s\n' "$out" | tail -n 5 >&2
 		die $EXIT_PREREQ "apt could not read the package lists (is the network up, are the sources in /etc/apt reachable?). Nothing was changed."
 	fi
@@ -791,6 +808,13 @@ undo_early() {
 			return 1
 		fi
 		apt_get remove --purge "${added[@]}" >/dev/null || { warn "apt could not remove ${added[*]}"; return 1; }
+		# empty folders the purged packages leave under /etc (/etc/ssl)
+		if [ -f "$STATE_DIR/etc-dirs-before" ]; then
+			for _ in 1 2 3 4; do
+				find /etc -xdev -type d -empty 2>/dev/null | sort | comm -23 - "$STATE_DIR/etc-dirs-before" |
+					while IFS= read -r d; do rmdir -- "$d" 2>/dev/null || true; done
+			done
+		fi
 	fi
 	rm -rf -- "$STATE_DIR"
 	say "Nothing is left of this run."
@@ -824,6 +848,7 @@ start_state() {
 		mkdir -m 700 "$STATE_DIR"
 	fi
 	if [ ! -f "$STATE_DIR/packages-before" ]; then
+		find /etc -xdev -type d 2>/dev/null | sort >"$STATE_DIR/etc-dirs-before"
 		packages_now >"$STATE_DIR/packages-before.new"
 		mv "$STATE_DIR/packages-before.new" "$STATE_DIR/packages-before"
 	fi
@@ -1196,7 +1221,7 @@ if [ "${#PREINSTALL[@]}" -gt 0 ] || [ "$DOCKER_PLAN" = install ]; then
 	if [ "$DOCKER_PLAN" = install ]; then
 		install_packages "${PREINSTALL[@]}" "${DOCKER_PACKAGES[@]}"
 		systemctl enable --now docker.service >/dev/null 2>&1 || true
-		timeout 60 docker version --format '{{.Server.Version}}' >/dev/null 2>&1 || die $EXIT_FAILED "Docker was installed but does not answer (systemctl status docker)"
+		[ -n "$(docker_answers)" ] || die $EXIT_FAILED "Docker was installed but does not answer (systemctl status docker)"
 		say "Docker $(docker version --format '{{.Server.Version}}' 2>/dev/null | tr -cd 'A-Za-z0-9.+~-') is running."
 	else
 		install_packages "${PREINSTALL[@]}"

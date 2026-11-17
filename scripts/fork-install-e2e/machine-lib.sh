@@ -11,8 +11,10 @@ mkdir -p "$OUT"
 
 # What the comparisons leave out: kernel and run-time folders, logs, apt's
 # caches and lists (the scripts run apt-get update), dpkg's own database
-# (the package list is compared on its own), systemd's and Docker's state.
-SKIP='^/(proc|sys|dev|run|tmp|e2e|var/log|var/cache|var/lib/apt/lists|var/lib/dpkg|var/lib/systemd|var/lib/docker|var/lib/containerd|usr/local/share/ca-certificates|etc/ssl/certs|root/\.cache)(/|$)'
+# (the package list is compared on its own), systemd's and Docker's state,
+# and /etc/ssl, where the test CA's links (made for the test bed, owned by
+# no package) keep the folder after ca-certificates is purged.
+SKIP='^/(proc|sys|dev|run|tmp|e2e|var/log|var/cache|var/lib/apt/lists|var/lib/dpkg|var/lib/systemd|var/lib/docker|var/lib/containerd|usr/local/share/ca-certificates|etc/ssl|root/\.cache)(/|$)'
 
 snap() { # name
 	local n=$1
