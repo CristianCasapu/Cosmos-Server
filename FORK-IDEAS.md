@@ -316,6 +316,16 @@ cool-down, the 72 hours the previous files are kept, the 15-minute window.
   Cloudflare, e-mail, Telegram, Fail2ban and UPnP checks, were each run on
   their own branch only (each needs a set-up of its own).
 
+## Forms, part D: left for later (2026-11-17)
+
+- `raidDialog.jsx`/`raid.jsx` and `oldTerminal.jsx` are unreachable upstream files (nothing imports them, they are not bundled): left in place to keep upstream merges clean.
+- A Mongo dump proposal for scheduled jobs: mongodump takes its password on the command line, so none is proposed.
+- SnapRAID's schedule still needs six fields; the job form takes five or six.
+- The shared choice chips are 32 px tall on phones (the gallery does not flag them); the wizard's language button is 24 px (upstream's).
+- The installation's progress shows nothing between "Creating network…" and the end while the image is pulled: a slow or failing pull looks like a hang for minutes. Show the pull as a step, and the failure with its reason and "Try again".
+- A caller who may change settings can point the Telegram chat ID elsewhere while the token stays masked (the old chat is told): the owner's call whether a chat change should need the token again.
+- With a cluster (paid) a refusal at the recheck under the configuration lock can follow an op-log publish; it needs a concurrent save.
+
 ## Creating apps: left for later (2026-11-14)
 
 - An image's declared volumes and ports are known only when the image is
