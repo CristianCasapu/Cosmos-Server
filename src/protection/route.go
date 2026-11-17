@@ -9,7 +9,7 @@ import (
 
 // StatusRoute godoc
 // @Summary Protection: the state of the host guard, Fail2ban and the automatic security updates
-// @Description Read only. For each of the three protection pieces the fork can install on the server: whether it is installed and active, since when, who set it up, and the command that installs or removes it (to run on the server; Cosmos never runs it). For the host guard also the live state of its nftables table (base chains, drop counters, the ports it keeps open) and whether Cosmos' own public port is among them. Readings are reused for ten seconds.
+// @Description Read only. For each of the three protection pieces the fork can install on the server: whether it is installed and active, since when, who set it up, and the command that installs or removes it (to run on the server; Cosmos never runs it). For the host guard also the live state of its nftables table (base chains and whether they hold their rules, drop counters, the ports it keeps open, the outside and home interfaces, the SSH allowances with their end, the networks named as home, whether IPv4 is filtered) with what its installer recorded (why IPv4 is filtered or not, other tables that filter) and whether Cosmos' own public port is among them. Readings are reused for ten seconds.
 // @Tags protection
 // @Produce json
 // @Security BearerAuth

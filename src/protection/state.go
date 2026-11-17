@@ -43,7 +43,20 @@ const (
 	maxStateFile = 4 << 10
 	// maxPorts bounds a list of ports in a state file.
 	maxPorts = 64
+	// maxOtherFilters bounds the list of other tables in a state file.
+	maxOtherFilters = 16
 )
+
+// ipv4Reasons are the values ipv4_reason may take: why the installer
+// filters IPv4 (a public or carrier-grade address, asked with --ipv4 yes,
+// --exposed) or does not (a private address behind a router, --ipv4 no).
+var ipv4Reasons = map[string]bool{
+	"public-address": true, "cgnat-address": true, "asked-yes": true, "exposed": true,
+	"behind-router": true, "asked-no": true,
+}
+
+// otherFilterPattern is one entry of other_filters: a family and a table.
+var otherFilterPattern = regexp.MustCompile(`^(ip|ip6|inet|arp|bridge|netdev) [A-Za-z0-9_.-]{1,64}$`)
 
 // State is what a piece's state file says, after validation. A value that
 // does not pass its check is left out (nil or empty), the rest of the file
@@ -55,6 +68,13 @@ type State struct {
 	PublicUDP []int
 	IPv4      *bool
 	SSHOpen   *bool
+	// IPv4Reason is why IPv4 is filtered or not (one of ipv4Reasons).
+	IPv4Reason string
+	// Exposed: installed with --exposed (a cloud server with 1:1 NAT).
+	Exposed *bool
+	// OtherFilters are the other nftables tables that filter input, as
+	// "<family> <name>"; nil when the value did not pass.
+	OtherFilters []string
 	// fail2ban
 	SSHD        *bool
 	CosmosJails *bool
@@ -158,6 +178,11 @@ func parseState(piece string, content []byte) (State, error) {
 		state.PublicUDP, _ = parsePorts(values["public_udp"])
 		state.IPv4 = parseYesNo(values["ipv4"], "yes", "no")
 		state.SSHOpen = parseYesNo(values["ssh_open"], "yes", "no")
+		if ipv4Reasons[values["ipv4_reason"]] {
+			state.IPv4Reason = values["ipv4_reason"]
+		}
+		state.Exposed = parseYesNo(values["exposed"], "yes", "no")
+		state.OtherFilters, _ = parseOtherFilters(values["other_filters"])
 	case PieceFail2ban:
 		state.SSHD = parseYesNo(values["sshd"], "on", "off")
 		state.CosmosJails = parseYesNo(values["cosmos_jails"], "on", "off")
@@ -222,4 +247,31 @@ func parseYesNo(value string, yes string, no string) *bool {
 		return &v
 	}
 	return nil
+}
+
+// parseOtherFilters takes "inet firewalld;ip filter": at most
+// maxOtherFilters entries of a family and a table name, separated by ";",
+// in the order given, without duplicates. Empty is an empty list. A list
+// with one bad entry is refused whole (nil, false).
+func parseOtherFilters(value string) ([]string, bool) {
+	filters := []string{}
+	if value == "" {
+		return filters, true
+	}
+	parts := strings.Split(value, ";")
+	if len(parts) > maxOtherFilters {
+		return nil, false
+	}
+	seen := map[string]bool{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if !otherFilterPattern.MatchString(part) {
+			return nil, false
+		}
+		if !seen[part] {
+			seen[part] = true
+			filters = append(filters, part)
+		}
+	}
+	return filters, true
 }

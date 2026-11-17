@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/netip"
 	"os"
 	"os/exec"
 	"regexp"
@@ -56,16 +57,51 @@ type Table struct {
 	Loaded bool `json:"loaded"`
 	// InputHooked, ForwardHooked: its base chains are hooked where they
 	// should be.
-	InputHooked    bool     `json:"inputHooked"`
-	ForwardHooked  bool     `json:"forwardHooked"`
+	InputHooked   bool `json:"inputHooked"`
+	ForwardHooked bool `json:"forwardHooked"`
+	// InputFilters, ForwardFilters: the chain holds its last rule, the
+	// counted drop of what came from outside (a flushed chain has none and
+	// lets everything through).
+	InputFilters   bool     `json:"inputFilters"`
+	ForwardFilters bool     `json:"forwardFilters"`
 	DroppedInput   *Counter `json:"droppedInput,omitempty"`
 	DroppedForward *Counter `json:"droppedForward,omitempty"`
-	PublicTCP      []int    `json:"publicTcp"`
-	PublicUDP      []int    `json:"publicUdp"`
-	VPNUDP         []int    `json:"vpnUdp"`
+	// DroppedSpoofed: packets from outside with a forged source.
+	DroppedSpoofed *Counter `json:"droppedSpoofed,omitempty"`
+	// IPv4Passed: the input chain lets every IPv4 packet through (the guard
+	// was installed without IPv4 filtering).
+	IPv4Passed bool  `json:"ipv4Passed"`
+	PublicTCP  []int `json:"publicTcp"`
+	PublicUDP  []int `json:"publicUdp"`
+	VPNUDP     []int `json:"vpnUdp"`
 	// WANInterfaces are the interfaces the guard filters (those with a
-	// default route).
+	// default route, or every one when none has: FailClosedInterfaces).
 	WANInterfaces []string `json:"wanInterfaces"`
+	// LANInterfaces are the outside interfaces judged a home network behind
+	// a router: their on-link prefixes and link-local sources count as home.
+	LANInterfaces []string `json:"lanInterfaces"`
+	// FailClosedInterfaces is not empty when no default route was found and
+	// the guard filters every interface that is not loopback, Docker's or a
+	// VPN.
+	FailClosedInterfaces []string `json:"failClosedInterfaces"`
+	// SSHPorts are the ports the SSH allowances open.
+	SSHPorts []int `json:"sshPorts"`
+	// SSHAllowed are the addresses that may reach the SSH ports from
+	// outside, IPv4 first.
+	SSHAllowed []Allowance `json:"sshAllowed"`
+	// HomeNetworks are the networks named with --home (addresses,
+	// prefixes or ranges as text), IPv4 first.
+	HomeNetworks []string `json:"homeNetworks"`
+}
+
+// Allowance is an address of ssh_allow4 or ssh_allow6.
+type Allowance struct {
+	Address string `json:"address"`
+	// Expires is how many seconds were left when the table was read, nil
+	// for an element without a timeout.
+	Expires *int64 `json:"expires,omitempty"`
+	// Until is when it ends (the reading's time plus Expires).
+	Until *time.Time `json:"until,omitempty"`
 }
 
 // liveTable is a reading of the table: Unknown is set (a code) when it
@@ -155,7 +191,11 @@ func readTable() liveTable {
 }
 
 func emptyTable() Table {
-	return Table{PublicTCP: []int{}, PublicUDP: []int{}, VPNUDP: []int{}, WANInterfaces: []string{}}
+	return Table{
+		PublicTCP: []int{}, PublicUDP: []int{}, VPNUDP: []int{}, WANInterfaces: []string{},
+		LANInterfaces: []string{}, FailClosedInterfaces: []string{}, SSHPorts: []int{},
+		SSHAllowed: []Allowance{}, HomeNetworks: []string{},
+	}
 }
 
 // The parts of nft's JSON that are read; everything else is ignored.
@@ -184,6 +224,12 @@ type nftObject struct {
 		Name   string            `json:"name"`
 		Elem   []json.RawMessage `json:"elem"`
 	} `json:"set"`
+	Rule *struct {
+		Family string            `json:"family"`
+		Table  string            `json:"table"`
+		Chain  string            `json:"chain"`
+		Expr   []json.RawMessage `json:"expr"`
+	} `json:"rule"`
 }
 
 var ifnamePattern = regexp.MustCompile(`^[A-Za-z0-9_.@:-]{1,15}$`)
@@ -199,6 +245,8 @@ func parseTable(out []byte) (Table, error) {
 		return Table{}, errNotNft
 	}
 	table := emptyTable()
+	var allow4, allow6 []Allowance
+	var home4, home6 []string
 	ours := func(family, name string) bool { return family == guardFamily && name == guardTable }
 	for _, object := range answer.Nftables {
 		switch {
@@ -228,6 +276,21 @@ func parseTable(out []byte) (Table, error) {
 				table.DroppedInput = counter
 			case "dropped_forward":
 				table.DroppedForward = counter
+			case "dropped_spoofed":
+				table.DroppedSpoofed = counter
+			}
+		case object.Rule != nil:
+			r := object.Rule
+			if !ours(r.Family, r.Table) {
+				continue
+			}
+			switch {
+			case r.Chain == "input" && isCountedDrop(r.Expr, "dropped_input"):
+				table.InputFilters = true
+			case r.Chain == "forward" && isCountedDrop(r.Expr, "dropped_forward"):
+				table.ForwardFilters = true
+			case r.Chain == "input" && isIPv4Pass(r.Expr):
+				table.IPv4Passed = true
 			}
 		case object.Set != nil:
 			s := object.Set
@@ -243,6 +306,20 @@ func parseTable(out []byte) (Table, error) {
 				table.VPNUDP = portElements(s.Elem)
 			case "wan_if":
 				table.WANInterfaces = nameElements(s.Elem)
+			case "lan_if":
+				table.LANInterfaces = nameElements(s.Elem)
+			case "failclosed_if":
+				table.FailClosedInterfaces = nameElements(s.Elem)
+			case "ssh_port":
+				table.SSHPorts = portElements(s.Elem)
+			case "ssh_allow4":
+				allow4 = allowanceElements(s.Elem, true)
+			case "ssh_allow6":
+				allow6 = allowanceElements(s.Elem, false)
+			case "home4":
+				home4 = networkElements(s.Elem, true)
+			case "home6":
+				home6 = networkElements(s.Elem, false)
 			}
 		}
 	}
@@ -250,6 +327,8 @@ func parseTable(out []byte) (Table, error) {
 		// an answer without the table is no answer about it
 		return Table{}, errNotNft
 	}
+	table.SSHAllowed = append(append(table.SSHAllowed, allow4...), allow6...)
+	table.HomeNetworks = append(append(table.HomeNetworks, home4...), home6...)
 	return table, nil
 }
 
@@ -305,4 +384,165 @@ func nameElements(elements []json.RawMessage) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// isCountedDrop: the rule is exactly "counter name <counter> drop", the last
+// rule of each of the guard's chains.
+func isCountedDrop(expr []json.RawMessage, counter string) bool {
+	if len(expr) != 2 {
+		return false
+	}
+	var first struct {
+		Counter *string `json:"counter"`
+	}
+	var second map[string]json.RawMessage
+	if json.Unmarshal(expr[0], &first) != nil || first.Counter == nil || *first.Counter != counter {
+		return false
+	}
+	if json.Unmarshal(expr[1], &second) != nil || len(second) != 1 {
+		return false
+	}
+	_, drop := second["drop"]
+	return drop
+}
+
+// isIPv4Pass: the rule is exactly "meta nfproto ipv4 accept", which the
+// installer puts in when IPv4 is not to be filtered.
+func isIPv4Pass(expr []json.RawMessage) bool {
+	if len(expr) != 2 {
+		return false
+	}
+	var first struct {
+		Match *struct {
+			Op   string `json:"op"`
+			Left struct {
+				Meta *struct {
+					Key string `json:"key"`
+				} `json:"meta"`
+			} `json:"left"`
+			Right json.RawMessage `json:"right"`
+		} `json:"match"`
+	}
+	var second map[string]json.RawMessage
+	if json.Unmarshal(expr[0], &first) != nil || first.Match == nil || first.Match.Left.Meta == nil {
+		return false
+	}
+	m := first.Match
+	if (m.Op != "==" && m.Op != "in") || m.Left.Meta.Key != "nfproto" || string(m.Right) != `"ipv4"` {
+		return false
+	}
+	if json.Unmarshal(expr[1], &second) != nil || len(second) != 1 {
+		return false
+	}
+	_, accept := second["accept"]
+	return accept
+}
+
+// maxExpires bounds the seconds an allowance may have left (ten years):
+// anything beyond is not an answer of nft and is left out.
+const maxExpires = 10 * 365 * 24 * 3600
+
+// addressOf parses an address of the given family (no zone, no IPv4 in
+// IPv6 clothing).
+func addressOf(text string, four bool) (netip.Addr, bool) {
+	if len(text) > 64 {
+		return netip.Addr{}, false
+	}
+	addr, err := netip.ParseAddr(text)
+	if err != nil || addr.Zone() != "" || addr.Is4() != four || addr.Is4In6() {
+		return netip.Addr{}, false
+	}
+	return addr, true
+}
+
+// allowanceElements keeps the elements of ssh_allow4/6 that are addresses
+// of the set's family, with the seconds they have left, at most
+// maxElements.
+func allowanceElements(elements []json.RawMessage, four bool) []Allowance {
+	allowed := []Allowance{}
+	seen := map[netip.Addr]bool{}
+	for _, raw := range elements {
+		if len(allowed) >= maxElements {
+			break
+		}
+		var text string
+		var expires *int64
+		var wrapped struct {
+			Elem *struct {
+				Val     json.RawMessage `json:"val"`
+				Expires *int64          `json:"expires"`
+			} `json:"elem"`
+		}
+		if json.Unmarshal(raw, &text) != nil {
+			if json.Unmarshal(raw, &wrapped) != nil || wrapped.Elem == nil || json.Unmarshal(wrapped.Elem.Val, &text) != nil {
+				continue
+			}
+			if e := wrapped.Elem.Expires; e != nil && *e >= 0 && *e <= maxExpires {
+				expires = e
+			}
+		}
+		addr, ok := addressOf(text, four)
+		if !ok || seen[addr] {
+			continue
+		}
+		seen[addr] = true
+		allowed = append(allowed, Allowance{Address: addr.String(), Expires: expires})
+	}
+	return allowed
+}
+
+// networkElements keeps the elements of home4/6 (an address, a prefix or a
+// range of the set's family) as text, at most maxElements.
+func networkElements(elements []json.RawMessage, four bool) []string {
+	networks := []string{}
+	seen := map[string]bool{}
+	for _, raw := range elements {
+		if len(networks) >= maxElements {
+			break
+		}
+		var text string
+		var shaped struct {
+			Prefix *struct {
+				Addr string `json:"addr"`
+				Len  int    `json:"len"`
+			} `json:"prefix"`
+			Range []string `json:"range"`
+		}
+		value := elementValue(raw)
+		isText := json.Unmarshal(value, &text) == nil
+		isShaped := !isText && json.Unmarshal(value, &shaped) == nil
+		switch {
+		case isText:
+			addr, ok := addressOf(text, four)
+			if !ok {
+				continue
+			}
+			text = addr.String()
+		case isShaped && shaped.Prefix != nil:
+			addr, ok := addressOf(shaped.Prefix.Addr, four)
+			if !ok || shaped.Prefix.Len < 0 || shaped.Prefix.Len > addr.BitLen() {
+				continue
+			}
+			prefix := netip.PrefixFrom(addr, shaped.Prefix.Len)
+			if !prefix.IsValid() {
+				continue
+			}
+			text = prefix.Masked().String()
+		case isShaped && len(shaped.Range) == 2:
+			from, ok1 := addressOf(shaped.Range[0], four)
+			to, ok2 := addressOf(shaped.Range[1], four)
+			if !ok1 || !ok2 || to.Less(from) {
+				continue
+			}
+			text = from.String() + "-" + to.String()
+		default:
+			continue
+		}
+		if seen[text] {
+			continue
+		}
+		seen[text] = true
+		networks = append(networks, text)
+	}
+	return networks
 }

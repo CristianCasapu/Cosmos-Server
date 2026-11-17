@@ -408,9 +408,9 @@ const views = [
     { id: 'chip', at: '[data-edge-chip]' },
     { id: 'block', open: async (page) => { await page.locator('[data-edge-block]').first().click(); } },
   ] },
-  // the protection cards of the security dashboard in four states (guarded inside the cards: the dashboard's
+  // the protection cards of the security dashboard in their states (guarded inside the cards: the dashboard's
   // own icon buttons are 30 px high on a phone, see security-edge)
-  ...['none', 'all', 'unloaded', 'unknown'].map((state) => ({ id: 'security-protection-' + state, path: '/cosmos-ui/security', wait: 1500, guard: true,
+  ...['none', 'all', 'unloaded', 'unknown', 'failclosed', 'nooutside', 'flushed', 'behindrouter', 'sshallowed', 'others'].map((state) => ({ id: 'security-protection-' + state, path: '/cosmos-ui/security', wait: 1500, guard: true,
     scope: '[data-protection]', mock: protectionMock(state), captures: [{ at: '[data-protection-card=guard]' }, { id: 'updates', phoneOnly: true, at: '[data-protection-card=updates]' }] })),
   // the OpenID client form, its values to copy, and the new secret
   { id: 'openid-client', path: '/cosmos-ui/openid-manage', wait: 800, captures: [

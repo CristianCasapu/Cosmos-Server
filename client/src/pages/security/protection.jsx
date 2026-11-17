@@ -72,8 +72,9 @@ const PieceCard = ({ card }) => {
         {say(warning)}
       </Alert>)}
       {card.lines.length > 0 && <Stack spacing={0.5}>
-        {card.lines.map((line) => <Typography key={line[0]} variant="body2" sx={{ overflowWrap: 'anywhere' }}>{say(line)}</Typography>)}
+        {card.lines.map((line, index) => <Typography key={index + line[0]} variant="body2" sx={{ overflowWrap: 'anywhere' }}>{say(line)}</Typography>)}
       </Stack>}
+      {card.repair && <Command label={say(card.repair.label)} text={card.repair.text} />}
       {card.command && <Command label={say(card.command.label)} text={card.command.text} />}
     </Stack>
   </MainCard>;

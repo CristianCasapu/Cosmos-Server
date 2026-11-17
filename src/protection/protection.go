@@ -40,6 +40,8 @@ const (
 	reasonStateInvalid = "stateInvalid" // the state file is there but cannot be read
 	reasonTableMissing = "tableMissing" // guard: installed, its table is not in the kernel
 	reasonNotHooked    = "notHooked"    // guard: the table is there, a base chain is not hooked
+	reasonChainEmpty   = "chainEmpty"   // guard: the chains are hooked but do not hold their rules (flushed)
+	reasonNoOutside    = "noOutside"    // guard: no outside interface in wan_if, nothing is filtered
 	reasonStopped      = "stopped"      // fail2ban: installed, not running
 	reasonNoJails      = "noJails"      // fail2ban: running, the fork's jail file is not there
 	reasonNoBinary     = "noBinary"     // fail2ban, updates: the program itself is not installed
@@ -85,6 +87,17 @@ type Guard struct {
 	PublicUDP []int `json:"publicUdp"`
 	IPv4      *bool `json:"ipv4,omitempty"`
 	SSHOpen   *bool `json:"sshOpen,omitempty"`
+	// IPv4Reason is why the installer filters IPv4 or not: public-address,
+	// cgnat-address, asked-yes, exposed, behind-router, asked-no.
+	IPv4Reason string `json:"ipv4Reason,omitempty"`
+	// Exposed: installed with --exposed.
+	Exposed *bool `json:"exposed,omitempty"`
+	// OtherFilters are other nftables tables that filter what reaches the
+	// server ("inet firewalld"), as the installer found them.
+	OtherFilters []string `json:"otherFilters"`
+	// RepairCommand loads the guard's rules again, offered when they are
+	// installed but not in force.
+	RepairCommand string `json:"repairCommand,omitempty"`
 	// PortMissing: Cosmos' public port is not among the ports the guard
 	// keeps open (the table's when known, else the state file's).
 	PortMissing bool `json:"portMissing"`
@@ -164,9 +177,10 @@ func GetStatus() Status {
 }
 
 func read() Status {
+	now := time.Now().UTC()
 	return Status{
-		Time:     time.Now().UTC(),
-		Guard:    readGuard(),
+		Time:     now,
+		Guard:    readGuard(now),
 		Fail2ban: readFail2ban(),
 		Updates:  readUpdates(),
 	}
@@ -179,9 +193,26 @@ func timePointer(at time.Time) *time.Time {
 	return &at
 }
 
-func readGuard() Guard {
+// withUntil gives each allowance its end, from the time of the reading.
+func withUntil(allowed []Allowance, now time.Time) []Allowance {
+	out := make([]Allowance, 0, len(allowed))
+	for _, allowance := range allowed {
+		if allowance.Expires != nil {
+			until := now.Add(time.Duration(*allowance.Expires) * time.Second).UTC().Truncate(time.Second)
+			allowance.Until = &until
+		}
+		out = append(out, allowance)
+	}
+	return out
+}
+
+// repairCommand loads the guard's rules again (its unit's reload runs
+// `cosmos-host-guard load`, which replaces the table in one transaction).
+const repairCommand = "sudo systemctl reload cosmos-host-guard"
+
+func readGuard(now time.Time) Guard {
 	state, file := readState(PieceGuard)
-	guard := Guard{Piece: Piece{StateFile: file}, PublicTCP: []int{}, PublicUDP: []int{}, KeptOpen: []int{}}
+	guard := Guard{Piece: Piece{StateFile: file}, PublicTCP: []int{}, PublicUDP: []int{}, KeptOpen: []int{}, OtherFilters: []string{}}
 	if file == fileOK {
 		guard.Since = timePointer(state.InstalledAt)
 		if state.PublicTCP != nil {
@@ -191,11 +222,16 @@ func readGuard() Guard {
 			guard.PublicUDP = state.PublicUDP
 		}
 		guard.IPv4, guard.SSHOpen = state.IPv4, state.SSHOpen
+		guard.IPv4Reason, guard.Exposed = state.IPv4Reason, state.Exposed
+		if state.OtherFilters != nil {
+			guard.OtherFilters = state.OtherFilters
+		}
 	}
 
 	live := readTable()
 	if live.unknown == "" {
 		table := live.table
+		table.SSHAllowed = withUntil(table.SSHAllowed, now)
 		guard.Table = &table
 	} else {
 		guard.Unknown = live.unknown
@@ -217,15 +253,22 @@ func readGuard() Guard {
 		guard.State, guard.Reason = StateInactive, reasonTableMissing
 	case !guard.Table.InputHooked || !guard.Table.ForwardHooked:
 		guard.State, guard.Reason = StateInactive, reasonNotHooked
+	case !guard.Table.InputFilters || !guard.Table.ForwardFilters:
+		guard.State, guard.Reason = StateInactive, reasonChainEmpty
+	case len(guard.Table.WANInterfaces) == 0:
+		guard.State, guard.Reason = StateInactive, reasonNoOutside
 	default:
 		guard.State, guard.Active = StateActive, true
 		if file == fileInvalid {
 			guard.Reason = reasonStateInvalid
 		}
 	}
-	if guard.State == StateInactive && file == fileInvalid {
-		guard.Reason = reasonStateInvalid
+	switch guard.Reason {
+	case reasonTableMissing, reasonNotHooked, reasonChainEmpty:
+		guard.RepairCommand = repairCommand
 	}
+	// an inactive guard keeps the reason it does not filter; stateFile
+	// "invalid" tells that its record cannot be read as well
 	guard.Command, guard.CommandKind = command(PieceGuard, guard.Installed)
 	return guard
 }
