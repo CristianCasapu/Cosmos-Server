@@ -150,3 +150,22 @@ test('the sales page is only exported through the offer gate', () => {
   const free = readFileSync(join(src, 'utils', 'free.jsx'), 'utf8');
   assert.match(free, /export default withPaidOfferGate\(PremiumSalesPage\)/);
 });
+
+// Fork addition (plan 47): the wizard's "join a cluster" (a Constellation file) is
+// shown only when the status is known and paid parts are not hidden.
+test('the first-run wizard hides the cluster join without a licence', () => {
+  const wizard = readFileSync(join(src, 'pages', 'newInstall', 'newInstall.jsx'), 'utf8');
+  assert.match(wizard, /const showJoin = paidVisibility\.offerMode !== 'none' && !paidVisibility\.hidePaid;/);
+  const gate = wizard.indexOf('{showJoin && ');
+  assert.ok(gate > 0, 'the join block starts with the gate');
+  const block = wizard.slice(gate, wizard.indexOf('</Stack>}', gate));
+  for (const part of ["t('newInstall.join.text')", 'OnChange={readJoinFile}', 'onClick={join}']) {
+    assert.ok(block.includes(part), part + ' is inside the gate');
+  }
+  assert.equal(wizard.split('readJoinFile}').length, 2, 'the upload appears once, inside the gate');
+  // the free state of a new installation hides it, unknown does not show it either
+  const state = stateFromStatus({ Licence: false });
+  assert.equal(offerMode(state) !== 'none' && !hidePaid(state), false);
+  assert.equal(offerMode(UNKNOWN) !== 'none' && !hidePaid(UNKNOWN), false);
+  assert.equal(offerMode(stateFromStatus({ Licence: true })) !== 'none' && !hidePaid(stateFromStatus({ Licence: true })), true);
+});

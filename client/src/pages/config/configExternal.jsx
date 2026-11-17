@@ -1,16 +1,32 @@
 import * as React from 'react';
+import * as Yup from 'yup';
 import MainCard from '../../components/MainCard';
 import {
   Grid,
   Stack,
   FormHelperText,
 } from '@mui/material';
+import { PostgresProposals, PostgresTestButton, PostgresFoundNote, usePostgresProposals } from './forkPostgresProposals'; // Fork addition (plan 47)
+import { postgresHostProblem, postgresNameProblem, postgresPasswordProblem } from '../../utils/postgresProposal'; // Fork addition (plan 47)
 import { CosmosCheckbox, CosmosCollapse, CosmosInputPassword, CosmosInputText } from './users/formShortcuts';
 import { useTranslation } from 'react-i18next';
 import { FilePickerButton } from '../../components/filePicker';
 
+// Fork addition (plan 47): the shapes the server checks again on save (utils/fork_postgres.go)
+export const postgresValidation = (t) => ({
+  PostgresHost: Yup.string().nullable().test('postgres-host', t('mgmt.config.general.monitoringDb.fork.hostValidation', 'A name or an address, optionally followed by :port, for example 127.0.0.1:5432 (no http://, no path)'),
+    (value) => !postgresHostProblem(value)),
+  PostgresDatabase: Yup.string().nullable().test('postgres-name', t('mgmt.config.general.monitoringDb.fork.nameValidation', 'At most 63 letters, digits and _ . $ -'),
+    (value) => !postgresNameProblem(value)),
+  PostgresUsername: Yup.string().nullable().test('postgres-name', t('mgmt.config.general.monitoringDb.fork.nameValidation', 'At most 63 letters, digits and _ . $ -'),
+    (value) => !postgresNameProblem(value)),
+  PostgresPassword: Yup.string().nullable().test('postgres-password', t('mgmt.config.general.monitoringDb.fork.passwordValidation', 'At most 1024 characters'),
+    (value) => !postgresPasswordProblem(value)),
+});
+
 const ConfigExternal = ({ formik }) => {
   const { t } = useTranslation();
+  const proposals = usePostgresProposals(); // Fork addition (plan 47)
 
   return (
     <Stack spacing={3}>
@@ -48,9 +64,12 @@ const ConfigExternal = ({ formik }) => {
           <Grid size={{ xs: 12 }}>
             <Stack spacing={1}>
               <FormHelperText>{t('mgmt.config.general.monitoringDb.introHelperText')}</FormHelperText>
+              <PostgresFoundNote proposals={proposals} />{/* Fork addition (plan 47) */}
 
               <CosmosCollapse title={t('mgmt.config.general.monitoringDb.postgresTitle')}>
                 <Grid container spacing={3}>
+                  {/* Fork addition (plan 47): the PostgreSQL containers of this server, proposed with their source */}
+                  <PostgresProposals formik={formik} proposals={proposals} />
                   <Grid size={{ xs: 12 }}>
                     <CosmosInputText
                       label={t('mgmt.config.general.monitoringDb.hostInput.hostLabel')}
@@ -83,6 +102,8 @@ const ConfigExternal = ({ formik }) => {
                       noStrength
                     />
                   </Grid>
+
+                  <PostgresTestButton formik={formik} />{/* Fork addition (plan 47) */}
 
                   <Grid size={{ xs: 12 }}>
                     <CosmosInputText
