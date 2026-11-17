@@ -13,10 +13,11 @@
     "counted": "{{count}} events of this kind, counted together by the security record.",
     "again": "Still going on.",
     "raw": "Error text:",
+    "request": "The request:",
     "summaryOne": "{{count}} more {{many}} {{span}}",
     "summaryMany": "{{count}} more events {{span}}: {{list}}",
     "summaryWhat": "These were not sent one by one, so that the chat is not flooded:",
-    "summaryTodo": "Look at the notifications or the security record in the panel.",
+    "summaryTodo": "look at the notifications or the security record in the panel.",
     "summaryMeans": "Nothing was lost: every event is in the panel.",
     "spanMinute": "in the last minute",
     "spanMinutes": "in the last {{n}} min",
@@ -137,12 +138,12 @@
     "auth.login.failed": {
       "severity": "warn", "category": "security",
       "label": "Failed sign-in", "many": "failed sign-ins",
-      "preview": "Failed sign-in as {{actor}} from {{ip}}",
-      "what": "A sign-in as {{actor}} from {{ip}} was refused ({{reason}}).",
+      "preview": "Failed sign-in as {{target}} from {{ip}}",
+      "what": "A sign-in as {{target}} from {{ip}} was refused ({{reason}}).",
       "means": "Someone typed a wrong password or a user that does not exist.",
       "todo": "nothing if it was you; many of them from one address are banned by SmartShield and Fail2ban.",
       "page": "/cosmos-ui/security",
-      "sample": {"actor": "admin", "ip": "203.0.113.7", "reason": "wrong password"}
+      "sample": {"target": "admin", "ip": "203.0.113.7", "reason": "wrong password"}
     },
     "auth.mfa.failed": {
       "severity": "warn", "category": "security",

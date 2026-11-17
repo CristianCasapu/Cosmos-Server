@@ -90,6 +90,9 @@ func noticeFromEvent(event security.Event, st settings) (notice, bool) {
 			vars[key] = value
 		}
 	}
+	if words, known := reasonWords[vars["reason"]]; known {
+		vars["reason"] = words
+	}
 	subject := []string{}
 	for _, part := range []string{event.Actor, event.Target, event.IP} {
 		if part != "" {
@@ -124,10 +127,21 @@ func noticeFromEvent(event security.Event, st settings) (notice, bool) {
 			nt.extra = func(c *composer) { c.fixed("Outcome: " + word + ".") }
 		}
 	}
-	if kind.Class == security.ClassIncident && event.Path != "" {
+	if kind.Class == security.ClassIncident && event.Path != "" && name != utils.SecLoginFailed {
 		nt.raw = strings.TrimSpace(event.Method + " " + event.Host + event.Path)
+		nt.rawIsRequest = true
 	}
 	return nt, true
+}
+
+// reasonWords are the reasons the security record keeps as identifiers.
+var reasonWords = map[string]string{
+	"wrong_password": "wrong password",
+	"unknown_user":   "no account of that name",
+	"wrong_code":     "wrong code",
+	"locked":         "the check is locked",
+	"bad_key":        "the link is not valid",
+	"expired":        "the link has expired",
 }
 
 var outcomeWords = map[string]string{

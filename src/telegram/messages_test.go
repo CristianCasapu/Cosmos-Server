@@ -53,7 +53,7 @@ func TestEveryKindHasItsTexts(t *testing.T) {
 			}
 		}
 	}
-	for _, name := range []string{"info", "warn", "error", "critical", "closing", "todo", "button", "hidden", "sample", "seen", "counted", "again", "raw",
+	for _, name := range []string{"info", "warn", "error", "critical", "closing", "todo", "button", "hidden", "sample", "seen", "counted", "again", "raw", "request",
 		"summaryOne", "summaryMany", "summaryWhat", "summaryTodo", "summaryMeans", "spanMinute", "spanMinutes", "spanHours", "otherEvents"} {
 		if word(name) == "" {
 			t.Errorf("the word %q is missing", name)

@@ -125,7 +125,7 @@ func TestAnEventInWords(t *testing.T) {
 
 	// a summary row of the record
 	event = eventOf(utils.SecLoginFailed)
-	event.Count, event.IP, event.Actor, event.Details = 33, "198.51.100.1", "admin", map[string]string{"summary": "1"}
+	event.Count, event.IP, event.Target, event.Details = 33, "198.51.100.1", "admin", map[string]string{"summary": "1"}
 	nt, _ = noticeFromEvent(event, settingsOf(config))
 	text, _ = textOf(t, settingsOf(config), nt)
 	if !strings.HasPrefix(text, "🟡 Warning · Failed sign-in as admin from 198.51.100.1\n") || !strings.Contains(text, "\n33 events of this kind, counted together by the security record.\n") {

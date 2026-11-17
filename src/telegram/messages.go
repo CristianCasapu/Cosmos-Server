@@ -164,8 +164,10 @@ type notice struct {
 	means string
 	// extra writes a line of facts after what happened. May be nil.
 	extra func(c *composer)
-	// raw is an error text, shown shortened at the end.
-	raw string
+	// raw is an error text, shown shortened at the end; rawIsRequest: it
+	// is the request an incident made (method, host, path).
+	raw          string
+	rawIsRequest bool
 	// ref is the notification's reference, for the button.
 	ref string
 	// thread: the opening of something that lasts; resolves: its end.
@@ -352,7 +354,11 @@ func renderWith(st settings, nt notice, details bool) message {
 		c.fixed(word("hidden")).line()
 	}
 	if details && strings.TrimSpace(nt.raw) != "" {
-		c.fixed(word("raw")).line()
+		if nt.rawIsRequest {
+			c.fixed(word("request")).line()
+		} else {
+			c.fixed(word("raw")).line()
+		}
 		c.pre(nt.raw, maxRaw).line()
 	}
 	if nt.counted > 1 {

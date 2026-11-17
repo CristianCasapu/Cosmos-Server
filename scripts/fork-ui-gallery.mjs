@@ -282,6 +282,8 @@ const views = [
     { id: 'external', tab: 4 },
     { id: 'api', tab: 5 },
   ] },
+  // plan 48: the general settings guarded, for the Telegram messages card (its kinds by severity, previews, switches)
+  { id: 'config-telegram', path: '/cosmos-ui/config-general/general', guard: true, wait: 2500, captures: [{}] },
   { id: 'security', path: '/cosmos-ui/security', core: true, wait: 1500, captures: [
     {},
     { id: 'incident', open: async (page) => { await page.locator('main [role=button]:has(> .MuiAlert-root)').first().click(); } },

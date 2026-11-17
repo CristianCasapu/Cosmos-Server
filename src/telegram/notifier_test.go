@@ -304,7 +304,7 @@ func TestTheSummarySaysWhatWasNotSent(t *testing.T) {
 		"5 × probes\n" +
 		"3 × other events\n" +
 		"Nothing was lost: every event is in the panel.\n" +
-		"What to do: Look at the notifications or the security record in the panel.\n" +
+		"What to do: look at the notifications or the security record in the panel.\n" +
 		"home.example · " + now.Format("2 Jan 15:04")
 	if m.text != want {
 		t.Errorf("summary:\n%s\nwant:\n%s", m.text, want)
@@ -570,7 +570,7 @@ func TestAFloodBecomesAFewMessagesAndASummary(t *testing.T) {
 	h := newHarness(t, fake, false)
 
 	for i := 0; i < 12; i++ {
-		h.Notify(newNotice("auth.login.failed", map[string]string{"actor": "admin", "ip": "203.0.113.7"}))
+		h.Notify(newNotice("auth.login.failed", map[string]string{"target": "admin", "ip": "203.0.113.7"}))
 	}
 	for i := 0; i < 5; i++ {
 		h.Notify(newNotice("scan.probe", map[string]string{"ip": "203.0.113.8", "probe": "wordpress"}))
