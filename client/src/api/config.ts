@@ -432,6 +432,35 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }))
   }
 
+  // Fork addition (plan 51): the copy of the monitoring history between the local file and PostgreSQL (src/monitorcopy)
+  function monitoringCopyStatus() {
+    return wrap(apiFetch('/cosmos/api/monitoring-copy', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }), true)
+  }
+
+  function monitoringCopyStart(direction: 'to-postgres' | 'to-local') {
+    return wrap(apiFetch('/cosmos/api/monitoring-copy/start', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ direction }),
+    }), true)
+  }
+
+  function monitoringCopyCancel() {
+    return wrap(apiFetch('/cosmos/api/monitoring-copy/cancel', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }), true)
+  }
+
   async function rawUpdateRoute(routeName: string, operation: Operation, newRoute?: Route): Promise<ApiResponse> {
     const payload = {
       routeName,
@@ -596,6 +625,9 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     snapshotsRun,
     snapshotsRestore,
     snapshotsCleanup,
+    monitoringCopyStatus, // Fork addition (plan 51)
+    monitoringCopyStart, // Fork addition (plan 51)
+    monitoringCopyCancel, // Fork addition (plan 51)
     snapshotsLook, // Fork addition (plan 47)
     postgresProposals, // Fork addition (plan 47)
     postgresTest, // Fork addition (plan 47)

@@ -9,6 +9,7 @@ import {
 import { PostgresProposals, PostgresTestButton, PostgresFoundNote, usePostgresProposals } from './forkPostgresProposals'; // Fork addition (plan 47)
 import { postgresHostProblem, postgresNameProblem, postgresPasswordProblem } from '../../utils/postgresProposal'; // Fork addition (plan 47)
 import { CosmosCheckbox, CosmosCollapse, CosmosInputPassword, CosmosInputText } from './users/formShortcuts';
+import MonitoringCopy from './forkMonitoringCopy'; // Fork addition (plan 51): the copy of the monitoring history
 import { useTranslation } from 'react-i18next';
 import { FilePickerButton } from '../../components/filePicker';
 
@@ -65,6 +66,7 @@ const ConfigExternal = ({ formik }) => {
             <Stack spacing={1}>
               <FormHelperText>{t('mgmt.config.general.monitoringDb.introHelperText')}</FormHelperText>
               <PostgresFoundNote proposals={proposals} />{/* Fork addition (plan 47) */}
+              <MonitoringCopy saves={formik.submitCount} />{/* Fork addition (plan 51): copy the history between the local file and PostgreSQL */}
 
               <CosmosCollapse title={t('mgmt.config.general.monitoringDb.postgresTitle')}>
                 <Grid container spacing={3}>

@@ -156,6 +156,10 @@ const COMMANDS = [
   ['POST', /^\/api\/snapshots\/restore$/, () => ['activity.snapshots.restore', 'Restore the snapshot']],
   ['POST', /^\/api\/snapshots\/cleanup$/, () => ['activity.snapshots.cleanup', 'Delete the folder kept by a restore']],
 
+  // Fork addition (plan 51): the copy of the monitoring history; its progress is read with GET, which is never followed
+  ['POST', /^\/api\/monitoring-copy\/start$/, () => ['activity.monitoringCopy.start', 'Start copying the monitoring history']],
+  ['POST', /^\/api\/monitoring-copy\/cancel$/, () => ['activity.monitoringCopy.cancel', 'Cancel the copy of the monitoring history']],
+
   // Fail2ban (src/fail2ban); its status is read with GET, which is never followed
   ['POST', /^\/api\/fail2ban\/unban$/, () => ['activity.fail2ban.unban', 'Lift the Fail2ban ban']],
   ['POST', /^\/api\/fail2ban\/settings$/, () => ['activity.fail2ban.settings', 'Save the Fail2ban settings']],
