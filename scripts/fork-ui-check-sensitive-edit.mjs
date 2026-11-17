@@ -27,6 +27,8 @@
 // The script creates its containers itself (media, jelly, quiet) before
 // each engine and size. ENGINES, SIZES (d,m), MODES (light,dark: dark only
 // pictures the dialog). Screenshots go to ./shots.
+// It also runs against the setup of scripts/fork-ui-check-edit-tabs.sh (Cosmos inside its Docker in
+// Docker, nginx:1 there a stand-in built from busybox): SERVER_IP=198.51.100.5 DIND=http://198.51.100.5:2375.
 import { chromium, firefox, webkit, request } from 'playwright';
 
 const ip = process.env.SERVER_IP || '198.51.100.10';
@@ -202,7 +204,9 @@ for (const engine of engines) {
           await until(`${container} has the label`, async () => ((await inspect(container)).Config.Labels || {})['test-note'] === name);
           await serverUp();
           await go(page, container, 'Network');
-          await page.getByLabel('DNS servers').fill('192.0.2.53');
+          // the DNS is a choice since plan 47 (I2c): typed through its door
+          await page.locator('#fork-dns [role=radio]').filter({ hasText: 'Type it myself' }).click();
+          await page.locator('#fork-dns-other').fill('192.0.2.53');
           await page.getByRole('button', { name: 'Update Ports' }).click();
           expect(await noDialog(page), `${name}: ${container}, Network tab, DNS: no dialog`);
           await until(`${container} has the DNS`, async () => ((await inspect(container)).HostConfig.Dns || []).includes('192.0.2.53'));
@@ -325,7 +329,7 @@ for (const engine of engines) {
 
         // the Network tab: the host's network
         await go(page, 'quiet', 'Network');
-        await page.getByLabel('Network Mode').fill('host');
+        await page.locator('#fork-network-mode [role=radio]').filter({ hasText: "server's own network" }).click(); // a choice since plan 47 (I2c)
         await page.getByRole('button', { name: 'Update Ports' }).click();
         await dialog(page).waitFor({ timeout: 20000 });
         expect(/server's own network/.test(await dialog(page).innerText()), `${name}: Network tab: the dialog names the host's network`);

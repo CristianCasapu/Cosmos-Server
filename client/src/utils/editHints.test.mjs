@@ -152,6 +152,9 @@ test('a declared folder that is not mounted is proposed in the data place', () =
     { path: '/var/lib/docker', kind: 'docker-root', osDisk: true, disk: '/', free: 0.2 * TB },
     { path: '/', kind: 'system', osDisk: true, disk: '/', free: 0.2 * TB }] };
   assert.equal(proposeDeclared('/config', fresh, 'app').source, '/mnt/data/cosmos-storage/app/config');
+  // the data path on the system disk, Docker's root on a data disk: settings still go to the data disk
+  const dockerOnDisk = { ...fresh, places: fresh.places.map((p) => (p.kind === 'docker-root' ? { ...p, path: '/mnt/data/docker', osDisk: false, disk: '/mnt/data' } : p)) };
+  assert.equal(proposeDeclared('/config', dockerOnDisk, 'app').source, '/mnt/data/cosmos-storage/app/config');
   // nothing known: a named volume Docker keeps
   assert.deepEqual(proposeDeclared('/data', { places: [] }, 'my app'), { type: 'volume', source: 'my-app_data', reason: 'volume', place: null });
   assert.deepEqual(sourcePlaces(hints, '/data', 'radarr').map((p) => p.source), ['/storage/cosmos/radarr/data', '/archive/radarr/data', '/storage/radarr/data']);

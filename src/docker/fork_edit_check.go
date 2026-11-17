@@ -383,7 +383,7 @@ func forkPrepareBindFolders(before, after types.ContainerJSON, root string) {
 		}
 		// the parts that are missing, from the deepest existing one down
 		missing := []string{}
-		for p := source; p != folder.Place && p != "/" && p != "."; p = path.Dir(p) {
+		for p := source; p != "/" && p != "." && (p == folder.Place || strings.HasPrefix(p, folder.Place+"/")); p = path.Dir(p) {
 			if _, err := os.Lstat(root + p); err == nil {
 				break
 			}
@@ -397,6 +397,9 @@ func forkPrepareBindFolders(before, after types.ContainerJSON, root string) {
 			if err := os.Mkdir(root+p, 0o755); err != nil && !os.IsExist(err) {
 				utils.Error("Edit: making the folder of a new bind", err)
 				break
+			}
+			if p == folder.Place {
+				continue // the data place itself stays the administrator's
 			}
 			if err := chownFolder(root+p, user.UID, gid); err != nil {
 				utils.Error("Edit: giving the folder of a new bind to the app's user", err)

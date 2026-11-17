@@ -166,19 +166,24 @@ for (const engine of engines) {
 
         // --- Network tab of plain: a port proposed from the image, on the home network
         await go(page, 'plain', 'Network');
-        expect(await page.locator('[data-fork-port-row]').count() === 0, `${name}: plain publishes nothing`);
+        // the image's port is listed, not published; one click publishes it on the home network
+        const row = page.locator('[data-fork-port-row="0"]');
+        expect(await row.locator('[data-fork-reach=none]').count() === 1, `${name}: plain's declared port is said not published`);
         expect(/As the server/.test(await checked(page, 'fork-dns')), `${name}: DNS: Docker's default is picked`);
         expect(await radio(page, 'fork-dns', 'The home router (192.168.78.254)').count() === 1, `${name}: DNS: the home router is proposed`);
         expect(await radio(page, 'fork-dns', '192.168.78.53').count() === 1, `${name}: DNS: the server's resolver is proposed`);
         expect(/Its own network/.test(await checked(page, 'fork-network-mode')), `${name}: the network mode is a choice`);
         expect(await radio(page, 'fork-network-mode', 'sensitive').count() === 1, `${name}: host mode is named as sensitive`);
-        await page.locator('xpath=//*[normalize-space()="Expose Ports"]/following::button[@aria-label="Add"][1]').click();
-        const row = page.locator('[data-fork-port-row="0"]');
+        await row.locator('[data-fork-publish]').click();
         expect(await row.locator('[data-fork-container-port="0"]').inputValue() === '9000', `${name}: the container port is the image's`);
         expect(await row.locator('[data-fork-host-port="0"]').inputValue() === '9000', `${name}: the host port is proposed free`);
         expect(/Home network \(192\.168\.78\.5\)/.test(await checked(page, 'fork-port-address-0')), `${name}: the home-network address is proposed`);
         expect(await row.locator('[data-fork-reach=home]').count() === 1, `${name}: it says the home network can reach it`);
         expect(/image declares/.test(await row.innerText()), `${name}: it says where the proposal comes from`);
+        // "+" proposes nothing more: the image has no other port
+        await page.locator('xpath=//*[normalize-space()="Expose Ports"]/following::button[@aria-label="Add"][1]').click();
+        expect(await page.locator('[data-fork-port-row="1"] [data-fork-container-port="1"]').inputValue() === '', `${name}: a new row is empty when nothing more is declared`);
+        await page.locator('[data-fork-port-row="1"]').getByRole('button', { name: 'Delete' }).click();
         if (size === 'm') expect(!(await sideways(page)), `${name}: Network tab: no sideways scroll`);
         await shot(page, name, 'network-proposed');
         // the doors: the address, the DNS, the network mode
@@ -216,7 +221,8 @@ for (const engine of engines) {
         expect(/keeps data in \/data/.test(await declared.innerText()), `${name}: the declared /data is said`);
         expect(/lost when the container is made again/.test(await declared.innerText()), `${name}: it says the data is lost now`);
         const proposedPath = ((await declared.innerText()).match(/the folder (\/\S+)/) || [])[1] || '';
-        expect(proposedPath.startsWith('/mnt/data/'), `${name}: proposed on the data disk (${proposedPath})`);
+        // the data path (/cosmos-storage) is on the test Docker's system disk: moved to a data disk (the run folder's bind counts as one too)
+        expect(/^\/(mnt\/data|cosmos)\/cosmos-storage\/plain\/data$/.test(proposedPath), `${name}: proposed on a data disk (${proposedPath})`);
         if (size === 'm') expect(!(await sideways(page)), `${name}: Storage tab: no sideways scroll`);
         await shot(page, name, 'storage-proposed');
         await declared.getByRole('button', { name: 'Keep it there' }).click();

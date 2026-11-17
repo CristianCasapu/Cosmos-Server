@@ -74,6 +74,10 @@ func placeOf(p string, places []string) string {
 // "link", "unknown") and the information of the last existing part.
 func walk(root, place, p string) (string, string, fs.FileInfo) {
 	info, err := os.Lstat(root + place)
+	if os.IsNotExist(err) {
+		// a data path that is made by the first installation
+		return place, "missing", nil
+	}
 	if err != nil || info.Mode()&fs.ModeSymlink != 0 || !info.IsDir() {
 		// the place itself must be a real folder
 		return place, "unknown", nil

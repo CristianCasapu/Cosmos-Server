@@ -19,7 +19,7 @@ import { FormField } from '../../../components/formField';
 import ResponsiveButton from '../../../components/responseiveButton';
 import { isHostIp } from './forkContainerFixes';
 import {
-  hostIpChoice, hostIpOf, reachOf, REACH_TEXT, containerPortOptions, proposeHostPort, newPortRow,
+  hostIpChoice, hostIpOf, reachOf, REACH_TEXT, containerPortOptions, proposeHostPort, proposedHostIp, newPortRow,
   dnsOptions, dnsChoice, dnsProblem, networkModeChoice, networkModeNetworks, declaredMissing, proposeDeclared,
   sourcePlaces, folderFinding, userOptions, userChoice, puidMismatch, withPuid, userOnLinuxserver,
   memoryOptions, cpuOptions, limitChoice, RESTART, envSuggestions, deviceOptions, deviceRow, sizeText,
@@ -145,6 +145,16 @@ export const ForkPortRow = ({ port, idx, ports, onChange, onDelete, hints, holde
       {ipOk && <FormHelperText data-fork-reach={reach} sx={wrapText}>
         {t(K + 'reach.' + reach, REACH_TEXT[reach], { ip: port.hostIp, port: port.hostPort })}
       </FormHelperText>}
+      {reach === 'none' && String(port.port || '').trim() !== '' && (() => {
+        // a port the container declares but does not publish: proposed, on the home network and a free host port
+        const host = proposeHostPort(hints, port.port, port.protocol, ports.filter((_, i) => i !== idx), holders);
+        if (!host) return null;
+        const at = proposedHostIp(lan);
+        return <Button size="small" variant="outlined" sx={{ mt: 1, minHeight: 44 }} data-fork-publish
+          onClick={() => set({ hostPort: String(host.port), hostIp: at, hostIpOther: false, proposed: { source: 'image', reason: host.reason } })}>
+          {at ? t(K + 'publishHome', 'Publish it for the home network, on port {{port}}', { port: host.port }) : t(K + 'publishAll', 'Publish it on port {{port}}', { port: host.port })}
+        </Button>;
+      })()}
     </Grid>
     {children}
   </Grid>;

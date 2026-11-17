@@ -218,8 +218,11 @@ export const proposeDeclared = (target, hints, app) => {
   const choice = proposePlace({ service: name, type: 'volume', source: volume, target, kind: volumeKind(target) }, plan, name);
   if (choice.path) return { type: 'bind', source: choice.path, reason: choice.reason, place: placeOf(choice.path, plan.places) };
   if (plan.dataPath) {
+    // as a folder of the data path, which the creation flow moves off the system disk
     const source = `${plan.dataPath.replace(/\/$/, '')}/${name}/${folderName(target)}`;
-    return { type: 'bind', source, reason: 'config', place: placeOf(source, plan.places) };
+    const asBind = proposePlace({ service: name, type: 'bind', source, target, kind: volumeKind(target) }, plan, name);
+    const path = asBind.path || source;
+    return { type: 'bind', source: path, reason: asBind.path ? asBind.reason : 'config', place: placeOf(path, plan.places) };
   }
   return { type: 'volume', source: volume, reason: 'volume', place: null };
 };

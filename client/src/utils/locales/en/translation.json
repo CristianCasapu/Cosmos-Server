@@ -6404,5 +6404,7 @@
 	"mgmt.servapps.editTabs.restart.no": "Never",
 	"mgmt.servapps.editTabs.restart.noHint": "Stays stopped when it stops or the server restarts: you start it yourself.",
 	"mgmt.servapps.editTabs.dns.problem.notIp": "Enter IP addresses separated by commas, for example 192.168.1.1, 1.1.1.1",
-	"mgmt.servapps.editTabs.dns.problem.tooMany": "At most 8 DNS servers."
+	"mgmt.servapps.editTabs.dns.problem.tooMany": "At most 8 DNS servers.",
+	"mgmt.servapps.editTabs.publishHome": "Publish it for the home network, on port {{port}}",
+	"mgmt.servapps.editTabs.publishAll": "Publish it on port {{port}}"
 }

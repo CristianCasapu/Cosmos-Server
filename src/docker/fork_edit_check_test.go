@@ -251,6 +251,16 @@ func TestPrepareBindFolders(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "srv/new")); err == nil {
 		t.Fatal("a folder outside the data places was made")
 	}
+	// a data path that does not exist yet: made (the administrator's), the app's folder below it the app's
+	owned = map[string]string{}
+	EditDataPlaces = func() []string { return []string{"/mnt/data", "/cosmos-storage"} }
+	fresh := edited(before, func(c *types.ContainerJSON) {
+		c.HostConfig.Mounts = append(c.HostConfig.Mounts, mount.Mount{Type: mount.TypeBind, Source: "/cosmos-storage/radarr/data", Target: "/data"})
+	})
+	forkPrepareBindFolders(before, fresh, root)
+	if _, err := os.Stat(filepath.Join(root, "cosmos-storage/radarr/data")); err != nil || owned["/cosmos-storage"] != "" || owned["/cosmos-storage/radarr/data"] != "1000:1000" {
+		t.Fatalf("a missing data path: %v %v", err, owned)
+	}
 	// an app that runs as root: nothing is done (EditContainer makes the folder as before)
 	owned = map[string]string{}
 	rootApp := edited(before, func(c *types.ContainerJSON) {
