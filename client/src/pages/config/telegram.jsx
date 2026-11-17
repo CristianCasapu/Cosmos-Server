@@ -20,7 +20,7 @@ import {
   Typography,
 } from '@mui/material';
 import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
-import { SendOutlined } from '@ant-design/icons';
+import { SearchOutlined, SendOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { CosmosCheckbox, CosmosInputPassword, CosmosInputText, CosmosSelect } from './users/formShortcuts';
 import PermissionGuard from '../../components/permissionGuard';
@@ -39,7 +39,12 @@ import {
   tokenIsSaved,
   tokenProblem,
   topicProblem,
+  willHaveToken,
 } from '../../utils/telegramSettings';
+// Fork addition (plan 47): the chats Telegram reports for the bot, offered instead of typing an ID
+import { MANUAL, chatChoices, pickedChoice, proposeFromLook, takeChoice, nobodyWrote } from '../../utils/telegramChats';
+import { ChoiceRow } from '../../components/formHelpers';
+import ProposalBox from '../../components/proposalBox';
 
 // What the form starts from, and what is saved as config.Telegram.
 export const telegramInitialValues = initialValues;
@@ -117,6 +122,14 @@ const Telegram = ({ formik, config }) => {
   const [sending, setSending] = React.useState(false);
   const [result, setResult] = React.useState(null);
   const alive = React.useRef(true);
+  // plan 47: the look for chats, what it proposed (utils/proposals.js) and whether the door was picked
+  const [looking, setLooking] = React.useState(false);
+  const [look, setLook] = React.useState(null);
+  const [marks, setMarks] = React.useState({});
+  const [held, setHeld] = React.useState(null);
+  const [manual, setManual] = React.useState(false);
+  const latest = React.useRef(formik.values);
+  latest.current = formik.values;
 
   const values = formik.values;
   const saved = tokenIsSaved(config);
@@ -147,6 +160,51 @@ const Telegram = ({ formik, config }) => {
         if (alive.current) setSending(false);
         loadStatus();
       });
+  };
+
+  const canLook = willHaveToken(values, config) && !tokenProblem({ ...values, Telegram_Enabled: true }, config);
+  const choices = look && look.success ? chatChoices(look.chats) : [];
+  const picked = pickedChoice(values, choices, manual);
+  const proposed = (marks.Telegram_ChatID !== undefined && String(values.Telegram_ChatID).trim() === String(marks.Telegram_ChatID))
+    ? choices.find((choice) => choice.value !== MANUAL && choice.chatId === marks.Telegram_ChatID && choice.topicId === String(values.Telegram_TopicID || '').trim())
+    : null;
+
+  const lookForChats = () => {
+    setLooking(true);
+    setHeld(null);
+    API.config.telegramChats(String(values.Telegram_BotToken || '').trim())
+      .then((response) => {
+        if (!alive.current) return;
+        const data = (response && response.data) || {};
+        setLook(data);
+        if (!data.success) return;
+        const out = proposeFromLook(latest.current, data.chats, marks);
+        if (Object.keys(out.values).length) formik.setValues({ ...latest.current, ...out.values });
+        setMarks(out.marks);
+        setHeld(out.held.length ? out.choice : null);
+        if (Object.keys(out.values).length) setManual(false);
+      })
+      .catch((error) => {
+        if (alive.current) setLook({ success: false, message: (error && error.message) || String(error) });
+      })
+      .finally(() => { if (alive.current) setLooking(false); });
+  };
+
+  const pick = (value) => {
+    if (value === MANUAL) {
+      setManual(true);
+      setHeld(null);
+      const field = document.getElementById('Telegram_ChatID');
+      if (field) field.focus();
+      return;
+    }
+    const choice = choices.find((c) => c.value === value);
+    if (!choice) return;
+    const out = takeChoice(latest.current, choice);
+    formik.setValues({ ...latest.current, ...out.values });
+    setMarks(out.marks);
+    setHeld(null);
+    setManual(false);
   };
 
   let tokenHelp = t('mgmt.config.telegram.token.helpNone', 'The token BotFather gave you, such as 123456789:AAE…. It is stored on the server and never shown again.');
@@ -181,8 +239,8 @@ const Telegram = ({ formik, config }) => {
             <Typography variant="body2" component="ol" sx={{ pl: 2.5, m: 0, overflowWrap: 'anywhere', '& li': { mb: 0.5 } }}>
               <li>{t('mgmt.config.telegram.howto.bot', 'In Telegram, open a chat with @BotFather, send /newbot and answer its two questions. It replies with a token: paste it below.')}</li>
               <li>{t('mgmt.config.telegram.howto.start', 'Open the chat with your new bot and press Start. A bot cannot write to someone who has not done that.')}</li>
-              <li>{t('mgmt.config.telegram.howto.chat', 'Send your bot any message, then open https://api.telegram.org/bot<your token>/getUpdates in a browser: the number after "chat":{"id": is your chat ID. Paste it below.')}</li>
-              <li>{t('mgmt.config.telegram.howto.group', 'For a group, add the bot to the group, write a message there and look at the same page again: the ID of a group is negative. For a channel, make the bot an administrator of it.')}</li>
+              <li>{t('mgmt.config.telegram.howto.look', 'Send your bot any message, then press "Look for chats" below: Cosmos asks Telegram who wrote to the bot and offers those chats.')}</li>
+              <li>{t('mgmt.config.telegram.howto.groupLook', 'For a group, add the bot to the group and write a message there, then look again. For a channel, make the bot an administrator of it.')}</li>
               <li>{t('mgmt.config.telegram.howto.test', 'Press "Send a test message". It works before the settings are saved.')}</li>
             </Typography>
           </Stack>
@@ -208,6 +266,65 @@ const Telegram = ({ formik, config }) => {
                 : t('mgmt.config.telegram.token.forget', 'Remove the saved token')}
             </Button>
           </Grid>
+        )}
+
+        {/* Fork addition (plan 47): the chats Telegram knows for the bot, as choices; the field below stays the door */}
+        <Grid size={{ xs: 12 }}>
+          <Stack spacing={1.5}>
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
+              <PermissionGuard permission={PERM_ADMIN}>
+                <LoadingButton
+                  id="Telegram_LookForChats"
+                  variant="outlined"
+                  loading={looking}
+                  disabled={!canLook}
+                  startIcon={<SearchOutlined />}
+                  onClick={lookForChats}
+                  sx={{ minHeight: { xs: 44, sm: 0 } }}
+                >
+                  {look ? t('mgmt.config.telegram.chats.again', 'Look again') : t('mgmt.config.telegram.chats.look', 'Look for chats')}
+                </LoadingButton>
+              </PermissionGuard>
+              <Typography variant="caption" sx={{ color: 'text.secondary', flexBasis: 0, flexGrow: 1, minWidth: '14em' }}>
+                {canLook
+                  ? t('mgmt.config.telegram.chats.help', 'Asks Telegram who wrote to the bot lately, with the token above (saved or not). Nothing is sent and nothing is taken away from the bot.')
+                  : t('mgmt.config.telegram.chats.needToken', 'Enter the bot token first.')}
+              </Typography>
+            </Stack>
+            {look && !look.success && (
+              <Alert severity="error" onClose={() => setLook(null)} sx={{ overflowWrap: 'anywhere' }}>
+                <strong>{t('mgmt.config.telegram.chats.failed', 'Telegram could not tell which chats the bot has.')}</strong>
+                {look.message ? ' ' + look.message : ''}
+              </Alert>
+            )}
+            {look && look.success && choices.length <= 1 && (
+              <Alert severity="info" sx={{ overflowWrap: 'anywhere' }}>
+                <strong>{t('mgmt.config.telegram.chats.nobody', 'Nobody wrote to the bot yet.')}</strong>{' '}
+                {t(...nobodyWrote(look.bot))}{' '}
+                {t('mgmt.config.telegram.chats.noneGroup', 'For a group, add the bot to it and write a message there first.')}
+              </Alert>
+            )}
+            {held && (
+              <ProposalBox
+                title={t('mgmt.config.telegram.chats.heldTitle', 'Telegram reports one chat: {{chat}}', { chat: t(...held.label) })}
+                source={t('mgmt.config.telegram.chats.heldSource', 'The chat ID below is another one ({{id}}) and stays as it is unless you use this one.', { id: String(values.Telegram_ChatID || '').trim() })}
+                onUse={() => pick(held.value)}
+                useLabel={t('mgmt.config.telegram.chats.use', 'Use this chat')}
+              />
+            )}
+          </Stack>
+        </Grid>
+        {choices.length > 1 && (
+          <ChoiceRow
+            name="Telegram_ChatChoice"
+            label={t('mgmt.config.telegram.chats.label', 'Where the messages go')}
+            options={choices.map((choice) => ({ value: choice.value, label: t(...choice.label) }))}
+            value={picked}
+            onChange={pick}
+            note={proposed
+              ? t('mgmt.config.telegram.chats.proposed', 'Proposed from the chats Telegram reported for the bot{{bot}}.', { bot: look.bot ? ' @' + look.bot : '' })
+              : (picked === MANUAL ? t('mgmt.config.telegram.chats.manualNote', 'Type the chat ID in the field below.') : '')}
+          />
         )}
 
         <CosmosInputText

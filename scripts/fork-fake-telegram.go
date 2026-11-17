@@ -7,8 +7,13 @@
 // It answers HTTPS on :443 as api.telegram.org, with a certificate from an
 // authority it makes at start and writes to /shared/ca.pem, and has a plain
 // control port (:8080): GET /mode?set=<ok|wrong_token|chat_not_found|
-// not_started|blocked|not_member|topic|flood|down> chooses how it answers,
-// GET /received lists what it got (?clear=1 empties the list).
+// not_started|blocked|not_member|topic|flood|down> chooses how it answers
+// sendMessage (and, for wrong_token and down, every method), GET
+// /updates?set=<none|private|group|both|webhook> chooses what getUpdates
+// answers (none: nobody wrote yet; private: "Ann Example" @ann_example,
+// 123456789; group: "Home server", -1001234567890; both; webhook: refused as
+// while a webhook is set), GET /received lists what it got (?clear=1
+// empties the list). getMe answers the bot cosmos_test_bot.
 //
 // How it is used: on a Docker network made with --internal (no way out),
 // run it in a container with the network alias api.telegram.org and a
@@ -47,10 +52,27 @@ type received struct {
 }
 
 var (
-	mu   sync.Mutex
-	mode = "ok"
-	got  []received
+	mu      sync.Mutex
+	mode    = "ok"
+	updates = "none"
+	got     []received
 )
+
+const (
+	privateUpdate = `{"update_id":101,"message":{"message_id":1,"from":{"id":123456789,"is_bot":false,"first_name":"Ann"},"chat":{"id":123456789,"type":"private","first_name":"Ann","last_name":"Example","username":"ann_example"},"date":1700000000,"text":"/start"}}`
+	groupUpdate   = `{"update_id":102,"my_chat_member":{"chat":{"id":-1001234567890,"type":"supergroup","title":"Home server"},"from":{"id":123456789,"is_bot":false,"first_name":"Ann"},"date":1700000001,"old_chat_member":{"status":"left"},"new_chat_member":{"status":"member"}}}`
+)
+
+var updateAnswers = map[string]struct {
+	status int
+	body   string
+}{
+	"none":    {200, `{"ok":true,"result":[]}`},
+	"private": {200, `{"ok":true,"result":[` + privateUpdate + `]}`},
+	"group":   {200, `{"ok":true,"result":[` + groupUpdate + `]}`},
+	"both":    {200, `{"ok":true,"result":[` + privateUpdate + `,` + groupUpdate + `]}`},
+	"webhook": {409, `{"ok":false,"error_code":409,"description":"Conflict: can't use getUpdates method while webhook is active; use deleteWebhook to delete the webhook first"}`},
+}
 
 var answers = map[string]struct {
 	status int
@@ -98,6 +120,15 @@ func main() {
 		mu.Lock()
 		got = append(got, entry)
 		answer := answers[mode]
+		if mode != "wrong_token" && mode != "down" {
+			switch {
+			case strings.HasSuffix(r.URL.Path, "/getMe"):
+				answer = answers["ok"]
+				answer.body = `{"ok":true,"result":{"id":123456789,"is_bot":true,"first_name":"Cosmos test","username":"cosmos_test_bot"}}`
+			case strings.HasSuffix(r.URL.Path, "/getUpdates"):
+				answer = updateAnswers[updates]
+			}
+		}
 		mu.Unlock()
 		log.Printf("%s %s -> %d", r.Method, strings.Split(r.URL.Path, ":")[0]+":…", answer.status)
 		w.Header().Set("Content-Type", "application/json")
@@ -120,6 +151,15 @@ func main() {
 			mode = wanted
 		}
 		io.WriteString(w, mode+"\n")
+	})
+	control.HandleFunc("/updates", func(w http.ResponseWriter, r *http.Request) {
+		wanted := r.URL.Query().Get("set")
+		mu.Lock()
+		defer mu.Unlock()
+		if _, known := updateAnswers[wanted]; known {
+			updates = wanted
+		}
+		io.WriteString(w, updates+"\n")
 	})
 	control.HandleFunc("/received", func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
