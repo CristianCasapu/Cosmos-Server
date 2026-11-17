@@ -584,12 +584,16 @@ g_routes() {
 	check "no default route: fail closed on eth0" in_set failclosed_if '"eth0"'
 	check "no default route: eth0 is filtered" in_set wan_if '"eth0"'
 	check_not "no default route: Docker's bridge is not filtered" in_set wan_if '"docker0"'
-	before=$(m nft list counter inet cosmos_host_guard dropped_input | sed -n 's/.*packets \([0-9]*\).*/\1/p')
+	# the guard drops it; with no route back, as a source that cannot be answered
+	before=$(m nft list counters table inet cosmos_host_guard | awk '/dropped_input|dropped_spoofed/ {c = 1} c && /packets/ {s += $2; c = 0} END {print s + 0}')
 	tcp "$OC" "$TM6" 9999 >/dev/null 2>&1
-	after=$(m nft list counter inet cosmos_host_guard dropped_input | sed -n 's/.*packets \([0-9]*\).*/\1/p')
+	after=$(m nft list counters table inet cosmos_host_guard | awk '/dropped_input|dropped_spoofed/ {c = 1} c && /packets/ {s += $2; c = 0} END {print s + 0}')
 	check "no default route: a connection from outside to 9999 is dropped by the guard ($before -> $after)" test "$after" -gt "$before"
 	msh "ip route replace default via $RT4H; ip -6 route replace default via $RT6H"
 	sleep 3
+	check_not "the default route back: fail-closed mode ends at once" in_set failclosed_if '"eth0"'
+	# Docker's forwarded connections need a few seconds more to settle (not the guard)
+	sleep 12
 	check_not "the default route back: fail-closed mode ends" in_set failclosed_if '"eth0"'
 	probe_matrix "after the default route came back"
 	# the watcher killed again and again comes back (no start limit)
