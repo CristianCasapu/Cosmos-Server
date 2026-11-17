@@ -135,3 +135,57 @@ func writeState(t *testing.T, piece string, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestStateFileOfTodaysGuard(t *testing.T) {
+	newWorld(t)
+	writeState(t, PieceGuard, guardState+"ipv4_reason=public-address\nexposed=yes\nother_filters= inet firewalld ; ip filter;inet firewalld\n")
+	state, file := readState(PieceGuard)
+	if file != fileOK || state.IPv4Reason != "public-address" || state.Exposed == nil || !*state.Exposed || !reflect.DeepEqual(state.OtherFilters, []string{"inet firewalld", "ip filter"}) {
+		t.Errorf("%v %+v", file, state)
+	}
+	for _, reason := range []string{"public-address", "cgnat-address", "asked-yes", "exposed", "behind-router", "asked-no"} {
+		writeState(t, PieceGuard, guardState+"ipv4_reason="+reason+"\n")
+		if state, _ := readState(PieceGuard); state.IPv4Reason != reason {
+			t.Errorf("ipv4_reason=%s: %q", reason, state.IPv4Reason)
+		}
+	}
+	writeState(t, PieceGuard, guardState+"other_filters=\n")
+	if state, _ := readState(PieceGuard); state.OtherFilters == nil || len(state.OtherFilters) != 0 {
+		t.Errorf("other_filters empty: %v, want an empty list", state.OtherFilters)
+	}
+	// left out when absent
+	writeState(t, PieceGuard, guardState)
+	if state, _ := readState(PieceGuard); state.IPv4Reason != "" || state.Exposed != nil || len(state.OtherFilters) != 0 {
+		t.Errorf("an older file: %+v", state)
+	}
+}
+
+func TestStateFileOfTodaysGuardDropsWhatDoesNotPass(t *testing.T) {
+	newWorld(t)
+	tooMany := strings.TrimSuffix(strings.Repeat("inet t;", maxOtherFilters+1), ";")
+	for _, bad := range []string{
+		"ipv4_reason=public", "ipv4_reason=Behind-Router", "ipv4_reason=behind-router;x",
+		"exposed=true", "exposed=1",
+		"other_filters=inet", "other_filters=inet firewalld;", "other_filters=inet fire walld", "other_filters=ip4 filter",
+		"other_filters=inet $(reboot)", "other_filters=inet " + strings.Repeat("a", 65), "other_filters=inet firewalld,ip filter",
+		"other_filters=" + tooMany,
+	} {
+		writeState(t, PieceGuard, guardState+bad+"\n")
+		state, file := readState(PieceGuard)
+		dropped := len(state.OtherFilters) == 0
+		if strings.HasPrefix(bad, "other_filters=") {
+			dropped = state.OtherFilters == nil
+		}
+		if file != fileOK || state.IPv4Reason != "" || state.Exposed != nil || !dropped {
+			t.Errorf("%q: %v %+v, want the file taken and the value left out", bad, file, state)
+		}
+		if !reflect.DeepEqual(state.PublicTCP, []int{2052, 2053}) {
+			t.Errorf("%q: the rest of the file was lost", bad)
+		}
+	}
+	exactly := strings.TrimSuffix(strings.Repeat("inet t;", maxOtherFilters), ";")
+	writeState(t, PieceGuard, guardState+"other_filters="+exactly+"\n")
+	if state, _ := readState(PieceGuard); len(state.OtherFilters) != 1 {
+		t.Errorf("16 entries (one table): %v", state.OtherFilters)
+	}
+}

@@ -2,6 +2,7 @@ package protection
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,7 +16,20 @@ import (
 // fork/nftables/cosmos-host-guard.nft.in loaded in a throwaway container:
 // nft-guard-loaded.json with public_tcp 2052,2053, vpn_udp 41641, wan_if
 // eth0 and lo, after two refused connections on lo (4 packets, 240 bytes);
-// nft-guard-udp.json with public_tcp 443 and public_udp 443,51820.
+// nft-guard-udp.json with public_tcp 443 and public_udp 443,51820. Those two
+// hold the guard's first table; the nft-guard-v2-*.json ones the table of
+// today (lan_if, failclosed_if, ssh_port, ssh_allow4/6, home4/6 as --home
+// only, dropped_spoofed), each loaded with `#@IPV4@` replaced by nothing
+// (IPv4 filtered) or by `meta nfproto ipv4 accept`:
+//   - v2-ipv4: IPv4 filtered; wan_if eth0, public_tcp 2053, vpn_udp 41641,
+//     ssh_port 22, ssh_allow6 2001:db8:2::20 (timeout 24h), ssh_allow4
+//     198.51.100.7 (timeout 2h), home4 192.0.2.0/24 and 203.0.113.5, home6
+//     2001:db8:5::/48
+//   - v2-lan: IPv4 passed; wan_if eth0 and wlan0, lan_if eth0, public_tcp
+//     22,2053, public_udp 443, ssh_port 22
+//   - v2-failclosed: IPv4 passed; wan_if and failclosed_if eth0 and eth1
+//   - v2-flushed: v2-failclosed after `nft flush chain inet cosmos_host_guard input`
+//   - v2-nowan: IPv4 passed; wan_if empty, public_tcp 2053
 func fixtureTable(t *testing.T, name string) Table {
 	t.Helper()
 	content, err := os.ReadFile(filepath.Join("testdata", name))
@@ -34,8 +48,11 @@ func TestTableOfARealNft(t *testing.T) {
 	want := Table{
 		Loaded: true, InputHooked: true, ForwardHooked: true,
 		DroppedInput: &Counter{Packets: 4, Bytes: 240}, DroppedForward: &Counter{},
+		InputFilters: true, ForwardFilters: true,
 		PublicTCP: []int{2052, 2053}, PublicUDP: []int{}, VPNUDP: []int{41641},
-		WANInterfaces: []string{"eth0", "lo"},
+		WANInterfaces: []string{"eth0", "lo"}, LANInterfaces: []string{}, FailClosedInterfaces: []string{},
+		SSHPorts: []int{}, SSHAllowed: []Allowance{},
+		HomeNetworks: []string{"10.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7", "fe80::/10"},
 	}
 	if !reflect.DeepEqual(table, want) {
 		got, _ := json.Marshal(table)
@@ -181,5 +198,150 @@ func TestNftRunsWithFixedArgumentsAndBounds(t *testing.T) {
 	}
 	if took := time.Since(start); took > nftTimeout+2*time.Second {
 		t.Errorf("a hanging nft held the request for %v", took)
+	}
+}
+
+func int64p(v int64) *int64 { return &v }
+
+func TestTableOfTodaysGuard(t *testing.T) {
+	table := fixtureTable(t, "nft-guard-v2-ipv4.json")
+	want := Table{
+		Loaded: true, InputHooked: true, ForwardHooked: true, InputFilters: true, ForwardFilters: true,
+		DroppedInput: &Counter{}, DroppedForward: &Counter{}, DroppedSpoofed: &Counter{},
+		PublicTCP: []int{2053}, PublicUDP: []int{}, VPNUDP: []int{41641},
+		WANInterfaces: []string{"eth0"}, LANInterfaces: []string{}, FailClosedInterfaces: []string{},
+		SSHPorts: []int{22},
+		SSHAllowed: []Allowance{
+			{Address: "198.51.100.7", Expires: int64p(7199)},
+			{Address: "2001:db8:2::20", Expires: int64p(86399)},
+		},
+		HomeNetworks: []string{"192.0.2.0/24", "203.0.113.5", "2001:db8:5::/48"},
+	}
+	if !reflect.DeepEqual(table, want) {
+		got, _ := json.Marshal(table)
+		t.Errorf("table %s", got)
+	}
+
+	table = fixtureTable(t, "nft-guard-v2-lan.json")
+	if !table.IPv4Passed || !table.InputFilters || !reflect.DeepEqual(table.WANInterfaces, []string{"eth0", "wlan0"}) || !reflect.DeepEqual(table.LANInterfaces, []string{"eth0"}) ||
+		!reflect.DeepEqual(table.PublicTCP, []int{22, 2053}) || !reflect.DeepEqual(table.PublicUDP, []int{443}) || len(table.HomeNetworks) != 0 || len(table.SSHAllowed) != 0 {
+		t.Errorf("behind a router: %+v", table)
+	}
+
+	table = fixtureTable(t, "nft-guard-v2-failclosed.json")
+	if !table.InputFilters || !reflect.DeepEqual(table.FailClosedInterfaces, []string{"eth0", "eth1"}) || !reflect.DeepEqual(table.WANInterfaces, []string{"eth0", "eth1"}) {
+		t.Errorf("fail closed: %+v", table)
+	}
+
+	// flushed: hooked, but the input chain holds nothing (and so no IPv4 pass either)
+	table = fixtureTable(t, "nft-guard-v2-flushed.json")
+	if !table.InputHooked || !table.ForwardHooked || table.InputFilters || !table.ForwardFilters || table.IPv4Passed {
+		t.Errorf("flushed: %+v", table)
+	}
+
+	table = fixtureTable(t, "nft-guard-v2-nowan.json")
+	if !table.InputFilters || len(table.WANInterfaces) != 0 {
+		t.Errorf("no outside interface: %+v", table)
+	}
+}
+
+// Only the exact catch-all drop counts as the chain holding its rules, and
+// only the exact IPv4 pass as IPv4 passed.
+func TestTableRulesThatCount(t *testing.T) {
+	rule := func(chain, expr string) string {
+		return `{"rule": {"family": "inet", "table": "cosmos_host_guard", "chain": "` + chain + `", "expr": ` + expr + `}}`
+	}
+	answer := func(rules ...string) Table {
+		t.Helper()
+		table, err := parseTable([]byte(`{"nftables": [{"table": {"family": "inet", "name": "cosmos_host_guard"}}, ` + strings.Join(append(rules, `{"metainfo": {}}`), ", ") + `]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return table
+	}
+	drop := `[{"counter": "dropped_input"}, {"drop": null}]`
+	if table := answer(rule("input", drop)); !table.InputFilters || table.ForwardFilters {
+		t.Errorf("the input drop: %+v", table)
+	}
+	for name, table := range map[string]Table{
+		"in another chain":     answer(rule("forward", drop)),
+		"another counter":      answer(rule("input", `[{"counter": "dropped_spoofed"}, {"drop": null}]`)),
+		"an accept":            answer(rule("input", `[{"counter": "dropped_input"}, {"accept": null}]`)),
+		"with a match first":   answer(rule("input", `[{"match": {"op": "==", "left": {"ct": {"key": "state"}}, "right": "invalid"}}, {"counter": "dropped_input"}, {"drop": null}]`)),
+		"of another table":     answer(`{"rule": {"family": "inet", "table": "other", "chain": "input", "expr": ` + drop + `}}`),
+		"an anonymous counter": answer(rule("input", `[{"counter": {"packets": 0, "bytes": 0}}, {"drop": null}]`)),
+	} {
+		if table.InputFilters {
+			t.Errorf("%s: taken as the input chain's drop", name)
+		}
+	}
+	pass := `[{"match": {"op": "==", "left": {"meta": {"key": "nfproto"}}, "right": "ipv4"}}, {"accept": null}]`
+	if table := answer(rule("input", pass)); !table.IPv4Passed {
+		t.Error("the IPv4 pass was not seen")
+	}
+	for name, expr := range map[string]string{
+		"ipv6":      strings.Replace(pass, "ipv4", "ipv6", 1),
+		"a drop":    strings.Replace(pass, "accept", "drop", 1),
+		"not ==":    strings.Replace(pass, `"=="`, `"!="`, 1),
+		"meta mark": strings.Replace(pass, "nfproto", "mark", 1),
+	} {
+		if table := answer(rule("input", expr)); table.IPv4Passed {
+			t.Errorf("%s: taken as the IPv4 pass", name)
+		}
+	}
+	if table := answer(rule("forward", pass)); table.IPv4Passed {
+		t.Error("an IPv4 pass in forward taken as the input's")
+	}
+}
+
+func TestTableAllowancesAndHomeAreValidated(t *testing.T) {
+	answer := `{"nftables": [
+		{"table": {"family": "inet", "name": "cosmos_host_guard"}},
+		{"set": {"family": "inet", "table": "cosmos_host_guard", "name": "ssh_allow4", "elem": [
+			{"elem": {"val": "192.0.2.1", "timeout": 60, "expires": 30}},
+			{"elem": {"val": "192.0.2.1", "timeout": 60, "expires": 20}},
+			"192.0.2.2",
+			{"elem": {"val": "192.0.2.3", "expires": -5}},
+			{"elem": {"val": "192.0.2.4", "expires": 999999999999}},
+			"2001:db8::1", "::ffff:192.0.2.9", "192.0.2.300", "x", 7, {"elem": {"val": 7}}]}},
+		{"set": {"family": "inet", "table": "cosmos_host_guard", "name": "ssh_allow6", "elem": [
+			{"elem": {"val": "2001:DB8::2", "expires": 10}}, "fe80::1%eth0", "192.0.2.5", "2001:db8::3"]}},
+		{"set": {"family": "inet", "table": "cosmos_host_guard", "name": "home4", "elem": [
+			{"prefix": {"addr": "192.0.2.0", "len": 24}}, {"prefix": {"addr": "192.0.2.7", "len": 24}},
+			{"prefix": {"addr": "192.0.2.0", "len": 33}}, {"prefix": {"addr": "2001:db8::", "len": 32}},
+			{"range": ["198.51.100.10", "198.51.100.20"]}, {"range": ["198.51.100.20", "198.51.100.10"]},
+			{"range": ["198.51.100.10", "2001:db8::1"]}, "203.0.113.5", "not an address", {"other": 1}]}},
+		{"set": {"family": "inet", "table": "cosmos_host_guard", "name": "home6", "elem": [
+			{"prefix": {"addr": "2001:db8:5::", "len": 48}}, "192.0.2.1", {"prefix": {"addr": "2001:db8::", "len": 129}}]}},
+		{"set": {"family": "inet", "table": "cosmos_host_guard", "name": "lan_if", "elem": ["eth0", "bad name"]}},
+		{"set": {"family": "inet", "table": "cosmos_host_guard", "name": "failclosed_if", "elem": ["eth1", "$(x)"]}}
+	]}`
+	table, err := parseTable([]byte(answer))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Allowance{
+		{Address: "192.0.2.1", Expires: int64p(30)}, {Address: "192.0.2.2"}, {Address: "192.0.2.3"}, {Address: "192.0.2.4"},
+		{Address: "2001:db8::2", Expires: int64p(10)}, {Address: "2001:db8::3"},
+	}
+	if !reflect.DeepEqual(table.SSHAllowed, want) {
+		got, _ := json.Marshal(table.SSHAllowed)
+		t.Errorf("allowances %s", got)
+	}
+	if wantHome := []string{"192.0.2.0/24", "198.51.100.10-198.51.100.20", "203.0.113.5", "2001:db8:5::/48"}; !reflect.DeepEqual(table.HomeNetworks, wantHome) {
+		t.Errorf("home %v, want %v", table.HomeNetworks, wantHome)
+	}
+	if !reflect.DeepEqual(table.LANInterfaces, []string{"eth0"}) || !reflect.DeepEqual(table.FailClosedInterfaces, []string{"eth1"}) {
+		t.Errorf("interfaces %v %v", table.LANInterfaces, table.FailClosedInterfaces)
+	}
+
+	// bounded like the other sets
+	many := []string{}
+	for i := 0; i < maxElements+40; i++ {
+		many = append(many, fmt.Sprintf(`{"elem": {"val": "2001:db8::%x", "expires": 5}}`, i+1))
+	}
+	table, err = parseTable([]byte(`{"nftables": [{"table": {"family": "inet", "name": "cosmos_host_guard"}}, {"set": {"family": "inet", "table": "cosmos_host_guard", "name": "ssh_allow6", "elem": [` + strings.Join(many, ",") + `]}}, {"set": {"family": "inet", "table": "cosmos_host_guard", "name": "home6", "elem": [` + strings.Join(many, ",") + `]}}]}`))
+	if err != nil || len(table.SSHAllowed) != maxElements || len(table.HomeNetworks) != maxElements {
+		t.Errorf("a long set: %d allowances and %d networks kept, want %d", len(table.SSHAllowed), len(table.HomeNetworks), maxElements)
 	}
 }

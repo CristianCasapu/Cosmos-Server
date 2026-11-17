@@ -107,6 +107,9 @@ func TestGuardInstalledButItsTableIsNotLoaded(t *testing.T) {
 	if !guard.Installed || guard.Active || guard.State != StateInactive || guard.Reason != reasonTableMissing || guard.CommandKind != CommandUninstall {
 		t.Errorf("guard %+v", guard.Piece)
 	}
+	if guard.RepairCommand != "sudo systemctl reload cosmos-host-guard" {
+		t.Errorf("repair command %q", guard.RepairCommand)
+	}
 	// the port is checked against what the installer recorded
 	if guard.PortMissing || !reflect.DeepEqual(guard.KeptOpen, []int{2052, 2053}) {
 		t.Errorf("port missing %v, kept %v", guard.PortMissing, guard.KeptOpen)
@@ -338,14 +341,14 @@ func TestRouteIsForAdministratorsAndGetOnly(t *testing.T) {
 	}
 	var guard map[string]json.RawMessage
 	json.Unmarshal(body.Data["guard"], &guard)
-	for _, key := range []string{"installed", "active", "state", "stateFile", "command", "commandKind", "table", "publicTcp", "publicUdp", "portMissing", "keptOpen"} {
+	for _, key := range []string{"installed", "active", "state", "stateFile", "command", "commandKind", "table", "publicTcp", "publicUdp", "portMissing", "keptOpen", "otherFilters"} {
 		if _, found := guard[key]; !found {
 			t.Errorf("guard has no %q: %s", key, body.Data["guard"])
 		}
 	}
 	var table map[string]json.RawMessage
 	json.Unmarshal(guard["table"], &table)
-	if got := keys(table); !reflect.DeepEqual(got, []string{"forwardHooked", "inputHooked", "loaded", "publicTcp", "publicUdp", "vpnUdp", "wanInterfaces"}) {
+	if got := keys(table); !reflect.DeepEqual(got, []string{"failClosedInterfaces", "forwardFilters", "forwardHooked", "homeNetworks", "inputFilters", "inputHooked", "ipv4Passed", "lanInterfaces", "loaded", "publicTcp", "publicUdp", "sshAllowed", "sshPorts", "vpnUdp", "wanInterfaces"}) {
 		t.Errorf("table keys %v", got)
 	}
 	var updates map[string]json.RawMessage
@@ -361,5 +364,79 @@ func TestRouteIsForAdministratorsAndGetOnly(t *testing.T) {
 		if _, found := f2b[key]; !found {
 			t.Errorf("fail2ban has no %q", key)
 		}
+	}
+}
+
+// Active only when the rules are in force: loaded, hooked, the chains
+// holding their rules, an outside interface to filter.
+func TestGuardActiveOnlyWhenItFilters(t *testing.T) {
+	w := newWorld(t)
+	w.state(PieceGuard, guardState)
+	for fixture, want := range map[string]struct {
+		state, reason, repair string
+	}{
+		"nft-guard-v2-ipv4.json":       {StateActive, "", ""},
+		"nft-guard-v2-lan.json":        {StateActive, "", ""},
+		"nft-guard-v2-failclosed.json": {StateActive, "", ""},
+		"nft-guard-v2-flushed.json":    {StateInactive, reasonChainEmpty, repairCommand},
+		"nft-guard-v2-nowan.json":      {StateInactive, reasonNoOutside, ""},
+	} {
+		forget()
+		w.table(fixture)
+		guard := GetStatus().Guard
+		if guard.State != want.state || guard.Reason != want.reason || guard.Active != (want.state == StateActive) || guard.RepairCommand != want.repair {
+			t.Errorf("%s: %s/%s active %v repair %q, want %s/%s repair %q", fixture, guard.State, guard.Reason, guard.Active, guard.RepairCommand, want.state, want.reason, want.repair)
+		}
+	}
+	// the forward chain flushed alone
+	forget()
+	w.table("nft-guard-v2-ipv4.json")
+	w.nftOut = []byte(strings.Replace(string(w.nftOut), `{"counter": "dropped_forward"}, {"drop": null}`, `{"counter": "dropped_forward"}, {"accept": null}`, 1))
+	if guard := GetStatus().Guard; guard.State != StateInactive || guard.Reason != reasonChainEmpty {
+		t.Errorf("forward without its drop: %s/%s", guard.State, guard.Reason)
+	}
+	// not hooked: the reload repairs it too
+	forget()
+	w.table("nft-guard-v2-ipv4.json")
+	w.nftOut = []byte(strings.Replace(string(w.nftOut), `"hook": "input"`, `"hook": "output"`, 1))
+	if guard := GetStatus().Guard; guard.Reason != reasonNotHooked || guard.RepairCommand != repairCommand {
+		t.Errorf("not hooked: %s repair %q", guard.Reason, guard.RepairCommand)
+	}
+	// an unreadable record does not hide why it does not filter
+	forget()
+	w.table("nft-guard-v2-flushed.json")
+	w.state(PieceGuard, strings.Replace(guardState, "format=1", "format=9", 1))
+	if guard := GetStatus().Guard; guard.Reason != reasonChainEmpty || guard.StateFile != fileInvalid {
+		t.Errorf("flushed with an unreadable record: %s, state file %s", guard.Reason, guard.StateFile)
+	}
+}
+
+func TestGuardAllowancesEndFromTheReading(t *testing.T) {
+	w := newWorld(t)
+	w.table("nft-guard-v2-ipv4.json")
+	status := GetStatus()
+	allowed := status.Guard.Table.SSHAllowed
+	if len(allowed) != 2 || allowed[1].Address != "2001:db8:2::20" || allowed[1].Until == nil || allowed[0].Until == nil {
+		t.Fatalf("allowances %+v", allowed)
+	}
+	want := status.Time.Add(86399 * time.Second)
+	if diff := allowed[1].Until.Sub(want); diff < -time.Second || diff > time.Second {
+		t.Errorf("until %v, want %v", allowed[1].Until, want)
+	}
+	if got := withUntil([]Allowance{{Address: "192.0.2.1"}}, status.Time); got[0].Until != nil {
+		t.Errorf("an allowance without a timeout got an end: %v", got[0].Until)
+	}
+}
+
+func TestGuardCarriesWhatTheInstallerRecorded(t *testing.T) {
+	w := newWorld(t)
+	w.table("nft-guard-v2-lan.json")
+	w.state(PieceGuard, strings.Replace(guardState, "ipv4=yes", "ipv4=no\nipv4_reason=behind-router\nexposed=no\nother_filters=inet firewalld;inet cosmos_guard", 1))
+	guard := GetStatus().Guard
+	if guard.IPv4Reason != "behind-router" || guard.Exposed == nil || *guard.Exposed || !reflect.DeepEqual(guard.OtherFilters, []string{"inet firewalld", "inet cosmos_guard"}) {
+		t.Errorf("recorded: reason %q exposed %v others %v", guard.IPv4Reason, guard.Exposed, guard.OtherFilters)
+	}
+	if guard.IPv4 == nil || *guard.IPv4 || !guard.Table.IPv4Passed {
+		t.Errorf("ipv4 %v, passed %v", guard.IPv4, guard.Table.IPv4Passed)
 	}
 }
