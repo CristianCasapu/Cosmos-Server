@@ -30,6 +30,7 @@ import SecurityAuditPage from '../pages/securityAudit'; // Fork addition: the au
 import NotificationsPage from '../pages/notifications'; // Fork addition: the notifications page
 import NotificationDetails from '../pages/notifications/details'; // Fork addition: one notification in full
 import NotFound from '../pages/extra-pages/notFound'; // Fork addition: unknown addresses
+import GuidePage from '../pages/guide'; // Fork addition (plan 50): an app's how-to guide
 
 // ==============================|| MAIN ROUTING ||============================== //
 
@@ -241,6 +242,7 @@ const MainRoutes = {
         { path: '/cosmos-ui/notifications', element: <NotificationsPage /> },
         { path: '/cosmos-ui/notifications/r/:ref', element: <NotificationDetails /> },
         { path: '/cosmos-ui/notifications/:id', element: <NotificationDetails /> },
+        { path: '/cosmos-ui/guide/:app', element: <GuidePage /> }, // Fork addition (plan 50): an app's how-to guide
         { path: '/cosmos-ui/*', element: <NotFound /> }, // Fork addition: any other address under the panel (it gave an empty window)
         ].map(children => ({
             ...children,

@@ -37,6 +37,7 @@ export const forkRoleValues = (route) => {
     _ForkRole: ROLES.includes(setting.Role) ? setting.Role : '',
     _ForkLabel: String(setting.Label || ''),
     _ForkHomeOnly: setting.HomeOnly === true,
+    _ForkGuide: GUIDE_SETTINGS.includes(setting.Guide) ? setting.Guide : '', // plan 50
   };
 };
 
@@ -47,15 +48,24 @@ export const withForkRole = (route) => {
   const role = ROLES.includes(out._ForkRole) ? out._ForkRole : '';
   const label = String(out._ForkLabel || '').trim().slice(0, 40);
   const homeOnly = out._ForkHomeOnly === true;
+  const guide = GUIDE_SETTINGS.includes(out._ForkGuide) ? out._ForkGuide : ''; // plan 50
+  delete out._ForkGuide;
   delete out._ForkRole;
   delete out._ForkLabel;
   delete out._ForkHomeOnly;
-  if (role || label || homeOnly) {
-    out.ForkInterface = { ...(role ? { Role: role } : {}), ...(label ? { Label: label } : {}), ...(homeOnly ? { HomeOnly: true } : {}) };
+  if (role || label || homeOnly || guide) {
+    out.ForkInterface = { ...(role ? { Role: role } : {}), ...(label ? { Label: label } : {}), ...(homeOnly ? { HomeOnly: true } : {}), ...(guide ? { Guide: guide } : {}) };
   } else {
     delete out.ForkInterface;
   }
   return out;
+};
+
+// plan 50: the app's how-to guide: as proposed, a kind of src/guides, or none
+const GUIDE_SETTINGS = ['s3', 'none'];
+const GUIDE_TEXT = {
+  s3: ['mgmt.guide.kind.s3', 'S3-compatible storage (backups)'],
+  none: ['mgmt.guide.kind.none', 'No guide'],
 };
 
 export const ForkRouteRole = ({ formik, routeName }) => {
@@ -69,6 +79,10 @@ export const ForkRouteRole = ({ formik, routeName }) => {
     : t('mgmt.appLinks.form.proposedNew', 'As proposed when it is saved');
   const options = [['', proposal], ...ROLES.map((role) => [role, t(...ROLE_TEXT[role])])];
   const shownRole = formik.values._ForkRole || proposed || 'user';
+  const guideProposed = known && GUIDE_TEXT[known.ForkGuideProposed] ? known.ForkGuideProposed : '';
+  const guideProposal = !known ? t('mgmt.appLinks.form.proposedNew', 'As proposed when it is saved') : guideProposed
+    ? t('mgmt.guide.form.proposed', 'As proposed: {{guide}} (from what Cosmos knows about this image)', { guide: t(...GUIDE_TEXT[guideProposed]) })
+    : t('mgmt.guide.form.proposedNone', 'As proposed: none (Cosmos does not know this image)');
   return <>
     <CosmosSelect
       name="_ForkRole"
@@ -88,6 +102,13 @@ export const ForkRouteRole = ({ formik, routeName }) => {
       label={t('mgmt.appLinks.form.homeOnly', 'Kept at home on purpose')}
       helperText={t('mgmt.appLinks.form.homeOnlyHelp', 'Seen from the internet, the app\'s tile says so and does not propose an internet address for it.')}
       formik={formik}
+    />
+    <CosmosSelect
+      name="_ForkGuide"
+      label={t('mgmt.guide.form.label', 'How-to guide of the app')}
+      helperText={t('mgmt.guide.form.help', '"How to use it" on the app\'s page and in its tile\'s menu: examples with the app\'s own addresses. Proposed from what Cosmos knows about the image; choose one if Cosmos did not recognise the app.')}
+      formik={formik}
+      options={[['', guideProposal], ...GUIDE_SETTINGS.map((g) => [g, t(...GUIDE_TEXT[g])])]}
     />
   </>;
 };

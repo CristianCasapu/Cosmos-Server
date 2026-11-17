@@ -412,7 +412,8 @@ export const appTile = (app, ctx) => {
     chosen,
     link: chosen ? chosen.url : '',
     state: tileState(interfaces, chosen),
-    menu: interfaces.length > 1 || (interfaces.length === 1 && !chosen),
+    // plan 50: an app with a how-to guide always has the menu (it holds "How to use it")
+    menu: interfaces.length > 1 || (interfaces.length === 1 && !chosen) || app.routes.some((r) => r && r.ForkGuide),
     keptHome: app.routes.some((r) => r.ForkHomeOnly === true),
   };
 };
