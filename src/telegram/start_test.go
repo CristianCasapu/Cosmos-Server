@@ -153,6 +153,7 @@ func TestAnUpdateThatFailedIsToldWithoutSecrets(t *testing.T) {
 func TestTheChatIsToldWhenItLosesTheNotifications(t *testing.T) {
 	fake := newFakeTelegram(t)
 	useFake(t, fake)
+	waitForNoChanges(t)
 	before := testConfig()
 
 	before.Telegram.MinSeverity = "medium" // so that raising it can be seen
@@ -165,6 +166,14 @@ func TestTheChatIsToldWhenItLosesTheNotifications(t *testing.T) {
 		"no longer send critical messages":        func(c *utils.Config) { c.Telegram.Delivery = map[string]string{"critical": "off"} },
 		"no longer send error messages":           func(c *utils.Config) { c.Telegram.Delivery = map[string]string{"error": "off"} },
 		"no longer send: Two-factor check locked": func(c *utils.Config) { c.Telegram.Kinds = map[string]bool{"auth.mfa.locked": false} },
+		// review R6: groups, error kinds on their own, the watches
+		"no longer include the group \"system\"":    func(c *utils.Config) { c.Telegram.Categories = map[string]bool{"system": false} },
+		"no longer include the group \"storage\"":   func(c *utils.Config) { c.Telegram.Categories = map[string]bool{"storage": false} },
+		"no longer send: Disk failing (S.M.A.R.T.)": func(c *utils.Config) { c.Telegram.Kinds = map[string]bool{"smart.failing": false} },
+		"no longer send: Docker does not answer":    func(c *utils.Config) { c.Telegram.Kinds = map[string]bool{"docker.down": false} },
+		"no longer watch for failing disks, Docker not answering": func(c *utils.Config) {
+			c.Watch.SMARTOff, c.Watch.DockerOff = true, true
+		},
 		"now send fewer security events (minimum severity raised to high)": func(c *utils.Config) {
 			c.Telegram.MinSeverity = "high"
 		},
@@ -191,13 +200,13 @@ func TestTheChatIsToldWhenItLosesTheNotifications(t *testing.T) {
 	quiet := []func(*utils.Config, *utils.Config){
 		func(was, is *utils.Config) {},
 		func(was, is *utils.Config) { is.Telegram.MaxPerMinute = 3; is.Telegram.ServerName = "x" },
-		func(was, is *utils.Config) { is.Telegram.Categories = map[string]bool{"apps": false} },
+		func(was, is *utils.Config) { is.Telegram.Categories = map[string]bool{"other": false} },
 		// silent is still delivered; a warning switched off; a kind that was not sent anyway
 		func(was, is *utils.Config) {
 			is.Telegram.Delivery = map[string]string{"critical": "silent", "warn": "off"}
 		},
 		func(was, is *utils.Config) {
-			is.Telegram.Kinds = map[string]bool{"auth.login.failed": false, "container.dying": false}
+			is.Telegram.Kinds = map[string]bool{"auth.login.failed": false, "container.leftover": false}
 		},
 		func(was, is *utils.Config) { was.Telegram.MinSeverity = "high"; is.Telegram.MinSeverity = "medium" },
 		func(was, is *utils.Config) { was.Telegram.Enabled = false },
@@ -269,4 +278,53 @@ func TestAQuietStartSendsNoStartMessage(t *testing.T) {
 	if texts := strings.Join(fake.texts(), "\n"); !strings.Contains(texts, "Cosmos was updated") {
 		t.Errorf("the control start said %q", texts)
 	}
+}
+
+// Review R6: saves that follow each other while an announcement is under
+// way are not dropped: they are told together.
+func TestSavesInARowAreAllTold(t *testing.T) {
+	fake := newFakeTelegram(t)
+	fake.always(fakeAnswer{status: 200, body: answerOK.body, delay: 300 * time.Millisecond})
+	useFake(t, fake)
+	waitForNoChanges(t)
+	before := testConfig()
+	for _, change := range []func(*utils.Config){
+		func(c *utils.Config) { c.Telegram.Kinds = map[string]bool{"smart.failing": false} },
+		func(c *utils.Config) { c.Telegram.Kinds = map[string]bool{"docker.down": false} },
+		func(c *utils.Config) { c.Watch.CountryOff = true },
+		func(c *utils.Config) { c.Telegram.Delivery = map[string]string{"error": "off"} },
+	} {
+		after := testConfig()
+		change(&after)
+		AnnounceSettingsChange(before, after, "mallory", "203.0.113.66")
+	}
+	time.Sleep(1500 * time.Millisecond)
+	all := strings.Join(fake.texts(), "\n")
+	for _, want := range []string{"Disk failing", "Docker does not answer", "sign-ins from a new country", "no longer send error messages"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("%q was not told: %s", want, all)
+		}
+	}
+	if n := len(fake.received()); n > 2 {
+		t.Errorf("%d messages for four saves in a row, want them told together: %q", n, fake.texts())
+	}
+}
+
+// waitForNoChanges waits until no announcement of an earlier test is under way.
+func waitForNoChanges(t *testing.T) {
+	t.Helper()
+	previous := changeRetries
+	changeRetries = []time.Duration{10 * time.Millisecond}
+	t.Cleanup(func() { changeRetries = previous })
+	deadline := time.Now().Add(40 * time.Second)
+	for time.Now().Before(deadline) {
+		changeMu.Lock()
+		running := changeRunning
+		changeMu.Unlock()
+		if !running {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("an announcement of an earlier test is still under way")
 }
