@@ -425,7 +425,9 @@ export const appTiles = (routes, ctx, skip) => groupApps(routes, skip).map((app)
 
 // URLs as the configuration holds them, with what GET /api/dashboard adds
 // (role, label, names for use at home, the container's ports): matched by name.
-const DASHBOARD_FIELDS = ['ForkRole', 'ForkRoleSource', 'ForkLabel', 'ForkHomeOnly', 'ForkAdminPath', 'ForkHomeHosts', 'ForkContainer', 'ForkImage', 'ForkPorts'];
+const DASHBOARD_FIELDS = ['ForkRole', 'ForkRoleSource', 'ForkLabel', 'ForkHomeOnly', 'ForkAdminPath', 'ForkHomeHosts', 'ForkContainer', 'ForkImage', 'ForkPorts',
+  // plan 50: the guide's facts
+  'ForkGuide', 'ForkGuideSource', 'ForkGuideProposed', 'ForkGuideRegion', 'ForkShielded', 'ForkOwnCAHosts', 'ForkNetworks'];
 export const mergeDashboard = (routes, dashboard) => {
   const byName = new Map();
   (Array.isArray(dashboard) ? dashboard : []).forEach((d) => { if (d && d.Name && !byName.has(d.Name)) byName.set(d.Name, d); });

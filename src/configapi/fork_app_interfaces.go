@@ -199,6 +199,7 @@ type ForkDashboardFields struct {
 	ForkContainer string              `json:"ForkContainer,omitempty"`
 	ForkImage     string              `json:"ForkImage,omitempty"`
 	ForkPorts     []ForkDashboardPort `json:"ForkPorts,omitempty"`
+
 	ForkGuideFields // Fork addition (plan 50): the app's guide and what it needs to know, see fork_app_guides.go
 }
 

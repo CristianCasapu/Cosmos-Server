@@ -13,6 +13,8 @@
 #
 #   BIN=<cosmos built with CGO_ENABLED=0> sh scripts/fork-guide-examples.sh up    the Docker in Docker, images (pulled once, with a way out)
 #   sh scripts/fork-guide-examples.sh run [ONLY=<block id,…>] [PLACES=home,internet,container]
+#   sh scripts/fork-guide-examples.sh browser PHASE=seed|home|away|user [ENGINES=…] [SIZES=…]
+#        the browser check scripts/fork-ui-check-guides.mjs (needs STATIC=<built ./static> at `up`)
 #   sh scripts/fork-guide-examples.sh clean    every container, network and image it made, and the scratch folder
 #
 # The log is SCRATCH/out/examples.log, the per-block result SCRATCH/out/results.json.
@@ -68,6 +70,22 @@ http {
       proxy_read_timeout 600s;
     }
   }
+  # the panel through the stand-in, for the browser "away" (its own certificate is not checked by the test browser)
+  server {
+    listen 2053 ssl;
+    server_name cosmos.example.org;
+    ssl_certificate /w/edge.pem;
+    ssl_certificate_key /w/edge.key;
+    location / {
+      proxy_pass https://173.245.48.1:2053;
+      proxy_ssl_server_name on;
+      proxy_ssl_name $host;
+      proxy_http_version 1.1;
+      proxy_set_header Host $http_host;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+    }
+  }
 }
 EOF
   trust_deb='COPY public-ca.pem /usr/local/share/ca-certificates/test-public.crt
@@ -83,6 +101,7 @@ RUN mkdir -p /var/www/site/uploads && echo '<?php echo "hello";' > /var/www/site
 EOF
   cat > "$w/pg.Dockerfile" <<EOF
 FROM postgres:18
+RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates >/dev/null
 COPY --from=restic/restic:latest /usr/bin/restic /usr/local/bin/restic
 $trust_deb
 ENV PGHOST=/var/run/postgresql PGUSER=postgres
@@ -133,13 +152,14 @@ FROM golang:1.27
 RUN mkdir /prep && cd /prep && go mod init example.org/prep >/dev/null 2>&1 \
  && go get github.com/aws/aws-sdk-go-v2/config github.com/aws/aws-sdk-go-v2/feature/s3/manager github.com/aws/aws-sdk-go-v2/service/s3 >/dev/null 2>&1
 $trust_deb
-ENV GOPROXY=off GOSUMDB=off GOFLAGS=-mod=mod
+ENV GOPROXY=file:///go/pkg/mod/cache/download GOSUMDB=off GOFLAGS=-mod=mod
 EOF
   cat > "$w/curl.Dockerfile" <<'EOF'
 FROM curlimages/curl:latest
 USER root
 COPY public-ca.pem /usr/local/share/ca-certificates/test-public.crt
 RUN cat /usr/local/share/ca-certificates/test-public.crt >> /etc/ssl/certs/ca-certificates.crt
+ENV CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 EOF
   cat > "$w/pwsh.Dockerfile" <<EOF
 FROM mcr.microsoft.com/powershell:latest
@@ -166,7 +186,8 @@ up)
   mkdir -p "$SCRATCH/run" "$SCRATCH/out" "$SCRATCH/docker" "$SCRATCH/build"
   cp "$BIN" "$SCRATCH/run/cosmos"
   echo '{"version":"test"}' > "$SCRATCH/run/meta.json"
-  mkdir -p "$SCRATCH/run/static" && [ -s "$SCRATCH/run/static/index.html" ] || echo '<!doctype html><title>t</title>' > "$SCRATCH/run/static/index.html"
+  rm -rf "$SCRATCH/run/static" && mkdir -p "$SCRATCH/run/static"
+  if [ -n "${STATIC:-}" ]; then cp -r "$STATIC/." "$SCRATCH/run/static/"; else echo '<!doctype html><title>t</title>' > "$SCRATCH/run/static/index.html"; fi
   if ! docker inspect "$PREFIX-dind" >/dev/null 2>&1; then
     docker network inspect "$PREFIX-out" >/dev/null 2>&1 || docker network create "$PREFIX-out" >/dev/null
     docker run -d --name "$PREFIX-dind" --privileged -e DOCKER_TLS_CERTDIR= --network "$PREFIX-out" --dns 1.1.1.1 --dns 9.9.9.9 \
@@ -197,7 +218,7 @@ while [ ! -e /scratch/run/stop ]; do ./cosmos >> /scratch/run/cosmos.log 2>&1; s
 EOF
   rm -f "$SCRATCH/run/stop"
   mkdir -p "$SCRATCH/run/config"
-  in_dind sh -c 'pgrep -f "sh /scratch/run/start.sh" >/dev/null || (setsid sh /scratch/run/start.sh >/dev/null 2>&1 &)'
+  in_dind pgrep -f "sh /scratch/run/start.sh" >/dev/null || docker exec -d "$PREFIX-dind" sh /scratch/run/start.sh
   say "up: Cosmos (log $SCRATCH/run/cosmos.log), the stand-in at 203.0.113.2"
   ;;
 run)
@@ -205,10 +226,46 @@ run)
   in_dind sh -c 'docker rm -f -v rustfs >/dev/null 2>&1; docker run -d --name rustfs --network storage-net \
       -e RUSTFS_ACCESS_KEY=gx-admin -e RUSTFS_SECRET_KEY=Gx-test-admin-secret-0420 '"$RUSTFS_IMAGE"' >/dev/null'
   in_dind docker rm -f gx-harness-run >/dev/null 2>&1 || true
+  harness() {
+    in_dind docker run --rm --name gx-harness-run --network gx-lan --add-host cosmos.example.org:192.168.60.1 \
+      -v /var/run/docker.sock:/var/run/docker.sock -v /repo:/repo:ro -v /scratch:/scratch -w /repo \
+      -e ONLY="${ONLY:-}" -e PLACES="${PLACES:-home,internet,container}" -e OUT=/scratch/out -e NODE_TLS_REJECT_UNAUTHORIZED=0 "$@" \
+      gx-harness node scripts/fork-guide-examples.mjs
+  }
+  # the wizard and the URLs, then the name served through Cloudflare's proxy: Cosmos keeps that list
+  # apart from what PUT /api/config may change (it is set by the Cloudflare card), so it is written
+  # into the configuration file here and the test server is started again
+  harness -e SETUP_ONLY=1
+  in_dind docker run --rm -v /scratch/run/config:/c gx-harness node -e '
+    const fs = require("fs"); const p = "/c/cosmos.config.json"; const c = JSON.parse(fs.readFileSync(p, "utf8"));
+    c.HTTPConfig.Cloudflare = c.HTTPConfig.Cloudflare || {};
+    if (!(c.HTTPConfig.Cloudflare.Shielded || []).includes("s3.example.org")) {
+      c.HTTPConfig.Cloudflare.Shielded = ["s3.example.org"]; c.HTTPConfig.Cloudflare.TrustRanges = true;
+      fs.writeFileSync(p, JSON.stringify(c, null, 2)); console.log("shielded"); }' > "$SCRATCH/out/shield.txt"
+  if grep -q shielded "$SCRATCH/out/shield.txt"; then in_dind pkill -f "^./cosmos" || true; sleep 3; fi
   in_dind docker run --rm --name gx-harness-run --network gx-lan --add-host cosmos.example.org:192.168.60.1 \
     -v /var/run/docker.sock:/var/run/docker.sock -v /repo:/repo:ro -v /scratch:/scratch -w /repo \
     -e ONLY="${ONLY:-}" -e PLACES="${PLACES:-home,internet,container}" -e OUT=/scratch/out -e NODE_TLS_REJECT_UNAUTHORIZED=0 \
     gx-harness node scripts/fork-guide-examples.mjs
+  ;;
+browser)
+  shift
+  envs=""
+  for a in "$@"; do envs="$envs -e $a"; done
+  if ! in_dind docker image inspect mcr.microsoft.com/playwright:v1.65.1-noble >/dev/null 2>&1; then
+    in_dind docker pull -q mcr.microsoft.com/playwright:v1.65.1-noble >/dev/null
+  fi
+  if [ ! -d "$SCRATCH/pw/node_modules/playwright" ]; then
+    mkdir -p "$SCRATCH/pw" && cp "$here/fork-ci-smoke/package.json" "$here/fork-ci-smoke/package-lock.json" "$SCRATCH/pw/"
+    in_dind docker run --rm -v /scratch/pw:/pw -w /pw mcr.microsoft.com/playwright:v1.65.1-noble npm ci --ignore-scripts --no-audit --no-fund --loglevel=error >/dev/null
+  fi
+  phase=$(echo "$envs" | sed -n 's/.*PHASE=\([a-z]*\).*/\1/p')
+  if [ "$phase" = away ]; then net="--network gx-inet --add-host cosmos.example.org:203.0.113.2"; else net="--network gx-lan --add-host cosmos.example.org:192.168.60.1 --add-host rustfs.local:192.168.60.1"; fi
+  in_dind docker rm -f gx-browser >/dev/null 2>&1 || true
+  # shellcheck disable=SC2086
+  in_dind docker run --rm --name gx-browser $net --ipc=host $envs -e OUT=/scratch/out/ui \
+    -v /repo/scripts:/check/scripts:ro -v /scratch/pw/node_modules:/check/node_modules:ro -v /scratch:/scratch -w /check \
+    mcr.microsoft.com/playwright:v1.65.1-noble node scripts/fork-ui-check-guides.mjs
   ;;
 clean)
   touch "$SCRATCH/run/stop" 2>/dev/null || true

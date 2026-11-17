@@ -34,9 +34,10 @@ const results = [];
 // the test Cosmos
 
 let cookie = '';
+let base = BASE;
 const call = async (method, path, data) => {
   try {
-    const r = await fetch(BASE + '/cosmos/api/' + path, {
+    const r = await fetch(base + '/cosmos/api/' + path, {
       method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: data === undefined ? undefined : JSON.stringify(data),
     });
     const set = r.headers.getSetCookie ? r.headers.getSetCookie() : [];
@@ -60,6 +61,8 @@ const route = (Name, Host, Target) => ({
 });
 
 const setUp = async () => {
+  // before the setup wizard the server answers on plain HTTP only
+  base = 'http://cosmos.example.org:2052';
   await waitUp();
   if ((await call('POST', 'newInstall', { step: '2' })).status === 200) {
     log('wizard', (await call('POST', 'newInstall', { step: '3', httpsCertificateMode: 'SELFSIGNED', hostname: 'cosmos.example.org' })).status);
@@ -67,19 +70,19 @@ const setUp = async () => {
     await call('POST', 'newInstall', { step: '4', ...admin, email: 'admin@example.org' });
     await call('POST', 'newInstall', { step: '5' });
     await sleep(6000);
-    await waitUp();
   }
+  base = BASE;
+  await waitUp();
   log('login', (await call('POST', 'login', admin)).status, 'sudo', (await call('POST', 'sudo', { password: admin.password })).status);
   const config = (await call('GET', 'config')).body.data;
   const wanted = ['s3', 's3-internet', 'rustfs-console'];
   const have = (config.HTTPConfig.ProxyConfig.Routes || []).map((r) => r.Name);
-  if (!wanted.every((n) => have.includes(n)) || !(config.HTTPConfig.Cloudflare && (config.HTTPConfig.Cloudflare.Shielded || []).includes('s3.example.org'))) {
+  if (!wanted.every((n) => have.includes(n))) {
     config.HTTPConfig.ProxyConfig.Routes = [
       route('s3', 's3.local', 'http://rustfs:9000'),
       route('s3-internet', 's3.example.org', 'http://rustfs:9000'),
       route('rustfs-console', 'rustfs.local', 'http://rustfs:9001'),
     ];
-    config.HTTPConfig.Cloudflare = { ...(config.HTTPConfig.Cloudflare || {}), Shielded: ['s3.example.org'], TrustRanges: true };
     log('save the URLs', (await call('PUT', 'config', config)).status);
     await sleep(5000);
     await waitUp();
@@ -90,7 +93,8 @@ const setUp = async () => {
 // ---------------------------------------------------------------------------
 // running
 
-const docker = (...args) => spawnSync('docker', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+// every call is bounded: a chain that hangs (a client retrying for ever) fails after 12 minutes
+const docker = (...args) => spawnSync('docker', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 12 * 60 * 1000 });
 
 const PLACE_NET = {
   home: ['--network', 'gx-lan', '--add-host', 's3.local:192.168.60.1', '--add-host', 'rustfs.local:192.168.60.1'],
@@ -102,9 +106,9 @@ const PLACE_NET = {
 const SETUP = {
   linux: 'service mariadb start >/dev/null 2>&1; mariadb -e "create database if not exists shop; create table if not exists shop.orders (id int); insert into shop.orders values (1),(2),(3);"',
   pg: 'su postgres -c "initdb -D /tmp/pg >/dev/null && pg_ctl -D /tmp/pg -o \\"-k /var/run/postgresql\\" -l /tmp/pg.log start >/dev/null" && sleep 2 && createdb shop && psql -q -d shop -c "create table orders (id int); insert into orders values (1),(2),(3);"',
-  maria: '(MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1 docker-entrypoint.sh mariadbd >/tmp/db.log 2>&1 &) ; for i in $(seq 1 60); do mariadb -e "select 1" >/dev/null 2>&1 && break; sleep 1; done; mariadb -e "create database if not exists shop; create table if not exists shop.orders (id int); insert into shop.orders values (1),(2),(3);"',
+  maria: '(MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1 docker-entrypoint.sh mariadbd >/tmp/db.log 2>&1 &) ; for i in $(seq 1 90); do grep -q "port: 3306" /tmp/db.log && mariadb -e "select 1" >/dev/null 2>&1 && break; sleep 1; done; mariadb -e "create database if not exists shop; create table if not exists shop.orders (id int); insert into shop.orders values (1),(2),(3);"',
   mongo: '(mongod --bind_ip 127.0.0.1 --dbpath /tmp --fork --logpath /tmp/mongo.log >/dev/null) && mongosh --quiet --eval "db.getSiblingDB(\\"shop\\").orders.insertMany([{a:1},{a:2},{a:3}])" >/dev/null',
-  php: 'service mariadb start >/dev/null 2>&1; mariadb -e "create database if not exists site; create user if not exists site@localhost identified by \'$DBPASS\'; grant all on site.* to site@localhost; create table if not exists site.posts (id int, title text); insert into site.posts values (1, \'Hello\'), (2, \'Here\');"',
+  php: 'service mariadb start >/dev/null 2>&1; mariadb -e "create database if not exists site; create user if not exists site@\'%\' identified by \'$DBPASS\'; grant all on site.* to site@\'%\'; create table if not exists site.posts (id int, title text); insert into site.posts values (1, \'Hello\'), (2, \'Here\');"',
 };
 const IMAGE = { linux: 'gx-linux', pg: 'gx-pg', maria: 'gx-maria', mongo: 'gx-mongo', aws: 'gx-aws', python: 'gx-python', node: 'gx-node', php: 'gx-php', go: 'gx-go', curl: 'gx-curl', pwsh: 'gx-pwsh', docker: 'gx-docker' };
 // chains that read the Linux section's settings file first
@@ -163,33 +167,36 @@ const runChain = (chain, blocks, place, facts) => {
   let res;
   if (runner === 'rustfs') {
     // the app's Terminal: a shell inside the app's own container
-    docker('exec', 'rustfs', 'rm', '-rf', '/tmp/steps');
-    docker('cp', dir, 'rustfs:/tmp/steps');
-    const script = readFileSync(dir + '/driver.sh', 'utf8').replace(/\/steps\//g, '/tmp/steps/').replace('cd /work', 'cd /tmp');
+    const into = '/tmp/steps-' + place.key + '-' + Date.now();
+    docker('cp', dir, 'rustfs:' + into);
+    const script = readFileSync(dir + '/driver.sh', 'utf8').replace(/\/steps\//g, into + '/').replace('cd /work', 'cd /tmp');
     res = docker('exec', 'rustfs', 'sh', '-c', script);
   } else {
     const name = 'gx-run-' + place.key + '-' + chain;
     docker('rm', '-f', '-v', name);
     const extra = [];
     if (runner === 'docker') extra.push('-v', '/var/run/docker.sock:/var/run/docker.sock');
-    if (runner === 'php') extra.push('-e', 'DBPASS=' + place.dbPassword, '-e', 'DB_HOST=localhost');
+    if (runner === 'php') extra.push('-e', 'DBPASS=' + place.dbPassword, '-e', 'DB_HOST=127.0.0.1');
     // the steps are copied in (not mounted), so that a run cannot write into the scratch folder's other files
     docker('create', '--name', name, ...PLACE_NET[place.key], '--entrypoint', 'sh', '-w', '/work', ...extra, IMAGE[runner], '-c', 'mkdir -p /work && sh /steps/driver.sh');
     docker('cp', dir, name + ':/steps');
     res = docker('start', '-a', name);
+    if (res.error) res = { stdout: (res.stdout || '') + '\n(the chain did not end within 12 minutes)\n', stderr: res.stderr || '' };
     docker('rm', '-f', '-v', name);
   }
   const output = (res.stdout || '') + (res.stderr || '');
   writeFileSync(dir + '/output.txt', output);
   const done = new Set([...output.matchAll(/^=== ok (\S+)$/gm)].map((m) => m[1]));
   const preOk = /^=== pre ok$/m.test(output);
-  return blocks.map((b) => ({ id: b.id, ok: preOk && done.has(b.id), output: output.slice(-1500) }));
+  const started = new Set([...output.matchAll(/^=== step (\S+)$/gm)].map((m) => m[1]));
+  return blocks.map((b) => ({ id: b.id, ok: preOk && done.has(b.id), note: done.has(b.id) ? '' : started.has(b.id) ? 'failed' : 'not reached', output: output.slice(-1500) }));
 };
 
 // ---------------------------------------------------------------------------
 
 const guide = parseGuide(readFileSync('/repo/src/guides/s3.md', 'utf8'));
 await setUp();
+if (process.env.SETUP_ONLY) process.exit(0);
 const dashboard = (await call('GET', 'dashboard')).body.data;
 const status = (await call('GET', 'status')).body.data;
 const configRoutes = (await call('GET', 'config')).body.data.HTTPConfig.ProxyConfig.Routes;
@@ -203,6 +210,7 @@ for (const key of PLACES) {
   const place = { key, name, guide, secret: randomBytes(15).toString('hex'), repoPassword: 'Repo-' + randomBytes(9).toString('hex'), dbPassword: 'Db-' + randomBytes(9).toString('hex') };
   const ctx = { place: { where, sure: true }, location: { protocol: 'https:', hostname: 'cosmos.example.org', port: '2053', origin: BASE }, isAdmin: true };
   const facts = guideFacts(app, ctx, status, key, { name, bucket: 'backups-' + name });
+  log('app', JSON.stringify(app.routes.map((r) => [r.Name, r.Host, r.UseHost, r.Target, r.Mode, r.ForkRole, r.ForkGuide, r.UsePathPrefix, r.PathPrefix])), JSON.stringify(facts.places));
   log('\n## place', key, 'endpoint', facts.values.endpoint, 'cloudflare', facts.flags.cloudflare, 'own CA', facts.flags.ca, 'rustfs', facts.flags.rustfs);
   if (facts.choice !== key) { log('FAIL the place', key, 'has no address'); results.push({ place: key, id: '(place)', ok: false }); continue; }
   const sections = visibleSections(guide, facts.flags).map((s) => s.id);
@@ -226,7 +234,7 @@ for (const key of PLACES) {
     const out = runChain(chain, list, place, facts);
     out.forEach((r) => {
       results.push({ place: key, chain, ...r });
-      log((r.ok ? 'ok   ' : 'FAIL ') + key + ' ' + r.id + ' (' + list[0].runner + ', ' + Math.round((Date.now() - started) / 1000) + ' s)');
+      log((r.ok ? 'ok   ' : 'FAIL ') + key + ' ' + r.id + (r.note ? ' [' + r.note + ']' : '') + ' (' + list[0].runner + ', ' + Math.round((Date.now() - started) / 1000) + ' s)');
     });
     if (out.some((r) => !r.ok)) log('---- output of ' + key + '/' + chain + ' (end):\n' + out[0].output + '\n----');
   }

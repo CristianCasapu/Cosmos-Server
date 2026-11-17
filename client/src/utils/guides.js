@@ -92,7 +92,7 @@ const parseBlocks = (lines) => {
       const attrs = {};
       fence[2].trim().split(/\s+/).filter(Boolean).forEach((pair) => {
         const [k, v] = pair.split('=');
-        if (/^[a-z]+$/.test(k) && v && /^[a-z0-9-]+$/.test(v)) attrs[k] = v;
+        if (/^[a-z]+$/.test(k) && v && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(v)) attrs[k] = v;
       });
       const code = [];
       i++;
