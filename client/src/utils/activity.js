@@ -56,6 +56,8 @@ const IGNORED = [
   /^\/api\/(login|logout|sudo|mfa|register|password-reset|me|status|newInstall|setup-join)\b/,
   /^\/api\/config\/email-detect\b/, // a lookup for the email form, which shows what was found itself
   /^\/api\/config\/http-check\b/, // Fork addition: the HTTP settings form shows what the check found itself
+  /^\/api\/config\/postgres-(test|proposals)\b/, // Fork addition (plan 47): the monitoring database form shows what the test and the proposals found itself
+  /^\/api\/snapshots\/look\b/, // Fork addition (plan 47): a read sent as POST; the snapshots card shows what it found
   /^\/api\/install\/plan\b/, // Fork addition: a lookup for the installation's review, which shows what was found itself
   /^\/api\/images\/(search|describe)\b/, // Fork addition (plan 40): lookups for "Install any image", which shows what was found itself
   /^\/api\/storage\/unmount-check\b/, // Fork addition: a read sent as POST; the unmount dialog shows what it found

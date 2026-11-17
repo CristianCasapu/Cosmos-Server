@@ -23,6 +23,7 @@ import { isDomain, redirectTo, redirectToLocal } from '../../utils/indexs';
 import { DnsChallengeComp } from '../../utils/dns-challenge-comp';
 import { LanguagesSelect } from '../../layout/MainLayout/Drawer/languages';
 import UploadButtons from '../../components/fileUpload';
+import { usePaidVisibility } from '../../components/paidVisibility'; // Fork addition: joining a cluster needs a licence (Constellation)
 // ================================|| LOGIN ||================================ //
 
 const debounce = (func, wait) => {
@@ -62,6 +63,9 @@ const NewInstall = () => {
     const [hostError, setHostError] = useState(null);
     const [hostIp, setHostIp] = useState(null);
     const [cleanInstall, setCleanInstall] = useState(true);
+    // Fork addition: the cluster join (Constellation, paid) is shown only once the status is known and paid features are not hidden
+    const paidVisibility = usePaidVisibility();
+    const showJoin = paidVisibility.offerMode !== 'none' && !paidVisibility.hidePaid;
     const [joinFile, setJoinFile] = useState(null);
     const [joinHostname, setJoinHostname] = useState('');
     const [joinError, setJoinError] = useState(null);
@@ -149,7 +153,7 @@ const NewInstall = () => {
                     <Checkbox checked={cleanInstall} onChange={(e) => setCleanInstall(e.target.checked)} sx={{ mt: -1 }} /><span>{t('newInstall.cleanInstallCheckbox')}</span>
                 </label>
                 <br /><br />
-                <Stack spacing={2} style={{marginBottom: '20px'}}>
+                {showJoin && /* Fork addition: hidden without a licence, see showJoin */ <Stack spacing={2} style={{marginBottom: '20px'}} data-fork-join-cluster>
                     <div>{t('newInstall.join.text')}</div>
                     <UploadButtons
                         accept=".yml,.yaml"
@@ -170,7 +174,7 @@ const NewInstall = () => {
                             {joining ? t('newInstall.join.joining') : t('newInstall.join.action')}
                         </Button>
                     </>}
-                </Stack>
+                </Stack>}
                 {/* Fork addition: a link styled as a button (one Tab stop; it was a button inside a link) */}
                 <Button component="a" target='_blank' rel="noopener noreferrer" href="https://cosmos-cloud.io/doc/2%20setup" variant="outlined" color="inherit" startIcon={<QuestionCircleOutlined />}>
                     {t('newInstall.linkToDocs')}

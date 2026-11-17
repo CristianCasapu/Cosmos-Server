@@ -34,17 +34,18 @@ func postgresTestCall(t *testing.T, body string) (int, map[string]interface{}, s
 
 func withSavedDatabase(t *testing.T, db utils.DatabaseConfig) *[]utils.DatabaseConfig {
 	t.Helper()
-	old := utils.GetMainConfig()
+	settingsTestServer(t) // a configuration folder of the test's own
+	old := utils.GetBaseMainConfig()
 	config := old
 	config.Database = db
-	utils.SetBaseMainConfig(config)
+	utils.LoadBaseMainConfig(config) // in memory only: nothing is written
 	tried := &[]utils.DatabaseConfig{}
 	oldCheck := checkPostgres
 	checkPostgres = func(ctx context.Context, d utils.DatabaseConfig) *utils.PostgresProblem {
 		*tried = append(*tried, d)
 		return nil
 	}
-	t.Cleanup(func() { checkPostgres = oldCheck; utils.SetBaseMainConfig(old) })
+	t.Cleanup(func() { checkPostgres = oldCheck; utils.LoadBaseMainConfig(old) })
 	return tried
 }
 

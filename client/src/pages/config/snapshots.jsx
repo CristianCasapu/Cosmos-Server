@@ -29,6 +29,7 @@ import PermissionGuard from '../../components/permissionGuard';
 import { PERM_ADMIN } from '../../utils/permissions';
 import { notify } from '../../utils/activity';
 import { simplifyNumber } from '../dashboard/components/utils';
+import { DestinationProposals, ExcludeOffers, useDestinationProposals } from './snapshotProposals'; // Fork addition (plan 47): the destination and the exclusions proposed
 
 const DEFAULT_KEEP = { Recent: 8, Daily: 7, Weekly: 4, Monthly: 6 };
 const SHOWN_AT_FIRST = 5;
@@ -165,6 +166,7 @@ const Snapshots = ({ formik, config }) => {
   const values = formik.values;
   const sources = Array.isArray(values.Snapshots_Sources) ? values.Snapshots_Sources : [];
   const destination = values.Snapshots_Destination || '';
+  const destinationProposals = useDestinationProposals(sources); // Fork addition (plan 47)
 
   // tells how a run or a restore that this page followed has ended
   const report = (data) => {
@@ -301,6 +303,7 @@ const Snapshots = ({ formik, config }) => {
             {t('mgmt.config.snapshots.destinationHelp',
               'On a disk formatted for Linux (ext4, XFS, Btrfs…), in a place the apps cannot reach, and preferably not on the disk the folders themselves are on. It is created if it does not exist.')}
           </FormHelperText>
+          <DestinationProposals formik={formik} config={config} proposals={destinationProposals} />
         </Grid>
 
         {/* what is backed up */}
@@ -361,6 +364,7 @@ const Snapshots = ({ formik, config }) => {
           helperText={t('mgmt.config.snapshots.excludesHelp',
             'For example *.tmp, cache or transcodes. A pattern without "/" applies to the name of a file or folder at any depth; one with "/" applies to the path below each folder backed up, for example downloads/incomplete. A folder that is left out is skipped with all it holds. "*" and "?" stay within one name; "**" is not supported.')}
         />
+        <ExcludeOffers formik={formik} sources={sources} />
 
         {/* when */}
         <CosmosSelect
