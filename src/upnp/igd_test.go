@@ -48,6 +48,8 @@ type fakeRouter struct {
 	// was asked for: "0" for a router that keeps no time, a small number for
 	// one whose forwards are about to end.
 	leaseLeft string
+	// externalIP is the outside address the router reports (default 203.0.113.7).
+	externalIP string
 }
 
 type fakeForward struct {
@@ -214,7 +216,11 @@ func (r *fakeRouter) control(w http.ResponseWriter, req *http.Request) {
 	}
 	switch action {
 	case "GetExternalIPAddress":
-		reply("<NewExternalIPAddress>203.0.113.7</NewExternalIPAddress>")
+		address := r.externalIP
+		if address == "" {
+			address = "203.0.113.7"
+		}
+		reply("<NewExternalIPAddress>" + address + "</NewExternalIPAddress>")
 	case "GetSpecificPortMappingEntry":
 		if r.noLookup {
 			fault(401, "Invalid Action")

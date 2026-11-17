@@ -188,6 +188,7 @@ WantedBy=multi-user.target`
 
 func main() {
 	armUpdateTrialStop() // Fork addition: a stop of a version on trial is noted as clean from here on, see fork_update_trial.go
+	if forkDetectCommand() { return } // Fork addition: `cosmos fork-detect` for the install scripts, before anything touches Docker or the configuration, see fork_detect.go
 	docker.IsInsideContainer()
 
 	if utils.IsInsideContainer && pro.IsPro() {
