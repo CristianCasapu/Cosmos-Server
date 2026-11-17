@@ -461,6 +461,16 @@ export const menuOrder = (tile, isAdmin) => {
     || (a.index - b.index)).map((x) => x.item);
 };
 
+// Whether a full address (a server-built link: the sign-in card's) opens
+// from where the visitor is: 'opens', 'maybe', 'home-only', 'vpn-only', or
+// '' when it is not an http(s) address.
+export const urlReach = (url, ctx) => {
+  const safe = safeURL(url);
+  if (!safe) return '';
+  const c = ctx || {};
+  return reachFrom(hostKind(new URL(safe).host, c.homeSuffixes) || 'public', c.place || visitorPlace(null, c.location));
+};
+
 // What a menu line says about where an address works.
 export const reachMark = (item) => {
   if (!item) return '';

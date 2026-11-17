@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   appTiles, appTile, containerApp, appInterfaces, chooseInterface, groupApps, hostKind, parseHost, reachFrom, routeURL, safeURL,
-  visitorPlace, interfaceOfRoute, readPreference, writePreference, PREFER_KEY, mergeDashboard, inspectPorts, menuOrder,
+  visitorPlace, interfaceOfRoute, readPreference, writePreference, PREFER_KEY, mergeDashboard, inspectPorts, menuOrder, urlReach,
 } from './appInterfaces.js';
 
 const app = (name, host, target, more = {}) => ({ Name: name, UseHost: !!host, Host: host, Target: target, Mode: 'SERVAPP', ForkRole: 'user', ...more });
@@ -316,4 +316,12 @@ test('the menu: what the tile opens first, pages before the API, endpoints last'
   assert.equal(rs[0].url, 'https://rustfs-console.local:2053');
   assert.equal(rs[rs.length - 1].role, 'api');
   assert.deepEqual(menuOrder(null, true), []);
+});
+
+test('a server-built address: does it open from here', () => {
+  assert.equal(urlReach('https://rustfs-console.local:2053', { place: AWAY }), 'home-only');
+  assert.equal(urlReach('https://rustfs-console.local:2053', { place: HOME }), 'opens');
+  assert.equal(urlReach('https://s3.example.org', { place: AWAY }), 'opens');
+  assert.equal(urlReach('javascript:alert(1)', { place: AWAY }), '');
+  assert.equal(urlReach('', { place: AWAY }), '');
 });
