@@ -8,7 +8,11 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Merged into `custom` since `0.24.0-fork.32`, to be part of the next release:
+Nothing merged into `custom` since `0.24.0-fork.33` yet.
+
+Work in progress on a separate branch (not released, and may change before it is): sign-in details for new apps and web managers for databases.
+
+## Fork 0.24.0-fork.33 — 2026-11-17
 
 ### Added
 - "Does it open?": when an app refuses the address it is reached at (qBittorrent answers "Unauthorized" when the port in the address is not its own), ServApps shows "Does not open" on it; Cosmos says what the app objects to and offers the repair it has just seen work, with one confirmation. The same check runs after a URL is saved, on the URL's page and on the app's page. For known apps (26 of them) Cosmos also knows which variable or configuration line they need behind a proxy, and shows it to copy.
