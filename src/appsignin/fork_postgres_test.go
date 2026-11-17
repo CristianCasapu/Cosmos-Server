@@ -203,6 +203,9 @@ func TestPostgresHostAdvice(t *testing.T) {
 	owner.Name = "/postgresql"
 	lan := []pgCandidate{{Info: owner, Published: []pgBinding{{"192.168.1.20", "5432"}}, Networks: []string{"bridge"}, Addresses: []string{"172.17.0.2"}}}
 	unpublished := []pgCandidate{{Info: owner, Networks: []string{"bridge"}, Addresses: []string{"172.17.0.2"}}}
+	second := postgresContainer()
+	second.Name = "/second"
+	twoPorts := []pgCandidate{{Info: second, Published: []pgBinding{{"192.168.1.30", "5433"}}}, {Info: owner, Published: []pgBinding{{"192.168.1.20", "5432"}}}}
 	cases := []struct {
 		name, typed, reason string
 		candidates          []pgCandidate
@@ -212,6 +215,7 @@ func TestPostgresHostAdvice(t *testing.T) {
 		{"localhost, port on the LAN address only", "localhost:5432", "closed", lan, false,
 			[]string{"published on 192.168.1.20 only, not on localhost", "use 192.168.1.20:5432"}},
 		{"127.0.0.1 the same", "127.0.0.1:5432", "closed", lan, false, []string{"use 192.168.1.20:5432"}},
+		{"the typed port first", "localhost:5432", "closed", twoPorts, false, []string{"published on 192.168.1.20 only", "use 192.168.1.20:5432"}},
 		{"a .local guess", "postgresql.local:5432", "dns", lan, false,
 			[]string{".local exist only for apps that have a URL", "use 192.168.1.20:5432"}},
 		{"the container's name on bare metal", "postgresql:5432", "dns", lan, false,

@@ -11,6 +11,7 @@
 //                   started again: healed without a restart
 //   PHASE=start     a Cosmos start with the database down (the sh script restarts Cosmos between
 //                   PART=before and PART=after): the local file, said, then healed by itself
+//   PHASE=copy      after story: the history copy offered, run with progress, the old records in PostgreSQL
 //   PHASE=reset     back to the local file (the settings only, over the API)
 //   PHASE=proposals prints what the server proposes (to record what a version proposed)
 // ENGINES=chromium,firefox,webkit  SIZES=d,m (1366x900, 393x851)  BASE, DIND (the test Docker's API),
@@ -328,6 +329,41 @@ phases.start = async (page, id, size, ctx) => {
   await docker('/containers/postgresql/start');
   s = await waitState(ctx, (st) => st.inUse === 'pgx' && !st.fallback, 120);
   expect(id + ': healed by itself', s.inUse === 'pgx' && !s.fallback, JSON.stringify(s));
+};
+
+// After the switch: the copy of the local file's history is offered, runs with progress, and the
+// old records are then in PostgreSQL (the charts read them from there)
+phases.copy = async (page, id, size, ctx) => {
+  const s = await storeState(ctx);
+  expect(id + ': PostgreSQL is the store', s.inUse === 'pgx', JSON.stringify(s));
+  const before = { values: await pgCount('metric_values'), events: await pgCount('events') };
+  const oldest = Number((await execIn('postgresql', `PGPASSWORD=${DB_PASSWORD} psql -h 127.0.0.1 -U cosmos -d cosmos_monitoring -At -c "select coalesce(min(date),0) from events"`)).trim());
+  await openExternal(page);
+  const offer = page.locator('[data-fork-copy-offer=to-postgres]');
+  await offer.waitFor({ timeout: 30000 });
+  const text = await offer.innerText();
+  expect(id + ': the copy of the history is offered with its size and dates', /Copy the history from the local file/.test(text) && /records/.test(text) && /MB/.test(text), text);
+  await layout(page, id, offer, size);
+  await shotOf(offer, id, 'copy-offer');
+  await page.locator('[data-fork-copy-start=to-postgres]').click();
+  await answerPrompt(page);
+  const progress = page.locator('[data-fork-copy-progress]');
+  const sawProgress = await progress.first().waitFor({ timeout: 15000 }).then(() => true, () => false);
+  if (sawProgress) await shotOf(progress.first(), id, 'copy-progress');
+  const result = page.locator('[data-fork-copy-result]');
+  await result.first().waitFor({ timeout: 240000 });
+  const outcome = await result.first().getAttribute('data-fork-copy-result');
+  const said = await result.first().innerText();
+  expect(id + ': the copy ends verified', (outcome === 'done') && /both stores (now|already) hold the same history/.test(said), outcome + ' | ' + said);
+  await shotOf(result.first(), id, 'copy-result');
+  const after = { values: await pgCount('metric_values'), events: await pgCount('events') };
+  const oldestAfter = Number((await execIn('postgresql', `PGPASSWORD=${DB_PASSWORD} psql -h 127.0.0.1 -U cosmos -d cosmos_monitoring -At -c "select coalesce(min(date),0) from events"`)).trim());
+  expect(id + ': the old records are in PostgreSQL now', after.values >= before.values && after.events >= before.events && (oldest === 0 || oldestAfter <= oldest),
+    JSON.stringify({ before, after, oldest, oldestAfter }));
+  await page.goto(base + '/cosmos-ui/monitoring', { waitUntil: 'domcontentloaded' });
+  await sleep(4000);
+  await layout(page, id, null, size);
+  await shot(page, id, 'copy-monitoring');
 };
 
 // What the server proposes, as it answers (for the record of what a version proposed)
