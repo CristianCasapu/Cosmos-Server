@@ -27,13 +27,18 @@
 #   --dry-run   show what would be done and stop
 #   --yes       do not ask before changing
 #   --purge     also remove the package fail2ban
+#   --record <file>
+#               append one line per item removed to <file>
 #   --help      this text
+#
+# Exit codes: 0 done (or nothing to remove), 1 failed, 2 bad usage, 7 answered no.
 
 set -eu
 
 ETC=/etc/fail2ban
 BACKUP_ROOT=/var/backups/cosmos-fail2ban
-TABLE="inet f2b-cosmos"
+TNAME=f2b-cosmos
+TABLE="inet $TNAME"
 
 FILES="
 $ETC/filter.d/cosmos-auth.conf
@@ -44,15 +49,24 @@ $ETC/jail.d/cosmos-10-jails.local
 $ETC/jail.d/cosmos-50-host.local
 $ETC/jail.d/cosmos-90-panel.local
 $ETC/fail2ban.d/cosmos-fork.local
+$STATE_DIR/fail2ban.state
+$STATE_DIR/fail2ban.manifest
 "
 
 DRY_RUN=0
 YES=0
 PURGE=0
+RECORD=""
+PIECE=fail2ban
+STATE_DIR=/var/lib/cosmos-protection
 
 say()  { printf '%s\n' "$*"; }
 warn() { printf 'WARNING: %s\n' "$*" >&2; }
 die()  { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+record() { # kind value
+	[ -n "$RECORD" ] && [ "$DRY_RUN" = 0 ] || return 0
+	printf '%s\t%s\t%s\n' "$PIECE" "$1" "$(printf '%s' "$2" | tr -cd ' -~' | cut -c1-300)" >> "$RECORD"
+}
 
 usage() { sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; }
 
@@ -61,13 +75,17 @@ while [ $# -gt 0 ]; do
 		--dry-run) DRY_RUN=1 ;;
 		--yes) YES=1 ;;
 		--purge) PURGE=1 ;;
+		--record) [ $# -ge 2 ] || { printf 'ERROR: --record needs a file\n' >&2; exit 2; }; RECORD=$2; shift ;;
 		--help|-h) usage; exit 0 ;;
-		*) die "unknown option: $1 (see --help)" ;;
+		*) printf 'ERROR: unknown option: %s (see --help)\n' "$1" >&2; exit 2 ;;
 	esac
 	shift
 done
 
 [ "$(id -u)" = 0 ] || die "run this as root"
+if [ -n "$RECORD" ] && [ "$DRY_RUN" = 0 ]; then
+	[ -e "$RECORD" ] || ( umask 077; : > "$RECORD" ) || { printf 'ERROR: --record: cannot write %s\n' "$RECORD" >&2; exit 2; }
+fi
 
 INSTALLED=0
 if dpkg-query -W -f='${Status}' fail2ban 2>/dev/null | grep -q "install ok installed"; then INSTALLED=1; fi
@@ -114,7 +132,7 @@ if [ "$YES" != 1 ]; then
 	read -r answer || answer=""
 	case "$answer" in
 		y|Y|yes|YES) ;;
-		*) say "Nothing was changed."; exit 0 ;;
+		*) say "Nothing was changed."; exit 7 ;;
 	esac
 fi
 
@@ -130,8 +148,8 @@ fi
 
 # Fail2ban removes its table when it stops; this is for a Fail2ban that did
 # not stop cleanly.
-if command -v nft >/dev/null 2>&1 && nft list table $TABLE >/dev/null 2>&1; then
-	nft delete table $TABLE && say "removed  the table $TABLE from the packet filter"
+if command -v nft >/dev/null 2>&1 && nft list table inet "$TNAME" >/dev/null 2>&1; then
+	nft delete table inet "$TNAME" && say "removed  the table $TABLE from the packet filter"
 fi
 
 if [ -n "$PRESENT" ]; then
@@ -141,9 +159,14 @@ if [ -n "$PRESENT" ]; then
 	for file in $PRESENT; do
 		cp -p -- "$file" "$BACKUP/$(basename -- "$file")"
 		rm -f -- "$file"
+		record file "$file"
 		say "removed  $file"
 	done
+	rmdir "$STATE_DIR" 2>/dev/null || true
 	say "copies are in $BACKUP"
+	record status removed
+else
+	record status not-installed
 fi
 
 if [ "$PURGE" = 1 ] && [ "$INSTALLED" = 1 ]; then

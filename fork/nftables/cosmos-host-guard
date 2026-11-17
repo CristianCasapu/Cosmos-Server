@@ -1,0 +1,163 @@
+#!/bin/sh
+# cosmos-host-guard: loads, refreshes and removes the host guard of the Cosmos fork
+# (table inet cosmos_host_guard). Installed as /usr/local/sbin/cosmos-host-guard by
+# fork/nftables/install.sh and run by its systemd units:
+#
+#   cosmos-host-guard load      the whole table, in one transaction (replaces it)
+#   cosmos-host-guard refresh   the interfaces with a default route, the prefixes on
+#                               them and the VPNs' ports, in one transaction, only
+#                               when they changed (never a moment without rules)
+#   cosmos-host-guard watch     refresh whenever an address, a route or a link
+#                               changes (ip monitor); a timer refreshes as a backstop
+#   cosmos-host-guard unload    removes the table (nothing else)
+#   cosmos-host-guard check     checks the load transaction with nft -c (changes nothing)
+#   cosmos-host-guard show      what the refresh would put in the sets
+#
+# It touches only its own table: no "flush ruleset", nothing of Docker's, ufw's,
+# firewalld's or Fail2ban's.
+
+set -eu
+
+TNAME=cosmos_host_guard
+TABLE="inet $TNAME"
+CONF=${COSMOS_HOST_GUARD_CONF:-/etc/cosmos-host-guard}
+RUN=${COSMOS_HOST_GUARD_RUN:-/run/cosmos-host-guard}
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+die() { printf 'cosmos-host-guard: %s\n' "$*" >&2; exit 1; }
+
+# one comma-separated list of the words on stdin, sorted, no duplicates
+joined() { sort -u | paste -sd, -; }
+
+# the interfaces that carry a default route (main table, IPv4 and IPv6)
+wan_interfaces() {
+	{
+		ip -o -4 route show default 2>/dev/null || true
+		ip -o -6 route show default 2>/dev/null || true
+	} | awk '{for (i = 1; i < NF; i++) if ($i == "dev") print $(i + 1)}' | grep -E '^[A-Za-z0-9_.@:-]{1,15}$' | sed 's/@.*//' | joined
+}
+
+# the prefixes on-link on those interfaces (routes without a gateway)
+onlink() { # family(4|6) interfaces(comma-separated)
+	family=$1
+	list=$2
+	[ -n "$list" ] || return 0
+	old_ifs=$IFS
+	IFS=,
+	for dev in $list; do
+		IFS=$old_ifs
+		ip -o "-$family" route show dev "$dev" 2>/dev/null || true
+	done | awk -v fam="$family" '
+		$1 == "default" || $1 == "unreachable" || $1 == "multicast" || $1 == "broadcast" || $1 == "local" { next }
+		/ via / { next }
+		fam == 6 && ($1 ~ /^fe80/ || $1 ~ /^ff/) { next }
+		fam == 4 && $1 !~ /^[0-9.]+(\/[0-9]+)?$/ { next }
+		fam == 6 && $1 !~ /^[0-9a-fA-F:]+(\/[0-9]+)?$/ { next }
+		{ print $1 }' | joined
+	IFS=$old_ifs
+}
+
+# UDP ports VPN daemons listen on for direct connections from outside:
+# Tailscale (tailscaled) and kernel WireGuard (wg).
+vpn_ports() {
+	{
+		if command -v ss >/dev/null 2>&1; then
+			ss -Hulnp 2>/dev/null | awk '/"tailscaled"/ {n = split($4, a, ":"); print a[n]}'
+		fi
+		if command -v wg >/dev/null 2>&1; then
+			wg show all listen-port 2>/dev/null | awk '{print $2}'
+		fi
+	} | grep -E '^[0-9]{1,5}$' | awk '$1 > 0 && $1 < 65536' | joined
+}
+
+# the element lines for the sets the refresh keeps current
+dynamic() {
+	wan=$(wan_interfaces)
+	printf 'wan_if=%s\n' "$wan"
+	printf 'onlink4=%s\n' "$(onlink 4 "$wan")"
+	printf 'onlink6=%s\n' "$(onlink 6 "$wan")"
+	printf 'vpn_udp=%s\n' "$(vpn_ports)"
+}
+
+# nft commands that replace the content of the dynamic sets with $1 (dynamic's output)
+set_commands() {
+	printf '%s\n' "$1" | while IFS='=' read -r name value; do
+		printf 'flush set %s %s\n' "$TABLE" "$name"
+		if [ -n "$value" ]; then
+			if [ "$name" = wan_if ]; then
+				value=$(printf '%s' "$value" | sed 's/[^,][^,]*/"&"/g')
+			fi
+			printf 'add element %s %s { %s }\n' "$TABLE" "$name" "$(printf '%s' "$value" | sed 's/,/, /g')"
+		fi
+	done
+}
+
+have_table() { nft list table inet "$TNAME" >/dev/null 2>&1; }
+
+locked() { # command...: one refresh or load at a time
+	mkdir -p "$RUN"
+	if command -v flock >/dev/null 2>&1; then
+		exec 9>"$RUN/lock"
+		flock 9
+	fi
+	"$@"
+}
+
+build_load() { # writes the whole load transaction to $RUN/load.nft
+	[ -r "$CONF/cosmos-host-guard.nft" ] || die "$CONF/cosmos-host-guard.nft is missing: run fork/nftables/install.sh"
+	now=$(dynamic)
+	mkdir -p "$RUN"
+	{
+		printf 'table %s\ndelete table %s\n' "$TABLE" "$TABLE"
+		cat "$CONF/cosmos-host-guard.nft"
+		[ ! -r "$CONF/settings.nft" ] || cat "$CONF/settings.nft"
+		set_commands "$now"
+	} > "$RUN/load.nft"
+}
+
+do_load() {
+	build_load
+	nft -f "$RUN/load.nft"
+	printf '%s\n' "$now" > "$RUN/dynamic"
+	rm -f "$RUN/load.nft"
+}
+
+do_check() {
+	build_load
+	nft -c -f "$RUN/load.nft"
+	rm -f "$RUN/load.nft"
+}
+
+do_refresh() {
+	have_table || return 0
+	now=$(dynamic)
+	if [ -r "$RUN/dynamic" ] && [ "$(cat "$RUN/dynamic")" = "$now" ] && [ "${1:-}" != force ]; then
+		return 0
+	fi
+	set_commands "$now" | nft -f -
+	printf '%s\n' "$now" > "$RUN/dynamic"
+}
+
+case "${1:-}" in
+	load) locked do_load ;;
+	check) do_check ;;
+	refresh) locked do_refresh "${2:-}" ;;
+	watch)
+		( locked do_refresh force )
+		# a change between that refresh and the moment ip monitor listens is
+		# caught by this second one
+		( sleep 1; locked do_refresh ) &
+		# One line per change of a link, an address or a route; a refresh is cheap
+		# and does nothing when the sets would stay the same.
+		ip -o monitor link address route | while read -r _; do
+			( locked do_refresh ) || printf 'cosmos-host-guard: refresh failed\n' >&2
+		done
+		exit 1 # ip monitor ended: systemd starts the watcher again
+		;;
+	unload)
+		if have_table; then nft delete table inet "$TNAME"; fi
+		rm -f "$RUN/dynamic"
+		;;
+	show) dynamic ;;
+	*) die "usage: cosmos-host-guard load|check|refresh|watch|unload|show" ;;
+esac

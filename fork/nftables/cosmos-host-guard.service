@@ -1,0 +1,20 @@
+# Installed by fork/nftables/install.sh (the Cosmos fork): the host guard.
+# Stopping it removes the guard's table and nothing else.
+[Unit]
+Description=Cosmos host guard: from outside the home network only the public ports answer
+Documentation=file:///etc/cosmos-host-guard/README
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target shutdown.target
+Wants=network-pre.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/cosmos-host-guard load
+ExecReload=/usr/local/sbin/cosmos-host-guard load
+ExecStop=/usr/local/sbin/cosmos-host-guard unload
+
+[Install]
+WantedBy=sysinit.target

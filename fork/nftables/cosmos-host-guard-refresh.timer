@@ -1,0 +1,13 @@
+# Installed by fork/nftables/install.sh (the Cosmos fork): a backstop for the
+# watcher (and the only way a VPN's new port is noticed).
+[Unit]
+Description=Cosmos host guard: refresh every five minutes
+PartOf=cosmos-host-guard.service
+
+[Timer]
+OnActiveSec=1min
+OnUnitActiveSec=5min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target
