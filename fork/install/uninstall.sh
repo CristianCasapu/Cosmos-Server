@@ -29,12 +29,24 @@
 # Exit codes: 0 done; 1 something could not be removed (said); 2 bad usage;
 # 3 there is nothing install.sh installed here; 5 not root; 7 another run is going.
 
-if [ -z "${BASH_VERSION:-}" ]; then
-	if [ -f "$0" ]; then exec bash "$0" "$@"; fi
-	echo "Run it from a file: sudo bash uninstall.sh" >&2
+# Never from a pipe, and run again with bash only when $0 is this very
+# script (see install.sh).
+# COSMOS-FORK-UNINSTALL-SH
+cosmos_self=""
+case $0 in
+*/*) cosmos_self=$0 ;;
+*uninstall*.sh) cosmos_self=./$0 ;;
+esac
+if [ -z "$cosmos_self" ] || [ ! -f "$cosmos_self" ] || ! grep -q '^# COSMOS-FORK-UNINSTALL-SH$' "$cosmos_self" 2>/dev/null; then
+	echo "uninstall.sh must be run from a file, not from a pipe:" >&2
+	echo "    sudo bash /opt/cosmos/fork/install/uninstall.sh" >&2
 	exit 2
 fi
+if [ -z "${BASH_VERSION:-}" ]; then
+	exec bash "$cosmos_self" "$@"
+fi
 
+main() {
 set -euo pipefail
 shopt -s nullglob
 umask 077
@@ -95,7 +107,7 @@ WORK=$(mktemp -d /var/tmp/cosmos-uninstall-work.XXXXXXXX)
 cleanup() {
 	rm -rf -- "$WORK"
 	if [ -n "$SELF_COPY" ]; then rm -rf -- "$SELF_COPY"; fi
-	rm -f -- "$LOCK"
+	# the lock file stays (in /run): see install.sh
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM HUP
@@ -104,7 +116,9 @@ if [ ! -f "$RECORD" ] && [ ! -f "$STATE" ]; then
 	if [ -e "$INSTALL_DIR" ] || [ -e /etc/systemd/system/$UNIT.service ]; then
 		die 3 "the Cosmos in $INSTALL_DIR was not installed by install.sh (there is no $RECORD): this script removes only what install.sh installed. Nothing was changed."
 	fi
-	die 3 "install.sh installed nothing here ($RECORD does not exist). Nothing was changed."
+	say "Nothing to remove: install.sh installed nothing here (or it was removed already)."
+	[ ! -d "$DATA_DIR" ] || say "The data folder $DATA_DIR is there; it is never removed without --delete-data, and only while install.sh's record names it."
+	exit 0
 fi
 [ -f "$RECORD" ] || : >"$WORK/empty"
 RECORD_IN=$RECORD
@@ -112,33 +126,46 @@ RECORD_IN=$RECORD
 
 recorded() { grep -qxF -- "$*" "$RECORD_IN"; }
 lines_of() { sed -n "s/^$1 //p" "$RECORD_IN"; }
+# the protection pieces the record names, from the allow-list only
+recorded_pieces() {
+	{ awk -F'\t' '$1 ~ /^piece / {sub(/^piece /, "", $1); print $1}' "$RECORD_IN"; lines_of piece-ran; } |
+		grep -xE 'nftables|fail2ban|unattended-upgrades' | sort -u || true
+}
 ARCH=$(dpkg --print-architecture)
 packages_now() { dpkg-query -W -f='${db:Status-Abbrev} ${binary:Package}\n' 2>/dev/null | awk '$1=="ii"{print $2}' | sed 's/:'"$ARCH"'$//' | sort -u; }
 
-# The packages: those recorded, those of the pieces, and, for an install that
-# never completed, what was added since it began.
+# The packages: those the record names (install.sh's own transactions and
+# the pieces'), that are installed now. Nothing else.
 {
 	lines_of package
 	awk -F'\t' '$1 ~ /^piece / && $2=="package" {print $3}' "$RECORD_IN"
-	if [ "$(sed -n 's/^completed=//p' "$STATE" 2>/dev/null | tail -n 1)" != yes ] && [ -f "$STATE_DIR/packages-before" ]; then
-		comm -13 "$STATE_DIR/packages-before" <(packages_now)
-	fi
 } | grep -E '^[a-z0-9][a-z0-9.+-]{0,60}$' | sort -u | comm -12 - <(packages_now) >"$WORK/ours" || true
 mapfile -t OURS <"$WORK/ours"
 
-containers=""
+# Docker stays while any container exists. The daemon is asked only when it
+# answers; when it cannot be asked, Docker stays (said), and the containers
+# Docker keeps on disk count too.
+KEEP_DOCKER=0 DOCKER_WHY=""
 if command -v docker >/dev/null 2>&1; then
-	containers=$(timeout 30 docker ps -aq 2>/dev/null | wc -l || true)
+	if listed=$(timeout 30 docker ps -aq 2>/dev/null); then
+		n=$(printf '%s' "$listed" | grep -c . || true)
+		if [ "$n" -gt 0 ]; then KEEP_DOCKER=1; DOCKER_WHY="$n container(s) exist"; fi
+	else
+		KEEP_DOCKER=1
+		DOCKER_WHY="the Docker daemon does not answer, so its containers cannot be counted"
+	fi
 fi
-KEEP_DOCKER=0
-if [ -n "$containers" ] && [ "$containers" -gt 0 ]; then KEEP_DOCKER=1; fi
+if [ "$KEEP_DOCKER" = 0 ] && [ -d /var/lib/docker/containers ] && [ -n "$(ls -A /var/lib/docker/containers 2>/dev/null)" ]; then
+	KEEP_DOCKER=1
+	DOCKER_WHY="/var/lib/docker/containers holds containers"
+fi
 
 data_named=0
 if recorded "data $DATA_DIR" || [ -d "$DATA_DIR" ]; then data_named=1; fi
 
 step "What will be removed"
 if recorded "unit $UNIT.service"; then say "- the service $UNIT (stopped, disabled, /etc/systemd/system/$UNIT.service)"; fi
-for p in $(awk -F'\t' '$1 ~ /^piece / {sub(/^piece /, "", $1); print $1}' "$RECORD_IN" | sort -u) $(lines_of piece-ran); do
+for p in $(recorded_pieces); do
 	say "- the protection piece $p (its own uninstall.sh)"
 done
 if recorded "dir $INSTALL_DIR"; then say "- the installation folder $INSTALL_DIR"; fi
@@ -151,7 +178,7 @@ fi
 if [ "${#OURS[@]}" -gt 0 ]; then
 	if [ "$REMOVE_PACKAGES" = 1 ]; then
 		say "- the packages install.sh installed, those nothing else needs: ${OURS[*]}"
-		[ "$KEEP_DOCKER" = 0 ] || say "  except Docker's: $containers container(s) exist."
+		[ "$KEEP_DOCKER" = 0 ] || say "  except Docker's, which stay: $DOCKER_WHY."
 	else
 		say "Kept: the packages install.sh installed (${OURS[*]}); add --remove-packages to remove them."
 	fi
@@ -190,14 +217,17 @@ if recorded "unit $UNIT.service"; then
 fi
 
 # 2. the protection pieces, from the release that installed them
-for p in $(awk -F'\t' '$1 ~ /^piece / {sub(/^piece /, "", $1); print $1}' "$RECORD_IN" | sort -u) $(lines_of piece-ran); do
+for p in $(recorded_pieces); do
 	case $p in nftables | fail2ban | unattended-upgrades) ;; *) continue ;; esac
 	script="$INSTALL_DIR/fork/$p/uninstall.sh"
 	[ -f "$script" ] || { warn "$script is missing: the piece $p was not removed"; FAILED="$FAILED $p"; continue; }
 	step "Removing the protection piece $p"
 	rc=0
 	env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 DEBIAN_FRONTEND=noninteractive sh "$script" --yes </dev/null || rc=$?
-	if [ "$rc" = 0 ]; then remove_line "piece-ran $p"; else warn "$p: its uninstall.sh ended with $rc"; FAILED="$FAILED $p"; fi
+	if [ "$rc" = 0 ]; then
+		remove_line "piece-ran $p"
+		if [ -f "$RECORD" ]; then grep -v "^piece $p	" "$RECORD" >"$RECORD.new" || true; mv -f "$RECORD.new" "$RECORD"; fi
+	else warn "$p: its uninstall.sh ended with $rc"; FAILED="$FAILED $p"; fi
 done
 
 # 3. the installation folder
@@ -325,3 +355,6 @@ if [ -d "$DATA_DIR" ]; then
 fi
 [ -z "$FAILED" ] || { warn "not removed:$FAILED"; exit 1; }
 exit 0
+}
+
+main "$@"

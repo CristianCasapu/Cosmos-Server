@@ -43,24 +43,34 @@ if [ -n "${RUNNER_TEMP:-}" ]; then SCRATCH=${SCRATCH:-$RUNNER_TEMP/fork-install-
 SCRATCH=${SCRATCH:-/storage/dev/.cache/$PREFIX/e2e}
 RESULTS=${RESULTS:-$SCRATCH-results}
 SYSTEMS=${SYSTEMS:-debian12 debian13 ubuntu2404 ubuntu2604}
-ALL_CASES="fresh refusals tampered dryrun unavailable locked netcut interrupt docker-there hop"
+ALL_CASES="fresh refusals tampered dryrun unavailable locked aptfail netcut interrupt docker-there hop trust env pieces"
 CASES=${CASES:-$ALL_CASES}
 JOBS=${JOBS:-4}
 REPO=example-owner/cosmos-fork
 VA=0.24.0-fork.900 VB=0.24.0-fork.901 VC=0.24.0-fork.902
+VO=0.24.0-fork.899 # older than A: the installer goes forward only
+VR=0.24.0-fork.903 # with the repository's real protection pieces instead of the stubs
 DIND=$PREFIX-dind
-GOIMAGE=golang:1.27
-NODEIMAGE=node:22
+# Every image is pinned by its digest (the index of all its platforms):
+# what the test bed runs privileged cannot change under a tag.
+DIND_IMAGE=docker:29-dind@sha256:4bbc7223f81db790097c6dea42fb93e05b8fead4f0431fbe6ccaba6e8473201c
+DEBIAN12=debian:12@sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8
+DEBIAN13=debian:13@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6
+UBUNTU2404=ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8
+UBUNTU2604=ubuntu:26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db
+GOIMAGE=golang:1.27@sha256:205c7636d74e0ffbe3d007162df7d74f859f5a8c8322dfb9f907977686c126cf
+NODEIMAGE=node:22@sha256:e13726ca604184d7a91fcacab1fc09eefd642dc28e79ac34e85540dd93b78cfb
+SHELLCHECK_IMAGE=koalaman/shellcheck:v0.10.0@sha256:2097951f02e735b613f4a34de20c40f937a6c8f18ecb170612c88c34517221fb
 
 log() { printf '[e2e] %s\n' "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
 
 image_of() {
 	case $1 in
-	debian12) echo debian:12 ;;
-	debian13) echo debian:13 ;;
-	ubuntu2404) echo ubuntu:24.04 ;;
-	ubuntu2604) echo ubuntu:26.04 ;;
+	debian12) echo "$DEBIAN12" ;;
+	debian13) echo "$DEBIAN13" ;;
+	ubuntu2404) echo "$UBUNTU2404" ;;
+	ubuntu2604) echo "$UBUNTU2604" ;;
 	*) die "unknown system $1" ;;
 	esac
 }
@@ -76,7 +86,7 @@ cleanup() {
 	docker image rm "$PREFIX-builder:1" >/dev/null 2>&1 || true
 	# files written by containers as root
 	if [ -d "$SCRATCH" ]; then
-		docker run --rm -v "$(dirname "$SCRATCH"):/w" debian:13 rm -rf "/w/$(basename "$SCRATCH")" >/dev/null 2>&1 || rm -rf "$SCRATCH"
+		docker run --rm -v "$(dirname "$SCRATCH"):/w" "$DEBIAN13" rm -rf "/w/$(basename "$SCRATCH")" >/dev/null 2>&1 || rm -rf "$SCRATCH"
 	fi
 	return $rc
 }
@@ -93,7 +103,7 @@ in_go() { # command in the Go toolchain, the worktree at /src (read-only) and $S
 in_builder() { # zip, unzip, openssl, jq
 	if native_tools; then (cd "$HERE" && SRC=$HERE SCR=$SCRATCH bash -c "$1"); return; fi
 	if ! docker image inspect "$PREFIX-builder:1" >/dev/null 2>&1; then
-		docker run --name "$PREFIX-build" debian:13 sh -c 'apt-get -qq update && apt-get -qq install -y --no-install-recommends zip unzip openssl jq git ca-certificates >/dev/null'
+		docker run --name "$PREFIX-build" "$DEBIAN13" sh -c 'apt-get -qq update && apt-get -qq install -y --no-install-recommends zip unzip openssl jq git ca-certificates >/dev/null'
 		docker commit "$PREFIX-build" "$PREFIX-builder:1" >/dev/null
 		docker rm -f "$PREFIX-build" >/dev/null
 	fi
@@ -145,7 +155,7 @@ build_releases() {
 	fi
 
 	local v dir
-	for v in $VA $VB $VC; do
+	for v in $VO $VA $VB $VC $VR; do
 		dir=$SCRATCH/stage/$v
 		rm -rf "$dir"
 		mkdir -p "$dir/build/images"
@@ -163,12 +173,13 @@ build_releases() {
 	# protection pieces (their interface, not their work, is tested here)
 	in_builder '
 		set -e
-		for v in '"$VA $VB $VC"'; do
+		for v in '"$VO $VA $VB $VC $VR"'; do
 			stage=$SCR/stage/$v
 			rm -rf "$stage/src" "$stage/out"
 			mkdir -p "$stage/src/scripts" "$stage/src/src/forkrelease"
 			cp -r "$SRC/fork" "$stage/src/fork"
 			for p in nftables fail2ban unattended-upgrades; do
+				[ "$v" != '"$VR"' ] || break # R: the pieces as the repository has them
 				mkdir -p "$stage/src/fork/$p"
 				cp "$SRC/scripts/fork-install-e2e/stub-piece.sh" "$stage/src/fork/$p/install.sh"
 				cp "$SRC/scripts/fork-install-e2e/stub-piece.sh" "$stage/src/fork/$p/uninstall.sh"
@@ -205,7 +216,26 @@ build_releases() {
 		openssl pkeyutl -sign -inkey "$SCR/keys/other.pem" -rawin -in other-key/manifest -out other-key/s
 		{ cat other-key/manifest; echo "signature $(base64 -w0 other-key/s)"; } >other-key/$sig; rm other-key/manifest other-key/s
 		mk no-sig; rm no-sig/$sig
-		for kind in dotdot absolute symlink; do
+		# a signature file whose version line is another release (names and all)
+		mk otherversion
+		{ echo cosmos-fork-release-v1; echo "version '"$VB"'"; echo "sha256 $(sha256sum "$a/$zip" | cut -d" " -f1) cosmos-cloud-'"$VB"'-amd64.zip"; } >otherversion/manifest
+		openssl pkeyutl -sign -inkey "$SCR/keys/test.pem" -rawin -in otherversion/manifest -out otherversion/s
+		{ cat otherversion/manifest; echo "signature $(base64 -w0 otherversion/s)"; } >otherversion/$sig; rm otherversion/manifest otherversion/s
+		# releases whose next install.sh must not run: tampered after signing,
+		# its scripts signed by another key, its scripts file for another version
+		scripts_sig() { # dir version key [version line]
+			{ echo cosmos-fork-scripts-v1; echo "version ${4:-$2}"; for f in install.sh uninstall.sh; do echo "sha256 $(sha256sum "$1/$f" | cut -d" " -f1) $f"; done; } >"$1/m"
+			openssl pkeyutl -sign -inkey "$SCR/keys/$3.pem" -rawin -in "$1/m" -out "$1/s"
+			{ cat "$1/m"; echo "signature $(base64 -w0 "$1/s")"; } >"$1/cosmos-cloud-$2.scripts.sig"; rm "$1/m" "$1/s"
+		}
+		for n in 910 911 912; do
+			d=hop/v0.24.0-fork.$n; mkdir -p "$d"
+			cp "$a/install.sh" "$a/uninstall.sh" "$d/"
+		done
+		scripts_sig hop/v0.24.0-fork.910 0.24.0-fork.910 test; printf "\n# changed after signing\n" >>hop/v0.24.0-fork.910/install.sh
+		scripts_sig hop/v0.24.0-fork.911 0.24.0-fork.911 other
+		scripts_sig hop/v0.24.0-fork.912 0.24.0-fork.912 test 0.24.0-fork.913
+		for kind in dotdot absolute symlink duplicate setuid worldwritable device ctrlchar bomb; do
 			mkdir $kind
 			"$SCR/bin/helper" bad-zip "$a/$zip" $kind/$zip $kind
 			(cd $kind && md5sum $zip >$zip.md5)
@@ -228,7 +258,7 @@ start_dind() {
 	docker network create "$PREFIX-net" >/dev/null 2>&1 || true
 	cp "$HERE/scripts/fork-install-e2e/machine-lib.sh" "$SCRATCH/bin/"
 	docker run -d --name "$DIND" --privileged --network "$PREFIX-net" -e DOCKER_TLS_CERTDIR= \
-		-v /var/lib/docker -v "$SCRATCH:/e2e" docker:29-dind --registry-mirror=https://mirror.gcr.io >/dev/null
+		-v /var/lib/docker -v "$SCRATCH:/e2e" "$DIND_IMAGE" --registry-mirror=https://mirror.gcr.io >/dev/null
 	for _ in $(seq 1 60); do D info >/dev/null 2>&1 && return 0; sleep 1; done
 	die "the Docker in Docker did not start"
 }
@@ -240,7 +270,7 @@ machine_image() { # system [variant]
 	# docker: Docker from the distribution and the tools already there
 	# (docker-cli exists where Debian split the command from docker.io: it is
 	# installed with it there, as apt does with its recommendations)
-	[ "$variant" != docker ] || extra="docker.io ca-certificates curl unzip openssl"
+	[ "$variant" != docker ] || extra="docker.io ca-certificates curl unzip openssl sudo"
 	tag=$PREFIX-$sys-$variant:$(printf '%s' "$base $extra" | md5sum | cut -c1-8)
 	if D image inspect "$tag" >/dev/null 2>&1; then echo "$tag"; return; fi
 	D build -q -t "$tag" - >/dev/null <<EOF || die "the machine image $tag could not be built"
@@ -264,13 +294,13 @@ start_world() { # system: its network and its GitHub stand-in
 	D rm -f "$PREFIX-$sys-github" >/dev/null 2>&1 || true
 	D run -d --name "$PREFIX-$sys-github" --network "$net" \
 		--network-alias github.com --network-alias api.github.com --network-alias release-assets.githubusercontent.com \
-		-v "/e2e/bin:/bin-e2e:ro" -v "/e2e/world/$sys:/world" debian:13 /bin-e2e/fake-github -releases /world/releases -shared /world/shared >/dev/null
+		-v "/e2e/bin:/bin-e2e:ro" -v "/e2e/world/$sys:/world" "$DEBIAN13" /bin-e2e/fake-github -releases /world/releases -shared /world/shared >/dev/null
 	for _ in $(seq 1 30); do [ -s "$SCRATCH/world/$sys/shared/ca.pem" ] && return 0; sleep 1; done
 	die "the GitHub stand-in of $sys did not start"
 }
 
 github() { # system, control path on the stand-in's plain port
-	D run --rm --network "$PREFIX-$1" debian:13 bash -c "exec 3<>/dev/tcp/$PREFIX-$1-github/8080; printf 'GET %s HTTP/1.0\r\n\r\n' '$2' >&3; cat <&3 >/dev/null"
+	D run --rm --network "$PREFIX-$1" "$DEBIAN13" bash -c "exec 3<>/dev/tcp/$PREFIX-$1-github/8080; printf 'GET %s HTTP/1.0\r\n\r\n' '$2' >&3; cat <&3 >/dev/null"
 }
 
 start_machine() { # system, case, variant -> machine name
@@ -311,8 +341,24 @@ INSTALL_A="bash /e2e/releases/v$VA/install.sh"
 case_fresh() { # fresh install, refusals over it, C0, update, rollback, offline reinstall, uninstall to the state of before
 	local sys=$1 m
 	m=$(start_machine "$sys" fresh)
-	M "$m" 'snap before; '"$INSTALL_A"' --yes </dev/null; installed_ok 80; record_matches before
+	M "$m" 'snap before; '"$INSTALL_A"' --yes --print-setup-code </dev/null | tee /e2e/out/install.txt; installed_ok 80; record_matches before
 		check "the state says completed" grep -q "^completed=yes" /var/lib/cosmos-installer/state
+		# the one-time setup code: printed, in a root-only file, asked by every setup route
+		printed=$(sed -n "s/^ *Setup code: //p" /e2e/out/install.txt)
+		check "install.sh printed the setup code" test -n "$printed"
+		check "it is the code of the file" test "$printed" = "$(cat /var/lib/cosmos/setup-code)"
+		check "the file is root'\''s, 0600" test "$(stat -c %a:%U /var/lib/cosmos/setup-code)" = 600:root
+		check "a local user cannot read it" sh -c "! setpriv --reuid=65534 --regid=65534 --clear-groups cat /var/lib/cosmos/setup-code 2>/dev/null"
+		check "the journal has it" sh -c "journalctl -u CosmosCloud --no-pager | grep -A1 \"SETUP CODE\" | grep -qF \"$printed\""
+		check "cosmos.log does not" sh -c "! grep -qF \"$printed\" /var/lib/cosmos/cosmos.log"
+		for route in setup setup-join newInstall; do
+			code=$(curl -s -o /e2e/out/r.json -w "%{http_code}" -X POST -H "Content-Type: application/json" --data "{\"step\":\"4\",\"nickname\":\"x\",\"password\":\"Passw0rd-x!yz\"}" http://127.0.0.1/cosmos/api/$route)
+			check "POST /cosmos/api/$route without the code is refused" sh -c "test $code = 403 && grep -q SC001 /e2e/out/r.json"
+			code=$(setpriv --reuid=65534 --regid=65534 --clear-groups curl -s -o /e2e/out/r.json -w "%{http_code}" -X POST -H "Content-Type: application/json" -H "X-Cosmos-Setup-Code: AAAA-AAAA-AAAA-AAAA-AAAA" --data "{}" http://127.0.0.1/cosmos/api/$route)
+			check "POST /cosmos/api/$route by a local user with a wrong code is refused" sh -c "test $code = 403 && grep -q SC002 /e2e/out/r.json"
+		done
+		check "the status stays open for the first page" test "$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1/cosmos/api/status)" = 200
+		echo "$printed" >/e2e/out/printed-code
 		check "nobody else can read the data folder (it is $(stat -c %a /var/lib/cosmos): 700 when made, 711 once Cosmos ran)" sh -c "stat -c %a /var/lib/cosmos | grep -qE \"^7[01][01]\$\""
 		mkdir -p /root/up && cp /opt/cosmos/cosmos /root/up/ && printf "#!/bin/sh\n" >/root/up/start.sh && chmod 755 /root/up/start.sh
 		cp /etc/systemd/system/CosmosCloud.service /e2e/out/ours.service
@@ -339,7 +385,7 @@ case_fresh() { # fresh install, refusals over it, C0, update, rollback, offline 
 		check "fork-detect printed its JSON" grep -q "\"schema\": 1" /e2e/out/detect.json
 		check "fork-detect asked no one outside" grep -q "\"asked\": false" /e2e/out/detect.json'
 	D rm -f "$PREFIX-$sys-igd" >/dev/null 2>&1 || true
-	D run -d --name "$PREFIX-$sys-igd" --network "$PREFIX-$sys" -v /e2e/bin:/bin-e2e:ro debian:13 /bin-e2e/fake-igd >/dev/null
+	D run -d --name "$PREFIX-$sys-igd" --network "$PREFIX-$sys" -v /e2e/bin:/bin-e2e:ro "$DEBIAN13" /bin-e2e/fake-igd >/dev/null
 	sleep 2
 	local igd
 	igd=$(D inspect -f "{{(index .NetworkSettings.Networks \"$PREFIX-$sys\").IPAddress}}" "$PREFIX-$sys-igd")
@@ -354,7 +400,10 @@ case_fresh() { # fresh install, refusals over it, C0, update, rollback, offline 
 		check "fork-detect: no outside service asked" grep -q "\"asked\": false" /e2e/out/detect-igd.json'
 	D rm -f "$PREFIX-$sys-igd" >/dev/null
 	cp -r "$SCRATCH/rel/v$VB" "$SCRATCH/world/$sys/releases/"
-	M "$m" 'wizard_and_login && update_to '"$VB"
+	M "$m" 'wizard_and_login "$(cat /e2e/out/printed-code)" && update_to '"$VB"'
+		check "the setup code file is gone once set up" test ! -e /var/lib/cosmos/setup-code
+		code=$(curl -s -o /e2e/out/r.json -w "%{http_code}" --resolve srv-e2e.local:80:127.0.0.1 -X POST -H "Content-Type: application/json" -H "X-Cosmos-Setup-Code: $(cat /e2e/out/printed-code)" --data "{\"step\":\"4\"}" http://srv-e2e.local/cosmos/api/newInstall)
+		check "the wizard is closed once set up, code or not" test "$code" = 403'
 	cp -r "$SCRATCH/rel/v$VC" "$SCRATCH/world/$sys/releases/"
 	M "$m" 'PANEL_HOST=srv-e2e.local; api POST login "{\"nickname\":\"admin\",\"password\":\"E2e-Test-Passw0rd!x\"}" >/dev/null; api POST sudo "{\"password\":\"E2e-Test-Passw0rd!x\"}" >/dev/null; rolls_back_from '"$VC $VB"
 	rm -rf "$SCRATCH/world/$sys/releases/v$VC" "$SCRATCH/world/$sys/releases/v$VB"
@@ -460,7 +509,7 @@ case_netcut() { # the download breaks off: refused, nothing left
 	M "$m" 'expect_exit 0 '"$INSTALL_A"' --yes </dev/null; installed_ok 80'
 }
 
-case_interrupt() { # kill -9 at three points, each followed by another run
+case_interrupt() { # kill -9 at three points, each followed by another run; packages of the admin's; uninstall with Docker stopped
 	local sys=$1 m point
 	m=$(start_machine "$sys" interrupt)
 	M "$m" 'snap before'
@@ -477,11 +526,37 @@ case_interrupt() { # kill -9 at three points, each followed by another run
 			done
 			check "the run reached '"$point"'" test $killed = 1'
 		sleep 2
+		# between an interrupted run and the next, the admin installs a package
+		if [ "$point" = cosmos ]; then
+			M "$m" 'DEBIAN_FRONTEND=noninteractive apt-get install -y -q -o DPkg::Lock::Timeout=600 less </dev/null >/dev/null && echo "the admin installed less"'
+		fi
 	done
-	M "$m" 'expect_exit 0 '"$INSTALL_A"' --yes </dev/null; installed_ok 80; record_matches before
+	# and during the run that finishes, another one
+	M "$m" '(DEBIAN_FRONTEND=noninteractive setsid apt-get install -y -q -o DPkg::Lock::Timeout=600 hello </dev/null >/e2e/out/admin.txt 2>&1 &)
+		expect_exit 0 '"$INSTALL_A"' --yes </dev/null >/e2e/out/run-final.txt; installed_ok 80
+		for _ in $(seq 1 120); do dpkg-query -W -f="\${db:Status-Abbrev}" hello 2>/dev/null | grep -q ^ii && break; sleep 1; done
+		check "the admin'\''s packages are installed" sh -c "dpkg-query -W less hello >/dev/null"
+		check "the record names neither of the admin'\''s packages" sh -c "! grep -qE \"^package (less|hello)\$\" /var/lib/cosmos-installer/record"
+		check "with --yes the code is not printed, its file is named" sh -c "! grep -q \"Setup code:\" /e2e/out/run-final.txt && grep -q \"sudo cat /var/lib/cosmos/setup-code\" /e2e/out/run-final.txt"
 		expect_exit 10 '"$INSTALL_A"' --yes </dev/null
-		bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --yes-delete-data </dev/null; snap removed
-		packages_back before removed'
+		# lines in the record that are not install.sh'\''s own are left alone
+		printf "file /\npackage -rf\npiece ../x\ndir /etc\nunit ../../etc/passwd\n" >>/var/lib/cosmos-installer/record
+		# a container exists and the Docker daemon is stopped: Docker stays
+		tar -cf - --files-from /dev/null | docker import - e2e-empty:1 >/dev/null
+		docker create --name e2e-app e2e-empty:1 /none >/dev/null
+		systemctl stop docker.socket docker.service
+		bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages </dev/null | tee /e2e/out/uninstall-1.txt
+		check "Docker is kept while its daemon cannot be asked" sh -c "dpkg-query -W -f=\"\${db:Status-Abbrev}\" docker-ce | grep -q ^ii && grep -q \"does not answer\" /e2e/out/uninstall-1.txt"
+		check "the hostile lines did nothing" sh -c "test -d /etc && test -f /etc/passwd"
+		check "the admin'\''s packages stayed" sh -c "dpkg-query -W less hello >/dev/null"
+		systemctl start docker.service; docker rm e2e-app >/dev/null; docker image rm e2e-empty:1 >/dev/null
+		bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --yes-delete-data </dev/null | tee /e2e/out/uninstall-2.txt
+		check "the hostile lines are all that is left" sh -c "test \"\$(sort /var/lib/cosmos-installer/record | tr \"\\n\" \" \")\" = \"dir /etc file / package -rf piece ../x unit ../../etc/passwd \""
+		rm -rf /var/lib/cosmos-installer
+		expect_exit 0 bash /e2e/releases/v'"$VA"'/uninstall.sh --yes </dev/null
+		bash /e2e/releases/v'"$VA"'/uninstall.sh --yes </dev/null | grep -q "Nothing to remove" && echo "ok: a second uninstall has nothing to remove"
+		DEBIAN_FRONTEND=noninteractive apt-get purge -y -q less hello </dev/null >/dev/null
+		snap removed; packages_back before removed'
 }
 
 case_docker_there() { # Docker of the distribution is used and left alone; protection pieces through the interface
@@ -520,6 +595,118 @@ case_hop() { # the script of A, the newest release is B: B's own verified instal
 		check "B installed by its own script" test "$(version_installed)" = '"$VB"'
 		check "no temporary folder left" sh -c "! ls -d /var/tmp/cosmos-install* 2>/dev/null"'
 	rm -rf "$SCRATCH/world/$sys/releases/v$VB"
+}
+
+case_aptfail() { # apt fails after the simulation passed: the lists held too long, then a package that cannot be installed
+	local sys=$1 m
+	m=$(start_machine "$sys" aptfail)
+	M "$m" 'snap before
+		(setsid /e2e/bin/helper lock-file /var/lib/apt/lists/lock 120 >/e2e/out/lock.txt 2>&1 &); sleep 2; cat /e2e/out/lock.txt
+		rc=0; COSMOS_INSTALL_APT_WAIT=20 '"$INSTALL_A"' --yes </dev/null >/e2e/out/locked.txt 2>&1 || rc=$?; tail -n 4 /e2e/out/locked.txt
+		check "the lists held too long end the run with 6" test $rc = 6
+		check "it said so" grep -q "held apt for longer than 20 seconds" /e2e/out/locked.txt
+		pkill -f "helper lock-file" || true
+		same before after-locked
+		# a package that apt simulates well but cannot install (its unpacking is refused)
+		printf "DPkg::Pre-Install-Pkgs { \"grep -q snapraid && exit 1 || exit 0\"; };\n" >/etc/apt/apt.conf.d/99e2e-refuse-snapraid
+		snap before2
+		rc=0; '"$INSTALL_A"' --yes </dev/null >/e2e/out/failed.txt 2>&1 || rc=$?; tail -n 12 /e2e/out/failed.txt
+		check "a failed install ends with 1" test $rc = 1
+		check "and says what it changed" grep -q "after these changes" /e2e/out/failed.txt
+		check "the run is not completed" sh -c "! grep -q ^completed=yes /var/lib/cosmos-installer/state"
+		check "snapraid is not recorded" sh -c "! grep -q \"^package snapraid\$\" /var/lib/cosmos-installer/record"
+		rm /etc/apt/apt.conf.d/99e2e-refuse-snapraid
+		expect_exit 0 '"$INSTALL_A"' --yes </dev/null; installed_ok 80; record_matches before2
+		bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null >/dev/null
+		snap removed; packages_back before2 removed'
+}
+
+case_trust() { # what must never be fetched or run: addresses outside GitHub, next scripts that do not verify, older releases
+	local sys=$1 m to n
+	m=$(start_machine "$sys" trust docker)
+	M "$m" 'snap before'
+	for to in https://evilgithubusercontent.com/x https://github.com.evil.example/x "https://github.com@evil.example/x" \
+		https://release-assets.githubusercontent.com:8443/x http://release-assets.githubusercontent.com/x https://RELEASE-ASSETS.githubusercontent.com/x; do
+		github "$sys" "/redirect?to=$to"
+		M "$m" 'echo "== a download sent to '"$to"'"; rc=0; '"$INSTALL_A"' --yes --http-port 8080 --https-port 8443 </dev/null >/e2e/out/r.txt 2>&1 || rc=$?
+			check "refused (exit $rc)" test $rc = 1
+			check "it says why" grep -q "refusing to download from" /e2e/out/r.txt
+			same before after-redirect'
+	done
+	github "$sys" "/redirect?to="
+	for n in 910 911 912; do
+		cp -r "$SCRATCH/variants/hop/v0.24.0-fork.$n" "$SCRATCH/world/$sys/releases/"
+		M "$m" 'echo "== the next install.sh of '"$n"'"; expect_exit 4 '"$INSTALL_A"' --yes --version 0.24.0-fork.'"$n"' --http-port 8080 --https-port 8443 </dev/null; same before after-hop'
+		rm -rf "$SCRATCH/world/$sys/releases/v0.24.0-fork.$n"
+	done
+	cp -r "$SCRATCH/variants/hop/v0.24.0-fork.910" "$SCRATCH/world/$sys/releases/"
+	M "$m" 'echo "== latest is a release whose next install.sh was changed"; expect_exit 4 '"$INSTALL_A"' --yes --http-port 8080 --https-port 8443 </dev/null; same before after-hoplatest'
+	rm -rf "$SCRATCH/world/$sys/releases/v0.24.0-fork.910"
+	cp -r "$SCRATCH/rel/v$VO" "$SCRATCH/world/$sys/releases/"
+	github "$sys" "/latest?tag=v$VO"
+	M "$m" 'echo "== forward only"
+		expect_exit 15 '"$INSTALL_A"' --yes --http-port 8080 --https-port 8443 </dev/null
+		expect_exit 15 '"$INSTALL_A"' --yes --version '"$VO"' --http-port 8080 --https-port 8443 </dev/null
+		expect_exit 15 '"$INSTALL_A"' --yes --from /e2e/releases/v'"$VO"'/cosmos-cloud-'"$VO"'-amd64.zip --http-port 8080 --https-port 8443 </dev/null
+		expect_exit 0 '"$INSTALL_A"' --dry-run --allow-older --from /e2e/releases/v'"$VO"'/cosmos-cloud-'"$VO"'-amd64.zip --http-port 8080 --https-port 8443 </dev/null
+		echo "== a signature file whose version line is another release"
+		expect_exit 4 '"$INSTALL_A"' --yes --from /e2e/variants/otherversion --http-port 8080 --https-port 8443 </dev/null
+		same before after-trust'
+}
+
+case_env() { # never from a pipe, whatever the current folder holds; a hostile environment changes nothing
+	local sys=$1 m
+	m=$(start_machine "$sys" env docker)
+	M "$m" 'mkdir -p /root/evil && printf "#!/bin/sh\ntouch /root/pwned\n" >/root/evil/sh && chmod 755 /root/evil/sh && cp /root/evil/sh /root/evil/bash
+		snap before
+		cd /root/evil
+		rc=0; cat /e2e/releases/v'"$VA"'/install.sh | sh >/e2e/out/pipe.txt 2>&1 || rc=$?
+		check "curl | sh is refused (exit $rc)" sh -c "test $rc = 2 && grep -q \"not from a pipe\" /e2e/out/pipe.txt"
+		rc=0; cat /e2e/releases/v'"$VA"'/install.sh | sudo sh >/dev/null 2>&1 || rc=$?
+		check "curl | sudo sh is refused" test $rc = 2
+		rc=0; cat /e2e/releases/v'"$VA"'/install.sh | bash >/dev/null 2>&1 || rc=$?
+		check "curl | bash is refused" test $rc = 2
+		rc=0; cat /e2e/releases/v'"$VA"'/uninstall.sh | sh >/dev/null 2>&1 || rc=$?
+		check "uninstall.sh from a pipe is refused" test $rc = 2
+		check "the sh of the current folder never ran" test ! -e /root/pwned
+		cd /
+		same before after-pipes
+		# sudo -E with a hostile environment: a proxy that does not exist, a curlrc and an OPENSSL_CONF that would break both
+		printf "proxy = \"http://127.0.0.1:9\"\ninsecure\n" >/root/.curlrc
+		printf "this is not an openssl configuration\n[[[\n" >/root/bad-openssl.cnf
+		rc=0; https_proxy=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 OPENSSL_CONF=/root/bad-openssl.cnf CURL_HOME=/root \
+			sudo -E bash /e2e/releases/v'"$VA"'/install.sh --yes --http-port 8080 --https-port 8443 </dev/null >/e2e/out/sudo-e.txt 2>&1 || rc=$?
+		tail -n 3 /e2e/out/sudo-e.txt
+		check "sudo -E with a hostile environment installs all the same" test $rc = 0
+		installed_ok 8080
+		mkdir -p /root/x && cp /e2e/releases/v'"$VA"'/install.sh /root/x/install.sh && cd /root/x
+		expect_exit 10 sh install.sh --yes </dev/null
+		expect_exit 10 su -c "sh /root/x/install.sh --yes" root </dev/null
+		cd /
+		rm -f /root/.curlrc /root/bad-openssl.cnf; rm -rf /root/x /root/evil
+		bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null >/dev/null
+		expect_exit 0 bash /e2e/releases/v'"$VA"'/uninstall.sh --yes </dev/null'
+}
+
+case_pieces() { # the real protection pieces of the repository (not the stubs), as far as they speak the interface
+	local sys=$1 m
+	cp -r "$SCRATCH/rel/v$VR" "$SCRATCH/world/$sys/releases/"
+	m=$(start_machine "$sys" pieces docker)
+	M "$m" 'rc=0; '"$INSTALL_A"' --yes --version '"$VR"' --reachable internet --http-port 8080 --https-port 8443 </dev/null >/e2e/out/pieces.txt 2>&1 || rc=$?
+		grep -E "Protection|PIECE|piece|done\\.|not installed" /e2e/out/pieces.txt || true
+		check "the install ends well whatever the pieces are" test $rc = 0
+		installed_ok 8080
+		for p in unattended-upgrades fail2ban nftables; do
+			if grep -q "PIECE NOT RUN: $p" /e2e/out/pieces.txt || grep -q "protection piece $p is not in this release" /e2e/out/pieces.txt; then
+				echo "SKIPPED: the real piece $p does not speak the installer'\''s interface yet (work/guard not merged): it was not run"
+				check "and nothing of $p is recorded" sh -c "! grep -qE \"^piece(-ran)? $p\" /var/lib/cosmos-installer/record"
+			else
+				check "the real piece $p ran and is recorded" grep -qx "piece-ran $p" /var/lib/cosmos-installer/record
+			fi
+		done
+		bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null >/e2e/out/pieces-uninstall.txt 2>&1
+		check "uninstall ends well" sh -c "test ! -e /opt/cosmos"'
+	rm -rf "$SCRATCH/world/$sys/releases/v$VR"
 }
 
 run_case() { # system case
@@ -574,8 +761,8 @@ shellcheck_scripts() {
 	if command -v shellcheck >/dev/null; then
 		(cd "$HERE" && shellcheck -s bash "${files[@]}" && shellcheck -s sh scripts/fork-install-e2e/stub-piece.sh)
 	else
-		docker run --rm -v "$HERE:/src:ro" -w /src koalaman/shellcheck:v0.10.0 -s bash "${files[@]}"
-		docker run --rm -v "$HERE:/src:ro" -w /src koalaman/shellcheck:v0.10.0 -s sh scripts/fork-install-e2e/stub-piece.sh
+		docker run --rm -v "$HERE:/src:ro" -w /src "$SHELLCHECK_IMAGE" -s bash "${files[@]}"
+		docker run --rm -v "$HERE:/src:ro" -w /src "$SHELLCHECK_IMAGE" -s sh scripts/fork-install-e2e/stub-piece.sh
 	fi
 }
 
@@ -619,6 +806,8 @@ case_fresh_fast() { # the checks of every push: install, refusal over it, a tamp
 	local sys=$1 m
 	m=$(start_machine "$sys" fast)
 	M "$m" 'snap before; '"$INSTALL_A"' --yes </dev/null; installed_ok 80; record_matches before
+		code=$(curl -s -o /e2e/out/r.json -w "%{http_code}" -X POST -H "Content-Type: application/json" --data "{}" http://127.0.0.1/cosmos/api/setup)
+		check "POST /cosmos/api/setup without the setup code is refused" sh -c "test $code = 403 && grep -q SC001 /e2e/out/r.json"
 		snap installed; expect_exit 10 '"$INSTALL_A"' --yes </dev/null; same installed after-second
 		bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null; snap removed
 		packages_back before removed

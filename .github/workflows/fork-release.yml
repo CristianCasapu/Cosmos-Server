@@ -126,26 +126,6 @@ jobs:
             --keys src/forkrelease/keys.go --out release \
             --upstream "$UPSTREAM" --build-number "$BUILD" --previous "$PREVIOUS"
 
-      # The install scripts on every supported system, every case (install,
-      # refusals, tampered releases, interruptions, apt locked, a package
-      # missing, the download cut, Docker already there, the update and the
-      # rollback through the installed server's own updater), with test
-      # releases signed by a test key. Nothing is published when one fails.
-      # About 40 minutes.
-      - name: Check the install scripts on every system
-        if: steps.version.outputs.skip != 'true'
-        run: bash scripts/fork-install-e2e.sh full
-        env:
-          BUILD: build
-
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: failure() && steps.version.outputs.skip != 'true'
-        with:
-          name: install-e2e
-          path: ${{ runner.temp }}/fork-install-e2e-results/
-          if-no-files-found: ignore
-          retention-days: 14
-
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.version.outputs.skip != 'true'
         with:
@@ -155,8 +135,64 @@ jobs:
           retention-days: 3
           compression-level: 0
 
-  publish:
+  # The install scripts on every supported system, every case (install,
+  # refusals, tampered releases, interruptions, apt locked or failing, a
+  # package missing, the download cut, Docker already there, the update and
+  # the rollback through the installed server's own updater, the setup code),
+  # with test releases signed by a test key. A job of its own: it runs a
+  # privileged Docker in Docker and real package installs, so it must not be
+  # the job whose output gets signed. It reads the build's artifact (for the
+  # panel) and can change nothing that publish uses: no write token, no
+  # secret, and publish takes the release from the build job's artifact.
+  # About 40 minutes.
+  e2e:
     needs: build
+    if: needs.build.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: ${{ runner.temp }}/release
+
+      - name: Take the panel from the release
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/unpacked"
+          unzip -q "$RUNNER_TEMP/release/cosmos-cloud-$VERSION-amd64.zip" "cosmos-cloud-$VERSION/static/*" -d "$RUNNER_TEMP/unpacked"
+          mkdir -p "$RUNNER_TEMP/e2e-build"
+          mv "$RUNNER_TEMP/unpacked/cosmos-cloud-$VERSION/static" "$RUNNER_TEMP/e2e-build/static"
+          test -f "$RUNNER_TEMP/e2e-build/static/index.html"
+
+      - name: Check the install scripts on every system
+        run: bash scripts/fork-install-e2e.sh full
+        env:
+          BUILD: ${{ runner.temp }}/e2e-build
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: install-e2e
+          path: ${{ runner.temp }}/fork-install-e2e-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  publish:
+    # the e2e job must have passed; the files come from the build job only
+    needs: [build, e2e]
     if: needs.build.outputs.skip != 'true'
     runs-on: ubuntu-latest
     # Holds the signing key; GitHub lets only runs on `production` use it.

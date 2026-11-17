@@ -97,11 +97,14 @@ record_matches() { # snapshot before
 # The first-run wizard over the API, then a session with sudo, as the
 # browser would (no browser headers: the same-origin check lets it through).
 JAR=$OUT/cookies
-api() { # method path json
-	curl -s -m 30 -c "$JAR" -b "$JAR" --resolve "srv-e2e.local:${PORT:-80}:127.0.0.1" -H 'Content-Type: application/json' -X "$1" --data "${3:-}" -o "$OUT/api.out" -w '%{http_code}' "http://$PANEL_HOST:${PORT:-80}/cosmos/api/$2" || true
+SETUP_CODE=${SETUP_CODE:-}
+api() { # method path json (with the setup code when one is set)
+	curl -s -m 30 -c "$JAR" -b "$JAR" -H "X-Cosmos-Setup-Code: $SETUP_CODE" --resolve "srv-e2e.local:${PORT:-80}:127.0.0.1" -H 'Content-Type: application/json' -X "$1" --data "${3:-}" -o "$OUT/api.out" -w '%{http_code}' "http://$PANEL_HOST:${PORT:-80}/cosmos/api/$2" || true
 }
+# wizard_and_login [code]: the code is the one install.sh printed, else the file's
 wizard_and_login() {
 	local code
+	SETUP_CODE=${1:-$(cat /var/lib/cosmos/setup-code)}
 	code=$(api POST newInstall '{"step":"2"}'); echo "wizard 2: $code"
 	code=$(api POST newInstall '{"step":"3","httpsCertificateMode":"DISABLED","hostname":"srv-e2e.local"}'); echo "wizard 3: $code"
 	code=$(api POST newInstall '{"step":"4","nickname":"admin","password":"E2e-Test-Passw0rd!x","email":"admin@example.org"}'); echo "wizard 4: $code"

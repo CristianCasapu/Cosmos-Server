@@ -5,10 +5,15 @@
 //
 //	helper lock-dpkg <seconds>        hold apt's and dpkg's locks (fcntl, as
 //	                                  apt itself and unattended-upgrades do)
+//	helper lock-file <path> <seconds> hold one lock file (apt's lists lock)
 //	helper bad-zip <in> <out> <kind>  copy a release zip and add one entry
 //	                                  install.sh must refuse: dotdot (a ".."
-//	                                  path), absolute (a "/" path) or symlink
-//	                                  (a link to /etc)
+//	                                  path), absolute (a "/" path), symlink
+//	                                  (a link to /etc), duplicate (a name
+//	                                  twice), setuid, worldwritable, device
+//	                                  (a character device), ctrlchar (a
+//	                                  control character in a name) or bomb
+//	                                  (3.5 GiB of zeros, honestly declared)
 package main
 
 import (
@@ -66,6 +71,35 @@ func badZip(in, out, kind string) error {
 		header = &zip.FileHeader{Name: top + "/planted-link", Method: zip.Store}
 		header.SetMode(os.ModeSymlink | 0o777)
 		body = "/etc"
+	case "duplicate":
+		header = &zip.FileHeader{Name: top + "/start.sh", Method: zip.Deflate}
+		header.SetMode(0o755)
+		body = "#!/bin/sh\necho planted\n"
+	case "setuid":
+		header = &zip.FileHeader{Name: top + "/planted-setuid", Method: zip.Deflate}
+		header.SetMode(0o4755)
+	case "worldwritable":
+		header = &zip.FileHeader{Name: top + "/planted-writable", Method: zip.Deflate}
+		header.SetMode(0o666)
+	case "device":
+		header = &zip.FileHeader{Name: top + "/planted-device", Method: zip.Store}
+		header.SetMode(os.ModeDevice | os.ModeCharDevice | 0o600)
+	case "ctrlchar":
+		header = &zip.FileHeader{Name: top + "/planted\x07name", Method: zip.Deflate}
+	case "bomb":
+		header = &zip.FileHeader{Name: top + "/planted-bomb", Method: zip.Deflate}
+		header.SetMode(0o644)
+		ew, err := w.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+		zeros := make([]byte, 1<<20)
+		for i := 0; i < 3584; i++ {
+			if _, err := ew.Write(zeros); err != nil {
+				return err
+			}
+		}
+		return w.Close()
 	default:
 		return fmt.Errorf("unknown kind %q", kind)
 	}
@@ -91,6 +125,14 @@ func main() {
 		time.Sleep(time.Duration(seconds) * time.Second)
 		a.Close()
 		b.Close()
+		return
+	}
+	if len(os.Args) == 4 && os.Args[1] == "lock-file" {
+		seconds, _ := strconv.Atoi(os.Args[3])
+		f := lock(os.Args[2])
+		fmt.Println("locked")
+		time.Sleep(time.Duration(seconds) * time.Second)
+		f.Close()
 		return
 	}
 	if len(os.Args) == 5 && os.Args[1] == "bad-zip" {

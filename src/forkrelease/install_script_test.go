@@ -12,6 +12,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -135,5 +137,117 @@ func TestScriptsSignatureIsNotAReleaseSignature(t *testing.T) {
 	file = renamed + "signature " + base64.StdEncoding.EncodeToString(ed25519.Sign(private, []byte(renamed))) + "\n"
 	if _, err := verifyWith([]ed25519.PublicKey{public}, []byte(file)); !errors.Is(err, ErrMalformed) {
 		t.Fatalf("scripts listed in a release signature were accepted: %v", err)
+	}
+}
+
+// The shell's verifier (install.sh, verify_signed) and the servers' (Go,
+// verifyWith) are fed the same signature files: they must agree on each.
+func TestShellAndGoVerifiersAgree(t *testing.T) {
+	for _, tool := range []string{"bash", "openssl", "base64"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " is not here")
+		}
+	}
+	data, err := os.ReadFile(installScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	begin, end := strings.Index(script, "# BEGIN verify_signed"), strings.Index(script, "# END verify_signed")
+	if begin < 0 || end < begin {
+		t.Fatal("install.sh has no verify_signed block")
+	}
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "verify.sh"), []byte(script[begin:end]), 0o600)
+	driver := `set -u
+. "$1/verify.sh"
+WORK=$(mktemp -d "$1/work.XXXXXX"); OSSL=(openssl); RELEASE_KEYS=$2
+if verify_signed "$3" "$4" "$WORK/out"; then echo ACCEPT; else echo REFUSE; fi`
+	os.WriteFile(filepath.Join(dir, "driver.sh"), []byte(driver), 0o600)
+
+	public, private := testKey(t)
+	_, stranger := testKey(t)
+	key := base64.StdEncoding.EncodeToString(public)
+	sign := func(signed string, keys ...ed25519.PrivateKey) string {
+		out := signed
+		for _, k := range keys {
+			out += "signature " + base64.StdEncoding.EncodeToString(ed25519.Sign(k, []byte(signed))) + "\n"
+		}
+		return out
+	}
+	v := "0.24.0-fork.40"
+	sum := strings.Repeat("ab", 32)
+	zip := "cosmos-cloud-" + v + "-amd64.zip"
+	arm := "cosmos-cloud-" + v + "-arm64.zip"
+	head := manifestHeader + "\nversion " + v + "\n"
+	good := head + "sha256 " + sum + " " + zip + "\n"
+	sig := ed25519.Sign(private, []byte(good))
+	nonCanonical := base64.StdEncoding.EncodeToString(sig)
+	// the last character holds 2 bits of the signature and 4 bits that must
+	// be zero: setting one of those gives the same bytes, not canonical
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	last := strings.IndexByte(alphabet, nonCanonical[len(nonCanonical)-3])
+	nonCanonical = nonCanonical[:len(nonCanonical)-3] + string(alphabet[last|1]) + "=="
+	if decoded, err := base64.StdEncoding.DecodeString(nonCanonical); err != nil || !ed25519.Verify(public, []byte(good), decoded) {
+		t.Fatal("the non-canonical signature is not the same signature")
+	}
+	cases := []struct {
+		name   string
+		file   string
+		accept bool
+	}{
+		{"one zip, one signature", sign(good, private), true},
+		{"both zips", sign(good+"sha256 "+sum+" "+arm+"\n", private), true},
+		{"a stranger's signature, then a good one", sign(good, stranger, private), true},
+		{"a stranger's signature only", sign(good, stranger), false},
+		{"no signature", good, false},
+		{"five signatures", sign(good, private, private, private, private, private), false},
+		{"the header of the scripts", sign(strings.Replace(good, manifestHeader, "cosmos-fork-scripts-v1", 1), private), false},
+		{"a version with a leading zero", sign(strings.Replace(good, "version 0.24.0-fork.40", "version 0.024.0-fork.40", 1), private), false},
+		{"the version line of another release", sign(strings.Replace(good, "version "+v, "version 0.24.0-fork.41", 1), private), false},
+		{"a name that is not a zip of the version", sign(head+"sha256 "+sum+" install.sh\n", private), false},
+		{"a name listed twice", sign(good+"sha256 "+sum+" "+zip+"\n", private), false},
+		{"CRLF", strings.ReplaceAll(sign(good, private), "\n", "\r\n"), false},
+		{"a line after the signatures", sign(good, private) + "trailing data\n", false},
+		{"no final newline", strings.TrimSuffix(sign(good, private), "\n"), false},
+		{"a control character", sign(strings.Replace(good, "version", "ver\x01sion", 1), private), false},
+		{"larger than 4 KiB", sign(good, private) + strings.Repeat("signature "+base64.StdEncoding.EncodeToString(sig)+"\n", 60), false},
+		{"a signature in non-canonical base64", good + "signature " + nonCanonical + "\n", false},
+		{"an upper-case checksum", sign(head+"sha256 "+strings.ToUpper(sum)+" "+zip+"\n", private), false},
+	}
+	for _, c := range cases {
+		path := filepath.Join(dir, "file.sig")
+		os.WriteFile(path, []byte(c.file), 0o600)
+		_, goErr := verifyWith([]ed25519.PublicKey{public}, []byte(c.file))
+		out, err := exec.Command("bash", filepath.Join(dir, "driver.sh"), dir, key, path, manifestHeader).CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: the shell verifier did not run: %v %s", c.name, err, out)
+		}
+		shell := strings.TrimSpace(string(out)) == "ACCEPT"
+		if (goErr == nil) != c.accept {
+			t.Errorf("%s: Go accepts %v, want %v (%v)", c.name, goErr == nil, c.accept, goErr)
+		}
+		if shell != (goErr == nil) {
+			t.Errorf("%s: the shell accepts %v, Go %v", c.name, shell, goErr == nil)
+		}
+	}
+
+	// the scripts' file: its own header and names, the same rules
+	scripts := "cosmos-fork-scripts-v1\nversion " + v + "\nsha256 " + sum + " install.sh\nsha256 " + sum + " uninstall.sh\n"
+	for name, c := range map[string]struct {
+		file   string
+		accept bool
+	}{
+		"the scripts, signed":        {sign(scripts, private), true},
+		"the scripts, a stranger's":  {sign(scripts, stranger), false},
+		"a zip in the scripts' file": {sign(scripts+"sha256 "+sum+" "+zip+"\n", private), false},
+		"a script listed twice":      {sign(scripts+"sha256 "+sum+" install.sh\n", private), false},
+	} {
+		path := filepath.Join(dir, "scripts.sig")
+		os.WriteFile(path, []byte(c.file), 0o600)
+		out, _ := exec.Command("bash", filepath.Join(dir, "driver.sh"), dir, key, path, "cosmos-fork-scripts-v1").CombinedOutput()
+		if got := strings.TrimSpace(string(out)) == "ACCEPT"; got != c.accept {
+			t.Errorf("%s: the shell accepts %v, want %v (%s)", name, got, c.accept, out)
+		}
 	}
 }

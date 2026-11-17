@@ -30,6 +30,10 @@
 //	                             <part> ends after that many bytes: the
 //	                             connection is closed, as a network that
 //	                             goes down does (asset= empty: no cut)
+//	GET /redirect?to=<url>       a download is sent to <url>/<asset> instead of
+//	                             release-assets.githubusercontent.com (an
+//	                             address outside GitHub's, to see the script
+//	                             refuse it; to= empty: as GitHub)
 //	GET /down?set=1              every HTTPS request is answered by closing
 //	                             the connection (0: answer again)
 //	GET /calls                   the requests received, in order (?clear=1)
@@ -75,6 +79,7 @@ var (
 	cutAsset  string
 	cutAfter  int64
 	down      bool
+	redirect  string
 	calls     []string
 
 	tagPattern  = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+-fork\.([0-9]+)$`)
@@ -154,6 +159,14 @@ func serveGitHub(w http.ResponseWriter, r *http.Request) {
 		if len(parts) == 6 && parts[2] == "releases" && parts[3] == "download" && namePattern.MatchString(parts[4]) && namePattern.MatchString(parts[5]) {
 			if _, err := os.Stat(filepath.Join(*releasesDir, parts[4], parts[5])); err != nil {
 				http.NotFound(w, r)
+				return
+			}
+			mu.Lock()
+			to := redirect
+			mu.Unlock()
+			if to != "" {
+				w.Header().Set("Location", to+"/"+parts[5])
+				w.WriteHeader(http.StatusFound)
 				return
 			}
 			http.Redirect(w, r, "https://release-assets.githubusercontent.com/"+parts[0]+"/"+parts[1]+"/"+parts[4]+"/"+parts[5], http.StatusFound)
@@ -240,6 +253,8 @@ func control(w http.ResponseWriter, r *http.Request) {
 	case "/cut":
 		cutAsset = q.Get("asset")
 		cutAfter, _ = strconv.ParseInt(q.Get("after"), 10, 64)
+	case "/redirect":
+		redirect = q.Get("to")
 	case "/down":
 		down = q.Get("set") == "1"
 	case "/calls":

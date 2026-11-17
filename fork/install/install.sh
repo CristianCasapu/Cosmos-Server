@@ -63,7 +63,12 @@
 #   --no-outside             [outside-lookup=no] never ask an outside service
 #                            for the public address (the router only)
 #   --keep-ssh-open          [keep-ssh-open=yes] the guard keeps SSH open from outside
-#   --reuse-data             install over the data folder an earlier Cosmos left
+#   --reuse-data             install over the data folder the fork left (upstream's
+#                            data is migrate.sh's job)
+#   --allow-older            install a release older than this script (refused
+#                            otherwise: the installer goes forward only)
+#   --print-setup-code       print the one-time setup code even with --yes or
+#                            without a terminal (otherwise its file is named)
 #   --force                  go on on a system that is not supported (your risk)
 #   --help
 #
@@ -73,15 +78,37 @@
 # (nothing changed); 7 another run is going; 10 the fork is already
 # installed; 11 upstream's Cosmos is installed (use migrate.sh); 12 another
 # Cosmos or a half-removed one is there; 13 data of an earlier Cosmos is
-# there (--reuse-data); 14 an interrupted run used other options.
+# there (--reuse-data); 14 an interrupted run used other options; 15 the
+# release asked for is older than this script (--allow-older).
+#
+# The environment is not read, but for COSMOS_INSTALL_APT_WAIT (seconds apt
+# waits for another program that holds it, 10 to 3600, default 600). curl
+# and openssl run with an empty environment (no proxy, no ~/.curlrc, no
+# OPENSSL_CONF).
 
-if [ -z "${BASH_VERSION:-}" ]; then
-	# Started with sh (dash): bash is on every Debian and Ubuntu.
-	if [ -f "$0" ]; then exec bash "$0" "$@"; fi
-	echo "Save the script to a file and run it with: sudo bash install.sh" >&2
+# A script read from a pipe (curl ... | sudo sh) is refused: under a pipe $0
+# is "sh" or "bash", and running "$0" again would run whatever file of that
+# name the current folder holds, as root. Only a file that is this script
+# (the marker line below) is run again with bash.
+# COSMOS-FORK-INSTALL-SH
+cosmos_self=""
+case $0 in
+*/*) cosmos_self=$0 ;;
+*install*.sh) cosmos_self=./$0 ;;
+esac
+if [ -z "$cosmos_self" ] || [ ! -f "$cosmos_self" ] || ! grep -q '^# COSMOS-FORK-INSTALL-SH$' "$cosmos_self" 2>/dev/null; then
+	echo "install.sh must be run from a file, not from a pipe. Download it, then run it:" >&2
+	echo "    curl -fsSLO https://github.com/<owner>/<repo>/releases/latest/download/install.sh && sudo bash install.sh" >&2
 	exit 2
 fi
+if [ -z "${BASH_VERSION:-}" ]; then
+	# Started with sh (dash): bash is on every Debian and Ubuntu.
+	exec bash "$cosmos_self" "$@"
+fi
 
+# Everything runs inside main, called on the last line: a file cut short by
+# a broken download runs nothing.
+main() {
 set -euo pipefail
 shopt -s nullglob
 umask 077
@@ -122,7 +149,7 @@ MAX_ZIP=$((1024 * 1024 * 1024))
 MAX_UNPACKED=$((3 * 1024 * 1024 * 1024))
 
 EXIT_FAILED=1 EXIT_USAGE=2 EXIT_SYSTEM=3 EXIT_UNVERIFIED=4 EXIT_ROOT=5 EXIT_PREREQ=6 EXIT_BUSY=7
-EXIT_FORK=10 EXIT_UPSTREAM=11 EXIT_OTHER=12 EXIT_DATA=13 EXIT_RESUME=14
+EXIT_FORK=10 EXIT_UPSTREAM=11 EXIT_OTHER=12 EXIT_DATA=13 EXIT_RESUME=14 EXIT_OLDER=15
 
 say() { printf '%s\n' "$*"; }
 step() { printf '\n==> %s\n' "$*"; }
@@ -135,12 +162,12 @@ die() { # code, message
 }
 
 usage() {
-	sed -n '2,/^# there (--reuse-data)/p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,/^# OPENSSL_CONF)/p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # ---- The answers: flags, an answers file, defaults -------------------------
 # One variable per key. Flags win over the file; the file over the defaults.
-declare -A ANSWER=() ANSWER_FROM=()
+declare -gA ANSWER=() ANSWER_FROM=()
 ANSWER_KEYS="http-port https-port storage-tools reachable protection unattended-upgrades address upnp router outside-lookup keep-ssh-open"
 
 valid_answer() { # key, value
@@ -181,6 +208,7 @@ read_answers_file() { # file
 	done <"$file"
 }
 
+ALLOW_OLDER=0 PRINT_CODE=0
 YES=0 DRY_RUN=0 FORCE=0 REUSE_DATA=0 WANT_VERSION="" FROM="" ANSWERS_FILE=""
 ORIGINAL_ARGS=("$@")
 while [ $# -gt 0 ]; do
@@ -189,13 +217,15 @@ while [ $# -gt 0 ]; do
 	--dry-run) DRY_RUN=1 ;;
 	--force) FORCE=1 ;;
 	--reuse-data) REUSE_DATA=1 ;;
+	--allow-older) ALLOW_OLDER=1 ;;
+	--print-setup-code) PRINT_CODE=1 ;;
 	--no-outside) set_answer outside-lookup no flag ;;
 	--keep-ssh-open) set_answer keep-ssh-open yes flag ;;
 	--version | --from | --answers | --http-port | --https-port | --storage-tools | --reachable | --protection | \
 		--unattended-upgrades | --address | --upnp | --router)
 		[ $# -ge 2 ] || die $EXIT_USAGE "$1 needs a value"
 		case $1 in
-		--version) [[ $2 =~ ^v?[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}-fork\.[1-9][0-9]{0,8}$ ]] || die $EXIT_USAGE "--version takes a fork version such as 0.24.0-fork.35"
+		--version) [[ $2 =~ ^v?(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})-fork\.[1-9][0-9]{0,8}$ ]] || die $EXIT_USAGE "--version takes a fork version such as 0.24.0-fork.35"
 			WANT_VERSION=${2#v} ;;
 		--from) FROM=$2 ;;
 		--answers) ANSWERS_FILE=$2 ;;
@@ -241,7 +271,9 @@ cleanup() {
 	if [ -n "$STAGING" ] && [ -d "$STAGING" ]; then rm -rf -- "$STAGING"; fi
 	if [ -n "$WORK" ] && [ -d "$WORK" ]; then rm -rf -- "$WORK"; fi
 	if [ -n "$HOP_DIR" ] && [ -d "$HOP_DIR" ]; then rm -rf -- "$HOP_DIR"; fi
-	rm -f -- "$LOCK"
+	if [ -n "${SIM:-}" ] && [ -d "$SIM" ]; then rm -rf -- "$SIM"; fi
+	# the lock file stays (in /run): removing it while held would let a second
+	# run lock a new file
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM HUP
@@ -334,6 +366,26 @@ detect_cosmos() {
 		FOUND=data-only; FOUND_WHAT="the data of an earlier Cosmos is in /var/lib/cosmos (no installation)"; return
 	fi
 }
+# cosmos_data_kind <data folder>: whose data is it? Sets DATA_KIND (fork,
+# upstream or none) and DATA_PROBLEM ("", mongodb: users still in MongoDB,
+# from before 0.23; licence: a licence of the paid edition is set). The fork
+# alone writes cosmos.security.log, revoked-sessions.json and the like, and
+# its own settings (Telegram, Fail2ban, UPnP...) into the config, which
+# upstream drops at its next save.
+DATA_KIND=none DATA_PROBLEM=""
+cosmos_data_kind() {
+	local dir=$1 config=$1/cosmos.config.json f
+	DATA_KIND=none DATA_PROBLEM=""
+	[ -e "$config" ] || [ -e "$dir/database.db" ] || [ -e "$dir/auth.db" ] || return 0
+	DATA_KIND=upstream
+	for f in cosmos.security.log revoked-sessions.json reach-watch.json telegram.state.json fork-deps-told.json; do
+		if [ -e "$dir/$f" ]; then DATA_KIND=fork; fi
+	done
+	if [ -f "$config" ] && grep -qE '"(Telegram|Fail2ban|UPnP|Snapshots|Turnstile|AppSignIn)"[[:space:]]*:' "$config"; then DATA_KIND=fork; fi
+	if [ -f "$config" ] && grep -qE '"MongoDB"[[:space:]]*:[[:space:]]*"[^"]' "$config"; then DATA_PROBLEM=mongodb; return 0; fi
+	if [ -f "$config" ] && grep -qE '"Licence"[[:space:]]*:[[:space:]]*"[^"]' "$config"; then DATA_PROBLEM=licence; fi
+	return 0
+}
 # END shared detection
 
 # ---- 1. An existing Cosmos? (before anything else) -------------------------
@@ -393,8 +445,13 @@ To move it to the fork, use migrate.sh from the same release; install.sh never r
 		container) die $EXIT_UPSTREAM "$FOUND_WHAT.
 Moving a Cosmos container to the fork is migrate.sh's job (not available yet for containers); install.sh does not install a second Cosmos beside it." ;;
 		data-only)
-			if [ "$REUSE_DATA" = 1 ]; then
-				say "Using the data an earlier Cosmos left in $DATA_DIR (--reuse-data)."
+			cosmos_data_kind "$DATA_DIR"
+			if [ "$REUSE_DATA" = 1 ] && [ "$DATA_PROBLEM" = mongodb ]; then
+				die $EXIT_DATA "the data in $DATA_DIR keeps its users in MongoDB (a Cosmos from before 0.23): no Cosmos of today reads it. Nothing was changed."
+			elif [ "$REUSE_DATA" = 1 ] && [ "$DATA_KIND" != fork ]; then
+				die $EXIT_UPSTREAM "the data in $DATA_DIR is upstream's Cosmos's${DATA_PROBLEM:+ (with a licence of the paid edition)}: moving it to the fork is migrate.sh's job, with its checks of the version and the licence. install.sh --reuse-data takes data the fork left only. Nothing was changed."
+			elif [ "$REUSE_DATA" = 1 ]; then
+				say "Using the data the fork left in $DATA_DIR (--reuse-data)."
 			else
 				die $EXIT_DATA "$FOUND_WHAT.
 Add --reuse-data to install the fork over it, or move the folder away first."
@@ -423,7 +480,7 @@ fi
 # What a run killed with -9 left in its private folders (the lock says no
 # other run is going).
 if [ "$DRY_RUN" = 0 ]; then
-	for f in /opt/.cosmos-install.* /var/tmp/cosmos-install.*; do
+	for f in /opt/.cosmos-install.* /var/tmp/cosmos-install.* /var/tmp/cosmos-install-apt.*; do
 		if [ -d "$f" ] && [ ! -L "$f" ]; then rm -rf -- "$f"; fi
 	done
 fi
@@ -452,11 +509,18 @@ if [ "$supported" = 0 ]; then
 		die $EXIT_SYSTEM "$OS_NAME is not supported (Debian 12 or 13, Ubuntu 22.04, 24.04 or 26.04). Add --force to try anyway, at your own risk."
 	fi
 fi
-case $OS_ID in
-ubuntu) DOCKER_DIST=ubuntu; DOCKER_SUITE=${OS_UBUNTU_CODENAME:-$OS_CODENAME} ;;
-*) DOCKER_DIST=debian; DOCKER_SUITE=$OS_CODENAME ;;
+# Docker's repository: by the system's own name and code name; on a
+# derivative (--force) only when it names the Ubuntu or Debian release it
+# follows (UBUNTU_CODENAME, or a Debian code name Docker serves); otherwise
+# DOCKER_DIST stays empty and a missing Docker stops the run below.
+DOCKER_DIST="" DOCKER_SUITE=""
+case " $OS_ID $OS_LIKE " in
+" ubuntu "*) DOCKER_DIST=ubuntu; DOCKER_SUITE=${OS_UBUNTU_CODENAME:-$OS_CODENAME} ;;
+" debian "*) DOCKER_DIST=debian; DOCKER_SUITE=$OS_CODENAME ;;
+*" ubuntu "*) if [ -n "$OS_UBUNTU_CODENAME" ]; then DOCKER_DIST=ubuntu; DOCKER_SUITE=$OS_UBUNTU_CODENAME; fi ;;
+*" debian "*) case $OS_CODENAME in bookworm | trixie) DOCKER_DIST=debian; DOCKER_SUITE=$OS_CODENAME ;; esac ;;
 esac
-[[ $DOCKER_SUITE =~ ^[a-z]{2,20}$ ]] || die $EXIT_SYSTEM "the release's code name cannot be read from /etc/os-release"
+if [ -n "$DOCKER_DIST" ] && ! [[ $DOCKER_SUITE =~ ^[a-z]{2,20}$ ]]; then DOCKER_DIST="" DOCKER_SUITE=""; fi
 if ! command -v dpkg >/dev/null || ! command -v apt-get >/dev/null; then die $EXIT_SYSTEM "dpkg and apt-get are needed"; fi
 ARCH=$(dpkg --print-architecture)
 case $ARCH in
@@ -559,6 +623,9 @@ if command -v docker >/dev/null 2>&1 || [ -e /snap/bin/docker ] || command -v do
 		DOCKER_NOTE="$DOCKER_NOTE The snap's confinement lets containers mount only some folders of the host (under /home and a few others): apps whose volumes are elsewhere will fail to start."
 	fi
 else
+	if [ -z "$DOCKER_DIST" ]; then
+		die $EXIT_SYSTEM "$OS_NAME does not say which Debian or Ubuntu release it follows, so Docker's repository for it is unknown. Install Docker yourself, then run install.sh again. Nothing was changed."
+	fi
 	for p in docker.io docker-compose docker-doc podman-docker containerd runc; do
 		if installed "$p"; then
 			die $EXIT_PREREQ "the package $p is installed but no working Docker was found. Docker's packages conflict with it, and it may be running containers: remove it yourself (apt-get remove $p) or make its Docker work, then run install.sh again. Nothing was changed."
@@ -599,25 +666,35 @@ wanted_packages() { # the distribution's packages wanted, before the pieces answ
 }
 missing_of() { local p; for p in "$@"; do installed "$p" || echo "$p"; done; }
 
+# How long apt waits for another program that holds the package database or
+# its lists (unattended-upgrades at first boot): 10 minutes, or
+# COSMOS_INSTALL_APT_WAIT seconds (10 to 3600; the test bed shortens it).
+APT_WAIT=600
+if [[ ${COSMOS_INSTALL_APT_WAIT:-} =~ ^[1-9][0-9]{1,3}$ ]] && [ "$COSMOS_INSTALL_APT_WAIT" -le 3600 ]; then APT_WAIT=$COSMOS_INSTALL_APT_WAIT; fi
 # shellcheck disable=SC2034 # read by apt_get through the array
 APT_ENV=(env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a NEEDRESTART_SUSPEND=1 APT_LISTCHANGES_FRONTEND=none)
-APT_OPTS=(-y -q -o Acquire::Retries=3 -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
-# apt_get <args>: apt itself waits (up to 10 minutes) while another program
-# holds the package database, as unattended-upgrades does at first boot, and
-# says so as it waits; a lock it does not wait for (the lists) is tried
-# again here for as long. Its output is shown as it comes, without the
-# progress lines.
+APT_OPTS=(-y -q -o Acquire::Retries=3 -o "DPkg::Lock::Timeout=$APT_WAIT" -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
+# apt_get <args>: apt itself waits (APT_WAIT) while another program holds
+# the package database, and says so as it waits; a lock it does not wait
+# for (the lists) is tried again here for as long. Its output is shown as it
+# comes, without the progress lines. The status is apt-get's own.
 apt_get() {
-	local rc waited=0 log
+	local rc waited=0 log statuses
 	log=$(mktemp "$WORK/apt.XXXXXX")
 	while :; do
-		rc=0
+		set +e +o pipefail
 		"${APT_ENV[@]}" apt-get "${APT_OPTS[@]}" "$@" </dev/null 2>&1 | tee "$log" |
-			grep --line-buffered -vE '^(Get|Hit|Ign|Reading|Building|Preparing|Unpacking|Selecting|\(Reading|Setting up|Processing|Created symlink|Fetched|Need to get|After this|The following|Suggested|Recommended|  [a-z0-9])' || true
-		rc=${PIPESTATUS[0]}
+			grep --line-buffered -vE '^(Get|Hit|Ign|Reading|Building|Preparing|Unpacking|Selecting|\(Reading|Setting up|Processing|Created symlink|Fetched|Need to get|After this|The following|Suggested|Recommended|  [a-z0-9])'
+		statuses=("${PIPESTATUS[@]}")
+		set -e -o pipefail
+		rc=${statuses[0]}
 		if [ "$rc" -ne 0 ] && grep -qE 'Could not get lock|Unable to acquire the dpkg frontend lock|is another process using it' "$log"; then
-			if [ "$waited" -ge 600 ]; then return "$rc"; fi
-			[ "$waited" -gt 0 ] || say "Another program is using apt; waiting for it (up to 10 minutes)..."
+			if [ "$waited" -ge "$APT_WAIT" ]; then
+				warn "another program held apt for longer than $APT_WAIT seconds"
+				rm -f "$log"
+				return "$rc"
+			fi
+			[ "$waited" -gt 0 ] || say "Another program is using apt; waiting for it (up to $APT_WAIT seconds)..."
 			sleep 5
 			waited=$((waited + 5))
 			continue
@@ -636,19 +713,30 @@ mkdir_work
 
 # simulate <extra apt options...> -- <packages>: on a private copy of the
 # package lists, so that nothing on the system changes.
-SIM="$WORK/apt"
+# The simulation's apt runs on copies: its own lists, cache and sources, and
+# the system's configuration with the hooks that run on "apt-get update"
+# cleared (Ubuntu's command-not-found, update-notifier, esm): the simulation
+# writes nothing outside its folder. The folder is readable so that apt
+# downloads as its own sandbox user (_apt), as it does normally.
+SIM=$(mktemp -d /var/tmp/cosmos-install-apt.XXXXXXXX)
+chmod 755 "$SIM"
 sim_setup() {
-	mkdir -p "$SIM/lists/partial" "$SIM/cache/archives/partial" "$SIM/parts"
+	mkdir -p "$SIM/lists/partial" "$SIM/cache/archives/partial" "$SIM/parts" "$SIM/conf"
 	if [ -d /var/lib/apt/lists ]; then
 		find /var/lib/apt/lists -maxdepth 1 -type f ! -name lock -exec cp -p {} "$SIM/lists/" \;
 	fi
 	local f
 	for f in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do cp -p "$f" "$SIM/parts/"; done
+	for f in /etc/apt/apt.conf.d/*; do [ -f "$f" ] && cp -p "$f" "$SIM/conf/"; done
+	printf '%s\n' '#clear APT::Update::Pre-Invoke;' '#clear APT::Update::Post-Invoke;' '#clear APT::Update::Post-Invoke-Success;' \
+		'#clear APT::Update::Post-Invoke-Stats;' '#clear DPkg::Pre-Invoke;' '#clear DPkg::Post-Invoke;' '#clear DPkg::Pre-Install-Pkgs;' >"$SIM/conf/zzzz-cosmos-simulation"
+	chmod -R a+rX "$SIM"
+	if id -u _apt >/dev/null 2>&1; then chown -R _apt "$SIM/lists" "$SIM/cache"; fi
 }
 SIM_OPTS=()
 sim_opts() {
 	SIM_OPTS=(-o "Dir::State::Lists=$SIM/lists" -o "Dir::Cache=$SIM/cache" -o "Dir::Etc::SourceParts=$SIM/parts"
-		-o Debug::NoLocking=1 -o APT::Sandbox::User=root)
+		-o "Dir::Etc::Parts=$SIM/conf" -o Debug::NoLocking=1)
 }
 simulate() { # packages
 	local out rc=0
@@ -793,31 +881,42 @@ simulate_docker() {
 # uninstall.sh removes it.
 PHASE=check
 packages_now() { dpkg-query -W -f='${db:Status-Abbrev} ${binary:Package}\n' 2>/dev/null | awk '$1=="ii"{print $2}' | sed 's/:'"$ARCH"'$//' | sort -u; }
-added_packages() { # packages present now that were not before the first run
-	[ -f "$STATE_DIR/packages-before" ] || return 0
-	comm -13 "$STATE_DIR/packages-before" <(packages_now)
+# The packages this run's own apt transactions installed, for the early undo.
+RUN_PACKAGES=()
+unrecord() { # drop one record line
+	[ -f "$RECORD" ] || return 0
+	grep -vxF -- "$*" "$RECORD" >"$RECORD.new" || true
+	mv -f -- "$RECORD.new" "$RECORD"
 }
 # shellcheck disable=SC2317,SC2329 # called from the EXIT trap
 undo_early() {
-	local added
-	mapfile -t added < <(added_packages)
+	local added=() p dirs
+	for p in "${RUN_PACKAGES[@]}"; do installed "$p" && added+=("$p"); done
 	if [ "${#added[@]}" -gt 0 ]; then
 		say "Removing what this run installed: ${added[*]}"
 		if "${APT_ENV[@]}" apt-get -s remove --purge "${added[@]}" </dev/null 2>/dev/null | grep '^Remv ' | awk '{print $2}' | sed 's/:'"$ARCH"'$//' | sort -u | comm -23 - <(printf '%s\n' "${added[@]}" | sort -u) | grep -q .; then
 			warn "removing them would also remove other packages: they are left installed (${added[*]}); uninstall.sh --remove-packages lists them"
 			return 1
 		fi
-		apt_get remove --purge "${added[@]}" >/dev/null || { warn "apt could not remove ${added[*]}"; return 1; }
-		# empty folders the purged packages leave under /etc (/etc/ssl)
-		if [ -f "$STATE_DIR/etc-dirs-before" ]; then
-			for _ in 1 2 3 4; do
-				find /etc -xdev -type d -empty 2>/dev/null | sort | comm -23 - "$STATE_DIR/etc-dirs-before" |
-					while IFS= read -r d; do rmdir -- "$d" 2>/dev/null || true; done
+		# the folders under /etc that these packages own, to remove once empty
+		dirs=$(dpkg -L "${added[@]}" 2>/dev/null | grep '^/etc/' | sort -ru || true)
+		if ! apt_get remove --purge "${added[@]}" >/dev/null; then warn "apt could not remove ${added[*]}"; return 1; fi
+		for p in "${added[@]}"; do unrecord "package $p"; done
+		# empty folders the purged packages leave under /etc (/etc/ssl), if
+		# they were not there before the first run
+		if [ -n "$dirs" ] && [ -f "$STATE_DIR/etc-dirs-before" ]; then
+			printf '%s\n' "$dirs" | while IFS= read -r p; do
+				if [ -d "$p" ] && ! grep -qxF -- "$p" "$STATE_DIR/etc-dirs-before"; then rmdir -- "$p" 2>/dev/null || true; fi
 			done
 		fi
 	fi
-	rm -rf -- "$STATE_DIR"
-	say "Nothing is left of this run."
+	if [ -s "$RECORD" ]; then
+		warn "an earlier, interrupted run installed what $RECORD lists: it is kept (uninstall.sh --remove-packages removes it)"
+		rm -f -- "$STATE"
+	else
+		rm -rf -- "$STATE_DIR"
+		say "Nothing is left of this run."
+	fi
 }
 # shellcheck disable=SC2317,SC2329 # the EXIT trap
 on_failure() {
@@ -847,10 +946,9 @@ start_state() {
 	if [ ! -d "$STATE_DIR" ]; then
 		mkdir -m 700 "$STATE_DIR"
 	fi
-	if [ ! -f "$STATE_DIR/packages-before" ]; then
-		find /etc -xdev -type d 2>/dev/null | sort >"$STATE_DIR/etc-dirs-before"
-		packages_now >"$STATE_DIR/packages-before.new"
-		mv "$STATE_DIR/packages-before.new" "$STATE_DIR/packages-before"
+	if [ ! -f "$STATE_DIR/etc-dirs-before" ]; then
+		find /etc -xdev -type d 2>/dev/null | sort >"$STATE_DIR/etc-dirs-before.new"
+		mv "$STATE_DIR/etc-dirs-before.new" "$STATE_DIR/etc-dirs-before"
 	fi
 	[ -f "$STATE" ] || state_set started-at "$(date -u +%FT%TZ)"
 	state_set http-port "$HTTP_PORT"
@@ -858,26 +956,43 @@ start_state() {
 	if [ "$REUSE_DATA" = 1 ]; then state_set reuse-data yes; fi
 }
 
-# dpkg left half-done by an interruption of an earlier run of this script
+# dpkg left half-done, by the interruption of an earlier run of this script
+# (or by anything else): only when dpkg says so, and saying what it does.
 repair_dpkg() {
-	if [ "$RESUMING" = 1 ] && [ -n "$(dpkg --audit 2>/dev/null)" ]; then
-		say "The package database was left half-done by the interrupted run: finishing it (dpkg --configure -a)."
-		"${APT_ENV[@]}" dpkg --force-confdef --force-confold --configure -a </dev/null >/dev/null 2>&1 || true
-		apt_get -f install >/dev/null || true
-	fi
+	local pending
+	[ "$RESUMING" = 1 ] || return 0
+	pending=$(dpkg --audit 2>/dev/null || true)
+	[ -n "$pending" ] || return 0
+	say "The package database has unfinished packages (dpkg --audit):"
+	printf '%s\n' "$pending" | head -n 20 | sed 's/^/  /'
+	say "Finishing ALL of them, not only those of the interrupted run (dpkg --configure -a; apt-get -f install):"
+	"${APT_ENV[@]}" dpkg --force-confdef --force-confold --configure -a </dev/null || die $EXIT_FAILED "dpkg --configure -a failed: finish the packages above by hand, then run install.sh again"
+	apt_get -f install >/dev/null || die $EXIT_FAILED "apt-get -f install failed: repair the package database by hand, then run install.sh again"
 }
 
-install_packages() { # packages (only those missing are installed)
-	local missing
+# install_packages <packages>: installs those missing, in one transaction.
+# What the record gets is apt's own answer for exactly this command (the
+# packages it would newly install: "Inst" lines without an installed
+# version), written BEFORE the transaction runs (so an interruption leaves
+# them named) and confirmed after it: a planned package that this
+# transaction did not newly install (someone else's) is taken off again.
+install_packages() {
+	local missing planned rc=0 p
 	mapfile -t missing < <(missing_of "$@")
 	[ "${#missing[@]}" -gt 0 ] || return 0
 	state_set step "packages"
+	planned=$("${APT_ENV[@]}" apt-get -s -q install --no-install-recommends "${missing[@]}" </dev/null 2>/dev/null |
+		awk '$1=="Inst" && $3 !~ /^\[/ {print $2}' | sed 's/:'"$ARCH"'$//' | sort -u) ||
+		die $EXIT_FAILED "apt cannot install ${missing[*]} (it could a moment ago): nothing more was changed"
+	packages_now >"$WORK/before-transaction"
+	for p in $planned; do record "package $p"; done
 	say "Installing: ${missing[*]}"
-	apt_get install --no-install-recommends "${missing[@]}" || {
-		die $EXIT_FAILED "apt could not install ${missing[*]}"
-	}
-	local p
-	for p in $(added_packages); do record "package $p"; done
+	apt_get install --no-install-recommends "${missing[@]}" || rc=$?
+	packages_now | comm -13 "$WORK/before-transaction" - >"$WORK/new-in-transaction"
+	for p in $planned; do
+		if grep -qxF -- "$p" "$WORK/new-in-transaction"; then RUN_PACKAGES+=("$p"); else unrecord "package $p"; fi
+	done
+	[ "$rc" = 0 ] || die $EXIT_FAILED "apt could not install ${missing[*]} (apt-get ended with $rc)"
 }
 
 # ---- 4. The download tools -------------------------------------------------
@@ -904,11 +1019,17 @@ allowed_url() {
 	esac
 	return 1
 }
+# curl and openssl run with a fixed, minimal environment: no ~/.curlrc
+# (curl -q), no proxy or OPENSSL_CONF from the caller's shell (sudo -E, su).
+# A server that needs a proxy for GitHub downloads the release by hand and
+# uses --from.
+CURL=(env -i PATH="$PATH" HOME=/nonexistent LC_ALL=C curl -q)
+OSSL=(env -i PATH="$PATH" HOME=/nonexistent LC_ALL=C openssl)
 fetch() {
 	local url=$1 out=$2 max=$3 hops=0 result code location
 	while :; do
 		allowed_url "$url" || { warn "refusing to download from $(printf '%s' "$url" | cut -c1-120 | tr -cd '[:print:]')"; return 1; }
-		result=$(curl -sS --proto '=https' --tlsv1.2 --max-redirs 0 --connect-timeout 20 --max-time 3600 \
+		result=$("${CURL[@]}" -sS --proto '=https' --tlsv1.2 --max-redirs 0 --connect-timeout 20 --max-time 3600 \
 			--speed-limit 1024 --speed-time 60 --max-filesize "$max" --retry 2 --retry-connrefused \
 			-o "$out" -w '%{http_code} %{redirect_url}' -- "$url") || return 1
 		code=${result%% *}
@@ -928,46 +1049,63 @@ fetch() {
 # sends the request for install.sh says the version.
 latest_version() {
 	local result location
-	result=$(curl -sS --proto '=https' --tlsv1.2 --max-redirs 0 --connect-timeout 20 --max-time 60 -o /dev/null \
+	result=$("${CURL[@]}" -sS --proto '=https' --tlsv1.2 --max-redirs 0 --connect-timeout 20 --max-time 60 -o /dev/null \
 		-w '%{http_code} %{redirect_url}' -- "https://github.com/$RELEASE_REPOSITORY/releases/latest/download/install.sh") || return 1
 	location=${result#* }
-	[[ $location =~ ^https://github\.com/${RELEASE_REPOSITORY//./\\.}/releases/download/v([0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}-fork\.[1-9][0-9]{0,8})/install\.sh$ ]] || return 1
+	[[ $location =~ ^https://github\.com/${RELEASE_REPOSITORY//./\\.}/releases/download/v((0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})-fork\.[1-9][0-9]{0,8})/install\.sh$ ]] || return 1
 	printf '%s\n' "${BASH_REMATCH[1]}"
 }
 
+# BEGIN verify_signed (a Go test feeds this and src/forkrelease the same files)
 # verify_signed <file> <header> <out: the signed lines>: the form of the
-# file (as src/forkrelease/manifest.go reads it) and one signature by one
-# of the release keys of this script.
+# file exactly as src/forkrelease/manifest.go (parseSigned) reads it, and
+# one signature by one of the release keys of this script. For the
+# release's file (cosmos-fork-release-v1) the names are the version's two
+# zips; for the scripts' (cosmos-fork-scripts-v1) the scripts' names.
 verify_signed() {
-	local file=$1 header=$2 out=$3 n lines signed=0 key s=0 line
+	local file=$1 header=$2 out=$3 n lines signed=0 key s=0 line version names name size
 	[ -f "$file" ] && [ ! -L "$file" ] || return 1
-	[ "$(stat -c %s -- "$file")" -le 4096 ] && [ "$(stat -c %s -- "$file")" -gt 0 ] || return 1
+	size=$(stat -c %s -- "$file")
+	[ "$size" -le 4096 ] && [ "$size" -gt 0 ] || return 1
 	[ "$(tail -c 1 -- "$file" | od -An -tx1 | tr -d ' ')" = 0a ] || return 1
 	! tr -d '\n' <"$file" | LC_ALL=C grep -q '[^ -~]' || return 1
 	lines=$(wc -l <"$file")
 	[ "$lines" -ge 4 ] && [ "$lines" -le 14 ] || return 1
 	[ "$(sed -n 1p "$file")" = "$header" ] || return 1
-	[[ $(sed -n 2p "$file") =~ ^version\ [0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}-fork\.[1-9][0-9]{0,8}$ ]] || return 1
+	[[ $(sed -n 2p "$file") =~ ^version\ ((0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})-fork\.[1-9][0-9]{0,8})$ ]] || return 1
+	version=${BASH_REMATCH[1]}
+	case $header in
+	cosmos-fork-release-v1) names=" cosmos-cloud-$version-amd64.zip cosmos-cloud-$version-arm64.zip " ;;
+	cosmos-fork-scripts-v1) names=" install.sh uninstall.sh migrate.sh " ;;
+	*) return 1 ;;
+	esac
 	n=2
-	while [ "$n" -lt "$lines" ] && [[ $(sed -n "$((n + 1))p" "$file") =~ ^sha256\ [0-9a-f]{64}\ [A-Za-z0-9._-]{1,100}$ ]]; do
+	while [ "$n" -lt "$lines" ] && [[ $(sed -n "$((n + 1))p" "$file") =~ ^sha256\ [0-9a-f]{64}\ ([^ ]+)$ ]]; do
+		name=${BASH_REMATCH[1]}
+		[[ $names == *" $name "* ]] || return 1
 		n=$((n + 1))
 	done
-	[ "$n" -gt 2 ] || return 1
+	[ "$n" -gt 2 ] && [ "$((n - 2))" -le 8 ] || return 1
+	# a name listed twice is refused
+	[ -z "$(sed -n "3,${n}p" "$file" | awk '{print $3}' | sort | uniq -d)" ] || return 1
 	head -n "$n" -- "$file" >"$out"
 	mkdir -p "$WORK/sig"
 	rm -f "$WORK"/sig/*
 	while IFS= read -r line; do
 		[[ $line =~ ^signature\ ([A-Za-z0-9+/]{86}==)$ ]] || return 1
 		s=$((s + 1))
+		[ "$s" -le 4 ] || return 1
 		printf '%s' "${BASH_REMATCH[1]}" | base64 -d >"$WORK/sig/s.$s" 2>/dev/null || return 1
 		[ "$(stat -c %s "$WORK/sig/s.$s")" = 64 ] || return 1
+		# canonical base64 only, as Go's StdEncoding.Strict()
+		[ "$(base64 -w0 <"$WORK/sig/s.$s")" = "${BASH_REMATCH[1]}" ] || return 1
 	done < <(tail -n +"$((n + 1))" -- "$file")
-	[ "$s" -ge 1 ] && [ "$s" -le 4 ] || return 1
+	[ "$s" -ge 1 ] || return 1
 	for key in $RELEASE_KEYS; do
 		{ printf '\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00'; printf '%s' "$key" | base64 -d; } >"$WORK/sig/key.der"
-		openssl pkey -pubin -inform DER -in "$WORK/sig/key.der" -out "$WORK/sig/key.pem" 2>/dev/null || continue
+		"${OSSL[@]}" pkey -pubin -inform DER -in "$WORK/sig/key.der" -out "$WORK/sig/key.pem" 2>/dev/null || continue
 		for line in "$WORK"/sig/s.*; do
-			if openssl pkeyutl -verify -pubin -inkey "$WORK/sig/key.pem" -rawin -in "$out" -sigfile "$line" >/dev/null 2>&1; then
+			if "${OSSL[@]}" pkeyutl -verify -pubin -inkey "$WORK/sig/key.pem" -rawin -in "$out" -sigfile "$line" >/dev/null 2>&1; then
 				signed=1
 				break 2
 			fi
@@ -975,14 +1113,15 @@ verify_signed() {
 	done
 	[ "$signed" = 1 ]
 }
+# END verify_signed
 # openssl must be able to verify Ed25519 at all: a check that cannot be made
 # stops the run (there is no way to install unverified).
 check_openssl() {
-	openssl genpkey -algorithm ed25519 -out "$WORK/probe.pem" >/dev/null 2>&1 &&
+	"${OSSL[@]}" genpkey -algorithm ed25519 -out "$WORK/probe.pem" >/dev/null 2>&1 &&
 		printf 'probe' >"$WORK/probe.txt" &&
-		openssl pkeyutl -sign -inkey "$WORK/probe.pem" -rawin -in "$WORK/probe.txt" -out "$WORK/probe.sig" >/dev/null 2>&1 &&
-		openssl pkey -in "$WORK/probe.pem" -pubout -out "$WORK/probe.pub" >/dev/null 2>&1 &&
-		openssl pkeyutl -verify -pubin -inkey "$WORK/probe.pub" -rawin -in "$WORK/probe.txt" -sigfile "$WORK/probe.sig" >/dev/null 2>&1
+		"${OSSL[@]}" pkeyutl -sign -inkey "$WORK/probe.pem" -rawin -in "$WORK/probe.txt" -out "$WORK/probe.sig" >/dev/null 2>&1 &&
+		"${OSSL[@]}" pkey -in "$WORK/probe.pem" -pubout -out "$WORK/probe.pub" >/dev/null 2>&1 &&
+		"${OSSL[@]}" pkeyutl -verify -pubin -inkey "$WORK/probe.pub" -rawin -in "$WORK/probe.txt" -sigfile "$WORK/probe.sig" >/dev/null 2>&1
 	local rc=$?
 	rm -f "$WORK"/probe.*
 	return $rc
@@ -1006,10 +1145,14 @@ check_zip_entries() { # zip, top folder
 		return 1
 	fi
 	if printf '%s\n' "$names" | grep -qE '(^|/)\.\.?(/|$)'; then warn "the zip holds a '..' or '.' entry"; return 1; fi
+	# a name twice: unzip would ask what to do (or overwrite)
+	if [ -n "$(printf '%s\n' "$names" | sort | uniq -d)" ]; then warn "the zip holds an entry twice"; return 1; fi
 	# zipinfo's long listing: the first column is the type and mode (unix
-	# entries); anything but a plain file "-" or a folder "d" is refused.
-	types=$(unzip -Z -- "$zip" 2>/dev/null | sed -n '3,$p' | sed '$d' | cut -c1) || return 1
-	if printf '%s\n' "$types" | grep -qv '^[-d]$'; then warn "the zip holds a link or a special file"; return 1; fi
+	# entries); anything but a plain file "-" or a folder "d" is refused, and
+	# so are setuid, setgid and sticky bits and entries anyone may write.
+	types=$(unzip -Z -- "$zip" 2>/dev/null | sed -n '3,$p' | sed '$d' | cut -c1-10) || return 1
+	if printf '%s\n' "$types" | cut -c1 | grep -qv '^[-d]$'; then warn "the zip holds a link or a special file"; return 1; fi
+	if printf '%s\n' "$types" | grep -qE '^.{1,9}[sStT]|^.{8}w'; then warn "the zip holds an entry with setuid, setgid or sticky bits, or one anyone may write"; return 1; fi
 	[ "$(printf '%s\n' "$types" | wc -l)" = "$(printf '%s\n' "$names" | wc -l)" ] || return 1
 	total=$(unzip -Zt -- "$zip" 2>/dev/null | sed -n 's/.* \([0-9]\{1,15\}\) bytes uncompressed.*/\1/p')
 	if ! { [ -n "$total" ] && [ "$total" -le "$MAX_UNPACKED" ]; }; then warn "the zip unpacks to more than allowed"; return 1; fi
@@ -1028,6 +1171,15 @@ if [ "$DRY_RUN" = 1 ] && [ -n "$(missing_of "${TOOLS[@]}")" ]; then
 fi
 check_openssl || refuse "the openssl here cannot verify an Ed25519 signature, so the release cannot be checked (OpenSSL 3 is needed)"
 
+# Forward only: never a release older than this script's own (a stale
+# "latest", a hand-picked --version, an old zip), unless --allow-older.
+build_of() { printf '%s' "${1##*-fork.}"; }
+not_older() { # version
+	if [ "$(build_of "$1")" -lt "$(build_of "$RELEASE_VERSION")" ] && [ "$ALLOW_OLDER" = 0 ]; then
+		printf 'ERROR: %s is older than this script (%s): the installer goes forward only.\nAdd --allow-older to install it anyway (it is still verified like any other).\n' "$1" "$RELEASE_VERSION" >&2
+		exit $EXIT_OLDER
+	fi
+}
 ZIP="" SIG="" MD5=""
 if [ -n "$FROM" ]; then
 	step "Taking the release from $FROM"
@@ -1040,15 +1192,20 @@ if [ -n "$FROM" ]; then
 	fi
 	if ! { [ -f "$ZIP" ] && [ ! -L "$ZIP" ]; }; then refuse "$ZIP is not a file"; fi
 	zipname=$(basename -- "$ZIP")
-	[[ $zipname =~ ^cosmos-cloud-([0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}-fork\.[1-9][0-9]{0,8})-(amd64|arm64)\.zip$ ]] ||
+	[[ $zipname =~ ^cosmos-cloud-((0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})-fork\.[1-9][0-9]{0,8})-(amd64|arm64)\.zip$ ]] ||
 		refuse "$zipname is not the name of a release zip of the fork (cosmos-cloud-<version>-<arch>.zip)"
 	VERSION=${BASH_REMATCH[1]}
-	[ "${BASH_REMATCH[2]}" = "$ARCH" ] || refuse "$zipname is for ${BASH_REMATCH[2]}, this machine is $ARCH"
+	[ "${BASH_REMATCH[5]}" = "$ARCH" ] || refuse "$zipname is for ${BASH_REMATCH[5]}, this machine is $ARCH"
+	not_older "$VERSION"
 	SIG=$(dirname -- "$ZIP")/cosmos-cloud-$VERSION.sig
-	[ -f "$SIG" ] || refuse "the signature file cosmos-cloud-$VERSION.sig is not next to the zip"
+	if ! { [ -f "$SIG" ] && [ ! -L "$SIG" ]; }; then refuse "the signature file cosmos-cloud-$VERSION.sig is not next to the zip"; fi
+	# sizes first: a huge file is not copied at all
+	[ "$(stat -c %s -- "$ZIP")" -le "$MAX_ZIP" ] || refuse "$zipname is larger than a release can be (1 GiB)"
+	[ "$(stat -c %s -- "$SIG")" -le 4096 ] || refuse "cosmos-cloud-$VERSION.sig is larger than a signature file can be"
+	need_space /var/tmp $(( $(stat -c %s -- "$ZIP") / 1024 + 10240 )) "the copy of the release"
 	cp -- "$ZIP" "$WORK/release.zip"
 	cp -- "$SIG" "$WORK/release.sig"
-	if [ -f "$ZIP.md5" ]; then cp -- "$ZIP.md5" "$WORK/release.md5"; MD5="$WORK/release.md5"; fi
+	if [ -f "$ZIP.md5" ] && [ ! -L "$ZIP.md5" ] && [ "$(stat -c %s -- "$ZIP.md5")" -le 1024 ]; then cp -- "$ZIP.md5" "$WORK/release.md5"; MD5="$WORK/release.md5"; fi
 	ZIP="$WORK/release.zip" SIG="$WORK/release.sig"
 else
 	step "Finding the release on GitHub ($RELEASE_REPOSITORY)"
@@ -1057,6 +1214,7 @@ else
 	else
 		VERSION=$(latest_version) || die $EXIT_FAILED "could not find the newest release at https://github.com/$RELEASE_REPOSITORY/releases (network?)"
 	fi
+	not_older "$VERSION"
 	if [ "$VERSION" != "$RELEASE_VERSION" ] && [ "${COSMOS_INSTALL_HOPPED:-}" != "$VERSION" ]; then
 		# Another release: its own install.sh installs it, after its signed
 		# file of scripts verified under this script's keys.
@@ -1119,7 +1277,9 @@ say "Entries: $(unzip -Z1 -- "$ZIP" | wc -l), all plain files and folders under 
 
 # Unpacked first into a private folder on the same disk as $INSTALL_DIR.
 STAGING=$(mktemp -d /opt/.cosmos-install.XXXXXXXX)
-unzip -q -- "$ZIP" -d "$STAGING" || refuse "unzip failed"
+# -n: never overwrite (no name is there twice, checked above); stdin closed:
+# unzip can never ask a question
+unzip -qq -n -- "$ZIP" -d "$STAGING" </dev/null || refuse "unzip failed"
 NEW=$STAGING/$TOP
 for f in cosmos cosmos-launcher start.sh meta.json; do
 	if ! { [ -f "$NEW/$f" ] && [ ! -L "$NEW/$f" ]; }; then refuse "the release lacks $f"; fi
@@ -1138,8 +1298,9 @@ fi
 # What the release's binary sees of the network (it changes nothing).
 DETECT="$WORK/detect.json"
 detect_args=(--timeout 10)
-[ "$(answer outside-lookup)" = yes ] || detect_args+=(--no-outside)
-if env -i PATH="$PATH" HOME="$WORK" RCLONE_CONFIG="$WORK/none.conf" "$NEW/cosmos" fork-detect "${detect_args[@]}" >"$DETECT" 2>/dev/null; then :; else : >"$DETECT"; fi
+# a dry run tells no one: never an outside service
+if [ "$(answer outside-lookup)" != yes ] || [ "$DRY_RUN" = 1 ]; then detect_args+=(--no-outside); fi
+if timeout 30 env -i PATH="$PATH" HOME="$WORK" RCLONE_CONFIG="$WORK/none.conf" "$NEW/cosmos" fork-detect "${detect_args[@]}" >"$DETECT" 2>/dev/null; then :; else : >"$DETECT"; fi
 json_string() { # key in the network part (plain values only)
 	sed -n "/\"network\"/,/}/s/.*\"$1\": \"\\([0-9a-zA-Z.:/_-]*\\)\".*/\\1/p" "$DETECT" | head -n 1
 }
@@ -1154,10 +1315,10 @@ if grep -q '"asked": true' "$DETECT"; then say "The router gave no public addres
 # The pieces' own lists, then the last simulation (Docker's repository too).
 PIECE_PACKAGES=()
 for p in $(chosen_pieces); do
+	# a piece that does not answer --print-packages will not be run (see
+	# run_piece): nothing is installed for it
 	if [ -f "$NEW/fork/$p/install.sh" ] && list=$(env -i PATH="$PATH" sh "$NEW/fork/$p/install.sh" --print-packages </dev/null 2>/dev/null); then
-		for q in $list; do [[ $q =~ ^[a-z0-9][a-z0-9.+-]{0,60}$ ]] && PIECE_PACKAGES+=("$q"); done
-	else
-		for q in $(piece_fallback_packages "$p"); do PIECE_PACKAGES+=("$q"); done
+		for q in $list; do if [[ $q =~ ^[a-z0-9][a-z0-9.+-]{0,60}$ ]]; then PIECE_PACKAGES+=("$q"); fi; done
 	fi
 done
 mapfile -t MISSING < <({ printf '%s\n' "${BASE[@]}"; if [ "$(answer storage-tools)" = yes ]; then printf '%s\n' "${STORAGE[@]}"; fi; printf '%s\n' "${PIECE_PACKAGES[@]}"; } | sort -u | while read -r p; do [ -n "$p" ] && { installed "$p" || echo "$p"; }; done)
@@ -1231,7 +1392,9 @@ if [ "${#PREINSTALL[@]}" -gt 0 ] || [ "$DOCKER_PLAN" = install ]; then
 		install_packages "${PREINSTALL[@]}"
 	fi
 fi
-if installed avahi-daemon; then systemctl enable --now avahi-daemon.service >/dev/null 2>&1 || true; fi
+# avahi-daemon (.local names) is started only when this script installed it:
+# one the admin had, enabled or not, is left as it is
+if recorded "package avahi-daemon"; then systemctl enable --now avahi-daemon.service >/dev/null 2>&1 || warn "avahi-daemon did not start (.local names will not work): systemctl status avahi-daemon"; fi
 
 # ---- 7. Cosmos ------------------------------------------------------------------
 PHASE=cosmos
@@ -1329,11 +1492,18 @@ run_piece() { # piece
 		[ "$(answer keep-ssh-open)" != yes ] || args+=(--allow-ssh-from-outside) ;;
 	fail2ban) args+=(--log "$DATA_DIR/cosmos.security.log" --cosmos-config "$DATA_DIR/cosmos.config.json") ;;
 	esac
-	rec=$(mktemp "$WORK/record.$piece.XXXXXX")
-	args+=(--record "$rec")
 	step "Protection: $piece"
 	local environment=(PATH=/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a NEEDRESTART_SUSPEND=1)
 	if [ -n "${SSH_CONNECTION:-}" ]; then environment+=("SSH_CONNECTION=$SSH_CONNECTION"); fi
+	# only a piece that speaks the installer's interface (it answers
+	# --print-packages) is run: an older one would refuse the flags
+	if ! env -i "${environment[@]}" sh "$script" --print-packages </dev/null >/dev/null 2>&1; then
+		warn "PIECE NOT RUN: $piece in this release does not speak the installer's interface (no --print-packages). Install it by hand later: sudo sh $script"
+		PIECES_SKIPPED="$PIECES_SKIPPED $piece"
+		return 0
+	fi
+	rec=$(mktemp "$WORK/record.$piece.XXXXXX")
+	args+=(--record "$rec")
 	out=$(env -i "${environment[@]}" sh "$script" "${args[@]}" </dev/null 2>&1) || rc=$?
 	printf '%s\n' "$out" | tail -n 20 | sed 's/^/  /'
 	while IFS= read -r line && [ "$n" -lt 200 ]; do
@@ -1344,9 +1514,8 @@ run_piece() { # piece
 			warn "a record line of $piece was not taken: $(printf '%s' "$line" | tr -cd '[:print:]' | cut -c1-80)"
 		fi
 	done <"$rec"
-	record "piece-ran $piece"
 	case $rc in
-	0) say "$piece: done." ;;
+	0) record "piece-ran $piece"; say "$piece: done." ;;
 	3 | 4) warn "$piece was not installed: $(printf '%s\n' "$out" | tail -n 1). Install it later with: sudo sh $script"
 		PIECES_SKIPPED="$PIECES_SKIPPED $piece" ;;
 	*) warn "$piece failed (exit $rc). Try again later with: sudo sh $script"
@@ -1364,7 +1533,6 @@ if [ "$(answer protection)" = yes ] || [ "$(answer unattended-upgrades)" = yes ]
 fi
 
 # ---- 9. Done ------------------------------------------------------------------------
-for p in $(added_packages); do record "package $p"; done
 state_set version "$VERSION"
 state_set completed-at "$(date -u +%FT%TZ)"
 state_set completed yes
@@ -1380,15 +1548,26 @@ step "Cosmos $VERSION is installed and running"
 say "Open the panel from a computer at home:"
 [ -n "$LAN_ADDRESS" ] || LAN_ADDRESS="<this server's address>"
 say "    http://$LAN_ADDRESS$suffix/"
-if [ "$REUSE_DATA" = 1 ]; then
+CODE_FILE=$DATA_DIR/setup-code
+for _ in $(seq 1 20); do [ -s "$CODE_FILE" ] && break; sleep 0.5; done
+if [ -s "$CODE_FILE" ]; then
+	say "and finish the first-run wizard there now. Its first screen asks once for this"
+	say "server's one-time setup code: nobody without it can set the server up."
+	if [ "$PRINT_CODE" = 1 ] || { [ "$YES" = 0 ] && [ -t 1 ]; }; then
+		say ""
+		say "    Setup code: $(head -c 64 "$CODE_FILE" | tr -cd 'A-Z0-9-')"
+		say ""
+	else
+		say "The code is in $CODE_FILE (root only): sudo cat $CODE_FILE"
+		say "(This run had no terminal or --yes, so the code is not printed; --print-setup-code prints it.)"
+	fi
+	say "It is also in the journal: sudo journalctl -u $UNIT | grep -A1 'SETUP CODE'"
+	say "This script opened nothing to the internet: no firewall rule, no router forward."
+elif [ "$REUSE_DATA" = 1 ]; then
 	say "It runs on the data that was kept in $DATA_DIR: sign in with its accounts"
 	say "(the address may be the one its settings name rather than the one above)."
 else
-	say "and finish the first-run wizard there now. Until it is finished, whoever can"
-	say "reach this server on port $HTTP_PORT (or $HTTPS_PORT) can complete it and become its"
-	say "administrator. This script opened nothing to the internet: no firewall rule and"
-	say "no router forward; the wizard is reachable from your home network only, unless"
-	say "this server is directly on the internet (a VPS): then finish it at once."
+	warn "the server has made no setup code ($CODE_FILE): the wizard stays closed until it can. See: journalctl -u $UNIT"
 fi
 say ""
 say "Installed in $INSTALL_DIR, data in $DATA_DIR, service $UNIT (enabled)."
@@ -1401,3 +1580,6 @@ if [ -n "$PIECES_FAILED" ]; then
 	exit $EXIT_FAILED
 fi
 exit 0
+}
+
+main "$@"
