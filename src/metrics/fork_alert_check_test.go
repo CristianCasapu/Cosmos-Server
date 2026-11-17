@@ -102,6 +102,14 @@ func TestOnlyNewOrChangedAlertsAreChecked(t *testing.T) {
 	if err := alertUpdateProblem("Odd/old", utils.Alert{Name: "Odd/old", Period: "weekly", Enabled: false}, switched); err != nil {
 		t.Fatalf("switching it off through the route refused: %v", err)
 	}
+	// switched together with another change (here the period): checked (second review, M2)
+	periodToo := odd
+	periodToo.Enabled = true
+	periodToo.Period = "monthly"
+	next["Odd/old"] = periodToo
+	if err := CheckChangedAlerts(next, stored); err == nil {
+		t.Fatal("an alert switched on with its period changed was not checked")
+	}
 	// any other change: checked
 	changed := switched
 	changed.Severity = "warn"

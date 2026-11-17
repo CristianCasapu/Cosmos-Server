@@ -3,8 +3,15 @@ package cron
 // Fork addition: tests of fork_job_check.go.
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/gorilla/mux"
 
 	"github.com/azukaar/cosmos-server/src/utils"
 )
@@ -211,10 +218,70 @@ func TestRecheckJobsWhenTheStoredJobsChanged(t *testing.T) {
 		t.Fatalf("nothing changed meanwhile, refused: %s", p)
 	}
 	now := map[string]utils.CRONConfig{"a": {Name: "a", Crontab: "0 0 3 * * *", Command: "true"}}
-	if p := RecheckJobs(request, checked, now); !strings.Contains(p, "no container") {
-		t.Errorf("a job changed meanwhile was not checked again: %q", p)
+	asked := false
+	containerExists = func(string) (bool, error) { asked = true; return false, nil }
+	if p := RecheckJobs(request, checked, now); p != jobsChangedMeanwhile {
+		t.Errorf("a job changed meanwhile: %q", p)
 	}
-	if p := RecheckJobs(request, checked, map[string]utils.CRONConfig{}); !strings.Contains(p, "no container") {
-		t.Errorf("a job deleted meanwhile was not checked as new: %q", p)
+	if p := RecheckJobs(request, checked, map[string]utils.CRONConfig{}); p != jobsChangedMeanwhile {
+		t.Errorf("a job deleted meanwhile: %q", p)
+	}
+	if asked {
+		t.Error("Docker was asked under the configuration's lock")
+	}
+}
+
+// The job routes compare again under the lock with the jobs read there: a job
+// another save changed between the route's check and the lock is refused
+// ("try again"), and Docker is not asked under the lock (second review, 1 and 6).
+func TestTheJobRoutesRefuseAJobThatChangedMeanwhile(t *testing.T) {
+	prevFolder, prevConfig := utils.CONFIGFOLDER, utils.GetBaseMainConfig()
+	utils.CONFIGFOLDER = t.TempDir() + "/"
+	t.Setenv("CONFIG_FILE", "")
+	t.Cleanup(func() { utils.LoadBaseMainConfig(prevConfig); utils.CONFIGFOLDER = prevFolder })
+
+	job := utils.CRONConfig{Name: "dump", Enabled: true, Crontab: "0 0 3 * * *", Command: "true", Container: "db"}
+	inMemory := prevConfig
+	inMemory.CRON = map[string]utils.CRONConfig{"dump": job}
+	onDisk := inMemory
+	changed := job
+	changed.Container = "other" // what another save stored meanwhile
+	onDisk.CRON = map[string]utils.CRONConfig{"dump": changed}
+	utils.SaveConfigTofile(onDisk)
+	utils.LoadBaseMainConfig(inMemory) // what the route's check reads, before the lock
+
+	asked := 0
+	stubContainers(t, map[string]bool{"db": true}, false)
+	was := containerExists
+	containerExists = func(name string) (bool, error) { asked++; return was(name) }
+
+	admin := func(req *http.Request) *http.Request {
+		return req.WithContext(context.WithValue(req.Context(), utils.AuthCtxKey, &utils.AuthContext{
+			Nickname: "admin", Role: utils.ADMIN, UserRole: utils.ADMIN, Permissions: utils.GetRolePermissions(utils.ADMIN), IsSudoed: true,
+		}))
+	}
+	// the same job sent back (only switched off): unchanged against the memory, stale against the file
+	body, _ := json.Marshal(utils.CRONConfig{Name: "dump", Enabled: false, Crontab: job.Crontab, Command: job.Command, Container: job.Container})
+	req := mux.SetURLVars(admin(httptest.NewRequest("PUT", "/cosmos/api/cron/dump", bytes.NewReader(body))), map[string]string{"name": "dump"})
+	w := httptest.NewRecorder()
+	cronConfigUpdate(w, req)
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "changed meanwhile") || !strings.Contains(w.Body.String(), "CR022") {
+		t.Errorf("update: %d %s", w.Code, w.Body.String())
+	}
+	if stored := utils.ReadConfigFromFile().CRON["dump"]; stored != changed {
+		t.Errorf("the other save's job was replaced: %+v", stored)
+	}
+
+	// a new job while the number of jobs changed meanwhile
+	onDisk.CRON["another"] = utils.CRONConfig{Name: "another", Crontab: "0 0 4 * * *", Command: "true"}
+	utils.SaveConfigTofile(onDisk)
+	body, _ = json.Marshal(utils.CRONConfig{Name: "fresh", Enabled: true, Crontab: "0 0 5 * * *", Command: "true"})
+	w = httptest.NewRecorder()
+	cronConfigCreate(w, admin(httptest.NewRequest("POST", "/cosmos/api/cron", bytes.NewReader(body))))
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "CR013") {
+		t.Errorf("create: %d %s", w.Code, w.Body.String())
+	}
+	if asked != 0 {
+		t.Errorf("Docker was asked %d times", asked)
 	}
 }

@@ -65,7 +65,7 @@ func PostgresFieldsProblem(db DatabaseConfig) string {
 		return "The user name has at most 63 letters, digits and _ . $ -"
 	}
 	if len(db.PostgresPassword) > 1024 || strings.ContainsAny(db.PostgresPassword, "\x00") {
-		return "The password is at most 1024 characters"
+		return "The password is at most 1024 bytes (fewer characters when some are not plain letters)"
 	}
 	return ""
 }

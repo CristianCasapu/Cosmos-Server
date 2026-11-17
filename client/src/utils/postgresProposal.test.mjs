@@ -61,5 +61,8 @@ test('the password follows the server: at most 1024 characters, no NUL', () => {
   assert.equal(postgresPasswordProblem('p'.repeat(1024)), null);
   assert.equal(postgresPasswordProblem('p'.repeat(1025)), 'shape');
   assert.equal(postgresPasswordProblem('a\u0000b'), 'shape');
+  // counted in bytes like the server: 600 × é is 1200 bytes
+  assert.equal(postgresPasswordProblem('é'.repeat(512)), null);
+  assert.equal(postgresPasswordProblem('é'.repeat(600)), 'shape');
   assert.ok(postgresHostProblem('db:'));
 });

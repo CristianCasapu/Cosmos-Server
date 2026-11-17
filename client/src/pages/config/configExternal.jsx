@@ -20,7 +20,7 @@ export const postgresValidation = (t) => ({
     (value) => !postgresNameProblem(value)),
   PostgresUsername: Yup.string().nullable().test('postgres-name', t('mgmt.config.general.monitoringDb.fork.nameValidation', 'At most 63 letters, digits and _ . $ -'),
     (value) => !postgresNameProblem(value)),
-  PostgresPassword: Yup.string().nullable().test('postgres-password', t('mgmt.config.general.monitoringDb.fork.passwordValidation', 'At most 1024 characters'),
+  PostgresPassword: Yup.string().nullable().test('postgres-password', t('mgmt.config.general.monitoringDb.fork.passwordValidation', 'At most 1024 bytes (fewer characters when some are not plain letters)'),
     (value) => !postgresPasswordProblem(value)),
 });
 
