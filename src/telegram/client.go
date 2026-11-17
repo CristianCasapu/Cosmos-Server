@@ -198,7 +198,7 @@ func (c *apiClient) sendMessage(ctx context.Context, st settings, out outgoing) 
 	if b := out.message.button; b != nil && b.URL != "" && b.Text != "" {
 		request.Markup = &inlineKeyboard{Rows: [][]button{{*b}}}
 	}
-	answer, failure := c.call(ctx, st, "sendMessage", request)
+	answer, failure := c.botCall(ctx, st, "sendMessage", request)
 	if failure != nil {
 		return 0, failure
 	}
@@ -216,12 +216,12 @@ func (c *apiClient) pin(ctx context.Context, st settings, messageID int, pin boo
 	if pin {
 		method = "pinChatMessage"
 	}
-	_, failure := c.call(ctx, st, method, pinRequest{ChatID: chatIDValue(st.chatID), MessageID: messageID, Silent: pin})
+	_, failure := c.botCall(ctx, st, method, pinRequest{ChatID: chatIDValue(st.chatID), MessageID: messageID, Silent: pin})
 	return failure
 }
 
-// call posts one method of the Bot API with the settings' token.
-func (c *apiClient) call(ctx context.Context, st settings, method string, payload interface{}) (apiAnswer, *sendError) {
+// botCall posts one method of the Bot API with the settings' token.
+func (c *apiClient) botCall(ctx context.Context, st settings, method string, payload interface{}) (apiAnswer, *sendError) {
 	if !ValidToken(st.token) {
 		return apiAnswer{}, &sendError{Reason: ReasonSettings, Settings: true, Message: "The bot token is missing or is not a bot token."}
 	}
