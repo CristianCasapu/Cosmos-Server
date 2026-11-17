@@ -919,6 +919,7 @@ fetch() {
 			hops=$((hops + 1))
 			[ "$hops" -le 5 ] || return 1
 			url=$location ;;
+		404) warn "$(printf '%s' "$url" | cut -c1-160) is not there (HTTP 404)"; return 2 ;;
 		*) warn "$(printf '%s' "$url" | cut -c1-160) answered HTTP $code"; return 1 ;;
 		esac
 	done
@@ -1088,7 +1089,10 @@ else
 	base="https://github.com/$RELEASE_REPOSITORY/releases/download/v$VERSION"
 	zipname=cosmos-cloud-$VERSION-$ARCH.zip
 	say "Downloading $zipname ..."
-	fetch "$base/cosmos-cloud-$VERSION.sig" "$WORK/release.sig" 4096 || die $EXIT_FAILED "could not download the signature file of $VERSION"
+	rc=0
+	fetch "$base/cosmos-cloud-$VERSION.sig" "$WORK/release.sig" 4096 || rc=$?
+	if [ "$rc" = 2 ]; then refuse "release $VERSION has no signature file (cosmos-cloud-$VERSION.sig): it is not installed unverified"; fi
+	[ "$rc" = 0 ] || die $EXIT_FAILED "could not download the signature file of $VERSION (network?)"
 	fetch "$base/$zipname.md5" "$WORK/release.md5" 1024 || die $EXIT_FAILED "could not download $zipname.md5"
 	fetch "$base/$zipname" "$WORK/release.zip" "$MAX_ZIP" || die $EXIT_FAILED "the download of $zipname failed (network cut?). Run install.sh again."
 	ZIP="$WORK/release.zip" SIG="$WORK/release.sig" MD5="$WORK/release.md5"

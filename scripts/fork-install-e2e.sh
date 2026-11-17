@@ -238,13 +238,17 @@ machine_image() { # system [variant]
 	base=$(image_of "$sys")
 	local extra=""
 	# docker: Docker from the distribution and the tools already there
-	[ "$variant" != docker ] || extra="docker.io docker-cli ca-certificates curl unzip openssl"
+	# (docker-cli exists where Debian split the command from docker.io: it is
+	# installed with it there, as apt does with its recommendations)
+	[ "$variant" != docker ] || extra="docker.io ca-certificates curl unzip openssl"
 	tag=$PREFIX-$sys-$variant:$(printf '%s' "$base $extra" | md5sum | cut -c1-8)
 	if D image inspect "$tag" >/dev/null 2>&1; then echo "$tag"; return; fi
-	D build -q -t "$tag" - >/dev/null <<EOF
+	D build -q -t "$tag" - >/dev/null <<EOF || die "the machine image $tag could not be built"
 FROM $base
 ENV DEBIAN_FRONTEND=noninteractive
-RUN rm -f /usr/sbin/policy-rc.d; apt-get -q update && apt-get -q install -y --no-install-recommends systemd systemd-sysv dbus $extra && rm -rf /var/lib/apt/lists/* && systemctl mask getty@tty1.service systemd-modules-load.service >/dev/null 2>&1 || true
+RUN rm -f /usr/sbin/policy-rc.d && apt-get -q update && apt-get -q install -y --no-install-recommends systemd systemd-sysv dbus $extra && \
+    if [ -n "$extra" ] && apt-cache show docker-cli >/dev/null 2>&1; then apt-get -q install -y --no-install-recommends docker-cli; fi && \
+    rm -rf /var/lib/apt/lists/* && { systemctl mask getty@tty1.service systemd-modules-load.service >/dev/null 2>&1 || true; } && test -x /lib/systemd/systemd
 STOPSIGNAL SIGRTMIN+3
 CMD ["/lib/systemd/systemd"]
 EOF
@@ -409,8 +413,14 @@ case_tampered() { # each refused before anything is unpacked, nothing left (the 
 			check "nothing planted" test ! -e /etc/cosmos-e2e-planted
 			check "nothing unpacked" sh -c "! ls -d /opt/cosmos /opt/.cosmos-install.* 2>/dev/null"'
 	done
+	# the download path: the release on the stand-in without its signature
+	mv "$SCRATCH/world/$sys/releases/v$VA/cosmos-cloud-$VA.sig" "$SCRATCH/world/$sys/nosig.sig"
+	M "$m" 'echo "== no signature on the download path"; expect_exit 4 '"$INSTALL_A"' --yes </dev/null; same before after-nosigdl'
+	mv "$SCRATCH/world/$sys/nosig.sig" "$SCRATCH/world/$sys/releases/v$VA/cosmos-cloud-$VA.sig"
+	# another release without a signed file of scripts: its install.sh is not run
 	mkdir -p "$SCRATCH/world/$sys/releases/v0.24.0-fork.950"
-	M "$m" 'echo "== no scripts signature on the download path"; expect_exit 4 '"$INSTALL_A"' --yes --version 0.24.0-fork.950 </dev/null; snap after-nosigdl; same before after-nosigdl'
+	cp "$SCRATCH/rel/v$VA/install.sh" "$SCRATCH/world/$sys/releases/v0.24.0-fork.950/"
+	M "$m" 'echo "== another release without its scripts signature"; expect_exit 4 '"$INSTALL_A"' --yes --version 0.24.0-fork.950 </dev/null; same before after-noscriptsig'
 	rm -rf "$SCRATCH/world/$sys/releases/v0.24.0-fork.950"
 }
 
@@ -515,6 +525,9 @@ run_case() { # system case
 	github "$sys" "/cut?asset=" >/dev/null 2>&1 || true
 	github "$sys" "/latest?tag=" >/dev/null 2>&1 || true
 	github "$sys" "/down?set=0" >/dev/null 2>&1 || true
+	rm -rf "$SCRATCH/world/$sys/releases" "$SCRATCH/world/$sys/nosig.sig"
+	mkdir -p "$SCRATCH/world/$sys/releases"
+	cp -r "$SCRATCH/rel/v$VA" "$SCRATCH/world/$sys/releases/"
 	local start=$SECONDS
 	# not under || nor &&: set -e must stay in force inside the case
 	set +e
