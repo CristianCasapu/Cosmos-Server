@@ -252,7 +252,10 @@ for (const engine of engines) {
         // --- Network tab of plain: a port proposed from the image, on the home network
         await go(page, 'plain', 'Network');
         // the image's port is listed, not published; one click publishes it on the home network
-        const row = page.locator('[data-fork-port-row="0"]');
+        // the image's port 9000 (its base image may declare more: the row is found by its port)
+        const at = await page.locator('[data-fork-container-port]').evaluateAll((els) => els.findIndex((e) => e.value === '9000'));
+        const rows0 = await page.locator('[data-fork-port-row]').count();
+        const row = page.locator(`[data-fork-port-row="${at}"]`);
         expect(await row.locator('[data-fork-reach=none]').count() === 1, `${name}: plain's declared port is said not published`);
         expect(/As the server/.test(await checked(page, 'fork-dns')), `${name}: DNS: Docker's default is picked`);
         expect(await radio(page, 'fork-dns', 'The home router (192.168.78.254)').count() === 1, `${name}: DNS: the home router is proposed`);
@@ -260,24 +263,24 @@ for (const engine of engines) {
         expect(/Its own network/.test(await checked(page, 'fork-network-mode')), `${name}: the network mode is a choice`);
         expect(await radio(page, 'fork-network-mode', 'sensitive').count() === 1, `${name}: host mode is named as sensitive`);
         await row.locator('[data-fork-publish]').click();
-        expect(await row.locator('[data-fork-container-port="0"]').inputValue() === '9000', `${name}: the container port is the image's`);
-        expect(await row.locator('[data-fork-host-port="0"]').inputValue() === '9000', `${name}: the host port is proposed free`);
-        expect(/Home network \(192\.168\.78\.5\)/.test(await checked(page, 'fork-port-address-0')), `${name}: the home-network address is proposed`);
+        expect(await row.locator(`[data-fork-container-port="${at}"]`).inputValue() === '9000', `${name}: the container port is the image's`);
+        expect(await row.locator(`[data-fork-host-port="${at}"]`).inputValue() === '9000', `${name}: the host port is proposed free`);
+        expect(/Home network \(192\.168\.78\.5\)/.test(await checked(page, `fork-port-address-${at}`)), `${name}: the home-network address is proposed`);
         expect(await row.locator('[data-fork-reach=home]').count() === 1, `${name}: it says the home network can reach it`);
         expect(/image declares/.test(await row.innerText()), `${name}: it says where the proposal comes from`);
         // "+" proposes nothing more: the image has no other port
         await page.locator('xpath=//*[normalize-space()="Expose Ports"]/following::button[@aria-label="Add"][1]').click();
-        expect(await page.locator('[data-fork-port-row="1"] [data-fork-container-port="1"]').inputValue() === '', `${name}: a new row is empty when nothing more is declared`);
-        await page.locator('[data-fork-port-row="1"]').getByRole('button', { name: 'Delete' }).click();
+        expect(await page.locator(`[data-fork-port-row="${rows0}"] [data-fork-container-port="${rows0}"]`).inputValue() === '', `${name}: a new row is empty when nothing more is declared`);
+        await page.locator(`[data-fork-port-row="${rows0}"]`).getByRole('button', { name: 'Delete' }).click();
         if (size === 'm') expect(!(await sideways(page)), `${name}: Network tab: no sideways scroll`);
         await shot(page, name, 'network-proposed');
         // the doors: the address, the DNS, the network mode
-        await radio(page, 'fork-port-address-0', 'Type it myself').click();
-        await page.locator('#fork-port-ip-0').fill('127.0.0.1');
+        await radio(page, `fork-port-address-${at}`, 'Type it myself').click();
+        await page.locator(`#fork-port-ip-${at}`).fill('127.0.0.1');
         expect(await row.locator('[data-fork-reach=server]').count() === 1, `${name}: a typed 127.0.0.1 says only this server`);
-        await page.locator('#fork-port-ip-0').fill('192.168.300.1');
+        await page.locator(`#fork-port-ip-${at}`).fill('192.168.300.1');
         expect(/IPv4 or IPv6/.test(await row.innerText()), `${name}: a typed address is checked`);
-        await radio(page, 'fork-port-address-0', 'Home network').click();
+        await radio(page, `fork-port-address-${at}`, 'Home network').click();
         await radio(page, 'fork-dns', 'Type it myself').click();
         await page.locator('#fork-dns-other').fill('dns.example.org');
         expect(/IP addresses/.test(await errorsShown(page)), `${name}: a typed DNS name is refused in the form`);
