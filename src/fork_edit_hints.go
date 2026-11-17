@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/azukaar/cosmos-server/src/anyimage"
@@ -375,7 +376,9 @@ func boundedOn[T any](key string, wait time.Duration, fn func() T) (T, bool) {
 			abandonedMu.Unlock()
 		}
 		// sent while the lock is held: the waiter either finds it or has already given up (second review M3)
-		boundedOnBeforeSend()
+		if hook, ok := boundedOnBeforeSend.Load().(func()); ok && hook != nil {
+			hook()
+		}
 		results <- value
 	}()
 	timer := time.NewTimer(wait)
@@ -399,8 +402,8 @@ func boundedOn[T any](key string, wait time.Duration, fn func() T) (T, bool) {
 	}
 }
 
-// boundedOnBeforeSend runs just before a result is handed over; the tests make it slow.
-var boundedOnBeforeSend = func() {}
+// boundedOnBeforeSend holds a func() run just before a result is handed over; the tests make it slow.
+var boundedOnBeforeSend atomic.Value
 
 // editHintsRate: at most 2 requests at a time and 60 a minute (each opening of a tab asks once)
 type hintsRate struct {

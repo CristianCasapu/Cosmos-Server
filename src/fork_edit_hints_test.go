@@ -185,11 +185,11 @@ func TestEditHintsBounds(t *testing.T) {
 		t.Fatal("the disk stays given up after it answered")
 	}
 	// a result handed over just as the time runs out: taken, and the disk is not marked given up (second review M3)
-	boundedOnBeforeSend = func() { time.Sleep(60 * time.Millisecond) }
+	boundedOnBeforeSend.Store(func() { time.Sleep(60 * time.Millisecond) })
 	if v, ok := boundedOn("/mnt/edge", 20*time.Millisecond, func() int { return 5 }); !ok || v != 5 {
 		t.Fatalf("a result at the edge of the time was lost: %v %v", v, ok)
 	}
-	boundedOnBeforeSend = func() {}
+	boundedOnBeforeSend.Store(func() {})
 	if _, ok := boundedOn("/mnt/edge", time.Second, func() bool { return true }); !ok {
 		t.Fatal("the disk stays given up for good")
 	}
