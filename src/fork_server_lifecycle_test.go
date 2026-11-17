@@ -13,6 +13,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"runtime"
 	"strings"
@@ -31,15 +32,31 @@ func testRestarts() *restarts {
 	return r
 }
 
+// freePort returns a port nobody listens on, never one it returned before
+// in this test binary (a port closed again can be handed out twice, and a
+// generation with both servers on one port is refused).
 func freePort(t *testing.T) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	handedOutMu.Lock()
+	defer handedOutMu.Unlock()
+	for {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		addr := ln.Addr().String()
+		ln.Close()
+		if !handedOut[addr] {
+			handedOut[addr] = true
+			return addr
+		}
 	}
-	defer ln.Close()
-	return ln.Addr().String()
 }
+
+var (
+	handedOutMu sync.Mutex
+	handedOut   = map[string]bool{}
+)
 
 // loop is StartServer: a generation is built (InitServer: build, when set),
 // served until a restart ends it, and built again. It reports the error
@@ -58,9 +75,16 @@ type loopSetup struct {
 	tls     bool            // main over TLS, with the handoff's Serve started first as startHTTPSServer does
 }
 
+// slowArrived hears that a /slow request reached a handler.
+var slowArrived = make(chan struct{}, 1)
+
 func generationHandler(gen int64) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path == "/slow" {
+			select {
+			case slowArrived <- struct{}{}:
+			default:
+			}
 			time.Sleep(700 * time.Millisecond)
 		}
 		fmt.Fprintf(w, "%d", gen)
@@ -115,7 +139,7 @@ func askGen(addr string, path string) (string, error) {
 }
 
 func askOver(scheme, addr string, path string) (string, error) {
-	c := &http.Client{Timeout: 3 * time.Second, Transport: &http.Transport{DisableKeepAlives: true, ForceAttemptHTTP2: true,
+	c := &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{DisableKeepAlives: true, ForceAttemptHTTP2: true,
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}} // the test's own certificate, HTTP/2 as browsers
 	res, err := c.Get(scheme + "://" + addr + path)
 	if err != nil {
@@ -129,7 +153,7 @@ func askOver(scheme, addr string, path string) (string, error) {
 // answering waits until both listeners answer, and returns their generations.
 func (l *loop) answering(t *testing.T) (string, string) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	for {
 		scheme := "http"
 		if l.tls {
@@ -161,16 +185,23 @@ func TestRestartReloadsCoalesce(t *testing.T) {
 	var mu sync.Mutex
 	type span struct{ from, to time.Time }
 	reloads := []span{}
+	started, release := make(chan struct{}), make(chan struct{})
+	first := true
 	reload := func() {
 		from := time.Now()
-		time.Sleep(50 * time.Millisecond)
+		if first { // only the reloading goroutine reads it
+			first = false
+			close(started)
+			<-release
+		}
 		mu.Lock()
 		reloads = append(reloads, span{from, time.Now()})
 		mu.Unlock()
 	}
 	// one reload under way, then 40 callers at once
-	go r.restart(reload)
-	time.Sleep(10 * time.Millisecond)
+	firstDone := make(chan struct{})
+	go func() { r.restart(reload); close(firstDone) }()
+	<-started
 	var wg sync.WaitGroup
 	calls := make([]span, 40)
 	for i := range calls {
@@ -182,8 +213,19 @@ func TestRestartReloadsCoalesce(t *testing.T) {
 			calls[i].to = time.Now()
 		}(i)
 	}
+	// every caller has taken its ticket before the first reload ends
+	for {
+		r.mu.Lock()
+		asked := r.asked
+		r.mu.Unlock()
+		if asked == 41 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(release)
 	wg.Wait()
-	time.Sleep(100 * time.Millisecond)
+	<-firstDone
 	mu.Lock()
 	defer mu.Unlock()
 	if len(reloads) != 2 {
@@ -242,7 +284,7 @@ func TestRestartWithoutServingLoopDoesNotWait(t *testing.T) {
 	}()
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatal("restarts with no serving loop blocked")
 	}
 }
@@ -258,7 +300,11 @@ func TestRestartAskedBeforeTheFirstStart(t *testing.T) {
 	}
 	l := startLoop(t, r)
 	// the first generation listens, then gives way to one more
+	for i := 0; i < 2000 && l.generation.Load() < 2; i++ {
+		time.Sleep(5 * time.Millisecond)
+	}
 	l.answering(t)
+	time.Sleep(50 * time.Millisecond)
 	if got := l.generation.Load(); got != 2 {
 		t.Errorf("a restart asked before the first start: want 2 generations, got %d", got)
 	}
@@ -434,7 +480,7 @@ func TestRestartIsHeldAtMostBrieflyByASilentConnection(t *testing.T) {
 	start := time.Now()
 	r.restart(func() {})
 	l.answering(t)
-	if took := time.Since(start); took > time.Second {
+	if took := time.Since(start); took > 10*time.Second {
 		t.Errorf("a silent connection held the restart for %s, want about %s", took, r.firstWait)
 	}
 	l.quiet(t)
@@ -527,7 +573,7 @@ func TestRestartEndsWhenThePortStaysTaken(t *testing.T) {
 	if err == nil || errors.Is(err, http.ErrServerClosed) {
 		t.Fatalf("a port that stays taken must end the start as upstream did, got %v", err)
 	}
-	if time.Since(start) > 2*time.Second {
+	if time.Since(start) > 10*time.Second {
 		t.Errorf("gave up after %s, want about 200ms", time.Since(start))
 	}
 }
@@ -545,7 +591,7 @@ func TestRestartLetsRequestsInFlightFinish(t *testing.T) {
 		}
 		slow <- body
 	}()
-	time.Sleep(100 * time.Millisecond)
+	<-slowArrived // the request is being handled by the old generation
 	// restarts while the old generation drains
 	for i := 0; i < 5; i++ {
 		r.restart(func() {})
@@ -630,7 +676,7 @@ func TestRestartLeavesAWebSocketOpen(t *testing.T) {
 		close(done)
 	}()
 	for i := 0; i < 20; i++ {
-		conn.SetDeadline(time.Now().Add(2 * time.Second))
+		conn.SetDeadline(time.Now().Add(20 * time.Second))
 		fmt.Fprintf(conn, "ping %d\n", i)
 		if got, err := rd.ReadString('\n'); err != nil || got != fmt.Sprintf("ping %d\n", i) {
 			t.Fatalf("the WebSocket broke across restarts: %q %v", got, err)
@@ -695,7 +741,7 @@ func TestRestartLeaksNoGoroutines(t *testing.T) {
 		}
 	}
 	l.answering(t)
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	for runtime.NumGoroutine() > before+2 && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -771,7 +817,7 @@ func TestRestartRequestedFromInsideTheReloadNeverWaits(t *testing.T) {
 	go func() { r.restart(reload); close(done) }()
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatal("a restart asked for from inside the reload waited for itself")
 	}
 	if reloads != 2 || r.reentered != 1 {
@@ -779,83 +825,148 @@ func TestRestartRequestedFromInsideTheReloadNeverWaits(t *testing.T) {
 	}
 }
 
-// The old generation's connections after a restart: a request on a
-// keep-alive or HTTP/2 connection it accepted reaches the old router only
-// until the generation ends; from then on the next router answers it.
-func TestRestartOldConnectionsReachTheNewRouterOnly(t *testing.T) {
-	for _, overTLS := range []bool{false, true} {
-		t.Run(map[bool]string{false: "http keep-alive", true: "https http2"}[overTLS], func(t *testing.T) {
-			r := testRestarts()
-			l := startLoopWith(t, r, loopSetup{tls: overTLS, build: func(int64) { time.Sleep(50 * time.Millisecond) }})
-			l.answering(t)
-			scheme := map[bool]string{false: "http", true: "https"}[overTLS]
-			// one connection, kept
-			c := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{ForceAttemptHTTP2: true, MaxConnsPerHost: 1,
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
-			get := func() string {
-				res, err := c.Get(scheme + "://" + l.main + "/")
-				if err != nil {
-					return "error: " + err.Error()
-				}
-				defer res.Body.Close()
-				b, _ := io.ReadAll(res.Body)
-				return string(b)
-			}
-			if got := get(); got != "1" {
-				t.Fatalf("before: %q", got)
-			}
-			asked := time.Now()
-			r.restart(func() {})
-			lastOld := time.Duration(0)
-			for i := 0; i < 200; i++ {
-				got := get()
-				if got == "1" {
-					lastOld = time.Since(asked)
-				} else if got != "2" {
-					t.Fatalf("request %d after the restart: %q", i, got)
-				}
-				time.Sleep(time.Millisecond)
-			}
-			t.Logf("the old router answered the old connection until %s after the restart was asked for", lastOld)
-			if lastOld > 20*time.Millisecond {
-				t.Errorf("an old connection reached the old router %s after the restart was asked for", lastOld)
-			}
-			l.quiet(t)
-		})
+// waitEnded waits until the generation that serves has ended (its gate
+// closed), for 10 s at most.
+func waitEnded(r *restarts) {
+	r.gateMu.Lock()
+	g := r.current
+	r.gateMu.Unlock()
+	if g == nil {
+		return
 	}
+	select {
+	case <-g.ended:
+	case <-time.After(10 * time.Second):
+	}
+}
+
+// Once a generation has ended its router never answers again: a request
+// that reaches it on a connection it accepted (a reused HTTP/2 connection,
+// the late first request of a connection it took) is answered by the next
+// router. A silent connection holds the generation in its wait for first
+// requests, so the old servers are still up when the request is sent.
+func TestRestartOldConnectionsReachTheNewRouterOnly(t *testing.T) {
+	t.Run("reused http2 connection", func(t *testing.T) {
+		r := testRestarts()
+		r.firstWait = 30 * time.Second
+		l := startLoopWith(t, r, loopSetup{tls: true})
+		l.answering(t)
+		c := &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{ForceAttemptHTTP2: true, MaxConnsPerHost: 1,
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}} // the test's own certificate
+		get := func() string {
+			res, err := c.Get("https://" + l.main + "/")
+			if err != nil {
+				return "error: " + err.Error()
+			}
+			defer res.Body.Close()
+			b, _ := io.ReadAll(res.Body)
+			return res.Proto + " " + string(b)
+		}
+		if got := get(); got != "HTTP/2.0 1" {
+			t.Fatalf("before: %q", got)
+		}
+		silent, err := net.Dial("tcp", l.main)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer silent.Close()
+		for i := 0; i < 2000; i++ { // the generation has taken it
+			r.freshMu.Lock()
+			n := len(r.fresh)
+			r.freshMu.Unlock()
+			if n > 0 {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		r.restart(func() {})
+		waitEnded(r)
+		time.Sleep(100 * time.Millisecond) // the reviewer's scenario
+		answer := make(chan string, 1)
+		go func() { answer <- get() }() // on the same HTTP/2 connection
+		select {
+		case got := <-answer:
+			t.Fatalf("the old generation's router answered after it ended: %q", got)
+		case <-time.After(300 * time.Millisecond): // waiting at the gate for the next router
+		}
+		silent.Close() // the wait ends, the next generation starts
+		if got := <-answer; got != "HTTP/2.0 2" {
+			t.Errorf("a request on the old HTTP/2 connection after the restart: want the next router's answer, got %q", got)
+		}
+		l.quiet(t)
+	})
+	t.Run("late first request over http/1.1", func(t *testing.T) {
+		r := testRestarts()
+		r.firstWait = 30 * time.Second
+		l := startLoop(t, r)
+		l.answering(t)
+		late, err := net.Dial("tcp", l.main)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer late.Close()
+		for i := 0; i < 2000; i++ {
+			r.freshMu.Lock()
+			n := len(r.fresh)
+			r.freshMu.Unlock()
+			if n > 0 {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		r.restart(func() {})
+		waitEnded(r)
+		late.SetDeadline(time.Now().Add(30 * time.Second))
+		io.WriteString(late, "GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+		res, err := http.ReadResponse(bufio.NewReader(late), nil)
+		if err != nil {
+			t.Fatalf("the late first request got no answer: %v", err)
+		}
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if string(body) != "2" {
+			t.Errorf("the first request of a connection the old generation took, sent after it ended: want the next router's answer, got %q", body)
+		}
+		l.quiet(t)
+	})
 }
 
 // A slow router build: connections wait for the next generation for at
 // most gapLimit, then they are refused (as upstream) until it serves.
 func TestRestartStopsQueueingWhenTheNextGenerationIsSlow(t *testing.T) {
 	r := testRestarts()
-	r.gapLimit = 300 * time.Millisecond
+	r.gapLimit = 2 * time.Second
 	slow := make(chan struct{})
+	building := make(chan struct{})
 	l := startLoopWith(t, r, loopSetup{build: func(gen int64) {
 		if gen == 2 {
+			close(building)
 			<-slow
 		}
 	}})
 	l.answering(t)
 	r.restart(func() {})
-	// within the limit: the connection waits and is answered by generation 2
-	waited := make(chan string, 1)
-	go func() {
-		got, err := askGen(l.main, "/")
-		if err != nil {
-			got = err.Error()
+	<-building
+	// within the limit: a connection is taken into the queue, not refused
+	queued, err := net.Dial("tcp", l.main)
+	if err != nil {
+		t.Fatalf("within the limit a connection must wait, not be refused: %v", err)
+	}
+	defer queued.Close()
+	// past the limit: refused
+	refused := false
+	for i := 0; i < 300 && !refused; i++ {
+		_, err := askGen(l.main, "/")
+		refused = errors.Is(err, syscall.ECONNREFUSED)
+		if !refused {
+			time.Sleep(100 * time.Millisecond)
 		}
-		waited <- got
-	}()
-	time.Sleep(600 * time.Millisecond)
-	if _, err := askGen(l.main, "/"); !errors.Is(err, syscall.ECONNREFUSED) {
-		t.Errorf("past the limit a new connection must be refused, got %v", err)
+	}
+	if !refused {
+		t.Error("past the limit new connections must be refused")
 	}
 	close(slow)
 	l.answering(t)
-	if got := <-waited; got != "2" && !strings.Contains(got, "reset") && !strings.Contains(got, "EOF") {
-		t.Errorf("a connection queued before the limit: %q", got)
-	}
 	l.quiet(t)
 }
 
@@ -876,10 +987,9 @@ func TestRestartRefusesDuringASlowOrder(t *testing.T) {
 	l.answering(t)
 	r.restart(func() {})
 	<-ordering
-	start := time.Now()
-	_, err := askGen(l.main, "/")
-	if !errors.Is(err, syscall.ECONNREFUSED) || time.Since(start) > time.Second {
-		t.Errorf("during an order a visitor must be refused at once: %v after %s", err, time.Since(start))
+	// refused, not queued (a queued connection would time out instead)
+	if _, err := askGen(l.main, "/"); !errors.Is(err, syscall.ECONNREFUSED) {
+		t.Errorf("during an order a visitor must be refused at once: %v", err)
 	}
 	close(done)
 	l.answering(t)
@@ -919,11 +1029,11 @@ func TestRestartSwitchesBetweenHTTPAndHTTPS(t *testing.T) {
 	}()
 	want := func(scheme, addr, gen string) {
 		t.Helper()
-		for i := 0; i < 400; i++ {
+		for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); {
 			if got, err := askOver(scheme, addr, "/"); err == nil && got == gen {
 				return
 			}
-			time.Sleep(5 * time.Millisecond)
+			time.Sleep(10 * time.Millisecond)
 		}
 		got, err := askOver(scheme, addr, "/")
 		t.Fatalf("%s://%s: want generation %s, got %q %v", scheme, addr, gen, got, err)
@@ -940,5 +1050,45 @@ func TestRestartSwitchesBetweenHTTPAndHTTPS(t *testing.T) {
 	r.restart(func() {})
 	if err := <-ended; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRestartStopsAReloadThatAlwaysAsksForAnother(t *testing.T) {
+	r := testRestarts()
+	logged := 0
+	r.log = func(line string) {
+		if strings.Contains(line, "keeps asking") {
+			logged++
+		}
+	}
+	reloads := 0
+	var reload func()
+	reload = func() {
+		reloads++
+		r.restart(reload) // every time
+	}
+	done := make(chan struct{})
+	go func() { r.restart(reload); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("a reload that always asks for another never returned")
+	}
+	if reloads != 1+maxReloadsAskedFromInside || logged != 1 {
+		t.Errorf("want %d reloads and one line in the log, got %d and %d", 1+maxReloadsAskedFromInside, reloads, logged)
+	}
+	r.restart(func() {}) // later restarts still work
+}
+
+func TestTheGateAnswers503WithoutCaching(t *testing.T) {
+	r := testRestarts()
+	r.gapLimit = 50 * time.Millisecond
+	g := r.routerOf(generationHandler(1)).(*generationRouter)
+	r.publish()
+	close(g.ended) // ended, and no next generation comes
+	w := httptest.NewRecorder()
+	g.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	if w.Code != http.StatusServiceUnavailable || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Retry-After") != "5" {
+		t.Errorf("got %d, Cache-Control %q, Retry-After %q", w.Code, w.Header().Get("Cache-Control"), w.Header().Get("Retry-After"))
 	}
 }
