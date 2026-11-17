@@ -248,12 +248,13 @@ const serviceOf = (image, privatePort) => {
 // the address the port is published on, else the page's own host when that is
 // an address of the server at home or on the VPN, else a local name of the
 // server's (any .local name of an app leads to the server).
-const endpointHost = (ip, location, allRoutes) => {
+const endpointHost = (ip, location, ownRoutes, allRoutes) => {
   if (ip && (IPV4.test(ip) || /^[0-9a-f:]+$/i.test(ip))) return ip.includes(':') ? '[' + ip + ']' : ip;
   const here = lower(location && location.hostname);
   const kind = hostKind(here);
   if (kind === 'local' || kind === 'lan' || kind === 'vpn' || kind === 'home') return parseHost(here) ? parseHost(here).name : '';
-  const local = (allRoutes || []).map((r) => (r && r.UseHost ? parseHost(r.Host) : null)).find((p) => p && hostKind(p.name) === 'local');
+  // the app's own .local name first (it reads best), else any app's
+  const local = [...(ownRoutes || []), ...(allRoutes || [])].map((r) => (r && r.UseHost ? parseHost(r.Host) : null)).find((p) => p && hostKind(p.name) === 'local');
   return local ? local.name : '';
 };
 
@@ -302,7 +303,7 @@ export const appInterfaces = (app, ctx) => {
       if (p && p.Type !== undefined && p.protocol === undefined) p = { ...p, protocol: p.Type, ip: p.IP === '0.0.0.0' || p.IP === '::' ? '' : p.IP };
       const protocol = lower(p && p.protocol) === 'udp' ? 'udp' : 'tcp';
       if (!Number.isInteger(publicPort) || publicPort < 1 || publicPort > 65535) return;
-      const host = endpointHost(lower(p.ip), c.location, c.allRoutes || app.routes);
+      const host = endpointHost(lower(p.ip), c.location, app.routes, c.allRoutes);
       if (!host) return;
       const kind = hostKind(host) || 'lan';
       const reach = reachFrom(kind === 'public' ? 'lan' : kind, place); // a published port is not forwarded by this
@@ -442,6 +443,22 @@ export const interfaceOfRoute = (route, ctx) => {
   if (!route) return null;
   const app = { key: 'one', container: containerOf(route), routes: [route] };
   return appInterfaces(app, ctx).find((i) => i.web && !i.homeName && !i.derived) || null;
+};
+
+// The order of the "All addresses" menu: what the tile opens first, then the
+// pages (in the order of the roles for this visitor), the addresses that open
+// from here before the others, the published ports after the URLs, the API,
+// and the endpoints to copy last.
+export const menuOrder = (tile, isAdmin) => {
+  const roles = isAdmin ? ['admin', 'user', 'other', 'api'] : ['user', 'admin', 'other', 'api'];
+  const reach = ['opens', 'maybe', 'home-only', 'vpn-only'];
+  const items = ((tile && tile.interfaces) || []).map((item, index) => ({ item, index }));
+  return items.sort((a, b) => ((b.item === tile.chosen ? 1 : 0) - (a.item === tile.chosen ? 1 : 0))
+    || ((a.item.web ? 0 : 1) - (b.item.web ? 0 : 1))
+    || (roles.indexOf(a.item.role) - roles.indexOf(b.item.role))
+    || ((a.item.direct ? 1 : 0) - (b.item.direct ? 1 : 0))
+    || (reach.indexOf(a.item.reach) - reach.indexOf(b.item.reach))
+    || (a.index - b.index)).map((x) => x.item);
 };
 
 // What a menu line says about where an address works.

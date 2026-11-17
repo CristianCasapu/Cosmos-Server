@@ -24,7 +24,7 @@ import { useClientInfos } from '../utils/hooks';
 import { PERM_ADMIN, PERM_ADMIN_READ } from '../utils/permissions';
 import { notify } from '../utils/activity';
 import {
-  appTile, containerApp, interfaceOfRoute, mergeDashboard, readPreference, reachMark, visitorPlace, writePreference,
+  appTile, containerApp, interfaceOfRoute, menuOrder, mergeDashboard, readPreference, reachMark, visitorPlace, writePreference,
 } from '../utils/appInterfaces';
 import { proposeAccess } from '../utils/exposure';
 import { useCosmosPorts } from './routerPorts';
@@ -88,11 +88,13 @@ const readStorage = () => {
 
 // status: the page's own GET /api/status answer (null while it loads), or
 // leave it out and the status is asked once for all the openers of the page.
-export const useOpenContext = ({ status, config } = {}) => {
+export const useOpenContext = ({ status } = {}) => {
   const { hasPermission } = useClientInfos();
   const isAdmin = hasPermission(PERM_ADMIN_READ);
   const visitorStatus = useVisitorStatus(status);
-  const ports = useCosmosPorts(config || null);
+  // the ports as the server reports them (administrators); otherwise the page's own port is used, as
+  // the URL chips do (the configuration's ports may not be the ones the server listens on)
+  const ports = useCosmosPorts(null);
   const [prefer, setPrefer] = React.useState(() => readPreference(readStorage()));
   return React.useMemo(() => ({
     place: visitorPlace(visitorStatus, window.location),
@@ -189,7 +191,7 @@ export const AppInterfacesMenu = ({ tile, ctx, anchorEl, open, onClose, onUnreac
   if (!tile) return null;
   const items = [];
   items.push(<ListSubheader key="head" sx={{ lineHeight: 1.5, py: 1, whiteSpace: 'normal' }}>{t('mgmt.appLinks.menuTitle', 'Addresses of {{name}}', { name: tile.name })}</ListSubheader>);
-  tile.interfaces.forEach((item, index) => {
+  menuOrder(tile, ctx && ctx.isAdmin).forEach((item, index) => {
     const opens = item.web && (item.reach === 'opens' || item.reach === 'maybe');
     const title = itemTitle(item, roleText, t);
     if (opens) {
@@ -256,11 +258,11 @@ export const UnreachableDialog = ({ tile, ctx, config, onClose, refresh }) => {
   } else if (tile.state === 'vpn-only') {
     sentence = t('mgmt.appLinks.vpnOnly', '{{name}} opens only through your VPN.', { name: tile.name });
   } else if (where === 'vpn') {
-    sentence = t('mgmt.appLinks.homeOnlyVpn', '{{name}} has addresses for your home network only: through the VPN its .local names do not resolve, and its other home addresses open only if the VPN routes your home network.', { name: tile.name });
+    sentence = t('mgmt.appLinks.homeOnlyVpn', 'The pages of {{name}} open on your home network only: through the VPN its .local names do not resolve, and its other home addresses open only if the VPN routes your home network.', { name: tile.name });
   } else if (where === 'home') {
-    sentence = t('mgmt.appLinks.homeOnlyGuess', '{{name}} has addresses for your home network only, and this device seems to come in from the internet. If you are at home, try them; otherwise copy one for later.', { name: tile.name });
+    sentence = t('mgmt.appLinks.homeOnlyGuess', 'The pages of {{name}} open on your home network only, and this device seems to come in through the internet address. If you are at home, try them; otherwise copy one for later.', { name: tile.name });
   } else {
-    sentence = t('mgmt.appLinks.homeOnly', '{{name}} has addresses for your home network only, and you are not at home now: they open once you are.', { name: tile.name });
+    sentence = t('mgmt.appLinks.homeOnly', 'The pages of {{name}} open on your home network only, and you are not at home now: copy an address for later.', { name: tile.name });
   }
   return <>
     <Dialog open={!expose} onClose={onClose} fullWidth maxWidth="sm" aria-labelledby="app-unreachable-title">

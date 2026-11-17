@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   appTiles, appTile, containerApp, appInterfaces, chooseInterface, groupApps, hostKind, parseHost, reachFrom, routeURL, safeURL,
-  visitorPlace, interfaceOfRoute, readPreference, writePreference, PREFER_KEY, mergeDashboard, inspectPorts,
+  visitorPlace, interfaceOfRoute, readPreference, writePreference, PREFER_KEY, mergeDashboard, inspectPorts, menuOrder,
 } from './appInterfaces.js';
 
 const app = (name, host, target, more = {}) => ({ Name: name, UseHost: !!host, Host: host, Target: target, Mode: 'SERVAPP', ForkRole: 'user', ...more });
@@ -304,4 +304,16 @@ test('published ports from a container\'s inspection', () => {
   assert.deepEqual(inspectPorts({ NetworkSettings: { Ports: { '9000/tcp': [{ HostIp: '0.0.0.0', HostPort: '9000' }, { HostIp: '::', HostPort: '9000' }], '9001/tcp': null, 'x/tcp': [{ HostPort: '1' }], '6881/udp': [{ HostIp: '', HostPort: '6881' }] } } }),
     [{ PrivatePort: 9000, PublicPort: 9000, Type: 'tcp', IP: '0.0.0.0' }, { PrivatePort: 9000, PublicPort: 9000, Type: 'tcp', IP: '::' }, { PrivatePort: 6881, PublicPort: 6881, Type: 'udp', IP: '' }]);
   assert.deepEqual(inspectPorts(null), []);
+});
+
+test('the menu: what the tile opens first, pages before the API, endpoints last', () => {
+  const t = tile(appTiles(owner, { place: AWAY, location: away, isAdmin: true }), 'qbittorrent');
+  const order = menuOrder(t, true).map((i) => (i.web ? i.role + ' ' + i.url : 'copy ' + i.copy));
+  assert.equal(order[0], 'admin ' + t.link);
+  assert.deepEqual(order.slice(-1), ['copy qbittorrent.local:6881']);
+  const r = tile(appTiles(owner, { place: HOME, location: homeLocal, isAdmin: true }), 'rustfs');
+  const rs = menuOrder(r, true);
+  assert.equal(rs[0].url, 'https://rustfs-console.local:2053');
+  assert.equal(rs[rs.length - 1].role, 'api');
+  assert.deepEqual(menuOrder(null, true), []);
 });

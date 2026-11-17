@@ -37,6 +37,7 @@ import {
   accessFields, accessOf, buildTarget, containerPorts, describeAddress, freeName, guideFits,
   portToPropose, proposePort, schemeForPort, targetParts, tidyAddress,
 } from '../../../utils/routeGuide';
+import { ForkRouteRole } from './forkRouteRole'; // Fork addition (plan 49)
 
 // The port this form last proposed for an app's new URL, by app name. Kept
 // outside the form: the new-container form mounts its URL tab afresh on each
@@ -530,6 +531,9 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
     />
 
     <HostSeenHint values={values} image={imageOf(container)} config={config} isNew={isNew} onAppOwnHost={(on) => change({ ForkAppOwnHost: on })} />
+
+    {/* Fork addition (plan 49): what the address is to its app, as in "All settings" */}
+    <ForkRouteRole formik={formik} routeName={isNew ? '' : values.Name} />
 
     <Grid size={{ xs: 12 }}>
       {showName || nameError
