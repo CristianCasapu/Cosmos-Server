@@ -318,6 +318,13 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
+		// Fork addition (plan 45): the sign-in details for new apps, kept when masked and checked when changed, see fork_app_signin.go
+		if errA := keepAppSignIn(&request, config); errA != nil {
+			utils.Error("SettingsUpdate: "+errA.Error(), nil)
+			utils.HTTPError(w, errA.Error(), http.StatusBadRequest, "UC014")
+			return
+		}
+
 		// Fork addition: OpenID clients keep their stored secret, new and changed ones are checked, see fork_openid.go
 		if problem := keepOpenIDSecrets(&request, config); problem != nil {
 			utils.Error("SettingsUpdate: "+problem.Message, nil)
@@ -371,6 +378,7 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 		// Managed routes are owned by their materializer: keep the stored copies whatever the payload says.
 		request.HTTPConfig.ProxyConfig.Routes = utils.PreserveManagedRoutes(
 			request.HTTPConfig.ProxyConfig.Routes, config.HTTPConfig.ProxyConfig.Routes)
+		utils.ForkGuardRoutes(request.HTTPConfig.ProxyConfig.Routes, utils.GetAuthContext(req).Nickname) // Fork addition (plan 45): a manager's URL stays for administrators
 		utils.SetBaseMainConfig(request)
 		utils.ConfigLock.Unlock()
 		auditSettings(req, config, request) // Fork addition: security record, the names of the sections that changed

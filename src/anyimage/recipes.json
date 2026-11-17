@@ -1,5 +1,5 @@
 {
-  "about": "Fork addition (plan 40): settings Cosmos proposes for images whose own declaration is not enough. Data, not code: read by src/anyimage/recipes.go, checked by recipes_test.go and, against the real images, by recipes_live_test.go. Each recipe cites the image's documentation in 'source'. 'maintained': when the image was last published, as read on the day 'checked' (an unmaintained image gets no recipe: MinIO's community image is gone and its repository archived since April 2026); the exception is an image that people still run, frozen by its publisher, whose recipe carries a note ending in 'Frozen' saying so: Bitnami's legacy catalogue, Redis Stack). 'family': the id of the recipe for the same software from its main publisher (other publishers' images, with their own variables, folders or tags); the panel recognises such a database among the containers but does not offer it as a new one. 'pin', 'prefer' and 'tagSuffix' follow the publisher's tags: no 'pin' where only 'latest' is published (bitnami, bitnamisecure, Chainguard's free images), 'prefer' a tag that names the major where the version tags do not (pgvector's pg18). Volume 'evidence': declared (the image declares this VOLUME), workdir (its WORKDIR), env:NAME (a variable of the image points there or below), docs (only the documentation says so). 'runAs': the uid:gid the container runs as (first entry whose tagContains is in the tag), so that Cosmos makes the data folder its own; the live test checks the image's user has that id. A port marked 'undeclared' is opened by the recipe's command, not by the image. Env 'type': secret (a strong random value, generated in the browser), name (a value to choose, proposed), optional (shown folded, empty unless set), fixed (set as given).",
+  "about": "Fork addition (plan 40): settings Cosmos proposes for images whose own declaration is not enough. Data, not code: read by src/anyimage/recipes.go, checked by recipes_test.go and, against the real images, by recipes_live_test.go. Each recipe cites the image's documentation in 'source'. 'maintained': when the image was last published, as read on the day 'checked' (an unmaintained image gets no recipe: MinIO's community image is gone and its repository archived since April 2026); the exception is an image that people still run, frozen by its publisher, whose recipe carries a note ending in 'Frozen' saying so: Bitnami's legacy catalogue, Redis Stack). 'family': the id of the recipe for the same software from its main publisher (other publishers' images, with their own variables, folders or tags); the panel recognises such a database among the containers but does not offer it as a new one. 'pin', 'prefer' and 'tagSuffix' follow the publisher's tags: no 'pin' where only 'latest' is published (bitnami, bitnamisecure, Chainguard's free images), 'prefer' a tag that names the major where the version tags do not (pgvector's pg18). Volume 'evidence': declared (the image declares this VOLUME), workdir (its WORKDIR), env:NAME (a variable of the image points there or below), docs (only the documentation says so). 'runAs': the uid:gid the container runs as (first entry whose tagContains is in the tag), so that Cosmos makes the data folder its own; the live test checks the image's user has that id. A port marked 'undeclared' is opened by the recipe's command, not by the image. Env 'type': secret (a strong random value, generated in the browser), name (a value to choose, proposed), optional (shown folded, empty unless set), fixed (set as given). 'login' (plan 45): how one signs in to the image and what its sign-in details must be: 'where' (database, web, s3, amqp, http; 'via': database for a tool one signs in to with the database's own accounts), 'accounts' (the variables holding each account's user or e-mail, password and database; 'userFixed' a user the image fixes, 'userUnset' the user when the variable is not set; 'defaults' marks the one account that takes the configured default username and e-mail), 'user' (a pattern Go and JavaScript read alike, the maximum length, reserved names), 'email' (refuseSpecialUse: .local, .test and the like are refused), 'password' (min, max at most 64, the symbols allowed besides letters and digits, a subset of the URL-unreserved -._~, the classes required); every rule cites its 'evidence', and the live test signs in with a generated password holding every class allowed. 'manager': a web tool that manages databases of these kinds ('for'), the lowest 'rank' proposed first; its 'needs.env' maps host, port, user, password, database or url to its variables, 'needs.servers' and 'needs.passFile' name the variables that carry pgAdmin's server list and password file. 'entrypoint': replaces the image's entrypoint (exec form); used only for a small sh wrapper that writes such a variable into the tool's own volume (umask 077) and then execs the image's own entrypoint; the script holds no value. 'firstRun': apps that create their first account in their own page at first open (note firstRunPage) or print a temporary password in their log for a fixed user (note logPassword), so Cosmos cannot set it and only proposes what to type there; each cites its documentation.",
   "recipes": [
     {
       "id": "postgres",
@@ -25,7 +25,8 @@
       "memory": "256 MB to 1 GB",
       "backup": "pg_dumpall -U app",
       "notes": ["majorUpgrade", "pgdata18"],
-      "client": { "url": "postgres://{user}:{password}@{host}:5432/{database}", "user": "POSTGRES_USER", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB" }
+      "client": { "url": "postgres://{user}:{password}@{host}:5432/{database}", "user": "POSTGRES_USER", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB" },
+      "login": {"where": "database", "accounts": [{"role": "app", "user": "POSTGRES_USER", "userUnset": "postgres", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB", "defaults": true}], "user": {"pattern": "^(?:[a-oq-z_]|p(?:[a-fh-z0-9_]|g(?:[a-z0-9]|$)|$))[a-z0-9_]*$", "max": 63, "reserved": ["public", "none"], "evidence": "https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS (names up to 63 bytes); https://www.postgresql.org/docs/current/predefined-roles.html (pg_ names are reserved); live test: CREATE ROLE refuses pg_*, public and none"}, "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://github.com/docker-library/postgres/blob/master/docker-entrypoint.sh (POSTGRES_PASSWORD reaches initdb through --pwfile: no quoting, no minimum); the password also travels in postgres:// addresses, where only the URL-unreserved symbols need no encoding; live test (every class at the maximum length)"}}
     },
     {
       "id": "mariadb",
@@ -49,7 +50,8 @@
       "healthcheck": { "test": ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"], "interval": "10s", "timeout": "5s", "retries": 5 },
       "memory": "256 MB to 1 GB",
       "backup": "mariadb-dump --all-databases -u root -p",
-      "client": { "url": "mysql://{user}:{password}@{host}:3306/{database}", "user": "MARIADB_USER", "password": "MARIADB_PASSWORD", "database": "MARIADB_DATABASE" }
+      "client": { "url": "mysql://{user}:{password}@{host}:3306/{database}", "user": "MARIADB_USER", "password": "MARIADB_PASSWORD", "database": "MARIADB_DATABASE" },
+      "login": {"where": "database", "accounts": [{"role": "app", "user": "MARIADB_USER", "password": "MARIADB_PASSWORD", "database": "MARIADB_DATABASE", "defaults": true}, {"role": "root", "userFixed": "root", "password": "MARIADB_ROOT_PASSWORD"}], "user": {"pattern": "^[a-z_][a-z0-9_]*$", "max": 80, "reserved": ["root", "mysql", "public"], "evidence": "https://github.com/MariaDB/mariadb-docker/blob/master/docker-entrypoint.sh (the user is put unquoted into CREATE USER '...'; the password through docker_sql_escape_string_literal); live test on 12.3: an 80-character user name is accepted, 81 refused, and root fails as root@'%' exists"}, "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://github.com/MariaDB/mariadb-docker/blob/master/docker-entrypoint.sh (the user is put unquoted into CREATE USER '...'; mysql:// addresses need the URL-unreserved symbols; live test"}}
     },
     {
       "id": "mysql",
@@ -73,7 +75,8 @@
       "healthcheck": { "test": ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"], "interval": "10s", "timeout": "5s", "retries": 5 },
       "memory": "512 MB to 1 GB",
       "backup": "mysqldump --all-databases -u root -p",
-      "client": { "url": "mysql://{user}:{password}@{host}:3306/{database}", "user": "MYSQL_USER", "password": "MYSQL_PASSWORD", "database": "MYSQL_DATABASE" }
+      "client": { "url": "mysql://{user}:{password}@{host}:3306/{database}", "user": "MYSQL_USER", "password": "MYSQL_PASSWORD", "database": "MYSQL_DATABASE" },
+      "login": {"where": "database", "accounts": [{"role": "app", "user": "MYSQL_USER", "password": "MYSQL_PASSWORD", "database": "MYSQL_DATABASE", "defaults": true}, {"role": "root", "userFixed": "root", "password": "MYSQL_ROOT_PASSWORD"}], "user": {"pattern": "^[a-z_][a-z0-9_]*$", "max": 32, "reserved": ["root", "mysql"], "evidence": "https://dev.mysql.com/doc/refman/8.4/en/user-names.html (MySQL user names are up to 32 characters); https://github.com/docker-library/mysql/blob/master/docker-entrypoint.sh (refuses MYSQL_USER=root)"}, "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://github.com/docker-library/mysql/blob/master/docker-entrypoint.sh (passwords go into SQL string literals; mysql:// addresses need the URL-unreserved symbols); live test"}}
     },
     {
       "id": "redis",
@@ -131,7 +134,8 @@
       "memory": "512 MB and more",
       "backup": "mongodump",
       "notes": ["cpuAvx"],
-      "client": { "url": "mongodb://{user}:{password}@{host}:27017/", "user": "MONGO_INITDB_ROOT_USERNAME", "password": "MONGO_INITDB_ROOT_PASSWORD" }
+      "client": { "url": "mongodb://{user}:{password}@{host}:27017/", "user": "MONGO_INITDB_ROOT_USERNAME", "password": "MONGO_INITDB_ROOT_PASSWORD" },
+      "login": {"where": "database", "accounts": [{"role": "root", "user": "MONGO_INITDB_ROOT_USERNAME", "password": "MONGO_INITDB_ROOT_PASSWORD", "defaults": true}], "user": {"pattern": "^[a-z_][a-z0-9_]*$", "max": 64, "evidence": "https://hub.docker.com/_/mongo (MONGO_INITDB_ROOT_USERNAME: the image's only account, in the admin database); https://www.mongodb.com/docs/manual/reference/connection-string/ (a username or password with : / ? # [ ] @ must be percent-encoded in a mongodb:// address: only letters, digits and URL-unreserved symbols are used)"}, "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://github.com/docker-library/mongo/blob/master/docker-entrypoint.sh (the values are escaped for JavaScript); https://www.mongodb.com/docs/manual/reference/connection-string/ (a username or password with : / ? # [ ] @ must be percent-encoded in a mongodb:// address: only letters, digits and URL-unreserved symbols are used); live test through a mongodb:// address"}}
     },
     {
       "id": "adminer",
@@ -141,9 +145,11 @@
       "maintained": { "checked": "2026-11-15", "lastImage": "2026-11-06" },
       "kind": "tool",
       "web": { "port": 8080 },
-      "needs": { "kinds": ["postgres", "mysql", "mongo"], "optional": true, "env": { "host": "ADMINER_DEFAULT_SERVER" } },
+      "needs": { "kinds": ["postgres", "mysql"], "optional": true, "env": { "host": "ADMINER_DEFAULT_SERVER" } },
       "memory": "under 64 MB",
-      "notes": ["toolSignIn"]
+      "notes": ["toolSignIn"],
+      "login": {"where": "web", "via": "database"},
+      "manager": {"for": ["postgres", "mysql"], "rank": 2}
     },
     {
       "id": "pgadmin",
@@ -159,11 +165,21 @@
       "volumes": [{ "target": "/var/lib/pgadmin", "evidence": "declared", "keepVolume": true, "backup": true }],
       "env": [
         { "name": "PGADMIN_DEFAULT_EMAIL", "type": "name", "value": "admin@example.com" },
-        { "name": "PGADMIN_DEFAULT_PASSWORD", "type": "secret" }
+        { "name": "PGADMIN_DEFAULT_PASSWORD", "type": "secret" },
+        { "name": "PGADMIN_SERVER_JSON_FILE", "type": "fixed", "value": "/var/lib/pgadmin/cosmos/servers.json" },
+        { "name": "PGPASS_FILE", "type": "fixed", "value": "/var/lib/pgadmin/cosmos/pgpass" },
+        { "name": "PGADMIN_CONFIG_PROXY_X_FOR_COUNT", "type": "fixed", "value": "1" },
+        { "name": "PGADMIN_CONFIG_PROXY_X_PROTO_COUNT", "type": "fixed", "value": "1" },
+        { "name": "PGADMIN_CONFIG_PROXY_X_HOST_COUNT", "type": "fixed", "value": "0" },
+        { "name": "PGADMIN_CONFIG_PROXY_X_PORT_COUNT", "type": "fixed", "value": "1" },
+        { "name": "PGADMIN_CONFIG_PROXY_X_PREFIX_COUNT", "type": "fixed", "value": "0" }
       ],
-      "needs": { "kinds": ["postgres"], "optional": true, "env": {} },
+      "needs": { "kinds": ["postgres"], "optional": true, "env": {}, "servers": "PGADMIN_COSMOS_SERVERS", "passFile": "PGADMIN_COSMOS_PGPASS" },
       "memory": "256 MB",
-      "notes": ["ownedVolume"]
+      "notes": ["ownedVolume"],
+      "login": {"where": "web", "accounts": [{"role": "admin", "email": "PGADMIN_DEFAULT_EMAIL", "password": "PGADMIN_DEFAULT_PASSWORD", "defaults": true}], "email": {"refuseSpecialUse": true, "evidence": "https://github.com/pgadmin-org/pgadmin4/blob/master/web/pgadmin/utils/validation_utils.py and the image's /entrypoint.sh: email_validator refuses the special-use domains arpa, invalid, local, localhost, onion and test (example.com and example.org pass) unless PGADMIN_CONFIG_ALLOW_SPECIAL_EMAIL_DOMAINS lists them; a domain without a dot needs PGADMIN_CONFIG_GLOBALLY_DELIVERABLE=False; checked in the image on 2026-11-16"}, "password": {"min": 6, "max": 64, "symbols": "-._~", "evidence": "https://github.com/pgadmin-org/pgadmin4/blob/master/web/config.py (PASSWORD_LENGTH_MIN = 6; hashed with pbkdf2_sha512, no 72-byte cut); live test through its sign-in form"}},
+      "manager": {"for": ["postgres"], "rank": 1},
+      "entrypoint": ["/bin/sh", "-c", "d=/var/lib/pgadmin/cosmos; (umask 077; mkdir -p \"$d\" || exit 1; if [ -n \"$PGADMIN_COSMOS_SERVERS\" ]; then printf '%s' \"$PGADMIN_COSMOS_SERVERS\" > \"$d/servers.json\" || exit 1; fi; if [ -n \"$PGADMIN_COSMOS_PGPASS\" ]; then printf '%s\\n' \"$PGADMIN_COSMOS_PGPASS\" > \"$d/pgpass\" || exit 1; fi) || exit 1; unset PGADMIN_COSMOS_SERVERS PGADMIN_COSMOS_PGPASS; exec /entrypoint.sh \"$@\"", "pgadmin-cosmos"]
     },
     {
       "id": "phpmyadmin",
@@ -176,7 +192,9 @@
       "web": { "port": 80 },
       "needs": { "kinds": ["mysql"], "optional": false, "env": { "host": "PMA_HOST", "port": "PMA_PORT" } },
       "memory": "under 128 MB",
-      "notes": ["toolSignIn"]
+      "notes": ["toolSignIn"],
+      "login": {"where": "web", "via": "database"},
+      "manager": {"for": ["mysql"], "rank": 1}
     },
     {
       "id": "rabbitmq",
@@ -203,7 +221,8 @@
       "healthcheck": { "test": ["CMD", "rabbitmq-diagnostics", "-q", "ping"], "interval": "30s", "timeout": "10s", "retries": 5 },
       "memory": "256 MB to 1 GB",
       "notes": ["hostnameKeeps"],
-      "client": { "url": "amqp://{user}:{password}@{host}:5672/", "user": "RABBITMQ_DEFAULT_USER", "password": "RABBITMQ_DEFAULT_PASS" }
+      "client": { "url": "amqp://{user}:{password}@{host}:5672/", "user": "RABBITMQ_DEFAULT_USER", "password": "RABBITMQ_DEFAULT_PASS" },
+      "login": {"where": "amqp", "accounts": [{"role": "admin", "user": "RABBITMQ_DEFAULT_USER", "password": "RABBITMQ_DEFAULT_PASS", "defaults": true}], "user": {"pattern": "^[a-z_][a-z0-9_]*$", "max": 64, "reserved": ["guest"], "evidence": "https://www.rabbitmq.com/docs/access-control#loopback-users (guest may only connect from localhost); https://hub.docker.com/_/rabbitmq (RABBITMQ_DEFAULT_USER)"}, "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://www.rabbitmq.com/docs/uri-spec (user and password are URL-encoded in amqp:// addresses); live test through the management API"}}
     },
     {
       "id": "elasticsearch",
@@ -224,7 +243,8 @@
       ],
       "memory": "2 GB and more",
       "notes": ["maxMapCount", "ownedVolume", "httpsSelfSigned"],
-      "client": { "url": "https://elastic:{password}@{host}:9200", "password": "ELASTIC_PASSWORD" }
+      "client": { "url": "https://elastic:{password}@{host}:9200", "password": "ELASTIC_PASSWORD" },
+      "login": {"where": "http", "accounts": [{"role": "admin", "userFixed": "elastic", "password": "ELASTIC_PASSWORD"}], "password": {"min": 6, "max": 64, "symbols": "-._~", "evidence": "https://www.elastic.co/docs/deploy-manage/deploy/self-managed/install-elasticsearch-docker-basic (ELASTIC_PASSWORD is the elastic user's); Elasticsearch refuses passwords shorter than 6 characters; https:// addresses carry it; live test with basic authentication"}}
     },
     {
       "id": "opensearch",
@@ -246,7 +266,8 @@
       ],
       "memory": "2 GB and more",
       "notes": ["maxMapCount", "ownedVolume", "httpsSelfSigned"],
-      "client": { "url": "https://admin:{password}@{host}:9200", "password": "OPENSEARCH_INITIAL_ADMIN_PASSWORD" }
+      "client": { "url": "https://admin:{password}@{host}:9200", "password": "OPENSEARCH_INITIAL_ADMIN_PASSWORD" },
+      "login": {"where": "http", "accounts": [{"role": "admin", "userFixed": "admin", "password": "OPENSEARCH_INITIAL_ADMIN_PASSWORD"}], "password": {"min": 8, "max": 64, "symbols": "-._~", "require": ["lower", "upper", "digit", "symbol"], "evidence": "https://docs.opensearch.org/latest/install-and-configure/install-opensearch/docker/ (at least 8 characters with an upper-case letter, a lower-case letter, a digit and a special character, and strong by its zxcvbn check); live test"}}
     },
     {
       "id": "memcached",
@@ -283,7 +304,8 @@
       "healthcheck": { "test": ["CMD", "curl", "-fs", "http://127.0.0.1:9000/health"], "interval": "15s", "timeout": "5s", "retries": 5 },
       "memory": "256 MB and more",
       "notes": ["consolePath", "s3Outside"],
-      "client": { "url": "http://{host}:9000 (access key {user})", "user": "RUSTFS_ACCESS_KEY", "password": "RUSTFS_SECRET_KEY" }
+      "client": { "url": "http://{host}:9000 (access key {user})", "user": "RUSTFS_ACCESS_KEY", "password": "RUSTFS_SECRET_KEY" },
+      "login": {"where": "s3", "accounts": [{"role": "admin", "user": "RUSTFS_ACCESS_KEY", "password": "RUSTFS_SECRET_KEY", "defaults": true}], "user": {"pattern": "^[a-z_][a-z0-9_-]{2,}$", "max": 64, "evidence": "https://github.com/rustfs/rustfs/blob/main/crates/policy/src/auth/credentials.rs (an access key of 3 to 128 characters, without = or ,)"}, "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://github.com/rustfs/rustfs/blob/main/crates/policy/src/auth/credentials.rs (a secret key of at least 8 characters); live test with a signed S3 request"}}
     },
     {
       "id": "nginx",
@@ -364,7 +386,8 @@
       "memory": "256 MB to 1 GB",
       "backup": "pg_dumpall -U postgres",
       "notes": ["latestOnly", "bitnamiDevelopment", "majorUpgrade"],
-      "client": { "url": "postgres://{user}:{password}@{host}:5432/{database}", "user": "POSTGRESQL_USERNAME", "password": "POSTGRESQL_PASSWORD", "database": "POSTGRESQL_DATABASE" }
+      "client": { "url": "postgres://{user}:{password}@{host}:5432/{database}", "user": "POSTGRESQL_USERNAME", "password": "POSTGRESQL_PASSWORD", "database": "POSTGRESQL_DATABASE" },
+      "login": {"where": "database", "accounts": [{"role": "app", "user": "POSTGRESQL_USERNAME", "userUnset": "postgres", "password": "POSTGRESQL_PASSWORD", "database": "POSTGRESQL_DATABASE", "defaults": true}, {"role": "root", "userFixed": "postgres", "password": "POSTGRESQL_POSTGRES_PASSWORD"}], "user": {"pattern": "^(?:[a-oq-z_]|p(?:[a-fh-z0-9_]|g(?:[a-z0-9]|$)|$))[a-z0-9_]*$", "max": 63, "reserved": ["public", "none", "postgres"], "evidence": "https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS (names up to 63 bytes); https://www.postgresql.org/docs/current/predefined-roles.html (pg_ names are reserved); live test: CREATE ROLE refuses pg_*, public and none"}, "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://github.com/bitnami/containers/tree/main/bitnami/postgresql (POSTGRESQL_USERNAME, POSTGRESQL_PASSWORD; POSTGRESQL_POSTGRES_PASSWORD is the postgres user's when the username is not postgres); the password also travels in postgres:// addresses, where only the URL-unreserved symbols need no encoding; live test (every class at the maximum length)"}}
     },
     {
       "id": "bitnamilegacy-postgresql",
@@ -394,7 +417,8 @@
       "memory": "256 MB to 1 GB",
       "backup": "pg_dumpall -U postgres",
       "notes": ["bitnamiLegacyFrozen", "majorUpgrade"],
-      "client": { "url": "postgres://{user}:{password}@{host}:5432/{database}", "user": "POSTGRESQL_USERNAME", "password": "POSTGRESQL_PASSWORD", "database": "POSTGRESQL_DATABASE" }
+      "client": { "url": "postgres://{user}:{password}@{host}:5432/{database}", "user": "POSTGRESQL_USERNAME", "password": "POSTGRESQL_PASSWORD", "database": "POSTGRESQL_DATABASE" },
+      "login": {"where": "database", "accounts": [{"role": "app", "user": "POSTGRESQL_USERNAME", "userUnset": "postgres", "password": "POSTGRESQL_PASSWORD", "database": "POSTGRESQL_DATABASE", "defaults": true}, {"role": "root", "userFixed": "postgres", "password": "POSTGRESQL_POSTGRES_PASSWORD"}], "user": {"pattern": "^(?:[a-oq-z_]|p(?:[a-fh-z0-9_]|g(?:[a-z0-9]|$)|$))[a-z0-9_]*$", "max": 63, "reserved": ["public", "none", "postgres"], "evidence": "https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS (names up to 63 bytes); https://www.postgresql.org/docs/current/predefined-roles.html (pg_ names are reserved); live test: CREATE ROLE refuses pg_*, public and none"}, "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://github.com/bitnami/containers/tree/main/bitnami/postgresql (POSTGRESQL_USERNAME, POSTGRESQL_PASSWORD; POSTGRESQL_POSTGRES_PASSWORD is the postgres user's when the username is not postgres); the password also travels in postgres:// addresses, where only the URL-unreserved symbols need no encoding; live test (every class at the maximum length)"}}
     },
     {
       "id": "pgvector",
@@ -421,7 +445,8 @@
       "memory": "256 MB to 1 GB",
       "backup": "pg_dumpall -U app",
       "notes": ["majorUpgrade", "pgdata18"],
-      "client": { "url": "postgres://{user}:{password}@{host}:5432/{database}", "user": "POSTGRES_USER", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB" }
+      "client": { "url": "postgres://{user}:{password}@{host}:5432/{database}", "user": "POSTGRES_USER", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB" },
+      "login": {"where": "database", "accounts": [{"role": "app", "user": "POSTGRES_USER", "userUnset": "postgres", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB", "defaults": true}], "user": {"pattern": "^(?:[a-oq-z_]|p(?:[a-fh-z0-9_]|g(?:[a-z0-9]|$)|$))[a-z0-9_]*$", "max": 63, "reserved": ["public", "none"], "evidence": "https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS (names up to 63 bytes); https://www.postgresql.org/docs/current/predefined-roles.html (pg_ names are reserved); live test: CREATE ROLE refuses pg_*, public and none"}, "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://github.com/docker-library/postgres/blob/master/docker-entrypoint.sh (POSTGRES_PASSWORD reaches initdb through --pwfile: no quoting, no minimum); https://github.com/pgvector/pgvector#docker (the official image's entrypoint); the password also travels in postgres:// addresses, where only the URL-unreserved symbols need no encoding; live test (every class at the maximum length)"}}
     },
     {
       "id": "postgis",
@@ -449,7 +474,8 @@
       "memory": "256 MB to 1 GB",
       "backup": "pg_dumpall -U app",
       "notes": ["majorUpgrade", "pgdata18"],
-      "client": { "url": "postgres://{user}:{password}@{host}:5432/{database}", "user": "POSTGRES_USER", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB" }
+      "client": { "url": "postgres://{user}:{password}@{host}:5432/{database}", "user": "POSTGRES_USER", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB" },
+      "login": {"where": "database", "accounts": [{"role": "app", "user": "POSTGRES_USER", "userUnset": "postgres", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB", "defaults": true}], "user": {"pattern": "^(?:[a-oq-z_]|p(?:[a-fh-z0-9_]|g(?:[a-z0-9]|$)|$))[a-z0-9_]*$", "max": 63, "reserved": ["public", "none"], "evidence": "https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS (names up to 63 bytes); https://www.postgresql.org/docs/current/predefined-roles.html (pg_ names are reserved); live test: CREATE ROLE refuses pg_*, public and none"}, "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://github.com/docker-library/postgres/blob/master/docker-entrypoint.sh (POSTGRES_PASSWORD reaches initdb through --pwfile: no quoting, no minimum); https://github.com/postgis/docker-postgis (built on the official image); the password also travels in postgres:// addresses, where only the URL-unreserved symbols need no encoding; live test (every class at the maximum length)"}}
     },
     {
       "id": "timescaledb",
@@ -476,7 +502,8 @@
       "memory": "512 MB to 2 GB",
       "backup": "pg_dumpall -U app",
       "notes": ["majorUpgrade", "pgdata18"],
-      "client": { "url": "postgres://{user}:{password}@{host}:5432/{database}", "user": "POSTGRES_USER", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB" }
+      "client": { "url": "postgres://{user}:{password}@{host}:5432/{database}", "user": "POSTGRES_USER", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB" },
+      "login": {"where": "database", "accounts": [{"role": "app", "user": "POSTGRES_USER", "userUnset": "postgres", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB", "defaults": true}], "user": {"pattern": "^(?:[a-oq-z_]|p(?:[a-fh-z0-9_]|g(?:[a-z0-9]|$)|$))[a-z0-9_]*$", "max": 63, "reserved": ["public", "none"], "evidence": "https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS (names up to 63 bytes); https://www.postgresql.org/docs/current/predefined-roles.html (pg_ names are reserved); live test: CREATE ROLE refuses pg_*, public and none"}, "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://github.com/docker-library/postgres/blob/master/docker-entrypoint.sh (POSTGRES_PASSWORD reaches initdb through --pwfile: no quoting, no minimum); https://github.com/timescale/timescaledb-docker (the official entrypoint); the password also travels in postgres:// addresses, where only the URL-unreserved symbols need no encoding; live test (every class at the maximum length)"}}
     },
     {
       "id": "timescaledb-ha",
@@ -501,7 +528,8 @@
       "memory": "512 MB to 2 GB",
       "backup": "pg_dumpall -U app",
       "notes": ["majorUpgrade"],
-      "client": { "url": "postgres://{user}:{password}@{host}:5432/{database}", "user": "POSTGRES_USER", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB" }
+      "client": { "url": "postgres://{user}:{password}@{host}:5432/{database}", "user": "POSTGRES_USER", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB" },
+      "login": {"where": "database", "accounts": [{"role": "app", "user": "POSTGRES_USER", "userUnset": "postgres", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB", "defaults": true}], "user": {"pattern": "^(?:[a-oq-z_]|p(?:[a-fh-z0-9_]|g(?:[a-z0-9]|$)|$))[a-z0-9_]*$", "max": 63, "reserved": ["public", "none"], "evidence": "https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS (names up to 63 bytes); https://www.postgresql.org/docs/current/predefined-roles.html (pg_ names are reserved); live test: CREATE ROLE refuses pg_*, public and none"}, "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://github.com/timescale/timescaledb-docker-ha (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB); the password also travels in postgres:// addresses, where only the URL-unreserved symbols need no encoding; live test (every class at the maximum length)"}}
     },
     {
       "id": "chainguard-postgres",
@@ -524,7 +552,8 @@
       "memory": "256 MB to 1 GB",
       "backup": "pg_dumpall -U app",
       "notes": ["latestOnly", "majorUpgrade"],
-      "client": { "url": "postgres://{user}:{password}@{host}:5432/{database}", "user": "POSTGRES_USER", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB" }
+      "client": { "url": "postgres://{user}:{password}@{host}:5432/{database}", "user": "POSTGRES_USER", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB" },
+      "login": {"where": "database", "accounts": [{"role": "app", "user": "POSTGRES_USER", "userUnset": "postgres", "password": "POSTGRES_PASSWORD", "database": "POSTGRES_DB", "defaults": true}], "user": {"pattern": "^(?:[a-oq-z_]|p(?:[a-fh-z0-9_]|g(?:[a-z0-9]|$)|$))[a-z0-9_]*$", "max": 63, "reserved": ["public", "none"], "evidence": "https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS (names up to 63 bytes); https://www.postgresql.org/docs/current/predefined-roles.html (pg_ names are reserved); live test: CREATE ROLE refuses pg_*, public and none"}, "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://images.chainguard.dev/directory/image/postgres/overview (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, as the official image); the password also travels in postgres:// addresses, where only the URL-unreserved symbols need no encoding; live test (every class at the maximum length)"}}
     },
     {
       "id": "bitnami-mariadb",
@@ -549,7 +578,8 @@
       "memory": "256 MB to 1 GB",
       "backup": "mariadb-dump --all-databases -u root -p",
       "notes": ["latestOnly", "bitnamiDevelopment"],
-      "client": { "url": "mysql://{user}:{password}@{host}:3306/{database}", "user": "MARIADB_USER", "password": "MARIADB_PASSWORD", "database": "MARIADB_DATABASE" }
+      "client": { "url": "mysql://{user}:{password}@{host}:3306/{database}", "user": "MARIADB_USER", "password": "MARIADB_PASSWORD", "database": "MARIADB_DATABASE" },
+      "login": {"where": "database", "accounts": [{"role": "app", "user": "MARIADB_USER", "password": "MARIADB_PASSWORD", "database": "MARIADB_DATABASE", "defaults": true}, {"role": "root", "userFixed": "root", "password": "MARIADB_ROOT_PASSWORD"}], "user": {"pattern": "^[a-z_][a-z0-9_]*$", "max": 80, "reserved": ["root", "mysql", "public"], "evidence": "https://github.com/bitnami/containers/tree/main/bitnami/mariadb (MARIADB_USER, MARIADB_PASSWORD, MARIADB_DATABASE; MariaDB takes user names up to 80 characters, see the mariadb recipe); live test"}, "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://github.com/MariaDB/mariadb-docker/blob/master/docker-entrypoint.sh (the user is put unquoted into CREATE USER '...'; mysql:// addresses need the URL-unreserved symbols; live test"}}
     },
     {
       "id": "linuxserver-mariadb",
@@ -573,7 +603,8 @@
       "healthcheck": { "test": ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 --silent"], "interval": "10s", "timeout": "5s", "retries": 5 },
       "memory": "256 MB to 1 GB",
       "backup": "mariadb-dump --all-databases -u root -p",
-      "client": { "url": "mysql://{user}:{password}@{host}:3306/{database}", "user": "MYSQL_USER", "password": "MYSQL_PASSWORD", "database": "MYSQL_DATABASE" }
+      "client": { "url": "mysql://{user}:{password}@{host}:3306/{database}", "user": "MYSQL_USER", "password": "MYSQL_PASSWORD", "database": "MYSQL_DATABASE" },
+      "login": {"where": "database", "accounts": [{"role": "app", "user": "MYSQL_USER", "password": "MYSQL_PASSWORD", "database": "MYSQL_DATABASE", "defaults": true}, {"role": "root", "userFixed": "root", "password": "MYSQL_ROOT_PASSWORD"}], "user": {"pattern": "^[a-z_][a-z0-9_]*$", "max": 80, "reserved": ["root", "mysql", "public"], "evidence": "https://docs.linuxserver.io/images/docker-mariadb/ (MYSQL_USER, MYSQL_DATABASE, MYSQL_PASSWORD); MariaDB takes user names up to 80 characters (see the mariadb recipe); live test"}, "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://docs.linuxserver.io/images/docker-mariadb/ (the root password needs at least 4 characters: 'No root password or too short a password, min of 4 characters'); live test"}}
     },
     {
       "id": "percona-server",
@@ -604,7 +635,8 @@
       "healthcheck": { "test": ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"], "interval": "10s", "timeout": "5s", "retries": 5 },
       "memory": "512 MB to 1 GB",
       "backup": "mysqldump --all-databases -u root -p",
-      "client": { "url": "mysql://{user}:{password}@{host}:3306/{database}", "user": "MYSQL_USER", "password": "MYSQL_PASSWORD", "database": "MYSQL_DATABASE" }
+      "client": { "url": "mysql://{user}:{password}@{host}:3306/{database}", "user": "MYSQL_USER", "password": "MYSQL_PASSWORD", "database": "MYSQL_DATABASE" },
+      "login": {"where": "database", "accounts": [{"role": "app", "user": "MYSQL_USER", "password": "MYSQL_PASSWORD", "database": "MYSQL_DATABASE", "defaults": true}, {"role": "root", "userFixed": "root", "password": "MYSQL_ROOT_PASSWORD"}], "user": {"pattern": "^[a-z_][a-z0-9_]*$", "max": 32, "reserved": ["root", "mysql"], "evidence": "https://dev.mysql.com/doc/refman/8.4/en/user-names.html (MySQL user names are up to 32 characters); https://github.com/docker-library/mysql/blob/master/docker-entrypoint.sh (refuses MYSQL_USER=root); https://docs.percona.com/percona-server/8.4/docker.html (the same MYSQL_* variables)"}, "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://github.com/docker-library/mysql/blob/master/docker-entrypoint.sh (passwords go into SQL string literals; mysql:// addresses need the URL-unreserved symbols); live test"}}
     },
     {
       "id": "bitnami-redis",
@@ -623,7 +655,8 @@
       "healthcheck": { "test": ["CMD-SHELL", "REDISCLI_AUTH=\"$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"], "interval": "10s", "timeout": "3s", "retries": 5 },
       "memory": "64 MB and more, by what it holds",
       "notes": ["latestOnly", "bitnamiDevelopment"],
-      "client": { "url": "redis://:{password}@{host}:6379", "password": "REDIS_PASSWORD" }
+      "client": { "url": "redis://:{password}@{host}:6379", "password": "REDIS_PASSWORD" },
+      "login": {"where": "database", "accounts": [{"role": "app", "userFixed": "default", "password": "REDIS_PASSWORD"}], "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://github.com/bitnami/containers/tree/main/bitnami/redis (REDIS_PASSWORD is the default user's requirepass; redis:// addresses carry it); live test"}}
     },
     {
       "id": "bitnami-valkey",
@@ -642,7 +675,8 @@
       "healthcheck": { "test": ["CMD-SHELL", "VALKEYCLI_AUTH=\"$VALKEY_PASSWORD\" valkey-cli ping | grep -q PONG"], "interval": "10s", "timeout": "3s", "retries": 5 },
       "memory": "64 MB and more, by what it holds",
       "notes": ["latestOnly", "bitnamiDevelopment"],
-      "client": { "url": "redis://:{password}@{host}:6379", "password": "VALKEY_PASSWORD" }
+      "client": { "url": "redis://:{password}@{host}:6379", "password": "VALKEY_PASSWORD" },
+      "login": {"where": "database", "accounts": [{"role": "app", "userFixed": "default", "password": "VALKEY_PASSWORD"}], "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://github.com/bitnami/containers/tree/main/bitnami/valkey (VALKEY_PASSWORD is the default user's requirepass); live test"}}
     },
     {
       "id": "redis-stack-server",
@@ -680,6 +714,23 @@
       "client": { "url": "redis://{host}:6379" }
     },
     {
+      "id": "redisinsight",
+      "name": "Redis Insight",
+      "images": ["redis/redisinsight"],
+      "source": "https://redis.io/docs/latest/operate/redisinsight/install/install-on-docker/",
+      "maintained": { "checked": "2026-11-16", "lastImage": "2026-07-21" },
+      "kind": "tool",
+      "web": { "port": 5540 },
+      "user": "node",
+      "runAs": [{ "user": "1000:1000" }],
+      "volumes": [{ "target": "/data", "evidence": "docs", "backup": true }],
+      "env": [{ "name": "RI_ENCRYPTION_KEY", "type": "secret" }],
+      "needs": { "kinds": ["redis"], "optional": true, "env": { "host": "RI_REDIS_HOST", "port": "RI_REDIS_PORT", "user": "RI_REDIS_USERNAME", "password": "RI_REDIS_PASSWORD" } },
+      "memory": "256 MB",
+      "notes": ["noAuth"],
+      "manager": { "for": ["redis"], "rank": 1 }
+    },
+    {
       "id": "bitnami-mongodb",
       "name": "MongoDB (Bitnami)",
       "family": "mongo",
@@ -703,7 +754,8 @@
       "memory": "512 MB and more",
       "backup": "mongodump",
       "notes": ["latestOnly", "bitnamiDevelopment", "cpuAvx"],
-      "client": { "url": "mongodb://{user}:{password}@{host}:27017/{database}", "user": "MONGODB_USERNAME", "password": "MONGODB_PASSWORD", "database": "MONGODB_DATABASE" }
+      "client": { "url": "mongodb://{user}:{password}@{host}:27017/{database}", "user": "MONGODB_USERNAME", "password": "MONGODB_PASSWORD", "database": "MONGODB_DATABASE" },
+      "login": {"where": "database", "accounts": [{"role": "app", "user": "MONGODB_USERNAME", "password": "MONGODB_PASSWORD", "database": "MONGODB_DATABASE", "defaults": true}, {"role": "root", "user": "MONGODB_ROOT_USER", "userUnset": "root", "password": "MONGODB_ROOT_PASSWORD"}], "user": {"pattern": "^[a-z_][a-z0-9_]*$", "max": 64, "reserved": ["root"], "evidence": "https://github.com/bitnami/containers/tree/main/bitnami/mongodb (MONGODB_USERNAME and MONGODB_DATABASE make the app's account, MONGODB_ROOT_USER defaults to root); https://www.mongodb.com/docs/manual/reference/connection-string/ (a username or password with : / ? # [ ] @ must be percent-encoded in a mongodb:// address: only letters, digits and URL-unreserved symbols are used)"}, "password": {"min": 8, "max": 64, "symbols": "-._~", "evidence": "https://www.mongodb.com/docs/manual/reference/connection-string/ (a username or password with : / ? # [ ] @ must be percent-encoded in a mongodb:// address: only letters, digits and URL-unreserved symbols are used); live test through a mongodb:// address"}}
     }
   ],
   "market": [
@@ -715,5 +767,19 @@
     { "market": "Uptime Kuma", "images": ["louislam/uptime-kuma"] },
     { "market": "Vaultwarden", "images": ["vaultwarden/server"] },
     { "market": "Home Assistant", "images": ["homeassistant/home-assistant", "ghcr.io/home-assistant/home-assistant"] }
+  ],
+  "firstRun": [
+    {"id": "jellyfin", "name": "Jellyfin", "images": ["jellyfin/jellyfin", "ghcr.io/jellyfin/jellyfin", "linuxserver/jellyfin", "lscr.io/linuxserver/jellyfin", "ghcr.io/linuxserver/jellyfin"], "source": "https://jellyfin.org/docs/general/post-install/setup-wizard/", "note": "firstRunPage"},
+    {"id": "emby", "name": "Emby", "images": ["emby/embyserver", "linuxserver/emby", "lscr.io/linuxserver/emby", "ghcr.io/linuxserver/emby"], "source": "https://emby.media/support/articles/Installation.html", "note": "firstRunPage"},
+    {"id": "sonarr", "name": "Sonarr", "images": ["linuxserver/sonarr", "lscr.io/linuxserver/sonarr", "ghcr.io/linuxserver/sonarr", "ghcr.io/hotio/sonarr"], "source": "https://wiki.servarr.com/sonarr/faq (authentication is mandatory; without it set, the Web UI prompts to set a username, a password and the authentication method on first open)", "note": "firstRunPage"},
+    {"id": "radarr", "name": "Radarr", "images": ["linuxserver/radarr", "lscr.io/linuxserver/radarr", "ghcr.io/linuxserver/radarr", "ghcr.io/hotio/radarr"], "source": "https://wiki.servarr.com/radarr/faq (authentication is mandatory; without it set, the Web UI prompts to set a username, a password and the authentication method on first open)", "note": "firstRunPage"},
+    {"id": "prowlarr", "name": "Prowlarr", "images": ["linuxserver/prowlarr", "lscr.io/linuxserver/prowlarr", "ghcr.io/linuxserver/prowlarr", "ghcr.io/hotio/prowlarr"], "source": "https://wiki.servarr.com/prowlarr/faq (authentication is mandatory; without it set, the Web UI prompts to set a username, a password and the authentication method on first open)", "note": "firstRunPage"},
+    {"id": "lidarr", "name": "Lidarr", "images": ["linuxserver/lidarr", "lscr.io/linuxserver/lidarr", "ghcr.io/linuxserver/lidarr", "ghcr.io/hotio/lidarr"], "source": "https://wiki.servarr.com/lidarr/faq (authentication is mandatory; without it set, the Web UI prompts to set a username, a password and the authentication method on first open)", "note": "firstRunPage"},
+    {"id": "home-assistant", "name": "Home Assistant", "images": ["homeassistant/home-assistant", "ghcr.io/home-assistant/home-assistant", "linuxserver/homeassistant", "lscr.io/linuxserver/homeassistant", "ghcr.io/linuxserver/homeassistant"], "source": "https://www.home-assistant.io/getting-started/onboarding/", "note": "firstRunPage"},
+    {"id": "immich", "name": "Immich", "images": ["ghcr.io/immich-app/immich-server"], "source": "https://docs.immich.app/overview/quick-start/", "note": "firstRunPage"},
+    {"id": "audiobookshelf", "name": "Audiobookshelf", "images": ["advplyr/audiobookshelf", "ghcr.io/advplyr/audiobookshelf"], "source": "https://www.audiobookshelf.org/faq/server/", "note": "firstRunPage"},
+    {"id": "navidrome", "name": "Navidrome", "images": ["deluan/navidrome"], "source": "https://www.navidrome.org/docs/getting-started/", "note": "firstRunPage"},
+    {"id": "portainer", "name": "Portainer CE", "images": ["portainer/portainer-ce"], "source": "https://docs.portainer.io/start/install-ce/server/setup", "note": "firstRunPage"},
+    {"id": "qbittorrent", "name": "qBittorrent", "images": ["linuxserver/qbittorrent", "lscr.io/linuxserver/qbittorrent", "ghcr.io/linuxserver/qbittorrent"], "source": "https://docs.linuxserver.io/images/docker-qbittorrent/", "note": "logPassword", "user": "admin"}
   ]
 }

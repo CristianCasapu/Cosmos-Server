@@ -160,7 +160,8 @@ const NewDockerService = ({service, refresh, edit, notes, holdReason}) => {
       {/* Fork addition: the review in words, the data places, the confirmations (components/creationReview.jsx) */}
       <CreationReview definition={current} base={creation.base} plan={creation.plan} notes={notes} proposed={creation.proposed} frozen={frozen}
         sensitive={sensitive} confirmed={confirmed} onConfirm={setConfirmed} choices={creation.choices} onChoices={creation.setChoices}
-        anyArch={anyArch} onAnyArch={setAnyArch} busy={!!log.length && !failed} edit={edit} />
+        anyArch={anyArch} onAnyArch={setAnyArch} busy={!!log.length && !failed} edit={edit}
+        signIn={creation.signIn} signInMail={creation.signInMail} onSignInReplace={creation.replaceSignIn} /* Fork addition (plan 45): who signs in with what */ />
       {!edit && <InstallExposure service={current} definition={dockerCompose} done={isDone} />}
       {failed && <Alert severity="error" sx={{ overflowWrap: 'anywhere' }} data-create-failed>{failed}</Alert>}
       {hold && !isDone && !log.length && <Alert severity="info" sx={{ overflowWrap: 'anywhere' }} data-create-hold>{hold}</Alert>}

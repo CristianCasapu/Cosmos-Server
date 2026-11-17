@@ -28,6 +28,8 @@ import {
 
 import { HandSettings, ImageNeeds, hintHelp } from './imageNeeds'; // Fork addition (plan 43): what an image needs, and where that is known from
 import { hintSettings } from '../utils/services'; // Fork addition (plan 43)
+import { ManagerChoice, useManager } from './managerChoice'; // Fork addition (plan 45): a web manager with a database
+import { networkSuffix } from '../utils/signIn'; // Fork addition (plan 45)
 
 // "NAME=value" lines typed by the administrator, as settings.
 const linesToSettings = (text) => String(text || '').split('\n').map((l) => l.trim())
@@ -66,7 +68,9 @@ const allApps = (answer) => Object.entries((answer && answer.all) || {}).flatMap
 const SettingField = ({ setting, onChange, busy }) => {
   const { t } = useTranslation();
   const [copied, setCopied] = React.useState(false);
-  const helper = hintHelp(t, setting) /* Fork addition (plan 43) */ || (setting.type === 'secret' ? t('mgmt.servapps.anyImage.ui.secretHelp', 'Generated for you. Copy it now: it is not shown again after the creation.')
+  const helper = hintHelp(t, setting) /* Fork addition (plan 43) */ || (setting.fromDefaults /* Fork addition (plan 45) */ ? (setting.variant
+    ? t('mgmt.servapps.signIn.fromDefaultsVariant', 'From Configuration > Sign-in details for new apps: {{typed}} in the form this app takes.', { typed: setting.typed, interpolation: { escapeValue: false } })
+    : t('mgmt.servapps.signIn.fromDefaults', 'From Configuration > Sign-in details for new apps.')) : setting.type === 'secret' ? t('mgmt.servapps.anyImage.ui.secretHelp', 'Generated for you. After the creation it is on the app\'s page, under Sign-in details (or in its settings).')
     : setting.type === 'name' ? t('mgmt.servapps.anyImage.ui.nameHelp', 'Proposed: change it if you like.')
       : setting.type === 'declared' ? t('mgmt.servapps.anyImage.ui.declaredHelp', 'The image\'s default.')
         : setting.type === 'fixed' ? t('mgmt.servapps.anyImage.ui.fixedHelp', 'Needed by this image as it is set here.') : t('mgmt.servapps.anyImage.ui.optionalHelp', 'Optional.'));
@@ -116,6 +120,8 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
   const [dbSettings, setDbSettings] = React.useState([]);
   const [dbEnv, setDbEnv] = React.useState([]);
   const [custom, setCustom] = React.useState({ volume: '', port: '', command: '', env: '' });
+  const [signInDefaults, setSignInDefaults] = React.useState(null); // Fork addition (plan 45)
+  const [netSuffix] = React.useState(() => networkSuffix(browserRandom)); // Fork addition (plan 45): new networks get names that cannot collide
   const asked = React.useRef(0);
 
   const reset = () => {
@@ -135,7 +141,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
       const ref = parseReference(answer.reference || reference);
       if (!keepName) setName(nameFor(ref, containers.map((c) => (c.Names || [''])[0])));
       // Fork addition (plan 43): without a recipe, what the publisher's description names is proposed too (marked as such)
-      setSettings([...proposedSettings(answer.recipe || null, answer.declared || null, browserRandom),
+      setSettings([...proposedSettings(answer.recipe || null, answer.declared || null, browserRandom, signInDefaults /* Fork addition (plan 45) */),
         ...(answer.recipe ? [] : hintSettings(answer.hints, declaredSettings(answer.declared).map((s) => s.name), browserRandom))]);
       setDb({ mode: '' }); setDbDesc(null); setDbSettings([]); setDbEnv([]);
     }).catch((e) => {
@@ -169,6 +175,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
     reset();
     API.docker.list().then((res) => setContainers((res && res.data) || [])).catch(() => {});
     API.config.get().then((res) => setConfig((res && res.data) || null)).catch(() => {});
+    if (API.signIn) API.signIn.defaults().then((res) => setSignInDefaults((res && res.data) || null)).catch(() => {}); // Fork addition (plan 45)
     if (API.market && API.market.list) API.market.list().then((res) => setMarket(allApps(res && res.data))).catch(() => {});
     if (initial) runSearch(initial);
   }, [open]);
@@ -191,6 +198,17 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
   const known = ref && host ? knownAppNeeds(knownAppFor(knownApps, ref.name), publicFacts(host, cosmosHttps)) : null;
   const others = containers.map((c) => String((c.Names || [''])[0]).replace(/^\//, '')).filter((n) => n && n !== name);
   const isService = !!(recipe && recipe.service);
+  // Fork addition (plan 45): a database gets its web manager; defaults that arrive after the image was read still apply
+  const mgr = useManager({ kind: recipe && ['database', 'cache'].includes(recipe.kind) ? recipe.provides : null, managers: (desc && desc.managers) || [], dbName: name, defaults: signInDefaults, config });
+  React.useEffect(() => {
+    if (!signInDefaults || !recipe) return;
+    const fresh = proposedSettings(recipe, null, browserRandom, signInDefaults);
+    setSettings((old) => old.map((o) => {
+      const f = fresh.find((x) => x.name === o.name);
+      const own = (recipe.env || []).find((e) => e.name === o.name);
+      return f && f.fromDefaults && own && o.value === (own.value || '') ? f : o;
+    }));
+  }, [signInDefaults, recipe && recipe.id]);
 
   const pickDbRecipe = (r) => {
     setDb({ mode: 'new', recipe: r });
@@ -213,7 +231,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
   };
 
   const ready = ref && declared && desc.fits !== 'no' && !desc.loading && name && (!marketApp || anyway)
-    && !(need && !need.optional && !db.mode) && !(db.mode === 'new' && !(dbDesc && dbDesc.tag));
+    && !(need && !need.optional && !db.mode) && !(db.mode === 'new' && !(dbDesc && dbDesc.tag)) && !mgr.waiting /* Fork addition (plan 45) */;
   const definition = React.useMemo(() => {
     if (!ready) return null;
     let database = null;
@@ -222,8 +240,8 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
     } else if (db.mode === 'existing') {
       database = { mode: 'existing', container: db.container, recipe: db.recipe, env: dbEnv };
     }
-    return buildDefinition({ ref, tag: desc.tag, name, recipe, declared, settings: [...settings.filter((s) => !extraSettings.some((e) => e.name === s.name)), ...extraSettings] /* Fork addition (plan 43): a name typed by hand replaces the proposal */, host, reachers, database, need, command: openFields ? custom.command : '', known /* Fork addition (plan 44) */ }).definition;
-  }, [ready, desc, name, settings, host, reachers, db, dbDesc, dbSettings, dbEnv, custom, known && JSON.stringify(known)]);
+    return buildDefinition({ ref, tag: desc.tag, name, recipe, declared, settings: [...settings.filter((s) => !extraSettings.some((e) => e.name === s.name)), ...extraSettings] /* Fork addition (plan 43): a name typed by hand replaces the proposal */, host, reachers, database, need, command: openFields ? custom.command : '', manager: mgr.manager, suffix: netSuffix /* Fork addition (plan 45) */, known /* Fork addition (plan 44) */ }).definition;
+  }, [ready, desc, name, settings, host, reachers, db, dbDesc, dbSettings, dbEnv, custom, mgr.manager && JSON.stringify(mgr.manager), known && JSON.stringify(known)]);
 
   const lines = desc && rawDeclared ? facts({ recipe, declared: rawDeclared, name: name || 'app', tag: desc.tag, host: definition && definition.services[name] && definition.services[name].routes ? host : '', settings, size: desc.size }) : [];
   const problem = desc && desc.problem ? problemText(desc) : null;
@@ -348,6 +366,8 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
               {t('mgmt.servapps.anyImage.ui.optional', 'Optional settings ({{count}})', { count: optionalCount })}
             </Button>}
             {!openFields && <HandSettings value={custom.env} busy={busy} onChange={(env) => setCustom({ ...custom, env })} />}{/* Fork addition (plan 43) */}
+
+            <ManagerChoice state={mgr} busy={busy} dbLabel={name} />{/* Fork addition (plan 45) */}
 
             {isService && others.length > 0 && <Stack spacing={1} sx={{ minWidth: 0 }} data-any-image-reach>
               <Typography variant="subtitle1">{t('mgmt.servapps.anyImage.ui.reachTitle', 'Let these apps reach it')}</Typography>

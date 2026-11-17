@@ -220,6 +220,10 @@ export const TEXT = {
   'proposed.tz': '{{service}}: the server\'s time zone.',
   'proposed.puid': '{{service}}: runs as user {{value}} (PUID), the owner of the data path.',
   'proposed.pgid': '{{service}}: group {{value}} (PGID).',
+  // plan 45 (utils/signIn.js): the sign-in, filled where it was empty or a placeholder
+  'proposed.signIn.user': '{{service}}: {{name}}, the username of Configuration > Sign-in details for new apps.',
+  'proposed.signIn.email': '{{service}}: {{name}}, the e-mail of Configuration > Sign-in details for new apps.',
+  'proposed.signIn.password': '{{service}}: {{name}}, a generated password that follows the app\'s rules.',
 };
 
 export const text = (code, params) => ({ key: 'mgmt.servapps.creation.' + code, text: TEXT[code], params: params || {} });

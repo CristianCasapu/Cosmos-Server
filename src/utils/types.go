@@ -231,6 +231,7 @@ type Config struct {
 	DisableWebApp bool `json:"DisableWebApp,omitempty"`
 	DependencyNoticesOff bool `json:"DependencyNoticesOff,omitempty"` // Fork addition: no notices about the automatic dependency updates, see src/fork_deps_status.go
 	Turnstile ForkTurnstileConfig `json:"Turnstile,omitzero"` // Fork addition: Cloudflare Turnstile on the panel's public forms, see utils/fork_turnstile.go and src/turnstile
+	AppSignIn ForkAppSignInConfig `json:"AppSignIn,omitzero"` // Fork addition (plan 45): the sign-in details proposed for new apps, see utils/fork_app_signin.go
 	IncrBackupOutputDir string
 	DisableHostModeWarning bool
 	AdminWhitelistIPs []string

@@ -34,6 +34,9 @@ var notificationKinds = map[string]notificationKind{
 	"container.dying":         {"containers", "notif.container.dying.title"},
 	"container.startFailed":   {"containers", "notif.container.startFailed.title"},
 	"container.leftover":      {"containers", "notif.container.leftover.title"},
+	"app.installed":           {"containers", "notif.app.installed.title"},     // plan 45
+	"app.installMail.failed":  {"containers", "notif.app.installMail.title"},   // plan 45
+	"route.protected":         {"containers", "notif.route.protected.title"},   // plan 45
 	"snapshots.failed":        {"snapshots", "notif.snapshots.failed.title"},
 	"alert.disk":              {"monitoring", "notif.alert.disk.title"},
 	"alert.triggered":         {"monitoring", "notif.alert.triggered.title"},
@@ -201,6 +204,20 @@ var notificationTexts = map[string]string{
 	"notif.step.app.open":                  "Open the page of {{name}} (its state and logs)",
 	"notif.step.app.logs":                  "Read the error below and the app's logs; check what changed: its settings, its image, a full disk, a service it needs.",
 	"notif.step.servapps.leftover":         "At the top of ServApps, put the previous container back or remove it",
+	// plan 45: an installation, and its e-mail
+	"notif.app.installed.title":     "{{name}} was installed",
+	"notif.app.installed.what":      "{{name}} was created. Its sign-in details (username, password, address) are on its page, under Sign-in details.",
+	"notif.app.installed.means":     "The passwords are kept only in the app's own settings; Cosmos shows them there after you confirm your password.",
+	"notif.app.installed.mailSent":  "An e-mail with the app's name, address and username (never a password) was sent to your address.",
+	"notif.app.installed.mailNone":  "No e-mail was sent: {{reason}}.",
+	"notif.app.installMail.title":   "The e-mail about {{name}} was not sent",
+	"notif.app.installMail.what":    "Cosmos could not send the e-mail about the installation of {{name}}: {{reason}}.",
+	"notif.app.installMail.means":   "Nothing else is affected: the app was created, and its sign-in details are on its page.",
+	"notif.step.app.signIn":         "Open the sign-in details of {{name}}",
+	"notif.step.config.mail":        "Check the e-mail settings (Configuration, General)",
+	"notif.route.protected.title":   "{{names}}: for administrators only",
+	"notif.route.protected.what":    "Cosmos made the URL {{names}} open for administrators only, behind Cosmos' sign-in: it leads to a tool that controls a database or has no sign-in of its own.",
+	"notif.route.protected.means":   "Only administrators reach it, after signing in to Cosmos. The URL's other settings are as you saved them.",
 
 	// --- snapshots
 	"notif.snapshots.failed.title": "The incremental backup had problems",

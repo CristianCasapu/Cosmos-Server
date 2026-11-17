@@ -1,0 +1,114 @@
+{
+  "services": {
+    "credsdb": {
+      "image": "postgres:18",
+      "container_name": "credsdb",
+      "restart": "unless-stopped",
+      "environment": [
+        "POSTGRES_PASSWORD=a8~HSwo--dt3nugT--zwup2i",
+        "POSTGRES_USER=owner_name",
+        "POSTGRES_DB=app"
+      ],
+      "labels": {
+        "cosmos-stack": "credsdb",
+        "cosmos-stack-main": "credsdb"
+      },
+      "ports": [],
+      "volumes": [
+        {
+          "type": "volume",
+          "source": "credsdb-postgresql",
+          "target": "/var/lib/postgresql"
+        }
+      ],
+      "user": "999:999",
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""
+        ],
+        "interval": "10s",
+        "timeout": "5s",
+        "retries": 5
+      },
+      "networks": {
+        "credsdb-manager-f1xt3r": {}
+      },
+      "network_mode": "credsdb-manager-f1xt3r"
+    },
+    "credsdb-pgadmin": {
+      "image": "dpage/pgadmin4:9",
+      "container_name": "credsdb-pgadmin",
+      "restart": "unless-stopped",
+      "environment": [
+        "PGADMIN_DEFAULT_EMAIL=owner@example.org",
+        "PGADMIN_DEFAULT_PASSWORD=2tUcQ~WJSdCoSEiR-r2MK_-g",
+        "PGADMIN_SERVER_JSON_FILE=/var/lib/pgadmin/cosmos/servers.json",
+        "PGPASS_FILE=/var/lib/pgadmin/cosmos/pgpass",
+        "PGADMIN_CONFIG_PROXY_X_FOR_COUNT=1",
+        "PGADMIN_CONFIG_PROXY_X_PROTO_COUNT=1",
+        "PGADMIN_CONFIG_PROXY_X_HOST_COUNT=0",
+        "PGADMIN_CONFIG_PROXY_X_PORT_COUNT=1",
+        "PGADMIN_CONFIG_PROXY_X_PREFIX_COUNT=0",
+        "PGADMIN_COSMOS_SERVERS={\"Servers\":{\"1\":{\"Name\":\"credsdb\",\"Group\":\"Servers\",\"Host\":\"credsdb\",\"Port\":5432,\"MaintenanceDB\":\"app\",\"Username\":\"owner_name\",\"ConnectionParameters\":{\"sslmode\":\"prefer\",\"connect_timeout\":10,\"passfile\":\"/.pgpass\"}}}}",
+        "PGADMIN_COSMOS_PGPASS=credsdb:5432:*:owner_name:a8~HSwo--dt3nugT--zwup2i"
+      ],
+      "labels": {
+        "cosmos-fork-manager-of": "credsdb",
+        "cosmos-stack": "credsdb",
+        "cosmos-stack-main": "credsdb"
+      },
+      "ports": [],
+      "volumes": [
+        {
+          "type": "volume",
+          "source": "credsdb-pgadmin-pgadmin",
+          "target": "/var/lib/pgadmin"
+        }
+      ],
+      "entrypoint": [
+        "/bin/sh",
+        "-c",
+        "d=/var/lib/pgadmin/cosmos; (umask 077; mkdir -p \"$d\" || exit 1; if [ -n \"$PGADMIN_COSMOS_SERVERS\" ]; then printf '%s' \"$PGADMIN_COSMOS_SERVERS\" > \"$d/servers.json\" || exit 1; fi; if [ -n \"$PGADMIN_COSMOS_PGPASS\" ]; then printf '%s\\n' \"$PGADMIN_COSMOS_PGPASS\" > \"$d/pgpass\" || exit 1; fi) || exit 1; unset PGADMIN_COSMOS_SERVERS PGADMIN_COSMOS_PGPASS; exec /entrypoint.sh \"$@\"",
+        "pgadmin-cosmos"
+      ],
+      "routes": [
+        {
+          "name": "credsdb-pgadmin",
+          "description": "credsdb-pgadmin in Cosmos",
+          "useHost": true,
+          "host": "credsdb-pgadmin.server.local",
+          "target": "http://credsdb-pgadmin:80",
+          "mode": "SERVAPP",
+          "Timeout": 14400000,
+          "ThrottlePerMinute": 10000,
+          "BlockCommonBots": true,
+          "SmartShield": {
+            "Enabled": true
+          },
+          "AuthEnabled": true,
+          "AdminOnly": true
+        }
+      ],
+      "networks": {
+        "credsdb-manager-f1xt3r": {}
+      },
+      "network_mode": "credsdb-manager-f1xt3r",
+      "depends_on": {
+        "credsdb": {
+          "condition": "service_started"
+        }
+      }
+    }
+  },
+  "networks": {
+    "credsdb-manager-f1xt3r": {
+      "driver": "bridge"
+    }
+  },
+  "cosmos-installer": {
+    "frozen-volumes": [
+      "credsdb-pgadmin-pgadmin"
+    ]
+  }
+}

@@ -50,6 +50,9 @@ var labelsNotFromImage = []string{
 	"cosmos-auto-update",
 	"cosmos-network-name",
 	DeploymentLabel,
+	// plan 45 (src/appsignin): which variables are an app's sign-in, and the database a web manager is for
+	"cosmos-fork-signin",
+	"cosmos-fork-manager-of",
 }
 
 // imageLabelsOf reads the labels an image carries (a variable for the tests).

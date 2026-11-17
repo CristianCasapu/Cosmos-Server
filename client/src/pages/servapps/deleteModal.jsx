@@ -9,6 +9,7 @@ import { getContaienrsJobs, getContainersRoutes } from '../../utils/routes';
 import { useTranslation } from 'react-i18next';
 import { serverBack } from '../../utils/appLinks'; // Fork addition
 import { withdrawRequest } from '../../utils/exposure'; // Fork addition
+import { ManagersOffer, useManagersOf } from '../../components/managerChoice'; // Fork addition (plan 45)
 import PermissionGuard from '../../components/permissionGuard';
 import { PERM_RESOURCES } from '../../utils/permissions';
 
@@ -28,6 +29,10 @@ const DeleteModal = ({Ids, containers, refreshServApps, setIsUpdatingId, config}
     }
     return container;
   });
+  // Fork addition (plan 45): a database's web manager is offered for removal with it (off until ticked); ticked, it is listed like the others
+  const managers = useManagersOf(isOpen, containers);
+  const [withManagers, setWithManagers] = React.useState(false);
+  if (withManagers) containers = [...containers, ...managers];
 
   const ShowAction = ({item}) => {
     if(!isDeleting) {
@@ -100,7 +105,9 @@ const DeleteModal = ({Ids, containers, refreshServApps, setIsUpdatingId, config}
         let key = container.Name + '-container';
         if (ignored.includes(key)) return;
 
-        return API.docker.manageContainer(container.Name, 'remove')
+        // Fork addition (plan 45): a web manager added to the deletion still runs: stopped first, as the database was
+        return (managers.some((m) => m.Name === container.Name) ? API.docker.manageContainer(container.Name, 'stop').catch(() => {}) : Promise.resolve())
+        .then(() => API.docker.manageContainer(container.Name, 'remove'))
         .then(() => {
           setDeleted((prev) => {
             if(!prev) return [key];
@@ -233,6 +240,7 @@ const DeleteModal = ({Ids, containers, refreshServApps, setIsUpdatingId, config}
                         {t('mgmt.servApps.container.selectWhatToDelete')}
                       </div>}
                     </div>
+                    <ManagersOffer managers={managers} on={withManagers} onChange={setWithManagers} busy={isDeleting} />{/* Fork addition (plan 45) */}
                     {containers.map((container) => {
                       return (!isDeleting || (!ignored.includes(container.Name + "-container"))) && <div key={container.Name + "-container"}>
                         <ShowAction item={container.Name + "-container"} /> <ContainerOutlined /> Container {container.Name}
