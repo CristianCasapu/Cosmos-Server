@@ -11,14 +11,17 @@ import (
 	"github.com/anatol/smart.go"
 	"github.com/dell/csi-baremetal/pkg/base/linuxutils/lsblk"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 
+	"github.com/azukaar/cosmos-server/src/storage"
 	"github.com/azukaar/cosmos-server/src/watch"
 )
 
 // startWatches is the hook in index.go, after the Telegram notifications.
 func startWatches() {
 	watch.Start(watch.Readers{
-		Disks: watchDisks,
+		Disks:  watchDisks,
+		Usages: watchUsages,
 	})
 }
 
@@ -110,4 +113,22 @@ func readHealth(disk *watch.Disk) bool {
 		return true
 	}
 	return false
+}
+
+// watchUsages reads the space of "/" and of the data disks.
+func watchUsages() []watch.Usage {
+	mounts := []string{"/"}
+	for mount := range storage.ForkDataMountPaths() {
+		mounts = append(mounts, mount)
+	}
+	usages := []watch.Usage{}
+	for _, mount := range mounts {
+		var fs unix.Statfs_t
+		if unix.Statfs(mount, &fs) != nil {
+			continue
+		}
+		usages = append(usages, watch.Usage{Mount: mount, Total: fs.Blocks * uint64(fs.Bsize), Free: fs.Bavail * uint64(fs.Bsize),
+			ReadOnly: fs.Flags&unix.ST_RDONLY != 0})
+	}
+	return usages
 }

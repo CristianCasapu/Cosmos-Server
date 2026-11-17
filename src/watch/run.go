@@ -11,7 +11,8 @@ import (
 // Readers are what the watches read the world with. The server gives the
 // real ones (src/fork_watch.go); a nil reader switches its watch off.
 type Readers struct {
-	Disks func() ([]Disk, error)
+	Disks  func() ([]Disk, error)
+	Usages func() []Usage
 }
 
 var startOnce sync.Once
@@ -41,6 +42,7 @@ func loop(st *store, r Readers, _ time.Time) {
 	}
 	next := map[string]time.Time{
 		"smart": time.Now().Add(5 * time.Minute),
+		"fill":  time.Now().Add(time.Minute),
 	}
 	run := func(name string, every time.Duration, work func()) {
 		if time.Now().Before(next[name]) {
@@ -59,6 +61,11 @@ func loop(st *store, r Readers, _ time.Time) {
 				if disks, err := r.Disks(); err == nil {
 					checkSMART(st, disks, time.Now())
 				}
+			}
+		})
+		run("fill", fillEvery, func() {
+			if s.Fill && r.Usages != nil {
+				checkFill(st, r.Usages(), s.FillDays, time.Now())
 			}
 		})
 		time.Sleep(30 * time.Second)
