@@ -21,6 +21,8 @@
 //	         how long the listeners refuse or drop connections.
 //
 // Exit status 1 when anything failed; the summary is the last lines printed.
+// Then other settings are saved: one of the router (search engines) both
+// ways, and the HTTPS mode off and on again (SETTINGS=0 skips this).
 // Options (environment): PASSWORD, SCALE (multiplies the counts, default 1),
 // ONLY (comma separated pattern names to run, e.g. "routes-0ms-seq"),
 // GAPS (number of single restarts measured, default 20).
@@ -162,6 +164,7 @@ func kind(err error) string {
 type api struct {
 	c        *http.Client
 	password string
+	base     string // "" is https://server.example.org:2053
 }
 
 func (a *api) do(method, path string, body interface{}) (int, []byte, error) {
@@ -170,7 +173,11 @@ func (a *api) do(method, path string, body interface{}) (int, []byte, error) {
 		raw, _ := json.Marshal(body)
 		rd = bytes.NewReader(raw)
 	}
-	req, _ := http.NewRequest(method, "https://"+panelHost+":"+httpsPort+"/cosmos/api/"+path, rd)
+	base := a.base
+	if base == "" {
+		base = "https://" + panelHost + ":" + httpsPort
+	}
+	req, _ := http.NewRequest(method, base+"/cosmos/api/"+path, rd)
 	req.Header.Set("Content-Type", "application/json")
 	res, err := a.c.Do(req)
 	if err != nil {
@@ -509,6 +516,114 @@ func (h *hammer) pattern(method string, spacing time.Duration, clients int, coun
 	}
 }
 
+// saveConfig changes the full configuration with edit and saves it.
+func saveConfig(a *api, edit func(cfg map[string]interface{})) error {
+	st, body, err := a.do("GET", "config", nil)
+	if err != nil || st != 200 {
+		return fmt.Errorf("reading the configuration: %v %d", err, st)
+	}
+	var got struct{ Data map[string]interface{} }
+	json.Unmarshal(body, &got)
+	edit(got.Data)
+	st, body, err = a.do("PUT", "config", got.Data)
+	if err != nil || st != 200 {
+		return fmt.Errorf("saving: %v %d %.200s", err, st, body)
+	}
+	return nil
+}
+
+// until polls check for up to 20 s.
+func until(check func() (bool, string)) (bool, string) {
+	var why string
+	for i := 0; i < 100; i++ {
+		ok, w := check()
+		if ok {
+			return true, ""
+		}
+		why = w
+		time.Sleep(200 * time.Millisecond)
+	}
+	return false, why
+}
+
+// settings saves what is not a URL: a setting of the router (the
+// robots.txt that search engines are refused with) both ways, then the
+// HTTPS mode: off (HTTP only: the HTTPS port must close, the panel answer
+// on HTTP) and on again.
+func (h *hammer) settings() {
+	robots := func(want int) func() (bool, string) {
+		return func() (bool, string) {
+			st, body, err := get(h.probe, "https://"+panelHost+":"+httpsPort+"/robots.txt", panelHost+":"+httpsPort)
+			if err != nil {
+				return false, kind(err)
+			}
+			if want == 200 && !strings.Contains(body, "Disallow") {
+				return false, "status " + strconv.Itoa(st)
+			}
+			return st == want, "status " + strconv.Itoa(st)
+		}
+	}
+	for _, allow := range []bool{true, false} {
+		if err := saveConfig(h.a, func(cfg map[string]interface{}) {
+			cfg["HTTPConfig"].(map[string]interface{})["AllowSearchEngine"] = allow
+		}); err != nil {
+			h.fail("robots.txt setting: %v", err)
+			return
+		}
+		want := map[bool]int{true: 404, false: 200}[allow]
+		if ok, why := until(robots(want)); !ok {
+			h.fail("search engines allowed=%v is not live: /robots.txt %s", allow, why)
+		} else {
+			fmt.Printf("  search engines allowed=%v: live\n", allow)
+		}
+	}
+
+	setMode := func(a *api, mode string) error {
+		return saveConfig(a, func(cfg map[string]interface{}) {
+			cfg["HTTPConfig"].(map[string]interface{})["HTTPSCertificateMode"] = mode
+		})
+	}
+	plain := &api{c: h.a.c, password: h.a.password, base: "http://" + panelHost + ":" + httpPort}
+	if err := setMode(h.a, "DISABLED"); err != nil {
+		h.fail("HTTPS off: %v", err)
+		return
+	}
+	panelOverHTTP := func() (bool, string) {
+		st, _, err := get(h.probe, "http://"+panelHost+":"+httpPort+"/cosmos-ui/", panelHost+":"+httpPort)
+		if err != nil {
+			return false, kind(err)
+		}
+		return st == 200, "status " + strconv.Itoa(st)
+	}
+	if ok, why := until(panelOverHTTP); !ok {
+		h.fail("HTTPS off: the panel does not answer over HTTP: %s", why)
+	} else if ok, why := until(func() (bool, string) {
+		_, _, err := get(h.probe, "https://"+panelHost+":"+httpsPort+"/cosmos-ui/", panelHost+":"+httpsPort)
+		return kind(err) == "refused", kind(err)
+	}); !ok {
+		h.fail("HTTPS off: the HTTPS port still answers (%s)", why)
+	} else {
+		fmt.Println("  HTTPS off: the panel answers over HTTP, the HTTPS port is closed")
+	}
+	plain.login()
+	if err := setMode(plain, "SELFSIGNED"); err != nil {
+		h.fail("HTTPS on again: %v", err)
+		return
+	}
+	if ok, why := until(func() (bool, string) { return appCheck(h.probe, "app01.example.org") }); !ok {
+		h.fail("HTTPS on again: the HTTPS listener does not answer: %s", why)
+	} else if ok, why := until(func() (bool, string) { return plainCheck(h.probe) }); !ok {
+		h.fail("HTTPS on again: the plain-HTTP listener does not redirect: %s", why)
+	} else {
+		fmt.Println("  HTTPS on again: both listeners answer")
+	}
+	h.a.login()
+	if pid := cosmosPID(); pid != h.pid {
+		h.fail("other settings: the Cosmos process ended")
+		h.pid = pid
+	}
+}
+
 func percentile(d []time.Duration, p float64) time.Duration {
 	if len(d) == 0 {
 		return 0
@@ -744,6 +859,10 @@ func runHammer() int {
 		h.pattern(method, time.Second, 8, counts(4))
 		h.pattern(method, 3*time.Second, 1, counts(5))
 		h.pattern(method, 3*time.Second, 8, counts(2))
+	}
+	if os.Getenv("SETTINGS") != "0" {
+		fmt.Println("other settings saved:")
+		h.settings()
 	}
 	if gapCount > 0 {
 		fmt.Println("single restarts, measured:")

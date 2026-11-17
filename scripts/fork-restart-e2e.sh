@@ -14,7 +14,7 @@
 #   sh scripts/fork-restart-e2e.sh clean           remove what a kept run left
 # Options: BIN, STATIC (a built ./static, optional: a stub page otherwise),
 # PREFIX=fork-restart, SCRATCH=/storage/dev/.cache/$PREFIX, PASSWORD, and the
-# hammer's SCALE, ONLY, GAPS. The Cosmos log is copied to $SCRATCH/cosmos.log.
+# hammer's SCALE, ONLY, GAPS, SETTINGS. The Cosmos log is copied to $SCRATCH/cosmos.log.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 PREFIX=${PREFIX:-fork-restart}
@@ -59,7 +59,7 @@ docker exec -e PASSWORD="$PASSWORD" "$D" sh -c '
   s "{\"step\":\"5\"}"; true' # step 5 ends the server: no answer
 sleep 3
 status=0
-docker exec -e PASSWORD="$PASSWORD" ${SCALE:+-e SCALE="$SCALE"} ${ONLY:+-e ONLY="$ONLY"} ${GAPS:+-e GAPS="$GAPS"} "$D" /restart-e2e hammer || status=$?
+docker exec -e PASSWORD="$PASSWORD" ${SCALE:+-e SCALE="$SCALE"} ${ONLY:+-e ONLY="$ONLY"} ${GAPS:+-e GAPS="$GAPS"} ${SETTINGS:+-e SETTINGS="$SETTINGS"} "$D" /restart-e2e hammer || status=$?
 docker cp "$D:/cosmos/log" "$SCRATCH/cosmos.log" >/dev/null 2>&1 || true
 echo "Cosmos log: $SCRATCH/cosmos.log ($(grep -c 'Restarting HTTP Server' "$SCRATCH/cosmos.log" 2>/dev/null || echo 0) restarts asked, $(grep -c '=== cosmos starts' "$SCRATCH/cosmos.log" 2>/dev/null || echo 0) process starts)"
 [ "${KEEP:-}" = 1 ] || { cp "$SCRATCH/cosmos.log" "$(dirname "$SCRATCH")/$PREFIX-last.log" 2>/dev/null || true; clean; }
