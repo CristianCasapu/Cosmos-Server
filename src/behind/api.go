@@ -216,7 +216,7 @@ var reloadRoutes = func() {
 var (
 	reloadMu    sync.Mutex
 	reloadTimer *time.Timer
-	reloadAfter = 3 * time.Second
+	reloadAfter = 2 * time.Second
 )
 
 // ApplyRoute answers POST /cosmos/api/url-check/apply: the one setting of

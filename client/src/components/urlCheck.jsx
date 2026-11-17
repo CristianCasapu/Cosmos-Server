@@ -198,7 +198,7 @@ const routeRepairWords = (t, repair, app) => {
   if (repair.setting === 'noVisitorAddress') {
     return repair.on
       ? { title: t('mgmt.urlCheck.noVisitorTitle', 'Open it without telling it the visitor\'s address', p),
-        help: t('mgmt.urlCheck.noVisitorHelp', 'A temporary step, to reach {{app}}\'s own settings: Cosmos then sends it no visitor\'s address, so {{app}} sees every visitor at Cosmos\' private address. Anything in {{app}} that trusts local addresses then admits everyone, the whole internet included (Home Assistant\'s trusted networks, Jellyfin\'s local network, Sonarr\'s and Radarr\'s "disabled for local addresses"), and one stranger\'s failed sign-ins make {{app}} ban Cosmos\' address, which locks everyone out. Do the step below at once, then switch this off again.', p) }
+        help: t('mgmt.urlCheck.noVisitorHelp', 'A temporary step, to reach {{app}}\'s own settings: Cosmos then sends it no visitor\'s address, so {{app}} sees every visitor at Cosmos\' private address. Anything in {{app}} that trusts local addresses then admits everyone, the whole internet included (Home Assistant\'s trusted networks, Jellyfin\'s local network, Sonarr\'s and Radarr\'s "disabled for local addresses"), and one stranger\'s failed sign-ins make {{app}} ban Cosmos\' address, which locks everyone out. Do the step shown here at once, then switch this off again.', p) }
       : { title: t('mgmt.urlCheck.visitorTitle', 'Tell {{app}} the visitor\'s address again', p),
         help: t('mgmt.urlCheck.visitorHelp', 'Cosmos then sends {{app}} the visitor\'s address in X-Forwarded-For, as it does for most apps.', p) };
   }
@@ -272,6 +272,8 @@ export const UrlCheckDialog = ({ routeNames, initial, recheck = true, onClose, r
         }
         outcomes.push(r);
       }
+      // the server reloads its URLs 2 s after the last change: "opens now" is said once it did
+      await sleep(3500);
       afterChange(sharing, outcomes);
     } catch (e) {
       setError(e.message || String(e));

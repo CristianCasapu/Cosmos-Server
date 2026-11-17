@@ -84,10 +84,11 @@ for (const engine of engines) {
     for (const route of ['qbittorrent-local', 'qbittorrent-ext']) {
       await call(page, 'url-check/apply', { route, appOwnHost: false });
     }
-    await sleep(3000);
-
-    await page.goto(panel + '/cosmos-ui/servapps');
-    const mark = page.locator('[data-url-problem]').first();
+    await sleep(6000); // the server reloads its URLs 2 s after the last change
+    for (let i = 0; i < 10; i++) {
+      try { await page.goto(panel + '/cosmos-ui/servapps'); break; } catch (e) { await sleep(1500); }
+    }
+    const mark = page.locator('[data-url-problem*="qbittorrent-"]').first();
     await mark.waitFor({ timeout: 45000 }).catch(() => {});
     expect(await mark.isVisible(), 'ServApps says the URL does not open');
     expect((await mark.textContent() || '').includes('Does not open'), 'in those words');
