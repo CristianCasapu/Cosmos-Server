@@ -129,7 +129,9 @@ func clean(d *Details, secrets []string) {
 	}
 	for i := range d.Accounts {
 		a := &d.Accounts[i]
-		drop(&a.User, "username")
+		if !a.userFixed { // the recipe's own account name is no value of a variable
+			drop(&a.User, "username")
+		}
 		drop(&a.Email, "e-mail")
 		drop(&a.Database, "database")
 		// the connection string is built from these fields (already checked) and the container's name

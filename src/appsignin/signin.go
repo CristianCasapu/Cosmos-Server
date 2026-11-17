@@ -59,6 +59,12 @@ type Address struct {
 
 // Account is one way to sign in, without its secret.
 type Account struct {
+	// userFixed: User is the recipe's own word (the image's fixed or default
+	// account name), not a value of one of the container's variables: the last
+	// check never withholds it ("postgres" stays the username of a database
+	// whose password is "postgres" too).
+	userFixed bool
+
 	Role     string `json:"role"`
 	User     string `json:"user,omitempty"`
 	Email    string `json:"email,omitempty"`
@@ -266,11 +272,11 @@ func resolve(c containerInfo, routes []utils.ProxyRouteConfig, serverURL func(ho
 		account := Account{Role: a.Role, UserVar: a.User, EmailVar: a.Email, PasswordVar: a.Password}
 		switch {
 		case a.UserFixed != "":
-			account.User = a.UserFixed
+			account.User, account.userFixed = a.UserFixed, true
 		case a.User != "" && pick(a.User, identifier, "username") != "":
 			account.User = pick(a.User, identifier, "username")
 		case a.UserUnset != "":
-			account.User = a.UserUnset
+			account.User, account.userFixed = a.UserUnset, true
 		}
 		if a.Email != "" {
 			account.Email = pick(a.Email, emailShape, "e-mail")

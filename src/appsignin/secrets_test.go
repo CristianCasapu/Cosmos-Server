@@ -161,9 +161,27 @@ func TestWeakPasswordsDoNotStopTheCardOrTheEmail(t *testing.T) {
 		}
 		env := envMap(c.Env)
 		d := resolve(c, routesNow(), serverURL)
+		if name == "pg" || name == "my" {
+			// third review: the recipe's own account name ("postgres", "root") is no value of a
+			// variable: it stays, also when the password is the same word, and nothing is said withheld
+			clean(&d, secretsOf(env))
+			if len(d.Accounts) == 0 || d.Accounts[0].User == "" || len(d.Withheld) != 0 {
+				t.Errorf("%s: the fixed account name was withheld: %+v withheld %v", name, d.Accounts, d.Withheld)
+			}
+			if !strings.Contains(decodedMail((*mails)[0].msg), d.Accounts[0].User) {
+				t.Errorf("%s: the e-mail does not name the account %q", name, d.Accounts[0].User)
+			}
+		}
+		fixedNames := map[string]bool{} // the recipe's own account names: public words, not values of variables
 		for _, a := range d.Accounts {
+			shown := []string{a.Email, a.Database}
+			if a.userFixed {
+				fixedNames[strings.ToLower(a.User)] = true
+			} else {
+				shown = append(shown, a.User)
+			}
 			for _, secret := range secretsOf(env) {
-				for _, v := range []string{a.User, a.Email, a.Database} {
+				for _, v := range shown {
 					if v != "" && strings.EqualFold(v, secret) {
 						t.Errorf("%s: a password shown as a field: %+v", name, a)
 					}
@@ -176,6 +194,9 @@ func TestWeakPasswordsDoNotStopTheCardOrTheEmail(t *testing.T) {
 		_, plain, _ := readParts(t, (*mails)[0].msg)
 		for _, secret := range secretsOf(env) {
 			for _, field := range []string{"username ", "e-mail ", "database "} {
+				if field == "username " && fixedNames[strings.ToLower(secret)] {
+					continue
+				}
 				if strings.Contains(strings.ToLower(plain), field+secret) {
 					t.Errorf("%s: the e-mail shows the password as a %s", name, field)
 				}
@@ -185,4 +206,11 @@ func TestWeakPasswordsDoNotStopTheCardOrTheEmail(t *testing.T) {
 			t.Errorf("forms: the username equal to the password is withheld and said: %+v", d)
 		}
 	}
+}
+
+// decodedMail is a message with its quoted-printable soft breaks and "=3D" undone, enough to look for a word in it.
+func decodedMail(msg []byte) string {
+	text := strings.ReplaceAll(string(msg), "=\r\n", "")
+	text = strings.ReplaceAll(text, "=\n", "")
+	return strings.ReplaceAll(text, "=3D", "=")
 }

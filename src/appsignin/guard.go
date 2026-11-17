@@ -25,23 +25,61 @@ var imageOf = func(name string) string {
 	return c.Image
 }
 
+// guardWait bounds the whole look at Docker of one save: the callers hold
+// the configuration's lock, and a Docker that hangs must not keep every save
+// of the settings waiting (third review). Past it the URLs are saved as they
+// came; the next save looks again.
+var guardWait = 4 * time.Second
+
+// imagesOf asks Docker for the images of these containers, all within guardWait.
+func imagesOf(names []string) (map[string]string, bool) {
+	done := make(chan map[string]string, 1)
+	ask := imageOf // read here: the goroutine below may outlive this call
+	go func() {
+		out := map[string]string{}
+		for _, name := range names {
+			out[name] = ask(name)
+		}
+		done <- out
+	}()
+	select {
+	case out := <-done:
+		return out, true
+	case <-time.After(guardWait):
+		return nil, false
+	}
+}
+
 func guardRoutes(routes []utils.ProxyRouteConfig, who string) []string {
 	changed := []string{}
-	seen := map[string]string{}
+	// the containers of the URLs that are not protected yet (nothing is asked for the others)
+	names, asked := []string{}, map[string]bool{}
 	for i := range routes {
 		r := &routes[i]
 		if r.Mode != "SERVAPP" || (r.AuthEnabled && r.AdminOnly) {
 			continue
 		}
 		name := routeContainer(*r)
-		if name == "" || !validContainerName(name) {
+		if name == "" || !validContainerName(name) || asked[name] {
 			continue
 		}
-		image, ok := seen[name]
-		if !ok {
-			image = imageOf(name)
-			seen[name] = image
+		asked[name] = true
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return changed
+	}
+	seen, ok := imagesOf(names)
+	if !ok {
+		utils.Warn("URLs: Docker did not answer in time, so the URLs were saved without looking at which of them lead to a database manager; the next save looks again")
+		return changed
+	}
+	for i := range routes {
+		r := &routes[i]
+		if r.Mode != "SERVAPP" || (r.AuthEnabled && r.AdminOnly) {
+			continue
 		}
+		image := seen[routeContainer(*r)]
 		if image == "" || !protectedImage(image) {
 			continue
 		}
