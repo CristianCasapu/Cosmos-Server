@@ -26,6 +26,7 @@ test('each metric has its unit, and percent only where there is a maximum', () =
   assert.equal(unitOf('cosmos.system.temp.all', false)[1], '°C');
   assert.ok(percentMakesSense('cosmos.system.ram'));
   assert.ok(!percentMakesSense('cosmos.system.cpu.0'));
+  assert.ok(percentMakesSense('cosmos.system.docker.ram.jellyfin')); // as the server's default "Anti Memory Leak"
   assert.deepEqual(actionsFor('cosmos.system.ram'), ['notification', 'email']);
   assert.ok(actionsFor('cosmos.system.docker.cpu.*').includes('stop'));
 });
