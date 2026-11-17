@@ -57,9 +57,9 @@ func TestTelegramMessageRoutesAreHookedAndProtected(t *testing.T) {
 	// GET is not a way to send
 	req = httptest.NewRequest("GET", "http://cosmos.example/cosmos/api/telegram/sample", nil)
 	w = httptest.NewRecorder()
-	admin := &utils.AuthContext{Nickname: "alice", Permissions: []utils.Permission{utils.PERM_LOGIN, utils.PERM_ADMIN}}
+	admin := &utils.AuthContext{Nickname: "alice", Permissions: []utils.Permission{utils.PERM_LOGIN, utils.PERM_ADMIN}, IsSudoed: true}
 	router.ServeHTTP(w, req.WithContext(context.WithValue(req.Context(), utils.AuthCtxKey, admin)))
-	if w.Code == http.StatusOK {
-		t.Errorf("GET a sample: %d, want a refusal", w.Code)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET a sample: %d, want 405", w.Code)
 	}
 }

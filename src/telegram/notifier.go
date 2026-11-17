@@ -84,7 +84,17 @@ type item struct {
 
 	// plan 48: how it arrives, and what it opens or closes
 	nt notice
+	// a retried message waits for its turn again; others pass meanwhile
+	attempts  int
+	notBefore time.Time
 }
+
+// visitorCaused are the critical kinds a visitor without an account can
+// cause (bans, blocks at Cloudflare). They may not take the last
+// criticalReserve places of the critical queue.
+var visitorCaused = map[string]bool{"shield.ban.temporary": true, "shield.ban.permanent": true, "edge.blocked": true}
+
+const criticalReserve = 8
 
 // Status is what the settings page shows about deliveries.
 type Status struct {
@@ -131,6 +141,7 @@ type notifier struct {
 	digestLast      time.Time
 	lastDigest      time.Time
 	lastRequest     time.Time
+	holdUntil       time.Time // no message before then (flood control, back-off)
 
 	pausedUntil time.Time
 	pausedFor   string // the fingerprint of the settings that were refused
@@ -216,14 +227,36 @@ func (n *notifier) Notify(nt notice) {
 	queue, room := &n.normal, n.limits.normalQueue
 	if p == priorityCritical {
 		queue, room = &n.critical, n.limits.criticalQueue
+		if visitorCaused[nt.kind] {
+			// what a stranger can cause keeps out of the last places
+			count := 0
+			for _, waiting := range n.critical {
+				if visitorCaused[waiting.nt.kind] {
+					count++
+				}
+			}
+			if count >= room-criticalReserve {
+				n.holdLocked(nt.kind, 1, p, now)
+				return
+			}
+		}
 	}
 	if len(*queue) >= room {
 		// full: the least severe, oldest message gives way, counted in the
-		// summary; when none is less severe, this one is counted
+		// summary; a critical one makes room by the oldest a stranger
+		// caused; when none can give way, this one is counted
 		victim := -1
 		for i, waiting := range *queue {
 			if waiting.priority < p && (victim < 0 || waiting.priority < (*queue)[victim].priority) {
 				victim = i
+			}
+		}
+		if victim < 0 && p == priorityCritical && !visitorCaused[nt.kind] {
+			for i, waiting := range *queue {
+				if visitorCaused[waiting.nt.kind] {
+					victim = i
+					break
+				}
 			}
 		}
 		if victim < 0 {
@@ -376,6 +409,10 @@ func (n *notifier) next() (*item, time.Duration) {
 	if n.pausedLocked(st, now) {
 		return nil, n.pausedUntil.Sub(now)
 	}
+	if now.Before(n.holdUntil) {
+		// Telegram asked to wait, or could not be reached: everyone waits
+		return nil, n.holdUntil.Sub(now)
+	}
 
 	wait := time.Hour
 	if n.heldLocked() > 0 {
@@ -392,17 +429,44 @@ func (n *notifier) next() (*item, time.Duration) {
 		wait = due.Sub(now)
 	}
 
-	if len(n.critical) > 0 {
-		it := n.critical[0]
-		n.critical = n.critical[1:]
-		return it, 0
-	}
-	if len(n.normal) > 0 {
-		it := n.normal[0]
-		n.normal = n.normal[1:]
-		return it, 0
+	for _, queue := range []*[]*item{&n.critical, &n.normal} {
+		for i, it := range *queue {
+			if it.notBefore.After(now) {
+				if until := it.notBefore.Sub(now); until < wait {
+					wait = until
+				}
+				continue
+			}
+			*queue = append((*queue)[:i], (*queue)[i+1:]...)
+			return it, 0
+		}
 	}
 	return nil, wait
+}
+
+// requeue puts a message that failed for a reason that can pass back in its
+// queue, to be tried after wait; the others are tried before it meanwhile.
+func (n *notifier) requeue(it *item, wait time.Duration) {
+	now := n.now()
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	it.notBefore = now.Add(wait)
+	// the next attempt of anything waits at least the shortest back-off
+	if hold := now.Add(n.limits.backoff[0]); n.holdUntil.Before(hold) {
+		n.holdUntil = hold
+	}
+	queue, room := &n.normal, n.limits.normalQueue
+	if it.priority == priorityCritical {
+		queue, room = &n.critical, n.limits.criticalQueue
+	}
+	if len(*queue) >= room {
+		for kind, count := range it.counts {
+			n.holdLocked(kind, count, it.priority, now)
+		}
+		return
+	}
+	*queue = append(*queue, it)
+	n.signal()
 }
 
 // takeDigestLocked turns what was counted into one message.
@@ -544,12 +608,20 @@ func (n *notifier) deliver(it *item) bool {
 
 		wait := failure.RetryAfter
 		if wait <= 0 {
-			step := attempt
+			step := it.attempts
 			if step >= len(n.limits.backoff) {
 				step = len(n.limits.backoff) - 1
 			}
 			wait = n.limits.backoff[step]
+		} else {
+			// Telegram's flood control is for the whole bot: everyone waits
+			n.mu.Lock()
+			if until := n.now().Add(wait); n.holdUntil.Before(until) {
+				n.holdUntil = until
+			}
+			n.mu.Unlock()
 		}
+		it.attempts++
 		age := n.limits.normalAge
 		if it.priority == priorityCritical {
 			age = n.limits.criticalAge
@@ -562,9 +634,8 @@ func (n *notifier) deliver(it *item) bool {
 			n.giveUp(it)
 			return true
 		}
-		if !n.sleep(wait) {
-			return false
-		}
+		n.requeue(it, wait)
+		return true
 	}
 }
 

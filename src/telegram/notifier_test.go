@@ -413,9 +413,11 @@ func TestFloodControlIsHonoured(t *testing.T) {
 	if gap := got[1].at.Sub(got[0].at); gap < 950*time.Millisecond {
 		t.Errorf("tried again %v after Telegram asked for a second", gap)
 	}
-	// the same message again, then the next: nothing lost, nothing sent twice
+	// the next one passes the one that waits, which comes after: nothing
+	// lost, nothing sent twice (plan 48: a retried message does not hold
+	// the others)
 	texts := fake.texts()
-	if texts[0] != texts[1] || !strings.Contains(texts[2], "Title of b.") {
+	if texts[0] != texts[2] || !strings.Contains(texts[1], "Title of b.") {
 		t.Errorf("after the wait: %q", texts)
 	}
 	if raised := h.raisedNow(); len(raised) != 0 {
@@ -698,5 +700,78 @@ func TestSwitchingOffDropsWhatWaits(t *testing.T) {
 	}
 	if status := h.Status(); status.Enabled || status.Ready || status.Waiting != 0 {
 		t.Errorf("status %+v", status)
+	}
+}
+
+// Review N3: with Telegram unreachable, bans a stranger can cause fill the
+// critical queue; a two-factor lock that arrives then is still kept, and
+// sent first among those waiting once Telegram answers.
+func TestACriticalAlertGetsThroughAQueueFullOfBans(t *testing.T) {
+	h := newHarness(t, nil, true)
+	for i := 0; i < 100; i++ {
+		ban := newNotice("shield.ban.temporary", map[string]string{"ip": fmt.Sprintf("198.51.100.%d", i)})
+		ban.key = fmt.Sprintf("ban-%d", i) // each its own budget: the worst case
+		h.Notify(ban)
+	}
+	_, critical, _ := h.queued()
+	if critical != h.limits.criticalQueue-criticalReserve {
+		t.Fatalf("bans fill %d places of %d", critical, h.limits.criticalQueue)
+	}
+	locked := newNotice("auth.mfa.locked", map[string]string{"actor": "admin", "ip": "203.0.113.7"})
+	h.Notify(locked)
+	h.notifier.mu.Lock()
+	found := false
+	for _, it := range h.notifier.critical {
+		found = found || it.nt.kind == "auth.mfa.locked"
+	}
+	h.notifier.mu.Unlock()
+	if !found {
+		t.Fatal("the two-factor lock was not queued")
+	}
+	// with the reserve used up too, a real alert takes the place of a ban
+	for i := 0; i < criticalReserve; i++ {
+		other := newNotice("host.terminal.opened", map[string]string{"actor": "admin", "ip": "203.0.113.7"})
+		other.key = fmt.Sprintf("term-%d", i)
+		h.Notify(other)
+	}
+	again := newNotice("user.role.changed", map[string]string{"actor": "admin", "target": "bob", "role": "2"})
+	h.Notify(again)
+	h.notifier.mu.Lock()
+	kinds := map[string]int{}
+	for _, it := range h.notifier.critical {
+		kinds[it.nt.kind]++
+	}
+	h.notifier.mu.Unlock()
+	if kinds["user.role.changed"] != 1 || kinds["auth.mfa.locked"] != 1 {
+		t.Errorf("queued: %v", kinds)
+	}
+}
+
+// and it is delivered, although the bans came first and Telegram failed for
+// one of them
+func TestACriticalAlertIsDeliveredPastARetriedBan(t *testing.T) {
+	fake := newFakeTelegram(t)
+	fake.answerWith(func(n int, _ fakeRequest) fakeAnswer {
+		if n == 0 {
+			return fakeAnswer{status: 502, body: "bad gateway"}
+		}
+		return answerOK
+	})
+	h := newHarness(t, fake, false, func(h *harness) {
+		h.limits.backoff = []time.Duration{20 * time.Millisecond, 5 * time.Second}
+		h.limits.criticalAge = time.Minute
+	})
+	ban := newNotice("shield.ban.temporary", map[string]string{"ip": "198.51.100.9"})
+	h.Notify(ban)
+	fake.waitFor(t, 1)
+	h.Notify(newNotice("auth.mfa.locked", map[string]string{"actor": "admin", "ip": "203.0.113.7"}))
+	got := fake.waitFor(t, 3)
+	texts := []string{}
+	for _, req := range got {
+		text, _ := req.body["text"].(string)
+		texts = append(texts, PreviewLine(text))
+	}
+	if !strings.Contains(texts[1], "Two-factor") && !strings.Contains(texts[2], "Two-factor") {
+		t.Errorf("%q", texts)
 	}
 }

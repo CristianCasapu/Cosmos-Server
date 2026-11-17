@@ -70,8 +70,10 @@ func noticeFromEvent(event security.Event, st settings) (notice, bool) {
 	if !knownKind(name) || texts.Kinds[name].Category != CategorySecurity {
 		name = "security.other"
 	}
-	if !st.forced(name) {
-		if !st.categories[CategorySecurity] {
+	// review N4: "security.other" switched on lifts its category, not the
+	// minimum severity: it is every other event at the chosen severity
+	if forced := st.forced(name); !forced || name == "security.other" {
+		if !forced && !st.categories[CategorySecurity] {
 			return notice{}, false
 		}
 		severity, _ := security.ParseSeverity(event.Severity)
@@ -89,6 +91,11 @@ func noticeFromEvent(event security.Event, st settings) (notice, bool) {
 		if value := event.Details[key]; value != "" {
 			vars[key] = value
 		}
+	}
+	if event.Kind == utils.SecLoginFailed && event.Details["reason"] == "unknown_user" {
+		// review N2: people type passwords into the name field; a name
+		// that is no account is not repeated
+		vars["target"] = "an unknown user name"
 	}
 	if words, known := reasonWords[vars["reason"]]; known {
 		vars["reason"] = words

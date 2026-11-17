@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/azukaar/cosmos-server/src/upnp"
 	"github.com/azukaar/cosmos-server/src/utils"
@@ -317,7 +318,17 @@ func renderWith(st settings, nt notice, details bool) message {
 
 	headline(c, nt.severity, nt.closing)
 	if details && kt.Preview != "" && hasVars(kt.Preview, vars) {
-		writeTemplate(c, kt.Preview, vars, maxPreview)
+		// review N1: in the first line a value holds letters, digits and a
+		// little punctuation only, so that it cannot look like a mark
+		safe := map[string]string{}
+		for key, value := range vars {
+			if strings.HasPrefix(key, "_") {
+				safe[key] = value
+			} else {
+				safe[key] = previewSafe(value)
+			}
+		}
+		writeTemplate(c, kt.Preview, safe, maxPreview)
 	} else {
 		c.fixed(nt.label())
 	}
@@ -444,6 +455,24 @@ func panelBase(config utils.Config) string {
 		}
 	}
 	return address
+}
+
+// previewSafe keeps of a value what may stand in the first line: letters,
+// digits, spaces and the punctuation of names, addresses and paths. The
+// blank-looking letters (Hangul fillers, braille blank) are not letters here.
+func previewSafe(text string) string {
+	var b strings.Builder
+	for _, r := range text {
+		switch {
+		case r == 0x115F || r == 0x1160 || r == 0x3164 || r == 0xFFA0 || (r >= 0x2800 && r <= 0x28FF):
+			b.WriteRune(' ')
+		case unicode.IsLetter(r) || unicode.IsDigit(r) || r == ' ' || strings.ContainsRune(".,:;-_/@()#+&'%*=~[]!?<>", r):
+			b.WriteRune(r)
+		default:
+			b.WriteRune(' ')
+		}
+	}
+	return b.String()
 }
 
 // PreviewLine is what a phone shows of a message before it is opened: its

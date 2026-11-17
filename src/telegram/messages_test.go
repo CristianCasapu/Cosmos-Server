@@ -176,6 +176,7 @@ var hostileValues = []string{
 	"@admin @everyone #urgent /start tg://user?id=1 t.me/evil +1 555 0100 owner@example.com",
 	"\u202egnp.exe\u2066\u200b\ufeff\r\x00\x1b[31m",
 	strings.Repeat("https://evil.example/ ", 300),
+	"𝐀𝐝𝐦𝐢𝐧 😀 https://evil.example", // letters and an emoji outside the basic plane: two UTF-16 units each
 }
 
 func TestHostileValuesCannotForgeAnyKind(t *testing.T) {
@@ -590,5 +591,91 @@ func TestAFullQueueDropsTheLeastSevereFirst(t *testing.T) {
 	h.Notify(sampleNotice("deps.quiet"))
 	if normal, _, held := h.queued(); normal != 3 || held != 2 {
 		t.Errorf("%d queued, %d held", normal, held)
+	}
+}
+
+// Review N1: look-alike marks and blank-looking letters never reach the first line.
+func TestTheFirstLineHoldsNoLookAlikeMarks(t *testing.T) {
+	nt := sampleNotice("auth.login.failed")
+	nt.sample = false
+	nt.vars["target"] = "❗ Critical ⛔🛑⚠‼🚨ㅤ⠀x𝐀"
+	line := PreviewLine(render(testSettings(), nt).text)
+	for _, bad := range []string{"❗", "⛔", "🛑", "⚠", "‼", "🚨", "ㅤ", "⠀"} {
+		if strings.Contains(line, bad) {
+			t.Errorf("%q in %q", bad, line)
+		}
+	}
+	if !strings.Contains(line, "𝐀") {
+		t.Errorf("a letter outside the basic plane was removed: %q", line)
+	}
+}
+
+// Review N2: a name that is no account is not repeated; known names are.
+func TestAnUnknownUserNameIsNotRepeated(t *testing.T) {
+	config := testConfig()
+	config.Telegram.MinSeverity = "medium"
+	st := settingsOf(config)
+	event := eventOf(utils.SecLoginFailed)
+	event.Target, event.IP, event.Details = "MyOtherPassw0rd", "203.0.113.7", map[string]string{"reason": "unknown_user"}
+	nt, _ := noticeFromEvent(event, st)
+	text, _ := textOf(t, st, nt)
+	if strings.Contains(text, "MyOtherPassw0rd") || !strings.Contains(text, "an unknown user name") || !strings.Contains(text, "203.0.113.7") {
+		t.Errorf("%s", text)
+	}
+	event.Target, event.Details = "admin", map[string]string{"reason": "wrong_password"}
+	nt, _ = noticeFromEvent(event, st)
+	if text, _ := textOf(t, st, nt); !strings.Contains(text, "Failed sign-in as admin") {
+		t.Errorf("%s", text)
+	}
+}
+
+// Review N4: switching "security.other" on keeps the minimum severity.
+func TestTheOtherSecurityEventsKeepTheMinimumSeverity(t *testing.T) {
+	config := testConfig()
+	config.Telegram.Kinds = map[string]bool{"security.other": true}
+	config.Telegram.Categories = map[string]bool{"security": false}
+	st := settingsOf(config)
+	if _, tell := noticeFromEvent(eventOf(utils.SecShieldHostname), st); tell {
+		t.Error("a low event is sent at the minimum severity high")
+	}
+	config.Telegram.MinSeverity = "low"
+	if _, tell := noticeFromEvent(eventOf(utils.SecShieldHostname), settingsOf(config)); !tell {
+		t.Error("a low event is not sent at low, with the kind switched on and its category off")
+	}
+	if _, tell := noticeFromEvent(eventOf(utils.SecLogout), settingsOf(config)); tell {
+		t.Error("an informational entry is sent")
+	}
+}
+
+// The button's address is made of the configured hostname only when it is
+// one a phone can open (review: the hostname's validation was untested).
+func TestTheButtonNeedsAHostnameAPhoneCanOpen(t *testing.T) {
+	for host, want := range map[string]string{
+		"home.example":           "http://home.example",
+		"203.0.113.7":            "http://203.0.113.7",
+		"":                       "",
+		"localhost":              "",
+		"127.0.0.1":              "",
+		"0.0.0.0":                "",
+		"server":                 "",
+		"evil.example/x?y=":      "",
+		"evil.example\n@x":       "",
+		"evil.example:80@x.org":  "",
+		"-start.example":         "",
+		"a..b.example":           "http://a..b.example",
+		"javascript:alert(1)":    "",
+		"home.example#frag":      "",
+		"user@home.example":      "",
+		"home.example/../../etc": "",
+		"xn--bcher-kva.example":  "http://xn--bcher-kva.example",
+		"exa mple.org":           "",
+		"home.example.":          "",
+		strings.Repeat("a", 300): "",
+	} {
+		config := testConfig()
+		config.HTTPConfig.Hostname, config.HTTPConfig.HTTPPort = host, "80"
+		if got := panelBase(config); got != want {
+			t.Errorf("%q: %q, want %q", host, got, want)
+		}
 	}
 }
