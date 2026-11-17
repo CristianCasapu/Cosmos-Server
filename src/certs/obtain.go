@@ -417,6 +417,11 @@ func order(ctx context.Context, ca CA, key string, domains []string, zone *utils
 			return nil, classify(stageProvider, err, secrets)
 		}
 	} else {
+		// the challenge servers take the web server's ports: a restart keeps
+		// its sockets open between two generations unless they are freed
+		if utils.ForkFreeServerPorts != nil {
+			utils.ForkFreeServerPorts()
+		}
 		if err := client.Challenge.SetHTTP01Provider(http01.NewProviderServer("", config.HTTPConfig.HTTPPort)); err != nil {
 			return nil, classify(stageProvider, err, nil)
 		}
