@@ -20,7 +20,7 @@ import { useTranslation } from 'react-i18next';
 import * as API from '../../api';
 import ProposalBox from '../../components/proposalBox';
 import { takeProposal, replaceWithProposal, holdsProposal, testPayload, postgresHostProblem } from '../../utils/postgresProposal';
-import { choiceValues, hostChoices, maskedPasswordStale, moveSentence, pickedChoice, requestSaveAnyway, storeStateLine } from '../../utils/monitoringStoreForm';
+import { choiceValues, containerAddressSentence, containerAddressWarning, hostChoices, maskedPasswordStale, moveSentence, pickedChoice, requestSaveAnyway, storeStateLine } from '../../utils/monitoringStoreForm';
 
 const touch = { minHeight: 44 };
 
@@ -50,7 +50,7 @@ export const PostgresFoundNote = ({ proposals }) => {
 const HOST_SOURCE = {
   published: ['mgmt.config.general.monitoringDb.fork.hostPublished', 'The port it publishes on this server.'],
   'container-network': ['mgmt.config.general.monitoringDb.fork.hostNetwork', 'Its name on the Docker network: Cosmos runs in a container and reaches it by name when both are on the same network.'],
-  address: ['mgmt.config.general.monitoringDb.fork.hostAddress2', 'The container\'s own address on its Docker network: it changes when the container is made again (an update, an edit). Better: publish its port 5432 on 127.0.0.1 (in the container\'s Network tab), then use 127.0.0.1:5432.'],
+  address: ['mgmt.config.general.monitoringDb.fork.hostAddress3', 'The container\'s own address on Docker\'s network: it works now, but it changes when the container is made again (an update, an edit) or the containers start in another order. Better: publish its port 5432 on 127.0.0.1 (in the container\'s Network tab), then use 127.0.0.1:5432.'],
   none: ['mgmt.config.general.monitoringDb.fork.hostNone', 'Cosmos runs in a container and shares no Docker network with it: open the container\'s page and use "Let these apps reach it" to put Cosmos on its network, or publish its port 5432.'],
 };
 // Plan 51: a port published on one address of the server only
@@ -312,4 +312,13 @@ export const StoreMoveDialog = () => {
       <Button sx={touch} variant="contained" onClick={() => answer(true)} data-fork-store-move-save>{t('mgmt.config.general.monitoringDb.fork.moveSave', 'Save and switch')}</Button>
     </DialogActions>
   </Dialog>;
+};
+
+// Plan 51: the server field holds a container's own address on Docker's network.
+export const ContainerAddressWarning = ({ formik, proposals }) => {
+  const { t } = useTranslation();
+  const line = containerAddressSentence(containerAddressWarning(formik.values.PostgresHost, proposals && proposals.proposals));
+  if (!line) return null;
+  const [key, text, params] = line;
+  return <FormHelperText sx={{ color: 'warning.main' }} data-fork-postgres-bridge>{t(key, text, params)}</FormHelperText>;
 };

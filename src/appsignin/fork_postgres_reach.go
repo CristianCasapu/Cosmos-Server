@@ -213,6 +213,21 @@ func adviceFor(typed string, reason string, candidates []pgCandidate, proposals 
 		return ""
 	}
 
+	// a container's own address on Docker's network, typed or saved earlier:
+	// it changed when the container was made again
+	if ip := net.ParseIP(name); ip != nil {
+		for _, c := range candidates {
+			for _, a := range c.Addresses {
+				if a == ip.String() {
+					if best != nil && best.HostSource != "address" {
+						return name + " is the address of the container " + strings.TrimPrefix(c.Info.Name, "/") + " on Docker's network: it changes when the container is made again; " + use()
+					}
+					return name + " is the address of the container " + strings.TrimPrefix(c.Info.Name, "/") + " on Docker's network: it changes when the container is made again; publish its port 5432 on 127.0.0.1 and use 127.0.0.1:5432."
+				}
+			}
+		}
+	}
+
 	if reason == "dns" {
 		container := ""
 		for _, c := range candidates {

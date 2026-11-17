@@ -224,6 +224,11 @@ func TestPostgresHostAdvice(t *testing.T) {
 			[]string{"A container's name is not a host name for Cosmos itself", "use 172.17.0.2:5432"}},
 		{"localhost from a container", "localhost:5432", "closed", lan, true, []string{"Cosmos' own container", "use 192.168.1.20:5432"}},
 		{"another address that does not answer", "192.168.1.99:5432", "timeout", lan, false, []string{"PostgreSQL runs on this server in the container postgresql", "use 192.168.1.20:5432"}},
+		// the owner's later case: the bridge address saved, the container made again elsewhere
+		{"an old bridge address of another container", "172.17.0.9:5432", "network", lan, false,
+			[]string{"PostgreSQL runs on this server in the container postgresql", "use 192.168.1.20:5432"}},
+		{"the bridge address of the container, port elsewhere", "172.17.0.2:5433", "closed", lan, false,
+			[]string{"172.17.0.2 is the address of the container postgresql on Docker's network", "use 192.168.1.20:5432"}},
 		{"a refused password: no advice", "192.168.1.20:5432", "password", lan, false, nil},
 		{"nothing known", "localhost:5432", "closed", nil, false, nil},
 	}

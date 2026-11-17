@@ -28,6 +28,10 @@ func withMonitoringStore(t *testing.T, db DatabaseConfig, problem *PostgresProbl
 	t.Helper()
 	stub := &storeStub{problem: problem}
 	storeWatchPaused.Store(true) // the test's own looks only
+	prevAdvice := monitoringAdviceFor
+	monitoringAdviceFor = func(string, string) string { return "" }
+	adviceKey = ""
+	t.Cleanup(func() { monitoringAdviceFor = prevAdvice })
 	prevFolder, prevConfig := CONFIGFOLDER, GetBaseMainConfig()
 	prevProbe, prevDown, prevBack, prevResolve := probeMonitoringPostgres, monitoringTellDown, monitoringTellBack, monitoringResolveDown
 	CONFIGFOLDER = t.TempDir() + "/"
@@ -287,5 +291,40 @@ func TestPrepareMonitoringSchemaRetriesARace(t *testing.T) {
 	err = retrySchemaRace(func() error { tries++; return &pgconn.PgError{Code: "42P07"} })
 	if err == nil || tries != schemaRaceTries {
 		t.Errorf("bounded: %v after %d tries", err, tries)
+	}
+}
+
+// Plan 51, the owner's later case: the store saved at a container's address
+// on Docker's default bridge, the container made again with another address.
+// The old address does not answer: the local file, said, with the address
+// the container has now named, asked of Docker once per outage.
+func TestFallbackNamesTheLikelyRightServer(t *testing.T) {
+	stub := withMonitoringStore(t, DatabaseConfig{PostgresHost: "172.17.0.2:5432", PostgresUsername: "cosmos"},
+		&PostgresProblem{"network", "The database server could not be reached."})
+	asked := 0
+	monitoringAdviceFor = func(host string, reason string) string {
+		asked++
+		if host != "172.17.0.2:5432" || reason != "network" {
+			return ""
+		}
+		return "PostgreSQL runs on this server in the container postgresql: use 192.168.1.10:5432 (the PostgreSQL container postgresql)."
+	}
+	InitMetricsDatabase()
+	w := &monitoringWatch{backoff: monitoringRetryFirst}
+	w.look(true)
+	s := GetMonitoringStoreState()
+	if !s.Fallback || !strings.Contains(s.Advice, "use 192.168.1.10:5432") {
+		t.Fatalf("state %+v", s)
+	}
+	if !strings.Contains(MonitoringStoreSentence(s), "use 192.168.1.10:5432") {
+		t.Errorf("sentence %q", MonitoringStoreSentence(s))
+	}
+	if len(stub.down) != 1 || stub.down[0].Advice == "" {
+		t.Errorf("the notice lacks the advice: %+v", stub.down)
+	}
+	w.look(false)
+	w.look(false)
+	if asked != 1 {
+		t.Errorf("Docker asked %d times for one outage", asked)
 	}
 }

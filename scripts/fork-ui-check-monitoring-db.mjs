@@ -12,6 +12,8 @@
 //   PHASE=start     a Cosmos start with the database down (the sh script restarts Cosmos between
 //                   PART=before and PART=after): the local file, said, then healed by itself
 //   PHASE=copy      after story: the history copy offered, run with progress, the old records in PostgreSQL
+//   PHASE=bridge    after story: the store at the container's bridge address (works, said to change); the
+//                   container made again elsewhere: the local file, the published address named; saved: healed
 //   PHASE=reset     back to the local file (the settings only, over the API)
 //   PHASE=proposals prints what the server proposes (to record what a version proposed)
 // ENGINES=chromium,firefox,webkit  SIZES=d,m (1366x900, 393x851)  BASE, DIND (the test Docker's API),
@@ -365,6 +367,59 @@ phases.copy = async (page, id, size, ctx) => {
   await sleep(4000);
   await layout(page, id, null, size);
   await shot(page, id, 'copy-monitoring');
+};
+
+// The owner's later case: the store saved at the container's own address on Docker's default
+// bridge; it works, and the page says it will change. The container is then made again (its
+// address changes): the store falls back to the local file, the page names the published address,
+// and saving it heals. Ends with PostgreSQL in use at the published address.
+const bridgeAddress = async () => {
+  const info = await fetch(`${dind}/containers/postgresql/json`).then((r) => r.json());
+  return info.NetworkSettings.Networks.bridge.IPAddress;
+};
+phases.bridge = async (page, id, size, ctx) => {
+  const old = await bridgeAddress();
+  const config = await getConfig(ctx);
+  config.Database = { ...config.Database, PostgresHost: `${old}:5432`, PostgresDatabase: 'cosmos_monitoring', PostgresUsername: 'cosmos', PostgresPassword: DB_PASSWORD };
+  const saved = await putConfig(ctx, config);
+  expect(id + ': the bridge address answers: saved', saved.status === 200, saved.body);
+  await waitBack(ctx);
+  let s = await waitState(ctx, (st) => st.inUse === 'pgx' && st.host === `${old}:5432`, 40);
+  expect(id + ': PostgreSQL in use at the bridge address', s.inUse === 'pgx', JSON.stringify(s));
+  await openExternal(page);
+  const warn = page.locator('[data-fork-postgres-bridge]');
+  await warn.waitFor({ timeout: 20000 });
+  const said = await warn.innerText();
+  expect(id + ': the page says it works now and will change, and names the address that stays', /works now/.test(said) && /changes when the container is made again/.test(said) && said.includes(`Prefer ${lan}:5432`), said);
+  await layout(page, id, null, size);
+  await shotOf(page.locator('.MuiCard-root', { has: warn }).last(), id, 'bridge-warning');
+
+  // the container made again: a squatter takes the address first, so the database gets another one
+  await docker('/containers/postgresql/stop?t=2');
+  const squat = await fetch(`${dind}/containers/create?name=squatter`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ Image: 'postgres:18', Entrypoint: ['sleep'], Cmd: ['3600'] }),
+  }).then((r) => r.json());
+  await docker(`/containers/${squat.Id}/start`);
+  await docker('/containers/postgresql/start');
+  await sleep(4000);
+  const now = await bridgeAddress();
+  expect(id + ': the database has another address now', now && now !== old, `${old} -> ${now}`);
+  s = await waitState(ctx, (st) => st.fallback && !!st.advice, 120);
+  expect(id + ': the old address does not answer: the local file, said, with the published address named', s.fallback && s.inUse === 'sqlite' && (s.advice || '').includes(`use ${lan}:5432`), JSON.stringify(s));
+  await openExternal(page);
+  const line = page.locator('[data-fork-monitoring-fallback]').first();
+  await line.waitFor({ timeout: 20000 });
+  expect(id + ': the page line names it too', (await line.innerText()).includes(`use ${lan}:5432`), await line.innerText());
+  await shotOf(line, id, 'bridge-fallback');
+  await page.locator(`[data-fork-postgres-choice="${lan}:5432"]`).click();
+  await field(page, 'PostgresPassword').fill(DB_PASSWORD);
+  await save(page);
+  await confirmMove(page, id);
+  s = await waitState(ctx, (st) => st.inUse === 'pgx' && !st.fallback && st.host === `${lan}:5432`, 60);
+  expect(id + ': saved at the published address: healed', s.inUse === 'pgx' && !s.fallback, JSON.stringify(s));
+  await fetch(`${dind}/containers/${squat.Id}?force=1`, { method: 'DELETE' });
+  await waitBack(ctx);
 };
 
 // What the server proposes, as it answers (for the record of what a version proposed)

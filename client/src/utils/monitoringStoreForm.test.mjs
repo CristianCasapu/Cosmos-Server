@@ -88,4 +88,21 @@ test('the line about the store in use', () => {
   assert.match(text, /Records are kept in the local file/);
   assert.deepEqual(params, { host: 'localhost:5432', since: 'at T', reason: 'Nothing answers.' });
   assert.match(storeStateLine({ fallback: true, since: 'T' })[0], /NoHost$/);
+  assert.equal(storeStateLine({ fallback: true, host: 'h', since: 'T', message: 'Not reached.', advice: 'Use 192.168.1.10:5432.' })[2].reason, 'Not reached. Use 192.168.1.10:5432.');
+});
+
+test('a container\'s own address on Docker\'s network: works now, said, with the address that stays', async () => {
+  const { containerAddressWarning, containerAddressSentence } = await import('./monitoringStoreForm.js');
+  const proposals = [
+    { container: 'postgresql', host: '192.168.1.10:5432', hostSource: 'published', addresses: ['172.17.0.2'] },
+    { container: 'pgofficial', host: '172.17.0.3:5432', hostSource: 'address', addresses: ['172.17.0.3'] },
+  ];
+  assert.deepEqual(containerAddressWarning('172.17.0.2:5432', proposals), { container: 'postgresql', address: '172.17.0.2', prefer: '192.168.1.10:5432' });
+  assert.match(containerAddressSentence(containerAddressWarning('172.17.0.2:5432', proposals))[1], /works now, but it changes when the container is made again/);
+  assert.match(containerAddressSentence(containerAddressWarning('172.17.0.2:5432', proposals))[0], /bridgePrefer$/);
+  assert.equal(containerAddressWarning('172.17.0.3:5432', proposals).prefer, '', 'nothing published: publish it');
+  assert.match(containerAddressSentence(containerAddressWarning('172.17.0.3', proposals))[0], /bridgePublish$/);
+  assert.equal(containerAddressWarning('192.168.1.10:5432', proposals), null);
+  assert.equal(containerAddressWarning('', proposals), null);
+  assert.equal(containerAddressSentence(null), null);
 });

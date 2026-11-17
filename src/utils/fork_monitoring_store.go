@@ -71,6 +71,10 @@ type MonitoringStoreState struct {
 	// LocalFrom..LocalTo are in the local file
 	LocalFrom time.Time `json:"localFrom,omitempty"`
 	LocalTo   time.Time `json:"localTo,omitempty"`
+	// Advice: the likely right server while it does not answer (from the
+	// PostgreSQL containers of this server: a container's address on
+	// Docker's network that changed when it was recreated, for one)
+	Advice string `json:"advice,omitempty"`
 }
 
 var (
@@ -250,6 +254,7 @@ func (w *monitoringWatch) look(kicked bool) time.Duration {
 	if kicked {
 		w.backoff, w.failures = monitoringRetryFirst, 0
 	}
+	adviseFallback()
 	tellPendingMonitoringNotice()
 
 	db := GetMainConfig().Database
@@ -338,6 +343,38 @@ func (w *monitoringWatch) look(kicked bool) time.Duration {
 	return monitoringIdleLook
 }
 
+// monitoringAdviceFor is PostgresHostAdvice, bounded; replaced by the tests.
+var monitoringAdviceFor = func(host string, reason string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return PostgresHostAdvice(ctx, host, reason)
+}
+
+// adviseFallback names the likely right server once per outage and reason
+// (asked of Docker, outside every lock of the store).
+func adviseFallback() {
+	storeStateMu.Lock()
+	s := storeState
+	storeStateMu.Unlock()
+	if !s.Fallback {
+		adviceKey = ""
+		return
+	}
+	if adviceKey == s.Host+"|"+s.Reason+"|"+s.Since.String() {
+		return
+	}
+	adviceKey = s.Host + "|" + s.Reason + "|" + s.Since.String()
+	advice := monitoringAdviceFor(s.Host, s.Reason)
+	setStoreState(func(st *MonitoringStoreState) {
+		if st.Fallback && st.Host == s.Host {
+			st.Advice = advice
+		}
+	})
+}
+
+// adviceKey: the outage and reason the advice was made for (the watcher only).
+var adviceKey string
+
 // reopenLocal opens the local file after PostgreSQL was left closed.
 func reopenLocal() {
 	storeStateMu.Lock()
@@ -369,14 +406,21 @@ func MonitoringStoreSentence(s MonitoringStoreState) string {
 		return ""
 	}
 	return "The monitoring database at " + s.Host + " does not answer since " + s.Since.Local().Format("2006-01-02 15:04") +
-		": " + s.Message + " Records are kept in the local file (database.db) meanwhile; Cosmos tries again by itself."
+		": " + s.Message + adviceSuffix(s) + " Records are kept in the local file (database.db) meanwhile; Cosmos tries again by itself."
+}
+
+func adviceSuffix(s MonitoringStoreState) string {
+	if s.Advice == "" {
+		return ""
+	}
+	return " " + s.Advice
 }
 
 func tellMonitoringDown(s MonitoringStoreState) {
 	WriteNotification(Notification{Recipient: "admin", Level: "error", Fork: &NotificationInfo{
 		Kind: "monitoring.store.down", Thread: monitoringStoreThread,
 		Subject: &NotificationSubject{Type: "setting", Name: "Monitoring database", Link: "/cosmos-ui/config-general?tab=external"},
-		What:    NText("notif.monitoring.store.down.what", "host", s.Host, "at", s.Since.Local().Format("15:04"), "reason", s.Message),
+		What:    NText("notif.monitoring.store.down.what", "host", s.Host, "at", s.Since.Local().Format("15:04"), "reason", s.Message+adviceSuffix(s)),
 		Means:   NText("notif.monitoring.store.down.means"),
 		Doing:   NText("notif.monitoring.store.down.doing"),
 		Steps:   []NotificationStep{{NotificationText: *NText("notif.step.monitoringdb.open"), Link: "/cosmos-ui/config-general?tab=external"}},

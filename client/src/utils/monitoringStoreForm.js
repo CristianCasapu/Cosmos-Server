@@ -112,9 +112,39 @@ export const storeStateLine = (state, formatDate = (d) => d) => {
   if (state.host) {
     return ['mgmt.config.general.monitoringDb.fork.state.fallback',
       'The monitoring database at {{host}} does not answer since {{since}}: {{reason}} Records are kept in the local file (database.db) meanwhile; Cosmos tries again by itself and switches back as soon as it answers.',
-      { host: state.host, since, reason: String(state.message || '') }];
+      { host: state.host, since, reason: [state.message, state.advice].filter(Boolean).join(' ') }];
   }
   return ['mgmt.config.general.monitoringDb.fork.state.fallbackNoHost',
     'The monitoring database does not answer since {{since}}. Records are kept in the local file (database.db) meanwhile; Cosmos tries again by itself.',
     { since }];
+};
+
+// The server field holds a container's own address on Docker's network (the
+// owner once saved 172.17.0.x:5432): it works now and changes when the
+// container is made again. { container, address, prefer } (prefer: the
+// address that stays, '' when the container publishes none), or null.
+export const containerAddressWarning = (host, proposals) => {
+  const h = trim(host);
+  if (!h) return null;
+  const bracket = h.match(/^\[([^\]]+)\]/);
+  const address = bracket ? bracket[1] : ((h.match(/:/g) || []).length === 1 ? h.split(':')[0] : h);
+  for (const p of (proposals || [])) {
+    if (!p || !(p.addresses || []).includes(address)) continue;
+    const prefer = p.host && p.hostSource !== 'address' && p.hostSource !== 'none' && p.host !== h ? String(p.host) : '';
+    return { container: String(p.container || ''), address, prefer };
+  }
+  return null;
+};
+
+// Its sentence: [key, English, params].
+export const containerAddressSentence = (warning) => {
+  if (!warning) return null;
+  if (warning.prefer) {
+    return ['mgmt.config.general.monitoringDb.fork.bridgePrefer',
+      '{{address}} is the address of the container {{container}} on Docker\'s network: it works now, but it changes when the container is made again (an update, an edit) or the containers start in another order. Prefer {{prefer}}, the address it is published on.',
+      warning];
+  }
+  return ['mgmt.config.general.monitoringDb.fork.bridgePublish',
+    '{{address}} is the address of the container {{container}} on Docker\'s network: it works now, but it changes when the container is made again (an update, an edit) or the containers start in another order. Better: publish its port 5432 on 127.0.0.1 (in the container\'s Network tab), then use 127.0.0.1:5432.',
+    warning];
 };

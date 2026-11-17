@@ -61,6 +61,9 @@ type PostgresProposal struct {
 	// own address, which changes when the container is made again)
 	HostSource string `json:"hostSource"`
 	HostNote   string `json:"hostNote,omitempty"`
+	// Addresses: the container's own addresses on its Docker networks, so
+	// that the form can tell a saved server that is one of them (plan 51)
+	Addresses []string `json:"addresses,omitempty"`
 	// Reach: answers / silent, a TCP connect from Cosmos to Host (plan 51)
 	Reach          string `json:"reach,omitempty"`
 	Database       string `json:"database,omitempty"`
@@ -158,7 +161,7 @@ var cosmosNetworks = func(ctx context.Context) map[string]bool {
 // The notes of the host choices (the panel has the same sentences under
 // mgmt.config.general.monitoringDb.fork.note.*).
 const (
-	noteAddress  = "The container's own address on its Docker network: it changes when the container is made again (an update, an edit). Better: publish its port 5432 on 127.0.0.1 (in the container's Network tab), then use 127.0.0.1:5432."
+	noteAddress  = "The container's own address on Docker's network: it works now, but it changes when the container is made again (an update, an edit) or the containers start in another order. Better: publish its port 5432 on 127.0.0.1 (in the container's Network tab), then use 127.0.0.1:5432."
 	noteLAN      = "Its port is published on this address of the server only (not on 127.0.0.1)."
 	noteNetwork  = "Its name on a Docker network Cosmos shares with it."
 	noteNoShared = "Cosmos runs in a container and shares no Docker network with it: open the container's page and use \"Let these apps reach it\" to put Cosmos on its network, or publish its port 5432."
@@ -243,7 +246,7 @@ func postgresProposals(candidates []pgCandidate, inside bool, shared map[string]
 		}
 		details := resolve(c.Info, nil, func(string) string { return "" })
 		clean(&details, details.secretValues)
-		p := PostgresProposal{Container: name, Image: shown(c.Info.Image), Source: details.Source}
+		p := PostgresProposal{Container: name, Image: shown(c.Info.Image), Source: details.Source, Addresses: append([]string{}, c.Addresses...)}
 		p.Host, p.HostSource, p.HostNote = hostFor(c, name, inside, shared)
 		if p.Host == "" && p.HostSource != "none" {
 			continue
