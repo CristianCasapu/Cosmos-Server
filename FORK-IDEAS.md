@@ -414,10 +414,9 @@ started without recipes.
 
 ## Apps behind the proxy: left for later (2026-11-17)
 
-Upstream's restart of the web server has a race: two saves of URLs a few
-seconds apart can leave the HTTPS listener closing every connection until
-Cosmos is restarted (the one-click repair avoids it by reloading once; the
-URL form does not): to fix at its root. A refusal that only shows on a
+Connections of port routes that arrive during a restart of the web server
+still go to the old, closed handoff (as upstream): to hand them to the
+next generation. A refusal that only shows on a
 sign-in (POST) is not provoked: for known apps Cosmos reads their variables
 instead. Configuration files inside containers are not read, so an advised
 line is not confirmed to be in place. No periodic check of all URLs with a

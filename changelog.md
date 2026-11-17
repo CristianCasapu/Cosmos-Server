@@ -8,9 +8,15 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Nothing merged into `custom` since `0.24.0-fork.34` yet.
+Merged into `custom` since `0.24.0-fork.35`, to be part of the next release:
 
-Work in progress on a separate branch (not released, and may change before it is): restarts of the web server that cannot leave a listener dead.
+- Nothing yet.
+
+## Fork 0.24.0-fork.35 — 2026-11-17
+
+### Fixed
+- Saving settings or URLs close together can no longer leave the last change not applied, a listener dead or the server stopped (the web server's restarts ran over each other). Visitors' connections are no longer refused while the server reloads: they wait about a fifth of a second.
+- After some reloads every browser connection was closed right after it was made, until Cosmos was restarted (HTTP/2 was not set up for that run of the server): fixed.
 
 ## Fork 0.24.0-fork.34 — 2026-11-17
 
