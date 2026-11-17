@@ -551,7 +551,7 @@ case_interrupt() { # kill -9 at three points, each followed by another run; pack
 		check "the hostile lines did nothing" sh -c "test -d /etc && test -f /etc/passwd"
 		check "the admin'\''s packages stayed" sh -c "dpkg-query -W less hello >/dev/null"
 		systemctl start docker.service; docker rm e2e-app >/dev/null; docker image rm e2e-empty:1 >/dev/null
-		bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --yes-delete-data </dev/null | tee /e2e/out/uninstall-2.txt
+		bash /e2e/releases/v'"$VA"'/uninstall.sh --yes --remove-packages --yes-delete-data </dev/null | tee /e2e/out/uninstall-2.txt
 		check "the hostile lines are all that is left" sh -c "test \"\$(sort /var/lib/cosmos-installer/record | tr \"\\n\" \" \")\" = \"dir /etc file / package -rf piece ../x unit ../../etc/passwd \""
 		rm -rf /var/lib/cosmos-installer
 		expect_exit 0 bash /e2e/releases/v'"$VA"'/uninstall.sh --yes </dev/null
@@ -679,6 +679,7 @@ case_env() { # never from a pipe, whatever the current folder holds; a hostile e
 			sudo -E bash /e2e/releases/v'"$VA"'/install.sh --yes --http-port 8080 --https-port 8443 </dev/null >/e2e/out/sudo-e.txt 2>&1 || rc=$?
 		tail -n 3 /e2e/out/sudo-e.txt
 		check "sudo -E with a hostile environment installs all the same" test $rc = 0
+		rm -f /root/.curlrc /root/bad-openssl.cnf # (the checks below use curl too)
 		installed_ok 8080
 		mkdir -p /root/x && cp /e2e/releases/v'"$VA"'/install.sh /root/x/install.sh && cd /root/x
 		expect_exit 10 sh install.sh --yes </dev/null
