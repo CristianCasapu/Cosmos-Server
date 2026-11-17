@@ -12,20 +12,22 @@ piece=$(basename "$(dirname "$0")")
 mode=install
 case $(basename "$0") in uninstall.sh) mode=uninstall ;; esac
 record="" yes=0
+all="$*"
 while [ $# -gt 0 ]; do
 	case $1 in
 	--print-packages) exit 0 ;;
 	--yes) yes=1 ;;
 	--dry-run) exit 0 ;;
 	--record) record=$2; shift ;;
-	--cosmos-config | --https-port | --http-port | --log | --port | --home | --ipv4 | --confirm-timeout | --ignore) shift ;;
-	--allow-ssh-from-outside | --accept-nftables-service | --sshd | --no-sshd | --no-cosmos-jails) ;;
+	--cosmos-config | --https-port | --http-port | --log | --port | --home | --ipv4 | --confirm-timeout | --ignore | --ssh | --ssh-allowance-hours) shift ;;
+	--allow-ssh-from-outside | --accept-nftables-service | --sshd | --no-sshd | --no-cosmos-jails | --exposed) ;;
 	*) echo "unknown flag $1" >&2; exit 2 ;;
 	esac
 	shift
 done
 [ "$yes" = 1 ] || { echo "the stub only runs with --yes" >&2; exit 2; }
 echo "args ok" >"/run/cosmos-e2e-stub-$piece.$mode"
+printf '%s\n' "$all" >"/run/cosmos-e2e-stub-$piece.$mode.args"
 if [ "$mode" = uninstall ]; then
 	rm -f "/etc/cosmos-e2e-stub-$piece"
 	exit 0

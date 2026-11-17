@@ -576,7 +576,10 @@ case_docker_there() { # Docker of the distribution is used and left alone; prote
 		snap container; expect_exit 11 '"$INSTALL_A"' --yes </dev/null; same container after-container
 		docker rm cosmos-server >/dev/null; docker image rm azukaar/cosmos-server:e2e >/dev/null
 		snap before
-		expect_exit 0 '"$INSTALL_A"' --yes --reachable internet --http-port 8080 --https-port 8443 </dev/null; installed_ok 8080; record_matches before
+		printf "placement=cloud\nssh=from:192.0.2.0/24,2001:db8::/32\n" >/root/answers
+		expect_exit 0 '"$INSTALL_A"' --yes --reachable internet --http-port 8080 --https-port 8443 --answers /root/answers </dev/null; installed_ok 8080; record_matches before
+		rm /root/answers
+		check "the guard got where the server stands and how SSH answers" grep -q -- "--exposed --ssh from:192.0.2.0/24,2001:db8::/32" /run/cosmos-e2e-stub-nftables.install.args
 		check "no Docker package in the record" sh -c "! grep -q \"^package docker\" /var/lib/cosmos-installer/record"
 		check "Docker'\''s repository was not added" test ! -e /etc/apt/sources.list.d/docker.sources
 		check "docker.io unchanged" sh -c "dpkg-query -W docker.io | cmp - /e2e/out/docker-before"

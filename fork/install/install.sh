@@ -63,6 +63,12 @@
 #   --no-outside             [outside-lookup=no] never ask an outside service
 #                            for the public address (the router only)
 #   --keep-ssh-open          [keep-ssh-open=yes] the guard keeps SSH open from outside
+#   --placement home|exposed-host|cloud|unknown [placement] where the server stands:
+#                            behind the router at home, the router's exposed host
+#                            (DMZ), or a cloud server; for the guard (default unknown)
+#   --ssh open|from:<addresses>|closed-i-have-a-console [ssh] how SSH answers from
+#                            outside, for the guard of a server with no home network
+#                            and no VPN (asked by a later version; given, it is passed on)
 #   --reuse-data             install over the data folder the fork left (upstream's
 #                            data is migrate.sh's job)
 #   --allow-older            install a release older than this script (refused
@@ -168,7 +174,7 @@ usage() {
 # ---- The answers: flags, an answers file, defaults -------------------------
 # One variable per key. Flags win over the file; the file over the defaults.
 declare -gA ANSWER=() ANSWER_FROM=()
-ANSWER_KEYS="http-port https-port storage-tools reachable protection unattended-upgrades address upnp router outside-lookup keep-ssh-open"
+ANSWER_KEYS="http-port https-port storage-tools reachable protection unattended-upgrades address upnp router outside-lookup keep-ssh-open placement ssh"
 
 valid_answer() { # key, value
 	case $1 in
@@ -178,6 +184,9 @@ valid_answer() { # key, value
 	address) [[ $2 =~ ^(fixed|changing|unknown)$ ]] ;;
 	upnp) [[ $2 =~ ^(yes|no|unknown)$ ]] ;;
 	router) [[ $2 =~ ^[A-Za-z0-9\ ._()/+-]{1,64}$ ]] ;;
+	placement) [[ $2 =~ ^(home|exposed-host|cloud|unknown)$ ]] ;;
+	# from:<addresses or networks, comma-separated, at most 20>
+	ssh) [[ $2 =~ ^(open|closed-i-have-a-console|from:[0-9A-Fa-f.:/]{2,43}(,[0-9A-Fa-f.:/]{2,43}){0,19})$ ]] ;;
 	*) return 1 ;;
 	esac
 }
@@ -222,7 +231,7 @@ while [ $# -gt 0 ]; do
 	--no-outside) set_answer outside-lookup no flag ;;
 	--keep-ssh-open) set_answer keep-ssh-open yes flag ;;
 	--version | --from | --answers | --http-port | --https-port | --storage-tools | --reachable | --protection | \
-		--unattended-upgrades | --address | --upnp | --router)
+		--unattended-upgrades | --address | --upnp | --router | --placement | --ssh)
 		[ $# -ge 2 ] || die $EXIT_USAGE "$1 needs a value"
 		case $1 in
 		--version) [[ $2 =~ ^v?(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})-fork\.[1-9][0-9]{0,8}$ ]] || die $EXIT_USAGE "--version takes a fork version such as 0.24.0-fork.35"
@@ -1499,7 +1508,12 @@ run_piece() { # piece
 	fi
 	case $piece in
 	nftables) args+=(--cosmos-config "$DATA_DIR/cosmos.config.json" --https-port "$HTTPS_PORT" --http-port "$HTTP_PORT")
-		[ "$(answer keep-ssh-open)" != yes ] || args+=(--allow-ssh-from-outside) ;;
+		[ "$(answer keep-ssh-open)" != yes ] || args+=(--allow-ssh-from-outside)
+		# where the server stands (the guard cannot tell): the router's exposed
+		# host filters IPv4 too; a cloud server has no home network
+		case $(answer placement) in exposed-host) args+=(--ipv4 yes) ;; cloud) args+=(--exposed) ;; esac
+		# how SSH answers from outside, when the answer was given
+		[ -z "$(answer ssh)" ] || args+=(--ssh "$(answer ssh)") ;;
 	fail2ban) args+=(--log "$DATA_DIR/cosmos.security.log" --cosmos-config "$DATA_DIR/cosmos.config.json") ;;
 	esac
 	step "Protection: $piece"
