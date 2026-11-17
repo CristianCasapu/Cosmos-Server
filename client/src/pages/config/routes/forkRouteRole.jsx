@@ -13,7 +13,7 @@ import * as React from 'react';
 import { useTranslation } from 'react-i18next';
 import { CosmosCheckbox, CosmosInputText, CosmosSelect } from '../users/formShortcuts';
 import { useDashboardRoutes } from '../../../components/appOpen';
-import { ROLES } from '../../../utils/appInterfaces';
+import { ROLES, dashboardEntryFor } from '../../../utils/appInterfaces';
 
 const ROLE_TEXT = {
   admin: ['mgmt.appLinks.role.admin', 'Administration'],
@@ -58,10 +58,12 @@ export const withForkRole = (route) => {
   return out;
 };
 
-export const ForkRouteRole = ({ formik, routeName }) => {
+export const ForkRouteRole = ({ formik, routeKey }) => {
   const { t } = useTranslation();
   const dashboard = useDashboardRoutes();
-  const known = (dashboard || []).find((route) => route && route.Name === routeName);
+  // by the route's key, as GET /api/config and GET /api/dashboard both give it; a disabled URL is in the
+  // dashboard for those who may edit URLs (marked Disabled), so its proposal is there too
+  const known = dashboardEntryFor(dashboard, routeKey);
   const proposed = known && ROLES.includes(known.ForkRoleProposed) ? known.ForkRoleProposed : '';
   const source = known && known.ForkRoleSource !== 'set' ? known.ForkRoleSource : '';
   const proposal = proposed

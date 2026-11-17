@@ -184,7 +184,7 @@ func dashboardOf(config utils.Config, isAdmin bool) []DashboardRoute {
 }
 
 var (
-	adminCaller = dashboardCaller{admin: true, tileWords: true, editsURLs: true}
+	adminCaller = dashboardCaller{admin: true, resources: true, tileWords: true, editsURLs: true}
 	plainCaller = dashboardCaller{tileWords: true}
 )
 
@@ -279,18 +279,93 @@ func TestDashboardDuplicateNames(t *testing.T) {
 	}
 }
 
-// A disabled URL answers nothing: it is left out, so no tile opens it.
-func TestDashboardLeavesDisabledURLsOut(t *testing.T) {
+// A disabled URL answers nothing: left out for a plain user; listed, marked,
+// for those who may edit URLs (the URL form's proposal).
+func TestDashboardDisabledURLs(t *testing.T) {
 	config, containers := ownerShape()
 	config.HTTPConfig.ProxyConfig.Routes[1].Disabled = true // jellyfin's public URL
-	got := forkDashboardRoutes(dashboardOf(config, true), containers, adminCaller, nil)
-	for _, r := range got {
+	for _, r := range forkDashboardRoutes(dashboardOf(config, false), containers, plainCaller, nil) {
 		if r.Name == "jellyfin-example.org" {
-			t.Errorf("a disabled URL is listed")
+			t.Errorf("a disabled URL is listed for a plain user")
 		}
 	}
-	if len(got) != 5 {
-		t.Errorf("got %d URLs, want 5", len(got))
+	got := forkDashboardRoutes(dashboardOf(config, true), containers, adminCaller, nil)
+	found := false
+	for _, r := range got {
+		if r.Name == "jellyfin-example.org" {
+			found = true
+			if !r.Disabled || r.ForkRoleProposed != "user" {
+				t.Errorf("the disabled URL for the form: %+v", r.ForkDashboardFields)
+			}
+		} else if r.Disabled {
+			t.Errorf("%s marked disabled", r.Name)
+		}
+	}
+	if !found {
+		t.Errorf("an editor lost the disabled URL's proposal")
+	}
+}
+
+// Container details need what /api/servapps needs; the administration path
+// needs the admin-read permission only; editing URLs gives neither.
+func TestDashboardContainerFieldsNeedResources(t *testing.T) {
+	config, containers := ownerShape()
+	for _, c := range []struct {
+		what      string
+		caller    dashboardCaller
+		container bool
+		adminPath bool
+	}{
+		{"edits URLs only", dashboardCaller{tileWords: true, editsURLs: true}, false, false},
+		{"admin-read without resources-read", dashboardCaller{admin: true, tileWords: true}, false, true},
+		{"admin-read and resources-read", dashboardCaller{admin: true, resources: true, tileWords: true}, true, true},
+	} {
+		got := forkDashboardRoutes(dashboardOf(config, c.caller.admin), containers, c.caller, nil)
+		by := map[string]DashboardRoute{}
+		for _, r := range got {
+			by[r.Name] = r
+		}
+		if has := by["rustfs"].ForkImage != "" && len(by["rustfs"].ForkPorts) > 0 && by["rustfs"].ForkContainer != ""; has != c.container {
+			t.Errorf("%s: container details %v, want %v", c.what, has, c.container)
+		}
+		if has := by["jellyfin"].ForkAdminPath != ""; has != c.adminPath {
+			t.Errorf("%s: administration path %v, want %v", c.what, has, c.adminPath)
+		}
+	}
+}
+
+// The same route has the same key in the dashboard and in the
+// configuration's answer; two routes of one name have different keys; the
+// key is never written to the file.
+func TestRouteKeys(t *testing.T) {
+	config, containers := ownerShape()
+	twin := servapp("jellyfin", "http://other:80", "other.example.org")
+	config.HTTPConfig.ProxyConfig.Routes = append(config.HTTPConfig.ProxyConfig.Routes, twin)
+	got := forkDashboardRoutes(dashboardOf(config, true), containers, adminCaller, nil)
+	shown := config
+	utils.WithRouteKeys(&shown)
+	keys := map[string]bool{}
+	for i, r := range got {
+		if r.ForkKey == "" || r.ForkKey != shown.HTTPConfig.ProxyConfig.Routes[i].ForkKey {
+			t.Errorf("%s: dashboard key %q, configuration key %q", r.Name, r.ForkKey, shown.HTTPConfig.ProxyConfig.Routes[i].ForkKey)
+		}
+		if keys[r.ForkKey] {
+			t.Errorf("%s: a key given twice", r.Name)
+		}
+		keys[r.ForkKey] = true
+	}
+	if config.HTTPConfig.ProxyConfig.Routes[0].ForkKey != "" {
+		t.Errorf("WithRouteKeys changed the configuration it was given a copy of")
+	}
+	stored := utils.WithoutRouteKeys(shown)
+	for _, r := range stored.HTTPConfig.ProxyConfig.Routes {
+		if r.ForkKey != "" {
+			t.Errorf("a key would be written to the file")
+		}
+	}
+	raw, _ := json.Marshal(stored)
+	if strings.Contains(string(raw), "ForkKey") {
+		t.Errorf("the stored configuration holds keys: %s", raw)
 	}
 }
 
@@ -360,7 +435,7 @@ func TestDashboardHandlerPerCaller(t *testing.T) {
 	}
 
 	admin := get(asSudoedAdmin)
-	if names(admin) != "jellyfin,ops" {
+	if names(admin) != "jellyfin,ops,old" || admin[2]["Disabled"] != true || admin[0]["Disabled"] != nil {
 		t.Errorf("an administrator got %s", names(admin))
 	}
 	if admin[0]["ForkRoleSource"] != "set" || admin[0]["ForkRoleProposed"] == nil {
@@ -378,6 +453,26 @@ func TestDashboardHandlerPerCaller(t *testing.T) {
 	for _, field := range []string{"ForkRole", "ForkLabel", "AuthEnabled", "ForkHomeHosts", "ForkRoleSource", "ForkAdminPath"} {
 		if _, ok := bare[0][field]; ok {
 			t.Errorf("a token without permissions got %s", field)
+		}
+	}
+	logs := get(asToken(utils.PERM_ADMIN_READ))
+	for _, r := range logs {
+		for _, field := range []string{"ForkImage", "ForkPorts", "ForkContainer"} {
+			if _, ok := r[field]; ok {
+				t.Errorf("a token with admin-read but without resources-read got %s", field)
+			}
+		}
+	}
+	// the keys of the dashboard are those of the configuration's answer
+	w := httptest.NewRecorder()
+	ConfigApiGet(w, asSudoedAdmin(httptest.NewRequest("GET", "https://cosmos.example.com/cosmos/api/config", nil)))
+	var conf struct{ Data utils.Config }
+	if err := json.Unmarshal(w.Body.Bytes(), &conf); err != nil {
+		t.Fatal(err)
+	}
+	for i, r := range conf.Data.HTTPConfig.ProxyConfig.Routes {
+		if r.ForkKey == "" || r.ForkKey != admin[i]["ForkKey"] {
+			t.Errorf("%s: configuration key %q, dashboard key %v", r.Name, r.ForkKey, admin[i]["ForkKey"])
 		}
 	}
 	reader := get(asToken(utils.PERM_CONFIGURATION_READ))

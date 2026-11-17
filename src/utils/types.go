@@ -626,6 +626,8 @@ type ProxyRouteConfig struct {
 	ForkNoVisitorAddress       bool                        `yaml:"fork_no_visitor_address,omitempty" json:"ForkNoVisitorAddress,omitempty"`
 	// Fork addition (plan 49): what this address is to its app (administration, users, API), see src/utils/fork_route_interface.go
 	ForkInterface              *ForkRouteInterface         `yaml:"fork_interface,omitempty" json:"ForkInterface,omitempty"`
+	// Fork addition (plan 49): an opaque key of the route, computed for each answer (RouteKey), never stored
+	ForkKey                    string                      `yaml:"-" json:"ForkKey,omitempty"`
 	AddionalFilters          []AddionalFiltersConfig       `yaml:"additional_filters,omitempty"`
 	RestrictToConstellation    bool                        `yaml:"restrict_to_constellation"`
 	OverwriteHostHeader        string                      `yaml:"overwrite_host_header,omitempty"`

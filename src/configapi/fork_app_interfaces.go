@@ -209,6 +209,10 @@ type ForkDashboardFields struct {
 	ForkContainer string              `json:"ForkContainer,omitempty"`
 	ForkImage     string              `json:"ForkImage,omitempty"`
 	ForkPorts     []ForkDashboardPort `json:"ForkPorts,omitempty"`
+	// the route's opaque key (utils.RouteKey), the same in GET /api/config: the panel matches on it
+	ForkKey string `json:"ForkKey,omitempty"`
+	// a disabled URL, listed only for those who may edit URLs (the URL form's proposal); no tile opens it
+	Disabled bool `json:"Disabled,omitempty"`
 
 	// the configured route this entry was made from (never sent): fields are
 	// matched by the route itself, not by its name, which need not be unique
@@ -223,7 +227,8 @@ func forkDashboardSource(route utils.ProxyRouteConfig) ForkDashboardFields {
 
 // dashboardCaller is what a caller of GET /api/dashboard may get of the fork's fields.
 type dashboardCaller struct {
-	admin     bool // PERM_ADMIN_READ: container details, administration paths
+	admin     bool // PERM_ADMIN_READ: administration paths
+	resources bool // PERM_ADMIN_READ and PERM_RESOURCES_READ: container, image, published ports (what /api/servapps gives)
 	tileWords bool // role, label, kept at home, sign-in, names for use at home
 	editsURLs bool // role source and proposed role
 }
@@ -235,6 +240,7 @@ type dashboardCaller struct {
 func dashboardCallerOf(req *http.Request) dashboardCaller {
 	ctx := utils.GetAuthContext(req)
 	caller := dashboardCaller{admin: utils.HasPermission(req, utils.PERM_ADMIN_READ)}
+	caller.resources = caller.admin && utils.HasPermission(req, utils.PERM_RESOURCES_READ)
 	if ctx.APIToken != nil {
 		caller.tileWords = utils.HasPermission(req, utils.PERM_CONFIGURATION_READ)
 		caller.editsURLs = utils.HasPermission(req, utils.PERM_CONFIGURATION)
@@ -250,7 +256,9 @@ func dashboardCallerOf(req *http.Request) dashboardCaller {
 }
 
 // forkDashboardRoutes is the hook of DashboardApiGet: it leaves out the
-// disabled URLs (they answer nothing: a tile must never open one) and fills
+// disabled URLs (they answer nothing: a tile must never open one), except
+// for those who may edit URLs, who get them marked Disabled (the URL form
+// shows their proposal; the panel's rule skips them), and fills
 // the fork's fields of the routes the caller gets, by the route each entry
 // was made from. containers is what Docker listed.
 func forkDashboardRoutes(out []DashboardRoute, containers []types.Container, caller dashboardCaller, homeNames []utils.HomeName) []DashboardRoute {
@@ -279,10 +287,10 @@ func forkDashboardRoutes(out []DashboardRoute, containers []types.Container, cal
 			continue
 		}
 		route := *source
-		if route.Disabled {
+		if route.Disabled && !caller.editsURLs {
 			continue
 		}
-		fields := ForkDashboardFields{}
+		fields := ForkDashboardFields{ForkKey: utils.RouteKey(route), Disabled: route.Disabled}
 		image := ""
 		var c *types.Container
 		if route.Mode == "SERVAPP" {
@@ -316,6 +324,8 @@ func forkDashboardRoutes(out []DashboardRoute, containers []types.Container, cal
 			if role == utils.InterfaceUser {
 				fields.ForkAdminPath = adminPath // the administration path is of a page for users
 			}
+		}
+		if caller.resources {
 			if c != nil {
 				fields.ForkContainer = strings.TrimPrefix(firstName(c.Names), "/")
 				fields.ForkImage = c.Image

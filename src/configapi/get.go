@@ -90,6 +90,8 @@ func ConfigApiGet(w http.ResponseWriter, req *http.Request) {
 			redactForNonAdmin(&config)
 		}
 
+		utils.WithRouteKeys(&config) // Fork addition (plan 49): each route's key, as GET /api/dashboard gives it
+
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status": "OK",
 			"data": config,

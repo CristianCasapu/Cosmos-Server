@@ -8,6 +8,8 @@ package utils
 // client/src/utils/appInterfaces.js). Upstream ignores the field.
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -63,4 +65,38 @@ func RouteInterfaceProblem(setting *ForkRouteInterface) string {
 		}
 	}
 	return ""
+}
+
+// RouteKey is an opaque key of a route for the panel: the same route gets the
+// same key in GET /api/dashboard and GET /api/config, two routes that share a
+// name (nothing refuses that) get different ones unless they are the same in
+// every part the key is made of. Never an index: lists differ per caller.
+func RouteKey(route ProxyRouteConfig) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{
+		route.Name, string(route.Mode), strings.ToLower(strings.TrimSpace(route.Host)), route.PathPrefix, route.Target,
+	}, "\x00")))
+	return hex.EncodeToString(sum[:6])
+}
+
+// WithRouteKeys gives each route of a configuration (a copy for an answer)
+// its key.
+func WithRouteKeys(config *Config) {
+	routes := make([]ProxyRouteConfig, len(config.HTTPConfig.ProxyConfig.Routes))
+	for i, route := range config.HTTPConfig.ProxyConfig.Routes {
+		route.ForkKey = RouteKey(route)
+		routes[i] = route
+	}
+	config.HTTPConfig.ProxyConfig.Routes = routes
+}
+
+// WithoutRouteKeys is a configuration without the keys an answer carried and a
+// save sent back: they are never written to the file.
+func WithoutRouteKeys(config Config) Config {
+	routes := make([]ProxyRouteConfig, len(config.HTTPConfig.ProxyConfig.Routes))
+	for i, route := range config.HTTPConfig.ProxyConfig.Routes {
+		route.ForkKey = ""
+		routes[i] = route
+	}
+	config.HTTPConfig.ProxyConfig.Routes = routes
+	return config
 }

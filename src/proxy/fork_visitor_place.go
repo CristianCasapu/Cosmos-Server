@@ -61,14 +61,19 @@ const (
 // VPN); tunl0 (IP-in-IP) is not one.
 var vpnInterfaceName = regexp.MustCompile(`^(tailscale|wg|tun[0-9]|tap[0-9]|zt|nebula|ztun|utun|ipsec)`)
 
-// isVPNInterface is the rule above; defaultRoute is the default route's interface.
-func isVPNInterface(name, defaultRoute string) bool {
+// isVPNInterface is the rule above; defaultRoutes are the interfaces that
+// carry a default route (fork_default_routes.go).
+func isVPNInterface(name string, defaultRoutes map[string]bool) bool {
 	name = strings.ToLower(name)
 	if !vpnInterfaceName.MatchString(name) {
 		return false
 	}
-	if strings.HasPrefix(name, "tun") && name == strings.ToLower(defaultRoute) {
-		return false
+	if strings.HasPrefix(name, "tun") {
+		for iface := range defaultRoutes {
+			if strings.ToLower(iface) == name {
+				return false
+			}
+		}
 	}
 	return true
 }
@@ -94,13 +99,13 @@ var readPlaceNetworks = func() placeNetworks {
 	if err != nil {
 		return out
 	}
-	defaultRoute := defaultRouteInterface()
+	defaultRoutes := defaultRouteInterfaces()
 	for _, iface := range ifaces {
 		addrs, err := iface.Addrs()
 		if err != nil {
 			continue
 		}
-		vpn := isVPNInterface(iface.Name, defaultRoute)
+		vpn := isVPNInterface(iface.Name, defaultRoutes)
 		for _, addr := range addrs {
 			network, ok := addr.(*net.IPNet)
 			if !ok || network.IP.IsLoopback() {

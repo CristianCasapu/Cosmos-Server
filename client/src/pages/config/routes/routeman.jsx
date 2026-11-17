@@ -35,6 +35,7 @@ import ForkRouteGuide, { HostSeenHint } from './forkRouteGuide'; // Fork additio
 import { PaidOnly } from '../../../components/paidVisibility'; // Fork addition
 import { UrlCheckNotice } from '../../../components/urlCheck'; // Fork addition (plan 44): does the saved URL open
 import { ForkRouteRole, forkRoleValues, withForkRole } from './forkRouteRole'; // Fork addition (plan 49)
+import { forgetAppLinks } from '../../../components/appOpen'; // Fork addition (plan 49)
 
 const Hide = ({ children, h }) => {
   return h ? <div style={{ display: 'none' }}>
@@ -175,6 +176,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                 setStatus({ success: true });
                 snackit(t('mgmt.urls.edit.updateSuccess'), 'success')
                 setSubmitting(false);
+                forgetAppLinks(); // Fork addition (plan 49): ServApps and the home page show the new role at once
                 onSaved && onSaved(); // Fork addition
                 if (fullValues.Mode === 'SERVAPP' && fullValues.UseHost) setCheckSaved({ name: fullValues.Name, at: Date.now() }); // Fork addition (plan 44)
               } else {
@@ -248,6 +250,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
 
                   {/* Fork addition: the simple view asks for the address and proposes the rest; the fields below are its "all settings" */}
                   <ForkRouteGuide
+                    routeKey={routeConfig.ForkKey /* Fork addition (plan 49) */}
                     formik={formik}
                     config={config}
                     routeNames={routeNames}
@@ -275,7 +278,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                   />
 
                   {/* Fork addition (plan 49): administration, users, API: which address the app's tile opens */}
-                  <ForkRouteRole formik={formik} routeName={routeConfig.Name} />
+                  <ForkRouteRole formik={formik} routeKey={routeConfig.ForkKey} />
 
                   <Hide h={lockTarget}>
                     <CosmosFormDivider title={t('mgmt.urls.edit.targetTypeTitle')} />

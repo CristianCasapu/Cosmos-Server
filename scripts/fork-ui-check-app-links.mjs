@@ -286,7 +286,13 @@ for (const engine of engines) {
 
     if (phase === 'role' && engine === engines[0] && size === sizes[0]) {
       check(t.rustfs && t.rustfs.state === 'home-only', tag + ': before: RustFS only at home');
-      await page.goto(base + '/cosmos-ui/config-url/rustfs', { waitUntil: 'domcontentloaded' });
+      // ServApps first, so that its shared dashboard answer is loaded; then the form within the app
+      // (no page load): after the save ServApps must show the new role at once (forgetAppLinks)
+      const go = (path) => page.evaluate((p) => { window.history.pushState({}, '', p); window.dispatchEvent(new PopStateEvent('popstate')); }, path);
+      await page.goto(base + '/cosmos-ui/servapps', { waitUntil: 'domcontentloaded' });
+      await page.locator('[data-app-open="rustfs"]').waitFor({ timeout: 30000 });
+      check(/Only at home/.test(await page.locator('[data-app-open="rustfs"]').innerText()), tag + ': before: ServApps says only at home');
+      await go('/cosmos-ui/config-url/rustfs');
       await page.getByRole('tab', { name: 'Setup' }).click();
       await page.locator('[id="mui-component-select-_ForkRole"], [role=combobox]#_ForkRole').first().waitFor({ timeout: 30000 });
       await page.locator('[id="mui-component-select-_ForkRole"], [role=combobox]#_ForkRole').first().click();
@@ -294,6 +300,9 @@ for (const engine of engines) {
       await page.screenshot({ path: out + '/shots/' + tag + '-form.png', fullPage: true });
       await page.getByRole('button', { name: 'Save', exact: true }).click();
       await sleep(5000);
+      await go('/cosmos-ui/servapps');
+      await page.locator('[data-app-open="rustfs"] [data-opens]').waitFor({ timeout: 10000 }).catch(() => {});
+      check(await page.locator('[data-app-open="rustfs"] [data-opens]').getAttribute('data-opens').catch(() => '') === host('s3.example.org'), tag + ': right after the save, ServApps opens what the new role says (no page load)');
       await page.goto(base + '/cosmos-ui/', { waitUntil: 'domcontentloaded' });
       await page.locator('[data-app-tile]').first().waitFor({ timeout: 30000 });
       await sleep(1500);
