@@ -57,3 +57,19 @@ func TestOneBigCopyOrASlowGrowthIsNoAlarm(t *testing.T) {
 		t.Error("a trend from two samples")
 	}
 }
+
+// A nearly full disk that barely grows is the disk-full alert's business:
+// growth must be worth the name (1 GB, or half a per cent of the disk).
+func TestATinyGrowthOnANearlyFullDiskIsNoTrend(t *testing.T) {
+	r := record(t)
+	st := newStore("")
+	start := time.Now()
+	free := uint64(300 * 1000 * 1000)
+	for i := 0; i <= 48; i++ {
+		checkFill(st, []Usage{usage("/mnt/data", 2*1000*1000*1000*1000, free)}, 3, start.Add(time.Duration(i)*fillEvery))
+		free -= 4 * 1000 * 1000 // 200 MB a day: "full in a day and a half", but only 200 MB
+	}
+	if len(r.written) != 0 {
+		t.Errorf("%s", r.kinds())
+	}
+}
