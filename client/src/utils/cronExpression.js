@@ -3,10 +3,12 @@
 // schedule means and tell when it runs next. Plain functions, no React: see
 // cronExpression.test.mjs.
 //
-// The server hands every schedule to gocron.CronJob(crontab, true)
-// (src/cron/index.go), which is robfig/cron's parser with a mandatory seconds
-// field: exactly six fields (second minute hour day-of-month month
-// day-of-week), or a descriptor (@hourly, @daily, @midnight, @weekly,
+// The scheduled jobs go to gocron.CronJob(crontab, true) (src/cron/index.go):
+// robfig/cron's parser with an optional seconds field, so six fields (second
+// minute hour day-of-month month day-of-week) or five (without the seconds:
+// parseCron's fiveFields option); SnapRAID's schedules are checked by the
+// server with the seconds required (storage/fork_snapraid.go), so six fields
+// only. Either may be a descriptor (@hourly, @daily, @midnight, @weekly,
 // @monthly, @yearly, @annually, @every <duration>), optionally after
 // "TZ=<zone> " or "CRON_TZ=<zone> ". The rules below follow that parser
 // (parser.go, spec.go of robfig/cron v3).

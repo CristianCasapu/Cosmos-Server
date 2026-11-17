@@ -146,7 +146,7 @@ export const PostgresTestButton = ({ formik }) => {
           {t('mgmt.config.general.monitoringDb.fork.test', 'Test the connection')}
         </Button>
         <Typography variant="caption" sx={{ color: 'text.secondary', flexBasis: 0, flexGrow: 1, minWidth: '14em' }}>
-          {t('mgmt.config.general.monitoringDb.fork.testHelp', 'Connects with the settings above as they are now, saved or not. Nothing is changed.')}
+          {t('mgmt.config.general.monitoringDb.fork.testHelp', 'Connects with the settings above as they are now, saved or not. Nothing is changed. When the database server does not offer an encrypted connection (TLS), the password travels to it unencrypted, as it does for the monitoring connection itself.')}
         </Typography>
       </Stack>
       {result && <Alert severity={result.success ? 'success' : 'error'} onClose={() => setResult(null)} sx={{ overflowWrap: 'anywhere' }} data-fork-postgres-result>

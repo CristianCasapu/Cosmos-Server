@@ -16,6 +16,7 @@ package snapshots
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"golang.org/x/sys/unix"
 	"io"
 	"net/http"
@@ -321,6 +322,9 @@ const lookGrace = time.Second
 // route's own lock (lookBusy) is never held longer than lookMaxTime+lookGrace.
 var lookAbandoned atomic.Bool
 
+// errLookFailed is what a look that panicked answers.
+var errLookFailed = errors.New("the look failed")
+
 // lookWithin runs Look in a goroutine and waits at most wait for it. done is
 // false when it gave up; the look then marks itself abandoned until it ends.
 func lookWithin(source string, wait time.Duration) (LookAnswer, error, bool) {
@@ -332,8 +336,18 @@ func lookWithin(source string, wait time.Duration) (LookAnswer, error, bool) {
 	var mu sync.Mutex
 	finished, gaveUp := false, false
 	go func() {
-		answer, err := lookRun(source)
-		results <- result{answer, err}
+		var r result
+		func() {
+			// a panic here would end Cosmos (net/http recovers only its own goroutine)
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					utils.Error("Snapshots: the look into a folder failed", fmt.Errorf("%v", recovered))
+					r = result{err: errLookFailed}
+				}
+			}()
+			r.answer, r.err = lookRun(source)
+		}()
+		results <- r
 		mu.Lock()
 		finished = true
 		if gaveUp {
@@ -399,12 +413,16 @@ func LookRoute(w http.ResponseWriter, req *http.Request) {
 	}
 	defer lookBusy.Unlock()
 	if lookAbandoned.Load() {
-		utils.HTTPError(w, "The last look is still waiting for a disk that does not answer (a network share or a hung mount?): try again later", http.StatusTooManyRequests, "SN013")
+		utils.HTTPError(w, "The last look is still waiting for a disk that does not answer (a network share or a hung mount?): try again later, or restart Cosmos", http.StatusTooManyRequests, "SN013")
 		return
 	}
 	answer, err, done := lookWithin(body.Source, lookMaxTime+lookGrace)
 	if !done {
 		utils.HTTPError(w, "The folder did not answer in time: a disk or a network share below it may be hanging. Nothing was changed", http.StatusGatewayTimeout, "SN014")
+		return
+	}
+	if errors.Is(err, errLookFailed) {
+		utils.HTTPError(w, "The look into the folder failed: nothing was changed", http.StatusInternalServerError, "SN015")
 		return
 	}
 	if err != nil {

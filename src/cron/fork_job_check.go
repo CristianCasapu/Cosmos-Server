@@ -205,14 +205,20 @@ func JobsProblem(request map[string]utils.CRONConfig, stored map[string]utils.CR
 	return ""
 }
 
+// jobsChangedMeanwhile is the refusal when the jobs a save names changed
+// between its check and the configuration's lock.
+const jobsChangedMeanwhile = "The scheduled jobs changed meanwhile (another save): load them again and try again"
+
 // RecheckJobs is the second half of the check of a whole-settings save,
 // called under the configuration's lock with the jobs stored now: when a
 // job the request names was changed by another save since `checked` was
-// read, the request's jobs are checked again against what is stored now.
+// read, the save is refused ("try again"). Nothing is checked again here:
+// that could ask Docker, which must never be waited on while the lock is
+// held (a hung Docker would block every save).
 func RecheckJobs(request map[string]utils.CRONConfig, checked map[string]utils.CRONConfig, stored map[string]utils.CRONConfig) string {
 	for key := range request {
 		if !sameStored(checked, stored, key) {
-			return JobsProblem(request, stored)
+			return jobsChangedMeanwhile
 		}
 	}
 	return ""
@@ -264,17 +270,14 @@ func refuseJob(w http.ResponseWriter, key string, job utils.CRONConfig, code str
 }
 
 // refuseStaleJob is the second half, under the lock with the jobs read there:
-// when the job stored under the key changed since refuseJob looked, the job is
-// checked again against what is stored now.
+// when the job stored under the key changed since refuseJob looked (or the
+// number of jobs did), the save is refused ("try again"), never checked
+// again under the lock (Docker is not asked while it is held).
 func refuseStaleJob(w http.ResponseWriter, check *jobCheck, stored map[string]utils.CRONConfig, code string) bool {
 	if check == nil || (sameStored(check.against, stored, check.key) && len(check.against) == len(stored)) {
 		return false
 	}
-	problem := jobSaveProblem(check.key, check.job, stored)
-	if problem == "" {
-		return false
-	}
-	utils.HTTPError(w, problem, http.StatusBadRequest, code)
+	utils.HTTPError(w, jobsChangedMeanwhile, http.StatusConflict, code)
 	return true
 }
 

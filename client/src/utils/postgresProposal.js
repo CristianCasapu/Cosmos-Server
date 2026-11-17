@@ -44,10 +44,10 @@ export const postgresNameProblem = (value) => {
 };
 
 // Why a password cannot be saved, or null: as the server, at most 1024
-// characters and no NUL ("***" is the saved one, kept).
+// bytes (UTF-8, as Go counts them) and no NUL ("***" is the saved one, kept).
 export const postgresPasswordProblem = (value) => {
   const text = String(value || '');
-  return text.length > 1024 || text.includes('\u0000') ? 'shape' : null;
+  return new TextEncoder().encode(text).length > 1024 || text.includes('\u0000') ? 'shape' : null;
 };
 
 // The fields a proposal fills: never the password.

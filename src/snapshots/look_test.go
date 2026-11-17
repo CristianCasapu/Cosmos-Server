@@ -325,3 +325,20 @@ func TestLookThatHangsIsAbandoned(t *testing.T) {
 		t.Errorf("a look after the hung one ended: %d", code)
 	}
 }
+
+// A panic in the look answers 500 and frees the route; Cosmos goes on (second review, 3).
+func TestALookThatPanicsDoesNotEndCosmos(t *testing.T) {
+	src := t.TempDir()
+	withDockerRoot(t, "")
+	was := lookRun
+	lookRun = func(string) (LookAnswer, error) { panic("a bug") }
+	t.Cleanup(func() { lookRun = was })
+	rec := call(LookRoute, apiRequest("POST", "/api/snapshots/look", "sudo", `{"source":"`+src+`"}`))
+	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "SN015") {
+		t.Errorf("a panicking look: %d %s", rec.Code, rec.Body.String())
+	}
+	if lookAbandoned.Load() || !lookBusy.TryLock() {
+		t.Fatal("the route is not free after a panic")
+	}
+	lookBusy.Unlock()
+}

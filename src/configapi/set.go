@@ -387,6 +387,11 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 		// Replicated domains go through the op-log, never straight to disk, and are
 		// published BEFORE the local write so a read-only node fails with nothing
 		// written. ConfigLock must NOT be held — the apply loop takes it.
+		// Fork addition: jobs and alerts compared with what is stored now before anything is written, see fork_jobs.go
+		if problem := recheckBeforeWriting(&request, config); problem != nil {
+			utils.HTTPError(w, problem.Message, http.StatusBadRequest, problem.Code)
+			return
+		}
 		if err := publishReplicatedDomains(request, config); err != nil {
 			utils.HTTPStoreError(w, err, "UC004")
 			return

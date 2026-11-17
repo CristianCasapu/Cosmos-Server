@@ -21,9 +21,29 @@ func checkJobs(request *utils.Config, stored utils.Config) *httpSettingsProblem 
 	return nil
 }
 
+// settingsBeforeRecheck runs just before recheckBeforeWriting; the tests make
+// another save happen there.
+var settingsBeforeRecheck = func() {}
+
+// recheckBeforeWriting compares under a short lock, before the replicated parts
+// of the save are written (publishReplicatedDomains writes them on a single
+// node too, outside the lock), so that a refusal leaves nothing half saved.
+// The same comparison runs again where the save takes the lock to write; a
+// save that slips in between those two is refused there, after the replicated
+// parts (they passed their own checks) — a window of microseconds that only
+// moving the paid replication code could close.
+func recheckBeforeWriting(request *utils.Config, checked utils.Config) *httpSettingsProblem {
+	settingsBeforeRecheck()
+	utils.ConfigLock.Lock()
+	stored := utils.ReadConfigFromFile()
+	utils.ConfigLock.Unlock()
+	return recheckJobsAndAlerts(request, checked, stored)
+}
+
 // recheckJobsAndAlerts is the second hook of PUT /api/config, under the
-// configuration's lock: the jobs are checked again when one the request names
-// changed since `checked` was read; the alerts (no outside lookup) always.
+// configuration's lock: the save is refused when a job the request names
+// changed since `checked` was read (no Docker under the lock); the alerts (no
+// outside lookup) are checked again.
 func recheckJobsAndAlerts(request *utils.Config, checked utils.Config, stored utils.Config) *httpSettingsProblem {
 	if problem := cron.RecheckJobs(request.CRON, checked.CRON, stored.CRON); problem != "" {
 		return &httpSettingsProblem{"UC043", problem}

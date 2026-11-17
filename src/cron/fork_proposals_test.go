@@ -105,8 +105,8 @@ func TestTheRouteNeverAnswersAValueOfTheContainer(t *testing.T) {
 		}
 		inspected := types.ContainerJSON{
 			ContainerJSONBase: &types.ContainerJSONBase{Name: "/db", State: &types.ContainerState{Running: false}},
-			Config: &conttype.Config{Image: "postgres:18", Env: []string{"POSTGRES_USER=" + hostileValue, "POSTGRES_PASSWORD=" + hostileValue + "pw", "POSTGRES_DB=" + hostileValue}},
-			Mounts: []types.MountPoint{{Source: "/srv/db", Destination: "/var/lib/postgresql"}},
+			Config:            &conttype.Config{Image: "postgres:18", Env: []string{"POSTGRES_USER=" + hostileValue, "POSTGRES_PASSWORD=" + hostileValue + "pw", "POSTGRES_DB=" + hostileValue}},
+			Mounts:            []types.MountPoint{{Source: "/srv/db", Destination: "/var/lib/postgresql"}},
 		}
 		c := proposalContainerOf(inspected)
 		return c, nil

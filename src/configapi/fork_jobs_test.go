@@ -133,3 +133,40 @@ func TestSwitchingJobsAndAlertsOffThroughTheWholeSave(t *testing.T) {
 		t.Errorf("a changed odd alert through the whole save: %d %s", w.Code, w.Body.String())
 	}
 }
+
+// A save whose jobs another save changed meanwhile is refused before any part
+// of it is written, the replicated ones included (second review, 2).
+func TestAStaleSaveIsRefusedBeforeAnythingIsWritten(t *testing.T) {
+	restarted := settingsTestServer(t)
+	config := hostPowersConfig()
+	config.CRON = map[string]utils.CRONConfig{"dump": {Name: "dump", Enabled: true, Crontab: "0 0 3 * * *", Command: "true"}}
+	utils.SaveConfigTofile(config)
+	utils.LoadBaseMainConfig(config)
+
+	settings := readSettingsAs(t, asAdmin)
+	settings.HTTPConfig.SSLEmail = "new-address@example.org" // a replicated part
+	job := settings.CRON["dump"]
+	job.Enabled = false
+	settings.CRON["dump"] = job
+
+	was := settingsBeforeRecheck
+	settingsBeforeRecheck = func() { // another save stores a changed job meanwhile
+		other := utils.ReadConfigFromFile()
+		changed := other.CRON["dump"]
+		changed.Command = "echo changed"
+		other.CRON["dump"] = changed
+		utils.SaveConfigTofile(other)
+	}
+	t.Cleanup(func() { settingsBeforeRecheck = was })
+	w := saveRaw(t, restarted, settings)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "changed meanwhile") {
+		t.Fatalf("a stale save: %d %s", w.Code, w.Body.String())
+	}
+	stored := utils.ReadConfigFromFile()
+	if stored.HTTPConfig.SSLEmail == "new-address@example.org" || utils.GetMainConfig().HTTPConfig.SSLEmail == "new-address@example.org" {
+		t.Error("a replicated part was written before the refusal")
+	}
+	if stored.CRON["dump"].Command != "echo changed" {
+		t.Error("the other save's job was replaced")
+	}
+}
