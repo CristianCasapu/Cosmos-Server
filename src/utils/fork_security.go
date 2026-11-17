@@ -133,6 +133,10 @@ const (
 
 	// the record about itself
 	SecRecorderDropped = "recorder.dropped"
+
+	// plan 48: a warning to the Telegram chat about a change of its
+	// settings could not be delivered
+	SecTelegramWarningLost = "telegram.warning.lost"
 )
 
 // SecurityEvent is one entry of the security record. A caller fills in Kind
@@ -321,13 +325,13 @@ func AuditSecurity(req *http.Request, kind string, target string, details ...str
 var securityUnlistedReads = []string{
 	"/cosmos/api/jobs/get",
 	"/cosmos/api/jobs/running",
-	"/cosmos/api/config/http-check", // checks the HTTP settings before a save, changes nothing
+	"/cosmos/api/config/http-check",    // checks the HTTP settings before a save, changes nothing
 	"/cosmos/api/config/postgres-test", // connects to the monitoring database of the form and says whether it answers, changes nothing
 	"/cosmos/api/snapshots/look",       // what a folder holds that is worth leaving out of the snapshots, changes nothing
-	"/cosmos/api/install/plan",      // the platforms and places for data an installation would use, changes nothing
-	"/cosmos/api/images/search",     // Docker Hub's answer for "Install any image" (plan 40), changes nothing
-	"/cosmos/api/images/describe",   // what an image declares, read from its registry, changes nothing
-	"/cosmos/api/notifications/read", // marks the caller's own notifications read (a POST since fork_post_only.go): no entry each time the bell is opened
+	"/cosmos/api/install/plan",         // the platforms and places for data an installation would use, changes nothing
+	"/cosmos/api/images/search",        // Docker Hub's answer for "Install any image" (plan 40), changes nothing
+	"/cosmos/api/images/describe",      // what an image declares, read from its registry, changes nothing
+	"/cosmos/api/notifications/read",   // marks the caller's own notifications read (a POST since fork_post_only.go): no entry each time the bell is opened
 }
 
 // SecurityAudit is the middleware behind AuditSecurity, placed innermost on

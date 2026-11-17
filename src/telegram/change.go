@@ -17,8 +17,9 @@ import (
 // the notifications. A variable so the tests can point it at a fake.
 var directClient = newAPIClient()
 
-// changeRetries are the waits between the attempts of a farewell message.
-var changeRetries = []time.Duration{5 * time.Second, 15 * time.Second}
+// changeRetries are the waits between the attempts of a farewell message;
+// the last one repeats until changeRetryFor has passed.
+var changeRetries = []time.Duration{5 * time.Second, 15 * time.Second, time.Minute, 5 * time.Minute}
 
 // AnnounceSettingsChange tells the chat that received the notifications so
 // far when a save of the settings takes them away from it: they were
@@ -59,95 +60,155 @@ func AnnounceSettingsChange(before utils.Config, after utils.Config, actor strin
 		}
 	}
 
-	queueChange(pendingChange{was: was, what: what, actor: actor, ip: ip})
+	queueChange(was, what, actor, ip)
 }
 
-// pendingChange is one announcement waiting to be sent.
-type pendingChange struct {
-	was             settings
-	what, actor, ip string
+// The announcements waiting, one entry per chat (the settings as they
+// were): what was switched off, and every account and address that did
+// it, each bounded (review T4). An entry is never pushed out by another
+// chat's: a chat beyond maxChangeChats is logged and recorded instead.
+type chatChange struct {
+	was       settings
+	whats     []string
+	moreWhats int
+	actors    []string // "account from address"
+	moreBy    int
 }
+
+const (
+	maxChangeChats  = 16
+	maxChangeWhats  = 12
+	maxChangeActors = 6
+)
 
 var (
 	changeMu      sync.Mutex
-	changePending []pendingChange
+	changeChats   = map[string]*chatChange{}
+	changeOrder   []string
 	changeRunning bool
+	// changeRetryFor is how long a warning is tried; changeRetries the
+	// waits between attempts (the last one repeats). Variables for the tests.
+	changeRetryFor = 30 * time.Minute
 )
 
-const maxPendingChanges = 32
-
-// queueChange adds an announcement; one sender at a time sends what
-// waits, several saves to the same chat in one message (review R6: a third
-// save while two were under way was dropped).
-func queueChange(change pendingChange) {
+func queueChange(was settings, what string, actor string, ip string) {
+	by := strings.TrimSpace(actor)
+	if ip != "" {
+		by = strings.TrimSpace(by + " from " + ip)
+	}
 	changeMu.Lock()
 	defer changeMu.Unlock()
-	if len(changePending) >= maxPendingChanges {
-		changePending = changePending[1:]
+	entry := changeChats[was.fingerprint]
+	if entry == nil {
+		if len(changeChats) >= maxChangeChats {
+			go lostWarning(what, by)
+			return
+		}
+		entry = &chatChange{was: was}
+		changeChats[was.fingerprint] = entry
+		changeOrder = append(changeOrder, was.fingerprint)
 	}
-	changePending = append(changePending, change)
+	if !contains(entry.whats, what) {
+		if len(entry.whats) < maxChangeWhats {
+			entry.whats = append(entry.whats, what)
+		} else {
+			entry.moreWhats++
+		}
+	}
+	if by != "" && !contains(entry.actors, by) {
+		if len(entry.actors) < maxChangeActors {
+			entry.actors = append(entry.actors, by)
+		} else {
+			entry.moreBy++
+		}
+	}
 	if !changeRunning {
 		changeRunning = true
 		go sendChanges()
 	}
 }
 
+func contains(list []string, value string) bool {
+	for _, v := range list {
+		if v == value {
+			return true
+		}
+	}
+	return false
+}
+
 func sendChanges() {
 	defer func() { recover() }()
 	for {
 		changeMu.Lock()
-		if len(changePending) == 0 {
+		if len(changeOrder) == 0 {
 			changeRunning = false
 			changeMu.Unlock()
 			return
 		}
-		batch := changePending
-		changePending = nil
+		key := changeOrder[0]
+		changeOrder = changeOrder[1:]
+		entry := changeChats[key]
+		delete(changeChats, key) // what comes meanwhile for this chat is told after
 		changeMu.Unlock()
-
-		// per chat (the settings as they were), in order
-		order := []string{}
-		groups := map[string][]pendingChange{}
-		for _, change := range batch {
-			if _, seen := groups[change.was.fingerprint]; !seen {
-				order = append(order, change.was.fingerprint)
-			}
-			groups[change.was.fingerprint] = append(groups[change.was.fingerprint], change)
-		}
-		for _, key := range order {
-			sendChange(groups[key])
+		if entry != nil {
+			sendChange(entry)
 		}
 	}
 }
 
-// sendChange tells one chat what one or more saves took away from it.
-func sendChange(changes []pendingChange) {
+// sendChange tells one chat what saves took away from it, with who did,
+// trying for changeRetryFor and honouring Telegram's waits; when it cannot,
+// the server's log, the security record and the panel say so.
+func sendChange(entry *chatChange) {
 	defer func() { recover() }()
-	whats := []string{}
-	seen := map[string]bool{}
-	for _, change := range changes {
-		if !seen[change.what] {
-			seen[change.what] = true
-			whats = append(whats, change.what)
-		}
+	what := strings.Join(entry.whats, "; ")
+	if entry.moreWhats > 0 {
+		what += " and " + strconv.Itoa(entry.moreWhats) + " more changes"
 	}
-	last := changes[len(changes)-1]
-	nt := newNotice("telegram.moved", map[string]string{"_what": strings.Join(whats, "; ")})
+	by := strings.Join(entry.actors, ", ")
+	if entry.moreBy > 0 {
+		by += " and " + strconv.Itoa(entry.moreBy) + " more"
+	}
+	nt := newNotice("telegram.moved", map[string]string{"_what": what})
 	nt.at = time.Now()
 	nt.key = "telegram.moved"
-	if last.actor != "" || last.ip != "" {
-		nt.extra = movedBy(last.actor, last.ip)
+	if by != "" {
+		nt.extra = func(c *composer) { c.fixed("Changed by ").value(by, maxFreeText).fixed(".") }
 	}
-	m := render(last.was, nt)
+	m := render(entry.was, nt)
+	deadline := time.Now().Add(changeRetryFor)
 	for attempt := 0; ; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)
-		_, failure := directClient.sendMessage(ctx, last.was, outgoing{message: m})
+		_, failure := directClient.sendMessage(ctx, entry.was, outgoing{message: m})
 		cancel()
-		if failure == nil || !failure.Retryable || attempt >= len(changeRetries) {
+		if failure == nil {
 			return
 		}
-		time.Sleep(changeRetries[attempt])
+		wait := failure.RetryAfter
+		if wait <= 0 {
+			step := attempt
+			if step >= len(changeRetries) {
+				step = len(changeRetries) - 1
+			}
+			wait = changeRetries[step]
+		}
+		if !failure.Retryable || time.Now().Add(wait).After(deadline) {
+			lostWarning(what, by)
+			return
+		}
+		time.Sleep(wait)
 	}
+}
+
+// lostWarning is what happens when a chat could not be told: a line in the
+// log, an entry of the security record, a notification in the panel. A
+// variable for the tests.
+var lostWarning = func(what string, by string) {
+	defer func() { recover() }()
+	utils.Warn("Telegram: the chat could not be told that its notifications " + what + " (changed by " + by + ")")
+	utils.RecordSecurityEvent(utils.SecurityEvent{Kind: utils.SecTelegramWarningLost, Details: map[string]string{"what": cleanValue(what, 300), "by": cleanValue(by, 200)}})
+	raiseInPanel("The Telegram chat could not be told that its notifications " + what + ".")
 }
 
 // silenced says, in fixed words, what a change of the delivery per

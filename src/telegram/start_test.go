@@ -3,7 +3,9 @@ package telegram
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -333,4 +335,116 @@ func waitForNoChanges(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("an announcement of an earlier test is still under way")
+}
+
+// Review T4: the farewell to the old chat is not pushed out by many saves
+// to the new chat, and every account that changed something is named.
+func TestTheFarewellCannotBePushedOut(t *testing.T) {
+	fake := newFakeTelegram(t)
+	fake.always(fakeAnswer{status: 200, body: answerOK.body, delay: 200 * time.Millisecond})
+	useFake(t, fake)
+	waitForNoChanges(t)
+	before := testConfig()
+	minor := testConfig()
+	minor.Telegram.Kinds = map[string]bool{"smart.failing": false}
+	AnnounceSettingsChange(before, minor, "owner", "192.0.2.7") // being sent
+	moved := testConfig()
+	moved.Telegram.BotToken = "987654321:BBotherOtherOtherOtherOtherOtherOther"
+	AnnounceSettingsChange(minor, moved, "mallory", "203.0.113.66") // the farewell to the old chat
+	for i := 0; i < 40; i++ {
+		was, is := moved, moved
+		is.Telegram.Kinds = map[string]bool{"docker.down": false, "auth.mfa.locked": i%2 == 0}
+		AnnounceSettingsChange(was, is, "mallory", "203.0.113.66")
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, req := range fake.received() {
+			text, _ := req.body["text"].(string)
+			if strings.Contains(text, "now use another bot") && req.path == "/bot"+testToken+"/sendMessage" {
+				if !strings.Contains(text, "mallory from 203.0.113.66") {
+					t.Errorf("the farewell does not name who: %s", text)
+				}
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("the farewell to the old chat never came: %q", fake.texts())
+}
+
+func TestCoalescedSavesNameEveryone(t *testing.T) {
+	fake := newFakeTelegram(t)
+	fake.always(fakeAnswer{status: 200, body: answerOK.body, delay: 300 * time.Millisecond})
+	useFake(t, fake)
+	waitForNoChanges(t)
+	before := testConfig()
+	for i, who := range []string{"owner", "mallory", "eve"} {
+		after := testConfig()
+		after.Telegram.Kinds = map[string]bool{[]string{"smart.failing", "docker.down", "auth.mfa.locked"}[i]: false}
+		AnnounceSettingsChange(before, after, who, "198.51.100."+strconv.Itoa(i+1))
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		all := strings.Join(fake.texts(), "\n")
+		if strings.Contains(all, "mallory from 198.51.100.2") && strings.Contains(all, "eve from 198.51.100.3") && strings.Contains(all, "owner from 198.51.100.1") {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Errorf("not everyone was named: %q", fake.texts())
+}
+
+// A warning waits out a Telegram outage; when it cannot be delivered in
+// time, the server says so.
+func TestAWarningOutlastsAnOutageOrIsReported(t *testing.T) {
+	fake := newFakeTelegram(t)
+	var mu sync.Mutex
+	down := true
+	fake.answerWith(func(int, fakeRequest) fakeAnswer {
+		mu.Lock()
+		defer mu.Unlock()
+		if down {
+			return fakeAnswer{status: 502, body: "bad gateway"}
+		}
+		return answerOK
+	})
+	useFake(t, fake)
+	waitForNoChanges(t)
+	changeRetries = []time.Duration{50 * time.Millisecond}
+	lost := make(chan string, 4)
+	previousLost, previousFor := lostWarning, changeRetryFor
+	lostWarning = func(what string, by string) { lost <- what + " | " + by }
+	t.Cleanup(func() { lostWarning, changeRetryFor = previousLost, previousFor })
+
+	after := testConfig()
+	after.Telegram.Enabled = false
+	AnnounceSettingsChange(testConfig(), after, "mallory", "203.0.113.66")
+	time.Sleep(300 * time.Millisecond)
+	mu.Lock()
+	down = false
+	refused := len(fake.received())
+	mu.Unlock()
+	// delivered once Telegram answers: a request after the outage, and the sender idle
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && len(fake.received()) <= refused {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(fake.received()) <= refused || refused < 2 {
+		t.Fatalf("the warning did not outlast the outage (%d refused)", refused)
+	}
+	waitForNoChanges(t)
+	// never delivered within the time: reported
+	changeRetryFor = 200 * time.Millisecond
+	mu.Lock()
+	down = true
+	mu.Unlock()
+	AnnounceSettingsChange(testConfig(), after, "mallory", "203.0.113.66")
+	select {
+	case got := <-lost:
+		if !strings.Contains(got, "were switched off") || !strings.Contains(got, "mallory from 203.0.113.66") {
+			t.Errorf("%s", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("a lost warning was not reported")
+	}
 }
