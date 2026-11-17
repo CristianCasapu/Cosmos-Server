@@ -517,4 +517,15 @@ PROTECTION.sshallowed = guardOf({
   ipv4Reason: 'public-address',
 });
 PROTECTION.others = guardOf({ otherFilters: ['inet firewalld', 'ip filter', 'inet cosmos_guard'] });
+// the guard's third table (src/protection/testdata/nft-guard-v3-*.json): IPv4 passed per interface, trusted
+// uplinks, pending prefixes, the reverse-path counter; what the installer found; its watcher's liveness
+const v3Table = { ...liveTable, ipv4PassInterfaces: [], rpfInterfaces: ['eth0'], trustedInterfaces: [], pendingPrefixes: [], droppedRpf: { packets: 12, bytes: 720 } };
+const fresh = { watcherAt: '2026-11-17T09:59:55Z', refreshAt: '2026-11-17T09:59:20Z', watcherStale: false, refreshStale: false };
+const v3 = (table, extra = {}) => guardOf({ liveness: fresh, vpnFound: [], udpNotOpen: [], trustedInterfaces: [], table: { ...v3Table, ...table }, ...extra });
+PROTECTION.trusted = v3({ wanInterfaces: ['eth0', 'tun0'], trustedInterfaces: ['tun0'] }, { active: false, state: 'inactive', reason: 'trustedUplink', trustedInterfaces: ['tun0'] });
+PROTECTION.pass4 = v3({ wanInterfaces: ['eth0', 'wlan0'], lanInterfaces: ['eth0'], ipv4PassInterfaces: ['eth0'], rpfInterfaces: ['wlan0'], publicTcp: [2053] }, { ipv4: false, ipv4Reason: 'behind-router' });
+PROTECTION.pending = v3({ pendingPrefixes: ['2001:db8:5::/64'] });
+PROTECTION.cloud = v3({ lanInterfaces: [], publicTcp: [2053] }, { cloud: 'Amazon EC2', exposed: true, ipv4Reason: 'exposed', sshMode: 'console' });
+PROTECTION.vpnunknown = v3({}, { vpnFound: [{ kind: 'tailscale', port: 41641 }, { kind: 'wireguard', interface: 'wg0' }], udpNotOpen: [5353, 51820] });
+PROTECTION.stale = v3({}, { liveness: { watcherAt: '2026-11-17T09:20:00Z', refreshAt: '2026-11-17T09:21:00Z', watcherStale: true, refreshStale: true } });
 export const protectionMock = (state) => [['/cosmos/api/protection', ok(PROTECTION[state])]];
