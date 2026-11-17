@@ -214,30 +214,33 @@ func (n *notifier) Notify(nt notice) {
 	if !st.wants(nt) {
 		return
 	}
-	// put into words before the lock: the guard can take a while (review)
+	// the budgets first (cheap), then the words outside the lock (the guard
+	// can take a while), then the queue
+	p := nt.priority()
+	n.mu.Lock()
+	held := false
+	switch {
+	case n.pausedLocked(st, now):
+		// while the token or the chat is refused nothing is queued: it is
+		// counted, and told in one message once sending works again
+		held = true
+	case !n.takeLocked(nt.budgetKey(), p, now):
+		held = true
+	case p != priorityCritical && !n.underCapLocked(st.maxPerMinute, now):
+		held = true
+	}
+	if held {
+		n.holdLocked(nt.kind, 1, p, now)
+		n.mu.Unlock()
+		return
+	}
+	n.mu.Unlock()
 	rendered := render(st, nt)
 	plain := renderWith(st, nt, false)
 	plain.button = nil
 
 	n.mu.Lock()
 	defer n.mu.Unlock()
-
-	// while the token or the chat is refused nothing is queued: it is
-	// counted, and told in one message once sending works again
-	p := nt.priority()
-	if n.pausedLocked(st, now) {
-		n.holdLocked(nt.kind, 1, p, now)
-		return
-	}
-	// a closing message is not held back: it ends what was told
-	if !(nt.closing && nt.resolves != "") && !n.takeLocked(nt.budgetKey(), p, now) {
-		n.holdLocked(nt.kind, 1, p, now)
-		return
-	}
-	if p != priorityCritical && !n.underCapLocked(st.maxPerMinute, now) {
-		n.holdLocked(nt.kind, 1, p, now)
-		return
-	}
 
 	it := &item{priority: p, at: now, since: nt.at, counts: map[string]int{nt.kind: 1}, nt: nt}
 	it.message = rendered
