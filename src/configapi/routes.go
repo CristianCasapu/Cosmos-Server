@@ -29,6 +29,10 @@ func validateRoute(route utils.ProxyRouteConfig) string {
 		return "Unsupported load balancing mode \"" + route.LBMode + "\" on route \"" + route.Name +
 			"\". Supported modes are \"round_robin\", \"load_based\" and \"first\" (an empty value means \"first\": always send traffic to the first/local target)"
 	}
+	// Fork addition (plan 49): the URL's role and label, see src/utils/fork_route_interface.go
+	if msg := utils.RouteInterfaceProblem(route.ForkInterface); msg != "" {
+		return msg + " (route \"" + route.Name + "\")"
+	}
 	return ""
 }
 
@@ -138,6 +142,7 @@ func createRoute(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "Invalid request", http.StatusBadRequest, "RT002")
 		return
 	}
+	newRoute.ForkKey = "" // Fork addition (plan 49): a key an answer carried is not part of the route
 
 	if newRoute.Name == "" {
 		utils.HTTPError(w, "Route name is required", http.StatusBadRequest, "RT003")
@@ -228,6 +233,7 @@ func updateRoute(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "Invalid request", http.StatusBadRequest, "RT005")
 		return
 	}
+	updatedRoute.ForkKey = "" // Fork addition (plan 49): a key an answer carried is not part of the route
 
 	if !updatedRoute.UseHost && !updatedRoute.UsePathPrefix {
 		utils.HTTPError(w, "Route must have at least one of UseHost or UsePathPrefix enabled, otherwise it will catch all requests", http.StatusBadRequest, "RT008")

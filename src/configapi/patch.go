@@ -46,6 +46,7 @@ func ConfigApiPatch(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if updateReq.NewRoute != nil {
+		updateReq.NewRoute.ForkKey = "" // Fork addition (plan 49): a key an answer carried is not part of the route
 		if msg := validateRoute(*updateReq.NewRoute); msg != "" {
 			utils.Error("RouteSettingsUpdate: "+msg, nil)
 			utils.HTTPError(w, msg, http.StatusBadRequest, "UR005")
