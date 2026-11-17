@@ -45,6 +45,10 @@ const (
 	maxPorts = 64
 	// maxOtherFilters bounds the list of other tables in a state file.
 	maxOtherFilters = 16
+	// maxVPNs bounds the list of VPNs found in a state file.
+	maxVPNs = 16
+	// maxInterfaces bounds a list of interfaces in a state file.
+	maxInterfaces = 64
 )
 
 // ipv4Reasons are the values ipv4_reason may take: why the installer
@@ -53,6 +57,32 @@ const (
 var ipv4Reasons = map[string]bool{
 	"public-address": true, "cgnat-address": true, "asked-yes": true, "exposed": true,
 	"behind-router": true, "asked-no": true,
+}
+
+// cloudPattern is the value of cloud: the name of a detected cloud ("Amazon
+// EC2"), empty when none was.
+var cloudPattern = regexp.MustCompile(`^[A-Za-z0-9 ._()/-]{0,64}$`)
+
+// virtPattern is the value of virt: what systemd-detect-virt says (kvm, lxc,
+// none).
+var virtPattern = regexp.MustCompile(`^[a-z0-9-]{0,32}$`)
+
+// vpnPattern is one entry of vpn_found: the VPN and its UDP port, or unknown.
+var vpnPattern = regexp.MustCompile(`^(tailscale|wireguard [A-Za-z0-9_.:-]{1,15}|nebula):([0-9]{1,5}|unknown)$`)
+
+// sshModes are the values ssh_mode may take: how the installer left SSH
+// from outside (allowances for the sessions, open to everyone, open from
+// named addresses, closed: the administrator has a console).
+var sshModes = map[string]bool{"allowance": true, "open": true, "from": true, "console": true}
+
+// VPN is one VPN the installer found on the server.
+type VPN struct {
+	// Kind is tailscale, wireguard or nebula.
+	Kind string `json:"kind"`
+	// Interface is the WireGuard interface.
+	Interface string `json:"interface,omitempty"`
+	// Port is its UDP port, nil when it is not known.
+	Port *int `json:"port,omitempty"`
 }
 
 // otherFilterPattern is one entry of other_filters: a family and a table.
@@ -75,6 +105,21 @@ type State struct {
 	// OtherFilters are the other nftables tables that filter input, as
 	// "<family> <name>"; nil when the value did not pass.
 	OtherFilters []string
+	// Cloud is the cloud the installer detected ("Amazon EC2"), empty when
+	// none was.
+	Cloud string
+	// Virt is the virtualisation it found (kvm, lxc, none).
+	Virt string
+	// VPNs are the VPNs it found; nil when the value did not pass.
+	VPNs []VPN
+	// UDPNotOpen are UDP ports listening on the server that do not answer
+	// from outside; nil when the value did not pass.
+	UDPNotOpen []int
+	// SSHMode is how SSH was left from outside (one of sshModes).
+	SSHMode string
+	// TrustedInterfaces were trusted with --trust-interface; nil when the
+	// value did not pass.
+	TrustedInterfaces []string
 	// fail2ban
 	SSHD        *bool
 	CosmosJails *bool
@@ -183,6 +228,18 @@ func parseState(piece string, content []byte) (State, error) {
 		}
 		state.Exposed = parseYesNo(values["exposed"], "yes", "no")
 		state.OtherFilters, _ = parseOtherFilters(values["other_filters"])
+		if cloudPattern.MatchString(values["cloud"]) {
+			state.Cloud = values["cloud"]
+		}
+		if virtPattern.MatchString(values["virt"]) {
+			state.Virt = values["virt"]
+		}
+		state.VPNs, _ = parseVPNs(values["vpn_found"])
+		state.UDPNotOpen, _ = parsePorts(values["udp_not_open"])
+		if sshModes[values["ssh_mode"]] {
+			state.SSHMode = values["ssh_mode"]
+		}
+		state.TrustedInterfaces, _ = parseInterfaces(values["trusted_if"])
 	case PieceFail2ban:
 		state.SSHD = parseYesNo(values["sshd"], "on", "off")
 		state.CosmosJails = parseYesNo(values["cosmos_jails"], "on", "off")
@@ -274,4 +331,70 @@ func parseOtherFilters(value string) ([]string, bool) {
 		}
 	}
 	return filters, true
+}
+
+// parseVPNs takes "tailscale:41641;wireguard wg0:unknown": at most maxVPNs
+// entries of a VPN and its port (1 to 65535) or unknown, separated by ";",
+// in the order given, without duplicates. Empty is an empty list. A list
+// with one bad entry is refused whole (nil, false).
+func parseVPNs(value string) ([]VPN, bool) {
+	vpns := []VPN{}
+	if value == "" {
+		return vpns, true
+	}
+	parts := strings.Split(value, ";")
+	if len(parts) > maxVPNs {
+		return nil, false
+	}
+	seen := map[string]bool{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		match := vpnPattern.FindStringSubmatch(part)
+		if match == nil {
+			return nil, false
+		}
+		vpn := VPN{Kind: match[1]}
+		if name, found := strings.CutPrefix(match[1], "wireguard "); found {
+			vpn.Kind, vpn.Interface = "wireguard", name
+		}
+		if match[2] != "unknown" {
+			port, err := strconv.Atoi(match[2])
+			if err != nil || port < 1 || port > 65535 {
+				return nil, false
+			}
+			vpn.Port = &port
+		}
+		if !seen[part] {
+			seen[part] = true
+			vpns = append(vpns, vpn)
+		}
+	}
+	return vpns, true
+}
+
+// parseInterfaces takes "tun0,wg1": interface names, comma-separated, at
+// most maxInterfaces, sorted and without duplicates. Empty is an empty list.
+// A list with one bad entry is refused whole (nil, false).
+func parseInterfaces(value string) ([]string, bool) {
+	names := []string{}
+	if value == "" {
+		return names, true
+	}
+	parts := strings.Split(value, ",")
+	if len(parts) > maxInterfaces {
+		return nil, false
+	}
+	seen := map[string]bool{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if !ifnamePattern.MatchString(part) {
+			return nil, false
+		}
+		if !seen[part] {
+			seen[part] = true
+			names = append(names, part)
+		}
+	}
+	sort.Strings(names)
+	return names, true
 }
