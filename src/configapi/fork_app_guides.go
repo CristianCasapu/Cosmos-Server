@@ -32,6 +32,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 
+	"github.com/azukaar/cosmos-server/src/anyimage"
 	"github.com/azukaar/cosmos-server/src/docker"
 	"github.com/azukaar/cosmos-server/src/guides"
 	"github.com/azukaar/cosmos-server/src/utils"
@@ -46,6 +47,52 @@ type ForkGuideFields struct {
 	ForkShielded      bool     `json:"ForkShielded,omitempty"`
 	ForkOwnCAHosts    []string `json:"ForkOwnCAHosts,omitempty"`
 	ForkNetworks      []string `json:"ForkNetworks,omitempty"`
+	// administrators only (it is configuration): what Cosmos itself limits on this URL
+	ForkLimits *ForkRouteLimits `json:"ForkLimits,omitempty"`
+	// administrators only: the port of the recipe's service (an API), for the URL form's proposal
+	ForkServicePort int `json:"ForkServicePort,omitempty"`
+}
+
+// ForkRouteLimits is what Cosmos' proxy limits on a URL, as it applies it:
+// the shield's per-visitor limits with the defaults and the strictness
+// factor already applied (src/proxy/shield.go budgetViolation), per rolling
+// hour; zero means no limit.
+type ForkRouteLimits struct {
+	Shield                   bool    `json:"Shield"`
+	ShieldRequestsPerHour    int     `json:"ShieldRequestsPerHour,omitempty"`
+	ShieldBytesPerHour       int64   `json:"ShieldBytesPerHour,omitempty"`
+	ShieldTimePerHourSeconds float64 `json:"ShieldTimePerHourSeconds,omitempty"`
+	ShieldSimultaneous       int     `json:"ShieldSimultaneous,omitempty"`
+	ShieldGlobalSimultaneous int     `json:"ShieldGlobalSimultaneous,omitempty"`
+	ThrottlePerMinute        int     `json:"ThrottlePerMinute,omitempty"`
+	MaxBandwidth             int64   `json:"MaxBandwidth,omitempty"` // bytes per second sent back to a visitor
+	TimeoutMs                int64   `json:"TimeoutMs,omitempty"`
+	BlockBots                bool    `json:"BlockBots,omitempty"`
+	BlockAPIAbuse            bool    `json:"BlockAPIAbuse,omitempty"`
+}
+
+// routeLimits reads a URL's limits as the proxy applies them.
+func routeLimits(route utils.ProxyRouteConfig) *ForkRouteLimits {
+	limits := &ForkRouteLimits{
+		ThrottlePerMinute: route.ThrottlePerMinute,
+		MaxBandwidth:      route.MaxBandwith,
+		TimeoutMs:         int64(route.Timeout),
+		BlockBots:         route.BlockCommonBots,
+		BlockAPIAbuse:     route.BlockAPIAbuse,
+	}
+	if route.SmartShield.Enabled {
+		policy := utils.ApplySmartShieldDefaults(route.SmartShield)
+		strictness := policy.PolicyStrictness
+		limits.Shield = true
+		limits.ShieldRequestsPerHour = policy.PerUserRequestLimit * strictness
+		limits.ShieldBytesPerHour = policy.PerUserByteLimit * int64(strictness)
+		if policy.PerUserTimeBudget > 0 {
+			limits.ShieldTimePerHourSeconds = policy.PerUserTimeBudget * float64(strictness) / 1000
+		}
+		limits.ShieldSimultaneous = policy.PerUserSimultaneous * strictness * 15
+		limits.ShieldGlobalSimultaneous = policy.MaxGlobalSimultaneous
+	}
+	return limits
 }
 
 // ForkHostOwnCA reports whether the certificate the server presents for a
@@ -75,15 +122,20 @@ func guideFields(route utils.ProxyRouteConfig, image string, c *types.Container,
 		host = route.Host
 		fields.ForkShielded = utils.IsShieldedHost(host)
 	}
-	if ForkHostOwnCA != nil {
+	if ForkHostOwnCA != nil && fields.ForkGuide != "" { // only for a guide, and remembered for a minute
 		names := append([]string{}, homeHosts...)
 		if host != "" && !fields.ForkShielded { // a shielded name shows Cloudflare's certificate to its visitors
 			names = append([]string{host}, names...)
 		}
 		for _, name := range names {
-			if len(fields.ForkOwnCAHosts) < 5 && ForkHostOwnCA(hostName(name)) {
+			if len(fields.ForkOwnCAHosts) < 5 && hostOwnCA(hostName(name)) {
 				fields.ForkOwnCAHosts = append(fields.ForkOwnCAHosts, name)
 			}
+		}
+	}
+	if containerDetails && fields.ForkGuide != "" {
+		if recipe := anyimage.RecipeForImage(image); recipe != nil && recipe.Service != nil {
+			fields.ForkServicePort = recipe.Service.Port
 		}
 	}
 	if containerDetails && c != nil && c.NetworkSettings != nil {
@@ -120,29 +172,40 @@ func hostName(host string) string {
 
 var imageID = regexp.MustCompile(`^(sha256:)?[0-9a-f]{12,64}$`)
 
-// forkImageNames lists the names an image ID is known by (its tags, else its
-// digests). A variable for the tests.
-var forkImageNames = func(id string) []string {
-	if docker.DockerClient == nil {
-		return nil
+// forkContainerImage is the image a container was created from, as its
+// configuration names it (Config.Image: "rustfs/rustfs@sha256:…" or the tag
+// that was used), "" when Docker does not answer. A variable for the tests.
+var forkContainerImage = func(containerID string) string {
+	if docker.DockerClient == nil || containerID == "" {
+		return ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	inspected, _, err := docker.DockerClient.ImageInspectWithRaw(ctx, id)
-	if err != nil {
-		return nil
+	inspected, err := docker.DockerClient.ContainerInspect(ctx, containerID)
+	if err != nil || inspected.Config == nil {
+		return ""
 	}
-	return append(append([]string{}, inspected.RepoTags...), inspected.RepoDigests...)
+	return inspected.Config.Image
+}
+
+// how long a failed lookup is remembered before it is tried again
+const imageLookupRetry = time.Minute
+
+type imageName struct {
+	name   string
+	failed time.Time // zero: a name that was found
 }
 
 var imageNames = struct {
 	sync.Mutex
-	byID map[string]string
-}{byID: map[string]string{}}
+	byKey map[string]imageName
+}{byKey: map[string]imageName{}}
 
-// resolvedImage is the image a container runs, as a name: Docker's list
-// gives "b81d16a90ee2" for a container created from "repo@sha256:…"; that
-// ID is looked up once (the answer is kept, at most 256 of them).
+// resolvedImage is the image a container runs, as a name. Docker's list
+// gives "b81d16a90ee2" for a container created from "repo@sha256:…"; the
+// container's own configuration says what it was created from. A name found
+// is kept (at most 256); a failed lookup (Docker busy) is tried again after
+// a minute, and meanwhile the ID is used.
 func resolvedImage(c *types.Container) string {
 	if c == nil {
 		return ""
@@ -151,36 +214,71 @@ func resolvedImage(c *types.Container) string {
 	if !imageID.MatchString(image) {
 		return image
 	}
-	id := c.ImageID
-	if id == "" {
-		id = image
-	}
+	key := c.ID + "/" + c.ImageID
 	imageNames.Lock()
-	name, ok := imageNames.byID[id]
+	known, ok := imageNames.byKey[key]
 	imageNames.Unlock()
-	if ok {
-		return name
-	}
-	name = image
-	for _, candidate := range forkImageNames(id) {
-		if candidate != "" && !strings.HasPrefix(candidate, "<none>") {
-			name = candidate
-			break
+	if ok && (known.failed.IsZero() || time.Since(known.failed) < imageLookupRetry) {
+		if known.failed.IsZero() {
+			return known.name
 		}
+		return image
+	}
+	entry := imageName{failed: time.Now()}
+	if name := strings.TrimSpace(forkContainerImage(c.ID)); name != "" && !imageID.MatchString(name) {
+		entry = imageName{name: name}
 	}
 	imageNames.Lock()
-	if len(imageNames.byID) >= 256 {
-		imageNames.byID = map[string]string{}
+	if len(imageNames.byKey) >= 256 {
+		imageNames.byKey = map[string]imageName{}
 	}
-	imageNames.byID[id] = name
+	imageNames.byKey[key] = entry
 	imageNames.Unlock()
-	return name
+	if entry.failed.IsZero() {
+		return entry.name
+	}
+	return image
 }
 
-// forkGuideSettingProblem says what is wrong with a URL's guide setting.
+// ---------------------------------------------------------------------------
+// whether a name's certificate is Cosmos' own, remembered for a minute
+
+var ownCACache = struct {
+	sync.Mutex
+	at    map[string]time.Time
+	value map[string]bool
+}{at: map[string]time.Time{}, value: map[string]bool{}}
+
+func hostOwnCA(host string) bool {
+	ownCACache.Lock()
+	at, ok := ownCACache.at[host]
+	value := ownCACache.value[host]
+	ownCACache.Unlock()
+	if ok && time.Since(at) < time.Minute {
+		return value
+	}
+	value = ForkHostOwnCA(host)
+	ownCACache.Lock()
+	if len(ownCACache.at) >= 256 {
+		ownCACache.at, ownCACache.value = map[string]time.Time{}, map[string]bool{}
+	}
+	ownCACache.at[host], ownCACache.value[host] = time.Now(), value
+	ownCACache.Unlock()
+	return value
+}
+
+// forkGuideSettingProblem says what is wrong with a URL's guide setting. A
+// kind this build does not know is refused when it is set, and kept (shown as
+// no guide) when the stored configuration already holds it for that URL, so
+// that a configuration from a newer build still saves as a whole.
 func forkGuideSettingProblem(route utils.ProxyRouteConfig) string {
 	if route.ForkInterface == nil || guides.ValidSetting(route.ForkInterface.Guide) {
 		return ""
+	}
+	for _, stored := range utils.GetMainConfig().HTTPConfig.ProxyConfig.Routes {
+		if stored.Name == route.Name && stored.ForkInterface != nil && stored.ForkInterface.Guide == route.ForkInterface.Guide {
+			return ""
+		}
 	}
 	return "The guide of the address must be one of: none, " + strings.Join(guides.Kinds(), ", ")
 }

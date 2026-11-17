@@ -24,7 +24,7 @@ import { DownloadFile } from '../api/downloadButton';
 import { copyToClipboard } from './appOpen';
 import { notify } from '../utils/activity';
 import {
-  parseGuide, guideFacts, visibleBlocks, visibleInline, visibleSections, renderCode, inlineValue, validBucket, validName, guidePath, PLACES,
+  limitParts, parseGuide, guideFacts, visibleBlocks, visibleInline, visibleSections, renderCode, inlineValue, validBucket, validName, guidePath, PLACES,
 } from '../utils/guides';
 import s3Guide from '../../../src/guides/s3.md?raw';
 
@@ -67,6 +67,11 @@ const CodeBlock = ({ block, facts }) => {
   const { t } = useTranslation();
   const copy = useCopy();
   const code = renderCode(block, facts);
+  if (!code.ok && /^missing (bucket|name)$/.test(code.problem)) {
+    return <Alert severity="info" data-code={block.id} data-code-problem={code.problem}>
+      {t('mgmt.guide.typedBad', 'This example appears once the name typed above is valid.')}
+    </Alert>;
+  }
   if (!code.ok) {
     return <Alert severity="warning" data-code={block.id} data-code-problem={code.problem}>
       {t('mgmt.guide.notBuilt', 'This example could not be built for this app: a value it needs is missing or is not plain ({{problem}}).', { problem: code.problem })}
@@ -91,6 +96,46 @@ const CodeBlock = ({ block, facts }) => {
   </Box>;
 };
 
+// What Cosmos itself limits on the chosen address (administrators: it is the
+// URL's configuration), in plain words, with the way to remove the limits in
+// the URL's own form (never a change made from here).
+const LIMIT_TEXT = {
+  requests: ['mgmt.guide.limit.requests', 'at most {{value}} requests an hour from one machine'],
+  bytes: ['mgmt.guide.limit.bytes', 'at most {{value}} GB an hour from one machine'],
+  time: ['mgmt.guide.limit.time', 'at most {{value}} seconds of requests an hour from one machine'],
+  simultaneous: ['mgmt.guide.limit.simultaneous', 'at most {{value}} requests at once from one machine'],
+  throttle: ['mgmt.guide.limit.throttle', 'at most {{value}} requests a minute from one address'],
+  bandwidth: ['mgmt.guide.limit.bandwidth', 'downloads slowed to {{value}} MB/s'],
+  timeout: ['mgmt.guide.limit.timeout', 'a single request is cut after {{value}} minutes'],
+  bots: ['mgmt.guide.limit.bots', 'visitors that look like bots are refused (some backup tools may look like one)'],
+  referer: ['mgmt.guide.limit.referer', 'uploads and deletes without a Referer header are refused (no backup tool sends one: backups fail)'],
+};
+const limitValue = (what, value) => (what === 'bytes' ? Math.round(value / 1073741824) : what === 'bandwidth' ? Math.round(value / 104857.6) / 10 : what === 'timeout' ? Math.round(value / 60000) : Math.round(value));
+
+export const LimitsLine = ({ facts }) => {
+  const { t } = useTranslation();
+  const limits = facts && facts.limits;
+  if (!limits) return null;
+  const where = facts.choice;
+  if (limits.direct) {
+    return <Alert severity="success" data-limits="direct">{t('mgmt.guide.limits.direct', 'This address does not go through Cosmos: Cosmos puts no limit on it.')}</Alert>;
+  }
+  const parts = limitParts(limits);
+  const advice = where === 'internet'
+    ? t('mgmt.guide.limits.internet', 'For the internet address this is your choice: without Cosmos\' limits the storage\'s own keys are its only protection') + (facts.flags.cloudflare ? t('mgmt.guide.limits.cloudflare', ', with Cloudflare\'s proxy in front.') : '.')
+    : t('mgmt.guide.limits.home', 'For backups from the home network or another app, no limit is the right setting.');
+  if (parts.length === 0) {
+    return <Alert severity="success" data-limits="none">{t('mgmt.guide.limits.none', 'Cosmos puts no limit on this address.')} {advice}</Alert>;
+  }
+  const list = parts.map((p) => t(...LIMIT_TEXT[p.what], { value: limitValue(p.what, p.value) })).join('; ');
+  return <Alert severity="warning" data-limits="limited" sx={{ '& .MuiAlert-message': { minWidth: 0 } }}
+    action={<Button color="inherit" component={RouterLink} to={'/cosmos-ui/config-url/' + encodeURIComponent(limits.route)} sx={{ minHeight: 44 }} className="guide-no-print" data-limits-remove>
+      {t('mgmt.guide.limits.remove', 'Remove Cosmos\' limits from this address')}</Button>}>
+    {t('mgmt.guide.limits.some', 'Cosmos limits this address: {{list}}. A large backup will be slowed, refused with 429 or cut.', { list, interpolation: { escapeValue: false } })} {advice}
+    {' '}{t('mgmt.guide.limits.how', 'The button opens the URL\'s settings (its Security part): switch off the shield and set the limits to 0 and the timeout to 24 hours or none, then save.')}
+  </Alert>;
+};
+
 const Blocks = ({ blocks, facts }) => <Stack spacing={1.5}>
   {visibleBlocks(blocks, facts.flags).map((b, i) => {
     if (b.type === 'heading') return <Typography key={i} variant={b.level === 3 ? 'h5' : 'h6'} component={b.level === 3 ? 'h3' : 'h4'} sx={{ pt: 1 }}><Inline items={b.inline} facts={facts} /></Typography>;
@@ -106,6 +151,7 @@ const Blocks = ({ blocks, facts }) => <Stack spacing={1.5}>
       </Table>
     </Box>;
     if (b.type === 'code') return <CodeBlock key={i} block={b} facts={facts} />;
+    if (b.type === 'widget' && b.name === 'limits') return <LimitsLine key={i} facts={facts} />;
     return null;
   })}
 </Stack>;
@@ -166,6 +212,7 @@ export const AppGuide = ({ app, ctx, status, name }) => {
         ? <ChoiceChips id="guide-place" label={t('mgmt.guide.place.label', 'I am connecting from')} value={facts.choice} options={options} onChange={setChoice}
           helperText={t('mgmt.guide.place.help', 'Every example below is written for this place.')} />
         : <Alert severity="warning">{t('mgmt.guide.noAddress', '{{name}} has no address its clients can use yet. Give it a URL (ServApps, the app, "New URL") and come back.', { name })}</Alert>}
+      <LimitsLine facts={facts} />
       <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'max-content 1fr' }, columnGap: 2, rowGap: 0.5, '& dd': { m: 0, mb: { xs: 1, sm: 0 }, overflowWrap: 'anywhere', minWidth: 0 } }} data-addresses>
         {PLACES.map((p) => (p === 'container' && !ctx.isAdmin ? null : <React.Fragment key={p}>
           <Typography component="dt" variant="subtitle2">{t(...PLACE_TEXT[p])}</Typography>
@@ -178,11 +225,11 @@ export const AppGuide = ({ app, ctx, status, name }) => {
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
         <TextField size="small" label={t('mgmt.guide.bucket', 'Bucket in the examples')} value={typed.bucket} placeholder={facts.values.bucket}
           onChange={(e) => setTyped({ ...typed, bucket: e.target.value.slice(0, 63) })} error={bucketBad}
-          helperText={bucketBad ? t('mgmt.guide.bucketBad', '3 to 63 lower-case letters, digits and dashes; not used until it is') : t('mgmt.guide.bucketHelp', 'One bucket per thing you back up')}
+          helperText={bucketBad ? t('mgmt.guide.bucketBad', '3 to 63 lower-case letters, digits and dashes: the examples that use it wait until it is valid') : t('mgmt.guide.bucketHelp', 'One bucket per thing you back up')}
           slotProps={{ htmlInput: { 'data-typed': 'bucket', autoCapitalize: 'none', spellCheck: false } }} sx={{ flex: 1 }} />
         <TextField size="small" label={t('mgmt.guide.machine', 'Name of the machine or site')} value={typed.name} placeholder={facts.values.name}
           onChange={(e) => setTyped({ ...typed, name: e.target.value.slice(0, 31) })} error={nameBad}
-          helperText={nameBad ? t('mgmt.guide.machineBad', 'Lower-case letters, digits and dashes; not used until it is') : t('mgmt.guide.machineHelp', 'Names its key and its backups')}
+          helperText={nameBad ? t('mgmt.guide.machineBad', 'Lower-case letters, digits and dashes: the examples that use it wait until it is valid') : t('mgmt.guide.machineHelp', 'Names its key and its backups')}
           slotProps={{ htmlInput: { 'data-typed': 'name', autoCapitalize: 'none', spellCheck: false } }} sx={{ flex: 1 }} />
       </Stack>
       <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }} className="guide-no-print">

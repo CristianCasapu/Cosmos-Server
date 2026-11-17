@@ -147,11 +147,20 @@ for (const engine of engines) {
     // the chooser rewrites every example
     await page.locator('[role=radio]', { hasText: 'The internet' }).click();
     await page.locator('[data-guide][data-place="internet"]').waitFor({ timeout: 5000 });
-    const rclone = await codeText(page, 'linux-rclone');
+    const rclone = await codeText(page, 'linux-env');
     check(/s3\.example\.org:2053/.test(rclone) && /UPLOAD_CUTOFF=64M/.test(rclone) && !/s3\.local/.test(rclone), tag + ': "The internet" rewrites the examples, with the part size Cloudflare needs');
+    // what Cosmos limits on the chosen address: administrators only
+    const limitsNow = await page.locator('[data-limits]').first().getAttribute('data-limits').catch(() => null);
+    if (phase === 'user') check(limitsNow === null, tag + ': a plain user is not told the URL\'s configuration');
+    else {
+      check(limitsNow === 'limited' && (await page.locator('[data-limits-remove]').count()) >= 1, tag + ': the internet address is said to be limited (a timeout), with the way to remove it (' + limitsNow + ')');
+      const href = await page.locator('[data-limits-remove]').first().getAttribute('href');
+      check(href === '/cosmos-ui/config-url/s3-internet', tag + ': the button opens that URL\'s form (' + href + ')');
+    }
     await page.locator('[role=radio]', { hasText: 'Inside my home' }).click();
     await page.locator('[data-guide][data-place="home"]').waitFor({ timeout: 5000 });
-    check(!/UPLOAD_CUTOFF/.test(await codeText(page, 'linux-rclone')), tag + ': at home no part-size setting');
+    check(!/UPLOAD_CUTOFF/.test(await codeText(page, 'linux-env')), tag + ': at home no part-size setting');
+    if (phase !== 'user') check((await page.locator('[data-limits]').first().getAttribute('data-limits')) === 'none', tag + ': the home address is said to have no Cosmos limit');
     if (phase !== 'user') {
       await page.locator('[role=radio]', { hasText: 'Another app on this server' }).click();
       await page.locator('[data-guide][data-place="container"]').waitFor({ timeout: 5000 });
@@ -179,7 +188,7 @@ for (const engine of engines) {
 
     // phone: long commands scroll inside their block, nothing sideways; touch targets
     await noSideways(page, tag + ' guide');
-    const pre = await page.locator('[data-code-text="linux-rclone"]').evaluate((el) => [el.scrollWidth, el.clientWidth, getComputedStyle(el).overflowX]);
+    const pre = await page.locator('[data-code-text="linux-restic-db"]').evaluate((el) => [el.scrollWidth, el.clientWidth, getComputedStyle(el).overflowX]);
     if (size === 'm') check(pre[0] > pre[1] && pre[2] === 'auto', tag + ': a long command scrolls inside its block (' + pre.join(' ') + ')');
     const small = await smallTargets(page);
     check(small.length === 0, tag + ': touch targets at least 32 px high, buttons 44 (' + JSON.stringify(small.slice(0, 3)) + ')');

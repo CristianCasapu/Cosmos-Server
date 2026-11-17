@@ -154,8 +154,11 @@ func For(setting string, image string) (kind string, source string) {
 	if setting == None {
 		return "", ""
 	}
-	if setting != "" && Known(setting) {
-		return setting, FromSetting
+	if setting != "" {
+		if Known(setting) {
+			return setting, FromSetting
+		}
+		return "", "" // a kind this build does not know: no guide
 	}
 	if image == "" {
 		return "", ""

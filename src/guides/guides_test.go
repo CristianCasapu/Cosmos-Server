@@ -33,7 +33,7 @@ func TestMatching(t *testing.T) {
 		{"set by hand on any image", "s3", "example/store:1", "s3", FromSetting},
 		{"set by hand without a container", "s3", "", "s3", FromSetting},
 		{"switched off by hand", "none", "rustfs/rustfs", "", ""},
-		{"an unknown setting is as proposed", "ftp", "minio/minio", "s3", FromImage},
+		{"an unknown setting (a newer build's) is no guide", "ftp", "minio/minio", "", ""},
 		{"no image, nothing set", "", "", "", ""},
 		{"an image ID alone is not matched", "", "b81d16a90ee2", "", ""},
 	}

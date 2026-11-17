@@ -433,7 +433,7 @@ export const appTiles = (routes, ctx, skip) => groupApps(routes, skip).map((app)
 // (an older server) gets nothing added.
 const DASHBOARD_FIELDS = ['ForkRole', 'ForkRoleSource', 'ForkLabel', 'ForkHomeOnly', 'ForkAdminPath', 'ForkHomeHosts', 'ForkContainer', 'ForkImage', 'ForkPorts',
   // plan 50: the guide's facts
-  'ForkGuide', 'ForkGuideSource', 'ForkGuideProposed', 'ForkGuideRegion', 'ForkShielded', 'ForkOwnCAHosts', 'ForkNetworks'];
+  'ForkGuide', 'ForkGuideSource', 'ForkGuideProposed', 'ForkGuideRegion', 'ForkShielded', 'ForkOwnCAHosts', 'ForkNetworks', 'ForkLimits', 'ForkServicePort'];
 export const dashboardEntryFor = (dashboard, key) => {
   if (!key || typeof key !== 'string') return null;
   return (Array.isArray(dashboard) ? dashboard : []).find((d) => d && d.ForkKey === key) || null;

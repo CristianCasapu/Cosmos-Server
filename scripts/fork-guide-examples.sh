@@ -34,11 +34,18 @@ SCRATCH=${SCRATCH:-/storage/dev/.cache/cosmos-guides/examples}
 DIND_IMAGE=docker:29-dind
 RUSTFS_IMAGE=${RUSTFS_IMAGE:-rustfs/rustfs:1.0.5}
 say() { echo "guide-examples: $*"; }
+# the scratch folder is removed by `clean` as root: it must be a folder of its own under the caches
+case "$SCRATCH" in
+  /storage/dev/.cache/?*/?*) ;;
+  *) say "SCRATCH must be a folder under /storage/dev/.cache/<name>/ (it is removed by clean): $SCRATCH"; exit 2 ;;
+esac
+case "$SCRATCH" in *..*|*' '*) say "SCRATCH must be a plain path: $SCRATCH"; exit 2 ;; esac
 in_dind() { docker exec -i "$PREFIX-dind" "$@"; }
 
 images() {
   w=$SCRATCH/build
   mkdir -p "$w"
+  cp "$here/fork-guide-examples/site.sql" "$here/fork-guide-examples/site-compare.sh" "$w/"
   # a test "public" authority (it stands for the public authorities Cloudflare's certificates come from) and the stand-in's certificate
   in_dind sh -c 'docker network inspect gx-build >/dev/null 2>&1 || docker network create gx-build >/dev/null'
   if [ ! -s "$w/public-ca.pem" ]; then
@@ -121,6 +128,7 @@ ENV MONGO_URI=mongodb://127.0.0.1:27017
 EOF
   cat > "$w/aws.Dockerfile" <<'EOF'
 FROM amazon/aws-cli:latest
+RUN (dnf install -y -q diffutils || yum install -y -q diffutils) >/dev/null 2>&1
 COPY public-ca.pem /etc/pki/ca-trust/source/anchors/test-public.pem
 RUN update-ca-trust
 ENV AWS_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
@@ -147,7 +155,10 @@ COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
 WORKDIR /work
 RUN composer require -q aws/aws-sdk-php
 $trust_deb
-RUN mkdir -p /var/www/site && echo '<?php echo "hello";' > /var/www/site/index.php && echo 'a page' > /var/www/site/about.html
+RUN mkdir -p /home/you/public_html/wp-content && echo '<?php echo "hello";' > /home/you/public_html/index.php \
+ && echo 'a page' > /home/you/public_html/about.html && echo '<?php // the site configuration' > /home/you/public_html/wp-config.php \
+ && printf '[pdo_mysql]\npdo_mysql.default_socket=/run/mysqld/mysqld.sock\n' > /usr/local/etc/php/conf.d/socket.ini
+COPY site.sql site-compare.sh /usr/local/share/
 EOF
   cat > "$w/go.Dockerfile" <<EOF
 FROM golang:1.27

@@ -89,12 +89,18 @@ const parseBlocks = (lines) => {
       continue;
     }
     if (trimmed === '') { i++; continue; }
+    const widget = trimmed.match(/^\{\{show ([a-z]+)\}\}$/);
+    if (widget) {
+      push({ type: 'widget', name: widget[1] });
+      i++;
+      continue;
+    }
     const fence = line.match(/^```([a-z0-9]*)(.*)$/);
     if (fence) {
       const attrs = {};
       fence[2].trim().split(/\s+/).filter(Boolean).forEach((pair) => {
         const [k, v] = pair.split('=');
-        if (/^[a-z]+$/.test(k) && v && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(v)) attrs[k] = v;
+        if (/^[a-z]+$/.test(k) && v && /^\/?[a-zA-Z0-9.][a-zA-Z0-9._/-]{0,63}$/.test(v) && !v.includes('..')) attrs[k] = v;
       });
       const code = [];
       i++;
@@ -201,7 +207,9 @@ export const VALUE_TYPES = {
   network: (v) => /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(v),
   container: (v) => /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(v),
   port: (v) => /^\d{1,5}$/.test(v) && Number(v) >= 1 && Number(v) <= 65535,
-  ca_pem: (v) => /^-----BEGIN CERTIFICATE-----\n[A-Za-z0-9+/=\n]{40,8000}\n-----END CERTIFICATE-----$/.test(v),
+  // one certificate as PEM lays it out: the BEGIN line, base64 lines of 64
+  // characters, a last shorter one (with its padding), the END line, nothing else
+  ca_pem: (v) => v.length <= 8000 && /^-----BEGIN CERTIFICATE-----\n(?:[A-Za-z0-9+/]{64}\n)*[A-Za-z0-9+/]{4,63}={0,2}\n-----END CERTIFICATE-----$|^-----BEGIN CERTIFICATE-----\n(?:[A-Za-z0-9+/]{64}\n)+-----END CERTIFICATE-----$/.test(v),
 };
 
 // An S3 bucket name (AWS' rules, without dots: a dot breaks TLS names and
@@ -296,14 +304,18 @@ export const guideFacts = (app, ctx, status, choice, typed) => {
     endpoint_scheme: endpoint ? new URL(endpoint).protocol.replace(':', '') : '',
     console: consoleItem ? consoleItem.url : '',
     region: String((apiRoute && apiRoute.ForkGuideRegion) || (routes.find((r) => r.ForkGuideRegion) || {}).ForkGuideRegion || 'us-east-1'),
-    bucket: validBucket(t.bucket) ? t.bucket : 'backups-' + (validName(t.name) ? t.name : 'server1'),
-    name: validName(t.name) ? t.name : 'server1',
+    // a value the reader typed that is not valid withholds the examples that use it (never a default in its place)
+    bucket: t.bucket ? (validBucket(t.bucket) ? t.bucket : '') : 'backups-' + (t.name ? (validName(t.name) ? t.name : 'server1') : 'server1'),
+    name: t.name ? (validName(t.name) ? t.name : '') : 'server1',
     network: networks[0] || '',
     container: target ? target.container : '',
     port: target ? target.port : '',
     ca_pem: VALUE_TYPES.ca_pem(caPem) ? caPem : '',
   };
-  if (!validBucket(values.bucket)) values.bucket = 'backups-server1';
+  if (values.bucket && !validBucket(values.bucket)) values.bucket = 'backups-server1';
+  // what Cosmos limits on the chosen address (administrators: it is configuration); the container
+  // place does not go through Cosmos at all
+  const limits = chosen === 'container' ? { direct: true } : (itemRoute && itemRoute.ForkLimits ? { ...itemRoute.ForkLimits, route: itemRoute.Name } : null);
   const flags = {
     home: chosen === 'home',
     internet: chosen === 'internet',
@@ -322,7 +334,7 @@ export const guideFacts = (app, ctx, status, choice, typed) => {
     endpoint: !!endpoint,
     rustfs: !!c.isAdmin && /^(docker\.io\/)?rustfs\/rustfs([:@]|$)/.test(image),
   };
-  return { kind, places, choice: chosen, values, flags };
+  return { kind, places, choice: chosen, values, flags, limits };
 };
 
 // ---------------------------------------------------------------------------
@@ -439,3 +451,39 @@ export const guidePath = (app, section) => {
 
 // The kind of guide an app has ('' for none).
 export const appGuide = (app) => ((app && app.routes) || []).map((r) => r.ForkGuide).find(Boolean) || '';
+
+// What Cosmos limits on an address (GET /api/dashboard's ForkLimits), as a list
+// of the limits that apply: [] when there is none. Each: { what, value }.
+export const limitParts = (limits) => {
+  if (!limits || limits.direct) return [];
+  const out = [];
+  if (limits.Shield) {
+    if (limits.ShieldRequestsPerHour > 0) out.push({ what: 'requests', value: limits.ShieldRequestsPerHour });
+    if (limits.ShieldBytesPerHour > 0) out.push({ what: 'bytes', value: limits.ShieldBytesPerHour });
+    if (limits.ShieldTimePerHourSeconds > 0) out.push({ what: 'time', value: limits.ShieldTimePerHourSeconds });
+    if (limits.ShieldSimultaneous > 0) out.push({ what: 'simultaneous', value: limits.ShieldSimultaneous });
+  }
+  if (limits.ThrottlePerMinute > 0) out.push({ what: 'throttle', value: limits.ThrottlePerMinute });
+  if (limits.MaxBandwidth > 0) out.push({ what: 'bandwidth', value: limits.MaxBandwidth });
+  if (limits.TimeoutMs > 0) out.push({ what: 'timeout', value: limits.TimeoutMs });
+  if (limits.BlockBots) out.push({ what: 'bots', value: 1 });
+  if (limits.BlockAPIAbuse) out.push({ what: 'referer', value: 1 });
+  return out;
+};
+
+// The settings proposed for a new URL that is the API of a storage app: no
+// shield, no throttle, no bot or referer blocking, a timeout of 24 hours (a
+// single upload or download of a big file may last that long).
+export const API_ROUTE_SETTINGS = { SmartShieldEnabled: false, ThrottlePerMinute: 0, BlockCommonBots: false, BlockAPIAbuse: false, MaxBandwith: 0, Timeout: 86400000 };
+
+// Whether a new URL to a container's port is the API of a storage app, as far
+// as the panel knows: the form says "API", or the container's other URLs have
+// a guide and that port is the recipe's service port or another API URL's port.
+export const isStorageAPI = (formRole, targetContainer, targetPort, dashboard) => {
+  if (formRole === 'api') return true;
+  const container = String(targetContainer || '').toLowerCase();
+  const port = Number(targetPort);
+  if (!container || !port) return false;
+  return (dashboard || []).some((r) => r && r.ForkGuide && String(r.ForkContainer || '').toLowerCase() === container
+    && (Number(r.ForkServicePort) === port || (r.ForkRole === 'api' && new RegExp(':' + port + '/?$').test(String(r.Target || '')))));
+};

@@ -68,6 +68,29 @@ const GUIDE_TEXT = {
   none: ['mgmt.guide.kind.none', 'No guide'],
 };
 
+// plan 50: a NEW URL that is the API of a storage app (backups) is proposed
+// without Cosmos' limits: no shield, no throttle, no bot or referer blocking,
+// a timeout of 24 hours. Proposed with its reason; nothing changes until the
+// administrator presses the button and saves the form. Existing URLs are
+// never changed by themselves.
+const StorageApiProposal = ({ formik, dashboard }) => {
+  const { t } = useTranslation();
+  const v = formik.values;
+  const m = String(v.Target || '').match(/^https?:\/\/([a-zA-Z0-9][a-zA-Z0-9_.-]*):(\d{1,5})\/?$/);
+  if (!m || !isStorageAPI(v._ForkRole, m[1], m[2], dashboard)) return null;
+  const p = API_ROUTE_SETTINGS;
+  const applied = v._SmartShield_Enabled === p.SmartShieldEnabled && Number(v.ThrottlePerMinute || 0) === p.ThrottlePerMinute
+    && !v.BlockCommonBots && !v.BlockAPIAbuse && Number(v.MaxBandwith || 0) === 0 && Number(v.Timeout) === p.Timeout;
+  if (applied) return null;
+  return <Alert severity="info" data-api-proposal
+    action={<Button color="inherit" sx={{ minHeight: 44 }} onClick={() => formik.setValues({
+      ...v, _SmartShield_Enabled: p.SmartShieldEnabled, ThrottlePerMinute: p.ThrottlePerMinute, BlockCommonBots: p.BlockCommonBots,
+      BlockAPIAbuse: p.BlockAPIAbuse, MaxBandwith: p.MaxBandwith, Timeout: p.Timeout,
+    })}>{t('mgmt.guide.form.useApi', 'Use these settings')}</Button>}>
+    {t('mgmt.guide.form.apiProposal', 'This address is the API of a storage app: backup tools send many requests and very large ones. Proposed: no Cosmos shield, no limit per minute, no blocking of bots or of uploads without a Referer, and a timeout of 24 hours, so that backups are not slowed, refused (429) or cut. The storage\'s own keys protect it. You can change each of these after the URL is made.')}
+  </Alert>;
+};
+
 export const ForkRouteRole = ({ formik, routeKey }) => {
   const { t } = useTranslation();
   const dashboard = useDashboardRoutes();
@@ -86,6 +109,7 @@ export const ForkRouteRole = ({ formik, routeKey }) => {
     ? t('mgmt.guide.form.proposed', 'As proposed: {{guide}} (from what Cosmos knows about this image)', { guide: t(...GUIDE_TEXT[guideProposed]) })
     : t('mgmt.guide.form.proposedNone', 'As proposed: none (Cosmos does not know this image)');
   return <>
+    {!routeKey && <StorageApiProposal formik={formik} dashboard={dashboard} />}
     <CosmosSelect
       name="_ForkRole"
       label={t('mgmt.appLinks.form.role', 'This address is the app\'s')}

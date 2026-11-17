@@ -9,7 +9,7 @@ import {
 import { groupApps } from './appInterfaces.js';
 
 const s3 = readFileSync(new URL('../../../src/guides/s3.md', import.meta.url), 'utf8');
-const PEM = '-----BEGIN CERTIFICATE-----\n' + 'MIIB'.repeat(16) + '\n' + 'QUJD'.repeat(10) + '=\n-----END CERTIFICATE-----';
+const PEM = '-----BEGIN CERTIFICATE-----\n' + 'MIIB'.repeat(16) + '\n' + 'QUJD'.repeat(10) + 'QQ==\n-----END CERTIFICATE-----';
 
 const route = (Name, Host, Target, more = {}) => ({ Name, Host, UseHost: true, Target, Mode: 'SERVAPP', ...more });
 const ownerRoutes = (more = {}) => [
@@ -91,7 +91,7 @@ test('an app without an internet address says so, and away falls back to home', 
 
 test('Cloudflare part sizes appear only on a Cloudflare address', () => {
   const guide = parseGuide(s3);
-  const rclone = codeBlocks(guide).find((b) => b.id === 'linux-rclone');
+  const rclone = codeBlocks(guide).find((b) => b.id === 'linux-env');
   const app = appOf(ownerRoutes());
   assert.match(renderCode(rclone, guideFacts(app, ctxOf('away'), {}, 'internet', {})).text, /UPLOAD_CUTOFF=64M/);
   assert.doesNotMatch(renderCode(rclone, guideFacts(app, ctxOf('home'), {}, 'home', {})).text, /UPLOAD_CUTOFF/);
@@ -125,10 +125,27 @@ test('hostile values never reach a command', () => {
   // typed values: refused unless plain
   ['web1;id', 'Web1', "a'b", 'x'.repeat(40), '', '-x'].forEach((name) => assert.equal(validName(name), false, name));
   ['a', 'UPPER', 'has space', 'a..b', 'with.dot', 'xn--a', "a'b", 'a$(id)'].forEach((b) => assert.equal(validBucket(b), false, b));
+  // an invalid typed value withholds the blocks that use it, never a default in its place
   const typed = guideFacts(appOf(ownerRoutes()), ctxOf('home'), {}, 'home', { bucket: 'x$(id)', name: 'a;b' });
-  assert.equal(typed.values.bucket, 'backups-server1');
-  assert.equal(typed.values.name, 'server1');
+  assert.equal(typed.values.bucket, '');
+  assert.equal(typed.values.name, '');
+  const envBlock = codeBlocks(guide).find((b) => b.id === 'linux-env');
+  assert.equal(renderCode(envBlock, typed).ok, false);
+  const fine = guideFacts(appOf(ownerRoutes()), ctxOf('home'), {}, 'home', { name: 'web1' });
+  assert.equal(fine.values.bucket, 'backups-web1');
+  // the endpoint check is the barrier for a host that reached the facts: it refuses shell and markup
+  ['https://s3.local$(id):2053', 'https://s3.local;id', "https://s3'.local", 'https://s3.local`id`', 'https://s3.local:2053/x', 'https://S3.local', 'https://s3.local:2053 ', 'javascript:alert(1)', 'https://s3.local\nid']
+    .forEach((v) => assert.equal(VALUE_TYPES.endpoint(v), false, v));
+  assert.equal(VALUE_TYPES.endpoint('https://s3.local:2053'), true);
+  ['s3.local:2053;id', 's3.local $(id)', "s3.local'"].forEach((v) => assert.equal(VALUE_TYPES.endpoint_host(v), false, v));
   // a certificate that is not a plain PEM is left out
+  // a PEM must have PEM's layout: a line that closes a heredoc never passes
+  const lines = (n) => Array.from({ length: n }, () => 'A'.repeat(64)).join('\n');
+  const goodPem = '-----BEGIN CERTIFICATE-----\n' + lines(3) + '\nQUJD\n-----END CERTIFICATE-----';
+  assert.equal(VALUE_TYPES.ca_pem(goodPem), true);
+  assert.equal(VALUE_TYPES.ca_pem('-----BEGIN CERTIFICATE-----\n' + lines(2) + '\nEOF\nreboot\n-----END CERTIFICATE-----'), false);
+  assert.equal(VALUE_TYPES.ca_pem('-----BEGIN CERTIFICATE-----\nQUJD\nEOF\n-----END CERTIFICATE-----'), false);
+  assert.equal(VALUE_TYPES.ca_pem('-----BEGIN CERTIFICATE-----\n' + 'A'.repeat(65) + '\n-----END CERTIFICATE-----'), false);
   const pem = guideFacts(appOf(ownerRoutes()), ctxOf('home'), { CACert: PEM + "\nEOF\nrm -rf /" }, 'home', {});
   assert.equal(pem.values.ca_pem, '');
   assert.equal(renderCode(codeBlocks(guide).find((b) => b.id === 'ca-file'), pem).ok, false);
@@ -186,4 +203,34 @@ test('conditions inside a sentence, and no condition or placeholder left in any 
   texts.filter((x) => x.t === 'text').forEach((x) => assert.ok(!/\{\{/.test(x.text), 'left in the text: ' + x.text));
   texts.filter((x) => x.t === 'code').forEach((x) => [...x.text.matchAll(/\{\{([^}]*)\}\}/g)].forEach((m) => assert.ok(VALUE_TYPES[m[1]], 'in code: ' + m[0])));
   texts.filter((x) => x.t === 'value').forEach((x) => assert.ok(VALUE_TYPES[x.name], 'unknown value ' + x.name));
+});
+
+test('what Cosmos limits on the chosen address: none, some, the container place, and only for administrators', async () => {
+  const { limitParts, isStorageAPI, API_ROUTE_SETTINGS } = await import('./guides.js');
+  const open = { Shield: false, TimeoutMs: 0 };
+  const limited = { Shield: true, ShieldRequestsPerHour: 36000, ShieldBytesPerHour: 429496729600, ShieldSimultaneous: 3000, ThrottlePerMinute: 10000, TimeoutMs: 14400000, BlockBots: true, BlockAPIAbuse: true };
+  const routes = ownerRoutes({ ForkLimits: open }).map((r) => (r.Name === 's3-internet' ? { ...r, ForkLimits: limited } : r));
+  const home = guideFacts(appOf(routes), ctxOf('home'), {}, 'home', {});
+  assert.equal(home.limits.route, 's3');
+  assert.deepEqual(limitParts(home.limits), []);
+  const away = guideFacts(appOf(routes), ctxOf('away'), {}, 'internet', {});
+  assert.deepEqual(limitParts(away.limits).map((p) => p.what), ['requests', 'bytes', 'simultaneous', 'throttle', 'timeout', 'bots', 'referer']);
+  assert.equal(guideFacts(appOf(routes), ctxOf('home'), {}, 'container', {}).limits.direct, true);
+  // a plain user's dashboard has no ForkLimits: nothing is said
+  const plain = ownerRoutes().map(({ ForkLimits, ...r }) => r);
+  assert.equal(guideFacts(appOf(plain), ctxOf('home', false), {}, 'home', {}).limits, null);
+  // the URL form's proposal: the API of a storage app
+  const dash = [{ ForkGuide: 's3', ForkContainer: 'rustfs', ForkServicePort: 9000, ForkRole: 'api', Target: 'http://rustfs:9000' }];
+  assert.equal(isStorageAPI('', 'rustfs', 9000, dash), true);
+  assert.equal(isStorageAPI('', 'rustfs', 9001, dash), false);
+  assert.equal(isStorageAPI('api', 'other', 80, []), true);
+  assert.equal(isStorageAPI('', 'web', 80, dash), false);
+  assert.equal(API_ROUTE_SETTINGS.SmartShieldEnabled, false);
+  assert.equal(API_ROUTE_SETTINGS.Timeout, 86400000);
+});
+
+test('a widget line is read as a widget, not text', () => {
+  const g = parseGuide('---\nkind: x\ntitle: X\n---\n## A {#a}\n{{show limits}}\ntext');
+  assert.equal(g.sections[0].blocks[0].type, 'widget');
+  assert.equal(g.sections[0].blocks[0].name, 'limits');
 });

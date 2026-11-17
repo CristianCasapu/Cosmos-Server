@@ -336,6 +336,9 @@ func forkDashboardRoutes(out []DashboardRoute, containers []types.Container, cal
 		}
 		if caller.tileWords { // plan 50: the guide, for those who get the tile's words
 			fields.ForkGuideFields = guideFields(route, image, c, caller.resources, caller.editsURLs, fields.ForkHomeHosts)
+			if caller.admin && fields.ForkGuide != "" { // plan 50: what Cosmos limits on the URL (configuration: administrators)
+				fields.ForkLimits = routeLimits(route)
+			}
 		}
 		entry.ForkDashboardFields = fields
 		kept = append(kept, entry)
