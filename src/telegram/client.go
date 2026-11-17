@@ -1,13 +1,11 @@
 package telegram
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -220,51 +218,19 @@ func (c *apiClient) pin(ctx context.Context, st settings, messageID int, pin boo
 	return failure
 }
 
-// botCall posts one method of the Bot API with the settings' token.
+// botCall posts one method of the Bot API with the settings' token and
+// chat, through the one caller of this package (call, fork_chats.go).
 func (c *apiClient) botCall(ctx context.Context, st settings, method string, payload interface{}) (apiAnswer, *sendError) {
-	if !ValidToken(st.token) {
-		return apiAnswer{}, &sendError{Reason: ReasonSettings, Settings: true, Message: "The bot token is missing or is not a bot token."}
-	}
 	if !ValidChatID(st.chatID) {
 		return apiAnswer{}, &sendError{Reason: ReasonSettings, Settings: true, Message: "The chat ID is missing or is not a chat ID."}
 	}
-	if !strings.HasPrefix(c.base, "https://") {
-		return apiAnswer{}, &sendError{Reason: ReasonSettings, Message: "Telegram is only reached over HTTPS."}
+	raw, failure := c.call(ctx, st.token, method, payload, maxAnswerBytes)
+	if failure != nil {
+		return apiAnswer{}, failure
 	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return apiAnswer{}, &sendError{Reason: ReasonBadMessage, Message: "The message could not be prepared."}
-	}
-
-	// The token is part of the path: this URL must never reach a log line
-	// or an error. Everything below that fails goes through networkError.
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/bot"+st.token+"/"+method, bytes.NewReader(body))
-	if err != nil {
-		return apiAnswer{}, &sendError{Reason: ReasonSettings, Message: "The request to Telegram could not be prepared."}
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "cosmos-server")
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return apiAnswer{}, networkError(err, st.token)
-	}
-	defer resp.Body.Close()
-
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxAnswerBytes))
-	if err != nil {
-		return apiAnswer{}, networkError(err, st.token)
-	}
-
 	var answer apiAnswer
-	parsed := json.Unmarshal(raw, &answer) == nil
-	if resp.StatusCode == http.StatusOK && parsed && answer.OK {
-		return answer, nil
-	}
-	if !parsed {
-		answer = apiAnswer{}
-	}
-	return answer, answerError(resp.StatusCode, resp.Header.Get("Retry-After"), answer, st.token)
+	json.Unmarshal(raw, &answer)
+	return answer, nil
 }
 
 // chatIDValue is the chat as JSON: a number when it is one, else the name.
