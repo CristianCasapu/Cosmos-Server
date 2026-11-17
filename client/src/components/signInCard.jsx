@@ -8,7 +8,7 @@
 // is held in this component only, and hidden again after a minute.
 import * as React from 'react';
 import { Alert, Button, Chip, IconButton, Stack, Tooltip, Typography } from '@mui/material';
-import { CopyOutlined, EyeInvisibleOutlined, EyeOutlined, KeyOutlined, LinkOutlined } from '@ant-design/icons';
+import { CopyOutlined, EyeInvisibleOutlined, EyeOutlined, HomeOutlined, KeyOutlined, LinkOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import * as API from '../api';
@@ -17,6 +17,9 @@ import { askForPassword, getSudoState, subscribeSudo } from '../utils/sudoPrompt
 import { PERM_CREDENTIALS_READ, PERM_RESOURCES } from '../utils/permissions';
 import PermissionGuard from './permissionGuard';
 import { AddManagerDialog } from './managerChoice';
+import { copyToClipboard, useOpenContext } from './appOpen'; // Fork addition (plan 49): does an address open from here
+import { urlReach } from '../utils/appInterfaces'; // Fork addition (plan 49)
+import { notify } from '../utils/activity'; // Fork addition (plan 49)
 
 const SHOWN_FOR = 60000;
 const mono = { fontFamily: 'monospace', overflowWrap: 'anywhere', wordBreak: 'break-all', minWidth: 0 };
@@ -126,6 +129,7 @@ export const SignInDetails = ({ containerInfo, refresh }) => {
   const [details, setDetails] = React.useState(null);
   const [problem, setProblem] = React.useState('');
   const [adding, setAdding] = React.useState(false);
+  const linkContext = useOpenContext(); // Fork addition (plan 49): where the visitor is
   const anchor = React.useRef(null);
   const sudoTick = React.useSyncExternalStore(subscribeSudo, () => getSudoState().tick); // read again after a password confirmation
 
@@ -166,8 +170,18 @@ export const SignInDetails = ({ containerInfo, refresh }) => {
       {allowed && details && <>
         {nothing && <Typography variant="body2" sx={{ color: 'text.secondary' }}>{t('mgmt.servapps.signIn.card.nothing', 'Cosmos does not know how one signs in to this app: its settings name no username or password it recognises. Its documentation says how.')}</Typography>}
         {details.addresses.length > 0 && <Row label={t('mgmt.servapps.signIn.card.open', 'Open it at')}>
-          {details.addresses.map((a) => <Chip key={a.url} component="a" href={a.url} target="_blank" rel="noopener noreferrer" clickable icon={<LinkOutlined />}
-            label={a.url + (a.adminOnly ? ' · ' + t('mgmt.servapps.signIn.card.adminsOnly', 'administrators only') : '')} sx={{ maxWidth: '100%', '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }} />)}
+          {details.addresses.map((a) => {
+            const label = a.url + (a.adminOnly ? ' · ' + t('mgmt.servapps.signIn.card.adminsOnly', 'administrators only') : '');
+            const sx = { maxWidth: '100%', '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } };
+            // Fork addition (plan 49): an address that does not open from where the visitor is is copied, not opened
+            const reach = urlReach(a.url, linkContext);
+            if (reach === 'home-only' || reach === 'vpn-only') {
+              return <Chip key={a.url} clickable icon={<HomeOutlined />} data-signin-home-only={a.url}
+                label={label + ' · ' + t('mgmt.appLinks.mark.home', 'Home only') + ' — ' + t('mgmt.appLinks.copy', 'Copy')}
+                onClick={() => copyToClipboard(a.url).then(() => notify(t('mgmt.appLinks.copied', 'Copied: {{text}}', { text: a.url }), 'success'), () => {})} sx={sx} />;
+            }
+            return <Chip key={a.url} component="a" href={a.url} target="_blank" rel="noopener noreferrer" clickable icon={<LinkOutlined />} label={label} sx={sx} />;
+          })}
         </Row>}
         {details.where && WHERE[details.where] && !nothing && <Typography variant="body2">{t(WHERE[details.where][0], WHERE[details.where][1])}</Typography>}
         {details.host && details.port > 0 && <Row label={t('mgmt.servapps.signIn.card.reach', 'Other apps reach it at')}>

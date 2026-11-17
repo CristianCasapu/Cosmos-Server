@@ -100,6 +100,7 @@ func StatusRoute(w http.ResponseWriter, req *http.Request) {
 				"ConstellationName": utils.GetMainConfig().ConstellationConfig.ThisDeviceName,
 				"hostTimezone": utils.DetectedTimezoneFor(req), // Fork addition: shown next to the Timezone setting
 				"ShowPaidFeatures": config.ShowPaidFeatures, // Fork addition: whether the UI hides features that need a licence
+				"visitor": forkVisitorPlace(req), // Fork addition (plan 49): home, VPN or away, for the links of the apps
 			},
 		})
 	} else {

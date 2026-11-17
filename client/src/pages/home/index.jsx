@@ -9,7 +9,8 @@ import Grid2 from '@mui/material/Grid';
 import { getFaviconURL, IsRouteSocketProxy } from "../../utils/routes";
 import { Link } from "react-router";
 import { getFullOrigin } from "../../utils/routes";
-import { homeTiles } from "../../utils/homeTiles"; // Fork addition
+import { appTiles } from "../../utils/appInterfaces"; // Fork addition (plan 49)
+import { AppTileLink, useOpenContext } from "../../components/appOpen"; // Fork addition (plan 49)
 import { DashboardIcon } from "../../utils/servapp-icon";
 import Chart from 'react-apexcharts';
 import { useClientInfos } from "../../utils/hooks";
@@ -179,6 +180,7 @@ const HomePage = () => {
 
 
     let routes = servApps || [];
+    const linkContext = useOpenContext({ status: coStatus, config }); // Fork addition (plan 49): where the visitor is, from the status the page loads
 
     useEffect(() => {
         refreshConfig();
@@ -401,15 +403,15 @@ const HomePage = () => {
 
         {/* Apps */}
         <Grid2 container spacing={2} style={{ zIndex: 2 }}>
-            {/* Fork addition: one tile per app, opening the address that fits where the panel is used from (utils/homeTiles.js); upstream: one per URL */}
-            {config && homeTiles(routes, window.location, (route) => route.HideFromDashboard || (route.Mode == "SERVAPP" && !route.ContainerRunning) || IsRouteSocketProxy(route)).map(({ route, name, link }, index) => {
-                let skip = false;
+            {/* Fork addition (plan 49): one tile per app, opening its best address from where the visitor is
+                (utils/appInterfaces.js, components/appOpen.jsx); upstream: one per URL, always its own address */}
+            {config && coStatus && appTiles(routes, linkContext, (route) => route.HideFromDashboard || (route.Mode == "SERVAPP" && !route.ContainerRunning) || IsRouteSocketProxy(route)).map((tile) => {
+                const { route, name } = tile;
+                return coStatus.homepage.Expanded ?
 
-                return !skip && coStatus && (coStatus.homepage.Expanded ?
-
-                <Grid2 size={{ xs: 12, sm: 6, md: 4, lg: 3, xl: 3, xxl: 3 }} key={route.Name}>
-                    <Box className='app app-hover' style={{ padding: 25, borderRadius: 10, ...appColor, ...appBorder }}>
-                        <Link to={link} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', ...appColor }}>
+                <Grid2 size={{ xs: 12, sm: 6, md: 4, lg: 3, xl: 3, xxl: 3 }} key={tile.key}>
+                    <Box className='app app-hover' style={{ padding: 25, borderRadius: 10, position: 'relative', ...appColor, ...appBorder }}>
+                        <AppTileLink tile={tile} ctx={linkContext} config={config} refresh={refreshConfig} linkStyle={appColor}>
                             <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }} style={{ overflow: 'hidden' }}>
                                 <DashboardIcon route={route} containerIcon={route.ContainerIcon} className="loading-image" width="70px" />
                                 <div style={{ minWidth: 0, overflow: 'hidden' }}>
@@ -418,22 +420,22 @@ const HomePage = () => {
                                     <p style={{ ...blockStyle, fontSize: '90%', paddingTop: '3px', opacity: '0.45' }}>{route.Target}</p>
                                 </div>
                             </Stack>
-                        </Link>
+                        </AppTileLink>
                     </Box>
                 </Grid2>
                 :
-                <Grid2 size={{ xs: 6, sm: 4, md: 3, lg: 2, xl: 2, xxl: 2 }} key={route.Name}>
-                    <Box className='app app-hover' style={{ padding: 25, borderRadius: 10, ...appColor, ...appBorder }}>
-                        <Link to={link} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', ...appColor }}>
+                <Grid2 size={{ xs: 6, sm: 4, md: 3, lg: 2, xl: 2, xxl: 2 }} key={tile.key}>
+                    <Box className='app app-hover' style={{ padding: 25, borderRadius: 10, position: 'relative', ...appColor, ...appBorder }}>
+                        <AppTileLink tile={tile} ctx={linkContext} config={config} refresh={refreshConfig} linkStyle={appColor}>
                             <Stack direction="column" spacing={2} sx={{ alignItems: 'center' }} style={{ overflow: 'hidden', width: '100%' }}>
                                 <DashboardIcon route={route} containerIcon={route.ContainerIcon} className="loading-image" width="70px" />
                                 <div style={{ minWidth: 0, overflow: 'hidden', maxWidth: '100%' }}>
                                     <h3 style={blockStyle}>{name}</h3>
                                 </div>
                             </Stack>
-                        </Link>
+                        </AppTileLink>
                     </Box>
-                </Grid2>)
+                </Grid2>
             })}
 
             {config && routes.length === 0 && (

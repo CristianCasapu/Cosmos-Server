@@ -544,6 +544,7 @@ func SaveConfigTofile(config Config) {
 	configFile := GetConfigFileName()
 	CreateDefaultConfigFileIfNecessary()
 
+	config = WithoutRouteKeys(config) // Fork addition (plan 49): the routes' keys are computed per answer, never stored
 	// Fork addition: written beside the file and renamed over it, see fork_atomic_write.go
 	err := writeFileAtomic(configFile, 0600, func(file io.Writer) error {
 		encoder := json.NewEncoder(file)
