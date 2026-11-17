@@ -394,7 +394,13 @@ sign-in (POST) is not provoked: for known apps Cosmos reads their variables
 instead. Configuration files inside containers are not read, so an advised
 line is not confirmed to be in place. No periodic check of all URLs with a
 notification when one stops opening. The Market's own review does not show
-"tell the app its own address" before an install (its log says it). An
+"tell the app its own address" before an install (its log says it). "Opens now" after a repair is said from the check's own request after a
+fixed wait, not from the live proxy. The advice to trust Cosmos as a proxy
+(qBittorrent, Jellyfin) names the address Cosmos connects from: without
+Docker that is the bridge's gateway, which every process of the server
+shares, and the advice does not say so. An open URL form saved after a
+one-click repair writes the old value back. Results of URLs that do not
+lead to a container are not kept and are checked again at every load. An
 app that builds an OpenID redirect address from X-Forwarded-Host now sends
 it with the port: the client's redirect addresses may need the form with
 the port. The any-image check's "data folder on the data disk" step has
