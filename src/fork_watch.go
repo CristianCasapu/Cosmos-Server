@@ -7,6 +7,7 @@ package main
 
 import (
 	"strings"
+	"time"
 
 	"github.com/anatol/smart.go"
 	"github.com/dell/csi-baremetal/pkg/base/linuxutils/lsblk"
@@ -14,7 +15,9 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/azukaar/cosmos-server/src/docker"
+	"github.com/azukaar/cosmos-server/src/snapshots"
 	"github.com/azukaar/cosmos-server/src/storage"
+	"github.com/azukaar/cosmos-server/src/utils"
 	"github.com/azukaar/cosmos-server/src/watch"
 )
 
@@ -24,6 +27,7 @@ func startWatches() {
 		Disks:      watchDisks,
 		Usages:     watchUsages,
 		DockerPing: docker.ForkPing,
+		Snapshots:  watchSnapshots,
 	})
 }
 
@@ -133,4 +137,25 @@ func watchUsages() []watch.Usage {
 			ReadOnly: fs.Flags&unix.ST_RDONLY != 0})
 	}
 	return usages
+}
+
+// watchSnapshots gives the incremental backup's settings and the last
+// finished snapshot of each of its folders.
+func watchSnapshots() (utils.SnapshotsConfig, map[string]time.Time) {
+	cfg := utils.GetMainConfig().Snapshots
+	last := map[string]time.Time{}
+	if !cfg.Enabled || cfg.Destination == "" {
+		return cfg, last
+	}
+	for i, source := range cfg.Sources {
+		if i >= 64 {
+			break
+		}
+		for _, s := range snapshots.List(cfg.Destination, source) {
+			if s.Finished.After(last[source]) {
+				last[source] = s.Finished
+			}
+		}
+	}
+	return cfg, last
 }

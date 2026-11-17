@@ -14,6 +14,9 @@ type Readers struct {
 	Disks      func() ([]Disk, error)
 	Usages     func() []Usage
 	DockerPing func(timeout time.Duration) error
+	// Snapshots gives the settings of the incremental backup and the last
+	// finished snapshot of each folder.
+	Snapshots func() (utils.SnapshotsConfig, map[string]time.Time)
 }
 
 var startOnce sync.Once
@@ -43,8 +46,9 @@ func loop(st *store, r Readers, started time.Time) {
 	}
 	docker := &dockerWatch{started: started}
 	next := map[string]time.Time{
-		"smart": time.Now().Add(5 * time.Minute),
-		"fill":  time.Now().Add(time.Minute),
+		"smart":     time.Now().Add(5 * time.Minute),
+		"fill":      time.Now().Add(time.Minute),
+		"snapshots": time.Now().Add(10 * time.Minute),
 	}
 	run := func(name string, every time.Duration, work func()) {
 		if time.Now().Before(next[name]) {
@@ -71,6 +75,12 @@ func loop(st *store, r Readers, started time.Time) {
 		run("fill", fillEvery, func() {
 			if s.Fill && r.Usages != nil {
 				checkFill(st, r.Usages(), s.FillDays, time.Now())
+			}
+		})
+		run("snapshots", snapshotsEvery, func() {
+			if s.Snapshots && r.Snapshots != nil {
+				cfg, last := r.Snapshots()
+				checkSnapshots(st, cfg, last, s.SnapshotLate, time.Now())
 			}
 		})
 		time.Sleep(dockerEvery)
