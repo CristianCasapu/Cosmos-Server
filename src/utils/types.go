@@ -472,6 +472,8 @@ type TelegramConfig struct {
 	MaxPerMinute         int
 	Kinds                map[string]bool   `json:"Kinds,omitempty"`
 	Delivery             map[string]string `json:"Delivery,omitempty"`
+	// HideErrors (plan 48) leaves the text of errors out of the messages.
+	HideErrors bool `json:"HideErrors,omitempty"`
 }
 
 // WatchConfig (fork addition, plan 48) tunes the watches of src/watch.

@@ -368,7 +368,7 @@ func renderWith(st settings, nt notice, details bool) message {
 	if !details {
 		c.fixed(word("hidden")).line()
 	}
-	if details && strings.TrimSpace(nt.raw) != "" {
+	if details && !st.hideErrors && strings.TrimSpace(nt.raw) != "" {
 		if nt.rawIsRequest {
 			c.fixed(word("request")).line()
 		} else {

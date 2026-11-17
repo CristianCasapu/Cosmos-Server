@@ -181,6 +181,7 @@ type settings struct {
 	categories   map[string]bool
 	minSeverity  string
 	hideDetails  bool
+	hideErrors   bool // plan 48: no error text in the messages
 	quiet        bool
 	quietFrom    int // minutes after midnight
 	quietTo      int
@@ -219,6 +220,7 @@ func settingsOf(config utils.Config) settings {
 		categories:   map[string]bool{},
 		minSeverity:  cfg.MinSeverity,
 		hideDetails:  cfg.HideDetails,
+		hideErrors:   cfg.HideErrors,
 		silenceCrit:  cfg.QuietSilenceCritical,
 		maxPerMinute: cfg.MaxPerMinute,
 	}

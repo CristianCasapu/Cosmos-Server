@@ -59,6 +59,15 @@ func cleanValue(text string, max int) string {
 	return cleaned
 }
 
+// entityText gives the part of a text an entity covers.
+func entityText(text string, e entity) string {
+	parts := entityTexts(text, []entity{e})
+	if len(parts) == 0 {
+		return ""
+	}
+	return parts[0]
+}
+
 // entityTexts gives the parts of a text its entities cover.
 func entityTexts(text string, entities []entity) []string {
 	encoded := utf16.Encode([]rune(text))
@@ -116,8 +125,15 @@ func (c *composer) value(text string, max int) *composer {
 
 // pre adds an error text from outside the same way, as a block.
 func (c *composer) pre(text string, max int) *composer {
-	return c.covered("pre", text, max)
+	// an error text: its first line only, guarded with the machine-word rule too
+	if i := strings.IndexAny(text, "\r\n"); i >= 0 {
+		text = text[:i]
+	}
+	return c.covered("pre", rawPass(text, c.secrets), max)
 }
+
+// rawPass is the guard of error texts. A variable like firstPass.
+var rawPass = guardRaw
 
 func (c *composer) covered(kind string, text string, max int) *composer {
 	cleaned := cleanValue(firstPass(text, c.secrets), max)

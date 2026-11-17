@@ -1386,6 +1386,8 @@
 	"mgmt.config.telegram.status.lastError": "Last problem ({{when}}): {{error}}",
 	"mgmt.config.telegram.status.paused": "Nothing is sent until {{when}}; a changed token or chat, or a test message that works, ends the wait.",
 	"mgmt.config.telegram.status.help": "When messages cannot be delivered, the bell at the top of the panel says so once.",
+	"mgmt.config.telegram.kinds.errors": "Include error details in messages",
+	"mgmt.config.telegram.kinds.errorsHelp": "The first line of the error text a program gave (a backup, an update, a server error), at most 300 characters, after anything that looks like a password or a key was cut out. Switched off, a message names what failed and the details stay in the panel.",
 	"mgmt.config.telegram.kinds.whyDefaultOff": "Not sent: off until switched on here.",
 	"mgmt.config.watch.title": "What Cosmos watches by itself",
 	"mgmt.config.watch.help": "Each watch writes a notification in the panel, and a message here, when something starts and when it is over. Nothing is asked of other servers.",

@@ -206,6 +206,9 @@ const TelegramKinds = ({ formik, config }) => {
             <Alert severity="warning">{t('mgmt.config.telegram.kinds.failed', 'The samples could not be loaded. The switches still work.')}</Alert>
           </Grid>
         )}
+        <CosmosCheckbox name="Telegram_IncludeErrors" formik={formik}
+          label={t('mgmt.config.telegram.kinds.errors', 'Include error details in messages')}
+          helperText={t('mgmt.config.telegram.kinds.errorsHelp', 'The first line of the error text a program gave (a backup, an update, a server error), at most 300 characters, after anything that looks like a password or a key was cut out. Switched off, a message names what failed and the details stay in the panel.')} />
         {/* plan 48: what Cosmos watches by itself, and when it speaks up */}
         <Grid size={{ xs: 12 }} id="telegram-watches">
           <Stack spacing={1}>
