@@ -91,8 +91,9 @@ func startLoopWith(t *testing.T, r *restarts, setup loopSetup) *loop {
 			if setup.build != nil {
 				setup.build(gen)
 			}
-			main := &http.Server{Addr: l.main, Handler: setup.handler(gen), TLSConfig: tlsConfig.Clone(), ConnState: r.connState}
-			plain := &http.Server{Addr: l.plain, Handler: setup.handler(gen), ConnState: r.connState}
+			gated := r.routerOf(setup.handler(gen)) // as startHTTP(S)Server do
+			main := &http.Server{Addr: l.main, Handler: gated, TLSConfig: tlsConfig.Clone(), ConnState: r.connState}
+			plain := &http.Server{Addr: l.plain, Handler: gated, ConnState: r.connState}
 			if setup.tls {
 				// as startHTTPSServer and proxy.StartHTTPHandoff do: ServeTLS
 				// and Serve on listeners of their own, before the server listens
@@ -741,5 +742,203 @@ func TestRestartWiring(t *testing.T) {
 	}
 	if !strings.Contains(restart, "forkRestarts.restart(reloadForRestart)") {
 		t.Error("RestartHTTPServer must go through forkRestarts")
+	}
+}
+
+func TestRestartRefusesTwoServersOnOnePort(t *testing.T) {
+	r := testRestarts()
+	addr := freePort(t)
+	err := r.serve(&http.Server{Addr: addr}, false, &http.Server{Addr: addr})
+	if err == nil || errors.Is(err, http.ErrServerClosed) || !strings.Contains(err.Error(), "cannot share one port") {
+		t.Fatalf("the HTTP and HTTPS ports set to the same one must end the start, saying why: %v", err)
+	}
+	if len(r.kept) != 0 {
+		t.Error("nothing may be bound for a generation that cannot start")
+	}
+}
+
+func TestRestartRequestedFromInsideTheReloadNeverWaits(t *testing.T) {
+	r := testRestarts()
+	reloads := 0
+	var reload func()
+	reload = func() {
+		reloads++
+		if reloads == 1 {
+			r.restart(reload) // a callee of the reload asks for a restart
+		}
+	}
+	done := make(chan struct{})
+	go func() { r.restart(reload); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a restart asked for from inside the reload waited for itself")
+	}
+	if reloads != 2 || r.reentered != 1 {
+		t.Errorf("want the reload and one more for the request made inside it: %d reloads, %d inside", reloads, r.reentered)
+	}
+}
+
+// The old generation's connections after a restart: a request on a
+// keep-alive or HTTP/2 connection it accepted reaches the old router only
+// until the generation ends; from then on the next router answers it.
+func TestRestartOldConnectionsReachTheNewRouterOnly(t *testing.T) {
+	for _, overTLS := range []bool{false, true} {
+		t.Run(map[bool]string{false: "http keep-alive", true: "https http2"}[overTLS], func(t *testing.T) {
+			r := testRestarts()
+			l := startLoopWith(t, r, loopSetup{tls: overTLS, build: func(int64) { time.Sleep(50 * time.Millisecond) }})
+			l.answering(t)
+			scheme := map[bool]string{false: "http", true: "https"}[overTLS]
+			// one connection, kept
+			c := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{ForceAttemptHTTP2: true, MaxConnsPerHost: 1,
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+			get := func() string {
+				res, err := c.Get(scheme + "://" + l.main + "/")
+				if err != nil {
+					return "error: " + err.Error()
+				}
+				defer res.Body.Close()
+				b, _ := io.ReadAll(res.Body)
+				return string(b)
+			}
+			if got := get(); got != "1" {
+				t.Fatalf("before: %q", got)
+			}
+			asked := time.Now()
+			r.restart(func() {})
+			lastOld := time.Duration(0)
+			for i := 0; i < 200; i++ {
+				got := get()
+				if got == "1" {
+					lastOld = time.Since(asked)
+				} else if got != "2" {
+					t.Fatalf("request %d after the restart: %q", i, got)
+				}
+				time.Sleep(time.Millisecond)
+			}
+			t.Logf("the old router answered the old connection until %s after the restart was asked for", lastOld)
+			if lastOld > 20*time.Millisecond {
+				t.Errorf("an old connection reached the old router %s after the restart was asked for", lastOld)
+			}
+			l.quiet(t)
+		})
+	}
+}
+
+// A slow router build: connections wait for the next generation for at
+// most gapLimit, then they are refused (as upstream) until it serves.
+func TestRestartStopsQueueingWhenTheNextGenerationIsSlow(t *testing.T) {
+	r := testRestarts()
+	r.gapLimit = 300 * time.Millisecond
+	slow := make(chan struct{})
+	l := startLoopWith(t, r, loopSetup{build: func(gen int64) {
+		if gen == 2 {
+			<-slow
+		}
+	}})
+	l.answering(t)
+	r.restart(func() {})
+	// within the limit: the connection waits and is answered by generation 2
+	waited := make(chan string, 1)
+	go func() {
+		got, err := askGen(l.main, "/")
+		if err != nil {
+			got = err.Error()
+		}
+		waited <- got
+	}()
+	time.Sleep(600 * time.Millisecond)
+	if _, err := askGen(l.main, "/"); !errors.Is(err, syscall.ECONNREFUSED) {
+		t.Errorf("past the limit a new connection must be refused, got %v", err)
+	}
+	close(slow)
+	l.answering(t)
+	if got := <-waited; got != "2" && !strings.Contains(got, "reset") && !strings.Contains(got, "EOF") {
+		t.Errorf("a connection queued before the limit: %q", got)
+	}
+	l.quiet(t)
+}
+
+// A certificate order while the router is built (a slow ACME client): the
+// ports are freed first, so visitors are refused at once, not queued for
+// the length of the order.
+func TestRestartRefusesDuringASlowOrder(t *testing.T) {
+	r := testRestarts()
+	ordering := make(chan struct{})
+	done := make(chan struct{})
+	l := startLoopWith(t, r, loopSetup{build: func(gen int64) {
+		if gen == 2 {
+			r.release() // what certs' order does first for HTTP-01
+			close(ordering)
+			<-done
+		}
+	}})
+	l.answering(t)
+	r.restart(func() {})
+	<-ordering
+	start := time.Now()
+	_, err := askGen(l.main, "/")
+	if !errors.Is(err, syscall.ECONNREFUSED) || time.Since(start) > time.Second {
+		t.Errorf("during an order a visitor must be refused at once: %v after %s", err, time.Since(start))
+	}
+	close(done)
+	l.answering(t)
+	l.quiet(t)
+}
+
+// From HTTP only to HTTPS and back: the plain port's socket goes from the
+// main server to the plain one, the HTTPS port is bound and later closed.
+func TestRestartSwitchesBetweenHTTPAndHTTPS(t *testing.T) {
+	r := testRestarts()
+	certPEM, keyPEM := testCertPEM(t, "server.local")
+	cert, err := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM))
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpPort, httpsPort := freePort(t), freePort(t)
+	modes := []bool{false, true, false}
+	ended := make(chan error, 1)
+	go func() {
+		for gen, overTLS := range modes {
+			handler := r.routerOf(generationHandler(int64(gen + 1)))
+			var err error
+			if overTLS {
+				main := &http.Server{Addr: httpsPort, Handler: handler, ConnState: r.connState,
+					TLSConfig: &tls.Config{GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return &cert, nil }}}
+				nameHTTP2(main)
+				err = r.serve(main, true, &http.Server{Addr: httpPort, Handler: handler, ConnState: r.connState})
+			} else {
+				err = r.serve(&http.Server{Addr: httpPort, Handler: handler, ConnState: r.connState}, false, nil)
+			}
+			if !errors.Is(err, http.ErrServerClosed) {
+				ended <- err
+				return
+			}
+		}
+		ended <- nil
+	}()
+	want := func(scheme, addr, gen string) {
+		t.Helper()
+		for i := 0; i < 400; i++ {
+			if got, err := askOver(scheme, addr, "/"); err == nil && got == gen {
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		got, err := askOver(scheme, addr, "/")
+		t.Fatalf("%s://%s: want generation %s, got %q %v", scheme, addr, gen, got, err)
+	}
+	want("http", httpPort, "1")
+	r.restart(func() {})
+	want("https", httpsPort, "2")
+	want("http", httpPort, "2")
+	r.restart(func() {})
+	want("http", httpPort, "3")
+	if _, err := askOver("https", httpsPort, "/"); !errors.Is(err, syscall.ECONNREFUSED) {
+		t.Errorf("back to HTTP only, the HTTPS port must be closed: %v", err)
+	}
+	r.restart(func() {})
+	if err := <-ended; err != nil {
+		t.Fatal(err)
 	}
 }

@@ -40,7 +40,16 @@ package main
 //     and between two generations when a certificate order needs the ports
 //     for its own challenge servers (utils.ForkFreeServerPorts); it is
 //     bound again, retrying for a while if the port is still held, instead
-//     of ending the process at once.
+//     of ending the process at once. Queueing is bounded: when the next
+//     generation does not serve within gapLimit of the last one's end (a
+//     slow router build), the sockets are closed and visitors are refused,
+//     as they were upstream, until it does.
+//   - the router of a generation is served through a gate (routerOf): once
+//     the generation has ended, a request that still reaches it (a stream
+//     of an HTTP/2 connection it accepted, the first request of a
+//     connection it took in its last instant) is served by the next
+//     generation's router, not by the old one. Only requests already being
+//     handled, and WebSockets already handed over, finish on the old router.
 //
 // RestartHTTPServer never waits for the servers: it is called from request
 // handlers whose own request the old server's Shutdown waits for.
@@ -51,6 +60,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -84,6 +95,23 @@ type restarts struct {
 	freshMu   sync.Mutex
 	fresh     map[net.Conn]chan struct{}
 	firstWait time.Duration
+
+	// between two generations: whether one is being bound, and the timer
+	// that stops the queueing after gapLimit
+	starting bool
+	gapTimer *time.Timer
+	gapLimit time.Duration
+
+	// the routers: the one being built, the one serving, and a channel
+	// closed whenever another serves
+	gateMu   sync.Mutex
+	building *generationRouter
+	current  *generationRouter
+	changed  chan struct{}
+
+	// a restart asked for from inside the reload: one more reload follows
+	again     bool
+	reentered int
 }
 
 func newRestarts() *restarts {
@@ -96,6 +124,8 @@ func newRestarts() *restarts {
 		kept:      map[string]*keptSocket{},
 		fresh:     map[net.Conn]chan struct{}{},
 		firstWait: time.Second,
+		gapLimit:  5 * time.Second,
+		changed:   make(chan struct{}),
 	}
 	r.done = sync.NewCond(&r.mu)
 	return r
@@ -127,9 +157,16 @@ func (r *restarts) connState(c net.Conn, state http.ConnState) {
 
 // waitForFirstRequests waits, for firstWait at most, until every connection
 // taken so far has sent its first request (or closed): that request is then
-// answered by the generation that took it. A connection that sends nothing
-// costs the restart firstWait, no more.
-func (r *restarts) waitForFirstRequests() {
+// answered (by the next router, through the gate). Shutdown alone does not
+// do it: it leaves a new connection 5 s before closing it as idle, but a
+// connection that reads its first request after Shutdown began is closed
+// unanswered (net/http conn.serve: "if c.server.shuttingDown() return"
+// right after readRequest, Go 1.27). Without the wait about one connection
+// per restart under load was closed so (TestRestartRefusesNoConnection).
+// A connection that sends nothing costs the restart firstWait, no more;
+// usually there is none and the wait is nil.
+func (r *restarts) waitForFirstRequests() time.Duration {
+	start := time.Now()
 	r.freshMu.Lock()
 	waiting := make([]chan struct{}, 0, len(r.fresh))
 	for _, first := range r.fresh {
@@ -142,18 +179,28 @@ func (r *restarts) waitForFirstRequests() {
 		select {
 		case <-first:
 		case <-deadline.C:
-			return
+			return time.Since(start)
 		}
 	}
+	return time.Since(start)
 }
 
 // restart runs reload unless a reload that began after this call has
 // finished meanwhile, then asks for a new generation of the servers. A panic
 // of reload goes to the caller, as it did upstream; the next caller reloads.
+// Called from inside the reload itself (a callee of reloadForRestart), it
+// only records the request: one more reload follows this one, nothing waits.
 func (r *restarts) restart(reload func()) {
 	r.mu.Lock()
 	r.asked++
 	mine := r.asked
+	if r.reloading && insideReload() {
+		r.again = true
+		r.reentered++
+		r.mu.Unlock()
+		r.log("A restart was asked for from inside the reload: one more reload follows it")
+		return
+	}
 	for r.covered < mine {
 		if r.reloading {
 			r.done.Wait()
@@ -164,9 +211,29 @@ func (r *restarts) restart(reload func()) {
 		r.mu.Unlock()
 		r.reloadOnce(reload, covers)
 		r.mu.Lock()
+		if r.again {
+			r.again = false
+			mine = r.asked // what was asked for from inside: covered by the next one
+		}
 	}
 	r.mu.Unlock()
 	r.ask()
+}
+
+// insideReload reports whether the calling goroutine runs a reload
+// (reloadOnce is on its stack).
+func insideReload() bool {
+	pcs := make([]uintptr, 512)
+	frames := runtime.CallersFrames(pcs[:runtime.Callers(2, pcs)])
+	for {
+		frame, more := frames.Next()
+		if strings.HasSuffix(frame.Function, ".(*restarts).reloadOnce") {
+			return true
+		}
+		if !more {
+			return false
+		}
+	}
 }
 
 // reloadOnce runs reload for the requests up to covers; whatever happens,
@@ -211,6 +278,7 @@ func (r *restarts) serve(main *http.Server, mainTLS bool, plain *http.Server) er
 		}
 		return err
 	}
+	router := r.publish()
 
 	stopped := make(chan error, len(servers))
 	for i, srv := range servers {
@@ -251,15 +319,19 @@ func (r *restarts) serve(main *http.Server, mainTLS bool, plain *http.Server) er
 			failed = err
 		}
 	}
+	if router != nil {
+		close(router.ended) // from now on its requests go to the next router
+	}
 	for _, srv := range servers {
 		srv.SetKeepAlivesEnabled(false)
 	}
-	r.waitForFirstRequests()
+	waited := r.waitForFirstRequests()
 	for _, srv := range servers {
 		go srv.Shutdown(context.Background())
 	}
 	r.keptMu.Lock()
 	r.serving = false
+	r.gapTimer = time.AfterFunc(r.gapLimit, r.release) // a slow build: refused, not queued, from then on
 	r.keptMu.Unlock()
 	if failed != nil {
 		r.release()
@@ -272,7 +344,7 @@ func (r *restarts) serve(main *http.Server, mainTLS bool, plain *http.Server) er
 	case <-r.wanted:
 	default:
 	}
-	r.log("HTTPServer shutdown.")
+	r.log("HTTPServer shutdown. Waited " + waited.Round(time.Microsecond).String() + " for the first requests of new connections")
 	return http.ErrServerClosed
 }
 
@@ -282,8 +354,21 @@ var errPlainBind = errors.New("plain")
 // the socket kept for its address, bound first when there is none. Sockets
 // of addresses no server uses any more (ports changed) are closed.
 func (r *restarts) sockets(servers []*http.Server) ([]net.Listener, error) {
+	for i := range servers {
+		for _, other := range servers[:i] {
+			if other.Addr == servers[i].Addr {
+				// upstream's second listener failed to bind: same end, said plainly
+				return nil, fmt.Errorf("the HTTP and the HTTPS server are both set to listen on %s: they cannot share one port", servers[i].Addr)
+			}
+		}
+	}
 	r.keptMu.Lock()
 	defer r.keptMu.Unlock()
+	if r.gapTimer != nil {
+		r.gapTimer.Stop()
+	}
+	r.starting = true
+	defer func() { r.starting = false }()
 	used := map[string]bool{}
 	listeners := []net.Listener{}
 	for i, srv := range servers {
@@ -317,15 +402,16 @@ func (r *restarts) sockets(servers []*http.Server) ([]net.Listener, error) {
 	return listeners, nil
 }
 
-// release closes the kept sockets between two generations, so that
-// something else can take the ports for a while: lego's own challenge
-// servers during a certificate order made while the router is built. While
-// a generation serves it does nothing (the ports are taken then, as they
-// were upstream). utils.ForkFreeServerPorts.
+// release closes the kept sockets between two generations: so that
+// something else can take the ports for a while (lego's own challenge
+// servers during a certificate order made while the router is built:
+// utils.ForkFreeServerPorts), and when the next generation is slow to come
+// (gapLimit). While a generation serves or binds it does nothing (the ports
+// are taken then, as they were upstream). The next generation binds again.
 func (r *restarts) release() {
 	r.keptMu.Lock()
 	defer r.keptMu.Unlock()
-	if r.serving {
+	if r.serving || r.starting {
 		return
 	}
 	for addr, k := range r.kept {
@@ -424,3 +510,63 @@ func (g *generationListener) Close() error {
 }
 
 func (g *generationListener) Addr() net.Addr { return g.k.ln.Addr() }
+
+// generationRouter is a generation's router behind its gate (see the top).
+type generationRouter struct {
+	r       *restarts
+	handler http.Handler
+	ended   chan struct{}
+}
+
+// routerOf is the hook in startHTTP(S)Server: the router of the generation
+// being started, behind its gate.
+func (r *restarts) routerOf(handler http.Handler) http.Handler {
+	g := &generationRouter{r: r, handler: handler, ended: make(chan struct{})}
+	r.gateMu.Lock()
+	r.building = g
+	r.gateMu.Unlock()
+	return g
+}
+
+// publish makes the router being built the one that serves.
+func (r *restarts) publish() *generationRouter {
+	r.gateMu.Lock()
+	defer r.gateMu.Unlock()
+	g := r.building
+	r.building = nil
+	if g != nil {
+		r.current = g
+		close(r.changed)
+		r.changed = make(chan struct{})
+	}
+	return g
+}
+
+func (g *generationRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	select {
+	case <-g.ended:
+	default:
+		g.handler.ServeHTTP(w, req)
+		return
+	}
+	deadline := time.NewTimer(g.r.gapLimit)
+	defer deadline.Stop()
+	for {
+		g.r.gateMu.Lock()
+		next, changed := g.r.current, g.r.changed
+		g.r.gateMu.Unlock()
+		if next != g {
+			next.ServeHTTP(w, req)
+			return
+		}
+		select {
+		case <-changed:
+		case <-deadline.C:
+			// the old router never answers once its generation ended
+			http.Error(w, "The server is restarting, try again in a moment", http.StatusServiceUnavailable)
+			return
+		case <-req.Context().Done():
+			return
+		}
+	}
+}
