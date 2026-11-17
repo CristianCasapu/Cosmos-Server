@@ -133,7 +133,7 @@ const open = async (type, name, viewport, mode, withSudo = true) => {
   const ctx = await browser.newContext({ viewport, ignoreHTTPSErrors: true, colorScheme: mode, serviceWorkers: 'block' });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => {
-    if (/Failed to fetch|Load failed|NetworkError|due to access control checks|^Server error$/.test(e.message)) return; // the server reloads after an edit
+    if (/Failed to fetch|Load failed|NetworkError/.test(e.message)) return; // the server reloads after an edit
     failures.push(`${name} PAGEERROR: ${(e.stack || e.message).slice(0, 400)}`);
   });
   await ctx.request.post(base + '/cosmos/api/login', { data: { nickname: 'admin', password } });

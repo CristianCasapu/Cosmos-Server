@@ -225,14 +225,10 @@ func TestPrepareBindFolders(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "srv"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	oldPlaces, oldChown := EditDataPlaces, chownFolder
-	defer func() { EditDataPlaces, chownFolder = oldPlaces, oldChown }()
+	oldPlaces := EditDataPlaces
+	defer func() { EditDataPlaces = oldPlaces }()
 	EditDataPlaces = func() []string { return []string{"/mnt/data"} }
-	owned := map[string]string{}
-	chownFolder = func(p string, uid, gid int) error {
-		owned[strings.TrimPrefix(p, root)] = strconv.Itoa(uid) + ":" + strconv.Itoa(gid)
-		return nil
-	}
+	owned := recordChowns(t, root)
 	before := ownersApp()
 	before.Config.User = ""
 	after := edited(before, func(c *types.ContainerJSON) {
@@ -252,7 +248,7 @@ func TestPrepareBindFolders(t *testing.T) {
 		t.Fatal("a folder outside the data places was made")
 	}
 	// a data path that does not exist yet: made (the administrator's), the app's folder below it the app's
-	owned = map[string]string{}
+	clear(owned)
 	EditDataPlaces = func() []string { return []string{"/mnt/data", "/cosmos-storage"} }
 	fresh := edited(before, func(c *types.ContainerJSON) {
 		c.HostConfig.Mounts = append(c.HostConfig.Mounts, mount.Mount{Type: mount.TypeBind, Source: "/cosmos-storage/radarr/data", Target: "/data"})
@@ -262,7 +258,7 @@ func TestPrepareBindFolders(t *testing.T) {
 		t.Fatalf("a missing data path: %v %v", err, owned)
 	}
 	// an app that runs as root: nothing is done (EditContainer makes the folder as before)
-	owned = map[string]string{}
+	clear(owned)
 	rootApp := edited(before, func(c *types.ContainerJSON) {
 		c.Config.Image = "nginx:1"
 		c.Config.Env = nil
@@ -291,5 +287,126 @@ func TestEditKeepsRestartRetries(t *testing.T) {
 	keepRestartRetries(&before, &changed)
 	if changed.HostConfig.RestartPolicy.MaximumRetryCount != 0 {
 		t.Fatalf("tries kept for another policy: %+v", changed.HostConfig.RestartPolicy)
+	}
+}
+
+// recordChowns replaces the Lchown (the tests do not run as root) and
+// records, by path on the server, which folders were given to whom.
+func recordChowns(t *testing.T, root string) map[string]string {
+	t.Helper()
+	old := chownCreated
+	t.Cleanup(func() { chownCreated = old })
+	owned := map[string]string{}
+	chownCreated = func(r *os.Root, rel string, uid, gid int) error {
+		info, err := r.Lstat(rel)
+		if err != nil || !info.IsDir() {
+			t.Errorf("chown of %s, which is not a folder made here: %v", rel, err)
+		}
+		owned[strings.TrimPrefix(r.Name(), root)+"/"+rel] = strconv.Itoa(uid) + ":" + strconv.Itoa(gid)
+		return nil
+	}
+	return owned
+}
+
+// A link an app planted in its own data folder never leads the creation or
+// the chown out of the data place, and a folder that exists is left alone.
+func TestMakeOwnedFoldersStaysInThePlace(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{"mnt/data/app/config", "outside"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// planted by the app (it can write in /config): out of the place, absolute and relative, and one inside it
+	for target, at := range map[string]string{
+		"/outside":            "mnt/data/app/config/abs",
+		"../../../../outside": "mnt/data/app/config/rel",
+		"../config":           "mnt/data/app/config/inside",
+	} {
+		if err := os.Symlink(target, filepath.Join(root, at)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	owned := recordChowns(t, root)
+
+	for _, source := range []string{"/mnt/data/app/config/abs/new", "/mnt/data/app/config/rel/new", "/mnt/data/app/config/rel"} {
+		if err := makeOwnedFolders(root, "/mnt/data", source, 1000, 1000); err == nil && strings.Contains(source, "new") {
+			t.Errorf("%s: no refusal through a link out of the place", source)
+		}
+	}
+	if entries, _ := os.ReadDir(filepath.Join(root, "outside")); len(entries) != 0 {
+		t.Fatalf("something was made outside the data place: %v", entries)
+	}
+	if len(owned) != 0 {
+		t.Fatalf("chowned through a link: %v", owned)
+	}
+	// with the absolute link read as the server sees it: /outside of the real machine is not touched either
+	if _, err := os.Stat("/outside/new"); err == nil {
+		t.Fatal("made on the machine itself")
+	}
+
+	// a link that stays inside the place is followed; only the folder made is chowned
+	if err := makeOwnedFolders(root, "/mnt/data", "/mnt/data/app/config/inside/cache", 1000, 1001); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "mnt/data/app/config/cache")); err != nil {
+		t.Fatal("not made through the link inside the place")
+	}
+	if len(owned) != 1 || owned["/mnt/data/app/config/inside/cache"] != "1000:1001" {
+		t.Fatalf("owners: %v", owned)
+	}
+
+	// existing folders (the place, app, config) are left as they are: no chown, mode kept
+	clear(owned)
+	if err := os.Chmod(filepath.Join(root, "mnt/data/app/config"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := makeOwnedFolders(root, "/mnt/data", "/mnt/data/app/config/thumbs", 1000, 1000); err != nil {
+		t.Fatal(err)
+	}
+	if len(owned) != 1 || owned["/mnt/data/app/config/thumbs"] != "1000:1000" {
+		t.Fatalf("an existing folder was chowned: %v", owned)
+	}
+	if info, _ := os.Stat(filepath.Join(root, "mnt/data/app/config")); info.Mode().Perm() != 0o700 {
+		t.Fatalf("an existing folder was changed: %v", info.Mode())
+	}
+	clear(owned)
+	if err := makeOwnedFolders(root, "/mnt/data", "/mnt/data/app/config", 1000, 1000); err != nil || len(owned) != 0 {
+		t.Fatalf("a folder that exists: %v %v", err, owned)
+	}
+	// not below the place
+	if err := makeOwnedFolders(root, "/mnt/data", "/mnt/data", 1000, 1000); err == nil {
+		t.Fatal("the place itself accepted")
+	}
+	if err := makeOwnedFolders(root, "/mnt/data", "/mnt/database/x", 1000, 1000); err == nil {
+		t.Fatal("a sibling of the place accepted")
+	}
+}
+
+// The route's own path: a planted link in the bind's path is not walked by
+// the detection either (state "link"): nothing is made, nothing chowned.
+func TestPrepareBindFoldersPlantedLink(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "mnt/data/radarr/config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "etc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc", filepath.Join(root, "mnt/data/radarr/config/escape")); err != nil {
+		t.Fatal(err)
+	}
+	oldPlaces := EditDataPlaces
+	defer func() { EditDataPlaces = oldPlaces }()
+	EditDataPlaces = func() []string { return []string{"/mnt/data"} }
+	owned := recordChowns(t, root)
+	before := ownersApp()
+	before.Config.User = ""
+	after := edited(before, func(c *types.ContainerJSON) {
+		c.HostConfig.Mounts = append(c.HostConfig.Mounts, mount.Mount{Type: mount.TypeBind, Source: "/mnt/data/radarr/config/escape/cron.d", Target: "/x"})
+	})
+	forkPrepareBindFolders(before, after, root)
+	if entries, _ := os.ReadDir(filepath.Join(root, "etc")); len(entries) != 0 || len(owned) != 0 {
+		t.Fatalf("followed the planted link: %v %v", entries, owned)
 	}
 }

@@ -22,10 +22,10 @@ package docker
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
-	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -344,8 +344,43 @@ func keepRestartRetries(before, after *types.ContainerJSON) {
 // (fork_edit_hints.go), which knows them.
 var EditDataPlaces = func() []string { return nil }
 
-// chownFolder is replaced by the tests.
-var chownFolder = os.Chown
+// chownCreated gives a folder makeOwnedFolders has just created to the
+// app's user, inside the data place's os.Root and without following a link
+// (Lchown). Replaced by the tests, which do not run as root.
+var chownCreated = func(r *os.Root, rel string, uid, gid int) error { return r.Lchown(rel, uid, gid) }
+
+// makeOwnedFolders creates the missing folders of source below place, each
+// one it creates given to uid:gid. Everything goes through an os.Root opened
+// on the place: a link (one an app could have planted in its own data folder)
+// is followed only while it stays inside the place, and a path that leads out
+// is refused by the os.Root, so nothing is created or changed outside it. A
+// folder that exists already (or a link) is left exactly as it is: only a
+// folder this call has just created is chowned, with Lchown.
+func makeOwnedFolders(root, place, source string, uid, gid int) error {
+	if source == place || !strings.HasPrefix(source, place+"/") {
+		return errors.New("not below the data place")
+	}
+	r, err := os.OpenRoot(root + place)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	parts := strings.Split(strings.TrimPrefix(source, place+"/"), "/")
+	for i := range parts {
+		rel := strings.Join(parts[:i+1], "/")
+		err := r.Mkdir(rel, 0o755)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if err := chownCreated(r, rel, uid, gid); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // containerRunsAs is the numeric user the container writes as, from its settings.
 func containerRunsAs(c types.ContainerJSON) edithints.RunAs {
@@ -381,29 +416,20 @@ func forkPrepareBindFolders(before, after types.ContainerJSON, root string) {
 		if folder.State != "missing" {
 			continue
 		}
-		// the parts that are missing, from the deepest existing one down
-		missing := []string{}
-		for p := source; p != "/" && p != "." && (p == folder.Place || strings.HasPrefix(p, folder.Place+"/")); p = path.Dir(p) {
-			if _, err := os.Lstat(root + p); err == nil {
-				break
-			}
-			missing = append([]string{p}, missing...)
-		}
 		gid := user.GID
 		if gid < 0 {
 			gid = user.UID
 		}
-		for _, p := range missing {
-			if err := os.Mkdir(root+p, 0o755); err != nil && !os.IsExist(err) {
-				utils.Error("Edit: making the folder of a new bind", err)
-				break
+		// a data path that does not exist yet (before the first installation) is made as
+		// EditContainer would make it: the administrator's (root), 0755
+		if _, err := os.Lstat(root + folder.Place); os.IsNotExist(err) {
+			if err := os.MkdirAll(root+folder.Place, 0o755); err != nil {
+				utils.Error("Edit: making the data path", err)
+				continue
 			}
-			if p == folder.Place {
-				continue // the data place itself stays the administrator's
-			}
-			if err := chownFolder(root+p, user.UID, gid); err != nil {
-				utils.Error("Edit: giving the folder of a new bind to the app's user", err)
-			}
+		}
+		if err := makeOwnedFolders(root, folder.Place, source, user.UID, gid); err != nil {
+			utils.Error("Edit: making the folder of a new bind for the app's user", err)
 		}
 	}
 }
