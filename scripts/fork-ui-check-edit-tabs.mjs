@@ -223,7 +223,7 @@ if (process.env.PHASE === 'unchanged') {
             const after = await inspect(c);
             const d = diff(fullShape(before), fullShape(after));
             expect(!d, `${name}: ${c}, ${tab}: unchanged${d ? ' — ' + d : ''}`);
-            expect(c !== 'shape-stop' || !after.State.Running, `${name}: ${c} stays stopped`);
+            expect(after.State.Running === (c === 'shape-run'), `${name}: ${c} ${c === 'shape-run' ? 'runs again' : 'stays stopped'}`);
           }
         }
       } catch (e) {
