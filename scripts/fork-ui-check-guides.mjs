@@ -111,7 +111,9 @@ for (const engine of engines) {
     if (engine === 'chromium') await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
     const page = await context.newPage();
     const errors = [];
-    page.on('pageerror', (e) => errors.push(e.message.slice(0, 200)));
+    // the home page's reachability probe of an address that does not open from here (work/links) is
+    // reported by WebKit as an error of the page: not this check's subject
+    page.on('pageerror', (e) => { if (!/__cosmos_probe/.test(e.message)) errors.push(e.message.slice(0, 200)); });
     await context.request.post(base + '/cosmos/api/login', { data: who, failOnStatusCode: false });
     if (who === admin) await context.request.post(base + '/cosmos/api/sudo', { data: { password: admin.password }, failOnStatusCode: false });
 
@@ -204,6 +206,7 @@ for (const engine of engines) {
       const item = page.locator('[data-guide-link]').first();
       await item.waitFor({ timeout: 5000 }).catch(() => {});
       check(await item.isVisible().catch(() => false), tag + ': the tile\'s menu has "How to use it"');
+      await page.waitForTimeout(500);
       await page.screenshot({ path: out + '/' + tag + '-menu.png' });
       await item.click();
       await page.locator('[data-guide]').waitFor({ timeout: 15000 }).catch(() => {});

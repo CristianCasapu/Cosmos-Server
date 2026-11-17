@@ -217,7 +217,7 @@ export const AppGuide = ({ app, ctx, status, name }) => {
           <AccordionDetails sx={{ minWidth: 0 }}>
             <Stack spacing={1.5} sx={{ minWidth: 0 }}>
               <Box className="guide-no-print">
-                <Button size="small" startIcon={<LinkOutlined />} onClick={() => copy(link(s.id), t('mgmt.guide.theLink', 'the link to this section'))} sx={{ minHeight: 44 }} data-section-link={s.id}>
+                <Button startIcon={<LinkOutlined />} onClick={() => copy(link(s.id), t('mgmt.guide.theLink', 'the link to this section'))} sx={{ minHeight: 44 }} data-section-link={s.id}>
                   {t('mgmt.guide.copyLink', 'Copy a link to this section')}
                 </Button>
                 <Typography variant="caption" component="div" color="textSecondary">{t('mgmt.guide.linkNote', 'It opens inside the panel, for people signed in who may see this app.')}</Typography>

@@ -21,7 +21,8 @@
 # Inside the Docker in Docker:
 #   storage-net (internal)   RustFS 1.0.5 ("rustfs", administrator key made up below), the container place's runners
 #   gx-lan  192.168.60.0/24 (internal)  home runners; the test Cosmos listens on the Docker in Docker itself (.1)
-#   gx-inet 203.0.113.0/24  (internal)  internet runners and the stand-in proxy (.2)
+#   gx-inet 203.0.113.0/24  (internal, no address of the server on it: an internet address for Cosmos)
+#                                       internet runners and the browser "away", and the stand-in proxy (.2)
 #   gx-cf   173.245.48.0/24 (internal)  the stand-in (.2) and Cosmos (.1): an address in Cloudflare's ranges, so that
 #                                       Cosmos serves the shielded name to it, as to Cloudflare
 #   gx-build (with a way out, used only by `up` to build the runner images)
@@ -82,6 +83,7 @@ http {
       proxy_ssl_name $host;
       proxy_http_version 1.1;
       proxy_set_header Host $http_host;
+      proxy_set_header CF-Connecting-IP $remote_addr;
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection "upgrade";
     }
@@ -184,7 +186,7 @@ case "${1:-}" in
 up)
   test -x "${BIN:?BIN=<cosmos binary>}"
   mkdir -p "$SCRATCH/run" "$SCRATCH/out" "$SCRATCH/docker" "$SCRATCH/build"
-  cp "$BIN" "$SCRATCH/run/cosmos"
+  cmp -s "$BIN" "$SCRATCH/run/cosmos" || cp "$BIN" "$SCRATCH/run/cosmos"   # stop the test server first (clean) to change it
   echo '{"version":"test"}' > "$SCRATCH/run/meta.json"
   rm -rf "$SCRATCH/run/static" && mkdir -p "$SCRATCH/run/static"
   if [ -n "${STATIC:-}" ]; then cp -r "$STATIC/." "$SCRATCH/run/static/"; else echo '<!doctype html><title>t</title>' > "$SCRATCH/run/static/index.html"; fi
@@ -204,7 +206,7 @@ up)
   in_dind sh -c '
     docker network inspect storage-net >/dev/null 2>&1 || docker network create --internal storage-net >/dev/null
     docker network inspect gx-lan >/dev/null 2>&1 || docker network create --internal --subnet 192.168.60.0/24 gx-lan >/dev/null
-    docker network inspect gx-inet >/dev/null 2>&1 || docker network create --internal --subnet 203.0.113.0/24 gx-inet >/dev/null
+    docker network inspect gx-inet >/dev/null 2>&1 || docker network create --internal --subnet 203.0.113.0/24 -o com.docker.network.bridge.inhibit_ipv4=true gx-inet >/dev/null
     docker network inspect gx-cf >/dev/null 2>&1 || docker network create --internal --subnet 173.245.48.0/24 gx-cf >/dev/null
     docker rm -f gx-edge >/dev/null 2>&1
     docker run -d --name gx-edge --network gx-inet --ip 203.0.113.2 -v /scratch/build:/w:ro nginx:1-alpine nginx -c /w/nginx.conf -g "daemon off;" >/dev/null
@@ -232,15 +234,16 @@ run)
       -e ONLY="${ONLY:-}" -e PLACES="${PLACES:-home,internet,container}" -e OUT=/scratch/out -e NODE_TLS_REJECT_UNAUTHORIZED=0 "$@" \
       gx-harness node scripts/fork-guide-examples.mjs
   }
-  # the wizard and the URLs, then the name served through Cloudflare's proxy: Cosmos keeps that list
+  # the wizard and the URLs, then the names served through Cloudflare's proxy (the S3 address, and the
+  # panel's name for the browser "away", which Cosmos then sees at its CF-Connecting-IP): Cosmos keeps that list
   # apart from what PUT /api/config may change (it is set by the Cloudflare card), so it is written
   # into the configuration file here and the test server is started again
   harness -e SETUP_ONLY=1
   in_dind docker run --rm -v /scratch/run/config:/c gx-harness node -e '
     const fs = require("fs"); const p = "/c/cosmos.config.json"; const c = JSON.parse(fs.readFileSync(p, "utf8"));
     c.HTTPConfig.Cloudflare = c.HTTPConfig.Cloudflare || {};
-    if (!(c.HTTPConfig.Cloudflare.Shielded || []).includes("s3.example.org")) {
-      c.HTTPConfig.Cloudflare.Shielded = ["s3.example.org"]; c.HTTPConfig.Cloudflare.TrustRanges = true;
+    if (!(c.HTTPConfig.Cloudflare.Shielded || []).includes("cosmos.example.org")) {
+      c.HTTPConfig.Cloudflare.Shielded = ["s3.example.org", "cosmos.example.org"]; c.HTTPConfig.Cloudflare.TrustRanges = true;
       fs.writeFileSync(p, JSON.stringify(c, null, 2)); console.log("shielded"); }' > "$SCRATCH/out/shield.txt"
   if grep -q shielded "$SCRATCH/out/shield.txt"; then in_dind pkill -f "^./cosmos" || true; sleep 3; fi
   in_dind docker run --rm --name gx-harness-run --network gx-lan --add-host cosmos.example.org:192.168.60.1 \
