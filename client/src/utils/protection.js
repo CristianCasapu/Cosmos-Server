@@ -168,6 +168,9 @@ const answerLines = (piece, table, formatDate) => {
       lines.push(['protection.guard.homeNone', 'On {{ifname}} nothing counts as home (the segment is the provider\'s, and no network was named with --home).', { ifname }]);
     }
   }
+  if (lan.some((ifname) => names(table.wanInterfaces).includes(ifname))) {
+    lines.push(['protection.guard.homeForged', 'A packet from the internet that claims an address of the home network\'s own prefix cannot be told apart on the server: dropping those is the router\'s job (most routers do).']);
+  }
   if (home.length) {
     lines.push(['protection.guard.homeNetworks', 'Named with --home, home on every interface: {{networks}}.', { networks: home.join(', ') }]);
   }

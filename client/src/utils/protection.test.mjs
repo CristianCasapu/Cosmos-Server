@@ -56,10 +56,10 @@ test('all installed and active: since, details and the uninstallers', () => {
     assert.match(card.lines[0][2].date, /^on 2026-11-1[567]$/);
   }
   const [guard, fail2ban, updates] = cards;
-  assert.deepEqual(keys(guard.lines), ['protection.since', 'protection.guard.answers', 'protection.guard.vpn', 'protection.guard.homeLan', 'protection.guard.dropped']);
+  assert.deepEqual(keys(guard.lines), ['protection.since', 'protection.guard.answers', 'protection.guard.vpn', 'protection.guard.homeLan', 'protection.guard.homeForged', 'protection.guard.dropped']);
   assert.deepEqual(guard.lines[1][2], { tcp: '2052, 2053', udp: '' });
   assert.deepEqual(guard.lines[3][2], { ifname: 'eth0' });
-  assert.deepEqual(guard.lines[4][2], { input: '123.5k', forward: '12' });
+  assert.deepEqual(guard.lines[5][2], { input: '123.5k', forward: '12' });
   // no claim about SSH that the table does not support
   assert.ok(!guard.lines.some((line) => /SSH/.test(line[1])));
   assert.deepEqual(keys(fail2ban.lines), ['protection.since', 'protection.fail2ban.sshd']);
@@ -153,6 +153,7 @@ test('home: per outside interface, and the --home networks', () => {
   assert.deepEqual(words(card).filter((line) => /home/.test(line)), [
     'Home network on eth0: its own prefixes count as home.',
     'On wlan0 only the networks named with --home count as home (the segment is the provider\'s).',
+    'A packet from the internet that claims an address of the home network\'s own prefix cannot be told apart on the server: dropping those is the router\'s job (most routers do).',
     'Named with --home, home on every interface: 192.0.2.0/24, 2001:db8:5::/48.',
   ]);
 });

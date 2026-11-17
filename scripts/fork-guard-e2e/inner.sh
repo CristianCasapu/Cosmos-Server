@@ -434,6 +434,7 @@ g_spoof() {
 	expect_rc 0 "install"
 	check "eth0 is a home network (private address, private router)" in_set lan_if '"eth0"'
 	check "the installer says so and how to change it" says "eth0: a home network behind a router"
+	check "it says that a forged home-prefix source is the router's job" says "dropping those is the router's job"
 	ll=$(tm_ll)
 	check "home over link-local reaches 9999" tcp "$HC" "$ll%eth0" 9999
 	probe_table

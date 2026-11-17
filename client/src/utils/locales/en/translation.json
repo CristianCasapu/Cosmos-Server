@@ -6480,6 +6480,7 @@
 	"protection.guard.sshAllowed": "SSH (port {{port}}) also answers {{address}} until {{until}}.",
 	"protection.guard.sshAllowedAlways": "SSH (port {{port}}) also answers {{address}}, with no end set.",
 	"protection.guard.homeLan": "Home network on {{ifname}}: its own prefixes count as home.",
+	"protection.guard.homeForged": "A packet from the internet that claims an address of the home network's own prefix cannot be told apart on the server: dropping those is the router's job (most routers do).",
 	"protection.guard.homeNamed": "On {{ifname}} only the networks named with --home count as home (the segment is the provider's).",
 	"protection.guard.homeNone": "On {{ifname}} nothing counts as home (the segment is the provider's, and no network was named with --home).",
 	"protection.guard.homeNetworks": "Named with --home, home on every interface: {{networks}}.",

@@ -448,7 +448,9 @@ for dev in $(csv_words "$WAN"); do
 	if in_csv "$dev" "$LAN"; then
 		gw=$(ip -o -4 route show table all default dev "$dev" 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "via") {print $(i + 1); exit}}')
 		note="$dev: a home network behind a router (private address ${a4% }, router ${gw:-?}):
-              its prefixes (${p6:-no IPv6 prefix}) and link-local count as home.
+              its prefixes (${p6:-no IPv6 prefix}) and link-local count as home. A packet from the
+              internet that claims an address of these prefixes cannot be told apart here:
+              dropping those is the router's job (most routers do).
               If this server is a cloud server or the router's exposed host, use --exposed / --ipv4 yes."
 	elif [ "$EXPOSED" = 1 ]; then
 		note="$dev: --exposed: nothing on it counts as home but --home"
