@@ -51,8 +51,10 @@ docker exec -d "$D" sh -c '/restart-e2e app > /app.log 2>&1'
 docker exec -d "$D" sh -c 'cd /cosmos && while [ ! -e /cosmos/stop ]; do echo "=== cosmos starts $(date +%T)" >> /cosmos/log; COSMOS_CONFIG_FOLDER=/cosmos/config/ COSMOS_HTTP_PORT=2052 COSMOS_HTTPS_PORT=2053 ./cosmos >> /cosmos/log 2>&1; echo "=== cosmos ended with $? $(date +%T)" >> /cosmos/log; sleep 1; done'
 c() { docker exec "$D" wget -q -O /dev/null "$@"; }
 for _ in $(seq 1 60); do c http://127.0.0.1:2052/cosmos-ui/ 2>/dev/null && break; sleep 1; done
+# the wizard asks for the instance's one-time setup code (src/fork_setup_code.go): read from its file
 docker exec -e PASSWORD="$PASSWORD" "$D" sh -c '
-  s() { wget -q -O /dev/null -T 20 --header "Content-Type: application/json" --post-data "$1" http://127.0.0.1:2052/cosmos/api/newInstall; }
+  code=$(cat /cosmos/config/setup-code)
+  s() { wget -q -O /dev/null -T 20 --header "Content-Type: application/json" --header "X-Cosmos-Setup-Code: $code" --post-data "$1" http://127.0.0.1:2052/cosmos/api/newInstall; }
   s "{\"step\":\"2\",\"mongodbMode\":\"Create\"}"
   s "{\"step\":\"3\",\"httpsCertificateMode\":\"SELFSIGNED\",\"hostname\":\"server.example.org\",\"allowHTTPLocalIPAccess\":true}"
   s "{\"step\":\"4\",\"nickname\":\"admin\",\"password\":\"$PASSWORD\",\"email\":\"admin@example.org\"}"

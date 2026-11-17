@@ -31,6 +31,8 @@
 //
 //   SERVER_IP=172.31.231.10 NET=172.31.231 ENGINES=chromium,firefox,webkit SIZES=d,m MODES=light,dark CSP=server
 // Screenshots go to ./shots.
+//
+// SETUP_CODE: the fresh test instance's one-time setup code, which its wizard asks for: cat <its config folder>/setup-code (src/fork_setup_code.go).
 import { chromium, firefox, webkit, request } from 'playwright';
 import { mkdirSync } from 'node:fs';
 
@@ -86,7 +88,7 @@ const serverUp = () => until('the server answers over HTTPS', async () => (await
     fresh = answer.status() === 200 && (await answer.json()).status === 'OK';
   } catch (e) { /* set up already */ }
   if (fresh) {
-    const step = (data) => api.post(plain + '/cosmos/api/newInstall', { data }).then((r) => r.status()).catch(() => 'exit');
+    const step = (data) => api.post(plain + '/cosmos/api/newInstall', { data, headers: { 'X-Cosmos-Setup-Code': process.env.SETUP_CODE || '' } }).then((r) => r.status()).catch(() => 'exit');
     note('wizard:',
       await step({ step: '2', mongodbMode: 'Create' }),
       await step({ step: '3', httpsCertificateMode: 'SELFSIGNED', hostname: 'cosmos.example.org', allowHTTPLocalIPAccess: true }),

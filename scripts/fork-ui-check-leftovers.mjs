@@ -27,6 +27,8 @@
 //   docker run --rm --network <net> --ipc=host -v <dir with this script>:/work -w /work \
 //     mcr.microsoft.com/playwright:v1.65.1-noble sh -c 'npm i playwright@1.65.1 && node fork-ui-check-leftovers.mjs'
 // Screenshots go to ./shots.
+//
+// SETUP_CODE: the fresh test instance's one-time setup code, which its wizard asks for: cat <its config folder>/setup-code (src/fork_setup_code.go).
 import { chromium, firefox, webkit, request } from 'playwright';
 import { mkdirSync } from 'node:fs';
 
@@ -60,7 +62,7 @@ const until = async (what, check, seconds = 90) => {
     fresh = answer.status() === 200 && (await answer.json()).status === 'OK';
   } catch (e) { /* set up already */ }
   if (fresh) {
-    const step = (data) => api.post(base + '/cosmos/api/newInstall', { data }).then((r) => r.status()).catch(() => 'exit');
+    const step = (data) => api.post(base + '/cosmos/api/newInstall', { data, headers: { 'X-Cosmos-Setup-Code': process.env.SETUP_CODE || '' } }).then((r) => r.status()).catch(() => 'exit');
     note('wizard:', await step({ step: '2', mongodbMode: 'Create' }),
       await step({ step: '3', httpsCertificateMode: 'DISABLED', hostname: new URL(base).hostname }),
       await step({ step: '4', nickname: 'admin', password, email: 'admin@example.org' }), await step({ step: '5' }));

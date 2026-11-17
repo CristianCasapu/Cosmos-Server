@@ -355,6 +355,7 @@ func cosmos() {
 	// a new server handed a constellation file needs no setup at all
 	JoinFromFile()
 	config = utils.GetMainConfig()
+	forkSetupCodeAtStart() // Fork addition: the first-run wizard asks for a one-time code, see fork_setup_code.go
 
 	if !config.NewInstall {
 		MigratePre013()

@@ -174,7 +174,8 @@ browser() { # [VAR=value…] -- <script>: runs a node script of SCRATCH/pw in th
   docker rm -f "$PREFIX-browser" >/dev/null 2>&1 || true
   # shellcheck disable=SC2086
   docker run --rm --name "$PREFIX-browser" --network "$NET" --ip "$SUBNET.9" --dns "$SUBNET.2" --ipc=host \
-    -v "$SCRATCH/pw:/work" -v "$SCRATCH/run:/cosmos:ro" -w /work -e SUBNET="$SUBNET" $envs "$PLAYWRIGHT_IMAGE" node "$@"
+    -v "$SCRATCH/pw:/work" -v "$SCRATCH/run:/cosmos:ro" -w /work -e SUBNET="$SUBNET" \
+    -e SETUP_CODE="$(cat "$SCRATCH/run/config/setup-code" 2>/dev/null)" $envs "$PLAYWRIGHT_IMAGE" node "$@" # the instance's one-time setup code, for its wizard
 }
 
 playwright() {

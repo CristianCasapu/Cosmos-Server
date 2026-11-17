@@ -13,6 +13,8 @@
 // ENGINES=chromium,firefox,webkit  SIZES=d,m (1366x900, 393x851)  BASE, FAKE (the stand-in's
 // control port), DIND (the test Docker's API, to look into the "server"). Pictures go to ./shots.
 // The run ends with "ALL OK" or the list of failures.
+//
+// SETUP_CODE: the fresh test instance's one-time setup code, which its wizard asks for: cat <its config folder>/setup-code (src/fork_setup_code.go).
 import { chromium, firefox, webkit } from 'playwright';
 
 const base = process.env.BASE || 'http://forms-d.example.org:2052';
@@ -97,7 +99,7 @@ const phases = {};
 phases.setup = async () => {
   const browser = await chromium.launch();
   const ctx = await browser.newContext();
-  const step = (data) => ctx.request.post(base + '/cosmos/api/newInstall', { data }).then((r) => r.status()).catch(() => 'exit');
+  const step = (data) => ctx.request.post(base + '/cosmos/api/newInstall', { data, headers: { 'X-Cosmos-Setup-Code': process.env.SETUP_CODE || '' } }).then((r) => r.status()).catch(() => 'exit');
   note('wizard:', await step({ step: '2', mongodbMode: 'Create' }),
     await step({ step: '3', httpsCertificateMode: 'DISABLED', hostname: 'forms-d.example.org' }),
     await step({ step: '4', nickname: 'admin', password: PASSWORD }), await step({ step: '5' }));
@@ -108,6 +110,10 @@ phases.wizard = async (page, id, size, ctx) => {
   const status = (await (await ctx.request.get(base + '/cosmos/api/status')).json()).data || {};
   expect(id + ': the instance is unlicensed', status.Licence === false, JSON.stringify({ Licence: status.Licence, ShowPaidFeatures: status.ShowPaidFeatures }));
   await page.goto(base + '/cosmos-ui/newInstall', { waitUntil: 'domcontentloaded' });
+  // the first screen asks for the instance's setup code (SETUP_CODE)
+  await page.locator('[data-fork-setup-code] input').waitFor({ timeout: 20000 });
+  await page.locator('[data-fork-setup-code] input').fill(process.env.SETUP_CODE || '');
+  await page.locator('[data-fork-setup-code] button[type=submit]').click();
   await page.getByText(/clean install/i).first().waitFor({ timeout: 20000 });
   await sleep(2500);
   const text = await page.locator('body').innerText();
