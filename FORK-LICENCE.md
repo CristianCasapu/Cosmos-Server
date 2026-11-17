@@ -24,7 +24,7 @@ and is not part of upstream's repository at the release the fork is based on:
   file named `fork_*`, the packages `src/security`, `src/reach`, `src/telegram`,
   `src/fail2ban`, `src/forkrelease`, `src/cloudflare`,
   `src/maildetect`, `src/certs`, `src/snapshots`, `src/upnp`, `src/turnstile`,
-  `src/edgeblock`, `src/anyimage` and any other package
+  `src/edgeblock`, `src/anyimage`, `src/reachwatch`, `src/behind`, `src/appsignin` and any other package
   `FORK.md` lists as the fork's own, the folders
   `fork/`, `client/public/skin/`, `client/sw/` and `client/src/offline/`, the scripts named `scripts/fork-*`, the
   workflows under `.github/` named `fork-*`, and the documents `FORK.md`,
