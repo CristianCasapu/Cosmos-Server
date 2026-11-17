@@ -47,7 +47,20 @@ type postgresTestRequest struct {
 	Password string `json:"password"`
 }
 
-// PostgresTestRoute answers POST /cosmos/api/config/postgres-test.
+// PostgresTestRoute godoc
+// @Summary Monitoring database: test a connection before saving
+// @Description Connects to the PostgreSQL server the form names and asks it one question; answers success or the reason in words. "***" as the password means the saved one, only for the saved server, database and user. Nothing is saved; the password is never in the answer. Administrators only, one test at a time, 3 seconds apart.
+// @Tags config
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} utils.APIResponse
+// @Failure 400 {object} utils.HTTPErrorResult
+// @Failure 401 {object} utils.HTTPErrorResult
+// @Failure 403 {object} utils.HTTPErrorResult
+// @Failure 405 {object} utils.HTTPErrorResult
+// @Failure 429 {object} utils.HTTPErrorResult
+// @Router /api/config/postgres-test [post]
 func PostgresTestRoute(w http.ResponseWriter, req *http.Request) {
 	if utils.CheckPermissions(w, req, utils.PERM_ADMIN) != nil {
 		return

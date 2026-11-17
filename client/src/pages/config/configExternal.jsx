@@ -7,7 +7,7 @@ import {
   FormHelperText,
 } from '@mui/material';
 import { PostgresProposals, PostgresTestButton, PostgresFoundNote, usePostgresProposals } from './forkPostgresProposals'; // Fork addition (plan 47)
-import { postgresHostProblem, postgresNameProblem } from '../../utils/postgresProposal'; // Fork addition (plan 47)
+import { postgresHostProblem, postgresNameProblem, postgresPasswordProblem } from '../../utils/postgresProposal'; // Fork addition (plan 47)
 import { CosmosCheckbox, CosmosCollapse, CosmosInputPassword, CosmosInputText } from './users/formShortcuts';
 import { useTranslation } from 'react-i18next';
 import { FilePickerButton } from '../../components/filePicker';
@@ -20,6 +20,8 @@ export const postgresValidation = (t) => ({
     (value) => !postgresNameProblem(value)),
   PostgresUsername: Yup.string().nullable().test('postgres-name', t('mgmt.config.general.monitoringDb.fork.nameValidation', 'At most 63 letters, digits and _ . $ -'),
     (value) => !postgresNameProblem(value)),
+  PostgresPassword: Yup.string().nullable().test('postgres-password', t('mgmt.config.general.monitoringDb.fork.passwordValidation', 'At most 1024 characters'),
+    (value) => !postgresPasswordProblem(value)),
 });
 
 const ConfigExternal = ({ formik }) => {

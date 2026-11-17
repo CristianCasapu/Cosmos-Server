@@ -123,7 +123,11 @@ const zoneIsKnown = (zone) => {
 // { ok: true, zone, kind: 'fields', second, minute, hour, dayOfMonth, month,
 //   dayOfWeek: { values, star } } or { ok: true, zone, kind: 'every', seconds }.
 // `zone` is the time zone written in the schedule itself ("" for the server's).
-export const parseCron = (expression) => {
+// options.fiveFields: also take five fields, without the seconds (they are 0),
+// as the scheduled jobs' scheduler does (gocron's CronJob with SecondOptional);
+// the error then says `five` so that the parts are numbered as written.
+export const parseCron = (expression, options) => {
+  const allowFive = !!(options && options.fiveFields);
   let spec = typeof expression === 'string' ? expression : '';
   if (spec.trim() === '') return fail('empty');
 
@@ -151,13 +155,15 @@ export const parseCron = (expression) => {
     }
   }
 
-  const parts = spec.split(/\s+/);
-  if (parts.length !== CRON_FIELDS.length) return fail('count', { count: parts.length });
+  let parts = spec.split(/\s+/);
+  const five = allowFive && parts.length === CRON_FIELDS.length - 1;
+  if (five) parts = ['0', ...parts];
+  if (parts.length !== CRON_FIELDS.length) return fail('count', { count: parts.length, fiveAllowed: allowFive });
 
   const result = { ok: true, zone, kind: 'fields' };
   for (let i = 0; i < CRON_FIELDS.length; i++) {
     const parsed = parseField(parts[i], CRON_FIELDS[i]);
-    if (parsed.error) return { ok: false, error: parsed.error };
+    if (parsed.error) return { ok: false, error: five ? { ...parsed.error, five } : parsed.error };
     result[CRON_FIELDS[i].name] = parsed;
   }
   if (nextCronRun(result, { year: 2000, month: 1, day: 1, hour: 0, minute: 0, second: 0 }, 9) === null) {
@@ -166,7 +172,7 @@ export const parseCron = (expression) => {
   return result;
 };
 
-export const isValidCron = (expression) => parseCron(expression).ok;
+export const isValidCron = (expression, options) => parseCron(expression, options).ok;
 
 const dayMatches = (schedule, date) => {
   const inMonth = schedule.dayOfMonth.values.includes(date.getUTCDate());
@@ -410,12 +416,23 @@ export const cronErrorText = (error, tr) => {
     month: t('mgmt.cron.field.month', 'Part 5 (month)'),
     dayOfWeek: t('mgmt.cron.field.dayOfWeek', 'Part 6 (day of the week)'),
   };
-  const vars = { ...error, field: FIELD_NAMES[error.field] };
+  // five fields written: the parts are numbered from the minute
+  const FIVE_NAMES = {
+    minute: t('mgmt.cron.field5.minute', 'Part 1 (minute)'),
+    hour: t('mgmt.cron.field5.hour', 'Part 2 (hour)'),
+    dayOfMonth: t('mgmt.cron.field5.dayOfMonth', 'Part 3 (day of the month)'),
+    month: t('mgmt.cron.field5.month', 'Part 4 (month)'),
+    dayOfWeek: t('mgmt.cron.field5.dayOfWeek', 'Part 5 (day of the week)'),
+  };
+  const vars = { ...error, field: (error.five ? FIVE_NAMES : FIELD_NAMES)[error.field] };
 
   switch (error.code) {
     case 'empty':
       return t('mgmt.cron.error.empty', 'Enter a schedule, or pick one below.');
     case 'count':
+      if (error.fiveAllowed) {
+        return t('mgmt.cron.error.countFive', 'A schedule has 6 parts separated by spaces (second, minute, hour, day of the month, month, day of the week), or 5 without the seconds. This one has {{count}}.', vars);
+      }
       return error.count === 5
         ? t('mgmt.cron.error.five', 'This has 5 parts; Cosmos needs 6, the first one being the seconds. Put "0 " in front of it.')
         : t('mgmt.cron.error.count', 'A schedule has 6 parts separated by spaces (second, minute, hour, day of the month, month, day of the week). This one has {{count}}.', vars);

@@ -183,7 +183,7 @@ export const JobSchedule = ({ formik }) => {
         error={formik.touched.Crontab && Boolean(formik.errors.Crontab)}
         sx={rowSx}
       />
-      <CronHelp formik={formik} name="Crontab" />
+      <CronHelp formik={formik} name="Crontab" fiveFields />
     </> : <>
       <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }} data-testid="job-expression">
         {t('mgmt.cron.fork.when.expression', 'Saved as the schedule {{expression}}', { expression: crontab })}

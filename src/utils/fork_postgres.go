@@ -43,6 +43,9 @@ func PostgresFieldsProblem(db DatabaseConfig) string {
 	name, port := host, ""
 	if h, p, err := net.SplitHostPort(host); err == nil {
 		name, port = h, p
+		if port == "" { // "db:" (the panel refuses it too)
+			return "The port of the database server is a number from 1 to 65535"
+		}
 	} else if strings.Count(host, ":") == 1 {
 		return "The database server is a name or an address, optionally followed by :port, for example 127.0.0.1:5432"
 	}

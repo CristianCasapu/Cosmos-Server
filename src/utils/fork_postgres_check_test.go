@@ -115,3 +115,11 @@ func TestPostgresTestRepeatsNothingOfAnotherService(t *testing.T) {
 		t.Errorf("the server's own text came back: %+v", problem)
 	}
 }
+
+func TestAHostWithAnEmptyPortIsRefusedLikeThePanelDoes(t *testing.T) {
+	for _, host := range []string{"db:", "[2001:db8::1]:"} {
+		if PostgresFieldsProblem(DatabaseConfig{PostgresHost: host}) == "" {
+			t.Errorf("%q accepted", host)
+		}
+	}
+}

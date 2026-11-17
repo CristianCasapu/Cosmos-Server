@@ -15,6 +15,7 @@ import (
 	conttype "github.com/docker/docker/api/types/container"
 	"github.com/gorilla/mux"
 
+	"github.com/azukaar/cosmos-server/src/anyimage"
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
@@ -154,4 +155,45 @@ func asReader(req *http.Request) *http.Request {
 		Nickname: "reader",
 		APIToken: &utils.APITokenContext{Name: "r", Owner: "reader", Permissions: []utils.Permission{utils.PERM_RESOURCES_READ}},
 	}))
+}
+
+// A recipe volume whose target is not a plain path never reaches a command
+// (review, M14): the dump is not proposed rather than built around it.
+func TestAnOddMountTargetNeverReachesTheCommand(t *testing.T) {
+	for _, target := range []string{"/var/lib/my data", "/var/lib/$(id)", "/var/lib/db;reboot", "/var/lib/`id`", "relative/data", "/var/lib/db\nx"} {
+		recipe := &anyimage.Recipe{Volumes: []anyimage.RecipeVolume{{Target: target, Backup: true}}}
+		c := container("postgres:18", nil, proposalMount{Source: "/srv/db", Destination: target})
+		if m, ok := dataMount(recipe, c); ok {
+			t.Errorf("%q was taken as the data folder: %+v", target, m)
+		}
+	}
+	recipe := &anyimage.Recipe{Volumes: []anyimage.RecipeVolume{{Target: "/var/lib/postgresql", Backup: true}}}
+	if _, ok := dataMount(recipe, container("postgres:18", nil, proposalMount{Source: "/srv/db", Destination: "/var/lib/postgresql/"})); !ok {
+		t.Error("a plain target written with a trailing slash was not found")
+	}
+}
+
+// Every folder a proposal names is a plain path, and the command holds no
+// character the shell would read otherwise outside its fixed parts.
+func TestTheDumpFolderIsAPlainPath(t *testing.T) {
+	if !plainPathRe.MatchString("/" + dumpFolderName) {
+		t.Fatalf("the dump folder name %q is not plain", dumpFolderName)
+	}
+	for _, c := range []proposalContainer{
+		container("postgres:18", []string{"POSTGRES_USER", "POSTGRES_PASSWORD"}, proposalMount{Source: "/srv/a b/db", Destination: "/var/lib/postgresql"}),
+		container("postgres:17", []string{"POSTGRES_PASSWORD"}, proposalMount{Source: "/srv/db", Destination: "/var/lib/postgresql/data"}),
+		container("mariadb:lts", []string{"MARIADB_ROOT_PASSWORD"}, proposalMount{Source: "/srv/maria", Destination: "/var/lib/mysql"}),
+	} {
+		a := proposalsFor(c)
+		if len(a.Proposals) != 1 {
+			t.Fatalf("%s: %+v", c.Image, a)
+		}
+		p := a.Proposals[0]
+		if !plainPathRe.MatchString(p.FolderInContainer) || !strings.HasSuffix(p.FolderInContainer, "/"+dumpFolderName) {
+			t.Errorf("%s: folder %q", c.Image, p.FolderInContainer)
+		}
+		if strings.Contains(p.Command, "/srv/") {
+			t.Errorf("%s: the folder on the server reached the command: %s", c.Image, p.Command)
+		}
+	}
 }

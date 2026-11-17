@@ -191,7 +191,18 @@ func postgresProposals(candidates []pgCandidate) []PostgresProposal {
 	return out
 }
 
-// PostgresProposalsRoute answers GET /cosmos/api/config/postgres-proposals.
+// PostgresProposalsRoute godoc
+// @Summary Monitoring database: the PostgreSQL containers of this server, proposed
+// @Description Lists the running containers whose image is a PostgreSQL, each with the server address Cosmos would use, its database and user from the container's settings, and the id of its password for the sign-in reveal. Never a password. Needs the permission to read credentials.
+// @Tags config
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} utils.APIResponse
+// @Failure 401 {object} utils.HTTPErrorResult
+// @Failure 403 {object} utils.HTTPErrorResult
+// @Failure 405 {object} utils.HTTPErrorResult
+// @Failure 503 {object} utils.HTTPErrorResult
+// @Router /api/config/postgres-proposals [get]
 func PostgresProposalsRoute(w http.ResponseWriter, req *http.Request) {
 	if utils.CheckPermissions(w, req, utils.PERM_CREDENTIALS_READ) != nil {
 		return

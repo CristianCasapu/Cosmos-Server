@@ -53,7 +53,7 @@ export const readSchedule = (expression) => {
 // clock readings; fewer when the schedule has fewer, none when it cannot be
 // read or is not made of fields ("@every").
 export const nextRuns = (expression, from, count = 3) => {
-  const schedule = parseCron(expression);
+  const schedule = parseCron(expression, { fiveFields: true }); // the jobs' scheduler takes five fields too
   const runs = [];
   if (!schedule.ok || !from) return runs;
   let at = from;

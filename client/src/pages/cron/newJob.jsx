@@ -49,8 +49,12 @@ const NewJobDialog = ({job, OnClose, refresh}) => {
     validateOnChange: false,
     // Fork addition: a schedule the server would not run is not saved; nor is a job without a name or with nothing to run
     validate: (values) => ({
-      ...cronFieldErrors(values, ['Crontab']),
-      ...(jobNameProblem(values.Name) ? { Name: t('mgmt.cron.fork.nameRequired', 'Give the job a name, for example "Back up the photos"') } : {}),
+      ...cronFieldErrors(values, ['Crontab'], { fiveFields: true }),
+      ...({
+        required: { Name: t('mgmt.cron.fork.nameRequired', 'Give the job a name, for example "Back up the photos"') },
+        long: { Name: t('mgmt.cron.fork.nameLong', 'A job\'s name is at most 64 characters') },
+        chars: { Name: t('mgmt.cron.fork.nameChars', 'A job\'s name is plain text on one line, without < or >') },
+      }[jobNameProblem(values.Name)] || {}),
       ...(jobCommandProblem(values.Command) ? { Command: t('mgmt.cron.fork.commandRequired', 'Enter the command to run, for example ls -la /storage') } : {}),
       ...(place === 'container' && !String(values.Container || '').trim() ? { Container: t('mgmt.cron.fork.containerRequired', 'Pick the container the job runs in, or choose "On the server itself"') } : {}),
     }),

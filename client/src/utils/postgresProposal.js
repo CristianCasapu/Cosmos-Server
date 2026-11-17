@@ -43,6 +43,13 @@ export const postgresNameProblem = (value) => {
   return !text || IDENT.test(text) ? null : 'shape';
 };
 
+// Why a password cannot be saved, or null: as the server, at most 1024
+// characters and no NUL ("***" is the saved one, kept).
+export const postgresPasswordProblem = (value) => {
+  const text = String(value || '');
+  return text.length > 1024 || text.includes('\u0000') ? 'shape' : null;
+};
+
 // The fields a proposal fills: never the password.
 export const proposalValues = (proposal) => {
   const p = proposal || {};

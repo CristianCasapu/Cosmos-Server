@@ -261,7 +261,20 @@ func proposalsFor(c proposalContainer) JobProposals {
 	return answer
 }
 
-// ProposalsRoute answers GET /cosmos/api/cron-proposals/{containerId}.
+// ProposalsRoute godoc
+// @Summary Scheduled jobs: common jobs proposed for a container
+// @Description For a container whose image has a recipe with a backup line (PostgreSQL, MariaDB, MySQL), a nightly dump into its data folder, with the folder on the server and how long dumps are kept. The command is built from the recipe only; no value of the container is answered.
+// @Tags cron
+// @Produce json
+// @Security BearerAuth
+// @Param containerId path string true "Container name"
+// @Success 200 {object} utils.APIResponse
+// @Failure 400 {object} utils.HTTPErrorResult
+// @Failure 401 {object} utils.HTTPErrorResult
+// @Failure 403 {object} utils.HTTPErrorResult
+// @Failure 404 {object} utils.HTTPErrorResult
+// @Failure 405 {object} utils.HTTPErrorResult
+// @Router /api/cron-proposals/{containerId} [get]
 func ProposalsRoute(w http.ResponseWriter, req *http.Request) {
 	if utils.CheckPermissions(w, req, utils.PERM_RESOURCES) != nil {
 		return

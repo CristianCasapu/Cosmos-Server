@@ -1,7 +1,7 @@
 // Fork addition: tests of postgresProposal.js. Run with: node --test "client/src/utils/*.test.mjs"
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { postgresHostProblem, postgresNameProblem, proposalValues, takeProposal, replaceWithProposal, holdsProposal, testPayload } from './postgresProposal.js';
+import { postgresHostProblem, postgresNameProblem, postgresPasswordProblem, proposalValues, takeProposal, replaceWithProposal, holdsProposal, testPayload } from './postgresProposal.js';
 
 const PROPOSAL = { container: 'notes-db', host: '127.0.0.1:15432', hostSource: 'published', database: 'notes', user: 'owner_name', passwordSecret: 'password.0', password: 'must-not-travel' };
 const EMPTY = { PostgresHost: '', PostgresDatabase: '', PostgresUsername: '', PostgresPassword: '' };
@@ -53,4 +53,13 @@ test('"Use these" fills empty fields, never what was typed', () => {
 test('the test sends the mask when the password was not touched', () => {
   assert.deepEqual(testPayload({ PostgresHost: ' db:5432 ', PostgresDatabase: 'cosmos', PostgresUsername: 'cosmos', PostgresPassword: '***' }),
     { host: 'db:5432', database: 'cosmos', username: 'cosmos', password: '***' });
+});
+
+test('the password follows the server: at most 1024 characters, no NUL', () => {
+  assert.equal(postgresPasswordProblem(''), null);
+  assert.equal(postgresPasswordProblem('***'), null);
+  assert.equal(postgresPasswordProblem('p'.repeat(1024)), null);
+  assert.equal(postgresPasswordProblem('p'.repeat(1025)), 'shape');
+  assert.equal(postgresPasswordProblem('a\u0000b'), 'shape');
+  assert.ok(postgresHostProblem('db:'));
 });

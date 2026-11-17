@@ -231,3 +231,18 @@ test('clockReading gives the wall clock of a zone', () => {
   assert.deepEqual(clockReading(instant, 'Nowhere/Atlantis'), clockReading(instant, ''));
   assert.equal(clockReading(instant, '').minute, 30);
 });
+
+// The jobs' scheduler (gocron with SecondOptional) also takes five fields:
+// with the option the panel accepts what the server accepts (review 7).
+test('five fields for the scheduled jobs only', () => {
+  assert.equal(isValidCron('0 3 * * *'), false); // SnapRAID's server needs six
+  assert.equal(isValidCron('0 3 * * *', { fiveFields: true }), true);
+  const five = parseCron('30 3 * * 1', { fiveFields: true });
+  const six = parseCron('0 30 3 * * 1');
+  assert.equal(describeCron(five), describeCron(six));
+  const from = { year: 2026, month: 11, day: 17, hour: 12, minute: 0, second: 0 };
+  assert.deepEqual(nextCronRun(five, from), nextCronRun(six, from));
+  const bad = parseCron('0 25 * * *', { fiveFields: true });
+  assert.equal(cronErrorText(bad.error), 'Part 2 (hour) goes from 0 to 23: "25" does not fit.');
+  assert.match(cronErrorText(parseCron('* * *', { fiveFields: true }).error), /or 5 without the seconds/);
+});

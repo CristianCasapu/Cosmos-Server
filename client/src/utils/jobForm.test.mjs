@@ -73,3 +73,9 @@ test('a proposed job fills the name, the command and the schedule', () => {
   assert.deepEqual(proposalFields({ name: 'Nightly dump of db', command: 'pg_dumpall', schedule: '0 0 3 * * *' }),
     { Name: 'Nightly dump of db', Command: 'pg_dumpall', Crontab: '0 0 3 * * *' });
 });
+
+test('the next runs of a five-field schedule are shown too', () => {
+  const from = { year: 2026, month: 11, day: 17, hour: 12, minute: 0, second: 0 };
+  assert.deepEqual(nextRuns('0 3 * * *', from), nextRuns('0 0 3 * * *', from));
+  assert.equal(nextRuns('0 3 * * *', from).length, 3);
+});
