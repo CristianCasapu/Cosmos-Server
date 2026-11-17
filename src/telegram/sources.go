@@ -280,8 +280,14 @@ func noticeFromNotification(n utils.Notification, config utils.Config) (notice, 
 	// the old notifications carry one free text: it names the subject of
 	// the first line when it is short, and is shown as the text at the end
 	withVar := func(kind string, name string) notice {
-		nt := newNotice(kind, map[string]string{name: vars})
-		if texts.Kinds[nt.kind].What == "" {
+		// review T3: the free text names the subject only when it looks like
+		// a name; anything else (an error's words) is the error text
+		value := ""
+		if nameLike(vars) || rawVar(kind, name) {
+			value = vars
+		}
+		nt := newNotice(kind, map[string]string{name: value})
+		if texts.Kinds[nt.kind].What == "" || value == "" {
 			nt.raw = vars
 		}
 		return nt
@@ -363,6 +369,23 @@ func noticeFromNotification(n utils.Notification, config utils.Config) (notice, 
 	}
 	nt.severity = levelSeverity(n.Level, sevWarn)
 	return nt, true
+}
+
+// nameLike reports whether a free text is a name, an address or a list of
+// them, not the words of an error (which say "something: why").
+func nameLike(text string) bool {
+	text = strings.TrimSpace(text)
+	return text != "" && len(text) <= 80 && !strings.Contains(text, ": ") && !strings.ContainsAny(text, "\n\r")
+}
+
+// rawVar reports whether a value of a kind is marked as an error text.
+func rawVar(kind string, name string) bool {
+	for _, v := range texts.Kinds[kind].Raw {
+		if v == name {
+			return true
+		}
+	}
+	return false
 }
 
 // levelSeverity is the severity a notification's level allows: an

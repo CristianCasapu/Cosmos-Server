@@ -14,6 +14,7 @@
     "again": "Still going on.",
     "raw": "Error text:",
     "request": "The request:",
+    "rawHidden": "details in the panel",
     "mergedWas": " (was: {{label}}, {{duration}})",
     "mergedWhy": "The message that told it could not be sent while it lasted.",
     "summaryOne": "{{count}} more {{many}} {{span}}",
@@ -493,7 +494,7 @@
       "sample": {"at": "14:21", "duration": "9 minutes"}
     },
     "upnp.config.invalid": {
-      "severity": "warn", "category": "system",
+      "raw": ["answer"], "severity": "warn", "category": "system",
       "label": "Port forwarding settings refused", "many": "refused forwarding settings",
       "preview": "Router refuses the port forwarding settings",
       "whatKey": "notif.upnp.config.invalid.what",
@@ -501,7 +502,7 @@
       "sample": {"answer": "ConflictInMappingEntry"}
     },
     "cert.order.failed": {
-      "severity": "error", "category": "system",
+      "raw": ["reason"], "severity": "error", "category": "system",
       "label": "No certificate obtained", "many": "failed certificate orders",
       "preview": "No certificate for {{domain}}",
       "whatKey": "notif.cert.order.failed.what",
@@ -510,7 +511,7 @@
       "sample": {"domain": "example.org", "reason": "the DNS provider refused the token"}
     },
     "cert.expiring": {
-      "severity": "warn", "category": "system", "level": true,
+      "raw": ["why"], "severity": "warn", "category": "system", "level": true,
       "label": "Certificate ends soon", "many": "certificates ending",
       "preview": "Certificate of {{domain}} ends {{left}}",
       "whatKey": "notif.cert.expiring.what",
@@ -558,7 +559,7 @@
       "sample": {"name": "jellyfin", "exits": "4", "code": "137"}
     },
     "container.startFailed": {
-      "severity": "error", "category": "apps",
+      "raw": ["reason"], "severity": "error", "category": "apps",
       "label": "New app does not start", "many": "apps that do not start",
       "preview": "{{name}} does not start",
       "whatKey": "notif.container.startFailed.what",
@@ -582,7 +583,7 @@
       "sample": {"name": "nextcloud"}
     },
     "app.installMail.failed": {
-      "severity": "warn", "category": "apps",
+      "raw": ["reason"], "severity": "warn", "category": "apps",
       "label": "Installation e-mail not sent", "many": "installation e-mails not sent",
       "preview": "E-mail about {{name}} not sent",
       "whatKey": "notif.app.installMail.what",
@@ -598,7 +599,7 @@
       "sample": {"names": "pgadmin.example.org"}
     },
     "snapshots.failed": {
-      "severity": "error", "category": "system",
+      "raw": ["summary"], "severity": "error", "category": "system",
       "label": "Incremental backup had problems", "many": "backup problems",
       "preview": "Backup had problems: {{summary}}",
       "whatKey": "notif.snapshots.failed.what",
@@ -640,7 +641,7 @@
       "sample": {"at": "14:21", "duration": "6 minutes"}
     },
     "update.rejected": {
-      "severity": "error", "category": "system",
+      "raw": ["summary"], "severity": "error", "category": "system",
       "label": "Server update refused", "many": "refused updates",
       "preview": "Server update refused: {{summary}}",
       "whatKey": "notif.update.rejected.what",
@@ -656,7 +657,7 @@
       "sample": {"failed": "0.24.0-fork.36", "back": "0.24.0-fork.35", "starts": "3", "file": "cosmos-update.failed"}
     },
     "update.attention": {
-      "severity": "critical", "category": "system", "pin": true,
+      "raw": ["summary"], "severity": "critical", "category": "system", "pin": true,
       "label": "Server update needs attention", "many": "updates needing attention",
       "preview": "Update needs you: {{summary}}",
       "whatKey": "notif.update.attention.what",
@@ -721,7 +722,7 @@
       "sample": {"at": "14:20", "duration": "18 minutes", "since": "14:02"}
     },
     "edgeblock.problem": {
-      "severity": "error", "category": "system",
+      "raw": ["text"], "severity": "error", "category": "system",
       "label": "Blocks at Cloudflare paused", "many": "problems with blocks",
       "preview": "Blocks at Cloudflare paused for {{text}}",
       "what": "Cosmos cannot make or lift blocks at Cloudflare for {{text}}: the domain's token lacks a permission or is refused.",
@@ -729,7 +730,7 @@
       "sample": {"text": "example.org"}
     },
     "originpull.expiring": {
-      "severity": "warn", "category": "system",
+      "raw": ["text"], "severity": "warn", "category": "system",
       "label": "Cloudflare certificate ends soon", "many": "warnings",
       "preview": "Cloudflare origin certificate ends in {{text}}",
       "what": "The certificate Cloudflare presents to this server ends in {{text}}.",
@@ -755,7 +756,7 @@
       "sample": {}
     },
     "error.backup": {
-      "severity": "error", "category": "system",
+      "raw": ["message"], "severity": "error", "category": "system",
       "label": "Configuration backup failed", "many": "failed backups",
       "preview": "Configuration backup failed",
       "whatKey": "notif.error.backup.what",
@@ -772,7 +773,7 @@
       "sample": {"name": "nightly-cleanup"}
     },
     "error.snapraid": {
-      "severity": "error", "category": "storage",
+      "raw": ["message"], "severity": "error", "category": "storage",
       "label": "SnapRAID task failed", "many": "SnapRAID failures",
       "preview": "SnapRAID task failed",
       "whatKey": "notif.error.snapraid.what",
@@ -789,7 +790,7 @@
       "sample": {}
     },
     "error.database": {
-      "severity": "error", "category": "system",
+      "raw": ["message"], "severity": "error", "category": "system",
       "label": "Database problem", "many": "database problems",
       "preview": "Database problem on the server",
       "whatKey": "notif.error.database.what",
@@ -797,7 +798,7 @@
       "sample": {"message": "database is locked"}
     },
     "error.export": {
-      "severity": "error", "category": "apps",
+      "raw": ["message"], "severity": "error", "category": "apps",
       "label": "Export of the apps' settings failed", "many": "failed exports",
       "preview": "Export of the apps' settings failed",
       "whatKey": "notif.error.export.what",
@@ -805,7 +806,7 @@
       "sample": {"message": "Docker does not answer"}
     },
     "error.migration": {
-      "severity": "error", "category": "system",
+      "raw": ["message"], "severity": "error", "category": "system",
       "label": "Old settings not carried over", "many": "migration problems",
       "preview": "Old settings could not be carried over",
       "whatKey": "notif.error.migration.what",
@@ -813,7 +814,7 @@
       "sample": {"message": "unknown field"}
     },
     "error.socketproxy": {
-      "severity": "error", "category": "system",
+      "raw": ["message"], "severity": "error", "category": "system",
       "label": "Two URLs on one port", "many": "port conflicts",
       "preview": "Two URLs want the same port",
       "whatKey": "notif.error.socketproxy.what",
@@ -822,7 +823,7 @@
       "sample": {"message": "port 8443 already in use"}
     },
     "error.mail": {
-      "severity": "error", "category": "system",
+      "raw": ["message"], "severity": "error", "category": "system",
       "label": "E-mail not sent", "many": "e-mails not sent",
       "preview": "E-mail could not be sent",
       "whatKey": "notif.error.mail.what",
@@ -830,7 +831,7 @@
       "sample": {"message": "authentication failed"}
     },
     "error.setup": {
-      "severity": "error", "category": "system",
+      "raw": ["message"], "severity": "error", "category": "system",
       "label": "Setup step failed", "many": "setup problems",
       "preview": "Setup step failed",
       "whatKey": "notif.error.setup.what",
@@ -838,7 +839,7 @@
       "sample": {"message": "the certificate could not be made"}
     },
     "error.other": {
-      "severity": "error", "category": "system",
+      "raw": ["message"], "severity": "error", "category": "system",
       "label": "Server error", "many": "server errors",
       "preview": "Server error: {{message}}",
       "whatKey": "notif.error.other.what",
@@ -846,7 +847,7 @@
       "sample": {"message": "the remote storage did not answer"}
     },
     "notification.other": {
-      "severity": "warn", "category": "other", "level": true,
+      "raw": ["title", "text"], "severity": "warn", "category": "other", "level": true,
       "label": "Notification", "many": "notifications",
       "preview": "{{title}}",
       "what": "{{text}}",

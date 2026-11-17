@@ -97,6 +97,10 @@ type kindTexts struct {
 	Closing bool              `json:"closing,omitempty"`
 	Pin     bool              `json:"pin,omitempty"`
 	Sample  map[string]string `json:"sample"`
+	// Raw names the values that can carry the text of an error: they go
+	// through the guard of error texts, and are left out with "Include error
+	// details" switched off.
+	Raw []string `json:"raw,omitempty"`
 
 	severity severity
 }
@@ -320,6 +324,23 @@ func renderWith(st settings, nt notice, details bool) message {
 	kt := nt.texts()
 	c := &composer{secrets: st.secrets}
 	vars := nt.vars
+	if len(kt.Raw) > 0 {
+		// review T3: error texts in values
+		vars = map[string]string{}
+		for k, v := range nt.vars {
+			vars[k] = v
+		}
+		for _, k := range kt.Raw {
+			if _, has := vars[k]; !has {
+				continue
+			}
+			if st.hideErrors {
+				vars[k] = word("rawHidden")
+			} else {
+				vars[k] = rawPass(vars[k], st.secrets)
+			}
+		}
+	}
 
 	headline(c, nt.severity, nt.closing)
 	if details && kt.Preview != "" && hasVars(kt.Preview, vars) {
