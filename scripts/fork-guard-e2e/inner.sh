@@ -217,7 +217,7 @@ g_ssh() {
 	before_rules=$(ruleset)
 	# confirmed in time
 	session_install "$OC" --port 2053 --confirm-timeout 60
-	session_wait 'Go on?' 30 || { bad "no question"; session_end; return; }
+	session_wait 'Go on?' 30 || { bad "no question"; session_result; printf "%s\n" "$OUT" | tail -n 15; session_end; return; }
 	session_say y
 	if session_wait 'Confirm?' 30; then ok "the installer asks for a confirmation"; else bad "the installer did not ask for a confirmation"; session_result; session_end; return; fi
 	check "the undo timer is armed" m systemctl is-active --quiet cosmos-host-guard-undo.timer
@@ -243,7 +243,7 @@ g_ssh() {
 	guard_uninstall
 	# nobody confirms: the undo fires, the session lives on
 	session_install "$OC" --port 2053 --confirm-timeout 30
-	session_wait 'Go on?' 30 || { bad "no question"; session_end; return; }
+	session_wait 'Go on?' 30 || { bad "no question"; session_result; printf "%s\n" "$OUT" | tail -n 15; session_end; return; }
 	session_say y
 	session_wait 'Confirm?' 30 || { bad "no confirmation prompt"; session_result; session_end; return; }
 	check "loaded while waiting" guard_loaded
@@ -256,7 +256,7 @@ g_ssh() {
 	check "not confirmed: the session survived" sh -c "[ '$SSH_RC' = 0 ]"
 	# the installer dies while waiting: the undo still fires (a systemd timer, not this shell)
 	session_install "$OC" --port 2053 --confirm-timeout 30
-	session_wait 'Go on?' 30 || { bad "no question"; session_end; return; }
+	session_wait 'Go on?' 30 || { bad "no question"; session_result; printf "%s\n" "$OUT" | tail -n 15; session_end; return; }
 	session_say y
 	session_wait 'Confirm?' 30 || { bad "no confirmation prompt"; session_result; session_end; return; }
 	# the installer dies without a word (as with a power cut of the client
@@ -273,7 +273,7 @@ g_ssh() {
 	docker exec "$OC" sh -c 'pkill -f "sleep 900"; true'
 	# only the session is cut (the installer gets its hang-up): taken away as well
 	session_install "$OC" --port 2053 --confirm-timeout 30
-	session_wait 'Go on?' 30 || { bad "no question"; session_end; return; }
+	session_wait 'Go on?' 30 || { bad "no question"; session_result; printf "%s\n" "$OUT" | tail -n 15; session_end; return; }
 	session_say y
 	session_wait 'Confirm?' 30 || { bad "no confirmation prompt"; session_result; session_end; return; }
 	docker exec "$OC" sh -c 'pkill -f "ssh .*tester@" ; true'
@@ -567,7 +567,7 @@ g_live() {
 	docker exec -d "$OC2" sh -c "ssh $SSHO tester@$TM6 'sleep 120'"
 	sleep 3
 	session_install "$OC" --port 2053 --confirm-timeout 60
-	session_wait 'Go on?' 30 || { bad "no question"; session_end; return; }
+	session_wait 'Go on?' 30 || { bad "no question"; session_result; printf "%s\n" "$OUT" | tail -n 15; session_end; return; }
 	session_say y
 	session_wait 'Confirm?' 30 || { bad "no confirmation prompt"; session_result; session_end; return; }
 	check "the first session's address is in the allowance" m sh -c "nft list set inet cosmos_host_guard ssh_allow6 | grep -q '$OC6'"
@@ -701,7 +701,7 @@ g_race() {
 	fresh nat || return 1
 	for i in 1 2 3; do
 		session_install "$OC" --port 2053 --confirm-timeout 30
-		session_wait 'Go on?' 30 || { bad "no question"; session_end; return; }
+		session_wait 'Go on?' 30 || { bad "no question"; session_result; printf "%s\n" "$OUT" | tail -n 15; session_end; return; }
 		session_say y
 		session_wait 'Confirm?' 30 || { bad "no confirmation prompt"; session_result; session_end; return; }
 		docker exec -d "$M" systemctl start cosmos-host-guard-undo.service
@@ -994,10 +994,10 @@ g_allowfile() {
 g_confirmwindow() {
 	log "== confirmwindow: an unconfirmed reinstall puts the old guard back; a reboot inside the window ($TAG)"
 	fresh nat || return 1
-	guard_install "$HC" --yes --port 2053
-	expect_rc 0 "first install from home"
-	session_install "$OC" --port 2053 --port 9999 --confirm-timeout 30
-	session_wait 'Go on?' 30 || { bad "no question"; session_end; return; }
+	guard_install "$HC" --yes --port 2053 --ssh open
+	expect_rc 0 "first install from home (SSH open, so the reinstall can come from outside)"
+	session_install "$OC" --port 2053 --port 9999 --ssh open --confirm-timeout 30
+	session_wait 'Go on?' 30 || { bad "no question"; session_result; printf "%s\n" "$OUT" | tail -n 15; session_end; return; }
 	session_say y
 	session_wait 'Confirm?' 30 || { bad "no confirmation prompt"; session_result; session_end; return; }
 	check "the new rules are live while waiting (9999 public)" tcp "$OC2" "$TM6" 9999
@@ -1010,7 +1010,7 @@ g_confirmwindow() {
 	guard_uninstall
 	# a reboot inside the window of a first install: nothing comes up
 	session_install "$OC" --port 2053 --confirm-timeout 120
-	session_wait 'Go on?' 30 || { bad "no question"; session_end; return; }
+	session_wait 'Go on?' 30 || { bad "no question"; session_result; printf "%s\n" "$OUT" | tail -n 15; session_end; return; }
 	session_say y
 	session_wait 'Confirm?' 30 || { bad "no confirmation prompt"; session_result; session_end; return; }
 	session_end
