@@ -490,6 +490,11 @@ case_docker_there() { # Docker of the distribution is used and left alone; prote
 	M "$m" 'check "Docker runs" systemctl is-active --quiet docker
 		dpkg-query -W docker.io >/e2e/out/docker-before
 		dpkg -L docker.io | while read -r f; do if [ -f "$f" ]; then md5sum "$f"; fi; done >/e2e/out/docker-files-before
+		# upstream'\''s Cosmos as a container (stopped): refused, pointed to migrate.sh, nothing changed
+		tar -cf - --files-from /dev/null | docker import - azukaar/cosmos-server:e2e >/dev/null
+		docker create --name cosmos-server azukaar/cosmos-server:e2e /none >/dev/null
+		snap container; expect_exit 11 '"$INSTALL_A"' --yes </dev/null; same container after-container
+		docker rm cosmos-server >/dev/null; docker image rm azukaar/cosmos-server:e2e >/dev/null
 		snap before
 		expect_exit 0 '"$INSTALL_A"' --yes --reachable internet --http-port 8080 --https-port 8443 </dev/null; installed_ok 8080; record_matches before
 		check "no Docker package in the record" sh -c "! grep -q \"^package docker\" /var/lib/cosmos-installer/record"
