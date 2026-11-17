@@ -19,6 +19,17 @@
 # upgrade comparison; skipped when git does not have it),
 # REGISTRY_MIRROR (default https://mirror.gcr.io).
 # The Docker in Docker needs a way out: the images are built with apt.
+#
+# KERNELS: every "distribution" here is a container on the host's kernel (6.12 on
+# the machine this was written on): the Debian 12 (6.1) and Ubuntu 24.04 (6.8)
+# kernels' nft_fib, set timeouts and hooks are NOT exercised. What a VM mode would
+# take (not built): a qemu/KVM guest per distribution from its cloud image
+# (cloud-init seeding the test user, the key and the packages from a local apt
+# cache), the guest's two NICs on two Linux bridges of the Docker in Docker
+# (home, out) with the router and clients as containers on the same bridges, the
+# guest's console on a pipe for the reboot cases, /dev/kvm passed to the Docker in
+# Docker (the GitHub runners have it), and inner.sh's `m`/`msh` speaking ssh to
+# the guest instead of `docker exec`. VM=1 would select it.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/.." && pwd)

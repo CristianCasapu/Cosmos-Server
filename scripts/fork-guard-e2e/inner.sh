@@ -6,9 +6,10 @@
 #
 #   sh inner.sh <machine image tag> [group...]
 # Groups: guard ssh live follow routes nftsvc docker docker-noipv6 docker-nft vpn pub4
-# spoof foreign race validate ufw firewalld fail2ban updates (default: all);
+# spoof foreign race validate uplink failclosed ipv4later homewiden sshservers nohome
+# churn vpnports cloud allowfile confirmwindow ufw firewalld fail2ban updates (default: all);
 # "fast" is guard, the unattended SSH cases and the live-session cases.
-# BREAK=open-port|no-ssh-allow|no-undo|ssh-allow-all breaks the guard on purpose:
+# BREAK=open-port|no-ssh-allow|no-undo|ssh-allow-all|rv-fc-fwd|rv-ll-all breaks the guard on purpose:
 # the tests must then fail.
 
 set -u
@@ -21,10 +22,14 @@ shift
 MACHINE=$TAG
 IMAGE=cosmos-guard-test-machine:$TAG
 GROUPS_WANTED=${*:-all}
-[ "$GROUPS_WANTED" = all ] && GROUPS_WANTED="guard ssh live follow routes nftsvc docker docker-noipv6 docker-nft vpn pub4 spoof foreign race validate ufw firewalld fail2ban updates"
-[ "$GROUPS_WANTED" = fast ] && GROUPS_WANTED="guard ssh-unattended live"
+[ "$GROUPS_WANTED" = all ] && GROUPS_WANTED="guard ssh live follow routes nftsvc docker docker-noipv6 docker-nft vpn pub4 spoof foreign race validate uplink failclosed ipv4later homewiden sshservers nohome churn vpnports cloud allowfile confirmwindow ufw firewalld fail2ban updates"
+[ "$GROUPS_WANTED" = fast ] && GROUPS_WANTED="guard ssh-unattended live uplink failclosed"
 BREAK=${BREAK:-}
 G=/opt/cosmos/fork/nftables
+# The test machines are containers: to the guard a virtual machine that may be a
+# VPS. They stand for a machine at home, so the installer is told so (the cloud
+# and VPS cases are tested without it).
+GV=--home-vm
 
 fresh() { # nat|pub: a new machine on new networks (DOCKER_MODE: ipv6, noipv6, nft)
 	topo_down
@@ -41,6 +46,8 @@ fresh() { # nat|pub: a new machine on new networks (DOCKER_MODE: ipv6, noipv6, n
 		no-ssh-allow) msh "sed -i -e 's/^\tfor a in \$OUTSIDE_PEERS; do\$/\tfor a in ; do/' -e 's/^\t\tfor a in \$OUTSIDE_PEERS; do\$/\t\tfor a in ; do/' $G/install.sh" ;;
 		no-undo) msh "sed -i 's/^\tsystemd-run --quiet --unit=/\ttrue || systemd-run --quiet --unit=/' $G/install.sh" ;;
 		ssh-allow-all) msh "sed -i 's/ tcp dport @ssh_port accept/ accept/' $G/cosmos-host-guard.nft.in" ;;
+		rv-fc-fwd) msh "sed -i '/chain forward {/,/policy accept;/ s/policy accept;/policy accept;\\n\\t\\tiifname @failclosed_if accept/' $G/cosmos-host-guard.nft.in" ;;
+		rv-ll-all) msh "sed -i '0,/ct state established,related accept/ s/ct state established,related accept/ct state established,related accept\\n\\t\\tip6 saddr fe80::\\/10 accept/' $G/cosmos-host-guard.nft.in" ;;
 	esac
 }
 
@@ -48,7 +55,7 @@ fresh() { # nat|pub: a new machine on new networks (DOCKER_MODE: ipv6, noipv6, n
 # guard_install <client> <args...>; sets RC and leaves the output in OUT
 guard_install() {
 	c=$1; shift
-	OUT=$(docker exec "$c" sh -c "ssh $SSHO tester@$TM6 'sudo sh $G/install.sh $*; echo RC=\$?'" 2>&1)
+	OUT=$(docker exec "$c" sh -c "ssh $SSHO tester@$TM6 'sudo sh $G/install.sh $GV $*; echo RC=\$?'" 2>&1)
 	RC=$(printf '%s\n' "$OUT" | sed -n 's/^RC=//p' | tail -n 1)
 }
 # a table of the test's own, after the guard (priority 10): counts UDP to 9998 that passed it
@@ -63,7 +70,7 @@ EOF
 
 # install from the machine's console (no SSH session)
 guard_install_local() {
-	OUT=$(m sh $G/install.sh "$@" 2>&1; echo "RC=$?")
+	OUT=$(m sh $G/install.sh $GV "$@" 2>&1; echo "RC=$?")
 	RC=$(printf '%s\n' "$OUT" | sed -n 's/^RC=//p' | tail -n 1)
 }
 says() { printf '%s' "$OUT" | grep -q -- "$1"; }
@@ -153,7 +160,7 @@ g_guard() {
 # SSH_OUT holds what it printed, SSH_RC the ssh client's exit code
 session_install() { # client args...
 	c=$1; shift
-	docker exec "$c" sh -c "rm -f /tmp/in /tmp/out; mkfifo /tmp/in; (sleep 900 > /tmp/in &) ; (ssh $SSHO tester@$TM6 'sh -c \"(while :; do echo TICK \\\$(date +%s); sleep 1; done) & t=\\\$!; sudo sh $G/install.sh $*; echo RC=\\\$?; sleep 2; kill \\\$t\"' < /tmp/in > /tmp/out 2>&1; echo SSH_RC=\$? >> /tmp/out) &"
+	docker exec "$c" sh -c "rm -f /tmp/in /tmp/out; mkfifo /tmp/in; (sleep 900 > /tmp/in &) ; (ssh $SSHO tester@$TM6 'sh -c \"(while :; do echo TICK \\\$(date +%s); sleep 1; done) & t=\\\$!; sudo sh $G/install.sh $GV $*; echo RC=\\\$?; sleep 2; kill \\\$t\"' < /tmp/in > /tmp/out 2>&1; echo SSH_RC=\$? >> /tmp/out) &"
 }
 session_wait() { # pattern seconds
 	for _ in $(seq 1 "$2"); do
@@ -290,14 +297,17 @@ g_follow() {
 		m ip -6 addr add 2001:db8:1:1::10/64 dev eth0
 		t0=$(date +%s)
 		followed=0
-		for _ in $(seq 1 20); do
+		# the watcher refreshes once per burst: after 2 s of quiet, at most every 10 s
+		for _ in $(seq 1 60); do
 			if docker exec "$HC" nc -z -w 1 -s 2001:db8:1:1::20 2001:db8:1:1::10 9999 2>/dev/null; then followed=1; break; fi
 			sleep 0.2
 		done
 		t1=$(date +%s)
 		if [ "$followed" = 1 ]; then ok "round $i: a new home prefix is followed within $((t1 - t0)) s"; else bad "round $i: the new home prefix was not followed"; fi
 		m ip -6 addr del 2001:db8:1:1::10/64 dev eth0
-		sleep 1
+		gone=0
+		for _ in $(seq 1 30); do in_set onlink6 2001:db8:1:1::/64 || { gone=1; break; }; sleep 0.5; done
+		check "round $i: the old prefix is gone from the guard within 15 s" test "$gone" = 1
 		check_not "round $i: the old prefix is gone from the guard" m nft get element inet cosmos_host_guard onlink6 '{ 2001:db8:1:1::/64 }'
 		m systemctl reload cosmos-host-guard.service
 		m /usr/local/sbin/cosmos-host-guard refresh force
@@ -364,7 +374,7 @@ g_vpn() {
 	guard_uninstall
 	# an SSH session through the VPN is never filtered: an unattended run goes on
 	msh 'mkdir -p /root/.ssh && [ -e /root/.ssh/id_ed25519 ] || ssh-keygen -q -t ed25519 -N "" -f /root/.ssh/id_ed25519; cat /root/.ssh/id_ed25519.pub >> /home/tester/.ssh/authorized_keys'
-	OUT=$(m ip netns exec vpnpeer ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o LogLevel=ERROR -i /root/.ssh/id_ed25519 tester@100.100.1.1 "sudo sh $G/install.sh --yes --port 2053; echo RC=\$?" 2>&1)
+	OUT=$(m ip netns exec vpnpeer ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o LogLevel=ERROR -i /root/.ssh/id_ed25519 tester@100.100.1.1 "sudo sh $G/install.sh $GV --yes --port 2053; echo RC=\$?" 2>&1)
 	RC=$(printf '%s\n' "$OUT" | sed -n 's/^RC=//p' | tail -n 1)
 	expect_rc 0 "unattended from an SSH session through the VPN (100.64/10 on vpn0)"
 	check "the installer says the VPN session is not filtered" says "100.100.1.2: through vpn0 the guard does not filter"
@@ -375,8 +385,11 @@ g_pub4() {
 	log "== pub4: a host with a public IPv4 address; the provider's segment is not home ($TAG)"
 	fresh pub || return 1
 	guard_install_local --yes --port 2053 --port 8443 --port 9998/udp
-	expect_rc 0 "install on a host with a public IPv4 address (from the console)"
-	check "the installer chose to filter IPv4" says "IPv4        filtered: this server has a public IPv4 address"
+	expect_rc 4 "no home network and no VPN: an unattended run needs a choice for SSH"
+	check "it says why and what to choose" says "choose with --ssh open"
+	guard_install_local --yes --port 2053 --port 8443 --port 9998/udp --ssh closed-i-have-a-console
+	expect_rc 0 "install on a host with a public IPv4 address (from the console, --ssh closed-i-have-a-console)"
+	check "the installer chose to filter IPv4" says "IPv4 on eth0 is filtered"
 	check "the installer says the segment is the provider's" says "eth0: it holds a public or carrier-grade address"
 	check_not "eth0 is not a home network" in_set lan_if '"eth0"'
 	check "IPv4 is filtered (no IPv4 accept rule)" sh -c "! docker exec $M nft list chain inet cosmos_host_guard input | grep -q 'meta nfproto ipv4 accept'"
@@ -420,9 +433,9 @@ g_pub4() {
 	check "a --home neighbour reaches 9999 (v6)" tcp "$HC" "$TM6" 9999
 	check_not "link-local still does not count as home there" tcp "$HC" "$ll%eth0" 9999
 	guard_uninstall
-	guard_install_local --yes --port 2053 --ipv4 no
+	guard_install_local --yes --port 2053 --ipv4 no --ssh closed-i-have-a-console
 	check "--ipv4 no leaves IPv4 alone" tcp "$OC" "$TM4" 9999
-	check "and says it is not filtered" says "IPv4        NOT filtered: --ipv4 no"
+	check "and says it is not filtered" says "IPv4 on eth0 is NOT filtered"
 	guard_uninstall
 }
 
@@ -448,12 +461,12 @@ g_spoof() {
 	guard_uninstall
 	# a carrier-grade address (100.64/10) on the outside interface: filtered as public, not home
 	m ip addr add 100.70.0.10/24 dev eth0
-	guard_install_local --yes --port 2053 --dry-run
-	check "a carrier-grade address on the outside interface is filtered as public" says "IPv4        filtered: this server has a carrier-grade address"
+	guard_install_local --yes --port 2053 --dry-run --ssh closed-i-have-a-console
+	check "a carrier-grade address on the outside interface is filtered as public" says "IPv4 on eth0 is filtered"
 	check "and the interface is then not a home network" says "eth0: it holds a public or carrier-grade address"
 	m ip addr del 100.70.0.10/24 dev eth0
 	# --exposed: nothing on the outside interface is home
-	guard_install_local --yes --port 2053 --exposed
+	guard_install_local --yes --port 2053 --exposed --ssh closed-i-have-a-console
 	expect_rc 0 "install with --exposed"
 	check_not "with --exposed eth0 is not a home network" in_set lan_if '"eth0"'
 	check_not "with --exposed a neighbour does not reach 9999 (v6)" tcp "$HC" "$TM6" 9999
@@ -529,16 +542,16 @@ g_live() {
 	fresh nat || return 1
 	before_rules=$(ruleset)
 	outside_run "systemd-run from an outside session (no SSH_CONNECTION) is refused" \
-		"sudo systemd-run --quiet --wait --pipe sh $G/install.sh --yes --port 2053; echo RC=\$?"
+		"sudo systemd-run --quiet --wait --pipe sh $G/install.sh $GV --yes --port 2053; echo RC=\$?"
 	outside_run "a stale home SSH_CONNECTION in an outside session is refused" \
-		"sudo env SSH_CONNECTION=\"$HC6 50000 $TM6 22\" sh $G/install.sh --yes --port 2053; echo RC=\$?"
+		"sudo env SSH_CONNECTION=\"$HC6 50000 $TM6 22\" sh $G/install.sh $GV --yes --port 2053; echo RC=\$?"
 	check "it says the environment's session is stale" says "none is open from there now: ignored"
 	outside_run "su from an outside session is refused" \
-		"sudo su -c \"sh $G/install.sh --yes --port 2053\" root; echo RC=\$?"
+		"sudo su -c \"sh $G/install.sh $GV --yes --port 2053\" root; echo RC=\$?"
 	outside_run "tmux from an outside session is refused" \
-		"tmux new-session -d \"sudo sh $G/install.sh --yes --port 2053 > /tmp/t.out 2>&1; echo RC=\\\$? >> /tmp/t.out\"; sleep 10; cat /tmp/t.out"
+		"tmux new-session -d \"sudo sh $G/install.sh $GV --yes --port 2053 > /tmp/t.out 2>&1; echo RC=\\\$? >> /tmp/t.out\"; sleep 10; cat /tmp/t.out"
 	outside_run "screen from an outside session is refused" \
-		"screen -dmS g sh -c \"sudo sh $G/install.sh --yes --port 2053 > /tmp/s.out 2>&1; echo RC=\\\$? >> /tmp/s.out\"; sleep 10; cat /tmp/s.out"
+		"screen -dmS g sh -c \"sudo sh $G/install.sh $GV --yes --port 2053 > /tmp/s.out 2>&1; echo RC=\\\$? >> /tmp/s.out\"; sleep 10; cat /tmp/s.out"
 	check "refused runs changed nothing" test "$before_rules" = "$(ruleset)"
 	# a stranger still signing in (a TCP connection to sshd, no session) does not
 	# make an unattended home run refuse, and gets no allowance
@@ -725,6 +738,287 @@ g_validate() {
 	check_not "the table left behind is gone" guard_loaded
 }
 
+# --- third round: what decides "outside", home kept and never widened, SSH servers ---
+
+g_uplink() {
+	log "== uplink: an uplink is outside whatever its name or kind ($TAG)"
+	fresh nat || return 1
+	# the uplink renamed br-wan (a home router's or a hypervisor's naming)
+	msh "sysctl -q -w net.ipv6.conf.eth0.keep_addr_on_down=1 && ip link set eth0 down && ip link set eth0 name br-wan && ip link set br-wan up && ip route replace default via $RT4H dev br-wan && ip -6 route replace default via $RT6H dev br-wan"
+	sleep 2
+	guard_install "$HC" --yes --port 2053
+	expect_rc 0 "install with the uplink named br-wan"
+	check "br-wan is an outside interface" in_set wan_if '"br-wan"'
+	check_not "outside v6 does not reach 9999 through br-wan" tcp "$OC" "$TM6" 9999
+	check_not "outside v6 does not reach the container port 18080 through br-wan" tcp "$OC" "$TM6" 18080
+	check_not "outside v6 does not reach SSH through br-wan" tcp "$OC" "$TM6" 22
+	check "outside v6 reaches 2053" tcp "$OC" "$TM6" 2053
+	# a 6in4 tunnel (sit) carrying the IPv6 default route is outside too
+	msh "ip tunnel add sit1 mode sit remote 192.0.2.1 local $TM4 ttl 64 && ip link set sit1 up && ip -6 route add default dev sit1 metric 2000"
+	m /usr/local/sbin/cosmos-host-guard refresh force
+	check "a sit tunnel with a default route is an outside interface" in_set wan_if '"sit1"'
+	check_not "with two uplinks the strict reverse-path check is off" in_set rpf_if '"br-wan"'
+	guard_install "$HC" --yes --port 2053 --trust-interface sit1
+	expect_rc 0 "install trusting sit1"
+	check "a trusted uplink is not filtered" in_set trusted_if '"sit1"'
+	check_not "and is not in the filtered interfaces" in_set wan_if '"sit1"'
+	check "the installer says nothing through it is filtered" says "NOTHING that"
+	m ip -6 route del default dev sit1
+	m ip tunnel del sit1
+	guard_uninstall
+}
+
+g_failclosed() {
+	log "== failclosed: no default route: outside dropped (input and forward), home still in ($TAG)"
+	fresh nat || return 1
+	guard_install "$HC" --yes --port 2053 --port 8443
+	expect_rc 0 "install"
+	ll=$(tm_ll)
+	msh "ip route del default; ip -6 route del default"
+	# one refresh per burst: after 2 s of quiet, at most every 10 s
+	for _ in $(seq 1 20); do in_set failclosed_if '"eth0"' && break; sleep 1; done
+	check "no default route: fail closed on eth0" in_set failclosed_if '"eth0"'
+	check "home kept: eth0 is still home" in_set lan_if '"eth0"'
+	check "home v6 (on-link) reaches SSH during the outage" tcp "$HC" "$TM6" 22
+	check "home v6 (on-link) reaches the panel's port 2053 during the outage" tcp "$HC" "$TM6" 2053
+	check "home link-local reaches SSH during the outage" tcp "$HC" "$ll%eth0" 22
+	check "home v4 reaches SSH during the outage" tcp "$HC" "$TM4" 22
+	# forward: a container port from outside is dropped by the guard (counted)
+	before=$(m sh -c "nft list counter inet cosmos_host_guard dropped_forward" | sed -n 's/.*packets \([0-9]*\).*/\1/p')
+	tcp "$OC" "$TM6" 18080 >/dev/null 2>&1
+	after=$(m sh -c "nft list counter inet cosmos_host_guard dropped_forward" | sed -n 's/.*packets \([0-9]*\).*/\1/p')
+	check "fail-closed covers the forward chain: outside to 18080 is dropped there ($before -> $after)" test "$after" -gt "$before"
+	msh "ip route replace default via $RT4H; ip -6 route replace default via $RT6H"
+	# one refresh per burst, at most every 10 s
+	ended=0
+	for _ in $(seq 1 30); do in_set failclosed_if '"eth0"' || { ended=1; break; }; sleep 1; done
+	check "the default route back: fail-closed ends within 30 s" test "$ended" = 1
+	guard_uninstall
+	# with IPv4 filtered (the router's exposed host), the LAN keeps reaching the server
+	guard_install "$HC" --yes --port 2053 --ipv4 yes
+	expect_rc 0 "install with --ipv4 yes"
+	msh "ip route del default; ip -6 route del default"
+	for _ in $(seq 1 20); do in_set failclosed_if '"eth0"' && break; sleep 1; done
+	check "with --ipv4 yes, home v4 reaches SSH during the outage" tcp "$HC" "$TM4" 22
+	check "with --ipv4 yes, home v6 reaches SSH during the outage" tcp "$HC" "$TM6" 22
+	msh "ip route replace default via $RT4H; ip -6 route replace default via $RT6H"
+	guard_uninstall
+	# an isolated LAN: no default route and only private and link-local addresses
+	# (installed from the console)
+	msh "ip route del default; ip -6 route del default; ip -6 addr del $TM6/64 dev eth0"
+	guard_install_local --yes --port 2053
+	expect_rc 0 "install on an isolated LAN (no default route, private addresses only)"
+	check "isolated LAN: eth0 is home" in_set lan_if '"eth0"'
+	check "isolated LAN: home v4 reaches SSH" tcp "$HC" "$TM4" 22
+	check "isolated LAN: home link-local reaches SSH" tcp "$HC" "$ll%eth0" 22
+	msh "ip -6 addr add $TM6/64 dev eth0 nodad; ip route replace default via $RT4H; ip -6 route replace default via $RT6H"
+	guard_uninstall
+}
+
+g_ipv4later() {
+	log "== ipv4later: a public address appears later: IPv4 starts being filtered, and stays so ($TAG)"
+	fresh nat || return 1
+	guard_install "$HC" --yes --port 2053
+	expect_rc 0 "install behind a router"
+	check "IPv4 is not filtered on eth0" in_set pass4_if '"eth0"'
+	check "outside v4 reaches 9999 (not filtered behind the router)" tcp "$OC" "$TM4" 9999
+	m ip addr add 203.0.113.50/24 dev eth0
+	sleep 1; m /usr/local/sbin/cosmos-host-guard refresh >/dev/null 2>&1
+	check_not "a public address appeared: IPv4 is filtered on eth0" in_set pass4_if '"eth0"'
+	check_not "outside v4 no longer reaches 9999" tcp "$OC" "$TM4" 9999
+	m ip addr del 203.0.113.50/24 dev eth0
+	sleep 1; m /usr/local/sbin/cosmos-host-guard refresh >/dev/null 2>&1
+	check_not "the public address gone again: IPv4 stays filtered (only an install or confirm stops it)" in_set pass4_if '"eth0"'
+	check_not "outside v4 still does not reach 9999" tcp "$OC" "$TM4" 9999
+	m /usr/local/sbin/cosmos-host-guard confirm
+	check "after confirm, IPv4 is not filtered on eth0 again" in_set pass4_if '"eth0"'
+	guard_uninstall
+}
+
+g_homewiden() {
+	log "== homewiden: what is home never widens by itself ($TAG)"
+	fresh pub || return 1
+	guard_install_local --yes --port 2053 --ssh closed-i-have-a-console
+	expect_rc 0 "install on a provider segment"
+	check_not "eth0 is not home" in_set lan_if '"eth0"'
+	# a bridge-mode modem hands out a private address and gateway (or a rogue DHCP)
+	msh "ip addr del $TM4/24 dev eth0; ip addr add 192.168.100.10/24 dev eth0; ip route replace default via 192.168.100.1 dev eth0 onlink"
+	sleep 1; m /usr/local/sbin/cosmos-host-guard refresh >/dev/null 2>&1
+	check_not "a private address and gateway later do not make eth0 home" in_set lan_if '"eth0"'
+	ll=$(tm_ll)
+	check_not "a neighbour over link-local still does not reach SSH" tcp "$HC" "$ll%eth0" 22
+	guard_uninstall
+	fresh nat || return 1
+	guard_install "$HC" --yes --port 2053
+	# a router advert with an on-link prefix shorter than /64 (most of the internet)
+	m ip -6 route add 2000::/3 dev eth0
+	sleep 1; m /usr/local/sbin/cosmos-host-guard refresh >/dev/null 2>&1
+	check_not "an on-link 2000::/3 does not count as home" in_set onlink6 2000::/3
+	check_not "outside (inside 2000::/3) still does not reach 9999" tcp "$OC" "$TM6" 9999
+	m ip -6 route del 2000::/3 dev eth0
+	# the provider renumbers: a new global /64 waits for confirmation
+	m ip -6 addr add 2001:db8:1:7::10/64 dev eth0
+	sleep 1; m /usr/local/sbin/cosmos-host-guard refresh >/dev/null 2>&1
+	check "a new global prefix is waiting for confirmation" in_set pending6 2001:db8:1:7::/64
+	check_not "and is not home yet" in_set onlink6 2001:db8:1:7::/64
+	m /usr/local/sbin/cosmos-host-guard confirm
+	check "after confirm it is home" in_set onlink6 2001:db8:1:7::/64
+	check_not "and no longer waiting" in_set pending6 2001:db8:1:7::/64
+	m ip -6 addr del 2001:db8:1:7::10/64 dev eth0
+	guard_uninstall
+}
+
+g_sshservers() {
+	log "== sshservers: SSH on other ports and other servers, terminals no session explains ($TAG)"
+	fresh nat || return 1
+	# OpenSSH also on 2222 through ListenAddress
+	msh 'printf "ListenAddress 0.0.0.0:22\nListenAddress [::]:22\nListenAddress 0.0.0.0:2222\nListenAddress [::]:2222\n" > /etc/ssh/sshd_config.d/listen.conf; systemctl restart ssh.service 2>/dev/null || systemctl restart ssh.socket'
+	sleep 2
+	OUT=$(docker exec "$OC" sh -c "ssh -p 2222 $SSHO tester@$TM6 'sudo sh $G/install.sh $GV --yes --port 2053; echo RC=\$?'" 2>&1)
+	RC=$(printf '%s\n' "$OUT" | sed -n 's/^RC=//p' | tail -n 1)
+	expect_rc 4 "an outside session on port 2222 (ListenAddress) is seen: refused"
+	m rm -f /etc/ssh/sshd_config.d/listen.conf
+	m sh -c 'systemctl restart ssh.service 2>/dev/null || systemctl restart ssh.socket'
+	# dropbear on 2022
+	m sh -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends dropbear-bin >/dev/null 2>&1; mkdir -p /etc/dropbear; dropbearkey -t ed25519 -f /etc/dropbear/k >/dev/null 2>&1; dropbear -r /etc/dropbear/k -p 2022 -E 2>/dev/null'
+	sleep 1
+	OUT=$(docker exec "$OC" sh -c "ssh -p 2022 $SSHO tester@$TM6 'sudo sh $G/install.sh $GV --yes --port 2053; echo RC=\$?'" 2>&1)
+	RC=$(printf '%s\n' "$OUT" | sed -n 's/^RC=//p' | tail -n 1)
+	expect_rc 4 "an outside session through dropbear is seen: refused"
+	m pkill dropbear
+	# a terminal that no SSH session explains (tmux started from a home session)
+	OUT=$(docker exec "$HC" sh -c "ssh $SSHO tester@$TM6 'tmux new-session -d \"sudo sh $G/install.sh $GV --yes --port 2053 > /tmp/u.out 2>&1; echo RC=\\\$? >> /tmp/u.out\"; sleep 10; cat /tmp/u.out'" 2>&1)
+	RC=$(printf '%s\n' "$OUT" | sed -n 's/^RC=//p' | tail -n 1)
+	expect_rc 4 "an unattended run in a terminal no session explains (tmux) is refused"
+	check "it says why" says "belongs to no SSH session"
+	guard_install "$HC" --yes --port 2053
+	expect_rc 0 "the same from a plain home session goes on"
+	guard_uninstall
+}
+
+g_nohome() {
+	log "== nohome: no home network and no VPN: SSH needs a choice, and the choice holds ($TAG)"
+	fresh pub || return 1
+	guard_install_local --yes --port 2053 --ssh "from" "$OC6"
+	expect_rc 0 "--ssh from one address"
+	check "that address reaches SSH" tcp "$OC" "$TM6" 22
+	check_not "another outside address does not" tcp "$OC2" "$TM6" 22
+	check_not "the allowance from --ssh from has no end" m sh -c "nft list set inet cosmos_host_guard ssh_allow6 | grep -q expires"
+	check_not "and opens only SSH (not 9999)" tcp "$OC" "$TM6" 9999
+	guard_uninstall
+	guard_install_local --yes --port 2053 --ssh open
+	expect_rc 0 "--ssh open"
+	check "SSH answers everyone" tcp "$OC2" "$TM6" 22
+	guard_uninstall
+	guard_install_local --yes --port 2053 --ssh closed-i-have-a-console
+	expect_rc 0 "--ssh closed-i-have-a-console"
+	check_not "SSH answers nobody from outside" tcp "$OC" "$TM6" 22
+	guard_uninstall
+	guard_install_local --yes --port 2053 --ssh "from" "not-an-address"
+	expect_rc 2 "--ssh from with a bad address is refused"
+}
+
+g_churn() {
+	log "== churn: a burst of link changes costs the watcher little ($TAG)"
+	fresh nat || return 1
+	guard_install "$HC" --yes --port 2053
+	expect_rc 0 "install"
+	cpu0=$(m systemctl show -p CPUUsageNSec --value cosmos-host-guard-watch.service)
+	msh 'for i in $(seq 1 150); do ip link add d$i type dummy; ip link set d$i up; ip link del d$i; done'
+	sleep 15
+	cpu1=$(m systemctl show -p CPUUsageNSec --value cosmos-host-guard-watch.service)
+	case "$cpu0$cpu1" in *[!0-9]*|'') bad "the watcher's CPU time cannot be read ($cpu0 / $cpu1)" ;;
+		*) used=$(( (cpu1 - cpu0) / 1000000 )); check "150 link changes cost the watcher ${used} ms of CPU (bound: 5000 ms)" test "$used" -lt 5000 ;; esac
+	check "the guard still follows: 9999 closed from outside" sh -c "! docker exec $OC nc -z -w 2 $TM6 9999"
+	check "the watcher marks itself alive" m sh -c 'find /run/cosmos-host-guard/alive -newermt "-15 seconds" | grep -q .'
+	guard_uninstall
+}
+
+g_vpnports() {
+	log "== vpnports: WireGuard without the wg tool, a VPN in a container ($TAG)"
+	fresh nat || return 1
+	if m ip link add wg9 type wireguard 2>/dev/null; then
+		m ip link set wg9 up
+		guard_install "$HC" --yes --port 2053 --dry-run
+		check "WireGuard without wg: its port is said to be unknown" says "wireguard wg9 (its port is NOT known"
+		msh 'mkdir -p /etc/systemd/network; printf "[NetDev]\nName=wg9\nKind=wireguard\n\n[WireGuard]\nListenPort=51821\n" > /etc/systemd/network/90-wg9.netdev'
+		guard_install "$HC" --yes --port 2053
+		expect_rc 0 "install with networkd's WireGuard"
+		check "the port from networkd's .netdev is opened" in_set vpn_udp 51821
+		m rm -f /etc/systemd/network/90-wg9.netdev
+		m ip link del wg9
+		guard_uninstall
+	else
+		log "  (no wireguard module in this kernel: the WireGuard part is skipped)"
+	fi
+	m docker run -d --name wgc -p 51820:51820/udp busybox:1.36 sh -c 'nc -u -l -p 51820' >/dev/null 2>&1
+	sleep 2
+	guard_install "$HC" --yes --port 2053
+	check "a VPN in a container: its UDP port is said not to answer from outside" says "NOT answering from outside: .*51820"
+	m docker rm -f wgc >/dev/null 2>&1
+	guard_uninstall
+}
+
+g_cloud() {
+	log "== cloud: a cloud server and a VM without evidence of home count as exposed ($TAG)"
+	fresh nat || return 1
+	msh 'mkdir -p /tmp/dmi && echo "Amazon EC2" > /tmp/dmi/sys_vendor && echo "m5.large" > /tmp/dmi/product_name'
+	OUT=$(m env COSMOS_HOST_GUARD_DMI=/tmp/dmi sh $G/install.sh --yes --port 2053 --ssh closed-i-have-a-console --dry-run 2>&1; echo "RC=$?")
+	RC=$(printf '%s\n' "$OUT" | sed -n 's/^RC=//p' | tail -n 1)
+	expect_rc 0 "a cloud server (DMI says Amazon EC2)"
+	check "it says a cloud server was detected" says "a cloud server was detected (Amazon EC2)"
+	check "and filters IPv4 on eth0" says "IPv4 on eth0 is filtered"
+	OUT=$(m env COSMOS_HOST_GUARD_DMI=/tmp/dmi sh $G/install.sh --yes --port 2053 --not-exposed --dry-run 2>&1; echo "RC=$?")
+	check "--not-exposed overrides it" says "eth0: a home network behind a router"
+	# a VM (this test machine is a container) with no evidence of a home router
+	OUT=$(m sh $G/install.sh --yes --port 2053 --ssh closed-i-have-a-console --dry-run 2>&1; echo "RC=$?")
+	check "a virtual machine without evidence of home: exposed, said" says "nothing shows a home router"
+	msh 'echo "{\"router\": {\"answers\": true, \"name\": \"Test router\"}, \"network\": {\"gateway\": \"192.168.1.254\"}}" > /tmp/fd.json'
+	OUT=$(m sh $G/install.sh --yes --port 2053 --fork-detect /tmp/fd.json --dry-run 2>&1; echo "RC=$?")
+	check "with cosmos fork-detect showing a home router it is home" says "eth0: a home network behind a router"
+}
+
+g_allowfile() {
+	log "== allowfile: a bad line in the allowances never stops the load ($TAG)"
+	fresh nat || return 1
+	guard_install "$HC" --yes --port 2053
+	t=$(( $(date +%s) + 3600 ))
+	msh "printf '999.1.1.1 $t\n:::: $t\n$OC6 $t\n' > /etc/cosmos-host-guard/allow"
+	m systemctl reload cosmos-host-guard.service
+	check "the load went through" guard_loaded
+	check "the good line is loaded" m nft get element inet cosmos_host_guard ssh_allow6 "{ $OC6 }"
+	check "the bad lines are said in the journal" sh -c "docker exec $M journalctl -u cosmos-host-guard --no-pager | grep -q 'skipped a bad'"
+	guard_uninstall
+}
+
+g_confirmwindow() {
+	log "== confirmwindow: an unconfirmed reinstall puts the old guard back; a reboot inside the window ($TAG)"
+	fresh nat || return 1
+	guard_install "$HC" --yes --port 2053
+	expect_rc 0 "first install from home"
+	session_install "$OC" --port 2053 --port 9999 --confirm-timeout 30
+	session_wait 'Go on?' 30 || { bad "no question"; session_end; return; }
+	session_say y
+	session_wait 'Confirm?' 30 || { bad "no confirmation prompt"; session_result; session_end; return; }
+	check "the new rules are live while waiting (9999 public)" tcp "$OC2" "$TM6" 9999
+	check_not "the old watcher rests during the window" m systemctl is-active --quiet cosmos-host-guard-watch.service
+	sleep 34
+	session_result
+	expect_rc 5 "not confirmed: undone"
+	check_not "the old guard is back (9999 closed again)" tcp "$OC2" "$TM6" 9999
+	check "the old watcher runs again" m systemctl is-active --quiet cosmos-host-guard-watch.service
+	guard_uninstall
+	# a reboot inside the window of a first install: nothing comes up
+	session_install "$OC" --port 2053 --confirm-timeout 120
+	session_wait 'Go on?' 30 || { bad "no question"; session_end; return; }
+	session_say y
+	session_wait 'Confirm?' 30 || { bad "no confirmation prompt"; session_result; session_end; return; }
+	session_end
+	reboot_machine
+	check_not "after a reboot inside the window the guard is not loaded" guard_loaded
+	check_not "and no unit was installed" m test -e /etc/systemd/system/cosmos-host-guard.service
+}
+
 f2b_log() { # address count
 	msh "for i in \$(seq 1 $2); do echo \"\$(date +%Y-%m-%dT%H:%M:%S%z) cosmos-security kind=auth.login.failed ip=$1 sev=medium n=1\" >> /var/lib/cosmos/cosmos.security.log; done"
 }
@@ -857,6 +1151,17 @@ for g in $GROUPS_WANTED; do
 		foreign) g_foreign ;;
 		race) g_race ;;
 		validate) g_validate ;;
+		uplink) g_uplink ;;
+		failclosed) g_failclosed ;;
+		ipv4later) g_ipv4later ;;
+		homewiden) g_homewiden ;;
+		sshservers) g_sshservers ;;
+		nohome) g_nohome ;;
+		churn) g_churn ;;
+		vpnports) g_vpnports ;;
+		cloud) g_cloud ;;
+		allowfile) g_allowfile ;;
+		confirmwindow) g_confirmwindow ;;
 		ufw) g_ufw ;;
 		firewalld) g_firewalld ;;
 		fail2ban) g_fail2ban ;;

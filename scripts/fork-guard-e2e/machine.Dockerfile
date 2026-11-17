@@ -27,6 +27,7 @@ RUN rm -f /etc/apt/apt.conf.d/docker-clean \
     fi \
  && apt-get install -y -d --no-install-recommends nftables fail2ban python3 unattended-upgrades \
  && apt-get install -y -d --no-install-recommends ufw \
+ && apt-get install -y -d --no-install-recommends dropbear-bin \
  && apt-get install -y -d --no-install-recommends firewalld \
  && useradd -m -s /bin/bash tester \
  && echo 'tester ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/tester \

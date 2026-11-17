@@ -60,6 +60,17 @@
 #   --exposed              a cloud server, or one whose outside interface is shared
 #                          with strangers: IPv4 filtered, and nothing on the outside
 #                          interfaces counts as home but --home
+#   --not-exposed          not a cloud server, although one was detected
+#   --home-vm              a virtual machine or container on your own computer at home
+#                          (a VPS looks the same; unattended without it, or without
+#                          --fork-detect showing a home router, a VM counts as exposed)
+#   --fork-detect <file>   the JSON of `cosmos fork-detect` (a home router that answers
+#                          UPnP is evidence of a home network)
+#   --trust-interface <if> an interface that carries a default route and must not be
+#                          filtered (a VPN used as the uplink); repeatable
+#   --ssh open|from <a,b>|closed-i-have-a-console
+#                          how SSH answers from outside when there is no home network
+#                          and no VPN (required then); open: everyone
 #   --ssh-allowance-hours <h>
 #                          how long an outside SSH session's address may reach the
 #                          SSH port (default 24, 1-720)
@@ -108,6 +119,12 @@ ALLOW_SSH=0
 TIMEOUT=120
 ACCEPT_NFT_SERVICE=0
 EXPOSED=0
+NOT_EXPOSED=0
+HOME_VM=0
+FORK_DETECT=""
+TRUST=""
+SSH_MODE=""
+SSH_FROM=""
 ALLOW_HOURS=24
 CHANGED_PKG=0
 
@@ -162,6 +179,21 @@ while [ $# -gt 0 ]; do
 			[ $# -ge 2 ] || fail 2 "--home needs a network"
 			HOMES="$HOMES $2"; shift ;;
 		--exposed) EXPOSED=1 ;;
+		--not-exposed) NOT_EXPOSED=1 ;;
+		--home-vm) HOME_VM=1 ;;
+		--fork-detect) [ $# -ge 2 ] || fail 2 "--fork-detect needs a file"; FORK_DETECT=$2; shift ;;
+		--trust-interface)
+			if [ $# -lt 2 ] || ! printf '%s\n' "$2" | grep -qE '^[A-Za-z0-9_.:-]{1,15}$'; then fail 2 "--trust-interface needs an interface name"; fi
+			TRUST="$TRUST $2"; shift ;;
+		--ssh)
+			[ $# -ge 2 ] || fail 2 "--ssh needs open, from <addresses> or closed-i-have-a-console"
+			case "$2" in
+				open) SSH_MODE=open ;;
+				closed-i-have-a-console) SSH_MODE=console ;;
+				from) [ $# -ge 3 ] || fail 2 "--ssh from needs addresses (comma-separated)"; SSH_MODE=from; SSH_FROM=$3; shift ;;
+				*) fail 2 "--ssh needs open, from <addresses> or closed-i-have-a-console" ;;
+			esac
+			shift ;;
 		--ssh-allowance-hours)
 			if [ $# -lt 2 ] || ! port_ok "$2" || [ "$2" -gt 720 ]; then fail 2 "--ssh-allowance-hours needs 1 to 720"; fi
 			ALLOW_HOURS=$2; shift ;;
@@ -398,63 +430,115 @@ WORK=$(mktemp -d)
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 mkdir -p "$WORK/etc" "$WORK/run"
-if [ "$EXPOSED" = 1 ]; then echo "exposed=yes" > "$WORK/etc/options"; else echo "exposed=no" > "$WORK/etc/options"; fi
+in_csv() { case ",$2," in *",$1,"*) return 0 ;; esac; return 1; }
+csv_words() { printf '%s' "$1" | tr ',' ' '; }
+private4() { in_net "$1" 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; }
+cgnat4() { in_net "$1" 100.64.0.0/10; }
+guard_tool() { COSMOS_HOST_GUARD_CONF="$WORK/etc" COSMOS_HOST_GUARD_RUN="$WORK/run" COSMOS_HOST_GUARD_STATE=/nonexistent sh "$HERE/cosmos-host-guard" "$@"; }
 
-DYNAMIC=$(COSMOS_HOST_GUARD_CONF="$WORK/etc" COSMOS_HOST_GUARD_RUN="$WORK/run" sh "$HERE/cosmos-host-guard" show)
+# A cloud server, or a virtual machine or container that may be one: the guard
+# cannot see a 1:1 NAT or a provider's shared segment from inside, so it takes
+# evidence that cannot hurt. A cloud named by the machine's firmware (DMI) or by
+# cloud-init → --exposed. Another virtual machine or container (a home
+# hypervisor looks the same as a VPS) → home only with evidence of a home router
+# (UPnP answered: --fork-detect, or --home-vm, or the answer in an interactive run);
+# unattended without it → --exposed.
+DMI=${COSMOS_HOST_GUARD_DMI:-/sys/class/dmi/id}
+dmi() { tr -cd 'A-Za-z0-9 ._()/-' < "$DMI/$1" 2>/dev/null | cut -c1-64 || true; }
+CLOUD=""
+vendor=$(dmi sys_vendor); product=$(dmi product_name); asset=$(dmi chassis_asset_tag); bios=$(dmi bios_vendor)
+case "$vendor|$product|$bios" in
+	*"Amazon EC2"*|*Amazon*) CLOUD="Amazon EC2" ;;
+	*Google*) CLOUD="Google Compute Engine" ;;
+	*OracleCloud*) CLOUD="Oracle Cloud" ;;
+	*Alibaba*) CLOUD="Alibaba Cloud" ;;
+	*Tencent*) CLOUD="Tencent Cloud" ;;
+	*DigitalOcean*) CLOUD="DigitalOcean" ;;
+	*Hetzner*) CLOUD="Hetzner" ;;
+	*Scaleway*) CLOUD="Scaleway" ;;
+	*Vultr*) CLOUD="Vultr" ;;
+	*Linode*|*Akamai*) CLOUD="Linode" ;;
+	*OVH*) CLOUD="OVH" ;;
+	*UpCloud*) CLOUD="UpCloud" ;;
+	*Exoscale*) CLOUD="Exoscale" ;;
+	*"OpenStack"*) CLOUD="OpenStack" ;;
+esac
+[ "$asset" != "7783-7084-3265-9085-8269-3286-77" ] || CLOUD="Microsoft Azure"
+if [ -z "$CLOUD" ] && [ -r /run/cloud-init/instance-data.json ]; then
+	ci=$(sed -n 's/.*"cloud_name": *"\([A-Za-z0-9 ._-]*\)".*/\1/p' /run/cloud-init/instance-data.json | head -n 1)
+	case "$ci" in ''|nocloud|none|lxd|unknown) ;; *) CLOUD="cloud-init: $ci" ;; esac
+fi
+VIRT=$(systemd-detect-virt 2>/dev/null || true)
+VIRT=$(printf '%s' "${VIRT:-none}" | tr -cd 'a-z0-9-' | cut -c1-32)
+HOME_ROUTER=""
+if [ -n "$FORK_DETECT" ] && [ -r "$FORK_DETECT" ]; then
+	if tr -d ' \n\t' < "$FORK_DETECT" | grep -q '"router":{[^}]*"answers":true'; then
+		HOME_ROUTER="a home router answered UPnP (cosmos fork-detect)"
+	fi
+fi
+[ "$HOME_VM" = 0 ] || HOME_ROUTER="--home-vm"
+CLOUD_NOTE=""
+if [ "$EXPOSED" = 0 ] && [ "$NOT_EXPOSED" = 0 ]; then
+	if [ -n "$CLOUD" ]; then
+		EXPOSED=1
+		CLOUD_NOTE="a cloud server was detected ($CLOUD): installed as exposed (nothing on its network counts as home, IPv4 filtered). If that is wrong: --not-exposed"
+	elif [ "$VIRT" != none ] && [ -z "$HOME_ROUTER" ]; then
+		if [ "$YES" = 1 ] || [ "$DRY_RUN" = 1 ]; then
+			EXPOSED=1
+			CLOUD_NOTE="this is a virtual machine or container ($VIRT) and nothing shows a home router: a VPS looks the same as a VM at home, so it is installed as exposed. On a VM at home: --home-vm (or pass cosmos fork-detect's answer with --fork-detect)"
+		else
+			printf 'This is a virtual machine or container (%s). Does it run on your own computer at home (Proxmox, libvirt, VirtualBox, LXC)? [y/N] ' "$VIRT"
+			read -r answer || answer=""
+			case "$answer" in
+				y|Y|yes|YES) HOME_ROUTER="the administrator said so"; CLOUD_NOTE="a virtual machine at home ($VIRT): its home network counts as home" ;;
+				*) EXPOSED=1; CLOUD_NOTE="a virtual machine or container ($VIRT) that is not at home: installed as exposed" ;;
+			esac
+		fi
+	fi
+fi
+[ -z "$CLOUD_NOTE" ] && [ "$VIRT" != none ] && [ -n "$HOME_ROUTER" ] && CLOUD_NOTE="a virtual machine or container ($VIRT) at home: $HOME_ROUTER"
+
+case "$IPV4" in auto|yes|no) ;; esac
+v4mode=$IPV4
+[ "$EXPOSED" = 0 ] || v4mode=yes
+{
+	if [ "$EXPOSED" = 1 ]; then echo "exposed=yes"; else echo "exposed=no"; fi
+	echo "ipv4=$v4mode"
+	echo "trust=$(printf '%s' "$TRUST" | sed 's/^ *//; s/ *$//; s/  */,/g')"
+} > "$WORK/etc/options"
+
+# the home judgement from the evidence now: what the runtime may narrow, never widen
+guard_tool judge > "$WORK/etc/home"
+DYNAMIC=$(guard_tool show)
 dyn() { printf '%s\n' "$DYNAMIC" | sed -n "s/^$1=//p"; }
 WAN=$(dyn wan_if)
 LAN=$(dyn lan_if)
+PASS4=$(dyn pass4_if)
+TRUSTED=$(dyn trusted_if)
 FAILCLOSED=$(dyn failclosed_if)
 ONLINK4=$(dyn onlink4)
 ONLINK6=$(dyn onlink6)
 VPN_UDP=$(dyn vpn_udp)
-in_csv() { case ",$2," in *",$1,"*) return 0 ;; esac; return 1; }
-csv_words() { printf '%s' "$1" | tr ',' ' '; }
-
-private4() { in_net "$1" 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; }
-cgnat4() { in_net "$1" 100.64.0.0/10; }
-
-# IPv4: filtered when an outside interface holds a public or carrier-grade address
-PUBLIC4=""
-CGNAT4=""
-for dev in $(csv_words "$WAN"); do
-	for a in $(ip -o -4 addr show dev "$dev" scope global 2>/dev/null | awk '{sub(/\/.*/, "", $4); print $4}'); do
-		if private4 "$a"; then :; elif cgnat4 "$a"; then CGNAT4="$CGNAT4 $a"; else PUBLIC4="$PUBLIC4 $a"; fi
-	done
-done
-if [ "$EXPOSED" = 1 ]; then
-	GUARD4=1; IPV4_REASON=exposed; IPV4_WHY="filtered: --exposed (a cloud server or a shared segment)"
-elif [ "$IPV4" = yes ]; then
-	GUARD4=1; IPV4_REASON=asked-yes; IPV4_WHY="filtered: --ipv4 yes (the router's exposed host)"
-elif [ "$IPV4" = no ]; then
-	GUARD4=0; IPV4_REASON=asked-no; IPV4_WHY="NOT filtered: --ipv4 no"
-elif [ -n "$PUBLIC4" ]; then
-	GUARD4=1; IPV4_REASON=public-address; IPV4_WHY="filtered: this server has a public IPv4 address:$PUBLIC4"
-elif [ -n "$CGNAT4" ]; then
-	GUARD4=1; IPV4_REASON=cgnat-address; IPV4_WHY="filtered: this server has a carrier-grade address:$CGNAT4 (the carrier's other customers share that network)"
-else
-	GUARD4=0; IPV4_REASON=behind-router
-	IPV4_WHY="NOT filtered by the guard: the server has a private IPv4 address. That is safe only if
-              the router forwards just the ports you chose. If this server is the router's
-              exposed host (DMZ), run again with --ipv4 yes; if it is a cloud server with 1:1 NAT,
-              with --exposed"
-fi
+VPN_LIST=$(guard_tool vpns | paste -sd ';' -)
 
 # what each outside interface is, in words
 IF_NOTES=""
+PUBLIC4=""
 for dev in $(csv_words "$WAN"); do
 	a4=$(ip -o -4 addr show dev "$dev" scope global 2>/dev/null | awk '{sub(/\/.*/, "", $4); printf "%s ", $4}')
-	p6=$(ip -o -6 route show dev "$dev" 2>/dev/null | awk '$1 !~ /^(default|fe80|ff|multicast|local)/ && !/ via / && $1 ~ /:/ {printf "%s ", $1}')
+	p6=$(ip -o -6 route show dev "$dev" 2>/dev/null | awk '$1 !~ /^(default|fe80|ff|multicast|local|anycast)/ && !/ via / && $1 ~ /:/ {printf "%s ", $1}')
+	for a in $a4; do private4 "$a" || PUBLIC4="$PUBLIC4 $a"; done
 	if in_csv "$dev" "$LAN"; then
 		gw=$(ip -o -4 route show table all default dev "$dev" 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "via") {print $(i + 1); exit}}')
 		note="$dev: a home network behind a router (private address ${a4% }, router ${gw:-?}):
               its prefixes (${p6:-no IPv6 prefix}) and link-local count as home. A packet from the
               internet that claims an address of these prefixes cannot be told apart here:
-              dropping those is the router's job (most routers do).
+              dropping those is the router's job (most routers do). Home subnets behind that
+              router (another VLAN) count as home only with --home.
               If this server is a cloud server or the router's exposed host, use --exposed / --ipv4 yes."
 	elif [ "$EXPOSED" = 1 ]; then
-		note="$dev: --exposed: nothing on it counts as home but --home"
-	elif [ -n "$a4" ] && { [ -n "$PUBLIC4" ] || [ -n "$CGNAT4" ]; }; then
+		note="$dev: exposed: nothing on it counts as home but --home"
+	elif [ -n "$a4" ] && [ -n "$PUBLIC4" ]; then
 		note="$dev: it holds a public or carrier-grade address (${a4% }): the segment is the provider's;
               its prefixes and link-local sources do NOT count as home (only --home networks do)"
 	else
@@ -462,31 +546,107 @@ for dev in $(csv_words "$WAN"); do
               strict, its prefixes do NOT count as home. If it is your home network, add
               ${p6:+--home }${p6:-the --home networks of your home}"
 	fi
+	if in_csv "$dev" "$PASS4"; then
+		note="$note
+              IPv4 on $dev is NOT filtered: safe only if the router forwards just the ports you
+              chose (not the router's exposed host or DMZ: then --ipv4 yes)"
+	else
+		note="$note
+              IPv4 on $dev is filtered"
+	fi
 	IF_NOTES="$IF_NOTES
   outside     $note"
 done
+for dev in $(csv_words "$TRUSTED"); do
+	IF_NOTES="$IF_NOTES
+  outside     $dev: trusted with --trust-interface: it carries a default route and NOTHING that
+              arrives through it is filtered, over IPv4 and IPv6"
+done
+# a recognised VPN that carries a default route is filtered like any outside interface
+for dev in $(csv_words "$WAN"); do
+	if ip -d -o link show dev "$dev" 2>/dev/null | grep -qE ' (wireguard|tun) '; then
+		IF_NOTES="$IF_NOTES
+  outside     $dev is a VPN that carries a default route (an exit node or a full tunnel): it is
+              filtered like any outside interface; trust it with --trust-interface $dev if you mean to"
+	fi
+done
+
+GUARD4=1
+[ -z "$PASS4" ] || GUARD4=0
+if [ "$EXPOSED" = 1 ]; then IPV4_REASON=exposed
+elif [ "$IPV4" = yes ]; then IPV4_REASON=asked-yes
+elif [ "$IPV4" = no ]; then IPV4_REASON=asked-no
+elif [ -n "$PASS4" ]; then IPV4_REASON=behind-router
+else
+	IPV4_REASON=public-address
+	for a in $PUBLIC4; do cgnat4 "$a" && IPV4_REASON=cgnat-address; done
+fi
 
 # ------------------------------------------------ the SSH sessions open now ---
 
-# sshd's listening ports: its configuration and the socket unit that starts it
-SSH_PORTS=$({
-	sshd -T 2>/dev/null | awk '$1 == "port" {print $2}'
+# SSH servers: what listens, owned by root, under a known SSH server's name
+# (OpenSSH, dropbear, tinysshd), the ports in sshd's configuration (Port and
+# ListenAddress), and a socket unit that starts one.
+LISTEN=$(ss -Htlnp 2>/dev/null || true)
+server_pids() { # names (regex): pids of root-owned listeners
+	printf '%s\n' "$LISTEN" | grep -oE "\"($1)\",pid=[0-9]+" | grep -oE '[0-9]+$' | sort -u | while read -r pid; do
+		[ "$(awk '/^Uid:/ {print $2}' "/proc/$pid/status" 2>/dev/null)" = 0 ] && echo "$pid"
+	done
+}
+pid_ports() { # pid...: the ports they listen on
+	for pid in "$@"; do
+		printf '%s\n' "$LISTEN" | grep "pid=$pid," | awk '{n = split($4, a, ":"); print a[n]}'
+	done
+}
+OPENSSH_PIDS=$(server_pids 'sshd|sshd-session' | tr '\n' ' ')
+OTHER_PIDS=$(server_pids 'dropbear|tinysshd|tinysshd-.*' | tr '\n' ' ')
+# shellcheck disable=SC2086
+OPENSSH_PORTS=$({
+	pid_ports $OPENSSH_PIDS
+	sshd -T 2>/dev/null | awk '$1 == "port" {print $2} $1 == "listenaddress" {n = split($2, a, ":"); print a[n]}'
 	systemctl show -p Listen --value ssh.socket sshd.socket 2>/dev/null | tr ' ' '\n' | grep -E ':[0-9]+$' | sed 's/.*://'
 } | grep -E '^[0-9]{1,5}$' | sort -un | tr '\n' ' ')
-[ -n "$SSH_PORTS" ] || SSH_PORTS=22
+# shellcheck disable=SC2086
+OTHER_PORTS=$({
+	pid_ports $OTHER_PIDS
+	systemctl show -p Listen --value dropbear.socket tinysshd.socket 2>/dev/null | tr ' ' '\n' | grep -E ':[0-9]+$' | sed 's/.*://'
+} | grep -E '^[0-9]{1,5}$' | sort -un | tr '\n' ' ')
+[ -n "$OPENSSH_PORTS$OTHER_PORTS" ] || OPENSSH_PORTS=22
+# shellcheck disable=SC2086
+SSH_PORTS=$(printf '%s\n' $OPENSSH_PORTS $OTHER_PORTS | sort -un | tr '\n' ' ')
+SSH_MAIN=$(systemctl show -p MainPID --value ssh.service sshd.service 2>/dev/null | grep -E '^[1-9][0-9]*$' | tr '\n' ' ')
 
-# The signed-in SSH sessions, from the sockets: a connection to an SSH port held
-# by a process whose title is "sshd...: <user>@pts/N" or "...@notty" (a
-# connection that is still signing in, a stranger's, does not count).
+descends_from() { # pid ancestors...: one of the ancestors is above pid
+	p=$1; shift
+	depth=0
+	while [ "$p" -gt 1 ] 2>/dev/null && [ "$depth" -lt 64 ]; do
+		p=$(awk '/^PPid:/ {print $2}' "/proc/$p/status" 2>/dev/null || echo 0)
+		case " $* " in *" $p "*) return 0 ;; esac
+		depth=$((depth + 1))
+	done
+	return 1
+}
+
+# The SSH sessions open now, from the sockets: a connection to an SSH port.
+# OpenSSH's count when a process holding it is signed in ("sshd...: user@pts/N" or
+# "...@notty") and descends from the root-owned listening server; a stranger
+# still signing in does not count. Another SSH server's (dropbear, tinysshd)
+# all count: they cannot be told apart.
 live_peers() {
 	ss -Htnp state established 2>/dev/null | while read -r _ _ local peer procs; do
 		lport=${local##*:}
-		case " $SSH_PORTS " in *" $lport "*) ;; *) continue ;; esac
-		signed=0
-		for pid in $(printf '%s' "$procs" | grep -oE 'pid=[0-9]+' | cut -d= -f2); do
-			if tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -qE '^sshd[^ ]*: [^ ]+@(pts/[0-9]+|notty)'; then signed=1; fi
-		done
-		[ "$signed" = 1 ] || continue
+		other=0
+		case " $OTHER_PORTS " in *" $lport "*) other=1 ;; esac
+		if [ "$other" = 0 ]; then
+			case " $OPENSSH_PORTS " in *" $lport "*) ;; *) continue ;; esac
+			signed=0
+			for pid in $(printf '%s' "$procs" | grep -oE 'pid=[0-9]+' | cut -d= -f2); do
+				tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -qE '^sshd[^ ]*: [^ ]+@(pts/[0-9]+|notty)' || continue
+				# shellcheck disable=SC2086
+				descends_from "$pid" $OPENSSH_PIDS $SSH_MAIN && signed=1
+			done
+			[ "$signed" = 1 ] || continue
+		fi
 		addr=${peer%:*}
 		addr=${addr#[}; addr=${addr%]}
 		case "$addr" in ::ffff:*.*) addr=${addr#::ffff:} ;; esac
@@ -516,6 +676,27 @@ if [ -n "$HINT_ADDR" ]; then
 	fi
 fi
 
+# A terminal that no SSH session explains (tmux, screen, a web terminal, mosh):
+# whoever sits at it may be outside, and nothing here tells from where.
+UNEXPLAINED_TTY=""
+tty_nr=$(awk '{print $7}' "/proc/$$/stat" 2>/dev/null || echo 0)
+if [ "${tty_nr:-0}" != 0 ]; then
+	tty_name=$(ps -o tty= -p $$ 2>/dev/null | tr -d ' ')
+	case "$tty_name" in
+		pts/*)
+			explained=0
+			pid=$$
+			depth=0
+			while [ "$pid" -gt 1 ] 2>/dev/null && [ "$depth" -lt 64 ]; do
+				comm=$(cat "/proc/$pid/comm" 2>/dev/null || true)
+				case "$comm" in sshd|sshd-session|dropbear|tinysshd) explained=1; break ;; esac
+				pid=$(awk '/^PPid:/ {print $2}' "/proc/$pid/status" 2>/dev/null || echo 0)
+				depth=$((depth + 1))
+			done
+			[ "$explained" = 1 ] || UNEXPLAINED_TTY=$tty_name ;;
+	esac
+fi
+
 # where_from <address>: why the guard leaves it alone, or "outside"
 where_from() {
 	a=${1%%%*}
@@ -524,9 +705,10 @@ where_from() {
 	valid_addr "$a" || { echo "outside"; return; }
 	dev=$zone
 	[ -n "$dev" ] || dev=$(ip route get "$a" 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "dev") {print $(i + 1); exit}}')
+	if in_csv "$dev" "$TRUSTED"; then echo "through $dev, trusted with --trust-interface"; return; fi
 	if ! in_csv "$dev" "$WAN"; then echo "through ${dev:-an interface} the guard does not filter (loopback, a VPN, a bridge)"; return; fi
 	case "$a" in *:*) fam=6 ;; *) fam=4 ;; esac
-	if [ "$fam" = 4 ] && [ "$GUARD4" = 0 ]; then echo "over IPv4, which the guard leaves alone here"; return; fi
+	if [ "$fam" = 4 ] && in_csv "$dev" "$PASS4"; then echo "over IPv4 on $dev, which the guard leaves alone"; return; fi
 	# shellcheck disable=SC2086
 	if in_net "$a" $HOMES; then echo "from a --home network"; return; fi
 	if in_csv "$dev" "$LAN"; then
@@ -535,9 +717,16 @@ where_from() {
 	fi
 	echo "outside"
 }
+# the interface a session comes through, when it is a VPN whose port is not known
+vpn_unknown_for() { # address
+	dev=$(ip route get "${1%%%*}" 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "dev") {print $(i + 1); exit}}')
+	case ";$VPN_LIST;" in *";wireguard $dev:unknown;"*) echo "$dev" ;; esac
+}
 
 OUTSIDE_PEERS=""
 PEER_NOTES=""
+VPN_SESSION=""
+VPN_UNKNOWN_SESSION=""
 for p in $PEERS; do
 	w=$(where_from "$p")
 	if [ "$w" = outside ]; then
@@ -547,36 +736,70 @@ for p in $PEERS; do
 	else
 		PEER_NOTES="$PEER_NOTES
               ${p%%%*}: $w"
+		case "$w" in "through "*) VPN_SESSION="$VPN_SESSION ${p%%%*}" ;; esac
+		u=$(vpn_unknown_for "$p")
+		[ -z "$u" ] || VPN_UNKNOWN_SESSION="$VPN_UNKNOWN_SESSION ${p%%%*} (through $u)"
 	fi
 done
 
+# Without a home network and without a VPN, nothing brings the owner back once
+# the SSH port is closed: then SSH needs an explicit choice.
+HAS_HOME=0
+{ [ -n "$LAN" ] || [ -n "$HOMES" ]; } && HAS_HOME=1
+HAS_VPN=0
+[ -z "$VPN_LIST" ] || HAS_VPN=1
+for dev in $(ip -o link show 2>/dev/null | awk -F': ' '{sub(/@.*/, "", $2); print $2}'); do
+	case "$dev" in tailscale0) HAS_VPN=1 ;; esac
+done
+[ "$ALLOW_SSH" = 0 ] || SSH_MODE=open
+if [ -z "$SSH_MODE" ] && [ "$HAS_HOME" = 0 ] && [ "$HAS_VPN" = 0 ]; then
+	if [ "$YES" = 1 ]; then
+		record status "refused no-way-back-to-ssh"
+		printf '%s\n' "Refused for the SSH sessions' safety: this server has no home network and no VPN the guard recognises, so once SSH is closed from outside nothing brings you back. Choose with --ssh open (SSH answers everyone; Fail2ban recommended), --ssh from <address,...> (only those), or --ssh closed-i-have-a-console (nobody; you have the provider's console)." >&2
+		exit 4
+	fi
+	if [ "$DRY_RUN" = 1 ]; then
+		say "(a real run asks how SSH should answer from outside: there is no home network and no VPN)"
+		SSH_MODE=ask
+	fi
+fi
+if [ -z "$SSH_MODE" ] && [ "$HAS_HOME" = 0 ] && [ "$HAS_VPN" = 0 ]; then
+	say "This server has no home network and no VPN the guard recognises: once SSH is closed"
+	say "from outside, nothing brings you back. How should SSH answer from outside?"
+	say "  1) everyone (Fail2ban recommended)   2) only some addresses   3) nobody: I have a console"
+	printf 'Choose 1, 2 or 3: '
+	read -r answer || answer=""
+	case "$answer" in
+		1) SSH_MODE=open ;;
+		2) printf 'Addresses (comma-separated): '; read -r SSH_FROM || SSH_FROM=""; SSH_MODE=from ;;
+		3) SSH_MODE=console ;;
+		*) say "Nothing was changed."; record status declined; exit 7 ;;
+	esac
+fi
+if [ "$SSH_MODE" = from ]; then
+	for a in $(printf '%s' "$SSH_FROM" | tr ',' ' '); do valid_addr "$a" || fail 2 "--ssh from: not an address: $a"; done
+	[ -n "$SSH_FROM" ] || fail 2 "--ssh from needs addresses"
+fi
 SSH_OPEN=0
-if [ "$ALLOW_SSH" = 1 ]; then
-	for p in $SSH_PORTS; do add_port "$p" tcp "SSH (--allow-ssh-from-outside)"; done
+if [ "$SSH_MODE" = open ]; then
+	for p in $SSH_PORTS; do add_port "$p" tcp "SSH (--ssh open / --allow-ssh-from-outside)"; done
 	SSH_OPEN=1
 fi
+case "$SSH_MODE" in ''|ask) SSH_MODE=allowance ;; esac
 ALLOW_UNTIL=$(( $(date +%s) + ALLOW_HOURS * 3600 ))
 ALLOW_UNTIL_TEXT=$(date -d "@$ALLOW_UNTIL" '+%Y-%m-%d %H:%M %Z' 2>/dev/null || echo "in $ALLOW_HOURS hours")
 
 # other tables that filter what reaches this server (never touched)
 FOREIGN=""
 if command -v nft >/dev/null 2>&1; then
-	FOREIGN=$(COSMOS_HOST_GUARD_CONF="$WORK/etc" COSMOS_HOST_GUARD_RUN="$WORK/run" sh "$HERE/cosmos-host-guard" others | paste -sd ';' -)
+	FOREIGN=$(guard_tool others | paste -sd ';' -)
 fi
 OTHERS_TEXT=""
-if [ -n "$FOREIGN$OTHERS" ]; then
-	OTHERS_TEXT=$(printf '%s' "$FOREIGN" | sed 's/;/, /g')
-fi
+[ -z "$FOREIGN" ] || OTHERS_TEXT=$(printf '%s' "$FOREIGN" | sed 's/;/, /g')
 
 # ------------------------------------------------------- the files to write ---
 
-if [ "$GUARD4" = 1 ]; then
-	IPV4_LINE='# IPv4 is filtered too'
-else
-	IPV4_LINE='meta nfproto ipv4 accept comment "IPv4 reaches this server only through the router'"'"'s forwards"'
-fi
-sed "s|^\([[:space:]]*\)#@IPV4@\$|\1$IPV4_LINE|" "$HERE/cosmos-host-guard.nft.in" > "$WORK/etc/cosmos-host-guard.nft"
-grep -q '#@IPV4@' "$WORK/etc/cosmos-host-guard.nft" && fail 1 "could not fill in the ruleset"
+cp "$HERE/cosmos-host-guard.nft.in" "$WORK/etc/cosmos-host-guard.nft"
 
 elements() { printf '%s' "$*" | sed 's/^ *//; s/ *$//; s/  */, /g'; }
 {
@@ -589,14 +812,18 @@ elements() { printf '%s' "$*" | sed 's/^ *//; s/ *$//; s/  */, /g'; }
 	[ -z "$h6" ] || say "add element $TABLE home6 { $(elements "$h6") }"
 	say "add element $TABLE ssh_port { $(elements "$SSH_PORTS") }"
 } > "$WORK/etc/settings.nft"
-# the allowances: "<address> <until>", kept after a reinstall while still valid
+# the allowances: "<address> <until>" (0: no end, from --ssh from); the timed ones
+# are kept after a reinstall while still valid
 : > "$WORK/etc/allow"
 if [ -f "$ETC/allow" ]; then
 	now=$(date +%s)
 	while read -r a u; do
-		case "$u" in ''|*[!0-9]*) continue ;; esac
+		case "$u" in ''|0|*[!0-9]*) continue ;; esac
 		valid_addr "$a" && [ "$u" -gt "$now" ] && printf '%s %s\n' "$a" "$u" >> "$WORK/etc/allow"
 	done < "$ETC/allow"
+fi
+if [ "$SSH_MODE" = from ]; then
+	for a in $(printf '%s' "$SSH_FROM" | tr ',' ' '); do printf '%s 0\n' "$a" >> "$WORK/etc/allow"; done
 fi
 if [ "$SSH_OPEN" = 0 ]; then
 	for a in $OUTSIDE_PEERS; do
@@ -611,10 +838,14 @@ The host guard of the Cosmos fork (fork/nftables/install.sh).
 
   nft list table inet cosmos_host_guard        what is loaded, with the counters
   cosmos-host-guard show                       the interfaces, prefixes and VPN port it follows
+  cosmos-host-guard confirm                    take the network as it is now as home (after the
+                                               provider changed the home's prefix)
   systemctl reload cosmos-host-guard           load it again (atomic, no gap)
   sh <the release>/fork/nftables/uninstall.sh  remove it
 
-  allow     SSH allowances: "<address> <until, seconds since 1970>"; run the
+  home      the home judgement of the install (or of the last confirm)
+  options   exposed, IPv4 mode, trusted interfaces
+  allow     SSH allowances: "<address> <until, seconds since 1970; 0 for none>"; run the
             installer again from that address to renew one
 Do not edit the files here: run the installer again with other options.
 EOF
@@ -628,6 +859,7 @@ transaction() {
 
 PACKAGES=""
 command -v nft >/dev/null 2>&1 || PACKAGES="nftables"
+UDP_CLOSED=$(ss -Hulnp 2>/dev/null | awk '{n = split($4, a, ":"); h = substr($4, 1, length($4) - length(a[n]) - 1); if (h !~ /^(127\.|\[::1\]|\[::ffff:127\.)/) print a[n]}' | grep -E '^[0-9]{1,5}$' | sort -un | while read -r p; do case " $PUBLIC_UDP $(csv_words "$VPN_UDP") " in *" $p "*) ;; *) echo "$p" ;; esac; done | head -n 64 | paste -sd, - || true)
 
 # ------------------------------------------------------------- the plan ---
 
@@ -645,37 +877,52 @@ else
 fi
 [ "$REINSTALL" = 0 ] || say "  guard       installed already: replaced in one step (no moment without rules)"
 say "  table       $TABLE (its own; nothing else is touched)"
+[ -z "$CLOUD_NOTE" ] || say "  machine     $CLOUD_NOTE"
 if [ -n "$FAILCLOSED" ]; then
-	say "  outside     NO default route was found: IPv6 is filtered on every interface that is not"
-	say "              loopback, Docker's or a VPN ($FAILCLOSED) until one appears"
-elif [ -z "$WAN" ]; then
+	say "  outside     NO default route was found: every interface that is not loopback, Docker's"
+	say "              or a VPN ($FAILCLOSED) is filtered until one appears, over IPv6 and over"
+	say "              IPv4 where IPv4 is filtered; what was home stays home"
+elif [ -z "$WAN$TRUSTED" ]; then
 	say "  outside     NO interface to filter was found: the guard filters nothing until one appears"
 fi
 [ -z "$IF_NOTES" ] || say "${IF_NOTES#?}"
 [ -z "$HOMES" ] || say "  home        also, everywhere:$HOMES"
 say "  answers from outside:$PORT_REASONS"
 [ -z "$CONFIG_NOTE" ] || [ -n "$PORTS" ] || say "              (Cosmos' ports $CONFIG_NOTE)"
-say "  IPv6        filtered"
-say "  IPv4        $IPV4_WHY"
 say "  always let through: established connections; from anywhere the ICMPv6 errors IPv6 needs"
 say "              (packet too big, unreachable...) and echo; neighbour discovery and router"
-say "              adverts with hop limit 255; DHCP replies from the link; VPN interfaces;"
-say "              the VPN port found now: ${VPN_UDP:-(none)}"
-say "  dropped     sources from outside that claim a private, unique-local or link-local"
-say "              address, or that would not be answered through that interface"
-if [ -n "$PEERS" ]; then
-	say "  SSH         signed-in sessions now (sshd port $SSH_PORTS):$PEER_NOTES"
+say "              adverts with hop limit 255; DHCP replies from the link or the lease's server"
+if [ -n "$VPN_LIST" ]; then
+	say "  VPNs        $(printf '%s' "$VPN_LIST" | sed 's/;/, /g; s/:unknown/ (its port is NOT known: it does NOT answer from outside; add --port N\/udp)/g')"
 else
-	say "  SSH         no signed-in SSH session is open now"
+	say "  VPNs        none found (Tailscale run by tailscaled.service, kernel WireGuard)"
+fi
+[ -z "$UDP_CLOSED" ] || say "  UDP         listening here but NOT answering from outside: $UDP_CLOSED; a VPN you use
+              from outside (Nebula, a VPN in a container...) needs --port N/udp"
+say "  dropped     sources from outside that claim a private, unique-local or link-local"
+say "              address; with a single uplink, those that would not be answered through it"
+if [ -n "$PEERS" ]; then
+	say "  SSH         sessions now (ports $SSH_PORTS):$PEER_NOTES"
+else
+	say "  SSH         no SSH session is open now (ports $SSH_PORTS)"
 fi
 [ -z "$HINT_NOTE" ] || say "              ($HINT_NOTE)"
-if [ "$SSH_OPEN" = 1 ]; then
-	say "              the SSH port answers everyone from outside (--allow-ssh-from-outside)"
-elif [ -n "$OUTSIDE_PEERS" ]; then
+[ -z "$UNEXPLAINED_TTY" ] || say "              this run's terminal ($UNEXPLAINED_TTY) belongs to no SSH session (tmux, screen, a web terminal?)"
+case "$SSH_MODE" in
+	open) say "              the SSH port answers everyone from outside" ;;
+	console) say "              SSH answers nobody from outside (you said you have a console)" ;;
+	from) say "              SSH answers from outside only: $SSH_FROM (no end)" ;;
+esac
+if [ "$SSH_OPEN" = 0 ] && [ -n "$OUTSIDE_PEERS" ]; then
 	say "              ONLY$OUTSIDE_PEERS may reach SSH from outside, until $ALLOW_UNTIL_TEXT;"
 	say "              from any other outside address SSH is refused. Renew: run this installer"
-	say "              again from there; keep SSH open on purpose: --allow-ssh-from-outside;"
+	say "              again from there; keep SSH open on purpose: --ssh open;"
 	say "              better: come in through a VPN (its interface is never filtered)"
+fi
+if [ -n "$VPN_SESSION" ]; then
+	say "              a session through a VPN: a NEW connection through it reuses the tunnel that"
+	say "              is already open, so it cannot show whether the VPN's own port still answers"
+	say "              from outside: check the VPNs line above (or add --port N/udp)"
 fi
 for other in $OTHERS; do
 	say "  beside      $other is active and keeps its own rules: both filter, a connection must"
@@ -689,10 +936,11 @@ if [ -n "$OTHERS_TEXT" ]; then
 		say "              it can be removed (systemctl disable --now cosmos-guard, if that is its unit)" ;;
 	esac
 fi
-say "  not covered mosh's UDP ports are not opened; virtual machines bridged on an outside"
-say "              bridge are filtered like containers; on a server that is itself the router,"
-say "              a LAN host's port numbered like a public port answers from outside; an"
-say "              interface with a public address but no default route is not filtered"
+say "  not covered containers on macvlan or ipvlan networks (they bypass the server's packet"
+say "              filter); mosh's UDP ports; virtual machines bridged on an outside bridge are"
+say "              filtered like containers; on a server that is itself the router, a LAN host's"
+say "              port numbered like a public port answers from outside; with two uplinks the"
+say "              reverse-path check is off"
 say "  files       $ETC/, $SBIN,"
 say "              $UNIT_DIR/: $UNITS"
 say "              state in $STATE_DIR/"
@@ -704,10 +952,16 @@ else
 fi
 say ""
 
-if [ -n "$OUTSIDE_PEERS" ] && [ "$YES" = 1 ] && [ "$ALLOW_SSH" = 0 ]; then
-	record status "refused ssh-session-from-outside"
-	printf '%s\n' "Refused for the SSH sessions' safety: signed-in SSH sessions are open from outside the home network (${OUTSIDE_PEERS# }), and an unattended run has nobody to confirm that a new connection still works. Install the guard from inside the home network (or a VPN), run it without --yes to confirm by hand, or add --allow-ssh-from-outside to keep the SSH port open." >&2
-	exit 4
+if [ "$YES" = 1 ] && [ "$SSH_OPEN" = 0 ]; then
+	why=""
+	[ -z "$OUTSIDE_PEERS" ] || why="SSH sessions are open from outside the home network (${OUTSIDE_PEERS# })"
+	[ -z "$VPN_UNKNOWN_SESSION" ] || why="${why:+$why; }SSH sessions come through a VPN whose own port the guard cannot find:$VPN_UNKNOWN_SESSION"
+	[ -z "$UNEXPLAINED_TTY" ] || why="${why:+$why; }this run's terminal ($UNEXPLAINED_TTY) belongs to no SSH session the guard can see, so it cannot tell where you are"
+	if [ -n "$why" ]; then
+		record status "refused ssh-session-from-outside"
+		printf '%s\n' "Refused for the SSH sessions' safety: $why, and an unattended run has nobody to confirm that a new connection still works. Install the guard from inside the home network (or a VPN), run it without --yes to confirm by hand, or add --ssh open (--allow-ssh-from-outside) to keep the SSH port open." >&2
+		exit 4
+	fi
 fi
 
 # nft -c checks the whole transaction without changing anything (when nft is here)
@@ -774,10 +1028,18 @@ else
 fi
 rm -f "$RUN_DIR/dynamic"
 : > "$RUN_DIR/undone"
+[ "$REINSTALL" = 0 ] || systemctl --no-block start cosmos-host-guard-watch.service cosmos-host-guard-refresh.timer 2>/dev/null
 [ ! -s "$RUN_DIR/installer.pid" ] || kill -TERM "\$(cat "$RUN_DIR/installer.pid")" 2>/dev/null
 exit 0
 EOF
 chmod 700 "$RUN_DIR/undo.sh"
+
+# On a reinstall the old watcher would write its own idea of the network into
+# the new table before it is confirmed: it rests until the new units start (the
+# undo and the rollback start it again).
+if [ "$REINSTALL" = 1 ]; then
+	systemctl stop cosmos-host-guard-watch.service cosmos-host-guard-refresh.timer >/dev/null 2>&1 || true
+fi
 
 undo_now() {
 	rm -f "$RUN_DIR/installer.pid"
@@ -925,7 +1187,7 @@ commit() {
 	fi
 	mkdir -p "$ETC"
 	chmod 700 "$ETC"
-	for f in cosmos-host-guard.nft settings.nft options allow README; do
+	for f in cosmos-host-guard.nft settings.nft options home allow README; do
 		install -m 0600 -o root -g root "$WORK/etc/$f" "$ETC/$f.new" && mv -f "$ETC/$f.new" "$ETC/$f" || return 1
 	done
 	install -m 0755 -o root -g root "$WORK/cosmos-host-guard" "$SBIN.new" && mv -f "$SBIN.new" "$SBIN" || return 1
@@ -982,6 +1244,12 @@ fi
 	say "exposed=$( [ "$EXPOSED" = 1 ] && echo yes || echo no )"
 	say "ssh_open=$( [ "$SSH_OPEN" = 1 ] && echo yes || echo no )"
 	say "other_filters=$FOREIGN"
+	say "cloud=$CLOUD"
+	say "virt=$VIRT"
+	say "vpn_found=$VPN_LIST"
+	say "udp_not_open=$UDP_CLOSED"
+	say "ssh_mode=$SSH_MODE"
+	say "trusted_if=$TRUSTED"
 } > "$STATE.new"
 chmod 644 "$STATE.new"
 mv -f "$STATE.new" "$STATE"
@@ -989,7 +1257,7 @@ mv -f "$STATE.new" "$STATE"
 	if [ -z "$PACKAGES" ] && [ -f "$MANIFEST" ]; then grep '^package	' "$MANIFEST" || true; fi
 	[ -z "$PACKAGES" ] || printf 'package\tnftables\n'
 	printf 'table\t%s\n' "$TABLE"
-	for f in cosmos-host-guard.nft settings.nft options allow README; do printf 'file\t%s\n' "$ETC/$f"; done
+	for f in cosmos-host-guard.nft settings.nft options home allow README; do printf 'file\t%s\n' "$ETC/$f"; done
 	printf 'file\t%s\n' "$SBIN"
 	for unit in $UNITS; do printf 'unit\t%s\n' "$unit"; done
 	printf 'file\t%s\n' "$STATE"
@@ -998,7 +1266,7 @@ chmod 600 "$MANIFEST.new"
 mv -f "$MANIFEST.new" "$MANIFEST"
 
 record table "$TABLE"
-for f in cosmos-host-guard.nft settings.nft options allow README; do record file "$ETC/$f"; done
+for f in cosmos-host-guard.nft settings.nft options home allow README; do record file "$ETC/$f"; done
 record file "$SBIN"
 for unit in $UNITS; do record unit "$unit"; done
 record file "$STATE"

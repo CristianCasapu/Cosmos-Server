@@ -78,7 +78,7 @@ fi
 OURS=0
 [ -f "$STATE" ] || [ -f "$MANIFEST" ] && OURS=1
 if [ "$OURS" = 1 ]; then
-	for f in "$ETC/cosmos-host-guard.nft" "$ETC/settings.nft" "$ETC/options" "$ETC/allow" "$ETC/README" "$SBIN" "$STATE"; do
+	for f in "$ETC/cosmos-host-guard.nft" "$ETC/settings.nft" "$ETC/options" "$ETC/home" "$ETC/allow" "$ETC/README" "$SBIN" "$STATE"; do
 		case "
 $FILES
 " in *"

@@ -39,6 +39,31 @@ table inet cosmos_host_guard {
 	set lan_if {
 		type ifname
 	}
+	# The interfaces on which IPv4 is not filtered: home networks behind a router
+	# that were judged so at install (the refresh only ever takes one away).
+	set pass4_if {
+		type ifname
+	}
+	# The interfaces with a single uplink, where the strict reverse-path check runs.
+	set rpf_if {
+		type ifname
+	}
+	# Interfaces the administrator trusted with --trust-interface: they carry a
+	# default route and nothing arriving through them is filtered.
+	set trusted_if {
+		type ifname
+	}
+	# New prefixes on a home interface waiting for the administrator's
+	# confirmation (cosmos-host-guard confirm): not home yet. Only shown.
+	set pending6 {
+		type ipv6_addr
+		flags interval
+		auto-merge
+	}
+	# The DHCP servers of the current leases (their unicast renewal replies).
+	set dhcp_server4 {
+		type ipv4_addr
+	}
 
 	# --home: networks that count as home on every interface.
 	set home4 {
@@ -105,12 +130,15 @@ table inet cosmos_host_guard {
 	}
 	counter dropped_spoofed {
 	}
+	counter dropped_rpf {
+	}
 
 	chain input {
 		type filter hook input priority filter - 5; policy accept;
 
-		iifname != @wan_if accept comment "loopback, Docker's networks, VPN interfaces"
-		#@IPV4@
+		iifname != @wan_if accept comment "no default route through it: loopback, Docker's networks, VPN interfaces"
+		iifname @trusted_if accept comment "trusted with --trust-interface"
+		iifname @pass4_if meta nfproto ipv4 accept comment "IPv4 on a home network behind a router"
 		ct state established,related accept
 
 		# home: on a home network behind a router its on-link prefixes and link-local
@@ -136,13 +164,15 @@ table inet cosmos_host_guard {
 		# the DHCP clients: replies of a server on the link only
 		ip6 saddr fe80::/10 udp sport 547 udp dport 546 accept comment "DHCPv6 client"
 		ip saddr @wanlink4 udp sport 67 udp dport 68 accept comment "DHCP client"
+		ip saddr @dhcp_server4 udp sport 67 udp dport 68 accept comment "DHCP client: renewals through a relay"
 		ip daddr 255.255.255.255 udp sport 67 udp dport 68 accept comment "DHCP client"
 
 		# from outside, private, unique-local and link-local sources are forged
 		ip saddr { 0.0.0.0/8, 10.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/3 } counter name dropped_spoofed drop
 		ip6 saddr { ::/128, ::1/128, ::ffff:0:0/96, fc00::/7, fe80::/10, ff00::/8 } counter name dropped_spoofed drop
-		# a source that would not be answered through this interface
-		fib saddr . iif oif missing counter name dropped_spoofed drop
+		# a source that would not be answered through this interface (one uplink only:
+		# with several, the kernel compares only the best route)
+		iifname @rpf_if fib saddr . iif oif missing counter name dropped_rpf drop
 		ct state invalid counter name dropped_input drop
 
 		tcp dport @public_tcp accept
@@ -156,7 +186,8 @@ table inet cosmos_host_guard {
 		type filter hook forward priority filter - 5; policy accept;
 
 		iifname != @wan_if accept comment "from containers and VPNs"
-		#@IPV4@
+		iifname @trusted_if accept comment "trusted with --trust-interface"
+		iifname @pass4_if meta nfproto ipv4 accept comment "IPv4 on a home network behind a router"
 		ct state established,related accept
 		iifname @lan_if ip saddr @onlink4 accept
 		iifname @lan_if ip6 saddr @onlink6 accept
@@ -167,7 +198,7 @@ table inet cosmos_host_guard {
 		icmp type { destination-unreachable, time-exceeded, parameter-problem } accept
 		ip saddr { 0.0.0.0/8, 10.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/3 } counter name dropped_spoofed drop
 		ip6 saddr { ::/128, ::1/128, ::ffff:0:0/96, fc00::/7, fe80::/10, ff00::/8 } counter name dropped_spoofed drop
-		fib saddr . iif oif missing counter name dropped_spoofed drop
+		iifname @rpf_if fib saddr . iif oif missing counter name dropped_rpf drop
 		# a container's published port: the port the visitor asked for, before
 		# Docker's address translation
 		meta l4proto tcp ct original proto-dst @public_tcp accept
