@@ -34,14 +34,14 @@ const ForkPullProgress = ({ pulls, onRetry }) => {
         aria-live={p.state === 'pulling' ? 'off' : 'polite'}>
         <Stack spacing={1}>
           <span>{t(words.key, words.text, { ...words.params, interpolation: { escapeValue: false } })}</span>
-          {p.state === 'pulling' && <LinearProgress variant={percent === null ? 'indeterminate' : 'determinate'} value={percent === null ? undefined : percent}
+          {p.state === 'pulling' && <LinearProgress key={percent === null ? 'waiting' : 'bytes' /* a new bar, not one sliding out of the waiting animation */} variant={percent === null ? 'indeterminate' : 'determinate'} value={percent === null ? undefined : percent}
             aria-label={t('mgmt.servapps.create.pull.progress', 'Download of the image')} />}
           {reason && <span data-pull-reason-words>{t(reason.key, reason.text)}</span>}
-          {reason && p.detail && <Typography variant="caption" component="div" sx={{ fontFamily: 'monospace', opacity: 0.85 }} data-pull-detail>
+          {reason && p.detail && <Typography variant="caption" component="div" sx={{ fontFamily: 'monospace' }} data-pull-detail>
             {t('mgmt.servapps.create.pull.detail', 'Docker said: {{detail}}', { detail: p.detail, interpolation: { escapeValue: false } })}
           </Typography>}
           {reason && onRetry && <Button variant="outlined" color="error" startIcon={<ReloadOutlined />} onClick={onRetry}
-            sx={{ alignSelf: 'flex-start', minHeight: 44 }} data-pull-retry>
+            sx={{ alignSelf: 'flex-start' }} style={{ minHeight: 'var(--ct-touch, 44px)' }} data-pull-retry>
             {t('mgmt.servapps.create.pull.retry', 'Try again')}
           </Button>}
         </Stack>
