@@ -274,7 +274,7 @@ clean)
   touch "$SCRATCH/run/stop" 2>/dev/null || true
   docker rm -f -v "$PREFIX-dind" >/dev/null 2>&1 || true
   docker network rm "$PREFIX-out" >/dev/null 2>&1 || true
-  [ -d "$SCRATCH" ] && docker run --rm -v "$(dirname "$SCRATCH"):/p" "$DIND_IMAGE" rm -rf "/p/$(basename "$SCRATCH")"
+  [ -d "$SCRATCH" ] && docker run --rm --entrypoint rm -v "$(dirname "$SCRATCH"):/p" "$DIND_IMAGE" -rf "/p/$(basename "$SCRATCH")"
   say "cleaned"
   ;;
 *) echo "usage: $0 up|run|clean" >&2; exit 2 ;;
