@@ -93,3 +93,10 @@ test('the list is grouped by severity and says why a kind is not sent', () => {
   // a closing message is delivered like information
   assert.match(whyNotSent({ ...dying, closing: true, severity: 'info' }, { ...form, Telegram_Delivery_info: 'off' })[1], /severity/);
 });
+
+test('a kind that is off by default stays off until switched on', () => {
+  const country = { kind: 'login.newcountry', severity: 'warn', category: 'security', off: true };
+  assert.equal(kindDefault(country, base), false);
+  assert.match(whyNotSent(country, { ...base, ...kindValues({}) })[1], /off until switched on/);
+  assert.deepEqual(flipKind(country, base), { 'login.newcountry': true });
+});

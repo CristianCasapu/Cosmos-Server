@@ -55,6 +55,7 @@ export const kindsOf = (kinds, severity) => (Array.isArray(kinds) ? kinds : []).
 export const kindDefault = (kind, values) => {
   if (!kind) return false;
   if (kind.own) return true;
+  if (kind.off) return false; // plan 48: off until switched on by itself
   if (!values['Telegram_Cat_' + kind.category]) return false;
   if (kind.record) {
     const minimum = RECORD_RANK[values.Telegram_MinSeverity] || RECORD_RANK.high;
@@ -125,6 +126,7 @@ export const whyNotSent = (kind, values) => {
   if (kindOn(kind, values)) return null;
   const explicit = (values.Telegram_Kinds || {})[kind.kind];
   if (explicit === false) return ['mgmt.config.telegram.kinds.whyOff', 'Not sent: switched off here.'];
+  if (kind.off) return ['mgmt.config.telegram.kinds.whyDefaultOff', 'Not sent: off until switched on here.'];
   if (!values['Telegram_Cat_' + kind.category]) return ['mgmt.config.telegram.kinds.whyCategory', 'Not sent: its group is switched off under "What is sent".'];
   return ['mgmt.config.telegram.kinds.whyMinimum', 'Not sent: below the minimum severity of security events. Switch it on to receive it anyway.'];
 };

@@ -17,6 +17,8 @@ type Readers struct {
 	// Snapshots gives the settings of the incremental backup and the last
 	// finished snapshot of each folder.
 	Snapshots func() (utils.SnapshotsConfig, map[string]time.Time)
+	// Country is the local country lookup (GeoLite file).
+	Country func(ip string) (string, error)
 }
 
 var startOnce sync.Once
@@ -32,7 +34,13 @@ func settingsNow() Settings { return SettingsOf(utils.GetMainConfig().Watch) }
 func Start(r Readers) func(user string, ip string) {
 	st := newStore(statePath())
 	startOnce.Do(func() { go loop(st, r, time.Now()) })
-	return func(string, string) {}
+	return func(user string, ip string) {
+		if r.Country == nil || !ready() || !settingsNow().Country {
+			return
+		}
+		defer func() { recover() }()
+		checkSignIn(st, user, ip, r.Country)
+	}
 }
 
 func loop(st *store, r Readers, started time.Time) {

@@ -24,7 +24,7 @@ import {
 import { Button as LoadingButton } from '@mui/material'; // MUI 9: Button has the loading state
 import { DownOutlined, SendOutlined, UpOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { CosmosSelect } from './users/formShortcuts';
+import { CosmosCheckbox, CosmosInputText, CosmosSelect } from './users/formShortcuts';
 import PermissionGuard from '../../components/permissionGuard';
 import { PERM_ADMIN } from '../../utils/permissions';
 import {
@@ -38,6 +38,7 @@ import {
   whyNotSent,
 } from '../../utils/telegramMessage';
 import { telegramUnsaved } from '../../utils/telegramSettings';
+import { MAX_FILL_DAYS, watchProblem } from '../../utils/watchSettings';
 
 const SEVERITY_TEXT = {
   critical: ['🔴', ['mgmt.config.telegram.kinds.critical', 'Critical'], ['mgmt.config.telegram.kinds.criticalHelp', 'Something is wrong now and needs you: rings, also in the quiet hours, and stays pinned in the chat while it lasts.']],
@@ -205,6 +206,46 @@ const TelegramKinds = ({ formik, config }) => {
             <Alert severity="warning">{t('mgmt.config.telegram.kinds.failed', 'The samples could not be loaded. The switches still work.')}</Alert>
           </Grid>
         )}
+        {/* plan 48: what Cosmos watches by itself, and when it speaks up */}
+        <Grid size={{ xs: 12 }} id="telegram-watches">
+          <Stack spacing={1}>
+            <Typography variant="h5" component="h3">{t('mgmt.config.watch.title', 'What Cosmos watches by itself')}</Typography>
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+              {t('mgmt.config.watch.help', 'Each watch writes a notification in the panel, and a message here, when something starts and when it is over. Nothing is asked of other servers.')}
+            </Typography>
+          </Stack>
+        </Grid>
+        <CosmosCheckbox name="Watch_SMART" formik={formik}
+          label={t('mgmt.config.watch.smart', 'Disks that report they are failing (S.M.A.R.T.)')}
+          helperText={t('mgmt.config.watch.smartHelp', 'Every hour. A disk that sleeps is not woken: it is read when it is awake.')} />
+        <CosmosCheckbox name="Watch_Fill" formik={formik}
+          label={t('mgmt.config.watch.fill', 'Disks filling fast')}
+          helperText={t('mgmt.config.watch.fillHelp', 'The space used is measured every half hour; the trend of the last day says when the disk is full.')} />
+        {formik.values.Watch_Fill && (
+          <CosmosInputText name="Watch_FillDays" formik={formik} type="number"
+            inputProps={{ min: 1, max: MAX_FILL_DAYS, step: 1, inputMode: 'numeric' }}
+            label={t('mgmt.config.watch.fillDays', 'Warn when a disk is full within (days)')}
+            helperText={watchProblem(formik.values) === 'days'
+              ? t('mgmt.config.watch.fillDaysBad', 'Enter a whole number of days between 1 and 30')
+              : t('mgmt.config.watch.fillDaysHelp', 'At the rate of the last day. Proposed: 3.')} />
+        )}
+        <CosmosCheckbox name="Watch_Docker" formik={formik}
+          label={t('mgmt.config.watch.docker', 'Docker not answering')}
+          helperText={t('mgmt.config.watch.dockerHelp', 'Asked every 30 seconds; said after two minutes without an answer, not in the first minutes after Cosmos starts.')} />
+        <CosmosCheckbox name="Watch_Snapshots" formik={formik}
+          label={t('mgmt.config.watch.snapshots', 'Incremental backup folders without a recent snapshot')}
+          helperText={t('mgmt.config.watch.snapshotsHelp', 'Late when the last snapshot is older than the schedule allows plus half a period (at least 6 hours).')} />
+        {formik.values.Watch_Snapshots && (
+          <CosmosInputText name="Watch_SnapshotLateHours" formik={formik} type="number"
+            inputProps={{ min: 1, step: 1, inputMode: 'numeric' }}
+            label={t('mgmt.config.watch.lateHours', 'Late after (hours, optional)')}
+            helperText={watchProblem(formik.values) === 'hours'
+              ? t('mgmt.config.watch.lateHoursBad', 'Enter a whole number of hours between 1 and 2160, or leave it empty')
+              : t('mgmt.config.watch.lateHoursHelp', 'Empty: from the schedule (36 hours for a daily backup).')} />
+        )}
+        <CosmosCheckbox name="Watch_Country" formik={formik}
+          label={t('mgmt.config.watch.country', 'Sign-ins from a country an account never signed in from')}
+          helperText={t('mgmt.config.watch.countryHelp', 'Looked up in the country file Cosmos ships, never on another server. Home and VPN addresses are not a country. Only the countries are kept, a few per account; the first sign-in of an account only records. Its Telegram message is off until switched on below.')} />
         {SEVERITIES.map((severity) => {
           const [mark, [labelKey, label], [helpKey, help]] = SEVERITY_TEXT[severity];
           const list = kindsOf(kinds, severity);

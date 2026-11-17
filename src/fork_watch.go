@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/azukaar/cosmos-server/src/docker"
+	"github.com/azukaar/cosmos-server/src/security"
 	"github.com/azukaar/cosmos-server/src/snapshots"
 	"github.com/azukaar/cosmos-server/src/storage"
 	"github.com/azukaar/cosmos-server/src/utils"
@@ -23,11 +24,17 @@ import (
 
 // startWatches is the hook in index.go, after the Telegram notifications.
 func startWatches() {
-	watch.Start(watch.Readers{
+	signIn := watch.Start(watch.Readers{
 		Disks:      watchDisks,
 		Usages:     watchUsages,
 		DockerPing: docker.ForkPing,
 		Snapshots:  watchSnapshots,
+		Country:    utils.GetIPLocation,
+	})
+	security.Subscribe("watch-country", func(event security.Event) {
+		if event.Kind == utils.SecLoginSuccess {
+			signIn(event.Actor, event.IP)
+		}
 	})
 }
 
