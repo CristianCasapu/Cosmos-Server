@@ -354,6 +354,14 @@ func acmeClient(ctx context.Context, ca CA, email string) (*lego.Client, *Failur
 	return client, nil
 }
 
+// freeServerPorts is utils.ForkFreeServerPorts (nil: nothing to free). A
+// variable for the tests.
+var freeServerPorts = func() {
+	if utils.ForkFreeServerPorts != nil {
+		utils.ForkFreeServerPorts()
+	}
+}
+
 // order runs one order. Nothing here decides whether to order: the callers
 // did. It contacts the CA only once everything it can check by itself is
 // in place.
@@ -384,6 +392,16 @@ func order(ctx context.Context, ca CA, key string, domains []string, zone *utils
 			return nil, classify(stageProvider, err, secrets)
 		}
 		provider = built
+	}
+
+	// HTTP-01 and TLS-ALPN-01 need the web server's ports for lego's own
+	// challenge servers. A restart keeps its listening sockets open between
+	// two generations (fork_server_lifecycle.go): they are freed before the
+	// CA is contacted, so that visitors meanwhile are refused at once (as
+	// they were upstream) instead of waiting for the length of the order.
+	// Whatever the order's end, the next generation binds them again.
+	if zone == nil {
+		freeServerPorts()
 	}
 
 	// from here on the CA is contacted: the attempt counts
@@ -417,11 +435,6 @@ func order(ctx context.Context, ca CA, key string, domains []string, zone *utils
 			return nil, classify(stageProvider, err, secrets)
 		}
 	} else {
-		// the challenge servers take the web server's ports: a restart keeps
-		// its sockets open between two generations unless they are freed
-		if utils.ForkFreeServerPorts != nil {
-			utils.ForkFreeServerPorts()
-		}
 		if err := client.Challenge.SetHTTP01Provider(http01.NewProviderServer("", config.HTTPConfig.HTTPPort)); err != nil {
 			return nil, classify(stageProvider, err, nil)
 		}
