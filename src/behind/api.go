@@ -204,19 +204,30 @@ const (
 // HTTP server that overlap can leave its HTTPS listener refusing every
 // connection until Cosmos is started again (upstream's RestartHTTPServer
 // shuts the server down from a goroutine while the next one starts).
-var reloadRoutes = func() {
+//
+// more: the caller has another change of the same repair to send right
+// away. The reload then waits for it (each apply also waits for its check,
+// up to 12 s, so a fixed short delay would fire between two of them and give
+// exactly the two reloads close together that this avoids); if the caller
+// never sends the rest, the reload still happens after reloadIfAbandoned.
+var reloadRoutes = func(more bool) {
 	reloadMu.Lock()
 	defer reloadMu.Unlock()
 	if reloadTimer != nil {
 		reloadTimer.Stop()
 	}
-	reloadTimer = time.AfterFunc(reloadAfter, utils.RestartHTTPServer)
+	after := reloadAfter
+	if more {
+		after = reloadIfAbandoned
+	}
+	reloadTimer = time.AfterFunc(after, utils.RestartHTTPServer)
 }
 
 var (
-	reloadMu    sync.Mutex
-	reloadTimer *time.Timer
-	reloadAfter = 2 * time.Second
+	reloadMu          sync.Mutex
+	reloadTimer       *time.Timer
+	reloadAfter       = 2 * time.Second
+	reloadIfAbandoned = 40 * time.Second
 )
 
 // ApplyRoute answers POST /cosmos/api/url-check/apply: the one setting of
@@ -230,9 +241,10 @@ func ApplyRoute(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	var body struct {
-		Route      string `json:"route"`
+		Route            string `json:"route"`
 		AppOwnHost       *bool  `json:"appOwnHost"`
 		NoVisitorAddress *bool  `json:"noVisitorAddress"`
+		More             bool   `json:"more"` // another URL of the same repair follows at once
 	}
 	if err := json.NewDecoder(io.LimitReader(req.Body, bodyMax)).Decode(&body); err != nil || !routeNamePattern.MatchString(body.Route) || (body.AppOwnHost == nil) == (body.NoVisitorAddress == nil) {
 		utils.HTTPError(w, "Name the URL and the setting", http.StatusBadRequest, "URC001")
@@ -290,7 +302,7 @@ func ApplyRoute(w http.ResponseWriter, req *http.Request) {
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
-	reloadRoutes()
+	reloadRoutes(body.More)
 }
 
 // KnownAppsRoute answers GET /cosmos/api/known-apps.

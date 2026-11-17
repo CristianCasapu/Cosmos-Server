@@ -45,8 +45,8 @@ package proxy
 import (
 	"context"
 	"net"
-	"net/url"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -57,8 +57,12 @@ import (
 type PublicAddress struct {
 	Name string // the URL's name, lower case, without port
 	Port string // the port visitors use, always set
-	// Host is Name with the port, the port left out when it is the scheme's own
+	// Host is the visitor's Host exactly as received: what the app gets as Host
 	Host string
+	// Forwarded is what X-Forwarded-Host carries: the name and, when the
+	// visitor's Host had one, its port as a number. Never anything else of
+	// what the visitor wrote after the colon.
+	Forwarded string
 }
 
 func defaultPort(scheme string) string {
@@ -100,15 +104,66 @@ func publicAddressOf(route utils.ProxyRouteConfig, requestHost, scheme string) (
 			return PublicAddress{}, false // a port route answers any name
 		}
 	}
-	host := strings.TrimSpace(requestHost)
-	name, port := splitHost(host)
-	if name == "" {
+	if !route.UseHost {
+		// a URL without a name of its own answers any Host: nothing the visitor
+		// wrote there is repeated to the app (upstream's headers stay: the
+		// server's own hostname)
 		return PublicAddress{}, false
 	}
-	if port == "" {
-		port = defaultPort(scheme)
+	host := strings.TrimSpace(requestHost)
+	name, port := splitHost(host)
+	name = strings.ToLower(name)
+	if !forwardableName(name) {
+		return PublicAddress{}, false
 	}
-	return PublicAddress{Name: strings.ToLower(name), Port: port, Host: host}, true
+	// The router pins the name of a URL, not what follows the colon: only a
+	// port number is ever repeated ("name:,evil.example" would make an app
+	// that reads X-Forwarded-Host as a list believe another name).
+	number := portNumber(port)
+	forwarded := name
+	if strings.Contains(name, ":") {
+		forwarded = "[" + name + "]"
+	}
+	if number == "" {
+		port = defaultPort(scheme)
+	} else {
+		port = number
+		forwarded = net.JoinHostPort(name, number)
+	}
+	return PublicAddress{Name: name, Port: port, Host: host, Forwarded: forwarded}, true
+}
+
+// forwardableName: a host name or an address, nothing else.
+func forwardableName(name string) bool {
+	if name == "" || len(name) > 253 {
+		return false
+	}
+	if net.ParseIP(name) != nil {
+		return true
+	}
+	for _, c := range name {
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '.' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// portNumber: "2053" for a port from 1 to 65535 written in digits, "" otherwise.
+func portNumber(port string) string {
+	if port == "" || len(port) > 5 {
+		return ""
+	}
+	for _, c := range port {
+		if c < '0' || c > '9' {
+			return ""
+		}
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return ""
+	}
+	return strconv.Itoa(n)
 }
 
 // forkOptions are the fork's options of a URL as they apply: never on a tunnelled URL.
@@ -144,7 +199,11 @@ type AppHeaders struct {
 // the address Cosmos connects to.
 func AppHeadersFor(route utils.ProxyRouteConfig, public PublicAddress, scheme, dialled, targetScheme string) AppHeaders {
 	own, noVisitor := forkOptions(route)
-	out := AppHeaders{Host: public.Host, ForwardedHost: public.Host, ForwardedPort: public.Port, ForwardedProto: scheme, NoVisitorAddress: noVisitor}
+	forwarded := public.Forwarded
+	if forwarded == "" {
+		forwarded = public.Host
+	}
+	out := AppHeaders{Host: public.Host, ForwardedHost: forwarded, ForwardedPort: public.Port, ForwardedProto: scheme, NoVisitorAddress: noVisitor}
 	if own && dialled != "" {
 		out.Host = ownHost(dialled, targetScheme)
 	}

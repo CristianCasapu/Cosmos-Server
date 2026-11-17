@@ -14,6 +14,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -296,7 +297,7 @@ func TestApplyChangesOneSettingOfOneURL(t *testing.T) {
 		}
 		return errNoRoute
 	}
-	reloadRoutes = func() {}
+	reloadRoutes = func(bool) {}
 	defer func() { updateRoute, reloadRoutes = oldUpdate, oldReload }()
 
 	post := func(body string, perms ...utils.Permission) (int, map[string]interface{}) {
@@ -340,6 +341,44 @@ func TestApplyChangesOneSettingOfOneURL(t *testing.T) {
 	ApplyRoute(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("GET: %d", rec.Code)
+	}
+}
+
+// Second review F2: a repair applied to several URLs reloads them once, after
+// the last: every call but the last says that another follows, and the reload
+// then waits for it instead of firing between two of them; a caller that
+// never sends the rest still gets its reload.
+func TestARepairOfSeveralURLsReloadsOnce(t *testing.T) {
+	oldRestart, oldAfter, oldAbandoned := utils.RestartHTTPServer, reloadAfter, reloadIfAbandoned
+	var reloads int32
+	utils.RestartHTTPServer = func() { atomic.AddInt32(&reloads, 1) }
+	reloadAfter, reloadIfAbandoned = 30*time.Millisecond, 400*time.Millisecond
+	defer func() {
+		reloadMu.Lock()
+		if reloadTimer != nil {
+			reloadTimer.Stop()
+		}
+		reloadMu.Unlock()
+		utils.RestartHTTPServer, reloadAfter, reloadIfAbandoned = oldRestart, oldAfter, oldAbandoned
+	}()
+	// three URLs, each apply slower than the short delay (its check takes time)
+	reloadRoutes(true)
+	time.Sleep(80 * time.Millisecond)
+	reloadRoutes(true)
+	time.Sleep(80 * time.Millisecond)
+	if n := atomic.LoadInt32(&reloads); n != 0 {
+		t.Fatalf("reloaded %d time(s) between the URLs of one repair", n)
+	}
+	reloadRoutes(false)
+	time.Sleep(120 * time.Millisecond)
+	if n := atomic.LoadInt32(&reloads); n != 1 {
+		t.Fatalf("reloaded %d time(s) after the last URL, want once", n)
+	}
+	// the rest never comes: the reload still happens
+	reloadRoutes(true)
+	time.Sleep(600 * time.Millisecond)
+	if n := atomic.LoadInt32(&reloads); n != 2 {
+		t.Fatalf("an abandoned repair was reloaded %d time(s) in all, want 2", n)
 	}
 }
 
@@ -388,7 +427,9 @@ func TestAppThatRefusesTheVisitorsAddressIsOpenedWithout(t *testing.T) {
 
 func TestASignInThatWillFailIsSaidWithTheVariable(t *testing.T) {
 	// Paperless opens, but Django refuses the sign-in's Origin until it is told the addresses
-	handler := func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/accounts/login/?next=/", http.StatusFound) }
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/accounts/login/?next=/", http.StatusFound)
+	}
 	routes := []utils.ProxyRouteConfig{urlTo("paperless", "paperless.server.local", false), urlTo("paperless-ext", "paperless.example.org", false)}
 	withApp(t, "ghcr.io/paperless-ngx/paperless-ngx:latest", nil, nil, routes, handler)
 	r := Check(context.Background(), "paperless")
