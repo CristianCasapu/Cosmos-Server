@@ -316,6 +316,24 @@ cool-down, the 72 hours the previous files are kept, the 15-minute window.
   Cloudflare, e-mail, Telegram, Fail2ban and UPnP checks, were each run on
   their own branch only (each needs a set-up of its own).
 
+## An app's links: left for later (2026-11-17)
+
+- A per-device check whether `.local` names resolve (today: the page having been opened by a `.local` name is the signal; otherwise names for use at home come first).
+- The names of ports the router forwards (UPnP) inside an app's "All addresses" menu; they stay in the router-ports view.
+- The home's public IPv6 as a signal for "probably home" (the server knows no public IPv6 of the home).
+- Through a VPN, names for use at home and home-network addresses are only "maybe": Cosmos cannot know whether the VPN routes the home network.
+- The header's "Ctrl + K" box is a dead template leftover (no search exists).
+
+## Forms, part D: left for later (2026-11-17)
+
+- `raidDialog.jsx`/`raid.jsx` and `oldTerminal.jsx` are unreachable upstream files (nothing imports them, they are not bundled): left in place to keep upstream merges clean.
+- A Mongo dump proposal for scheduled jobs: mongodump takes its password on the command line, so none is proposed.
+- SnapRAID's schedule still needs six fields; the job form takes five or six.
+- The shared choice chips are 32 px tall on phones (the gallery does not flag them); the wizard's language button is 24 px (upstream's).
+- The installation's progress shows nothing between "Creating network…" and the end while the image is pulled: a slow or failing pull looks like a hang for minutes. Show the pull as a step, and the failure with its reason and "Try again".
+- A caller who may change settings can point the Telegram chat ID elsewhere while the token stays masked (the old chat is told): the owner's call whether a chat change should need the token again.
+- A whole-settings save refused by the job and alert recheck under the write lock (another save in the microseconds since the early recheck) can follow the replicated parts already published; closing it would mean changing the replication code.
+
 ## Creating apps: left for later (2026-11-14)
 
 - An image's declared volumes and ports are known only when the image is

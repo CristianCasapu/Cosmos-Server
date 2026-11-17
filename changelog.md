@@ -8,9 +8,30 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Merged into `custom` since `0.24.0-fork.35`, to be part of the next release:
+Merged into `custom` since `0.24.0-fork.36`, to be part of the next release:
 
-- Nothing yet.
+### Added
+- The home page opens each app on the address that works from where you are: the home address at home, the internet address when away. An app that only opens at home says "Only at home" and offers its address to copy, or (to administrators) an internet address through the Internet dialog.
+- "All addresses" on a tile, on ServApps and on the app's page lists every interface of an app (administration, page for users, API, published ports) with Open and Copy; ports that are not web pages are copy-only.
+- The URL form says what an address is to its app (administration, page for users, API, other), with a label and "kept at home on purpose".
+
+### Changed
+- One tile per app: the URLs that lead to the same container are one tile. Administrators land on the administration page first, other users on the page for users.
+
+## Fork 0.24.0-fork.36 — 2026-11-17
+
+### Added
+- Telegram: after the bot token is pasted, "Look for chats" offers the chats that wrote to the bot, so the chat ID no longer has to be found by hand.
+- Scheduled jobs are made by choices: where the job runs (a container, or the server itself as root), when (in words, with the next three runs shown), and for a PostgreSQL or MariaDB/MySQL container a nightly dump is proposed.
+- The monitoring database is proposed from a PostgreSQL running on the server, with "Test the connection" before saving.
+- Snapshots: excludes (caches, thumbnails, temporary files, Docker's data folder) are offered as ticks with their sizes, the destination as a choice of data disks.
+
+### Changed
+- The first-run wizard no longer shows "join a cluster" without a licence; a node joins from the Constellation page after the wizard.
+
+### Security
+- New and changed scheduled jobs and alerts are checked by the server and refused in words; stored ones are untouched, and switching one off is never refused.
+- A saved monitoring-database password is no longer sent to a server whose address was changed: the password must be typed again.
 
 ## Fork 0.24.0-fork.35 — 2026-11-17
 
