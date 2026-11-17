@@ -472,7 +472,14 @@ func TestTelegramsOwnErrorsAreTriedAgain(t *testing.T) {
 	if status := h.Status(); status.Sent != 1 || status.LastError != "" {
 		t.Errorf("status after the retries: %+v", status)
 	}
-	logged := strings.Join(h.loggedNow(), "\n")
+	// the recovery is logged just after the count: wait for it
+	logged := ""
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		logged = strings.Join(h.loggedNow(), "\n")
+		if strings.Contains(logged, "delivered again") {
+			break
+		}
+	}
 	if !strings.Contains(logged, "tried again") || !strings.Contains(logged, "delivered again") {
 		t.Errorf("the log does not tell the failure and the recovery: %q", logged)
 	}
