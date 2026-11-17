@@ -52,7 +52,7 @@ type TableProgress struct {
 	// the verification: rows of the copied range in each store
 	SourceRows int64 `json:"sourceRows"`
 	TargetRows int64 `json:"targetRows"`
-	Missing    int64 `json:"missing"`
+	Missing    int64 `json:"missing"` // source rows without their counterpart in the target, or with one that differs
 }
 
 // Tracker holds the progress of a copy; the engine updates it, readers take
@@ -78,6 +78,17 @@ func (t *Tracker) setPhase(phase string) {
 		t.since = time.Now()
 	}
 	t.mu.Unlock()
+}
+
+// reset puts every table back to waiting.
+func (t *Tracker) reset() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.phase = "preparing"
+	t.tables = make([]TableProgress, len(rules))
+	for i, r := range rules {
+		t.tables[i] = TableProgress{Table: r.table, State: "waiting"}
+	}
 }
 
 func (t *Tracker) add(read int64) {
@@ -127,11 +138,10 @@ func (e *CopyError) Unwrap() error { return e.Err }
 var errStopped = errors.New("monitorcopy: stopped")
 
 type runMarker struct {
-	Run      string           `json:"run"`
-	Started  int64            `json:"started"`
-	End      int64            `json:"end"`
-	Finished bool             `json:"finished"`
-	T0       map[string]int64 `json:"t0"`
+	Run      string `json:"run"`
+	Started  int64  `json:"started"`
+	End      int64  `json:"end"`
+	Finished bool   `json:"finished"`
 }
 
 type tableMarker struct {
@@ -144,8 +154,6 @@ type tableMarker struct {
 
 func runKey(sourceID string) string          { return markerPrefix + sourceID }
 func tableKey(sourceID, table string) string { return markerPrefix + sourceID + ":" + table }
-
-const noT0 = math.MaxInt64
 
 // Copy copies src into dst by the rules, resumes an unfinished copy from the
 // same source, and verifies the result. It returns errStopped when ctx is
@@ -221,13 +229,7 @@ func verifyOnly(ctx context.Context, src, dst Store, opt Options, track *Tracker
 // the run and counts what there is to go through.
 func (c *copier) prepare() error {
 	track := c.track
-	track.mu.Lock()
-	track.phase = "preparing"
-	track.tables = make([]TableProgress, len(rules))
-	for i, r := range rules {
-		track.tables[i] = TableProgress{Table: r.table, State: "waiting"}
-	}
-	track.mu.Unlock()
+	track.reset()
 
 	bctx, cancel := batchContext()
 	defer cancel()
@@ -306,9 +308,7 @@ func newRunID() string {
 }
 
 // loadRun continues the unfinished copy from the same source, or starts a
-// new one. The ranges below T0 (the target's oldest row of each table when
-// the first copy from this source started) hold nothing but copied rows: they
-// are kept across copies.
+// new one.
 func (c *copier) loadRun(ctx context.Context) error {
 	value, found, err := c.dst.getKV(ctx, c.dst.DB, runKey(c.opt.SourceID))
 	if err != nil {
@@ -323,27 +323,7 @@ func (c *copier) loadRun(ctx context.Context) error {
 	if found && previous.Run != "" && !previous.Finished && previous.End > 0 {
 		c.marker = previous
 	} else {
-		c.marker = runMarker{Run: newRunID(), Started: utils.TimeToMillis(c.opt.now()), End: utils.TimeToMillis(c.opt.now()), T0: previous.T0}
-	}
-	if c.marker.T0 == nil {
-		c.marker.T0 = map[string]int64{}
-	}
-	for _, r := range rules {
-		if r.window == "" {
-			continue
-		}
-		if _, ok := c.marker.T0[r.table]; ok {
-			continue
-		}
-		var oldest *int64
-		if err := c.dst.DB.QueryRowContext(ctx, "SELECT MIN("+r.window+") FROM "+r.table).Scan(&oldest); err != nil {
-			return c.fail(r, "reading", err)
-		}
-		if oldest == nil {
-			c.marker.T0[r.table] = noT0
-		} else {
-			c.marker.T0[r.table] = *oldest
-		}
+		c.marker = runMarker{Run: newRunID(), Started: utils.TimeToMillis(c.opt.now()), End: utils.TimeToMillis(c.opt.now())}
 	}
 	return c.saveRun(ctx)
 }

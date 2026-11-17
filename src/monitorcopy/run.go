@@ -187,6 +187,7 @@ func Start(direction string) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	track := &Tracker{}
+	track.reset() // shown at once, before the copy's goroutine runs
 	done := make(chan struct{})
 	state.running, state.direction, state.started = true, direction, time.Now()
 	state.cancel, state.cancelling, state.track, state.done = cancel, false, track, done

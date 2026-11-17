@@ -305,14 +305,15 @@ func TestVerificationCatchesADroppedRow(t *testing.T) {
 			// put back from the source's values
 			copyOnce(t, sc.src, sc.dst, testOptions("test", true))
 
-			// a copied bucket's value changes
-			exec(t, sc.dst, "UPDATE metric_values SET value = value + 1 WHERE key = 'cosmos.system.metric1' AND date = ?", sc.end-3*sc.hour)
-			if got := check("metric_values"); got.State != "mismatch" {
-				t.Errorf("a changed bucket: %+v", got)
+			// a copied event changes (its every column is its identity)
+			exec(t, sc.dst, "UPDATE events SET data = 'changed' WHERE label = 'Event 60'")
+			if got := check("events"); got.State != "mismatch" || got.Missing != 1 {
+				t.Errorf("a changed event: %+v", got)
 			}
-			exec(t, sc.dst, "UPDATE metric_values SET value = value - 1 WHERE key = 'cosmos.system.metric1' AND date = ?", sc.end-3*sc.hour)
+			exec(t, sc.dst, "DELETE FROM events WHERE label = 'Event 60' AND data = 'changed'")
+			copyOnce(t, sc.src, sc.dst, testOptions("test", true))
 
-			// a bucket of the shared range (from T0 on) goes missing
+			// a bucket the target had too goes missing
 			exec(t, sc.dst, "DELETE FROM metric_values WHERE key = 'cosmos.system.metric0' AND granularity = 'hourly' AND date = ?", sc.end)
 			if got := check("metric_values"); got.State != "mismatch" || got.Missing != 1 {
 				t.Errorf("a dropped shared bucket: %+v", got)
@@ -508,6 +509,90 @@ func TestEqualRowsAndOneTimeValue(t *testing.T) {
 			}
 			if again, err := Copy(context.Background(), src, dst, opt, &Tracker{}); err != nil || again.Written != 0 {
 				t.Errorf("again: %v %d", err, again.Written)
+			}
+		})
+	}
+}
+
+// The two stores take turns as the store in use any number of times (back
+// to the local file, the fallback while PostgreSQL does not answer, back to
+// PostgreSQL), with a copy after each turn. Rows the target wrote in its own
+// turns are not an error, whatever their time; every source row must be there.
+func TestStoresTakingTurns(t *testing.T) {
+	hour := int64(time.Hour / time.Millisecond)
+	for _, dialect := range dialects() {
+		t.Run("sqlite-to-"+short(dialect), func(t *testing.T) {
+			local, remote := openStore(t, utils.DialectSQLite), openStore(t, dialect)
+			start := (time.Now().UnixMilli()/hour)*hour - 40*hour
+			turn := func(s Store, at int64, name string) {
+				fill(t, s, contents{node: "server.local", events: 20, notifications: 3, security: 10, end: at, ref: name})
+				// the same metrics and buckets each turn, with other values: buckets both stores wrote
+				for m := 0; m < 3; m++ {
+					key := fmt.Sprintf("cosmos.system.metric%d", m)
+					exec(t, s, "INSERT INTO metrics(node, key, label, last_update) VALUES('server.local', ?, ?, ?) ON CONFLICT(node, key) DO UPDATE SET label = excluded.label, last_update = excluded.last_update", key, name, at)
+					for v := int64(0); v < 6; v++ {
+						exec(t, s, "INSERT INTO metric_values(node, key, granularity, date, value, avg_index, expire) VALUES('server.local', ?, 'hourly', ?, ?, 1, 0)"+
+							" ON CONFLICT(node, key, granularity, date) DO UPDATE SET value = metric_values.value + excluded.value, avg_index = metric_values.avg_index + 1",
+							key, at-v*hour, at%100000+v)
+					}
+					exec(t, s, "INSERT INTO metric_values(node, key, granularity, date, value, avg_index, expire) VALUES('server.local', ?, 'daily', ?, ?, 1, 0)"+
+						" ON CONFLICT(node, key, granularity, date) DO UPDATE SET value = metric_values.value + excluded.value, avg_index = metric_values.avg_index + 1",
+						key, start, at%100000)
+				}
+			}
+			for round := int64(0); round < 4; round++ {
+				at := start + round*8*hour
+				turn(local, at, fmt.Sprintf("local%d", round)) // the local file in use
+				if round == 0 {
+					// the first copy finds PostgreSQL still empty
+					copyOnce(t, local, remote, testOptions("turns", true))
+				}
+				turn(remote, at+2*hour, fmt.Sprintf("remote%d", round))  // PostgreSQL in use
+				turn(local, at+4*hour, fmt.Sprintf("fallback%d", round)) // the fallback
+				turn(remote, at+6*hour, fmt.Sprintf("healed%d", round))  // PostgreSQL again
+				report := copyOnce(t, local, remote, testOptions("turns", true))
+				if report.Mismatch {
+					t.Fatalf("round %d: a mismatch: %+v", round, report.Tables)
+				}
+			}
+			again := copyOnce(t, local, remote, testOptions("turns", true))
+			if again.Written != 0 || again.Mismatch {
+				t.Fatalf("again: %d written, mismatch %v", again.Written, again.Mismatch)
+			}
+			// and a real loss is still seen
+			exec(t, remote, "DELETE FROM events WHERE date = ?", start-3000) // an event of the local file's first turn
+			report, err := verifyOnly(context.Background(), local, remote, testOptions("turns", true), &Tracker{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p := tableOf(report, "events"); p.State != "mismatch" || p.Missing < 1 {
+				t.Fatalf("a dropped event after the turns: %+v", p)
+			}
+		})
+	}
+}
+
+// Copied to the local file (the source wins), a closed bucket whose value
+// changed in the target is seen; an open one may change, and is not.
+func TestVerificationSeesAChangedClosedBucket(t *testing.T) {
+	for _, p := range pairs() {
+		t.Run(short(p.src)+"-to-"+short(p.dst), func(t *testing.T) {
+			src, dst := openStore(t, p.src), openStore(t, p.dst)
+			old := time.Now().Add(-40 * 24 * time.Hour).UnixMilli()
+			recent := time.Now().Add(-2 * time.Hour).UnixMilli()
+			for _, date := range []int64{old, recent} {
+				exec(t, src, "INSERT INTO metric_values(node, key, granularity, date, value, avg_index, expire) VALUES('server.local', 'k', 'daily', ?, 10, 1, 0)", date)
+			}
+			copyOnce(t, src, dst, testOptions("test", false))
+			exec(t, dst, "UPDATE metric_values SET value = 11 WHERE date = ?", recent)
+			report, err := verifyOnly(context.Background(), src, dst, testOptions("test", false), &Tracker{})
+			if err != nil || report.Mismatch {
+				t.Fatalf("an open bucket that changed: %v %+v", err, tableOf(report, "metric_values"))
+			}
+			exec(t, dst, "UPDATE metric_values SET value = 11 WHERE date = ?", old)
+			report, err = verifyOnly(context.Background(), src, dst, testOptions("test", false), &Tracker{})
+			if got := tableOf(report, "metric_values"); err != nil || got.State != "mismatch" || got.Missing != 1 {
+				t.Fatalf("a closed bucket that changed: %v %+v", err, got)
 			}
 		})
 	}
