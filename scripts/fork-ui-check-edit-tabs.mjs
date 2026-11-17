@@ -169,8 +169,12 @@ const errorsShown = async (page) => (await page.locator('.MuiFormHelperText-root
 
 // --- PHASE=unchanged: a save of each tab without a change keeps everything the container had,
 // running and stopped (the shapes upstream's tabs used to change silently)
-const SHAPE = (name) => ({ Image: 'example/plainapp:1', User: '65534:65534', Env: ['SHAPE=1'], Labels: { 'shape.note': 'kept' },
+const SHAPE = (name, image) => ({ Image: image, Cmd: ['sleep', '1d'], User: '65534:65534', Env: ['SHAPE=1'], Labels: { 'shape.note': 'kept' },
+  Hostname: 'myhost', Domainname: 'home.example.org', OpenStdin: true, AttachStdin: true, Tty: false, StopSignal: 'SIGKILL', WorkingDir: '/tmp',
+  Healthcheck: { Test: ['CMD', 'true'], Interval: 30e9, Retries: 3 },
   ExposedPorts: { '9000/tcp': {}, '9001/udp': {}, '9002/tcp': {}, '9003/tcp': {} }, HostConfig: {
+    NetworkMode: 'shapenet', CapDrop: ['ALL'], CapAdd: ['CHOWN'], SecurityOpt: ['no-new-privileges:true'], Init: true,
+    LogConfig: { Type: 'json-file', Config: { 'max-size': '10m', 'max-file': '2' } },
     PortBindings: { '9000/tcp': [{ HostIp: '127.0.0.1', HostPort: name === 'shape-run' ? '18300' : '18310' }], '9001/udp': [{ HostIp: '0.0.0.0', HostPort: name === 'shape-run' ? '18301' : '18311' }], '9003/tcp': [{ HostPort: '' }] },
     Devices: [{ PathOnHost: '/dev/null', PathInContainer: '/dev/fakenull', CgroupPermissions: 'r' }],
     Binds: [`/mnt/data/${name}/a:/a:ro,z`, `/mnt/data/${name}/b:/b:rw,rslave`],
@@ -180,21 +184,31 @@ const SHAPE = (name) => ({ Image: 'example/plainapp:1', User: '65534:65534', Env
       { Type: 'bind', Source: `/mnt/data/${name}/c`, Target: '/c', BindOptions: { Propagation: 'rslave' } },
     ],
     Tmpfs: { '/t2': 'size=32m' },
-    Dns: ['192.0.2.53'], RestartPolicy: { Name: 'on-failure', MaximumRetryCount: 2 },
-    Memory: 256 * 1024 * 1024, NanoCpus: 5e8 } });
-const fullShape = (c) => {
-  const h = c.HostConfig;
-  const labels = { ...(c.Config.Labels || {}) };
-  return JSON.stringify({
-    user: c.Config.User, env: [...c.Config.Env].sort(), labels, exposed: Object.keys(c.Config.ExposedPorts || {}).sort(),
-    ports: h.PortBindings, devices: h.Devices, binds: [...(h.Binds || [])].sort(),
-    mounts: [...(h.Mounts || [])].sort((a, b) => a.Target.localeCompare(b.Target)), tmpfs: h.Tmpfs,
-    dns: h.Dns, restart: h.RestartPolicy, memory: h.Memory, swap: h.MemorySwap, cpus: h.NanoCpus, mode: h.NetworkMode,
-  }, null, 0);
-};
+    Dns: ['192.0.2.53'], ExtraHosts: ['nas.example.org:192.0.2.20'], RestartPolicy: { Name: 'on-failure', MaximumRetryCount: 2 },
+    Memory: 256 * 1024 * 1024, NanoCpus: 5e8 },
+  NetworkingConfig: { EndpointsConfig: { shapenet: { Aliases: ['db', 'database'], IPAMConfig: { IPv4Address: name === 'shape-run' ? '172.31.0.50' : '172.31.0.51' },
+    MacAddress: name === 'shape-run' ? '02:42:ac:1f:00:32' : '02:42:ac:1f:00:33' } } } });
+// the whole container: configuration, host configuration, and on each network what the container chose
+// (aliases, static address; the MAC address on its main network: Docker picks the others'); the image by ID
+const fullShape = (c) => JSON.stringify({
+  config: c.Config, host: c.HostConfig, image: c.Image,
+  networks: Object.fromEntries(Object.entries(c.NetworkSettings.Networks || {}).map(([n, ep]) => [n, {
+    aliases: (ep.Aliases || []).filter((a) => a !== c.Id.slice(0, 12)).sort(), ipam: ep.IPAMConfig || null,
+    mac: n === c.HostConfig.NetworkMode ? ep.MacAddress : '(chosen by Docker)', ip: ep.IPAMConfig && ep.IPAMConfig.IPv4Address ? ep.IPAddress : '(dynamic)' }])),
+});
+// the fields that differ, one level inside the configuration and the host configuration
 const diff = (a, b) => {
   const x = JSON.parse(a), y = JSON.parse(b);
-  return Object.keys(x).filter((k) => JSON.stringify(x[k]) !== JSON.stringify(y[k])).map((k) => `${k}: ${JSON.stringify(x[k])} → ${JSON.stringify(y[k])}`).join('; ');
+  const out = [];
+  const same = (p, q) => JSON.stringify(p === undefined ? null : p) === JSON.stringify(q === undefined ? null : q);
+  Object.keys(x).forEach((k) => {
+    if (x[k] && typeof x[k] === 'object' && !Array.isArray(x[k]) && (k === 'config' || k === 'host')) {
+      new Set([...Object.keys(x[k]), ...Object.keys(y[k] || {})]).forEach((f) => {
+        if (!same(x[k][f], (y[k] || {})[f])) out.push(`${k}.${f}: ${JSON.stringify(x[k][f])} → ${JSON.stringify((y[k] || {})[f])}`);
+      });
+    } else if (!same(x[k], y[k])) out.push(`${k}: ${JSON.stringify(x[k])} → ${JSON.stringify(y[k])}`);
+  });
+  return out.join('; ');
 };
 if (process.env.PHASE === 'unchanged') {
   for (const engine of engines) {
@@ -202,12 +216,17 @@ if (process.env.PHASE === 'unchanged') {
       const viewport = size === 'm' ? { width: 393, height: 851 } : { width: 1366, height: 900 };
       const name = `${engine}-${size === 'm' ? 393 : 1366}`;
       note(`\n== unchanged ${name}`);
+      const busybox = await (await api.get(`${dind}/images/busybox:1.36/json`)).json();
+      const pinned = (busybox.RepoDigests || [])[0] || 'busybox:1.36';
+      await api.post(`${dind}/networks/create`, { data: { Name: 'shapenet', IPAM: { Config: [{ Subnet: '172.31.0.0/24' }] } } });
+      await api.post(`${dind}/networks/create`, { data: { Name: 'shapenet2' } });
       for (const c of ['shape-run', 'shape-stop']) {
         await api.delete(`${dind}/containers/${c}?force=1&v=1`);
         const folders = await once('edit-tabs-shape-folders', { Cmd: ['sh', '-c', `mkdir -p /d/${c}/a /d/${c}/b /d/${c}/c && echo made`], HostConfig: { Binds: ['/mnt/data:/d'] } });
         if (folders !== 'made') note('folders:', folders);
-        const made = await api.post(`${dind}/containers/create?name=${c}`, { data: SHAPE(c) });
+        const made = await api.post(`${dind}/containers/create?name=${c}`, { data: SHAPE(c, pinned) });
         if (made.status() !== 201) note('create', c, made.status(), await made.text());
+        await api.post(`${dind}/networks/shapenet2/connect`, { data: { Container: c, EndpointConfig: { Aliases: [c + '-two'] } } });
         if (c === 'shape-run') await api.post(`${dind}/containers/${c}/start`);
       }
       await serverUp();
