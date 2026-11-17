@@ -263,7 +263,7 @@ func writeTemplate(c *composer, text string, vars map[string]string, max int) {
 		if strings.HasPrefix(name, "_") {
 			// a text of this server's own catalogues (a label of the
 			// security record), never one from outside: plain words
-			c.fixed(cleanValue(vars[name], maxFreeText))
+			c.fixed(cleanValue(guardValue(vars[name], c.secrets), maxFreeText))
 		} else {
 			c.value(vars[name], max)
 		}

@@ -254,6 +254,9 @@ func TestNoSecretReachesTelegramInAnyKind(t *testing.T) {
 		for _, hide := range []bool{false, true} {
 			st.hideDetails = hide
 			m := render(st, nt)
+			if !hide && !strings.Contains(m.text, hiddenSecret) {
+				t.Errorf("%s: the guard of the values cut nothing (the message fell back to no values): %s", name, m.text)
+			}
 			for _, secret := range secrets {
 				mustNotContain(t, name+" (message)", m.text, secret)
 				if m.button != nil {
