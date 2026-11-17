@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -473,5 +474,41 @@ func TestFailureSentences(t *testing.T) {
 	}
 	if c.fail(r, "copying", errStopped) != errStopped || c.fail(r, "copying", ErrStoreChanged) != ErrStoreChanged {
 		t.Fatal("stop and store change must pass through")
+	}
+}
+
+// Equal rows are a multiset: the target keeps as many as the source has; and
+// rows of one time value are never split between two batches.
+func TestEqualRowsAndOneTimeValue(t *testing.T) {
+	for _, p := range pairs() {
+		t.Run(short(p.src)+"-to-"+short(p.dst), func(t *testing.T) {
+			src, dst := openStore(t, p.src), openStore(t, p.dst)
+			at := time.Now().UnixMilli() - 3600000
+			insert := func(s Store, label string) {
+				exec(t, s, "INSERT INTO events(node, event_id, label, application, level, date, data, object, search) VALUES('server.local', 'same', ?, 'cosmos', 'info', ?, '', '', '')", label, at)
+			}
+			for i := 0; i < 3; i++ {
+				insert(src, "twin")
+			}
+			insert(dst, "twin") // one of the three is there already
+			for i := 0; i < 25; i++ {
+				insert(src, fmt.Sprintf("crowd %d", i))
+			}
+			opt := testOptions("test", true)
+			opt.Batch = 7
+			report, err := Copy(context.Background(), src, dst, opt, &Tracker{})
+			if err != nil || report.Mismatch {
+				t.Fatalf("%v %+v", err, report.Tables)
+			}
+			if n := count(t, dst, "SELECT COUNT(*) FROM events WHERE label = 'twin'"); n != 3 {
+				t.Errorf("twins: %d, want 3", n)
+			}
+			if n := count(t, dst, "SELECT COUNT(*) FROM events WHERE label LIKE 'crowd %'"); n != 25 {
+				t.Errorf("rows of one time value: %d, want 25", n)
+			}
+			if again, err := Copy(context.Background(), src, dst, opt, &Tracker{}); err != nil || again.Written != 0 {
+				t.Errorf("again: %v %d", err, again.Written)
+			}
+		})
 	}
 }
