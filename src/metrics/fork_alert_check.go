@@ -149,6 +149,14 @@ func sameAlert(a, b utils.Alert) bool {
 	return reflect.DeepEqual(a, b)
 }
 
+// sameButSwitch: the two alerts differ at most in Enabled and in the time
+// they last went off. Switching a stored alert on or off is never refused: an
+// odd alert saved earlier can always be switched off.
+func sameButSwitch(a, b utils.Alert) bool {
+	a.Enabled, b.Enabled = false, false
+	return sameAlert(a, b)
+}
+
 // CheckChangedAlerts checks the alerts of next that are new or differ from
 // those of stored. The first problem is returned, in words.
 func CheckChangedAlerts(next map[string]utils.Alert, stored map[string]utils.Alert) error {
@@ -161,7 +169,7 @@ func CheckChangedAlerts(next map[string]utils.Alert, stored map[string]utils.Ale
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		if old, found := stored[key]; found && sameAlert(old, next[key]) {
+		if old, found := stored[key]; found && sameButSwitch(old, next[key]) {
 			continue
 		}
 		if err := CheckAlert(key, next[key]); err != nil {
@@ -180,7 +188,7 @@ func alertUpdateProblem(name string, alert utils.Alert, stored utils.Alert) erro
 		key = alert.Name
 	}
 	alert.Name = key
-	if key == name && sameAlert(stored, alert) {
+	if key == name && sameButSwitch(stored, alert) {
 		return nil
 	}
 	return CheckAlert(key, alert)

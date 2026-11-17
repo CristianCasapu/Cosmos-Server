@@ -194,3 +194,93 @@ func TestPostgresSettingsCheckedOnSave(t *testing.T) {
 		}
 	}
 }
+
+// A caller who may change the settings but not read the password cannot send
+// the saved password to another database server (review, finding 2).
+func TestTheMaskedPostgresPasswordStaysWithItsServer(t *testing.T) {
+	restarted := settingsTestServer(t)
+	saved := utils.DatabaseConfig{PostgresHost: "127.0.0.1:5432", PostgresDatabase: "cosmos", PostgresUsername: "cosmos", PostgresPassword: postgresTestSecret}
+	save := func(as func(*http.Request) *http.Request, config utils.Config) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(config)
+		w := httptest.NewRecorder()
+		ConfigApiSet(w, as(httptest.NewRequest("PUT", "https://cosmos.example.com/cosmos/api/config", strings.NewReader(string(body)))))
+		if w.Code == http.StatusOK {
+			<-restarted
+		}
+		return w
+	}
+	reset := func() {
+		config := hostPowersConfig()
+		config.Database = saved
+		utils.SaveConfigTofile(config)
+		utils.LoadBaseMainConfig(config)
+	}
+
+	for _, change := range []func(*utils.DatabaseConfig){
+		func(d *utils.DatabaseConfig) { d.PostgresHost = "198.51.100.7:5432" },
+		func(d *utils.DatabaseConfig) { d.PostgresHost = "127.0.0.1:6432" },
+		func(d *utils.DatabaseConfig) { d.PostgresDatabase = "other" },
+		func(d *utils.DatabaseConfig) { d.PostgresUsername = "other" },
+	} {
+		reset()
+		settings := readSettingsAs(t, asConfigurationToken)
+		if settings.Database.PostgresPassword != "***" {
+			t.Fatalf("the token reads the password: %q", settings.Database.PostgresPassword)
+		}
+		change(&settings.Database)
+		w := save(asConfigurationToken, settings)
+		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "UC046") || !strings.Contains(w.Body.String(), "type the password again") {
+			t.Errorf("%+v with the masked password: %d %s", settings.Database, w.Code, w.Body.String())
+		}
+		if stored := utils.ReadConfigFromFile().Database; stored != saved {
+			t.Errorf("stored %+v", stored)
+		}
+	}
+
+	// the same server with the mask: the saved password stays
+	reset()
+	settings := readSettingsAs(t, asConfigurationToken)
+	settings.ServerCountry = "RO"
+	if w := save(asConfigurationToken, settings); w.Code != http.StatusOK {
+		t.Fatalf("an unchanged database with the mask: %d %s", w.Code, w.Body.String())
+	}
+	if stored := utils.ReadConfigFromFile().Database; stored.PostgresPassword != postgresTestSecret {
+		t.Error("the saved password was lost")
+	}
+
+	// another server with a password typed for it: fine
+	reset()
+	settings = readSettingsAs(t, asConfigurationToken)
+	// (a closed local port: the save opens the monitoring database there at once)
+	settings.Database.PostgresHost = "127.0.0.1:1"
+	settings.Database.PostgresPassword = "typed-for-the-new-server"
+	if w := save(asConfigurationToken, settings); w.Code != http.StatusOK {
+		t.Fatalf("a new server with its own password: %d %s", w.Code, w.Body.String())
+	}
+	if stored := utils.ReadConfigFromFile().Database; stored.PostgresPassword != "typed-for-the-new-server" || stored.PostgresHost != "127.0.0.1:1" {
+		t.Errorf("stored %+v", stored)
+	}
+}
+
+// The connection test is for administrators only (review, M1).
+func TestPostgresTestIsForAdministratorsOnly(t *testing.T) {
+	tried := withSavedDatabase(t, utils.DatabaseConfig{PostgresHost: "127.0.0.1:5432", PostgresUsername: "cosmos", PostgresPassword: postgresTestSecret})
+	for name, as := range map[string]func(*http.Request) *http.Request{
+		"a token with the configuration permission": asConfigurationToken,
+		"a plain user": asPlainUser,
+		"an administrator without the password confirmation": asAdminWithoutPassword,
+	} {
+		postgresTestMu.Lock()
+		postgresTestLast, postgresTestBusy = time.Time{}, false
+		postgresTestMu.Unlock()
+		req := as(httptest.NewRequest("POST", "http://cosmos.example.org/cosmos/api/config/postgres-test", strings.NewReader(`{"host":"127.0.0.1:5432","username":"cosmos","password":"***"}`)))
+		w := httptest.NewRecorder()
+		PostgresTestRoute(w, req)
+		if w.Code == http.StatusOK || strings.Contains(w.Body.String(), postgresTestSecret) {
+			t.Errorf("%s: %d %s", name, w.Code, w.Body.String())
+		}
+	}
+	if len(*tried) != 0 {
+		t.Errorf("a connection was tried: %+v", *tried)
+	}
+}

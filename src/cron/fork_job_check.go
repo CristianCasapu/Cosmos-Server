@@ -10,7 +10,12 @@ package cron
 // Only a job that is new or differs from the stored one is checked: a job
 // saved before this check (an odd schedule, an empty command, a container
 // that is gone) still loads, runs and saves as it did, as long as it is not
-// changed.
+// changed. Switching a stored job on or off changes nothing it is checked for
+// and is never refused: a failing job can always be switched off. Docker is
+// asked only about a container the save names anew (a new job, or a changed
+// container), so a job whose container did not change saves while Docker is
+// down or after the container is gone. The routes compare with the jobs read
+// under the configuration's lock (see recheckJobs).
 
 import (
 	"context"
@@ -19,6 +24,7 @@ import (
 	"net/http"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -85,7 +91,7 @@ func ScheduleProblem(crontab string) string {
 	}
 	schedule, err := cronParser.Parse(withLocation)
 	if err != nil {
-		return "The schedule " + plain(crontab) + " cannot be read: six parts (second minute hour day month weekday), for example 0 0 3 * * * for every night at 03:00"
+		return "The schedule " + plain(crontab) + " cannot be read: six parts (second minute hour day month weekday) or five (without the seconds), for example 0 0 3 * * * for every night at 03:00"
 	}
 	if schedule.Next(time.Now()).IsZero() {
 		return "The schedule " + plain(crontab) + " never comes: no date matches it"
@@ -107,9 +113,25 @@ func plain(value string) string {
 	return "\"" + clean + "\""
 }
 
-// JobProblem checks one job as it will be saved under key. The message is a
-// sentence for the administrator.
+// JobProblem checks one job as it will be saved under key, as a new job. The
+// message is a sentence for the administrator.
 func JobProblem(key string, job utils.CRONConfig) string {
+	return jobProblem(key, job, nil)
+}
+
+// sameButSwitch: the two jobs differ at most in Enabled.
+func sameButSwitch(a, b utils.CRONConfig) bool {
+	a.Enabled, b.Enabled = false, false
+	return reflect.DeepEqual(a, b)
+}
+
+// jobProblem checks a job against the one stored under the same key (nil: a
+// new job). A stored job switched on or off is not checked; the container is
+// looked up only when it is named anew.
+func jobProblem(key string, job utils.CRONConfig, old *utils.CRONConfig) string {
+	if old != nil && sameButSwitch(*old, job) {
+		return ""
+	}
 	name := job.Name
 	if strings.TrimSpace(name) == "" {
 		return "Give the job a name, for example \"Back up the photos\""
@@ -140,7 +162,7 @@ func JobProblem(key string, job utils.CRONConfig) string {
 	if strings.ContainsRune(job.Command, 0) {
 		return "Job " + plain(name) + ": the command contains a character that cannot be run (NUL)"
 	}
-	if job.Container != "" {
+	if job.Container != "" && (old == nil || old.Container != job.Container) {
 		if !jobContainerName.MatchString(job.Container) {
 			return "Job " + plain(name) + ": " + plain(job.Container) + " is not a container name"
 		}
@@ -155,6 +177,14 @@ func JobProblem(key string, job utils.CRONConfig) string {
 	return ""
 }
 
+// storedJob is the job stored under key, nil when there is none.
+func storedJob(stored map[string]utils.CRONConfig, key string) *utils.CRONConfig {
+	if old, ok := stored[key]; ok {
+		return &old
+	}
+	return nil
+}
+
 // JobsProblem checks the jobs of a save against the stored ones: every job
 // that is new or changed, and the number of jobs when it grows. "" when the
 // save may go on.
@@ -162,38 +192,85 @@ func JobsProblem(request map[string]utils.CRONConfig, stored map[string]utils.CR
 	if len(request) > maxJobs && len(request) > len(stored) {
 		return fmt.Sprintf("At most %d scheduled jobs", maxJobs)
 	}
-	for key, job := range request {
-		if old, ok := stored[key]; ok && reflect.DeepEqual(old, job) {
-			continue
-		}
-		if problem := JobProblem(key, job); problem != "" {
+	keys := make([]string, 0, len(request))
+	for key := range request {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if problem := jobProblem(key, request[key], storedJob(stored, key)); problem != "" {
 			return problem
 		}
 	}
 	return ""
 }
 
+// RecheckJobs is the second half of the check of a whole-settings save,
+// called under the configuration's lock with the jobs stored now: when a
+// job the request names was changed by another save since `checked` was
+// read, the request's jobs are checked again against what is stored now.
+func RecheckJobs(request map[string]utils.CRONConfig, checked map[string]utils.CRONConfig, stored map[string]utils.CRONConfig) string {
+	for key := range request {
+		if !sameStored(checked, stored, key) {
+			return JobsProblem(request, stored)
+		}
+	}
+	return ""
+}
+
+// sameStored: the job stored under key is the same in both (or in neither).
+func sameStored(a map[string]utils.CRONConfig, b map[string]utils.CRONConfig, key string) bool {
+	x, y := storedJob(a, key), storedJob(b, key)
+	if x == nil || y == nil {
+		return x == nil && y == nil
+	}
+	return reflect.DeepEqual(*x, *y)
+}
+
 // jobSaveProblem is the hook of the job routes of api_crud.go: the job as it
 // will be stored under key, compared with what is stored there now.
 func jobSaveProblem(key string, job utils.CRONConfig, stored map[string]utils.CRONConfig) string {
-	if old, ok := stored[key]; ok && reflect.DeepEqual(old, job) {
+	old := storedJob(stored, key)
+	if old != nil && reflect.DeepEqual(*old, job) {
 		return ""
 	}
-	if len(stored) >= maxJobs {
-		if _, replacing := stored[key]; !replacing {
-			return fmt.Sprintf("At most %d scheduled jobs", maxJobs)
-		}
+	if len(stored) >= maxJobs && old == nil {
+		return fmt.Sprintf("At most %d scheduled jobs", maxJobs)
 	}
-	return JobProblem(key, job)
+	return jobProblem(key, job, old)
+}
+
+// jobCheck is what refuseJob checked a job against, for refuseStaleJob.
+type jobCheck struct {
+	key     string
+	job     utils.CRONConfig
+	against map[string]utils.CRONConfig
 }
 
 // refuseJob answers 400 in words when the job the route would store under key
-// may not be saved; the hook of cronConfigCreate and cronConfigUpdate.
-func refuseJob(w http.ResponseWriter, key string, job utils.CRONConfig, code string) bool {
+// may not be saved; the hook of cronConfigCreate and cronConfigUpdate, before
+// the configuration's lock (Docker may be asked).
+func refuseJob(w http.ResponseWriter, key string, job utils.CRONConfig, code string) (*jobCheck, bool) {
 	if job.Name == "" {
 		job.Name = key
 	}
-	problem := jobSaveProblem(key, job, utils.GetMainConfig().CRON)
+	check := &jobCheck{key: key, job: job, against: utils.GetMainConfig().CRON}
+	problem := jobSaveProblem(key, job, check.against)
+	if problem == "" {
+		return check, false
+	}
+	utils.HTTPError(w, problem, http.StatusBadRequest, code)
+	return check, true
+}
+
+// refuseStaleJob is the second half, under the lock with the jobs read there:
+// when the job stored under the key changed since refuseJob looked, the job is
+// checked again against what is stored now.
+func refuseStaleJob(w http.ResponseWriter, check *jobCheck, stored map[string]utils.CRONConfig, code string) bool {
+	if check == nil || (sameStored(check.against, stored, check.key) && len(check.against) == len(stored)) {
+		return false
+	}
+	problem := jobSaveProblem(check.key, check.job, stored)
 	if problem == "" {
 		return false
 	}

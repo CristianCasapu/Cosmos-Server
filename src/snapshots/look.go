@@ -16,6 +16,7 @@ package snapshots
 import (
 	"encoding/json"
 	"errors"
+	"golang.org/x/sys/unix"
 	"io"
 	"net/http"
 	"os"
@@ -24,6 +25,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/azukaar/cosmos-server/src/utils"
@@ -134,11 +136,21 @@ func (l *looker) stopped() bool {
 	return false
 }
 
-// walk reads one folder; sizes go to every counter in add (the top entry and
-// the offers that hold this folder).
-func (l *looker) walk(dir string, rel string, depth int, add []*int64) {
-	f, err := os.Open(dir)
-	if err != nil {
+// lookOpenFlags open a folder for reading its names only: never through a
+// link (O_NOFOLLOW), never anything but a folder (O_DIRECTORY: a FIFO or a
+// device swapped in fails at once instead of blocking), never waiting
+// (O_NONBLOCK).
+const lookOpenFlags = unix.O_RDONLY | unix.O_DIRECTORY | unix.O_NOFOLLOW | unix.O_NONBLOCK | unix.O_CLOEXEC
+
+// walk reads one folder, given as an open descriptor it takes over; sizes go
+// to every counter in add (the top entry and the offers that hold this
+// folder). Every entry is read and opened relative to its folder's
+// descriptor, so a name swapped for a link or a FIFO between the look at it
+// and the opening is never followed into or waited on.
+func (l *looker) walk(dirfd int, rel string, depth int, add []*int64) {
+	f := os.NewFile(uintptr(dirfd), "look")
+	if f == nil {
+		unix.Close(dirfd)
 		return
 	}
 	defer f.Close()
@@ -146,23 +158,23 @@ func (l *looker) walk(dir string, rel string, depth int, add []*int64) {
 		if l.stopped() {
 			return
 		}
-		list, err := f.ReadDir(lookBatch)
-		for _, entry := range list {
+		names, err := f.Readdirnames(lookBatch)
+		for _, name := range names {
 			if l.stopped() {
 				return
 			}
 			l.entries++
-			name := entry.Name()
 			childRel := name
 			if rel != "" {
 				childRel = rel + "/" + name
 			}
-			info, errI := entry.Info() // lstat: a link is the link itself
-			if errI != nil {
+			var st unix.Stat_t
+			if unix.Fstatat(dirfd, name, &st, unix.AT_SYMLINK_NOFOLLOW) != nil {
 				continue
 			}
-			isLink := info.Mode()&os.ModeSymlink != 0
-			isDir := info.IsDir() && !isLink
+			kind := st.Mode & unix.S_IFMT
+			isLink := kind == unix.S_IFLNK
+			isDir := kind == unix.S_IFDIR
 			counters := add
 			if depth == 1 {
 				top := LookEntry{Name: name, Dir: isDir, Link: isLink}
@@ -199,9 +211,9 @@ func (l *looker) walk(dir string, rel string, depth int, add []*int64) {
 				}
 			}
 			if !isDir {
-				if info.Mode().IsRegular() {
+				if kind == unix.S_IFREG {
 					for _, c := range counters {
-						*c += info.Size()
+						*c += st.Size
 					}
 				}
 				continue
@@ -210,9 +222,16 @@ func (l *looker) walk(dir string, rel string, depth int, add []*int64) {
 				l.complete = false // what lies deeper is not looked at
 				continue
 			}
+			lookBeforeOpen(l.root, childRel)
+			child, errO := unix.Openat(dirfd, name, lookOpenFlags, 0)
+			if errO != nil {
+				// gone, no longer a folder, or a link now: not entered
+				l.complete = false
+				continue
+			}
 			// top entries are appended to while walking: the pointers into
 			// l.top must stay valid, so it is never grown past its capacity
-			l.walk(filepath.Join(dir, name), childRel, depth+1, counters)
+			l.walk(child, childRel, depth+1, counters)
 		}
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
@@ -230,15 +249,14 @@ func Look(source string) (LookAnswer, error) {
 		return LookAnswer{}, err
 	}
 	real := hostPath(dir)
-	info, err := os.Lstat(real)
-	if err != nil {
-		return LookAnswer{}, errors.New("The folder " + dir + " does not exist or cannot be read")
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
+	rootfd, err := unix.Open(real, lookOpenFlags, 0)
+	switch {
+	case errors.Is(err, unix.ELOOP):
 		return LookAnswer{}, errors.New(dir + " is a link to another place: back up the folder it points to instead")
-	}
-	if !info.IsDir() {
+	case errors.Is(err, unix.ENOTDIR):
 		return LookAnswer{}, errors.New(dir + " is not a folder")
+	case err != nil:
+		return LookAnswer{}, errors.New("The folder " + dir + " does not exist or cannot be read")
 	}
 	l := &looker{root: real, deadline: time.Now().Add(lookMaxTime), complete: true, byKey: map[string]*LookOffer{}}
 	// the top entries are kept in place: capacity for every one that can come
@@ -248,7 +266,7 @@ func Look(source string) (LookAnswer, error) {
 			l.docker = strings.TrimPrefix(clean, strings.TrimSuffix(dir, "/")+"/")
 		}
 	}
-	l.walk(real, "", 1, nil)
+	l.walk(rootfd, "", 1, nil)
 	if l.docker != "" && l.byKey[escapeGlob(l.docker)+"/*"] == nil {
 		// deeper than the look went: offered all the same, its size not known
 		if o := l.offer(escapeGlob(l.docker)+"/*", "docker", l.docker); o != nil {
@@ -283,6 +301,63 @@ func Look(source string) (LookAnswer, error) {
 		answer.Offers = append(answer.Offers, *o)
 	}
 	return answer, nil
+}
+
+// lookBeforeOpen runs between the look at a folder and its opening; the tests
+// swap the folder for a FIFO or a link there.
+var lookBeforeOpen = func(root string, rel string) {}
+
+// lookRun is the look the route runs; replaced by the tests.
+var lookRun = Look
+
+// lookGrace is how much longer than its own bound the route waits for a look:
+// the bound is checked between entries, and one system call can hang (a
+// network share, a FUSE mount that does not answer).
+const lookGrace = time.Second
+
+// lookAbandoned is set while a look the route gave up on is still running:
+// its goroutine is blocked in the kernel and ends when the disk answers. At
+// most one such look exists, since no new one starts while it is set; the
+// route's own lock (lookBusy) is never held longer than lookMaxTime+lookGrace.
+var lookAbandoned atomic.Bool
+
+// lookWithin runs Look in a goroutine and waits at most wait for it. done is
+// false when it gave up; the look then marks itself abandoned until it ends.
+func lookWithin(source string, wait time.Duration) (LookAnswer, error, bool) {
+	type result struct {
+		answer LookAnswer
+		err    error
+	}
+	results := make(chan result, 1)
+	var mu sync.Mutex
+	finished, gaveUp := false, false
+	go func() {
+		answer, err := lookRun(source)
+		results <- result{answer, err}
+		mu.Lock()
+		finished = true
+		if gaveUp {
+			lookAbandoned.Store(false)
+		}
+		mu.Unlock()
+	}()
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case r := <-results:
+		return r.answer, r.err, true
+	case <-timer.C:
+		mu.Lock()
+		if finished {
+			mu.Unlock()
+			r := <-results
+			return r.answer, r.err, true
+		}
+		gaveUp = true
+		lookAbandoned.Store(true)
+		mu.Unlock()
+		return LookAnswer{}, nil, false
+	}
 }
 
 type lookRequest struct {
@@ -323,7 +398,15 @@ func LookRoute(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	defer lookBusy.Unlock()
-	answer, err := Look(body.Source)
+	if lookAbandoned.Load() {
+		utils.HTTPError(w, "The last look is still waiting for a disk that does not answer (a network share or a hung mount?): try again later", http.StatusTooManyRequests, "SN013")
+		return
+	}
+	answer, err, done := lookWithin(body.Source, lookMaxTime+lookGrace)
+	if !done {
+		utils.HTTPError(w, "The folder did not answer in time: a disk or a network share below it may be hanging. Nothing was changed", http.StatusGatewayTimeout, "SN014")
+		return
+	}
 	if err != nil {
 		utils.HTTPError(w, sentence(err.Error()), http.StatusBadRequest, "SN012")
 		return

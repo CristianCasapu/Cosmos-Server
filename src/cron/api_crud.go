@@ -111,7 +111,8 @@ func cronConfigCreate(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "CRON job name is required", http.StatusBadRequest, "CR011")
 		return
 	}
-	if refuseJob(w, cronJob.Name, cronJob, "CR013") { // Fork addition: schedule, command and container checked, see fork_job_check.go
+	checked, refused := refuseJob(w, cronJob.Name, cronJob, "CR013") // Fork addition: schedule, command and container checked, see fork_job_check.go
+	if refused {
 		return
 	}
 
@@ -122,6 +123,9 @@ func cronConfigCreate(w http.ResponseWriter, req *http.Request) {
 
 	if config.CRON == nil {
 		config.CRON = make(map[string]utils.CRONConfig)
+	}
+	if refuseStaleJob(w, checked, config.CRON, "CR013") { // Fork addition: checked again when the jobs changed meanwhile
+		return
 	}
 
 	if _, exists := config.CRON[cronJob.Name]; exists {
@@ -167,7 +171,8 @@ func cronConfigUpdate(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "Invalid request", http.StatusBadRequest, "CR020")
 		return
 	}
-	if refuseJob(w, jobKey(name, cronJob), cronJob, "CR022") { // Fork addition: schedule, command and container checked, see fork_job_check.go
+	checked, refused := refuseJob(w, jobKey(name, cronJob), cronJob, "CR022") // Fork addition: schedule, command and container checked, see fork_job_check.go
+	if refused {
 		return
 	}
 
@@ -183,6 +188,9 @@ func cronConfigUpdate(w http.ResponseWriter, req *http.Request) {
 
 	if _, exists := config.CRON[name]; !exists {
 		utils.HTTPError(w, "CRON job not found", http.StatusNotFound, "CR021")
+		return
+	}
+	if refuseStaleJob(w, checked, config.CRON, "CR022") { // Fork addition: checked again when the jobs changed meanwhile
 		return
 	}
 

@@ -105,7 +105,7 @@ func TestOldJobsThatDidNotChangeAreNotChecked(t *testing.T) {
 		t.Fatalf("a good new job beside old odd ones refused: %s", p)
 	}
 	changed := stored["empty"]
-	changed.Enabled = true
+	changed.Crontab = "0 0 4 * * *"
 	request["empty"] = changed
 	if p := JobsProblem(request, stored); p == "" {
 		t.Error("a changed job without a command accepted")
@@ -147,5 +147,74 @@ func itoaTest(i int) string {
 		if i == 0 {
 			return s
 		}
+	}
+}
+
+// A failing job can always be switched off, and an old one on again: the
+// switch alone is not a change the check looks at (review, finding 1).
+func TestSwitchingAStoredJobIsNeverRefused(t *testing.T) {
+	for _, docker := range []struct {
+		name string
+		down bool
+	}{{"container gone", false}, {"Docker unreachable", true}} {
+		stubContainers(t, map[string]bool{}, docker.down)
+		stored := map[string]utils.CRONConfig{
+			"gone":    {Name: "gone", Enabled: true, Crontab: "0 0 3 * * *", Command: "pg_dumpall", Container: "removed"},
+			"badtime": {Name: "badtime", Enabled: true, Crontab: "nightly", Command: "true"},
+			"empty":   {Name: "empty", Enabled: false, Crontab: "0 0 3 * * *", Command: ""},
+		}
+		request := map[string]utils.CRONConfig{}
+		for k, v := range stored {
+			request[k] = v
+		}
+		off := request["gone"]
+		off.Enabled = false
+		request["gone"] = off
+		if p := JobsProblem(request, stored); p != "" {
+			t.Errorf("%s: switching off a job whose container is gone refused: %s", docker.name, p)
+		}
+		odd := request["badtime"]
+		odd.Enabled = false
+		request["badtime"] = odd
+		on := request["empty"]
+		on.Enabled = true
+		request["empty"] = on
+		if p := JobsProblem(request, stored); p != "" {
+			t.Errorf("%s: switching an old odd job off, another on, refused: %s", docker.name, p)
+		}
+		// the same through the job routes' check
+		if p := jobSaveProblem("gone", off, stored); p != "" {
+			t.Errorf("%s: the route refuses the switch: %s", docker.name, p)
+		}
+		// a change of the command of a job whose container did not change: Docker is not asked
+		edited := stored["gone"]
+		edited.Command = "pg_dumpall -c"
+		if p := jobSaveProblem("gone", edited, stored); p != "" {
+			t.Errorf("%s: an edit that keeps the container refused: %s", docker.name, p)
+		}
+		// naming another container asks Docker
+		moved := stored["gone"]
+		moved.Container = "other"
+		if p := jobSaveProblem("gone", moved, stored); p == "" {
+			t.Errorf("%s: a container that is not there accepted", docker.name)
+		}
+	}
+}
+
+// Under the lock the jobs are compared again: a job another save changed
+// meanwhile is checked against what is stored now (review, finding 6).
+func TestRecheckJobsWhenTheStoredJobsChanged(t *testing.T) {
+	stubContainers(t, map[string]bool{}, false)
+	checked := map[string]utils.CRONConfig{"a": {Name: "a", Crontab: "0 0 3 * * *", Command: "true", Container: "db"}}
+	request := map[string]utils.CRONConfig{"a": checked["a"]}
+	if p := RecheckJobs(request, checked, checked); p != "" {
+		t.Fatalf("nothing changed meanwhile, refused: %s", p)
+	}
+	now := map[string]utils.CRONConfig{"a": {Name: "a", Crontab: "0 0 3 * * *", Command: "true"}}
+	if p := RecheckJobs(request, checked, now); !strings.Contains(p, "no container") {
+		t.Errorf("a job changed meanwhile was not checked again: %q", p)
+	}
+	if p := RecheckJobs(request, checked, map[string]utils.CRONConfig{}); !strings.Contains(p, "no container") {
+		t.Errorf("a job deleted meanwhile was not checked as new: %q", p)
 	}
 }

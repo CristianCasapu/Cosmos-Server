@@ -92,10 +92,20 @@ func TestOnlyNewOrChangedAlertsAreChecked(t *testing.T) {
 	if err := CheckChangedAlerts(next, stored); err != nil {
 		t.Fatalf("unchanged alerts refused: %v", err)
 	}
-	// switched on: changed, so checked
+	// switched on or off alone: not a change the check looks at (review, finding 1)
 	switched := odd
 	switched.Enabled = true
 	next["Odd/old"] = switched
+	if err := CheckChangedAlerts(next, stored); err != nil {
+		t.Fatalf("switching an old odd alert on refused: %v", err)
+	}
+	if err := alertUpdateProblem("Odd/old", utils.Alert{Name: "Odd/old", Period: "weekly", Enabled: false}, switched); err != nil {
+		t.Fatalf("switching it off through the route refused: %v", err)
+	}
+	// any other change: checked
+	changed := switched
+	changed.Severity = "warn"
+	next["Odd/old"] = changed
 	if err := CheckChangedAlerts(next, stored); err == nil {
 		t.Fatal("a changed odd alert was accepted")
 	}

@@ -301,6 +301,11 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 		if request.EmailConfig.Host == "***" {
 			request.EmailConfig.Host = config.EmailConfig.Host
 		}
+		// Fork addition: a masked monitoring-database password is kept for the database it was saved for only, see fork_postgres.go
+		if problem := keepPostgresPassword(&request, config); problem != nil {
+			utils.HTTPError(w, problem.Message, http.StatusBadRequest, problem.Code)
+			return
+		}
 		if request.Database.PostgresPassword == "***" {
 			request.Database.PostgresPassword = config.Database.PostgresPassword
 		}
@@ -390,8 +395,14 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 		// The local write is the node-local half. Under the lock so it cannot
 		// interleave with an apply-loop domain install, and re-reading here picks up
 		// the state that loop just applied.
+		checkedConfig := config // Fork addition: what the job and alert checks compared with, see fork_jobs.go
 		utils.ConfigLock.Lock()
 		config = utils.ReadConfigFromFile()
+		if problem := recheckJobsAndAlerts(&request, checkedConfig, config); problem != nil { // Fork addition: compared again with what is stored now, see fork_jobs.go
+			utils.ConfigLock.Unlock()
+			utils.HTTPError(w, problem.Message, http.StatusBadRequest, problem.Code)
+			return
+		}
 		restoreReplicatedDomains(&request, config)
 		keepUPnPAppPorts(&request, config) // Fork addition: a settings save never opens or closes an app's port on the router, see fork_upnp.go
 		// Managed routes are owned by their materializer: keep the stored copies whatever the payload says.

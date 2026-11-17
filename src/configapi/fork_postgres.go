@@ -118,6 +118,24 @@ func PostgresTestRoute(w http.ResponseWriter, req *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "OK", "data": result})
 }
 
+// keepPostgresPassword is the hook of PUT /api/config that runs before the
+// masked password ("***", what a caller without the credentials permission
+// reads) is put back: it is put back only for the server, database and user
+// it was saved for. Otherwise a caller who may change the settings but not
+// read the password could point the monitoring database at a server of their
+// own and receive it at the next start. Like checkEmailSettings.
+func keepPostgresPassword(request *utils.Config, stored utils.Config) *httpSettingsProblem {
+	r, s := request.Database, stored.Database
+	if r.PostgresPassword != "***" || s.PostgresPassword == "" {
+		return nil
+	}
+	if strings.TrimSpace(r.PostgresHost) != s.PostgresHost || strings.TrimSpace(r.PostgresDatabase) != s.PostgresDatabase ||
+		strings.TrimSpace(r.PostgresUsername) != s.PostgresUsername {
+		return &httpSettingsProblem{"UC046", "Monitoring database: the server, port, database or user changed: type the password again"}
+	}
+	return nil
+}
+
 // checkPostgresSettings is the hook of PUT /api/config.
 func checkPostgresSettings(request *utils.Config, stored utils.Config) *httpSettingsProblem {
 	r, s := &request.Database, stored.Database

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -224,5 +225,103 @@ func TestLookRoute(t *testing.T) {
 	lookBusy.Unlock()
 	if code != http.StatusTooManyRequests {
 		t.Errorf("while busy: %d", code)
+	}
+}
+
+// A folder swapped for a FIFO or a link between the look at it and its
+// opening is neither waited on nor followed (review, finding 3).
+func TestLookSurvivesAFolderSwappedForAFifoOrALink(t *testing.T) {
+	withDockerRoot(t, "")
+	elsewhere := t.TempDir()
+	for i := 0; i < 5; i++ {
+		writeFile(t, filepath.Join(elsewhere, "cache", "f"+strings.Repeat("z", i)), 1000)
+	}
+	for _, swap := range []string{"fifo", "link"} {
+		src := t.TempDir()
+		writeFile(t, filepath.Join(src, "victim", "inner"), 1)
+		was := lookBeforeOpen
+		lookBeforeOpen = func(root, rel string) {
+			if rel != "victim" {
+				return
+			}
+			target := filepath.Join(root, rel)
+			os.RemoveAll(target)
+			if swap == "fifo" {
+				if err := syscall.Mkfifo(target, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.Symlink(elsewhere, target); err != nil {
+				t.Fatal(err)
+			}
+		}
+		done := make(chan LookAnswer, 1)
+		go func() {
+			answer, err := Look(src)
+			if err != nil {
+				t.Error(err)
+			}
+			done <- answer
+		}()
+		select {
+		case answer := <-done:
+			if offerOf(answer, "cache") != nil || answer.Complete {
+				t.Errorf("%s: the swapped folder was entered: %+v", swap, answer)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: the look blocked", swap)
+		}
+		lookBeforeOpen = was
+	}
+	// a FIFO that is simply there is listed, never opened
+	src := t.TempDir()
+	if err := syscall.Mkfifo(filepath.Join(src, "pipe"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if answer, err := Look(src); err != nil || answer.Entries != 1 {
+		t.Errorf("a FIFO in the folder: %+v %v", answer, err)
+	}
+	// a FIFO as the folder itself is refused at once
+	if _, err := Look(filepath.Join(src, "pipe")); err == nil || !strings.Contains(err.Error(), "not a folder") {
+		t.Errorf("a FIFO as source: %v", err)
+	}
+}
+
+// A look that hangs in the kernel (a network share that does not answer) is
+// given up after the bound: the route's lock is free again, and while the
+// hung look lives no other one starts (at most one abandoned).
+func TestLookThatHangsIsAbandoned(t *testing.T) {
+	src := t.TempDir()
+	withDockerRoot(t, "")
+	release := make(chan struct{})
+	ended := make(chan struct{})
+	was, wasTime := lookRun, lookMaxTime
+	lookMaxTime = 100 * time.Millisecond
+	lookRun = func(string) (LookAnswer, error) { <-release; defer close(ended); return LookAnswer{}, nil }
+	t.Cleanup(func() { lookRun, lookMaxTime = was, wasTime })
+	look := func() int {
+		return call(LookRoute, apiRequest("POST", "/api/snapshots/look", "sudo", `{"source":"`+src+`"}`)).Code
+	}
+	started := time.Now()
+	if code := look(); code != http.StatusGatewayTimeout {
+		t.Fatalf("a hanging look: %d", code)
+	}
+	if waited := time.Since(started); waited > lookMaxTime+lookGrace+time.Second {
+		t.Errorf("the route waited %s", waited)
+	}
+	if !lookBusy.TryLock() {
+		t.Fatal("the route's lock outlived the bound")
+	}
+	lookBusy.Unlock()
+	if code := look(); code != http.StatusTooManyRequests {
+		t.Errorf("a second look while the first hangs: %d", code)
+	}
+	close(release)
+	<-ended
+	for i := 0; i < 50 && lookAbandoned.Load(); i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	lookRun = was
+	if code := look(); code != http.StatusOK {
+		t.Errorf("a look after the hung one ended: %d", code)
 	}
 }

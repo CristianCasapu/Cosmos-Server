@@ -75,6 +75,8 @@ func postgresCheckDSN(db DatabaseConfig, timeoutSeconds int) string {
 	}
 	q := u.Query()
 	q.Set("connect_timeout", strconv.Itoa(timeoutSeconds))
+	q.Set("sslmode", "prefer") // what the monitoring store gets by default; never PGSSLMODE
+	q.Set("passfile", "")      // never ~/.pgpass
 	u.RawQuery = q.Encode()
 	return u.String()
 }
@@ -88,8 +90,10 @@ func CheckPostgres(ctx context.Context, db DatabaseConfig) *PostgresProblem {
 	if db.PostgresHost == "" {
 		return &PostgresProblem{"settings", "Enter the database server first"}
 	}
-	dsn := postgresCheckDSN(db, 8)
-	cfg, err := pgx.ParseConfig(dsn)
+	if db.PostgresUsername == "" {
+		return &PostgresProblem{"settings", "Enter the user name to test the connection"}
+	}
+	cfg, err := postgresCheckConfig(db)
 	if err != nil {
 		return &PostgresProblem{"settings", "These settings do not make a database address"}
 	}
@@ -104,6 +108,49 @@ func CheckPostgres(ctx context.Context, db DatabaseConfig) *PostgresProblem {
 	return postgresProblemOf(err, db)
 }
 
+// postgresCheckConfig is the configuration a test connects with: the form's
+// values and nothing else.
+func postgresCheckConfig(db DatabaseConfig) (*pgx.ConnConfig, error) {
+	cfg, err := pgx.ParseConfig(postgresCheckDSN(db, 8))
+	if err != nil {
+		return nil, err
+	}
+	explicitPostgresConfig(cfg, db)
+	return cfg, nil
+}
+
+// explicitPostgresConfig makes the parsed configuration hold the form's
+// values only. pgx fills what a connection string leaves out from the PG*
+// variables of the environment, a service file and ~/.pgpass (an empty
+// password above all): none of that may decide where a test connects, as whom
+// or with which password.
+func explicitPostgresConfig(cfg *pgx.ConnConfig, db DatabaseConfig) {
+	host, port := db.PostgresHost, uint16(5432)
+	if h, p, err := net.SplitHostPort(db.PostgresHost); err == nil {
+		host = h
+		if n, err := strconv.Atoi(p); err == nil {
+			port = uint16(n)
+		}
+	}
+	cfg.Host, cfg.Port = host, port
+	cfg.Database = postgresDatabaseName(db)
+	cfg.User = db.PostgresUsername
+	cfg.Password = db.PostgresPassword
+	cfg.RuntimeParams = map[string]string{}
+	cfg.KerberosSrvName, cfg.KerberosSpn = "", ""
+	kept := cfg.Fallbacks[:0]
+	for _, fallback := range cfg.Fallbacks {
+		if fallback.Host == host && fallback.Port == port {
+			kept = append(kept, fallback)
+		}
+	}
+	cfg.Fallbacks = kept
+}
+
+// postgresCode is what a server's error code looks like (SQLSTATE); anything
+// else from the other end is not repeated.
+var postgresCode = regexp.MustCompile(`^[0-9A-Z]{5}$`)
+
 func postgresProblemOf(err error, db DatabaseConfig) *PostgresProblem {
 	var pgErr *pgconn.PgError
 	var dnsErr *net.DNSError
@@ -117,6 +164,9 @@ func postgresProblemOf(err error, db DatabaseConfig) *PostgresProblem {
 			return &PostgresProblem{"user", "The database does not let user " + db.PostgresUsername + " in from this server (no such user, or not allowed by its pg_hba.conf)."}
 		case "3D000":
 			return &PostgresProblem{"database", "The database server has no database called " + postgresDatabaseName(db) + "."}
+		}
+		if !postgresCode.MatchString(pgErr.Code) {
+			return &PostgresProblem{"refused", "The database server refused the connection."}
 		}
 		return &PostgresProblem{"refused", "The database server refused the connection (code " + pgErr.Code + ")."}
 	case errors.Is(err, syscall.ECONNREFUSED):

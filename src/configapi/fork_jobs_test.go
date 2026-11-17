@@ -65,8 +65,8 @@ func TestNewAndChangedJobsAreChecked(t *testing.T) {
 	utils.LoadBaseMainConfig(config)
 
 	bad := map[string]utils.CRONConfig{
-		"a schedule gocron cannot read": {Name: "x", Crontab: "every night", Command: "true"},
-		"no command":                    {Name: "x", Crontab: "0 0 3 * * *", Command: " "},
+		"a schedule gocron cannot read":  {Name: "x", Crontab: "every night", Command: "true"},
+		"no command":                     {Name: "x", Crontab: "0 0 3 * * *", Command: " "},
 		"a container Docker cannot tell": {Name: "x", Crontab: "0 0 3 * * *", Command: "true", Container: "db"},
 		"a name that is not its key":     {Name: "y", Crontab: "0 0 3 * * *", Command: "true"},
 	}
@@ -94,5 +94,42 @@ func TestNewAndChangedJobsAreChecked(t *testing.T) {
 	settings.CRON["unreadable"] = job
 	if w := saveRaw(t, restarted, settings); w.Code != http.StatusOK {
 		t.Errorf("the job repaired: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// The switches of the jobs and alerts lists save the whole settings with only
+// Enabled flipped: never refused, also with Docker down (review, finding 1).
+func TestSwitchingJobsAndAlertsOffThroughTheWholeSave(t *testing.T) {
+	restarted := settingsTestServer(t)
+	config := hostPowersConfig()
+	config.CRON = oddOldJobs()
+	config.MonitoringAlerts = map[string]utils.Alert{"Odd/old": {Name: "Odd/old", Enabled: true, Period: "weekly"}}
+	utils.SaveConfigTofile(config)
+	utils.LoadBaseMainConfig(config)
+
+	settings := readSettingsAs(t, asAdmin)
+	for _, name := range []string{"gone", "unreadable", "five fields"} {
+		job := settings.CRON[name]
+		job.Enabled = false
+		settings.CRON[name] = job
+	}
+	alert := settings.MonitoringAlerts["Odd/old"]
+	alert.Enabled = false
+	settings.MonitoringAlerts["Odd/old"] = alert
+	if w := saveRaw(t, restarted, settings); w.Code != http.StatusOK {
+		t.Fatalf("switching off failing jobs and an odd alert: %d %s", w.Code, w.Body.String())
+	}
+	saved := utils.ReadConfigFromFile()
+	if saved.CRON["gone"].Enabled || saved.CRON["unreadable"].Enabled || saved.MonitoringAlerts["Odd/old"].Enabled {
+		t.Error("the switches were not saved")
+	}
+
+	// a changed alert under its own name is checked through the whole save (review, M8b)
+	settings = readSettingsAs(t, asAdmin)
+	changed := settings.MonitoringAlerts["Odd/old"]
+	changed.Severity = "warn"
+	settings.MonitoringAlerts["Odd/old"] = changed
+	if w := saveRaw(t, restarted, settings); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "UC042") {
+		t.Errorf("a changed odd alert through the whole save: %d %s", w.Code, w.Body.String())
 	}
 }
