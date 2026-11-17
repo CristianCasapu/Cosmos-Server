@@ -11,8 +11,9 @@ import (
 // Readers are what the watches read the world with. The server gives the
 // real ones (src/fork_watch.go); a nil reader switches its watch off.
 type Readers struct {
-	Disks  func() ([]Disk, error)
-	Usages func() []Usage
+	Disks      func() ([]Disk, error)
+	Usages     func() []Usage
+	DockerPing func(timeout time.Duration) error
 }
 
 var startOnce sync.Once
@@ -31,7 +32,7 @@ func Start(r Readers) func(user string, ip string) {
 	return func(string, string) {}
 }
 
-func loop(st *store, r Readers, _ time.Time) {
+func loop(st *store, r Readers, started time.Time) {
 	defer func() {
 		if p := recover(); p != nil {
 			utils.Error("Watches: stopped after an unexpected error", nil)
@@ -40,6 +41,7 @@ func loop(st *store, r Readers, _ time.Time) {
 	for !ready() {
 		time.Sleep(30 * time.Second)
 	}
+	docker := &dockerWatch{started: started}
 	next := map[string]time.Time{
 		"smart": time.Now().Add(5 * time.Minute),
 		"fill":  time.Now().Add(time.Minute),
@@ -56,6 +58,9 @@ func loop(st *store, r Readers, _ time.Time) {
 	}
 	for {
 		s := settingsNow()
+		if s.Docker && r.DockerPing != nil {
+			docker.check(r.DockerPing, time.Now)
+		}
 		run("smart", smartEvery, func() {
 			if s.SMART && r.Disks != nil {
 				if disks, err := r.Disks(); err == nil {
@@ -68,7 +73,7 @@ func loop(st *store, r Readers, _ time.Time) {
 				checkFill(st, r.Usages(), s.FillDays, time.Now())
 			}
 		})
-		time.Sleep(30 * time.Second)
+		time.Sleep(dockerEvery)
 	}
 }
 

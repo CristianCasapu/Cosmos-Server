@@ -13,6 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
+	"github.com/azukaar/cosmos-server/src/docker"
 	"github.com/azukaar/cosmos-server/src/storage"
 	"github.com/azukaar/cosmos-server/src/watch"
 )
@@ -20,8 +21,9 @@ import (
 // startWatches is the hook in index.go, after the Telegram notifications.
 func startWatches() {
 	watch.Start(watch.Readers{
-		Disks:  watchDisks,
-		Usages: watchUsages,
+		Disks:      watchDisks,
+		Usages:     watchUsages,
+		DockerPing: docker.ForkPing,
 	})
 }
 
