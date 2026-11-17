@@ -29,6 +29,10 @@ func validateRoute(route utils.ProxyRouteConfig) string {
 		return "Unsupported load balancing mode \"" + route.LBMode + "\" on route \"" + route.Name +
 			"\". Supported modes are \"round_robin\", \"load_based\" and \"first\" (an empty value means \"first\": always send traffic to the first/local target)"
 	}
+	// Fork addition (plan 49): the URL's role and label, see src/utils/fork_route_interface.go
+	if msg := utils.RouteInterfaceProblem(route.ForkInterface); msg != "" {
+		return msg + " (route \"" + route.Name + "\")"
+	}
 	return ""
 }
 

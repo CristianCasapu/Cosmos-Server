@@ -23,6 +23,7 @@ type DashboardRoute struct {
 	// Container info (for SERVAPP routes)
 	ContainerRunning bool   `json:"ContainerRunning"`
 	ContainerIcon    string `json:"ContainerIcon,omitempty"`
+	ForkDashboardFields // Fork addition (plan 49): role, sign-in, home names; image and ports for admins (fork_app_interfaces.go)
 }
 
 // DashboardApiGet godoc
@@ -117,6 +118,8 @@ func DashboardApiGet(w http.ResponseWriter, req *http.Request) {
 
 		dashboardRoutes = append(dashboardRoutes, dashRoute)
 	}
+
+	dashboardRoutes = forkDashboardRoutes(dashboardRoutes, config, containerList, isAdmin, utils.CurrentHomePlan().Names) // Fork addition (plan 49)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status": "OK",
