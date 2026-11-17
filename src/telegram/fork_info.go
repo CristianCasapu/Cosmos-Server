@@ -66,6 +66,11 @@ func noticeFromInfo(n utils.Notification, config utils.Config) notice {
 		nt.severity = levelSeverity(n.Level, nt.severity)
 	}
 	nt.raw = info.Raw
+	if nt.kind == "error.job" {
+		// plan 48: a job's error can quote its command line; its name is
+		// enough here, the rest is in the panel behind the sign-in
+		nt.raw = ""
+	}
 	if strings.TrimSpace(nt.raw) == strings.TrimSpace(utils.RenderNotificationText(*info.What)) {
 		nt.raw = "" // said already
 	}

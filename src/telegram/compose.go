@@ -59,6 +59,18 @@ func cleanValue(text string, max int) string {
 	return cleaned
 }
 
+// entityTexts gives the parts of a text its entities cover.
+func entityTexts(text string, entities []entity) []string {
+	encoded := utf16.Encode([]rune(text))
+	parts := []string{}
+	for _, e := range entities {
+		if e.Offset >= 0 && e.Length > 0 && e.Offset+e.Length <= len(encoded) {
+			parts = append(parts, string(utf16.Decode(encoded[e.Offset:e.Offset+e.Length])))
+		}
+	}
+	return parts
+}
+
 // units is the length of a text as Telegram counts it: UTF-16 code units.
 func units(text string) int {
 	n := 0
@@ -108,7 +120,7 @@ func (c *composer) pre(text string, max int) *composer {
 }
 
 func (c *composer) covered(kind string, text string, max int) *composer {
-	cleaned := cleanValue(guardValue(text, c.secrets), max)
+	cleaned := cleanValue(firstPass(text, c.secrets), max)
 	if cleaned == "" {
 		return c.fixed("-")
 	}

@@ -247,7 +247,9 @@ func TestNoSecretReachesTelegramInAnyKind(t *testing.T) {
 	for _, name := range KindNames() {
 		nt := sampleNotice(name)
 		for key := range nt.vars {
-			nt.vars[key] = laden
+			if !strings.HasPrefix(key, "_") { // "_": this server's own catalogue texts
+				nt.vars[key] = laden
+			}
 		}
 		nt.raw = laden
 		nt.extra = func(c *composer) { c.value(laden, maxFreeText) }
@@ -273,10 +275,10 @@ func TestNoSecretReachesTelegramInAnyKind(t *testing.T) {
 	st.panel = "https://home.example"
 	m := renderWith(st, nt, true)
 	m.text += " smtp-password-123"
-	if !leaks(m.text, st.secrets) {
+	if !leaks(m.text, m.entities, st.secrets) {
 		t.Fatal("leaks does not see the password")
 	}
-	if leaks(render(st, nt).text, st.secrets) {
+	if m := render(st, nt); leaks(m.text, m.entities, st.secrets) {
 		t.Error("an ordinary message leaks")
 	}
 }

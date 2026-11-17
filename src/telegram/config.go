@@ -261,7 +261,7 @@ func settingsOf(config utils.Config) settings {
 			st.delivery[i] = mode
 		}
 	}
-	st.secrets = secretsOf(secretSource{cfg.BotToken, config.EmailConfig.Password, config.Database.PostgresPassword, config.ServerToken, config.Licence})
+	st.secrets = secretsOf(secretSource{cfg.BotToken, config.EmailConfig.Password, config.Database.PostgresPassword, config.ServerToken, config.Licence, config.Turnstile.SecretKey})
 	st.panel = panelBase(config)
 	st.usable = st.enabled && ValidToken(st.token) && ValidChatID(st.chatID)
 	st.fingerprint = st.token + "\x00" + st.chatID + "\x00" + strconv.Itoa(st.topicID)

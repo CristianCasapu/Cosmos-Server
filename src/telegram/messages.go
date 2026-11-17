@@ -265,8 +265,9 @@ func writeTemplate(c *composer, text string, vars map[string]string, max int) {
 		name := text[m[2]:m[3]]
 		if strings.HasPrefix(name, "_") {
 			// a text of this server's own catalogues (a label of the
-			// security record), never one from outside: plain words
-			c.fixed(cleanValue(guardValue(vars[name], c.secrets), maxFreeText))
+			// security record), never one from outside: plain words, with
+			// the configuration's secrets cut out all the same
+			c.fixed(cleanValue(hideKnown(vars[name], c.secrets), maxFreeText))
 		} else {
 			c.value(vars[name], max)
 		}
@@ -301,7 +302,7 @@ func headline(c *composer, sev severity, closing bool) {
 // render puts a notice into words. details: the values may be shown.
 func render(st settings, nt notice) message {
 	m := renderWith(st, nt, !st.hideDetails)
-	if leaks(m.text, st.secrets) || (m.button != nil && leaks(m.button.URL, st.secrets)) {
+	if leaks(m.text, m.entities, st.secrets) || (m.button != nil && leaks(m.button.URL, nil, st.secrets)) {
 		// a secret got through the values' guard: send nothing of them
 		m = renderWith(st, nt, false)
 		m.button = nil

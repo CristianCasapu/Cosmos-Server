@@ -420,6 +420,16 @@ func RememberSecrets(config utils.Config) {
 	for _, client := range config.OpenIDClients {
 		secrets = append(secrets, client.Secret)
 	}
+	// plan 48: the remote storage's settings that name a secret, and the
+	// Turnstile secret key
+	for _, share := range config.RemoteStorage.Shares {
+		for key, value := range share.Settings {
+			if secretKeyName(key) {
+				secrets = append(secrets, value)
+			}
+		}
+	}
+	secrets = append(secrets, config.Turnstile.SecretKey, config.EmailConfig.Password, config.Database.PostgresPassword)
 	kept := secrets[:0]
 	for _, secret := range secrets {
 		if worthHiding(secret) {
@@ -433,6 +443,17 @@ func RememberSecrets(config utils.Config) {
 }
 
 const maxKnownSecrets = 256
+
+// secretKeyName recognises the name of a setting that holds a secret.
+func secretKeyName(key string) bool {
+	key = strings.ToLower(key)
+	for _, part := range []string{"pass", "secret", "key", "token", "credential"} {
+		if strings.Contains(key, part) {
+			return true
+		}
+	}
+	return false
+}
 
 // worthHiding: short values are not secrets worth the name, and cutting
 // them out of every text would shred ordinary words.
