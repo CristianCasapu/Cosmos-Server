@@ -139,8 +139,10 @@ const check = async (engine, size) => {
     await page.locator('.telegram-kind[data-kind="auth.login.failed"] input[type=checkbox]').click();
     await page.getByRole('button', { name: 'Save', exact: true }).last().click();
     await sleep(4000);
-    saved = (await (await ctx.request.get(base + '/cosmos/api/config')).json()).data.Telegram;
-    if (((saved.Kinds || {})['auth.login.failed'] === true) !== before) problem(`${name}: the switch was not put back: ${JSON.stringify(saved.Kinds)}`);
+    // put back means sent again: the switch may hold nothing when that is its default (the minimum severity)
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('.telegram-kind[data-kind="auth.login.failed"]').waitFor({ timeout: 30000 });
+    if (await page.locator('.telegram-kind[data-kind="auth.login.failed"] input[type=checkbox]').isChecked() !== before) problem(`${name}: the switch was not put back`);
     await page.locator('.telegram-kind').first().waitFor({ timeout: 30000 });
   }
 
