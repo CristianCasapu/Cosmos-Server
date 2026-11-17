@@ -2,7 +2,10 @@ package main
 
 import (
 	"errors"
+	"golang.org/x/sys/unix"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/anatol/smart.go"
 
@@ -64,16 +67,39 @@ func TestASleepingOrSilentDiskIsNotRead(t *testing.T) {
 	}
 }
 
-func TestNetworkSharesAreNotWatchedForFilling(t *testing.T) {
-	for _, kind := range []string{"nfs4", "cifs", "fuse.rclone", "sshfs"} {
-		network := false
-		for _, prefix := range networkFileSystems {
-			network = network || len(kind) >= len(prefix) && kind[:len(prefix)] == prefix
-		}
-		if !network {
-			t.Errorf("%s is watched", kind)
+func TestWhichFileSystemsAreWatchedForFilling(t *testing.T) {
+	for fstype, skip := range map[string]bool{
+		"nfs4": true, "nfs": true, "cifs": true, "smb3": true, "fuse.rclone": true, "fuse.sshfs": true, "autofs": true,
+		"ext4": false, "xfs": false, "btrfs": false, "zfs": false, "fuseblk": false, "fuse.mergerfs": false, "": false,
+	} {
+		if skipForFill(fstype) != skip {
+			t.Errorf("%s: skipped %v, want %v", fstype, !skip, skip)
 		}
 	}
+	if got := unescapeMount(`/mnt/My\040Disk\011x\134y`); got != "/mnt/My Disk\tx\\y" {
+		t.Errorf("%q", got)
+	}
+}
+
+// A mount whose statfs hangs is given up after the deadline and not asked
+// again while it hangs; the others are read.
+func TestAHangingMountDoesNotHoldTheOthers(t *testing.T) {
+	previous := statfsDeadline
+	statfsDeadline = 50 * time.Millisecond
+	defer func() { statfsDeadline = previous }()
+	release := make(chan struct{})
+	var calls atomic.Int32
+	hang := func(string, *unix.Statfs_t) error { calls.Add(1); <-release; return nil }
+	if _, ok := statfsBounded("/mnt/pool", hang); ok {
+		t.Error("a hanging statfs answered")
+	}
+	if _, ok := statfsBounded("/mnt/pool", hang); ok || calls.Load() != 1 {
+		t.Errorf("asked %d times while hanging", calls.Load())
+	}
+	if _, ok := statfsBounded("/mnt/other", func(string, *unix.Statfs_t) error { return nil }); !ok {
+		t.Error("another mount was held")
+	}
+	close(release)
 }
 
 // Review T2: the serial the system lists stays the disk's key after a read.

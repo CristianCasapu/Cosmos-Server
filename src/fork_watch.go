@@ -7,7 +7,10 @@ package main
 
 import (
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anatol/smart.go"
@@ -163,7 +166,39 @@ func fillIdentity(disk *watch.Disk, model string, serial string) {
 }
 
 // networkFileSystems are not watched for filling: a dead share would hang.
-var networkFileSystems = []string{"nfs", "cifs", "smb", "fuse", "sshfs", "9p", "ceph", "glusterfs", "davfs"}
+// autofs is not either: a statfs on its trigger mounts the share.
+var networkFileSystems = []string{"nfs", "cifs", "smb", "fuse", "sshfs", "9p", "ceph", "glusterfs", "davfs", "autofs"}
+
+// localFUSE are FUSE file systems of local disks: watched.
+var localFUSE = map[string]bool{"fuseblk": true, "fuse.mergerfs": true}
+
+// skipForFill reports whether a file system type is left out of the fill
+// watch.
+func skipForFill(fstype string) bool {
+	if localFUSE[fstype] {
+		return false
+	}
+	for _, kind := range networkFileSystems {
+		if strings.HasPrefix(fstype, kind) {
+			return true
+		}
+	}
+	return false
+}
+
+var mountEscape = regexp.MustCompile(`\\[0-7]{3}`)
+
+// unescapeMount decodes the octal escapes of the kernel's mount table
+// (\040 space, \011 tab, \012 line feed, \134 backslash).
+func unescapeMount(path string) string {
+	return mountEscape.ReplaceAllStringFunc(path, func(m string) string {
+		n, err := strconv.ParseUint(m[1:], 8, 8)
+		if err != nil {
+			return m
+		}
+		return string(rune(n))
+	})
+}
 
 // mountTypes reads the file system type of each mount point from the
 // kernel's table, which never touches the mounts themselves.
@@ -176,14 +211,53 @@ func mountTypes() map[string]string {
 	for _, line := range strings.Split(string(raw), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) >= 3 {
-			types[strings.ReplaceAll(fields[1], "\\040", " ")] = fields[2]
+			types[unescapeMount(fields[1])] = fields[2]
 		}
 	}
 	return types
 }
 
-// watchUsages reads the space of "/" and of the data disks, network and
-// FUSE file systems left out.
+// statfsDeadline bounds one mount's statfs: a mergerfs pool with a dead
+// branch hangs there, and must not hold the other mounts.
+var statfsDeadline = 10 * time.Second
+
+var (
+	statfsMu      sync.Mutex
+	statfsPending = map[string]bool{} // a statfs that did not come back: not asked again
+)
+
+// statfsBounded asks one mount's space, giving up after the deadline.
+func statfsBounded(mount string, statfs func(string, *unix.Statfs_t) error) (unix.Statfs_t, bool) {
+	statfsMu.Lock()
+	if statfsPending[mount] {
+		statfsMu.Unlock()
+		return unix.Statfs_t{}, false
+	}
+	statfsPending[mount] = true
+	statfsMu.Unlock()
+	type answer struct {
+		fs unix.Statfs_t
+		ok bool
+	}
+	done := make(chan answer, 1)
+	go func() {
+		var fs unix.Statfs_t
+		err := statfs(mount, &fs)
+		statfsMu.Lock()
+		delete(statfsPending, mount)
+		statfsMu.Unlock()
+		done <- answer{fs, err == nil}
+	}()
+	select {
+	case a := <-done:
+		return a.fs, a.ok
+	case <-time.After(statfsDeadline):
+		return unix.Statfs_t{}, false
+	}
+}
+
+// watchUsages reads the space of "/" and of the data disks, network
+// shares left out, each mount bounded in time.
 func watchUsages() []watch.Usage {
 	types := mountTypes()
 	mounts := []string{"/"}
@@ -192,18 +266,11 @@ func watchUsages() []watch.Usage {
 	}
 	usages := []watch.Usage{}
 	for _, mount := range mounts {
-		network := false
-		for _, kind := range networkFileSystems {
-			network = network || strings.HasPrefix(types[mount], kind)
-		}
-		if types[mount] == "fuse.mergerfs" {
-			network = false // a pool of local disks; the watch runs apart, a hang stops only itself
-		}
-		if network {
+		if skipForFill(types[mount]) {
 			continue
 		}
-		var fs unix.Statfs_t
-		if unix.Statfs(mount, &fs) != nil {
+		fs, ok := statfsBounded(mount, unix.Statfs)
+		if !ok {
 			continue
 		}
 		usages = append(usages, watch.Usage{Mount: mount, Total: fs.Blocks * uint64(fs.Bsize), Free: fs.Bavail * uint64(fs.Bsize),
