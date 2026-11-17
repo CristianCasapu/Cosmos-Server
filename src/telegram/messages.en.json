@@ -899,11 +899,11 @@
     "telegram.moved": {
       "severity": "critical", "category": "security",
       "label": "Telegram notifications taken away", "many": "changes",
-      "preview": "Telegram notifications {{what}}",
-      "what": "The Telegram notifications of this server {{what}}: this chat no longer receives them as before.",
+      "preview": "Telegram notifications {{_what}}",
+      "what": "The Telegram notifications of this server {{_what}}: this chat no longer receives them as before.",
       "means": "If that was not you, someone with an administrator's session changed them.",
       "todo": "if it was not you, look at the server.",
-      "sample": {"what": "were switched off", "actor": "admin", "ip": "192.168.1.20"}
+      "sample": {"_what": "were switched off", "actor": "admin", "ip": "192.168.1.20"}
     }
   }
 }

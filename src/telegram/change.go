@@ -2,7 +2,11 @@ package telegram
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"time"
+
+	"github.com/azukaar/cosmos-server/src/security"
 
 	"github.com/azukaar/cosmos-server/src/utils"
 )
@@ -44,10 +48,14 @@ func AnnounceSettingsChange(before utils.Config, after utils.Config, actor strin
 	case was.categories[CategorySecurity] && !is.categories[CategorySecurity]:
 		what = "no longer include security events"
 	default:
-		return
+		// plan 48: what the severities and the switches per kind silence
+		what = silenced(was, is)
+		if what == "" {
+			return
+		}
 	}
 
-	nt := newNotice("telegram.moved", map[string]string{"what": what})
+	nt := newNotice("telegram.moved", map[string]string{"_what": what})
 	nt.at = time.Now()
 	nt.key = "telegram.moved"
 	if actor != "" || ip != "" {
@@ -73,6 +81,61 @@ func AnnounceSettingsChange(before utils.Config, after utils.Config, actor strin
 			time.Sleep(changeRetries[attempt])
 		}
 	}()
+}
+
+// silenced says, in fixed words, what a change of the delivery per
+// severity, of the switches per kind or of the minimum severity stops
+// sending that was sent before: errors or critical messages switched off,
+// a critical or security kind switched off, the minimum severity raised.
+// "" when it stops nothing of that.
+func silenced(was settings, is settings) string {
+	parts := []string{}
+	for _, sev := range []severity{sevCritical, sevError} {
+		if was.delivery[sev] != DeliverOff && is.delivery[sev] == DeliverOff {
+			parts = append(parts, "no longer send "+strings.ToLower(word(sev.String()))+" messages")
+		}
+	}
+	labels := []string{}
+	for _, name := range KindNames() {
+		kt := texts.Kinds[name]
+		if ownKinds[name] || (kt.severity != sevCritical && kt.Category != CategorySecurity) {
+			continue
+		}
+		if off, set := is.kinds[name]; set && !off && kindOn(was, name) {
+			labels = append(labels, kt.Label)
+		}
+	}
+	if len(labels) > 0 {
+		more := ""
+		if len(labels) > 3 {
+			more = " and " + strconv.Itoa(len(labels)-3) + " more"
+			labels = labels[:3]
+		}
+		parts = append(parts, "no longer send: "+strings.Join(labels, ", ")+more)
+	}
+	if rank := map[string]int{"low": 1, "medium": 2, "high": 3}; rank[is.minSeverity] > rank[was.minSeverity] {
+		parts = append(parts, "now send fewer security events (minimum severity raised to "+is.minSeverity+")")
+	}
+	return strings.Join(parts, "; ")
+}
+
+// kindOn reports whether a kind is sent with these settings, as far as
+// they decide it (its switch, its category, the minimum severity for an
+// event of the security record).
+func kindOn(st settings, name string) bool {
+	if on, set := st.kinds[name]; set {
+		return on
+	}
+	kt := texts.Kinds[name]
+	if !st.categories[kt.Category] || kt.Off {
+		return false
+	}
+	if known, ok := security.KindOf(name); ok {
+		severity, _ := security.ParseSeverity(known.Severity)
+		minimum, _ := security.ParseSeverity(st.minSeverity)
+		return severity >= minimum
+	}
+	return true
 }
 
 // movedBy writes who changed the settings, from where.

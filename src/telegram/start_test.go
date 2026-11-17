@@ -155,15 +155,24 @@ func TestTheChatIsToldWhenItLosesTheNotifications(t *testing.T) {
 	useFake(t, fake)
 	before := testConfig()
 
+	before.Telegram.MinSeverity = "medium" // so that raising it can be seen
 	changes := map[string]func(*utils.Config){
 		"were switched off":                 func(c *utils.Config) { c.Telegram.Enabled = false },
 		"now use another bot":               func(c *utils.Config) { c.Telegram.BotToken = "987654321:BBotherOtherOtherOtherOtherOtherOther" },
 		"now go to another chat":            func(c *utils.Config) { c.Telegram.ChatID = "666" },
 		"no longer include security events": func(c *utils.Config) { c.Telegram.Categories = map[string]bool{"security": false} },
+		// plan 48: what the severities and the switches per kind silence
+		"no longer send critical messages":        func(c *utils.Config) { c.Telegram.Delivery = map[string]string{"critical": "off"} },
+		"no longer send error messages":           func(c *utils.Config) { c.Telegram.Delivery = map[string]string{"error": "off"} },
+		"no longer send: Two-factor check locked": func(c *utils.Config) { c.Telegram.Kinds = map[string]bool{"auth.mfa.locked": false} },
+		"now send fewer security events (minimum severity raised to high)": func(c *utils.Config) {
+			c.Telegram.MinSeverity = "high"
+		},
 	}
 	sent := 0
 	for what, change := range changes {
 		after := testConfig()
+		after.Telegram.MinSeverity = "medium"
 		change(&after)
 		AnnounceSettingsChange(before, after, "mallory", "203.0.113.66")
 		sent++
@@ -183,6 +192,14 @@ func TestTheChatIsToldWhenItLosesTheNotifications(t *testing.T) {
 		func(was, is *utils.Config) {},
 		func(was, is *utils.Config) { is.Telegram.MaxPerMinute = 3; is.Telegram.ServerName = "x" },
 		func(was, is *utils.Config) { is.Telegram.Categories = map[string]bool{"apps": false} },
+		// silent is still delivered; a warning switched off; a kind that was not sent anyway
+		func(was, is *utils.Config) {
+			is.Telegram.Delivery = map[string]string{"critical": "silent", "warn": "off"}
+		},
+		func(was, is *utils.Config) {
+			is.Telegram.Kinds = map[string]bool{"auth.login.failed": false, "container.dying": false}
+		},
+		func(was, is *utils.Config) { was.Telegram.MinSeverity = "high"; is.Telegram.MinSeverity = "medium" },
 		func(was, is *utils.Config) { was.Telegram.Enabled = false },
 		func(was, is *utils.Config) { was.Telegram.BotToken = ""; is.Telegram.ChatID = "5" },
 	}
