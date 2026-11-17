@@ -11,7 +11,7 @@
 #   sh scripts/fork-guard-e2e.sh            shellcheck + every machine, every group
 #   sh scripts/fork-guard-e2e.sh fast       shellcheck + Debian 13, the core groups
 #   sh scripts/fork-guard-e2e.sh clean      remove what a kept run left
-# Options: MACHINES="debian12 debian13 ubuntu2404", GROUPS (see inner.sh),
+# Options: MACHINES="debian12 debian13 ubuntu2404", TEST_GROUPS (see inner.sh),
 # PREFIX=fork-guard, SCRATCH (default /storage/dev/.cache/$PREFIX when that
 # exists, else $TMPDIR), KEEP=1 (leave the Docker in Docker), BREAK (inner.sh),
 # OLD_REF (the commit whose fork/fail2ban is "the current version" for the
@@ -40,8 +40,8 @@ clean() {
 }
 case "$MODE" in
 	clean) clean; exit 0 ;;
-	fast) MACHINES=${MACHINES:-debian13}; GROUPS=${GROUPS:-fast} ;;
-	all) MACHINES=${MACHINES:-debian12 debian13 ubuntu2404}; GROUPS=${GROUPS:-all} ;;
+	fast) MACHINES=${MACHINES:-debian13}; TEST_GROUPS=${TEST_GROUPS:-fast} ;;
+	all) MACHINES=${MACHINES:-debian12 debian13 ubuntu2404}; TEST_GROUPS=${TEST_GROUPS:-all} ;;
 	*) echo "usage: sh scripts/fork-guard-e2e.sh [all|fast|clean]" >&2; exit 2 ;;
 esac
 
@@ -92,7 +92,7 @@ else
 fi
 for m in $MACHINES; do
 	# shellcheck disable=SC2086
-	docker exec -e PREFIX="$PREFIX-t" -e BREAK="${BREAK:-}" "$D" sh /work/e2e/inner.sh "$m" $GROUPS || status=1
+	docker exec -e PREFIX="$PREFIX-t" -e BREAK="${BREAK:-}" "$D" sh /work/e2e/inner.sh "$m" $TEST_GROUPS || status=1
 done
 echo "took $(( $(date +%s) - start )) s"
 [ "${KEEP:-}" = 1 ] || clean
