@@ -396,7 +396,15 @@ is not kept by Cosmos (keeping it encrypted next to the configuration
 would protect nothing: the key lives there too). Redis Insight asks to
 accept its terms at first open: Cosmos does not accept them for the owner.
 An administrator cannot make a manager's URL public on purpose (the server
-turns the protection back on at the next save). "Add a web manager" leaves
+turns the protection back on at the next save). That protection goes by
+the container's image as its recipe names it: a mirrored or local-registry
+copy, an image referenced by id, a PROXY URL or a URL by address to a
+manager are not covered; existing URLs are looked at when any setting is
+next saved, not at start-up; a tunnelled URL edited from the other node is
+not. The container edit can still set the fork's two sign-in labels (such a
+container then shows as "its web manager" on a database's page, unticked
+in its delete dialog). A repair of a manager that had no network of its
+own leaves the previous one behind, empty. "Add a web manager" leaves
 an existing database on the networks it has, the default bridge included.
 Upstream's delete dialog can remove an app's networks before its
 containers are gone (`promises.concat` in deleteModal). The any-image
