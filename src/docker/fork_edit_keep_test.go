@@ -19,8 +19,11 @@ import (
 	"github.com/docker/docker/api/types"
 	containerType "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/go-connections/nat"
 )
+
+var trueValue = true
 
 func shapeContainer(t *testing.T, running bool) types.ContainerJSON {
 	dir := t.TempDir()
@@ -31,10 +34,18 @@ func shapeContainer(t *testing.T, running bool) types.ContainerJSON {
 	}
 	return types.ContainerJSON{
 		ContainerJSONBase: &types.ContainerJSONBase{
-			ID: "f00d", Name: "/shape", Image: "sha256:0",
+			ID: "f00dfeed0000" + strings.Repeat("1", 52), Name: "/shape", Image: "sha256:0",
 			State: &types.ContainerState{Running: running},
 			HostConfig: &containerType.HostConfig{
 				NetworkMode: "shapenet",
+				CapDrop:     []string{"ALL"},
+				CapAdd:      []string{"CHOWN"},
+				SecurityOpt: []string{"no-new-privileges:true"},
+				LogConfig:   containerType.LogConfig{Type: "json-file", Config: map[string]string{"max-size": "10m"}},
+				Init:        &trueValue,
+				ShmSize:     128 << 20,
+				ExtraHosts:  []string{"nas.local:192.168.1.20"},
+				DNSSearch:   []string{"home.local"},
 				PortBindings: nat.PortMap{
 					"9000/tcp": {{HostIP: "127.0.0.1", HostPort: "18300"}},
 					"9001/udp": {{HostIP: "0.0.0.0", HostPort: "18301"}},
@@ -54,11 +65,18 @@ func shapeContainer(t *testing.T, running bool) types.ContainerJSON {
 			},
 		},
 		Config: &containerType.Config{
-			Image: "example/plainapp:1", User: "65534:65534", Env: []string{"SHAPE=1"},
+			Image: "example/plainapp@sha256:" + strings.Repeat("ab", 32), User: "65534:65534", Env: []string{"SHAPE=1"},
+			Hostname: "myhost", Domainname: "home.local", OpenStdin: true, AttachStdin: true, Tty: false,
+			Healthcheck: &containerType.HealthConfig{Test: []string{"CMD", "true"}, Interval: 30e9},
+			WorkingDir:  "/srv", Entrypoint: []string{"/bin/sh"}, Cmd: []string{"-c", "sleep 1d"}, StopSignal: "SIGINT",
 			Labels:       map[string]string{"shape.note": "kept"},
 			ExposedPorts: nat.PortSet{"9000/tcp": {}, "9001/udp": {}, "9002/tcp": {}, "9003/tcp": {}},
 		},
-		NetworkSettings: &types.NetworkSettings{},
+		NetworkSettings: &types.NetworkSettings{Networks: map[string]*network.EndpointSettings{
+			"shapenet": {Aliases: []string{"db", "database", "f00dfeed0000"}, IPAMConfig: &network.EndpointIPAMConfig{IPv4Address: "172.30.0.50"},
+				MacAddress: "02:42:ac:1e:00:32", DriverOpts: map[string]string{"com.example.opt": "1"}, NetworkID: "n1", IPAddress: "172.30.0.50"},
+			"other": {Aliases: []string{"shape-other"}, MacAddress: "02:42:ac:1f:00:09", NetworkID: "n2"},
+		}},
 	}
 }
 
@@ -72,7 +90,7 @@ func tabPayloads(c types.ContainerJSON) map[string]map[string]interface{} {
 	}
 	docker := map[string]interface{}{
 		"image": c.Config.Image, "user": c.Config.User, "restartPolicy": string(c.HostConfig.RestartPolicy.Name),
-		"envVars": env, "labels": c.Config.Labels, "devices": devices, "interactive": 1, "memLimit": "256m", "cpus": 0.5,
+		"envVars": env, "labels": c.Config.Labels, "devices": devices, "interactive": map[bool]int{true: 2, false: 1}[c.Config.Tty && c.Config.OpenStdin], "memLimit": "256m", "cpus": 0.5,
 	}
 	// network.jsx: configuredPortRows → portsToSend
 	bindings := map[string][]map[string]string{}
@@ -113,32 +131,26 @@ func tabPayloads(c types.ContainerJSON) map[string]map[string]interface{} {
 
 type createdBody struct {
 	containerType.Config
-	HostConfig containerType.HostConfig
+	HostConfig       containerType.HostConfig
+	NetworkingConfig network.NetworkingConfig
 }
 
-func comparable(config containerType.Config, host containerType.HostConfig) map[string]interface{} {
-	binds := append([]string{}, host.Binds...)
-	sort.Strings(binds)
-	mounts := append([]mount.Mount{}, host.Mounts...)
-	sort.Slice(mounts, func(i, j int) bool { return mounts[i].Target < mounts[j].Target })
-	labels := map[string]string{}
-	for k, v := range config.Labels {
-		labels[k] = v
-	}
-	env := append([]string{}, config.Env...)
-	sort.Strings(env)
-	return map[string]interface{}{
-		"user": config.User, "env": env, "labels": labels, "exposed": config.ExposedPorts, "ports": host.PortBindings,
-		"devices": host.Devices, "binds": binds, "mounts": mounts, "tmpfs": host.Tmpfs, "dns": host.DNS,
-		"restart": host.RestartPolicy, "memory": host.Memory, "swap": host.MemorySwap, "cpus": host.NanoCPUs, "mode": host.NetworkMode,
-	}
+// regenerated: what Docker or the edit itself sets anew on every creation, with the reason
+var regenerated = map[string]string{
+	// a reference to the old container's image by ID is what is sent; the image name is in Config.Image
+	"Config.Image": "",
 }
 
+// TestAnUnchangedSaveOfEachTabKeepsEverything compares the WHOLE configuration
+// handed to Docker with the container's, field by field, and the endpoint of
+// its main network; the network it is connected to afterwards is in
+// TestTheOtherNetworksAreConnectedAsTheyWere.
 func TestAnUnchangedSaveOfEachTabKeepsEverything(t *testing.T) {
 	withServer(t)
 	for _, running := range []bool{true, false} {
 		c := shapeContainer(t, running)
-		want := comparable(*c.Config, *c.HostConfig)
+		wantConfig, _ := json.Marshal(c.Config)
+		wantHost, _ := json.Marshal(c.HostConfig)
 		for tab, payload := range tabPayloads(c) {
 			fake := withFakeDocker(t, c)
 			fake.lenient = true
@@ -151,16 +163,51 @@ func TestAnUnchangedSaveOfEachTabKeepsEverything(t *testing.T) {
 			if err := json.Unmarshal(fake.created[0], &got); err != nil {
 				t.Fatal(err)
 			}
-			have := comparable(got.Config, got.HostConfig)
-			for key := range want {
-				if !reflect.DeepEqual(normalise(want[key]), normalise(have[key])) {
-					a, _ := json.Marshal(want[key])
-					b, _ := json.Marshal(have[key])
-					t.Errorf("running %v, %s tab: %s changed\n   had  %s\n   sent %s", running, tab, key, a, b)
-				}
+			// the deprecated MAC address of the configuration moves to the endpoint (Docker refuses both)
+			gotConfig := got.Config
+			gotConfig.MacAddress = c.Config.MacAddress //nolint:staticcheck
+			haveConfig, _ := json.Marshal(gotConfig)
+			haveHost, _ := json.Marshal(got.HostConfig)
+			if d := jsonDiff(wantConfig, haveConfig); d != "" {
+				t.Errorf("running %v, %s tab: Config changed: %s", running, tab, d)
+			}
+			if d := jsonDiff(wantHost, haveHost); d != "" {
+				t.Errorf("running %v, %s tab: HostConfig changed: %s", running, tab, d)
+			}
+			ep := got.NetworkingConfig.EndpointsConfig["shapenet"]
+			if ep == nil || strings.Join(ep.Aliases, ",") != "db,database" || ep.IPAMConfig == nil || ep.IPAMConfig.IPv4Address != "172.30.0.50" ||
+				ep.MacAddress != "02:42:ac:1e:00:32" || ep.DriverOpts["com.example.opt"] != "1" {
+				e, _ := json.Marshal(ep)
+				t.Errorf("running %v, %s tab: the main network's endpoint: %s", running, tab, e)
 			}
 		}
 	}
+}
+
+// jsonDiff lists the top-level keys whose values differ between two JSON objects.
+func jsonDiff(a, b []byte) string {
+	var x, y map[string]interface{}
+	json.Unmarshal(a, &x)
+	json.Unmarshal(b, &y)
+	diffs := []string{}
+	for k := range x {
+		if !reflect.DeepEqual(normalise(x[k]), normalise(y[k])) {
+			if _, skip := regenerated["Config."+k]; skip {
+				continue
+			}
+			p, _ := json.Marshal(x[k])
+			q, _ := json.Marshal(y[k])
+			diffs = append(diffs, k+": "+string(p)+" → "+string(q))
+		}
+	}
+	for k := range y {
+		if _, ok := x[k]; !ok && normalise(y[k]) != nil {
+			q, _ := json.Marshal(y[k])
+			diffs = append(diffs, k+": (none) → "+string(q))
+		}
+	}
+	sort.Strings(diffs)
+	return strings.Join(diffs, "; ")
 }
 
 // normalise compares through JSON (nil and empty maps are the same to Docker)

@@ -289,3 +289,26 @@ test('a volume that binds a host path, and shared propagation, follow the server
   }
   assert.equal(volumeBindDevice({ type: 'volume', volumeOptions: { driverConfig: { options: { o: 'bind', device: '/x' } } } }), '/x');
 });
+
+import { withServerItems, sensitiveBind as sensitiveBindRule, sentence as sensitiveSentence } from './sensitiveAccess.js';
+
+test('the server\'s ticks join the panel\'s, each once (plan 47, second review)', () => {
+  const local = sensitiveAccess({ services: { app: { volumes: [{ type: 'bind', source: '/etc', target: '/e' }] } } });
+  const merged = withServerItems(local, [
+    { service: 'app', kind: 'bind', value: '/etc' },
+    { service: 'app', kind: 'nested', value: '/mnt/data/media/movies', detail: 'radarr (/mnt/data/media)' },
+  ]);
+  assert.deepEqual(merged.map((i) => i.id), ['app|bind|/etc', 'app|nested|/mnt/data/media/movies']);
+  assert.match(sensitiveSentence(merged[1]).text, /could turn it into a link/);
+  assert.equal(sensitiveSentence(merged[1]).params.detail, 'radarr (/mnt/data/media)');
+});
+
+test('the second review\'s sensitive places and options', () => {
+  assert.equal(sensitiveBindRule('/home'), 'bind');
+  assert.equal(sensitiveBindRule('/home/me'), 'bind');
+  assert.equal(sensitiveBindRule('/home/me/music'), '');
+  assert.equal(sensitiveBindRule('/var/spool/cron/crontabs'), 'bind');
+  assert.equal(sensitiveBindRule('/var/lib/libvirt/images'), 'bind');
+  const ids = sensitiveAccess({ services: { a: { network_mode: 'container:gluetun', security_opt: ['label=disable', 'seccomp=/tmp/x.json', 'no-new-privileges:false', 'no-new-privileges:true'] } } }).map((i) => i.id);
+  assert.deepEqual(ids, ['a|network-container|gluetun', 'a|unconfined|label=disable', 'a|unconfined|seccomp=/tmp/x.json', 'a|unconfined|no-new-privileges:false']);
+});

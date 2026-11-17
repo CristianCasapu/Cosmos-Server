@@ -184,6 +184,30 @@ func TestEditHintsBounds(t *testing.T) {
 	if !answered {
 		t.Fatal("the disk stays given up after it answered")
 	}
+	// a result handed over just as the time runs out: taken, and the disk is not marked given up (second review M3)
+	boundedOnBeforeSend = func() { time.Sleep(60 * time.Millisecond) }
+	if v, ok := boundedOn("/mnt/edge", 20*time.Millisecond, func() int { return 5 }); !ok || v != 5 {
+		t.Fatalf("a result at the edge of the time was lost: %v %v", v, ok)
+	}
+	boundedOnBeforeSend = func() {}
+	if _, ok := boundedOn("/mnt/edge", time.Second, func() bool { return true }); !ok {
+		t.Fatal("the disk stays given up for good")
+	}
+	// and many times at the edge
+	for i := 0; i < 200; i++ {
+		key := "/mnt/edge" + strconv.Itoa(i)
+		boundedOn(key, time.Millisecond, func() bool { time.Sleep(time.Millisecond); return true })
+		freed := false
+		for j := 0; j < 200 && !freed; j++ {
+			_, freed = boundedOn(key, time.Second, func() bool { return true })
+			if !freed {
+				time.Sleep(time.Millisecond)
+			}
+		}
+		if !freed {
+			t.Fatalf("%s stays given up for good", key)
+		}
+	}
 	// the rate: two at a time, sixty a minute
 	r := &hintsRate{}
 	now := time.Now()

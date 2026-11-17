@@ -221,8 +221,15 @@ func forkRefuseService(w http.ResponseWriter, req *http.Request, request DockerS
 		flush()
 		return false
 	}
+	// Fork addition (plan 47, second review S1/S2): new host paths followed through their links, and where they lie (fork_edit_links.go)
+	where, err := serviceAccess(request, req.URL.Query().Get("replace") == "1")
+	if err != nil {
+		fmt.Fprintf(w, "%s", "[OPERATION FAILED] "+err.Error()+". Nothing was created.\n")
+		flush()
+		return false
+	}
 	// access to the server that needs the admin's yes, item by item (fork_sensitive_access.go)
-	if missing := unconfirmedSensitive(request, req.URL.Query()); len(missing) > 0 {
+	if missing := unconfirmedSensitive(request, req.URL.Query(), where...); len(missing) > 0 {
 		fmt.Fprintf(w, "%s", "[OPERATION FAILED] This definition asks for access to the server that needs your explicit confirmation on the review: "+
 			sensitiveSentence(missing)+". Nothing was created.\n")
 		flush()

@@ -29,6 +29,9 @@ type fakeDockerAPI struct {
 	// lenient: images exist and stop, rename, remove succeed, so that the edit reaches the creation
 	lenient bool
 	created [][]byte
+	// createOK: the creation succeeds, so that the networks are connected after it
+	createOK  bool
+	connected []string
 }
 
 func (f *fakeDockerAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +52,16 @@ func (f *fakeDockerAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		f.created = append(f.created, body)
 	}
+	if strings.HasSuffix(path, "/connect") {
+		body, _ := io.ReadAll(r.Body)
+		f.connected = append(f.connected, strings.TrimSuffix(path[strings.Index(path, "/networks/")+len("/networks/"):], "/connect")+" "+string(body))
+	}
 	f.mu.Unlock()
+	if f.createOK && strings.HasSuffix(path, "/containers/create") {
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"Id":"f00dfeed0001"}`))
+		return
+	}
 	if f.lenient && (strings.Contains(path, "/images/") && r.Method == http.MethodGet) {
 		w.Write([]byte(`{"Id":"sha256:0","Config":{}}`))
 		return
@@ -105,8 +117,10 @@ func TestTheUpdateRouteChecksBeforeDocker(t *testing.T) {
 			t.Errorf("%s: %d %s", name, w.Code, w.Body.String())
 		}
 	}
-	if len(fake.others) != 0 {
-		t.Fatalf("Docker was asked to change something: %v", fake.others)
+	for _, call := range fake.others {
+		if !strings.HasPrefix(call, "GET ") {
+			t.Fatalf("Docker was asked to change something: %v", fake.others)
+		}
 	}
 	// an acceptable change goes on to the tick and the edit (which the stand-in refuses)
 	if w := updateThroughRoute(t, `{"dns":["192.168.1.1"]}`); w.Code == http.StatusBadRequest {

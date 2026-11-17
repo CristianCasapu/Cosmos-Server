@@ -57,7 +57,7 @@ const sourceText = (t, proposed) => {
     image: t(K + 'port.fromImage', 'the image declares this port'),
   }[proposed.source] || '';
   const host = {
-    free: t(K + 'port.hostFree', 'the same number on the server, free (tried on the server)'),
+    free: t(K + 'port.hostFreeSockets', 'the same number, free on the server (no program listens on it; a port another program forwards with a firewall rule alone is not seen)'),
     same: t(K + 'port.hostSame', 'the same number on the server (no other app has it)'),
     moved: t(K + 'port.hostMoved', 'the same number is taken on the server: the next free one'),
   }[proposed.reason] || '';
@@ -350,7 +350,9 @@ export const ForkFolderNote = ({ row, hints }) => {
     .find((p) => row.Source === p.path || row.Source.startsWith(p.path.replace(/\/$/, '') + '/'));
   if (!place) return null;
   return <FormHelperText data-fork-folder="new" sx={{ ...wrapText, whiteSpace: 'normal' }}>
-    {t(K + 'folder.new', 'On {{disk}}, {{free}} free. A folder that does not exist is made when you save, owned by the app\'s user ({{user}}).', { disk: place.disk || place.path, free: sizeText(place.free), user: (hints.runsAs && hints.runsAs.text) || 'root' })}
+    {hints.usernsRemap
+      ? t(K + 'folder.newRemap', 'On {{disk}}, {{free}} free. A folder that does not exist is made when you save, owned by root: Docker runs apps with users of their own on this server (userns-remap), so it cannot be given to the app\'s user.', { disk: place.disk || place.path, free: sizeText(place.free) })
+      : t(K + 'folder.new', 'On {{disk}}, {{free}} free. A folder that does not exist is made when you save, owned by the app\'s user ({{user}}).', { disk: place.disk || place.path, free: sizeText(place.free), user: (hints.runsAs && hints.runsAs.text) || 'root' })}
   </FormHelperText>;
 };
 

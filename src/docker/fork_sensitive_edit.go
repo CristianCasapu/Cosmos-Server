@@ -43,12 +43,16 @@ func containerSensitive(service string, c types.ContainerJSON, extra []string) [
 			addBind(m.Source)
 		}
 		// Fork addition (plan 47, I2c review): a volume that binds a host path, shared propagation
-		if volumeBindDevice(m) != "" || sharedPropagation(m) {
+		if volumeDeviceOf(m) != "" || sharedPropagation(m) {
 			as.Volumes = append(as.Volumes, mount.Mount{Type: m.Type, Source: m.Source, VolumeOptions: m.VolumeOptions, BindOptions: m.BindOptions})
 		}
 	}
 	for _, bind := range c.HostConfig.Binds {
 		parts := strings.Split(bind, ":")
+		// a named volume that binds a host path (second review S1)
+		if len(parts) >= 2 && parts[0] != "" && !strings.HasPrefix(parts[0], "/") && existingVolumeDevice(parts[0]) != "" {
+			as.Volumes = append(as.Volumes, mount.Mount{Type: mount.TypeVolume, Source: parts[0]})
+		}
 		if source := parts[0]; strings.HasPrefix(source, "/") {
 			addBind(source)
 			if len(parts) > 2 && bindModeShared(parts[2]) {
@@ -94,6 +98,17 @@ func writableSources(c types.ContainerJSON) map[string]bool {
 		if len(parts) >= 2 && strings.HasPrefix(parts[0], "/") && (len(parts) < 3 || !hasWord(parts[2], "ro")) {
 			out[cleanHostPath(parts[0])] = true
 		}
+		// a named volume that binds a host path (second review M1)
+		if len(parts) >= 2 && !strings.HasPrefix(parts[0], "/") && (len(parts) < 3 || !hasWord(parts[2], "ro")) {
+			if device := existingVolumeDevice(parts[0]); device != "" {
+				out[cleanHostPath(realPath(device))] = true
+			}
+		}
+	}
+	for _, m := range c.HostConfig.Mounts {
+		if device := volumeDeviceOf(m); device != "" && !m.ReadOnly {
+			out[cleanHostPath(realPath(device))] = true
+		}
 	}
 	return out
 }
@@ -108,7 +123,7 @@ func hasWord(mode, word string) bool {
 }
 
 // unconfirmedEdit lists what `after` has that `before` had not and the request did not confirm.
-func unconfirmedEdit(service string, before, after types.ContainerJSON, query url.Values, extra []string) []SensitiveItem {
+func unconfirmedEdit(service string, before, after types.ContainerJSON, query url.Values, extra []string, extraItems ...SensitiveItem) []SensitiveItem {
 	had := map[string]bool{}
 	for _, item := range containerSensitive(service, before, extra) {
 		had[item.Key()] = true
@@ -132,14 +147,19 @@ func unconfirmedEdit(service string, before, after types.ContainerJSON, query ur
 			missing = append(missing, item)
 		}
 	}
+	for _, item := range extraItems {
+		if !confirmed[item.Key()] {
+			missing = append(missing, item)
+		}
+	}
 	return missing
 }
 
 // forkRefuseUnconfirmedEdit answers 409 with the items to confirm, and true,
 // when the edit gives the container sensitive access without a yes.
-func forkRefuseUnconfirmedEdit(w http.ResponseWriter, req *http.Request, before, after types.ContainerJSON) bool {
+func forkRefuseUnconfirmedEdit(w http.ResponseWriter, req *http.Request, before, after types.ContainerJSON, extraItems ...SensitiveItem) bool {
 	service := strings.TrimPrefix(before.Name, "/")
-	missing := unconfirmedEdit(service, before, after, req.URL.Query(), extraSensitiveDirs())
+	missing := unconfirmedEdit(service, before, after, req.URL.Query(), extraSensitiveDirs(), extraItems...)
 	if len(missing) == 0 {
 		return false
 	}

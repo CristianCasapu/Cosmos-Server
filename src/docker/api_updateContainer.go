@@ -183,12 +183,13 @@ func UpdateContainerRoute(w http.ResponseWriter, req *http.Request) {
 		keepUnchanged(before, &container, form) // Fork addition (plan 47, I2c): what the form sent unchanged keeps its stored form (fork_edit_keep.go)
 
 		// Fork addition (plan 47, I2c): what changed is checked as at creation (fork_edit_check.go)
-		if forkRefuseBadEdit(w, before, &container) {
+		where, refused := forkRefuseBadEdit(w, before, &container)
+		if refused {
 			return
 		}
 
 		// Fork addition: access to the server it did not have needs the admin's yes, as at creation
-		if forkRefuseUnconfirmedEdit(w, req, before, container) {
+		if forkRefuseUnconfirmedEdit(w, req, before, container, where...) {
 			return
 		}
 

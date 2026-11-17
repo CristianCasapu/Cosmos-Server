@@ -458,6 +458,15 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
     }));
   }
 
+  // Fork addition (plan 47, I2c): every tick the creation route will ask for a definition (src/docker/fork_edit_links.go); nothing is made
+  function installSensitive(definition: any, replace: boolean): Promise<ApiResponse> {
+    return wrap(apiFetch('/cosmos/api/install/sensitive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ definition, replace }),
+    }), true);
+  }
+
   // Fork addition (plan 40): Docker Hub search and what an image declares, read without a pull (src/anyimage)
   function imageSearch(query: string): Promise<ApiResponse> {
     return wrap(apiFetch('/cosmos/api/images/search', {
@@ -515,6 +524,7 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
     probePort, // Fork addition (plan 43)
     lanAddresses, // Fork addition (plan 43)
     editHints, // Fork addition (plan 47, I2c)
+    installSensitive, // Fork addition (plan 47, I2c)
     createVolume,
     attachTerminal,
     createTerminal,

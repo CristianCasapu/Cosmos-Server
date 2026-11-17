@@ -32,6 +32,8 @@ type SensitiveItem struct {
 	// propagation (a bind with shared propagation: mounts made inside reach the server)
 	Kind  string `json:"kind"`
 	Value string `json:"value"`
+	// Detail says more for the words (the app that could redirect a nested folder); not part of the key
+	Detail string `json:"detail,omitempty"`
 }
 
 // Key is how the item is named in the confirmation.
@@ -46,6 +48,9 @@ var sensitiveDirs = []string{
 	"/lib", "/lib32", "/lib64", "/libx32", "/run", "/var/run",
 	"/var/lib/docker", "/var/lib/containerd", "/var/lib/containers",
 	"/opt/cosmos", "/var/lib/cosmos",
+	// Fork addition (plan 47, second review M5): cron, the state of other container and VM managers, systemd's
+	"/var/spool/cron", "/var/spool/anacron", "/var/lib/kubelet", "/var/lib/lxc", "/var/lib/lxd", "/var/lib/incus",
+	"/var/lib/libvirt", "/var/lib/systemd", "/var/lib/machines",
 }
 
 // Socket names that give control of containers (and so of the server).
@@ -104,6 +109,10 @@ func SensitiveBind(source string, extra []string) string {
 			return "bind"
 		}
 	}
+	// Fork addition (plan 47, second review M5): /home and a user's whole home (its keys, its shell's start files)
+	if p == "/home" || path.Dir(p) == "/home" {
+		return "bind"
+	}
 	for _, dir := range append(append([]string{}, sensitiveDirs...), extra...) {
 		dir = cleanHostPath(dir)
 		if dir == "" || dir == "/" {
@@ -129,7 +138,9 @@ func serviceSensitive(key string, service ContainerCreateRequestContainer, extra
 	for _, volume := range service.Volumes {
 		// Fork addition (plan 47, I2c review): a named volume whose local driver binds a host
 		// path is that host path (fork_volume_options.go), and shared propagation reaches the server's mounts
-		if device := volumeBindDevice(volume); device != "" {
+		// (second review S1: also an existing named volume, and the device followed through its links)
+		if device := volumeDeviceOf(volume); device != "" {
+			device = realPath(device)
 			if kind := SensitiveBind(device, extra); kind != "" {
 				items = append(items, SensitiveItem{Service: key, Kind: kind, Value: cleanHostPath(device)})
 			}
@@ -153,6 +164,10 @@ func serviceSensitive(key string, service ContainerCreateRequestContainer, extra
 	if effectiveNetworkMode(service) == "host" {
 		items = append(items, SensitiveItem{Service: key, Kind: "network-host", Value: "host"})
 	}
+	// Fork addition (plan 47, second review M5): another app's network namespace (the server's own when that app uses it)
+	if mode := effectiveNetworkMode(service); strings.HasPrefix(mode, "container:") || strings.HasPrefix(mode, "service:") {
+		items = append(items, SensitiveItem{Service: key, Kind: "network-container", Value: strings.SplitN(mode, ":", 2)[1]})
+	}
 	for _, capability := range service.CapAdd {
 		name := strings.ToUpper(strings.TrimPrefix(strings.ToUpper(strings.TrimSpace(capability)), "CAP_"))
 		if sensitiveCaps[name] {
@@ -161,7 +176,7 @@ func serviceSensitive(key string, service ContainerCreateRequestContainer, extra
 	}
 	for _, option := range service.SecurityOpt {
 		option = strings.TrimSpace(option)
-		if strings.HasSuffix(option, "=unconfined") || strings.HasSuffix(option, ":unconfined") {
+		if strings.HasSuffix(option, "=unconfined") || strings.HasSuffix(option, ":unconfined") || weakSecurityOption(option) {
 			items = append(items, SensitiveItem{Service: key, Kind: "unconfined", Value: option})
 		}
 	}
@@ -207,7 +222,7 @@ var existingSensitive = func(service string, name string, extra []string) map[st
 
 // unconfirmedSensitive lists what the request asks for and the admin has not
 // confirmed (query values `confirm`).
-func unconfirmedSensitive(request DockerServiceCreateRequest, query url.Values) []SensitiveItem {
+func unconfirmedSensitive(request DockerServiceCreateRequest, query url.Values, extraItems ...SensitiveItem) []SensitiveItem {
 	extra := extraSensitiveDirs()
 	confirmed := map[string]bool{}
 	values := query["confirm"]
@@ -240,7 +255,28 @@ func unconfirmedSensitive(request DockerServiceCreateRequest, query url.Values) 
 		}
 		missing = append(missing, item)
 	}
+	for _, item := range extraItems {
+		if !confirmed[item.Key()] {
+			missing = append(missing, item)
+		}
+	}
 	return missing
+}
+
+// weakSecurityOption: a security option that turns a protection off or
+// replaces Docker's own profile (second review M5): label=disable, a seccomp
+// profile of its own, no-new-privileges=false.
+func weakSecurityOption(option string) bool {
+	o := strings.ToLower(strings.ReplaceAll(option, ":", "="))
+	switch {
+	case o == "label=disable":
+		return true
+	case strings.HasPrefix(o, "seccomp=") && o != "seccomp=default" && o != "seccomp=builtin":
+		return true
+	case o == "no-new-privileges=false":
+		return true
+	}
+	return false
 }
 
 // sensitiveSentence names the items in words for the refusal.
@@ -262,6 +298,12 @@ func sensitiveSentence(items []SensitiveItem) string {
 			parts = append(parts, item.Service+": "+item.Value)
 		case "device":
 			parts = append(parts, item.Service+": the device "+item.Value)
+		case "network-container":
+			parts = append(parts, item.Service+": the network of the app "+item.Value+" (and the server's own when that app uses it)")
+		case "nested":
+			parts = append(parts, item.Service+": the folder "+item.Value+", inside a folder "+item.Detail+" can write: that app could turn it into a link to any folder of the server")
+		case "linkinto":
+			parts = append(parts, item.Service+": the folder "+item.Value+", reached through a link, in the folder of "+item.Detail)
 		case "propagation":
 			parts = append(parts, item.Service+": the server folder "+item.Value+" with shared propagation (its mounts reach the server)")
 		}

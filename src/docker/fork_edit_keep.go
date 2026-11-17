@@ -87,8 +87,14 @@ func keepMounts(before types.ContainerJSON, sent []mount.Mount) (binds []string,
 	for _, m := range sent {
 		kept := false
 		for i, s := range before.HostConfig.Mounts {
-			if usedMount[i] || s.Type != m.Type || s.Source != m.Source || cleanTarget(s.Target) != cleanTarget(m.Target) {
+			if usedMount[i] || s.Type != m.Type || cleanMountSource(s) != cleanMountSource(m) || cleanTarget(s.Target) != cleanTarget(m.Target) {
 				continue
+			}
+			// options sent with it are the caller's own and are used (second review M7); none sent: the stored ones
+			if m.BindOptions != nil || m.VolumeOptions != nil || m.TmpfsOptions != nil {
+				mounts = append(mounts, m)
+				usedMount[i], kept = true, true
+				break
 			}
 			s.ReadOnly = m.ReadOnly
 			mounts = append(mounts, s)
@@ -103,7 +109,8 @@ func keepMounts(before types.ContainerJSON, sent []mount.Mount) (binds []string,
 			if strings.HasPrefix(b.source, "/") {
 				kind = mount.TypeBind
 			}
-			if usedBind[i] || kind != m.Type || b.source != m.Source || cleanTarget(b.target) != cleanTarget(m.Target) {
+			if usedBind[i] || kind != m.Type || cleanMountSource(mount.Mount{Type: kind, Source: b.source}) != cleanMountSource(m) || cleanTarget(b.target) != cleanTarget(m.Target) ||
+				m.BindOptions != nil || m.VolumeOptions != nil || m.TmpfsOptions != nil {
 				continue
 			}
 			if hasWord(b.mode, "ro") == m.ReadOnly {
@@ -142,10 +149,20 @@ func keepUnchanged(before types.ContainerJSON, after *types.ContainerJSON, form 
 	if before.HostConfig == nil || after.HostConfig == nil {
 		return
 	}
-	// devices: their permissions
+	// devices: their permissions, also when only the path in the container changes (never
+	// widened silently, second review M2)
 	for i, d := range after.HostConfig.Devices {
 		for _, old := range before.HostConfig.Devices {
 			if old.PathOnHost == d.PathOnHost && old.PathInContainer == d.PathInContainer {
+				after.HostConfig.Devices[i].CgroupPermissions = old.CgroupPermissions
+				break
+			}
+		}
+		if after.HostConfig.Devices[i].CgroupPermissions != "rwm" {
+			continue
+		}
+		for _, old := range before.HostConfig.Devices {
+			if old.PathOnHost == d.PathOnHost {
 				after.HostConfig.Devices[i].CgroupPermissions = old.CgroupPermissions
 				break
 			}
@@ -184,6 +201,13 @@ func keepUnchanged(before types.ContainerJSON, after *types.ContainerJSON, form 
 		}
 		if after.Config != nil {
 			after.Config.ExposedPorts = exposed
+		}
+	}
+	// the "interactive" switch sent as the tab showed it (Tty and OpenStdin both on): both as they were
+	// (a container run with -i and no -t lost its OpenStdin)
+	if form.Interactive != 0 && before.Config != nil && after.Config != nil {
+		if was := before.Config.Tty && before.Config.OpenStdin; (form.Interactive == 2) == was {
+			after.Config.Tty, after.Config.OpenStdin = before.Config.Tty, before.Config.OpenStdin
 		}
 	}
 	// the network mode sent as it was: labels and MAC address as they were

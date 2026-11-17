@@ -28,6 +28,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/azukaar/cosmos-server/src/edithints"
 	"github.com/azukaar/cosmos-server/src/utils"
@@ -116,6 +117,9 @@ func checkPorts(before, after types.ContainerJSON) error {
 			}
 		}
 	}
+	if after.Config != nil && len(after.Config.ExposedPorts) > maxEditPorts {
+		return fmt.Errorf("more than %d ports", maxEditPorts) // second review M8
+	}
 	count := 0
 	own := serverAddresses()
 	for port, bindings := range after.HostConfig.PortBindings {
@@ -148,7 +152,7 @@ func checkPorts(before, after types.ContainerJSON) error {
 }
 
 func mountKey(m mount.Mount) string {
-	return string(m.Type) + "|" + m.Source + "|" + m.Target
+	return string(m.Type) + "|" + cleanMountSource(m) + "|" + cleanTarget(m.Target) // a trailing slash is the same folder (second review M7)
 }
 
 // mountsOf lists a container's mounts, its binds read as mounts.
@@ -310,17 +314,18 @@ func checkEdit(before, after types.ContainerJSON) error {
 }
 
 // forkRefuseBadEdit answers 400 (DS025) with the reason, and true, when the
-// edit holds a value the server refuses.
-func forkRefuseBadEdit(w http.ResponseWriter, before types.ContainerJSON, after *types.ContainerJSON) bool {
-	err := resolveNewBinds(before, after)
+// edit holds a value the server refuses; otherwise it gives the ticks the new
+// mounts need for where they lie (fork_edit_links.go).
+func forkRefuseBadEdit(w http.ResponseWriter, before types.ContainerJSON, after *types.ContainerJSON) ([]SensitiveItem, bool) {
+	items, err := editAccess(before, after)
 	if err == nil {
 		err = checkEdit(before, *after)
 	}
 	if err == nil {
-		return false
+		return items, false
 	}
 	utils.HTTPError(w, "This change cannot be saved: "+err.Error()+". Nothing was changed.", http.StatusBadRequest, "DS025")
-	return true
+	return nil, true
 }
 
 // bindRoot is where the server's files are seen from Cosmos.
@@ -359,29 +364,8 @@ func resolveNewBinds(before types.ContainerJSON, after *types.ContainerJSON) err
 	for _, m := range mountsOf(before) {
 		had[mountKey(m)] = true
 	}
-	places := EditDataPlaces()
-	for i, m := range after.HostConfig.Mounts {
-		if m.Type != mount.TypeBind || had[mountKey(m)] {
-			continue
-		}
-		source := cleanAbsolute(m.Source)
-		if source == "" {
-			continue // refused by checkMounts in words
-		}
-		resolved, linked, err := resolveSource(source)
-		if err != nil {
-			return fmt.Errorf("the server folder %s: its links cannot be followed (%s)", source, err.Error())
-		}
-		if !linked {
-			continue
-		}
-		if inDataPlace(resolved, places) || SensitiveBind(resolved, extraSensitiveDirs()) != "" {
-			after.HostConfig.Mounts[i].Source = resolved
-			continue
-		}
-		return fmt.Errorf("the server folder %s is a link to %s, which is not on a data disk: give %s itself if that is the folder you mean", source, resolved, resolved)
-	}
-	return nil
+	_, err := resolveMounts(after.HostConfig.Mounts, had)
+	return err
 }
 
 // keepRestartRetries keeps the number of tries of "on-failure:N" when the
@@ -402,6 +386,29 @@ func keepRestartRetries(before, after *types.ContainerJSON) {
 // the app's owner: the data path and the data disks. Set by package main
 // (fork_edit_hints.go), which knows them.
 var EditDataPlaces = func() []string { return nil }
+
+// UsernsRemapped says whether the Docker daemon runs containers in a user
+// namespace of its own (userns-remap); asked once. Replaced by the tests.
+var UsernsRemapped = func() bool {
+	usernsOnce.Do(func() {
+		if DockerClient == nil {
+			return
+		}
+		if info, err := DockerClient.Info(DockerContext); err == nil {
+			for _, option := range info.SecurityOptions {
+				if strings.Contains(option, "name=userns") {
+					usernsRemapped = true
+				}
+			}
+		}
+	})
+	return usernsRemapped
+}
+
+var (
+	usernsOnce     sync.Once
+	usernsRemapped bool
+)
 
 // chownHandle gives a folder makeOwnedFolders has just created to the app's
 // user, through the folder's own descriptor (fchown): no path is resolved
@@ -483,7 +490,11 @@ func forkPrepareBindFolders(before, after types.ContainerJSON, root string) {
 	}
 	user := containerRunsAs(after)
 	uid, gid := 0, 0 // a user given by name, or root: the folder stays root's, as EditContainer would make it
-	if user.Known && user.UID != 0 {
+	// under Docker's user namespace remapping an app's uid is not the server's: the folder is
+	// left root's instead of given to a uid that means someone else on the server (second review M8)
+	if user.Known && user.UID != 0 && UsernsRemapped() {
+		utils.Log("Edit: Docker remaps users (userns-remap): a new data folder is left owned by root")
+	} else if user.Known && user.UID != 0 {
 		uid, gid = user.UID, user.GID
 		if gid < 0 {
 			gid = user.UID

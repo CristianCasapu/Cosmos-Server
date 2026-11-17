@@ -114,6 +114,8 @@ type editHints struct {
 	FreePorts map[string]int     `json:"freePorts"`
 	// PortsListened: the free ports were also checked against the server's sockets (not when Cosmos runs in a container)
 	PortsListened bool `json:"portsListened"`
+	// UsernsRemap: Docker runs apps in a user namespace of its own; a new data folder stays root's
+	UsernsRemap bool `json:"usernsRemap"`
 	// VPN: the server's addresses on VPN interfaces (a port published there works only while the VPN is up)
 	VPN []editHintsVPN `json:"vpn"`
 }
@@ -125,20 +127,21 @@ type editHintsVPN struct {
 
 // what the hints are made of, gathered by editHintsFacts; the tests give their own
 type editHintsInput struct {
-	Container  types.ContainerJSON
-	ImageUser  string
-	ImageVols  []string
-	ImagePorts []string
-	ImageEnv   []string
-	Plan       installPlanAnswer
-	Server     editHintsServer
-	LAN        []proxy.LANAddress
-	DNS        editHintsDNS
-	Devices    []edithints.Device
-	Held       map[string]bool // "8080/tcp" published by another container
-	CosmosPort []int
-	Listen     edithints.Taken // nil when the server's sockets cannot be read
-	VPN        []editHintsVPN
+	Container   types.ContainerJSON
+	ImageUser   string
+	ImageVols   []string
+	ImagePorts  []string
+	ImageEnv    []string
+	Plan        installPlanAnswer
+	Server      editHintsServer
+	LAN         []proxy.LANAddress
+	DNS         editHintsDNS
+	Devices     []edithints.Device
+	Held        map[string]bool // "8080/tcp" published by another container
+	CosmosPort  []int
+	Listen      edithints.Taken // nil when the server's sockets cannot be read
+	VPN         []editHintsVPN
+	UsernsRemap bool
 	// Inspect gives the facts of one bind's folder (bounded in time by the route); edithints.InspectFolder when nil
 	Inspect func(source string, places []string, user edithints.RunAs) edithints.Folder
 	Root    string // where the server's files are seen
@@ -205,17 +208,18 @@ func buildEditHints(in editHintsInput) editHints {
 			Ports:   boundedNames(in.ImagePorts, editHintsMaxList),
 			Env:     envNames(in.ImageEnv),
 		},
-		Folders:   []editHintsFolder{},
-		Anonymous: []string{},
-		DataPath:  in.Plan.DataPath,
-		DataOwner: in.Plan.DataOwner,
-		Places:    in.Plan.Places,
-		Server:    in.Server,
-		LAN:       in.LAN,
-		DNS:       in.DNS,
-		Devices:   in.Devices,
-		FreePorts: map[string]int{},
-		VPN:       in.VPN,
+		Folders:     []editHintsFolder{},
+		Anonymous:   []string{},
+		DataPath:    in.Plan.DataPath,
+		DataOwner:   in.Plan.DataOwner,
+		Places:      in.Plan.Places,
+		Server:      in.Server,
+		LAN:         in.LAN,
+		DNS:         in.DNS,
+		Devices:     in.Devices,
+		FreePorts:   map[string]int{},
+		VPN:         in.VPN,
+		UsernsRemap: in.UsernsRemap,
 	}
 	if hints.VPN == nil {
 		hints.VPN = []editHintsVPN{}
@@ -364,12 +368,14 @@ func boundedOn[T any](key string, wait time.Duration, fn func() T) (T, bool) {
 	go func() {
 		value := fn()
 		mu.Lock()
+		defer mu.Unlock()
 		if gaveUp {
 			abandonedMu.Lock()
 			delete(abandoned, key)
 			abandonedMu.Unlock()
 		}
-		mu.Unlock()
+		// sent while the lock is held: the waiter either finds it or has already given up (second review M3)
+		boundedOnBeforeSend()
 		results <- value
 	}()
 	timer := time.NewTimer(wait)
@@ -392,6 +398,9 @@ func boundedOn[T any](key string, wait time.Duration, fn func() T) (T, bool) {
 		return zero, false
 	}
 }
+
+// boundedOnBeforeSend runs just before a result is handed over; the tests make it slow.
+var boundedOnBeforeSend = func() {}
 
 // editHintsRate: at most 2 requests at a time and 60 a minute (each opening of a tab asks once)
 type hintsRate struct {
@@ -599,6 +608,7 @@ func EditHintsRoute(w http.ResponseWriter, req *http.Request) {
 		in.Listen = func(port int, protocol string) bool { return listening[strconv.Itoa(port)+"/"+protocol] }
 	}
 	in.VPN = editHintsVPNAddresses()
+	in.UsernsRemap = docker.UsernsRemapped()
 	deadline := time.Now().Add(editHintsMaxTime)
 	in.Inspect = func(source string, places []string, user edithints.RunAs) edithints.Folder {
 		folder := edithints.Folder{Source: source, State: "slow"}
