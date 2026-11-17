@@ -167,6 +167,7 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 				http.StatusInternalServerError, "UC001")
 			return 
 		}
+		request = utils.WithoutRouteKeys(request) // Fork addition (plan 49): the keys an answer carried are not part of the settings
 
 		errV := utils.Validate.Struct(request)
 		if errV != nil {

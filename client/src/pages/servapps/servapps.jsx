@@ -12,6 +12,7 @@ import RouteManagement from '../config/routes/routeman';
 import { ValidateRoute, getFaviconURL, sanitizeRoute, getContainersRoutes } from '../../utils/routes';
 import HostChip from '../../components/hostChip';
 import AppLinks, { AppDomains } from '../../components/appLinks'; // Fork addition
+import { AppOpenButton } from '../../components/appOpen'; // Fork addition (plan 49)
 import { ReachChip } from '../../components/reachability'; // Fork addition
 import PortChips from '../../components/portChips'; // Fork addition
 import ServAppsNotices from '../../components/servappsNotices'; // Fork addition: leftovers, updates and apps without an address in one notice area
@@ -409,6 +410,8 @@ const ServApps = ({stack}) => {
                   containerNames={app.apps.map((one) => one.Names[0].replace('/', ''))}
                 />
                 <Stack style={noOver} spacing={1} direction="row" sx={{ alignItems: 'center' }} >
+                  {/* Fork addition (plan 49): what the app's tile on the home page opens from here, and all its addresses */}
+                  {app.type !== 'stack' && <AppOpenButton name={app.name} routes={getContainersRoutes(config, app.name.replace('/', ''))} image={app.app && app.app.Image} ports={app.ports} config={config} refresh={refreshServApps} />}
                   {/* Fork addition: local links first, each group under its icon */}
                   <AppLinks routes={getContainersRoutes(config, app.name.replace('/', ''))} />
                   {app.type !== 'stack' && !getContainersRoutes(config, app.name.replace('/', '')).length && <ServiceChip container={app.app} />}{/* Fork addition (plan 43) */}

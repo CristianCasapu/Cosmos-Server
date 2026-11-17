@@ -5,6 +5,8 @@ import { ContainerOutlined, DashboardOutlined, DesktopOutlined, InfoCircleOutlin
 import { getFaviconURL, getContainersRoutes } from '../../../utils/routes';
 import HostChip from '../../../components/hostChip';
 import AppLinks, { AppDomains } from '../../../components/appLinks'; // Fork addition
+import { AppOpenButton } from '../../../components/appOpen'; // Fork addition (plan 49)
+import { inspectPorts } from '../../../utils/appInterfaces'; // Fork addition (plan 49)
 import { UrlCheckButton } from '../../../components/urlCheck'; // Fork addition (plan 44)
 import { ReachPanel } from '../../../components/reachability'; // Fork addition
 import { AppShields } from '../../../components/cloudflare'; // Fork addition
@@ -236,6 +238,8 @@ const ContainerOverview = ({ containerInfo, config, refresh, updatesAvailable, s
             )}
             <strong><NodeExpandOutlined /> URLs</strong>
             <div>
+              {/* Fork addition (plan 49): what the app's tile opens from here, and all its addresses */}
+              <div style={{ margin: '5px' }}><AppOpenButton name={Name} routes={routes} image={Image} ports={inspectPorts(containerInfo)} config={config} refresh={refreshAll} /></div>
               {/* Fork addition: local links first, each group on its own line */}
               <AppLinks routes={routes} chipStyle={{margin: '5px'}} rows />
               {/* Fork addition: the ports the router forwards for the app, as external addresses */}

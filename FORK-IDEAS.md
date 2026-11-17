@@ -316,6 +316,14 @@ cool-down, the 72 hours the previous files are kept, the 15-minute window.
   Cloudflare, e-mail, Telegram, Fail2ban and UPnP checks, were each run on
   their own branch only (each needs a set-up of its own).
 
+## An app's links: left for later (2026-11-17)
+
+- A per-device check whether `.local` names resolve (today: the page having been opened by a `.local` name is the signal; otherwise names for use at home come first).
+- The names of ports the router forwards (UPnP) inside an app's "All addresses" menu; they stay in the router-ports view.
+- The home's public IPv6 as a signal for "probably home" (the server knows no public IPv6 of the home).
+- Through a VPN, names for use at home and home-network addresses are only "maybe": Cosmos cannot know whether the VPN routes the home network.
+- The header's "Ctrl + K" box is a dead template leftover (no search exists).
+
 ## Forms, part D: left for later (2026-11-17)
 
 - `raidDialog.jsx`/`raid.jsx` and `oldTerminal.jsx` are unreachable upstream files (nothing imports them, they are not bundled): left in place to keep upstream merges clean.
