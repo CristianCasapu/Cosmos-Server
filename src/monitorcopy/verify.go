@@ -4,28 +4,39 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// The verification compares the two stores over what the copy covered:
+// The verification goes through every source row the copy covered (before
+// its end, within the retention) and looks for its counterpart in the target:
 //
-//   - below T0 (the target's oldest row of the table before the first copy
-//     from this source) the target holds nothing but copied rows, so both
-//     sides must agree exactly: row count, smallest, largest and sum of the
-//     time, and sums of the integer columns of the rule;
-//   - from T0 on (rows that may exist in both, decided by the conflict rule)
-//     each row of the source must have its counterpart in the target: the
-//     same key, or a row of the same identity;
-//   - a table without time (metrics, monitoring_kv): each key of the source
-//     must be in the target, and for metrics with a last_update not older.
+//   - a table with a natural key: the same key; for metrics a last_update not
+//     older than the source's; for metric values copied to the local file
+//     (the source wins) the same values, for buckets closed before the copy;
+//   - a table with a surrogate id: a row of the same identity, each target
+//     row standing for one source row at most (events and the security record
+//     take every column as identity, so a copied row that changed is missing).
+//
+// Rows only the target has are not an error: the target was the store in use
+// for periods of its own, which may be older or newer than the source's, as
+// often as the two stores took turns (back to the local file, the fallback
+// while PostgreSQL does not answer). An earlier check compared aggregates of
+// the range below the target's oldest row at the first copy; that range holds
+// the target's own rows as soon as the stores took turns, or when the first
+// copy found the target empty, and the check then reported a false mismatch.
 //
 // Rows the daily retention may delete between the copy and the check (an
-// hour of margin) are left out on both sides.
+// hour of margin) are left out.
 
 const verifyMargin = time.Hour
+
+// bucketOpen: how long after its date a metric bucket may still change (the
+// longest granularity is a month).
+const bucketOpen = 32 * 24 * time.Hour
 
 func (c *copier) verifyExtra(r rule, now int64) (string, []interface{}) {
 	where := ""
@@ -48,67 +59,18 @@ func (c *copier) verifyTable(ctx context.Context, i int, r rule) error {
 	mismatch := false
 	var sourceRows, targetRows, missing int64
 
-	if r.window != "" {
-		t0 := c.marker.T0[r.table]
-		upper := t0
-		if c.marker.End < upper {
-			upper = c.marker.End
-		}
-		// below T0: the same aggregates on both sides
-		exprs := []string{"COUNT(*)", "COALESCE(MIN(" + r.window + "), 0)", "COALESCE(MAX(" + r.window + "), 0)"}
-		exprs = append(exprs, sumExprs(r.window)...)
-		for _, name := range r.verifySums {
-			exprs = append(exprs, sumExprs(name)...)
-		}
-		where, args := c.copyFilter(r, c.marker.End)
-		where += extra + " AND (" + r.window + ") < ?"
-		args = append(append(args, extraArgs...), upper)
-		query := "SELECT " + strings.Join(exprs, ", ") + " FROM " + r.table + " WHERE 1 = 1" + where
-		bctx, cancel := batchContext()
-		a, errA := aggregates(bctx, c.src, query, args, len(exprs))
-		b, errB := aggregates(bctx, c.dst, query, args, len(exprs))
-		cancel()
-		if errA != nil {
-			return c.fail(r, "verifying", errA)
-		}
-		if errB != nil {
-			return c.fail(r, "verifying", errB)
-		}
-		sourceRows, targetRows = a[0], b[0]
-		for k := range a {
-			if a[k] != b[k] {
-				mismatch = true
-			}
-		}
-		if a[0] > b[0] {
-			missing += a[0] - b[0]
-		}
-
-		// from T0 on: every source row has its counterpart
-		if t0 < c.marker.End {
-			var s, t, m int64
-			var err error
-			if r.surrogate() {
-				s, t, m, err = c.verifySurrogateFrom(ctx, r, t0, extra, extraArgs)
-			} else {
-				s, t, m, err = c.verifyKeys(ctx, r, " AND ("+r.window+") >= ?"+extra, append([]interface{}{t0}, extraArgs...))
-			}
-			if err != nil {
-				return err
-			}
-			sourceRows, targetRows, missing = sourceRows+s, targetRows+t, missing+m
-			if m > 0 {
-				mismatch = true
-			}
-		}
+	// every source row of the copied range, one by one: the target's own
+	// rows (of its turns as the store in use, at any time) are not compared
+	var err error
+	if r.surrogate() {
+		sourceRows, targetRows, missing, err = c.verifySurrogate(ctx, r, math.MinInt64, extra, extraArgs)
 	} else {
-		s, t, m, err := c.verifyKeys(ctx, r, extra, extraArgs)
-		if err != nil {
-			return err
-		}
-		sourceRows, targetRows, missing = s, t, m
-		mismatch = m > 0
+		sourceRows, targetRows, missing, err = c.verifyKeys(ctx, r, extra, extraArgs)
 	}
+	if err != nil {
+		return err
+	}
+	mismatch = missing > 0
 
 	c.track.set(i, func(p *TableProgress) {
 		p.SourceRows, p.TargetRows, p.Missing = sourceRows, targetRows, missing
@@ -120,19 +82,9 @@ func (c *copier) verifyTable(ctx context.Context, i int, r rule) error {
 	return nil
 }
 
-func aggregates(ctx context.Context, s Store, query string, args []interface{}, n int) ([]int64, error) {
-	out := make([]int64, n)
-	dest := make([]interface{}, n)
-	for k := range out {
-		dest[k] = &out[k]
-	}
-	err := s.DB.QueryRowContext(ctx, s.bind(query), args...).Scan(dest...)
-	return out, err
-}
-
-func (c *copier) verifySurrogateFrom(ctx context.Context, r rule, t0 int64, extra string, extraArgs []interface{}) (int64, int64, int64, error) {
+// verifySurrogate matches the source rows after the time value after.
+func (c *copier) verifySurrogate(ctx context.Context, r rule, after int64, extra string, extraArgs []interface{}) (int64, int64, int64, error) {
 	var sourceRows, targetRows, missing int64
-	after := t0 - 1
 	for {
 		select {
 		case <-ctx.Done():
@@ -184,6 +136,20 @@ func (c *copier) verifyKeys(ctx context.Context, r rule, extra string, extraArgs
 	lastUpdate := -1
 	if r.table == "metrics" {
 		lastUpdate = r.index("last_update")
+	}
+	// where the source wins (to the local file), a closed bucket the copy
+	// wrote must hold the source's values; a bucket may still change for a
+	// month after its date, and the target's own value wins where it is the
+	// store in use, so only those are compared
+	closedBefore := int64(math.MinInt64)
+	values := []int{}
+	if r.table == "metric_values" && !c.opt.TargetInUse {
+		closedBefore = c.marker.End - bucketOpen.Milliseconds()
+		values = []int{r.index("value"), r.index("avg_index"), r.index("expire")}
+	}
+	date := -1
+	if r.table == "metric_values" {
+		date = r.index("date")
 	}
 	for {
 		select {
@@ -245,6 +211,18 @@ func (c *copier) verifyKeys(ctx context.Context, r rule, extra string, extraArgs
 			if lastUpdate >= 0 {
 				s, t := one.values[lastUpdate].(int64), there.values[lastUpdate].(int64)
 				if t < s && s < c.marker.End {
+					missing++
+					continue
+				}
+			}
+			if date >= 0 && one.values[date].(int64) < closedBefore {
+				differs := false
+				for _, k := range values {
+					if one.values[k] != there.values[k] {
+						differs = true
+					}
+				}
+				if differs {
 					missing++
 					continue
 				}

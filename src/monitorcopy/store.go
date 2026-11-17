@@ -249,14 +249,4 @@ type execer interface {
 	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
 }
 
-// sumExpr is an overflow-free sum of an integer expression in both dialects:
-// SQLite's SUM fails on overflow and PostgreSQL's returns NUMERIC, so the
-// value is summed in two parts (quotient and remainder by 10^6), each cast.
-func sumExprs(expr string) []string {
-	return []string{
-		"CAST(COALESCE(SUM((" + expr + ") / 1000000), 0) AS BIGINT)",
-		"CAST(COALESCE(SUM((" + expr + ") % 1000000), 0) AS BIGINT)",
-	}
-}
-
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
