@@ -504,11 +504,12 @@ func TestTheEndOfSomethingAnswersItsStartAndUnpinsIt(t *testing.T) {
 		t.Errorf("not unpinned: %s %s", got[4].path, got[4].raw)
 	}
 
-	// an end whose start is not known is sent without a reply
+	// an end whose start was never sent in this chat says nothing (review
+	// T1: no orphan "OK")
 	h.Notify(back)
-	got = fake.waitFor(t, 6)
-	if got[5].body["reply_parameters"] != nil {
-		t.Errorf("a reply to nothing: %s", got[5].raw)
+	time.Sleep(300 * time.Millisecond)
+	if n := len(fake.received()); n != 5 {
+		t.Errorf("%d requests after an end without a start", n)
 	}
 }
 

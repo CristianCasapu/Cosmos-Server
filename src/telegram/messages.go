@@ -185,8 +185,9 @@ type notice struct {
 	sample  bool
 	// mergedLabel: the opening of this closing was never sent (it is told
 	// here, with how long it lasted since mergedSince)
-	mergedLabel string
-	mergedSince time.Time
+	mergedLabel    string
+	mergedSince    time.Time
+	mergedSeverity severity
 }
 
 func (nt notice) texts() kindTexts {
@@ -334,7 +335,7 @@ func renderWith(st settings, nt notice, details bool) message {
 		}
 		writeTemplate(c, kt.Preview, safe, maxPreview)
 		if nt.mergedLabel != "" {
-			c.fixed(strings.NewReplacer("{{label}}", strings.ToLower(nt.mergedLabel), "{{duration}}", mergedDuration(nt)).Replace(word("mergedWas")))
+			c.fixed(strings.NewReplacer("{{label}}", nt.mergedLabel, "{{duration}}", mergedDuration(nt)).Replace(word("mergedWas")))
 		}
 	} else {
 		c.fixed(nt.label())

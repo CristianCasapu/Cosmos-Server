@@ -87,6 +87,10 @@ type item struct {
 	// a retried message waits for its turn again; others pass meanwhile
 	attempts  int
 	notBefore time.Time
+	// thread: the item stands for a thread (threadorder.go): what it sends
+	// is decided when it is sent; noButton: sent without the button
+	thread   string
+	noButton bool
 }
 
 // visitorCaused are the critical kinds a visitor without an account can
@@ -141,7 +145,8 @@ type notifier struct {
 	digestLast      time.Time
 	lastDigest      time.Time
 	lastRequest     time.Time
-	holdUntil       time.Time // no message before then (flood control, back-off)
+	holdUntil       time.Time               // no message before then (flood control, back-off)
+	entries         map[string]*threadEntry // the threads, see threadorder.go
 
 	pausedUntil time.Time
 	pausedFor   string // the fingerprint of the settings that were refused
@@ -165,6 +170,7 @@ func newNotifier(client *apiClient, getSettings func() settings) *notifier {
 		buckets:         map[string]*bucket{},
 		criticalBuckets: map[string]*bucket{},
 		digest:          map[string]int{},
+		entries:         map[string]*threadEntry{},
 		wake:            make(chan struct{}, 1),
 		stop:            make(chan struct{}),
 		done:            make(chan struct{}),
@@ -190,13 +196,24 @@ func (n *notifier) close() {
 // a summary, or dropped because its category is off, and the call returns.
 func (n *notifier) Notify(nt notice) {
 	st := n.settings()
-	if !st.usable || !st.wants(nt) {
+	if !st.usable {
 		return
 	}
 	if nt.at.IsZero() {
 		nt.at = n.now()
 	}
 	now := n.now()
+	if threadOf(nt) != "" {
+		// a thread's events change its state whether or not their message
+		// is wanted: decided when sent (threadorder.go)
+		n.mu.Lock()
+		n.threadEventLocked(st, nt, now)
+		n.mu.Unlock()
+		return
+	}
+	if !st.wants(nt) {
+		return
+	}
 
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -218,20 +235,6 @@ func (n *notifier) Notify(nt notice) {
 		return
 	}
 
-	if nt.resolves != "" {
-		// review R1: the opening of what is over was not sent yet (Telegram
-		// could not be reached): one message says it happened and is over,
-		// and the opening is dropped; nothing is pinned
-		for _, queue := range []*[]*item{&n.critical, &n.normal} {
-			for i, waiting := range *queue {
-				if !waiting.nt.closing && waiting.nt.resolves == "" && waiting.nt.thread == nt.resolves {
-					*queue = append((*queue)[:i], (*queue)[i+1:]...)
-					nt.mergedLabel, nt.mergedSince = waiting.nt.label(), waiting.nt.at
-					break
-				}
-			}
-		}
-	}
 	it := &item{priority: p, at: now, since: nt.at, counts: map[string]int{nt.kind: 1}, nt: nt}
 	it.message = render(st, nt)
 	plain := renderWith(st, nt, false)
@@ -418,6 +421,7 @@ func (n *notifier) next() (*item, time.Duration) {
 		// switched off: nothing waits for a later that may never come
 		n.normal, n.critical = nil, nil
 		n.digest, n.digestOther = map[string]int{}, 0
+		n.entries = map[string]*threadEntry{}
 		return nil, time.Hour
 	}
 	if n.pausedLocked(st, now) {
@@ -558,6 +562,9 @@ func (n *notifier) sleep(d time.Duration) bool {
 // deliver sends one message, trying again while that can help. It reports
 // false when the notifier was closed.
 func (n *notifier) deliver(it *item) bool {
+	if it.thread != "" {
+		return n.deliverThread(it)
+	}
 	for attempt := 0; ; attempt++ {
 		st := n.settings()
 		if !st.usable {
@@ -573,7 +580,6 @@ func (n *notifier) deliver(it *item) bool {
 
 		now := n.now()
 		silent := n.silent(st, it, now)
-		replyTo := n.replyTo(st, it)
 
 		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)
 		go func() {
@@ -583,7 +589,7 @@ func (n *notifier) deliver(it *item) bool {
 			case <-ctx.Done():
 			}
 		}()
-		messageID, failure := n.client.sendMessage(ctx, st, outgoing{message: it.message, silent: silent, replyTo: replyTo})
+		_, failure := n.client.sendMessage(ctx, st, outgoing{message: it.message, silent: silent})
 		cancel()
 
 		n.mu.Lock()
@@ -592,7 +598,6 @@ func (n *notifier) deliver(it *item) bool {
 
 		if failure == nil {
 			n.succeeded()
-			n.afterSent(st, it, messageID)
 			return true
 		}
 
@@ -661,50 +666,6 @@ func (n *notifier) silent(st settings, it *item, now time.Time) bool {
 		return true
 	}
 	return st.inQuietHours(now.Hour()*60+now.Minute()) && (it.priority != priorityCritical || st.silenceCrit)
-}
-
-// replyTo is the message a closing message or a repeat answers.
-func (n *notifier) replyTo(st settings, it *item) int {
-	thread := it.nt.resolves
-	if it.nt.mergedLabel != "" {
-		return 0 // its opening was never sent
-	}
-	if thread == "" && it.nt.repeat {
-		thread = it.nt.thread
-	}
-	if thread == "" || n.threads == nil {
-		return 0
-	}
-	if open, ok := n.threads.get(st, thread); ok {
-		return open.MessageID
-	}
-	return 0
-}
-
-// afterSent remembers the opening of something that lasts, pins a critical
-// one, and for a closing message unpins and forgets its opening. Pins are
-// a help: a failure is not retried.
-func (n *notifier) afterSent(st settings, it *item, messageID int) {
-	if n.threads == nil {
-		return
-	}
-	nt := it.nt
-	unpin := []int{}
-	switch {
-	case nt.resolves != "":
-		if open, ok := n.threads.close(st, nt.resolves); ok && open.Pinned {
-			unpin = append(unpin, open.MessageID)
-		}
-	case nt.thread != "" && messageID > 0 && !nt.repeat:
-		pin := nt.texts().Pin && nt.severity == sevCritical
-		unpin = n.threads.open(st, nt.thread, messageID, pin)
-		if pin {
-			n.pinMessage(st, messageID, true)
-		}
-	}
-	for _, id := range unpin {
-		n.pinMessage(st, id, false)
-	}
 }
 
 func (n *notifier) pinMessage(st settings, messageID int, pin bool) {
