@@ -54,8 +54,24 @@ const (
 )
 
 // vpnInterfaceName matches the names VPN software gives its interfaces
-// (the VPN part of virtualInterface in fork_mdns_ifaces.go).
-var vpnInterfaceName = regexp.MustCompile(`^(tailscale|wg|tun|tap|zt|nebula|ztun|utun|ipsec|ppp)`)
+// (the VPN part of virtualInterface in fork_mdns_ifaces.go). Not ppp: a
+// server that dials PPPoE itself has its way out there. A tunN interface
+// (OpenVPN) counts only when it does not carry the default route (a server
+// whose internet goes through a tunnel would otherwise call the internet a
+// VPN); tunl0 (IP-in-IP) is not one.
+var vpnInterfaceName = regexp.MustCompile(`^(tailscale|wg|tun[0-9]|tap[0-9]|zt|nebula|ztun|utun|ipsec)`)
+
+// isVPNInterface is the rule above; defaultRoute is the default route's interface.
+func isVPNInterface(name, defaultRoute string) bool {
+	name = strings.ToLower(name)
+	if !vpnInterfaceName.MatchString(name) {
+		return false
+	}
+	if strings.HasPrefix(name, "tun") && name == strings.ToLower(defaultRoute) {
+		return false
+	}
+	return true
+}
 
 var tailscaleIPv6 = mustCIDR("fd7a:115c:a1e0::/48")
 
@@ -78,12 +94,13 @@ var readPlaceNetworks = func() placeNetworks {
 	if err != nil {
 		return out
 	}
+	defaultRoute := defaultRouteInterface()
 	for _, iface := range ifaces {
 		addrs, err := iface.Addrs()
 		if err != nil {
 			continue
 		}
-		vpn := vpnInterfaceName.MatchString(strings.ToLower(iface.Name))
+		vpn := isVPNInterface(iface.Name, defaultRoute)
 		for _, addr := range addrs {
 			network, ok := addr.(*net.IPNet)
 			if !ok || network.IP.IsLoopback() {

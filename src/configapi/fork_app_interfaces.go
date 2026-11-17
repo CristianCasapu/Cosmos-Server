@@ -23,6 +23,7 @@ package configapi
 // ports go to administrators only.
 
 import (
+	"net/http"
 	"regexp"
 	"sort"
 	"strconv"
@@ -184,6 +185,15 @@ type ForkDashboardPort struct {
 }
 
 // ForkDashboardFields are the fork's additions to a route of GET /api/dashboard.
+// Who gets which field (dashboardCaller):
+//   - a signed-in person, for the URLs they may already see: what the tile needs
+//     to open the right address (role, label, kept at home, sign-in, the URL's
+//     names for use at home);
+//   - an API token: those only with the permission reading the configuration
+//     needs (home names used to need it);
+//   - role source and proposed role: for those who can edit URLs (the form);
+//   - the administration path of a page for users, the container, its image
+//     and its published ports: administrators only.
 type ForkDashboardFields struct {
 	AuthEnabled bool `json:"AuthEnabled,omitempty"` // behind Cosmos' sign-in
 	// what the URL is to its app: as set on the URL form, else proposed
@@ -199,17 +209,51 @@ type ForkDashboardFields struct {
 	ForkContainer string              `json:"ForkContainer,omitempty"`
 	ForkImage     string              `json:"ForkImage,omitempty"`
 	ForkPorts     []ForkDashboardPort `json:"ForkPorts,omitempty"`
+
+	// the configured route this entry was made from (never sent): fields are
+	// matched by the route itself, not by its name, which need not be unique
+	source *utils.ProxyRouteConfig
 }
 
-// forkDashboardRoutes is the hook of DashboardApiGet: it fills the fork's
-// fields of the routes the caller gets. containers is what Docker listed.
-func forkDashboardRoutes(out []DashboardRoute, config utils.Config, containers []types.Container, isAdmin bool, homeNames []utils.HomeName) []DashboardRoute {
-	byName := map[string]utils.ProxyRouteConfig{}
-	for _, route := range config.HTTPConfig.ProxyConfig.Routes {
-		if _, seen := byName[route.Name]; !seen {
-			byName[route.Name] = route
+// forkDashboardSource is the hook of DashboardApiGet's loop: it remembers
+// which configured route an entry was made from.
+func forkDashboardSource(route utils.ProxyRouteConfig) ForkDashboardFields {
+	return ForkDashboardFields{source: &route}
+}
+
+// dashboardCaller is what a caller of GET /api/dashboard may get of the fork's fields.
+type dashboardCaller struct {
+	admin     bool // PERM_ADMIN_READ: container details, administration paths
+	tileWords bool // role, label, kept at home, sign-in, names for use at home
+	editsURLs bool // role source and proposed role
+}
+
+// dashboardCallerOf: a person always gets what the tile needs; an API token
+// only with the configuration-read permission. Editing URLs is
+// PERM_CONFIGURATION held by the role or the token (the form asks for the
+// password confirmation itself when it saves).
+func dashboardCallerOf(req *http.Request) dashboardCaller {
+	ctx := utils.GetAuthContext(req)
+	caller := dashboardCaller{admin: utils.HasPermission(req, utils.PERM_ADMIN_READ)}
+	if ctx.APIToken != nil {
+		caller.tileWords = utils.HasPermission(req, utils.PERM_CONFIGURATION_READ)
+		caller.editsURLs = utils.HasPermission(req, utils.PERM_CONFIGURATION)
+		return caller
+	}
+	caller.tileWords = ctx.Nickname != ""
+	for _, p := range ctx.Permissions {
+		if p == utils.PERM_CONFIGURATION {
+			caller.editsURLs = true
 		}
 	}
+	return caller
+}
+
+// forkDashboardRoutes is the hook of DashboardApiGet: it leaves out the
+// disabled URLs (they answer nothing: a tile must never open one) and fills
+// the fork's fields of the routes the caller gets, by the route each entry
+// was made from. containers is what Docker listed.
+func forkDashboardRoutes(out []DashboardRoute, containers []types.Container, caller dashboardCaller, homeNames []utils.HomeName) []DashboardRoute {
 	containerOf := func(name string) *types.Container {
 		if name == "" {
 			return nil
@@ -223,12 +267,22 @@ func forkDashboardRoutes(out []DashboardRoute, config utils.Config, containers [
 		}
 		return nil
 	}
-	for i := range out {
-		route, ok := byName[out[i].Name]
-		if !ok {
+	if out == nil {
+		return nil
+	}
+	kept := make([]DashboardRoute, 0, len(out))
+	for _, entry := range out {
+		source := entry.ForkDashboardFields.source
+		if source == nil {
+			entry.ForkDashboardFields = ForkDashboardFields{}
+			kept = append(kept, entry)
 			continue
 		}
-		fields := ForkDashboardFields{AuthEnabled: route.AuthEnabled}
+		route := *source
+		if route.Disabled {
+			continue
+		}
+		fields := ForkDashboardFields{}
 		image := ""
 		var c *types.Container
 		if route.Mode == "SERVAPP" {
@@ -238,30 +292,40 @@ func forkDashboardRoutes(out []DashboardRoute, config utils.Config, containers [
 			}
 		}
 		proposal := proposeRole(route, image)
-		fields.ForkRole, fields.ForkRoleSource, fields.ForkAdminPath = proposal.Role, proposal.Source, proposal.AdminPath
-		fields.ForkRoleProposed = proposal.Role
+		role, source2, adminPath := proposal.Role, proposal.Source, proposal.AdminPath
+		label, homeOnly := "", false
 		if setting := route.ForkInterface; setting != nil && utils.RouteInterfaceProblem(setting) == "" {
 			if setting.Role != "" {
-				fields.ForkRole, fields.ForkRoleSource = setting.Role, roleFromSetting
+				role, source2 = setting.Role, roleFromSetting
 			}
-			fields.ForkLabel, fields.ForkHomeOnly = setting.Label, setting.HomeOnly
+			label, homeOnly = setting.Label, setting.HomeOnly
 		}
-		if fields.ForkRole != utils.InterfaceUser {
-			fields.ForkAdminPath = "" // the administration path is of a page for users
-		}
-		for _, name := range homeNames {
-			if name.Route == route.Name && len(fields.ForkHomeHosts) < 4 {
-				fields.ForkHomeHosts = append(fields.ForkHomeHosts, name.Host)
+		if caller.tileWords {
+			fields.AuthEnabled, fields.ForkRole, fields.ForkLabel, fields.ForkHomeOnly = route.AuthEnabled, role, label, homeOnly
+			host := strings.ToLower(strings.TrimSpace(route.Host))
+			for _, name := range homeNames {
+				if name.Route == route.Name && strings.EqualFold(strings.TrimSpace(name.Source), host) && route.UseHost && len(fields.ForkHomeHosts) < 4 {
+					fields.ForkHomeHosts = append(fields.ForkHomeHosts, name.Host)
+				}
 			}
 		}
-		if isAdmin && c != nil {
-			fields.ForkContainer = strings.TrimPrefix(firstName(c.Names), "/")
-			fields.ForkImage = c.Image
-			fields.ForkPorts = dashboardPorts(c)
+		if caller.editsURLs {
+			fields.ForkRoleSource, fields.ForkRoleProposed = source2, proposal.Role
 		}
-		out[i].ForkDashboardFields = fields
+		if caller.admin {
+			if role == utils.InterfaceUser {
+				fields.ForkAdminPath = adminPath // the administration path is of a page for users
+			}
+			if c != nil {
+				fields.ForkContainer = strings.TrimPrefix(firstName(c.Names), "/")
+				fields.ForkImage = c.Image
+				fields.ForkPorts = dashboardPorts(c)
+			}
+		}
+		entry.ForkDashboardFields = fields
+		kept = append(kept, entry)
 	}
-	return out
+	return kept
 }
 
 func firstName(names []string) string {

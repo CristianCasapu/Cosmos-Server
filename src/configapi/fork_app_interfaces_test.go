@@ -1,7 +1,10 @@
 package configapi
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -165,23 +168,31 @@ func ownerShape() (utils.Config, []types.Container) {
 	return config, containers
 }
 
-// what the upstream loop gives, for the hook
+// what the upstream loop gives, for the hook: the same filter and the
+// source of each entry (the handler-level tests below go through the real loop)
 func dashboardOf(config utils.Config, isAdmin bool) []DashboardRoute {
 	out := []DashboardRoute{}
 	for _, route := range config.HTTPConfig.ProxyConfig.Routes {
 		if !isAdmin && route.AdminOnly {
 			continue
 		}
-		out = append(out, DashboardRoute{Name: route.Name, Target: route.Target, Mode: string(route.Mode), Host: route.Host, UseHost: route.UseHost})
+		entry := DashboardRoute{Name: route.Name, Target: route.Target, Mode: string(route.Mode), Host: route.Host, UseHost: route.UseHost}
+		entry.ForkDashboardFields = forkDashboardSource(route)
+		out = append(out, entry)
 	}
 	return out
 }
+
+var (
+	adminCaller = dashboardCaller{admin: true, tileWords: true, editsURLs: true}
+	plainCaller = dashboardCaller{tileWords: true}
+)
 
 func TestDashboardFieldsForAnAdministrator(t *testing.T) {
 	config, containers := ownerShape()
 	config.HTTPConfig.ProxyConfig.Routes[4].ForkInterface = &utils.ForkRouteInterface{Role: "other", Label: "Torrents", HomeOnly: true}
 	homes := []utils.HomeName{{Host: "jellyfin.home.example.org", Route: "jellyfin", Source: "jellyfin.local"}}
-	got := forkDashboardRoutes(dashboardOf(config, true), config, containers, true, homes)
+	got := forkDashboardRoutes(dashboardOf(config, true), containers, adminCaller, homes)
 	by := map[string]DashboardRoute{}
 	for _, r := range got {
 		by[r.Name] = r
@@ -206,11 +217,12 @@ func TestDashboardFieldsForAnAdministrator(t *testing.T) {
 	}
 }
 
-// A plain user gets the routes he got before, with their roles, and nothing
-// about containers: no image, no container name, no ports.
+// A plain user gets, for the URLs he sees, what the tile needs, and nothing
+// about containers, no administration path, no role source.
 func TestDashboardFieldsForAPlainUser(t *testing.T) {
 	config, containers := ownerShape()
-	got := forkDashboardRoutes(dashboardOf(config, false), config, containers, false, nil)
+	homes := []utils.HomeName{{Host: "jellyfin.home.example.org", Route: "jellyfin", Source: "jellyfin.local"}}
+	got := forkDashboardRoutes(dashboardOf(config, false), containers, plainCaller, homes)
 	if len(got) != 5 {
 		t.Fatalf("a plain user got %d routes, want the 5 that are not admin-only", len(got))
 	}
@@ -218,15 +230,18 @@ func TestDashboardFieldsForAPlainUser(t *testing.T) {
 		if r.Name == "secret-admin" {
 			t.Errorf("an admin-only URL reached a plain user")
 		}
-		if r.ForkImage != "" || r.ForkContainer != "" || len(r.ForkPorts) != 0 {
-			t.Errorf("%s: a plain user got container details: %+v", r.Name, r.ForkDashboardFields)
+		if r.ForkImage != "" || r.ForkContainer != "" || len(r.ForkPorts) != 0 || r.ForkAdminPath != "" || r.ForkRoleSource != "" || r.ForkRoleProposed != "" {
+			t.Errorf("%s: a plain user got more than the tile needs: %+v", r.Name, r.ForkDashboardFields)
 		}
 		if r.ForkRole == "" {
 			t.Errorf("%s: no role", r.Name)
 		}
 	}
+	if got[0].Name != "jellyfin" || len(got[0].ForkHomeHosts) != 1 {
+		t.Errorf("a plain user lost the home name of a URL he sees: %+v", got[0].ForkDashboardFields)
+	}
 	raw, _ := json.Marshal(got)
-	for _, word := range []string{"ForkImage", "ForkPorts", "ForkContainer", "192.168.1.10", "6881", "5432", "postgres"} {
+	for _, word := range []string{"ForkImage", "ForkPorts", "ForkContainer", "ForkAdminPath", "ForkRoleSource", "ForkRoleProposed", "192.168.1.10", "6881", "5432", "postgres", "dashboard"} {
 		if strings.Contains(string(raw), word) {
 			t.Errorf("the plain user's answer holds %q: %s", word, raw)
 		}
@@ -238,8 +253,138 @@ func TestDashboardFieldsForAPlainUser(t *testing.T) {
 func TestDashboardIgnoresAHostileSetting(t *testing.T) {
 	config, containers := ownerShape()
 	config.HTTPConfig.ProxyConfig.Routes[0].ForkInterface = &utils.ForkRouteInterface{Role: "javascript:alert(1)", Label: "<script>"}
-	got := forkDashboardRoutes(dashboardOf(config, true), config, containers, true, nil)
+	got := forkDashboardRoutes(dashboardOf(config, true), containers, adminCaller, nil)
 	if got[0].ForkRole != "user" || got[0].ForkLabel != "" || got[0].ForkRoleSource != "app" {
 		t.Errorf("a hostile setting came through: %+v", got[0].ForkDashboardFields)
+	}
+}
+
+// Two URLs of one name (the whole-configuration save does not refuse it), the
+// first for administrators only: a plain user's URL carries its own fields,
+// never the other one's.
+func TestDashboardDuplicateNames(t *testing.T) {
+	config := utils.Config{}
+	secret := servapp("x", "http://portainer:9000", "x-admin.example.org")
+	secret.AdminOnly = true
+	secret.ForkInterface = &utils.ForkRouteInterface{Role: "admin", Label: "Secret console"}
+	public := servapp("x", "http://whoami:80", "x.example.org")
+	config.HTTPConfig.ProxyConfig.Routes = []utils.ProxyRouteConfig{secret, public}
+	homes := []utils.HomeName{{Host: "x-admin.home.example.org", Route: "x", Source: "x-admin.example.org"}}
+	got := forkDashboardRoutes(dashboardOf(config, false), nil, plainCaller, homes)
+	if len(got) != 1 || got[0].Host != "x.example.org" {
+		t.Fatalf("got %+v", got)
+	}
+	if got[0].ForkLabel != "" || got[0].ForkRole != "user" || len(got[0].ForkHomeHosts) != 0 {
+		t.Errorf("the plain user's URL carries the admin-only one's fields: %+v", got[0].ForkDashboardFields)
+	}
+}
+
+// A disabled URL answers nothing: it is left out, so no tile opens it.
+func TestDashboardLeavesDisabledURLsOut(t *testing.T) {
+	config, containers := ownerShape()
+	config.HTTPConfig.ProxyConfig.Routes[1].Disabled = true // jellyfin's public URL
+	got := forkDashboardRoutes(dashboardOf(config, true), containers, adminCaller, nil)
+	for _, r := range got {
+		if r.Name == "jellyfin-example.org" {
+			t.Errorf("a disabled URL is listed")
+		}
+	}
+	if len(got) != 5 {
+		t.Errorf("got %d URLs, want 5", len(got))
+	}
+}
+
+func asToken(perms ...utils.Permission) func(*http.Request) *http.Request {
+	return func(req *http.Request) *http.Request {
+		return req.WithContext(context.WithValue(req.Context(), utils.AuthCtxKey, &utils.AuthContext{
+			APIToken: &utils.APITokenContext{Name: "t", Owner: "admin", Permissions: perms},
+		}))
+	}
+}
+
+func asSudoedAdmin(req *http.Request) *http.Request {
+	return req.WithContext(context.WithValue(req.Context(), utils.AuthCtxKey, &utils.AuthContext{
+		Nickname: "admin", Role: utils.ADMIN, UserRole: utils.ADMIN, Permissions: utils.GetRolePermissions(utils.ADMIN), IsSudoed: true,
+	}))
+}
+
+// Through the real handler and its admin-only filter, per kind of caller.
+func TestDashboardHandlerPerCaller(t *testing.T) {
+	settingsTestServer(t)
+	t.Setenv("DOCKER_HOST", "unix:///nonexistent/docker.sock")
+	config := utils.DefaultConfig
+	config.NewInstall = false
+	config.HTTPConfig.Hostname = "cosmos.example.com"
+	shown := servapp("jellyfin", "http://jellyfin:8096", "jellyfin.example.com")
+	shown.AuthEnabled = true
+	shown.ForkInterface = &utils.ForkRouteInterface{Role: "user", Label: "Films"}
+	hidden := servapp("ops", "http://portainer:9000", "ops.example.com")
+	hidden.AdminOnly = true
+	off := servapp("old", "http://old:80", "old.example.com")
+	off.Disabled = true
+	config.HTTPConfig.ProxyConfig.Routes = []utils.ProxyRouteConfig{shown, hidden, off}
+	utils.SaveConfigTofile(config)
+	utils.LoadBaseMainConfig(config)
+
+	get := func(as func(*http.Request) *http.Request) []map[string]interface{} {
+		w := httptest.NewRecorder()
+		DashboardApiGet(w, as(httptest.NewRequest("GET", "https://cosmos.example.com/cosmos/api/dashboard", nil)))
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET /api/dashboard: %d %s", w.Code, w.Body.String())
+		}
+		var answer struct{ Data []map[string]interface{} }
+		if err := json.Unmarshal(w.Body.Bytes(), &answer); err != nil {
+			t.Fatal(err)
+		}
+		return answer.Data
+	}
+	names := func(rows []map[string]interface{}) string {
+		out := []string{}
+		for _, r := range rows {
+			out = append(out, r["Name"].(string))
+		}
+		return strings.Join(out, ",")
+	}
+
+	plain := get(asPlainUser)
+	if names(plain) != "jellyfin" {
+		t.Fatalf("a plain user got %s, want jellyfin only (not the admin-only nor the disabled URL)", names(plain))
+	}
+	if plain[0]["ForkRole"] != "user" || plain[0]["ForkLabel"] != "Films" || plain[0]["AuthEnabled"] != true {
+		t.Errorf("a plain user lost what the tile needs: %v", plain[0])
+	}
+	for _, field := range []string{"ForkRoleSource", "ForkRoleProposed", "ForkAdminPath", "ForkImage", "ForkPorts", "ForkContainer"} {
+		if _, ok := plain[0][field]; ok {
+			t.Errorf("a plain user got %s", field)
+		}
+	}
+
+	admin := get(asSudoedAdmin)
+	if names(admin) != "jellyfin,ops" {
+		t.Errorf("an administrator got %s", names(admin))
+	}
+	if admin[0]["ForkRoleSource"] != "set" || admin[0]["ForkRoleProposed"] == nil {
+		t.Errorf("an administrator lost the role's source: %v", admin[0])
+	}
+	unsudoed := get(asAdminWithoutPassword)
+	if unsudoed[0]["ForkRoleSource"] != "set" {
+		t.Errorf("an administrator before the password confirmation lost the role's source (the form needs it): %v", unsudoed[0])
+	}
+
+	bare := get(asToken())
+	if names(bare) != "jellyfin" {
+		t.Errorf("a token without permissions got %s", names(bare))
+	}
+	for _, field := range []string{"ForkRole", "ForkLabel", "AuthEnabled", "ForkHomeHosts", "ForkRoleSource", "ForkAdminPath"} {
+		if _, ok := bare[0][field]; ok {
+			t.Errorf("a token without permissions got %s", field)
+		}
+	}
+	reader := get(asToken(utils.PERM_CONFIGURATION_READ))
+	if reader[0]["ForkRole"] != "user" || reader[0]["ForkLabel"] != "Films" {
+		t.Errorf("a token that may read the configuration lost the role: %v", reader[0])
+	}
+	if _, ok := reader[0]["ForkRoleSource"]; ok {
+		t.Errorf("a token that may only read the configuration got the role's source")
 	}
 }

@@ -274,6 +274,13 @@ for (const engine of engines) {
       const q = await menuItems(page);
       check(q.every((i) => !i.endpoint && !/published port/.test(i.text)), tag + ': no published port in a plain user\'s menu');
       await page.keyboard.press('Escape');
+      await sleep(400);
+      await page.locator('[data-app-more="jellyfin"]').click();
+      await page.locator('[role=menu]:visible').waitFor();
+      const j = await menuItems(page);
+      check(j.length > 0 && j.every((i) => !/dashboard/.test(i.href + i.copy) && i.interface !== 'admin'), tag + ': no administration link for a plain user');
+      check(!JSON.stringify(dash).match(/ForkAdminPath|ForkRoleSource|ForkRoleProposed/), tag + ': no administration path or role source reaches a plain user');
+      await page.keyboard.press('Escape');
     }
 
     if (phase === 'role' && engine === engines[0] && size === sizes[0]) {

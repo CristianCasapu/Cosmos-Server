@@ -158,14 +158,82 @@ func TestPlaceOfUsesTheVisitorAddress(t *testing.T) {
 }
 
 func TestVPNInterfaceNames(t *testing.T) {
-	for _, name := range []string{"tailscale0", "wg0", "tun0", "zt12345", "nebula1", "ppp0"} {
-		if !vpnInterfaceName.MatchString(name) {
+	for _, name := range []string{"tailscale0", "wg0", "tun0", "tun12", "zt12345", "nebula1", "utun3"} {
+		if !isVPNInterface(name, "eth0") {
 			t.Errorf("%s is not taken for a VPN", name)
 		}
 	}
-	for _, name := range []string{"eth0", "enp3s0", "eno1", "br-0123456789ab", "docker0", "wlan0", "bond0"} {
-		if vpnInterfaceName.MatchString(name) {
+	for _, name := range []string{"eth0", "enp3s0", "eno1", "br-0123456789ab", "docker0", "wlan0", "bond0", "ppp0", "pppoe-wan", "tunl0"} {
+		if isVPNInterface(name, "eth0") {
 			t.Errorf("%s is taken for a VPN", name)
+		}
+	}
+	// a server whose way out is the tunnel: that tunnel is not a VPN of visitors
+	if isVPNInterface("tun0", "tun0") {
+		t.Errorf("the default route's tunnel is taken for a VPN")
+	}
+	if !isVPNInterface("wg0", "wg0") {
+		t.Errorf("WireGuard on the default route is still a VPN interface")
+	}
+}
+
+// Through Cloudflare (a shielded name, origin pulls off): the visitor is the
+// one public address Cloudflare names; anything else is Cloudflare's own
+// address, away.
+func TestPlaceOfThroughCloudflare(t *testing.T) {
+	saved := readPlaceNetworks
+	placeNetsMu.Lock()
+	placeNets = nil
+	placeNetsMu.Unlock()
+	readPlaceNetworks = func() placeNetworks { return testPlaceNets(t) }
+	t.Cleanup(func() {
+		readPlaceNetworks = saved
+		placeNetsMu.Lock()
+		placeNets = nil
+		placeNetsMu.Unlock()
+		utils.LoadBaseMainConfig(utils.Config{})
+	})
+	config := utils.Config{}
+	config.HTTPConfig.Cloudflare.Shielded = []string{"app.example.org"}
+	config.HTTPConfig.Cloudflare.TrustRanges = true
+	utils.LoadBaseMainConfig(config)
+
+	place := func(host, peer string, cf ...string) VisitorPlace {
+		var got VisitorPlace
+		handler := utils.ClientRealIP(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			got = PlaceOf(req, []string{"203.0.113.7"})
+		}))
+		req := httptest.NewRequest("GET", "https://"+host+"/cosmos/api/status", nil)
+		req.RemoteAddr = peer
+		for _, v := range cf {
+			req.Header.Add("CF-Connecting-IP", v)
+		}
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+		return got
+	}
+	edge := "173.245.48.5:4000"
+	cases := []struct {
+		what  string
+		host  string
+		peer  string
+		cf    []string
+		where string
+		sure  bool
+	}{
+		{"a visitor from the internet", "app.example.org", edge, []string{"198.51.100.20"}, PlaceAway, true},
+		{"the home's own public address (a phone at home through Cloudflare)", "app.example.org", edge, []string{"203.0.113.7"}, PlaceHome, false},
+		{"the home's IPv6 prefix", "app.example.org", edge, []string{"2001:db8:1:2::abcd"}, PlaceHome, true},
+		{"Cloudflare claiming a private visitor", "app.example.org", edge, []string{"192.168.1.42"}, PlaceAway, true},
+		{"Cloudflare claiming a carrier-NAT visitor", "app.example.org", edge, []string{"100.64.0.9"}, PlaceAway, true},
+		{"two values", "app.example.org", edge, []string{"203.0.113.7", "198.51.100.20"}, PlaceAway, true},
+		{"a name that is not shielded", "direct.example.org", edge, []string{"203.0.113.7"}, PlaceAway, true},
+		{"an IPv4-mapped IPv6 peer at home", "app.example.org", "[::ffff:192.168.1.42]:4000", nil, PlaceHome, true},
+		{"an IPv4-mapped IPv6 peer from the internet", "app.example.org", "[::ffff:198.51.100.20]:4000", nil, PlaceAway, true},
+	}
+	for _, c := range cases {
+		got := place(c.host, c.peer, c.cf...)
+		if got.Where != c.where || got.Sure != c.sure {
+			t.Errorf("%s: %+v, want %s sure=%v", c.what, got, c.where, c.sure)
 		}
 	}
 }
