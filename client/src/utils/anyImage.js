@@ -583,7 +583,8 @@ export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, ho
     networks[managed.network] = { driver: 'bridge' };
     appNetworks = [...appNetworks, managed.network];
     appNetworkMode = managed.network;
-  } else if (recipe && ['database', 'cache'].includes(recipe.kind) && !appNetworks.length) {
+  } else if (recipe && (['database', 'cache'].includes(recipe.kind) || recipe.manager) && !appNetworks.length) {
+    // a web manager installed alone too (second review): never on Docker's default bridge
     // plan 45 (review F2): a database on its own network, not Docker's default bridge; "Let these apps reach it" links apps to it
     const own = fresh(`${name}-net`);
     networks[own] = { driver: 'bridge' };

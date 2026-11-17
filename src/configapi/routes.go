@@ -176,6 +176,7 @@ func createRoute(w http.ResponseWriter, req *http.Request) {
 	}
 
 	config.HTTPConfig.ProxyConfig.Routes = append([]utils.ProxyRouteConfig{newRoute}, routes...)
+	utils.ForkGuardRoutes(config.HTTPConfig.ProxyConfig.Routes, utils.GetAuthContext(req).Nickname) // Fork addition (plan 45): a manager's URL stays for administrators
 	utils.SetBaseMainConfig(config)
 
 	utils.Log("Route created: " + newRoute.Name)
@@ -273,6 +274,7 @@ func updateRoute(w http.ResponseWriter, req *http.Request) {
 
 	routes[routeIndex] = updatedRoute
 	config.HTTPConfig.ProxyConfig.Routes = routes
+	utils.ForkGuardRoutes(config.HTTPConfig.ProxyConfig.Routes, utils.GetAuthContext(req).Nickname) // Fork addition (plan 45): a manager's URL stays for administrators
 	utils.SetBaseMainConfig(config)
 	utils.ConfigLock.Unlock()
 

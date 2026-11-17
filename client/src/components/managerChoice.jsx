@@ -17,7 +17,7 @@ import * as API from '../api';
 import NewDockerService from '../pages/servapps/containers/newService';
 import { localAddress } from './hostnameSuggestions';
 import { browserRandom, managerDefinition, managersFor, parseReference, proposedSettings } from '../utils/anyImage';
-import { MANAGER_LABEL, networkSuffix } from '../utils/signIn';
+import { networkSuffix } from '../utils/signIn';
 
 const wrap = { overflowWrap: 'anywhere', minWidth: 0, '& .MuiAlert-message': { minWidth: 0 } };
 const touchChip = { '&&&': { height: { xs: 'auto', sm: 32 }, minHeight: { xs: 44, sm: 0 } }, '& .MuiChip-label': { whiteSpace: 'normal' } };
@@ -87,7 +87,9 @@ export const ManagerChoice = ({ state, busy, dbLabel }) => {
         })}
       </Stack>
       <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
-        {t('mgmt.servapps.manager.sentence', '{{manager}} is created with {{db}}, on a network only the two share, with an address in Cosmos for administrators only, behind Cosmos\' sign-in. No port is published.', { manager: state.name, db: dbLabel, interpolation: { escapeValue: false } })}
+        {state.existing
+          ? t('mgmt.servapps.manager.sentenceExisting', '{{manager}} is created on a network of its own and joins {{db}} on a network only the two share; {{db}} stays on the networks it has. Its address in Cosmos is for administrators only, behind Cosmos\' sign-in. No port is published.', { manager: state.name, db: dbLabel, interpolation: { escapeValue: false } })
+          : t('mgmt.servapps.manager.sentence', '{{manager}} is created with {{db}}, on a network only the two share, with an address in Cosmos for administrators only, behind Cosmos\' sign-in. No port is published.', { manager: state.name, db: dbLabel, interpolation: { escapeValue: false } })}
       </Typography>
       {note && <Typography variant="caption" sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }}>{t(note[0], note[1])}</Typography>}
       {state.desc && state.desc.problem && <Alert severity="warning" sx={wrap}>{t('mgmt.servapps.manager.unreadable', 'Cosmos could not read the manager\'s image just now: the database is created without it. You can add one later from its page.')}</Alert>}
@@ -103,14 +105,20 @@ export const useManagersOf = (open, containers) => {
   const names = (containers || []).map((c) => String(c.Name || (c.Names && c.Names[0]) || '').replace(/^\//, '')).filter(Boolean);
   const key = names.join(' ');
   React.useEffect(() => {
-    if (!open || !names.length) { setManagers([]); return; }
+    if (!open || !names.length || !API.signIn) { setManagers([]); return; }
     let live = true;
-    API.docker.list().then((res) => {
-      if (!live) return;
-      const found = ((res && res.data) || []).filter((c) => c && c.Labels && names.includes(c.Labels[MANAGER_LABEL])
-        && !names.includes(String((c.Names && c.Names[0]) || '').replace(/^\//, '')));
-      setManagers(found.map((c) => ({ ...c, Name: c.Names[0] })));
-    }).catch(() => {});
+    // the server names the managers by their label as the administrator set it (never an image's own);
+    // an account that may not read credentials gets no offer
+    Promise.all(names.slice(0, 8).map((n) => API.signIn.details(n).then((res) => (res && res.data && res.data.managers) || []).catch(() => [])))
+      .then((lists) => {
+        const wanted = [...new Set(lists.flat())].filter((m) => !names.includes(m));
+        if (!wanted.length) { if (live) setManagers([]); return null; }
+        return API.docker.list().then((res) => {
+          if (!live) return;
+          setManagers(((res && res.data) || []).filter((c) => wanted.includes(String((c.Names && c.Names[0]) || '').replace(/^\//, '')))
+            .map((c) => ({ ...c, Name: c.Names[0] })));
+        });
+      }).catch(() => {});
     return () => { live = false; };
   }, [open, key]);
   return managers;
@@ -163,7 +171,7 @@ export const AddManagerDialog = ({ open, onClose, containerName, refresh }) => {
         {masked && <Alert severity="warning" sx={wrap} data-manager-masked>{t('mgmt.servapps.manager.masked', 'The manager needs the database\'s settings, which your account cannot read now: confirm your password (or ask an administrator who may read credentials).')}</Alert>}
         {recipe && state.options.length > 0 && <>
           <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}><DatabaseOutlined /> {recipe.name}: {containerName}</Typography>
-          <ManagerChoice state={{ ...state, on: true, setOn: () => {} }} busy={false} dbLabel={containerName} />
+          <ManagerChoice state={{ ...state, on: true, setOn: () => {}, existing: true }} busy={false} dbLabel={containerName} />
         </>}
         {definition && <NewDockerService service={definition} refresh={refresh} />}
       </Stack>

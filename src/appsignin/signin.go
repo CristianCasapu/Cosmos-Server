@@ -107,6 +107,10 @@ type Details struct {
 	Accounts     []Account   `json:"accounts"`
 	FirstRun     *FirstRun   `json:"firstRun,omitempty"`
 	Data         []DataPlace `json:"data"`
+	// Managers: the web managers made for it (their label as the administrator set it, never an image's)
+	Managers []string `json:"managers"`
+	// Withheld: fields left out because they held a secret value of the app (secrets.go)
+	Withheld []string `json:"withheld,omitempty"`
 	// NoAuth: its recipe says it has no sign-in of its own (Redis, Redis Insight)
 	NoAuth bool `json:"noAuth,omitempty"`
 	// Provides: the kind of database it is (postgres, mysql, mongo, redis), for "Add a web manager"
@@ -219,6 +223,15 @@ func resolve(c containerInfo, routes []utils.ProxyRouteConfig, serverURL func(ho
 	name := strings.TrimPrefix(c.Name, "/")
 	l := loginOf(c, env)
 	secrets := secretsOf(env)
+	withheld := map[string]bool{}
+	// a field from a variable, left out (and said) when it holds a secret value of the app
+	pick := func(variable string, shape *regexp.Regexp, what string) string {
+		v := field(env, variable, shape, secrets)
+		if v == "" && variable != "" && holdsSecret(shown(env[variable]), secrets) {
+			withheld[what] = true
+		}
+		return v
+	}
 	d := Details{Container: name, Image: c.Image, Name: l.name, Source: l.source, Where: l.where, Via: l.via,
 		Addresses: addressesOf(name, routes, serverURL), Accounts: []Account{}, FirstRun: l.firstRun,
 		Data: dataOf(c.Mounts), secrets: map[string]secretSource{}, secretValues: secrets}
@@ -254,16 +267,16 @@ func resolve(c containerInfo, routes []utils.ProxyRouteConfig, serverURL func(ho
 		switch {
 		case a.UserFixed != "":
 			account.User = a.UserFixed
-		case a.User != "" && field(env, a.User, identifier, secrets) != "":
-			account.User = field(env, a.User, identifier, secrets)
+		case a.User != "" && pick(a.User, identifier, "username") != "":
+			account.User = pick(a.User, identifier, "username")
 		case a.UserUnset != "":
 			account.User = a.UserUnset
 		}
 		if a.Email != "" {
-			account.Email = field(env, a.Email, emailShape, secrets)
+			account.Email = pick(a.Email, emailShape, "e-mail")
 		}
 		if a.Database != "" {
-			account.Database = field(env, a.Database, databaseShape, secrets)
+			account.Database = pick(a.Database, databaseShape, "database")
 		}
 		if a.Password != "" && env[a.Password] != "" {
 			account.Password = "password." + strconv.Itoa(i)
@@ -281,6 +294,9 @@ func resolve(c containerInfo, routes []utils.ProxyRouteConfig, serverURL func(ho
 	}
 	if d.FirstRun != nil && d.FirstRun.User != "" && (!identifier.MatchString(d.FirstRun.User) || holdsSecret(d.FirstRun.User, secrets)) {
 		d.FirstRun.User = ""
+	}
+	for what := range withheld {
+		d.Withheld = append(d.Withheld, what)
 	}
 	clean(&d, secrets)
 	return d

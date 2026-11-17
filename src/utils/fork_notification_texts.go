@@ -36,6 +36,7 @@ var notificationKinds = map[string]notificationKind{
 	"container.leftover":      {"containers", "notif.container.leftover.title"},
 	"app.installed":           {"containers", "notif.app.installed.title"},     // plan 45
 	"app.installMail.failed":  {"containers", "notif.app.installMail.title"},   // plan 45
+	"route.protected":         {"containers", "notif.route.protected.title"},   // plan 45
 	"snapshots.failed":        {"snapshots", "notif.snapshots.failed.title"},
 	"alert.disk":              {"monitoring", "notif.alert.disk.title"},
 	"alert.triggered":         {"monitoring", "notif.alert.triggered.title"},
@@ -214,6 +215,9 @@ var notificationTexts = map[string]string{
 	"notif.app.installMail.means":   "Nothing else is affected: the app was created, and its sign-in details are on its page.",
 	"notif.step.app.signIn":         "Open the sign-in details of {{name}}",
 	"notif.step.config.mail":        "Check the e-mail settings (Configuration, General)",
+	"notif.route.protected.title":   "{{names}}: for administrators only",
+	"notif.route.protected.what":    "Cosmos made the URL {{names}} open for administrators only, behind Cosmos' sign-in: it leads to a tool that controls a database or has no sign-in of its own.",
+	"notif.route.protected.means":   "Only administrators reach it, after signing in to Cosmos. The URL's other settings are as you saved them.",
 
 	// --- snapshots
 	"notif.snapshots.failed.title": "The incremental backup had problems",

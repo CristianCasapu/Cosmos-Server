@@ -34,7 +34,7 @@ import cmp from 'semver-compare';
 import { HostnameChecker, getHostnameFromName } from '../../../utils/routes';
 import { CosmosContainerPicker } from '../../config/users/containerPicker';
 import { randomString } from '../../../utils/indexs';
-import { composeVarDefault, marketFormValue, marketPassword } from '../../../utils/signIn'; // Fork addition (plan 45)
+import { composeVarDefault, marketFormValue, marketPassword, stripForkLabels } from '../../../utils/signIn'; // Fork addition (plan 45)
 import { browserRandom } from '../../../utils/anyImage'; // Fork addition (plan 45)
 import { useTranslation } from 'react-i18next';
 import { FilePickerButton } from '../../../components/filePicker';
@@ -302,6 +302,14 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
           setServiceName(cleanDefaultName || 'default-service');
         }
       }
+
+      // Fork addition (plan 45): the fork's own labels never come from a file or a template; the review says so
+      const forkLabelNotes = jsoned ? stripForkLabels(jsoned) : [];
+      if (forkLabelNotes.length) setNotes((old) => {
+        const kept = (old || []).filter((n) => n.code !== 'label.fork');
+        const next = [...kept, ...forkLabelNotes];
+        return JSON.stringify(next) === JSON.stringify(old) ? old : next;
+      });
 
       if (typeof jsoned['cosmos-installer'] === 'object' || typeof jsoned['x-cosmos-installer'] === 'object') {
         setInstaller(true);

@@ -17,7 +17,6 @@ import { askForPassword, getSudoState, subscribeSudo } from '../utils/sudoPrompt
 import { PERM_CREDENTIALS_READ, PERM_RESOURCES } from '../utils/permissions';
 import PermissionGuard from './permissionGuard';
 import { AddManagerDialog } from './managerChoice';
-import { MANAGER_LABEL } from '../utils/signIn';
 
 const SHOWN_FOR = 60000;
 const mono = { fontFamily: 'monospace', overflowWrap: 'anywhere', wordBreak: 'break-all', minWidth: 0 };
@@ -117,8 +116,7 @@ const Account = ({ container, account, index }) => {
   </Stack>;
 };
 
-const managerOf = (containers, name) => (containers || []).filter((c) => c && c.Labels && c.Labels[MANAGER_LABEL] === name)
-  .map((c) => String((c.Names && c.Names[0]) || '').replace(/^\//, '')).filter(Boolean);
+// the managers come with the details: the server reads their label as the administrator set it, never an image's own
 
 export const SignInDetails = ({ containerInfo, refresh }) => {
   const { t } = useTranslation();
@@ -127,7 +125,6 @@ export const SignInDetails = ({ containerInfo, refresh }) => {
   const allowed = hasPermission(PERM_CREDENTIALS_READ);
   const [details, setDetails] = React.useState(null);
   const [problem, setProblem] = React.useState('');
-  const [managers, setManagers] = React.useState([]);
   const [adding, setAdding] = React.useState(false);
   const anchor = React.useRef(null);
   const sudoTick = React.useSyncExternalStore(subscribeSudo, () => getSudoState().tick); // read again after a password confirmation
@@ -138,7 +135,6 @@ export const SignInDetails = ({ containerInfo, refresh }) => {
     setProblem('');
     API.signIn.details(name).then((res) => { if (live) setDetails((res && res.data) || null); })
       .catch((e) => { if (live) setProblem(e && e.code === 'HTTP008' ? 'confirm' : 'failed'); });
-    API.docker.list().then((res) => { if (live) setManagers(managerOf(res && res.data, name)); }).catch(() => {});
     return () => { live = false; };
   }, [allowed, name, containerInfo && containerInfo.Id, sudoTick]);
 
@@ -182,6 +178,9 @@ export const SignInDetails = ({ containerInfo, refresh }) => {
             ? <>{t('mgmt.servapps.signIn.card.via', 'You sign in to it with the user and password of the database {{name}}:', { name: details.viaContainer })} <Link to={`/cosmos-ui/servapps/containers/${encodeURIComponent(details.viaContainer)}#sign-in`}>{t('mgmt.servapps.signIn.card.viaLink', 'its sign-in details')}</Link>.</>
             : t('mgmt.servapps.signIn.card.viaAny', 'You sign in to it with the user and password of the database it manages.')}
         </Typography>}
+        {(details.withheld || []).length > 0 && <Alert severity="warning" sx={wrap} data-signin-withheld>
+          {t('mgmt.servapps.signIn.card.withheld', 'A value was withheld because it matched a secret of this app ({{fields}}): Cosmos never shows a password as a username, an e-mail or a database. Its settings are on the Setup tab.', { fields: details.withheld.join(', ') })}
+        </Alert>}
         {details.noAuth && <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }} data-signin-noauth>
           {t('mgmt.servapps.signIn.card.noAuth', 'It has no sign-in of its own: only the apps you let reach it can use it, and its web page (if it has one) is open to administrators only, behind Cosmos\' sign-in.')}
         </Typography>}
@@ -198,7 +197,7 @@ export const SignInDetails = ({ containerInfo, refresh }) => {
           {t('mgmt.servapps.signIn.card.note', 'Shown as the app was installed: a password changed inside the app since then is not known to Cosmos. The values live in the container\'s settings (and so in Cosmos\' backup of container definitions, readable by the server\'s administrator only). Each Show and Copy is written to the security record, without the value.')}
         </Typography>}
         {['postgres', 'mysql', 'mongo', 'redis'].includes(details.provides) && <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }} data-signin-managers>
-          {managers.map((m) => <Chip key={m} component={Link} to={`/cosmos-ui/servapps/containers/${encodeURIComponent(m)}`} clickable label={t('mgmt.servapps.signIn.card.manager', 'Its web manager: {{name}}', { name: m })} />)}
+          {(details.managers || []).map((m) => <Chip key={m} component={Link} to={`/cosmos-ui/servapps/containers/${encodeURIComponent(m)}`} clickable label={t('mgmt.servapps.signIn.card.manager', 'Its web manager: {{name}}', { name: m })} />)}
           <PermissionGuard permission={PERM_RESOURCES}>
             <Button size="small" variant="outlined" sx={touch} onClick={() => setAdding(true)} data-add-manager-open>{t('mgmt.servapps.signIn.card.addManager', 'Add a web manager')}</Button>
           </PermissionGuard>

@@ -6286,5 +6286,12 @@
 	"mgmt.urlCheck.reason.noVisitorLocalTrust": "{{url}} does not tell {{app}} the visitor's address, so every visitor looks local to {{app}}: what it lets in from local addresses without a sign-in (Home Assistant's trusted networks, Jellyfin's local network, Sonarr's and Radarr's \"disabled for local addresses\") then admits the whole internet. Switch it off as soon as {{app}} trusts Cosmos.",
 	"mgmt.urlCheck.reason.tunnel": "This URL goes through a tunnel to another server: Cosmos checks the app on the server that runs it.",
 	"mgmt.urlCheck.reason.busy": "The setting is saved; Cosmos was still asking another app. Check again in a moment.",
-	"mgmt.urls.edit.advancedSettings.tunnelled": "These two settings are not used for a URL that goes through a tunnel: set them on the server that runs the app."
+	"mgmt.urls.edit.advancedSettings.tunnelled": "These two settings are not used for a URL that goes through a tunnel: set them on the server that runs the app.",
+	"notif.route.protected.title": "{{names}}: for administrators only",
+	"notif.route.protected.what": "Cosmos made the URL {{names}} open for administrators only, behind Cosmos' sign-in: it leads to a tool that controls a database or has no sign-in of its own.",
+	"notif.route.protected.means": "Only administrators reach it, after signing in to Cosmos. The URL's other settings are as you saved them.",
+	"mgmt.servapps.compose.note.label.fork": "{{service}}, label {{key}}: Cosmos writes this label itself (plan 45), so the file's is not used.",
+	"mgmt.servapps.signIn.card.withheld": "A value was withheld because it matched a secret of this app ({{fields}}): Cosmos never shows a password as a username, an e-mail or a database. Its settings are on the Setup tab.",
+	"mgmt.servapps.manager.sentenceExisting": "{{manager}} is created on a network of its own and joins {{db}} on a network only the two share; {{db}} stays on the networks it has. Its address in Cosmos is for administrators only, behind Cosmos' sign-in. No port is published.",
+	"mgmt.servapps.signIn.review.adminOnly": "{{service}}: its address is for administrators only, behind Cosmos' sign-in. Cosmos does this for every tool that controls a database or has no sign-in of its own, whatever the form says."
 }

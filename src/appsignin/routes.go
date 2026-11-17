@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	conttype "github.com/docker/docker/api/types/container"
 	"github.com/gorilla/mux"
 
 	"github.com/azukaar/cosmos-server/src/docker"
@@ -57,6 +58,32 @@ var inspect = func(ctx context.Context, name string) (containerInfo, error) {
 		info.Mounts = append(info.Mounts, mountInfo{Type: string(m.Type), Source: m.Source, Name: m.Name, Destination: m.Destination})
 	}
 	return info, nil
+}
+
+// managersOf lists the containers whose manager label names this one, as the
+// administrator set it (never an image's own label); replaced by the tests.
+var managersOf = func(ctx context.Context, name string) []string {
+	out := []string{}
+	if err := docker.Connect(); err != nil {
+		return out
+	}
+	list, err := docker.DockerClient.ContainerList(ctx, conttype.ListOptions{All: true})
+	if err != nil {
+		return out
+	}
+	for _, item := range list {
+		if item.Labels[ManagerLabel] != name || len(item.Names) == 0 {
+			continue
+		}
+		full, err := docker.DockerClient.ContainerInspect(ctx, item.ID)
+		if err == nil && docker.ForkAdminLabel(full, ManagerLabel) == name {
+			out = append(out, strings.TrimPrefix(item.Names[0], "/"))
+		}
+		if len(out) >= 8 {
+			break
+		}
+	}
+	return out
 }
 
 // routesNow and serverURL are the configuration's; replaced by the tests.
@@ -151,11 +178,8 @@ func SignInRoute(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	details := resolve(c, routesNow(), serverURL)
-	if jsonLeaks(details, details.secretValues) { // the last check of this exit (secrets.go)
-		utils.Warn("Sign-in details of " + details.Container + ": the answer would hold a secret value: withheld")
-		utils.HTTPError(w, "The sign-in details of this app cannot be shown", http.StatusInternalServerError, "SI005")
-		return
-	}
+	details.Managers = managersOf(ctx, details.Container)
+	clean(&details, details.secretValues) // the last check of this exit (secrets.go); resolve ran it already
 	noStore(w)
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "OK", "data": details})
 }

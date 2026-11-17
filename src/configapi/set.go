@@ -378,6 +378,7 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 		// Managed routes are owned by their materializer: keep the stored copies whatever the payload says.
 		request.HTTPConfig.ProxyConfig.Routes = utils.PreserveManagedRoutes(
 			request.HTTPConfig.ProxyConfig.Routes, config.HTTPConfig.ProxyConfig.Routes)
+		utils.ForkGuardRoutes(request.HTTPConfig.ProxyConfig.Routes, utils.GetAuthContext(req).Nickname) // Fork addition (plan 45): a manager's URL stays for administrators
 		utils.SetBaseMainConfig(request)
 		utils.ConfigLock.Unlock()
 		auditSettings(req, config, request) // Fork addition: security record, the names of the sections that changed

@@ -75,3 +75,10 @@ func ValidateAppSignIn(c ForkAppSignInConfig) error {
 	}
 	return nil
 }
+
+// ForkGuardRoutes is called where URLs are saved (the URL form, New URL, the
+// routes API, the settings): it may turn on the administrators-only sign-in
+// of URLs to a web manager or a tool without a sign-in of its own (plan 45,
+// set by src/appsignin), and answers the names it changed. who is the
+// nickname to tell.
+var ForkGuardRoutes = func(routes []ProxyRouteConfig, who string) []string { return nil }

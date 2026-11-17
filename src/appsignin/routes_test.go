@@ -26,6 +26,9 @@ func withFakes(t *testing.T, containers map[string]containerInfo) *[]utils.Secur
 		return c, nil
 	}
 	routesNow = noRoutes
+	oldManagers := managersOf
+	managersOf = func(context.Context, string) []string { return []string{} }
+	t.Cleanup(func() { managersOf = oldManagers })
 	serverURL = testServerURL
 	userRecord = func(nickname string) (string, error) { return nickname + "@example.org", nil }
 	configNow = func() utils.Config { return utils.Config{} }

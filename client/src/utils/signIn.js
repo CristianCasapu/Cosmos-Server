@@ -278,6 +278,22 @@ export const marketFormValue = (field, current, defaults, random) => {
 export const LABEL = 'cosmos-fork-signin';
 export const MANAGER_LABEL = 'cosmos-fork-manager-of';
 
+// A compose file or a Market template never brings the fork's own labels:
+// they are taken out, each with a note for the review (composeImport's
+// 'label.fork'). The doc is changed in place; the notes are returned.
+export const stripForkLabels = (doc) => {
+  const notes = [];
+  Object.entries((doc && doc.services) || {}).forEach(([key, service]) => {
+    if (!service || !service.labels || typeof service.labels !== 'object' || Array.isArray(service.labels)) return;
+    [LABEL, MANAGER_LABEL].forEach((label) => {
+      if (service.labels[label] === undefined) return;
+      delete service.labels[label];
+      notes.push({ kind: 'changed', code: 'label.fork', params: { service: service.container_name || key, key: label } });
+    });
+  });
+  return notes;
+};
+
 export const signInLabel = ({ where, user, email, password, database, first, note, from }) => {
   const parts = [];
   if (where) parts.push(`where=${where}`);
@@ -406,6 +422,8 @@ export const proposeSignIn = (definition, plan, defaults, cache, random, options
         service.labels = { ...(service.labels || {}), [LABEL]: signInLabel({ where: 'web', user: guess.user, email: guess.email, password: guess.password, from: 'guess' }) };
       }
     }
+    // the server makes such an address for administrators behind Cosmos' sign-in: said, never silent (second review)
+    if (info && info.adminOnly && (service.routes || []).length) lines.push({ service: name, app: info.name || '', kind: 'adminOnly' });
     if (changed) service.environment = env;
   });
   return { definition: out, lines, proposed };

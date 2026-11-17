@@ -54,7 +54,7 @@ HOST=cosmos-test.example.org
 # what the registry holds: <published path>=<source to pull>; the tags are those the recipes
 # propose (src/anyimage/recipes.json: postgres pins its major, mariadb prefers lts, pgAdmin and
 # phpMyAdmin pin their major, Adminer has latest only), with the extras of the other checks
-IMAGES=${IMAGES:-"library/postgres:18=postgres:18 library/mariadb:lts=mariadb:lts dpage/pgadmin4:9=dpage/pgadmin4:9 library/phpmyadmin:5=phpmyadmin:5 library/adminer:latest=adminer:latest library/busybox:1.36=busybox:1.36"}
+IMAGES=${IMAGES:-"library/postgres:18=postgres:18 library/mariadb:lts=mariadb:lts dpage/pgadmin4:9=dpage/pgadmin4:9 library/phpmyadmin:5=phpmyadmin:5 library/adminer:latest=adminer:latest library/busybox:1.36=busybox:1.36 library/redis:8=redis:8 redis/redisinsight:latest=redis/redisinsight:latest"}
 EXTRA_IMAGES=${EXTRA_IMAGES:-"library/postgres:17=postgres:17 library/nginx:1=nginx:1 library/redis:8=redis:8 library/nginx:1-alpine=nginx:1-alpine bitnami/postgresql:latest=bitnami/postgresql:latest library/hello-world:latest=hello-world:latest"}
 
 say() { echo "credentials-ui: $*"; }

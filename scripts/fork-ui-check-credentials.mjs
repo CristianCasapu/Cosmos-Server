@@ -21,6 +21,8 @@
 // PHASE=look     every ENGINES x SIZES x MODES: the new views pictured (the config card, the
 //                review's sign-in block and the manager choice, the card, the add-manager dialog),
 //                no sideways scroll, nothing cut off, icon-only buttons named
+// PHASE=more     once, after the story: Adminer added to olddb signs in to it, Redis with Redis Insight opens
+//                through Cosmos, and the URL check ("Does it open?") does not flag any manager
 // PHASE=delete   once, at the end: deleting MariaDB offers its web manager, and removes both
 // PHASE=all      setup is not repeated: story, look, delete
 // FROM=n TO=m    the story runs steps n to m (what earlier steps made is read from the containers)
@@ -761,6 +763,111 @@ if (phase === 'look' || phase === 'all') {
 }
 
 // ======================================================================= delete
+// ======================================================================= more managers, and the URL check
+if (phase === 'more') {
+  const admin = await session();
+  const name = 'more-chromium-1366-light';
+  const { browser, page } = await open(chromium, name, { width: 1366, height: 900 }, 'light');
+  try {
+    // --- Adminer added to the database made before, then signed in to it through Cosmos
+    if (!(await inspect('olddb-adminer'))) {
+      await toCard(page, 'olddb');
+      await card(page).locator('[data-add-manager-open]').click();
+      const add = page.locator('[data-add-manager]');
+      await add.locator('[data-manager-pick="adminer"]').waitFor({ timeout: 30000 });
+      await add.locator('[data-manager-pick="adminer"]').click();
+      await add.locator('[data-creation-review]').waitFor({ timeout: 60000 });
+      await page.waitForTimeout(3000);
+      lastCreate = Date.now();
+      await add.locator('button.shinyButton').last().click();
+    }
+    expect(await until('olddb-adminer runs', () => running('olddb-adminer'), 180), 'more: Adminer added to olddb runs');
+    const nets = Object.keys((await inspect('olddb-adminer')).NetworkSettings.Networks);
+    expect(!nets.includes('bridge'), `more: Adminer is not on the default bridge (${nets.join(', ')})`);
+    await page.waitForTimeout(16000);
+    const aUrl = await managerUrl(admin, 'olddb-adminer');
+    expect(/^https:\/\/[^/]+:2053$/.test(aUrl), `more: Adminer's address is on 2053 (${aUrl})`);
+    await until('Adminer\'s sign-in page', async () => {
+      await page.goto(aUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.locator('select[name="auth[driver]"]').waitFor({ timeout: 20000 });
+      return true;
+    }, 120);
+    expect(await page.locator('input[name="auth[server]"]').inputValue() === 'olddb', 'more: Adminer opens on olddb (no server to type)');
+    await page.locator('select[name="auth[driver]"]').selectOption('pgsql');
+    await page.locator('input[name="auth[username]"]').fill('olduser');
+    await page.locator('input[name="auth[password]"]').fill('Old-test-pw-0420');
+    await page.locator('input[name="auth[db]"]').fill('olddb');
+    await page.locator('input[type=submit]').first().click();
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(2000);
+    const after = await page.locator('body').innerText();
+    expect(/olddb/.test(after) && !/Invalid|denied|failed/i.test(after.slice(0, 400)) && page.url().startsWith(aUrl), `more: Adminer signed in to olddb and stays on its address (${page.url()})`);
+    await shot(page, name, '30-adminer-signed-in');
+
+    // --- Redis with Redis Insight from Install any image
+    if (!(await inspect('redis-redisinsight'))) {
+      await toReview(page, 'redis', 'redis', 'redis');
+      const picks = await page.locator('[data-manager-pick]').evaluateAll((els) => els.map((e) => e.getAttribute('data-manager-pick')));
+      expect(picks[0] === 'redisinsight', `more: Redis Insight proposed for Redis (${picks.join(', ')})`);
+      await shotDialog(page, name, '31-redis-review');
+      await created(page, ['redis', 'redis-redisinsight'], 300);
+    }
+    expect(await running('redis-redisinsight'), 'more: Redis and Redis Insight run');
+    for (const c of ['redis', 'redis-redisinsight']) {
+      const n = Object.keys((await inspect(c)).NetworkSettings.Networks);
+      expect(!n.includes('bridge'), `more: ${c} is not on the default bridge (${n.join(', ')})`);
+    }
+    const rUrl = await managerUrl(admin, 'redis-redisinsight');
+    expect(/^https:\/\/[^/]+:2053$/.test(rUrl), `more: Redis Insight's address is on 2053 (${rUrl})`);
+    let rOk = false;
+    await until('Redis Insight answers through Cosmos', async () => {
+      await page.goto(rUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      // through Cosmos' sign-in for the app's own name first (the OpenID round trip), then the app
+      await page.waitForURL((u) => String(u).startsWith(rUrl), { timeout: 20000 }).catch(() => {});
+      await page.waitForTimeout(1500);
+      // its own page (the panel's sign-in page is on another name); /api/databases below proves it is Redis Insight
+      rOk = page.url().startsWith(rUrl) && (await page.locator('#root').count()) > 0;
+      return rOk;
+    }, 120);
+    expect(rOk && page.url().startsWith(rUrl), `more: Redis Insight opens through Cosmos and stays on its address (${page.url()})`);
+    // Redis Insight lists the database Cosmos registered once its terms are accepted in its page (done here as
+    // the page does; Cosmos never accepts them for the owner)
+    const dbs = await page.evaluate(async () => {
+      const spec = await (await fetch('/api/settings/agreements/spec')).json();
+      const agreements = Object.fromEntries(Object.keys(spec.agreements || {}).map((k) => [k, k === 'eula' || k === 'encryption']));
+      await fetch('/api/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agreements }) });
+      for (let i = 0; i < 20; i += 1) {
+        const r = await fetch('/api/databases');
+        const text = await r.text();
+        if (/"host":"redis"/.test(text)) return { status: r.status, text: text.slice(0, 300) };
+        await new Promise((ok) => setTimeout(ok, 1000));
+      }
+      const r = await fetch('/api/databases');
+      return { status: r.status, text: (await r.text()).slice(0, 300) };
+    });
+    expect(dbs.status === 200 && /"host":"redis"/.test(dbs.text), `more: Redis Insight has Redis registered (${dbs.status} ${dbs.text.slice(0, 120)})`);
+    await shot(page, name, '32-redisinsight');
+
+    // --- the URL check does not flag a manager
+    for (const route of ['postgres-pgadmin', 'mariadb-phpmyadmin', 'olddb-pgadmin', 'olddb-adminer', 'redis-redisinsight']) {
+      if (!(await inspect(route))) { note(`  (${route} is not there: not checked)`); continue; }
+      const r = await admin.post('/cosmos/api/url-check', { data: { route } });
+      const data = ((await r.json().catch(() => ({}))).data) || {};
+      expect(r.status() === 200 && ['works', 'answers'].includes(data.verdict), `more: "Does it open?" for ${route}: ${data.verdict} ${data.reason || ''} ${data.line || ''}`.trim());
+      await sleep(1500);
+    }
+    // still administrators-only behind the sign-in
+    const routes = ((await (await admin.get('/cosmos/api/config')).json()).data.HTTPConfig.ProxyConfig.Routes || []);
+    for (const r of routes.filter((x) => /-(pgadmin|phpmyadmin|adminer|redisinsight)$/.test(x.Name))) {
+      expect(r.AuthEnabled && r.AdminOnly, `more: ${r.Name} is for administrators behind the sign-in`);
+    }
+  } catch (e) {
+    failures.push(`${name}: ${e.message.split('\n')[0]}`);
+    await shot(page, name, 'zz-error').catch(() => {});
+  }
+  await browser.close();
+}
+
 if (phase === 'delete' || phase === 'all') {
   const name = 'delete-chromium-1366-light';
   const { browser, page } = await open(chromium, name, { width: 1366, height: 900 }, 'light');

@@ -185,3 +185,24 @@ test('a database alone gets a network of its own; the suffix makes every new net
 test('the label of the review never carries a value', () => {
   assert.equal(LABEL, 'cosmos-fork-signin');
 });
+
+// Second review, item 4: the panel's own definition of a database with its manager is the
+// fixture the server's tests create (src/appsignin/testdata/panel_definition.json: the
+// check before creation, and the live creation off the default bridge). Regenerate with
+// UPDATE_FIXTURES=1 after a change of the builder.
+test('the panel\'s definition of a database with its manager is the one the server tests', () => {
+  const all = JSON.parse(fs.readFileSync(new URL('../../../src/anyimage/recipes.json', import.meta.url), 'utf8')).recipes;
+  let seed = 45;
+  const fixed = (n) => Array.from({ length: n }, () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed; });
+  const db = all.find((r) => r.id === 'postgres');
+  const tool = all.find((r) => r.id === 'pgadmin');
+  const settings = proposedSettings(db, null, fixed, { user: 'Owner.Name', email: 'owner@example.org', length: 24 });
+  const manager = { recipe: tool, ref: parseReference('dpage/pgadmin4'), tag: '9', name: 'credsdb-pgadmin', settings: proposedSettings(tool, null, fixed, { user: 'Owner.Name', email: 'owner@example.org', length: 24 }), host: 'credsdb-pgadmin.server.local' };
+  const { definition } = buildDefinition({ ref: parseReference('postgres'), tag: '18', name: 'credsdb', recipe: db, declared: null, settings, host: '', manager, suffix: 'f1xt3r' });
+  const file = new URL('../../../src/appsignin/testdata/panel_definition.json', import.meta.url);
+  const text = JSON.stringify(definition, null, 2) + '\n';
+  if (process.env.UPDATE_FIXTURES === '1') fs.writeFileSync(file, text);
+  assert.equal(fs.readFileSync(file, 'utf8'), text, 'the fixture is the builder\'s output (UPDATE_FIXTURES=1 to write it)');
+  assert.equal(definition.services.credsdb.network_mode, 'credsdb-manager-f1xt3r');
+  assert.equal(definition.services['credsdb-pgadmin'].network_mode, 'credsdb-manager-f1xt3r');
+});

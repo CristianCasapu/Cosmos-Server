@@ -43,6 +43,7 @@ const (
 func Start() {
 	docker.ForkAfterCreation = afterCreation
 	docker.ForkBeforeCreation = beforeCreation
+	utils.ForkGuardRoutes = guardRoutes
 }
 
 // installed is one app of a creation, as the e-mail tells it.
@@ -206,10 +207,6 @@ func tell(nickname string, byToken bool, apps []installed) {
 		steps = append(steps, utils.NotificationStep{NotificationText: *utils.NText("notif.step.app.signIn", "name", app.Container), Link: "/cosmos-ui/servapps/containers/" + app.Container + "#sign-in"})
 		facts = append(facts, utils.NotificationFact{Key: "notif.fact.container", Value: app.Container})
 	}
-	secrets := []string{}
-	for _, app := range apps {
-		secrets = append(secrets, app.secretValues...)
-	}
 	installedInfo := &utils.NotificationInfo{
 		Kind:     "app.installed",
 		Subject:  &utils.NotificationSubject{Type: "container", Name: first, Link: "/cosmos-ui/servapps/containers/" + first + "#sign-in"},
@@ -221,11 +218,7 @@ func tell(nickname string, byToken bool, apps []installed) {
 		Facts:    facts,
 		Security: &utils.NotificationSecurity{Kinds: []string{"container.*"}, Target: first},
 	}
-	if jsonLeaks(installedInfo, secrets) { // the last check of this exit: never with a secret value
-		utils.Warn("App installed: the notification would hold a secret value: left out")
-	} else {
-		notify(utils.Notification{Recipient: recipient, Level: "info", Fork: installedInfo})
-	}
+	notify(utils.Notification{Recipient: recipient, Level: "info", Fork: installedInfo})
 	if mailFailed != "" {
 		notify(utils.Notification{Recipient: recipient, Level: "warning", Fork: &utils.NotificationInfo{
 			Kind:    "app.installMail.failed",
@@ -404,13 +397,9 @@ func buildMessage(config utils.Config, to string, apps []installed) (string, []b
 	plain.WriteString(note + "\n")
 	body.WriteString("<p style=\"margin-top:20px\">" + esc(note) + "</p>")
 
-	// the last check of this exit (secrets.go): no secret value of these apps in either part
-	secrets := []string{}
-	for _, app := range apps {
-		secrets = append(secrets, app.secretValues...)
-	}
-	if leaks(plain.String(), secrets) || leaks(body.String(), secrets) || leaks(subject, secrets) || leaks(html.UnescapeString(body.String()), secrets) {
-		return subject, nil, false
+	// the last check of this exit (secrets.go): the fields from the apps' variables, checked again
+	for i := range apps {
+		clean(&apps[i].Details, apps[i].secretValues)
 	}
 
 	server := serverURL("")

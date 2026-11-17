@@ -50,10 +50,10 @@ type installPlace struct {
 }
 
 type installPlanAnswer struct {
-	Server   docker.ServerPlatform  `json:"server"`
+	Server   docker.ServerPlatform   `json:"server"`
 	Images   []docker.ImagePlatforms `json:"images"`
-	DataPath string                 `json:"dataPath"`
-	Places   []installPlace         `json:"places"`
+	DataPath string                  `json:"dataPath"`
+	Places   []installPlace          `json:"places"`
 	// Owner of the data path ("1000:1000"), "" when not known: proposed for PUID/PGID
 	DataOwner string `json:"dataOwner"`
 	// This server's folders that need a confirmation besides the system's (docker/fork_sensitive_access.go)
@@ -65,9 +65,11 @@ type installPlanAnswer struct {
 }
 
 type installSignIn struct {
-	Name     string                `json:"name,omitempty"`
-	Login    *anyimage.RecipeLogin `json:"login,omitempty"`
-	FirstRun *anyimage.FirstRunApp `json:"firstRun,omitempty"`
+	Name string `json:"name,omitempty"`
+	// AdminOnly: its address is made for administrators behind Cosmos' sign-in by the server (appsignin/check.go)
+	AdminOnly bool                  `json:"adminOnly,omitempty"`
+	Login     *anyimage.RecipeLogin `json:"login,omitempty"`
+	FirstRun  *anyimage.FirstRunApp `json:"firstRun,omitempty"`
 }
 
 func signInOfImages(images []string) map[string]installSignIn {
@@ -79,7 +81,13 @@ func signInOfImages(images []string) map[string]installSignIn {
 		} else if first := anyimage.FirstRunForImage(image); first != nil {
 			entry.Name, entry.FirstRun = first.Name, first
 		}
-		if entry.Login != nil || entry.FirstRun != nil {
+		if recipe := anyimage.RecipeForImage(image); recipe != nil && (recipe.Manager != nil || (recipe.Login != nil && recipe.Login.Via == "database") || recipeHasNote(recipe, "noAuth")) {
+			entry.AdminOnly = true
+			if entry.Name == "" {
+				entry.Name = recipe.Name
+			}
+		}
+		if entry.Login != nil || entry.FirstRun != nil || entry.AdminOnly {
 			out[image] = entry
 		}
 	}
@@ -250,4 +258,13 @@ func InstallPlanRoute(w http.ResponseWriter, req *http.Request) {
 	answer := buildInstallPlan(images, utils.GetMainConfig())
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "OK", "data": answer})
+}
+
+func recipeHasNote(recipe *anyimage.Recipe, note string) bool {
+	for _, n := range recipe.Notes {
+		if n == note {
+			return true
+		}
+	}
+	return false
 }

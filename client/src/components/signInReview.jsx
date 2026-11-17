@@ -120,6 +120,10 @@ const SignInReview = ({ lines, mail, onReplace, busy }) => {
     <Typography variant="subtitle1">{t('mgmt.servapps.signIn.review.title', 'Who signs in with what')}</Typography>
     {lines.map((line, i) => (line.kind === 'firstRun'
       ? <FirstRunLine key={i} line={line} />
+      : line.kind === 'adminOnly' ? <Typography key={i} variant="body2" sx={{ overflowWrap: 'anywhere' }} data-signin-adminonly={line.service}>
+        <KeyOutlined style={{ marginRight: 6 }} />
+        {t('mgmt.servapps.signIn.review.adminOnly', '{{service}}: its address is for administrators only, behind Cosmos\' sign-in. Cosmos does this for every tool that controls a database or has no sign-in of its own, whatever the form says.', { service: line.service, interpolation: { escapeValue: false } })}
+      </Typography>
       : line.kind === 'via' ? <Typography key={i} variant="body2" sx={{ overflowWrap: 'anywhere' }} data-signin-line={line.service}>
         <KeyOutlined style={{ marginRight: 6 }} />
         {t('mgmt.servapps.signIn.review.via', '{{service}}: sign in with the user and password of the database it opens (that database\'s Sign-in details show them).', { service: line.service, interpolation: { escapeValue: false } })}
