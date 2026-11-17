@@ -11,8 +11,11 @@ for i in $(seq 1 40); do
   php backup.php > /dev/null
 done
 php list.php 3 > /tmp/list.txt
-test "$(grep -c '^[0-9][0-9]*  ' /tmp/list.txt)" -ge 40
-grep -q 'VALUES (38)' backup-work/restored.sql
+versions=$(grep -c '^[0-9][0-9]*  ' /tmp/list.txt)
+echo "versions of db/site.sql: $versions"
+test "$versions" -ge 40
+# the dump of three runs ago is the one of run 38 (mysqldump may break the line after VALUES)
+tr -d '\n' < backup-work/restored.sql | grep -Eq "INSERT INTO \`c\` VALUES *\(('38'|38)\)" || { echo "the dump of three runs ago does not hold 38"; grep -A1 'INSERT INTO' backup-work/restored.sql | head -3; exit 1; }
 cat > /tmp/count.php <<'PHPEND'
 <?php
 require 'vendor/autoload.php';

@@ -324,7 +324,7 @@ for (const key of PLACES) {
       const quota = docker('exec', 'rustfs', 'sh', '-c', 'umask 077; printf \'{"schema_version":1,"aliases":[{"name":"t","endpoint":"http://127.0.0.1:9000","region":"us-east-1","signature":"v4","bucket_lookup":"auto","credentials":{"access_key":"%s","secret_key":"%s"}}]}\' "$RUSTFS_ACCESS_KEY" "$RUSTFS_SECRET_KEY" > /tmp/t.json && rc alias import /tmp/t.json >/dev/null && rm -f /tmp/t.json && used=$(rc bucket quota info t/' + facts.values.bucket + ' --json | sed -n "s/.*\\"usage\\"[^0-9]*\\([0-9]*\\).*/\\1/p" | head -1) && rc bucket quota set t/' + facts.values.bucket + ' $((used + 50000000)) >/dev/null && rc alias remove t >/dev/null && echo "quota set to $((used + 50000000)) bytes"');
       log('before the attack:', (quota.stdout || '').trim(), (quota.stderr || '').trim().slice(-200));
       const hit = attack(place, facts);
-      log('attack at', place.before, '+2 s:', (hit.stdout || '').trim().split('\n').pop(), (hit.stderr || '').trim().slice(-300));
+      log('attack at', place.before, '+2 s:', (hit.stdout || '').trim().split('\n').join(' / '));
     }
     const started = Date.now();
     const { out, output } = runChain(chain, list, place, facts);
