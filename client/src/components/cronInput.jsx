@@ -15,17 +15,17 @@ import {
 // For a Formik `validate`: marks the schedule fields the server would not
 // schedule. The reason is shown by <CronHelp> under the field, so the mark
 // carries no text of its own.
-export const cronFieldErrors = (values, names) => {
+export const cronFieldErrors = (values, names, options) => {
   const errors = {};
   names.forEach((name) => {
-    if (!isValidCron(values[name])) errors[name] = true;
+    if (!isValidCron(values[name], options)) errors[name] = true;
   });
   return errors;
 };
 
 // A schedule in words, for a list; upstream's "invalid" text when it is not one.
-export const cronInWords = (crontab, t) => {
-  const schedule = parseCron(crontab);
+export const cronInWords = (crontab, t, options) => {
+  const schedule = parseCron(crontab, options);
   return schedule.ok ? describeCron(schedule, t) : t('mgmt.cron.invalidCron', 'Invalid CRONTAB format (use 6 parts)');
 };
 
@@ -55,11 +55,12 @@ const formatRun = (run, language) => {
   }
 };
 
-const CronHelp = ({ formik, name, disabled }) => {
+// fiveFields: the schedule may also have five parts (the scheduled jobs).
+const CronHelp = ({ formik, name, disabled, fiveFields }) => {
   const { t, i18n } = useTranslation();
   const [zone, setZone] = React.useState('');
   const value = getNestedValue(formik.values, name) || '';
-  const schedule = parseCron(value);
+  const schedule = parseCron(value, { fiveFields });
   const asked = !!(formik.touched[name] || formik.submitCount > 0);
 
   React.useEffect(() => {

@@ -36,3 +36,12 @@ test('the command runs on the server, or in the container that is picked', () =>
   assert.equal(jobRunsIn(undefined), 'server');
   assert.equal(jobRunsIn('jellyfin'), 'container');
 });
+
+test('a job name follows the server: at most 64 characters, one line, no < or >', () => {
+  assert.equal(jobNameProblem('x'.repeat(64)), null);
+  assert.equal(jobNameProblem('x'.repeat(65)), 'long');
+  assert.equal(jobNameProblem('é'.repeat(64)), null);
+  assert.equal(jobNameProblem('a<b'), 'chars');
+  assert.equal(jobNameProblem('a\nb'), 'chars');
+  assert.equal(jobNameProblem('a\u0085b'), 'chars');
+});

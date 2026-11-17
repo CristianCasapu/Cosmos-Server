@@ -8,9 +8,24 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Merged into `custom` since `0.24.0-fork.35`, to be part of the next release:
+Merged into `custom` since `0.24.0-fork.36`, to be part of the next release:
 
 - Nothing yet.
+
+## Fork 0.24.0-fork.36 — 2026-11-17
+
+### Added
+- Telegram: after the bot token is pasted, "Look for chats" offers the chats that wrote to the bot, so the chat ID no longer has to be found by hand.
+- Scheduled jobs are made by choices: where the job runs (a container, or the server itself as root), when (in words, with the next three runs shown), and for a PostgreSQL or MariaDB/MySQL container a nightly dump is proposed.
+- The monitoring database is proposed from a PostgreSQL running on the server, with "Test the connection" before saving.
+- Snapshots: excludes (caches, thumbnails, temporary files, Docker's data folder) are offered as ticks with their sizes, the destination as a choice of data disks.
+
+### Changed
+- The first-run wizard no longer shows "join a cluster" without a licence; a node joins from the Constellation page after the wizard.
+
+### Security
+- New and changed scheduled jobs and alerts are checked by the server and refused in words; stored ones are untouched, and switching one off is never refused.
+- A saved monitoring-database password is no longer sent to a server whose address was changed: the password must be typed again.
 
 ## Fork 0.24.0-fork.35 — 2026-11-17
 

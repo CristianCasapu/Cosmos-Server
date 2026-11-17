@@ -25,26 +25,38 @@ import CronHelp, { cronFieldErrors } from '../../components/cronInput'; // Fork 
 import { jobCommandProblem, jobNameProblem, jobRunsIn } from '../../utils/cronJobForm'; // Fork addition: name and command checked
 import { keepOnBackdrop } from '../../components/formHelpers'; // Fork addition
 import { serverBack } from '../../utils/appLinks'; // Fork addition
+import { JobWhere, JobSchedule, JobProposals, useContainerChoices } from './forkJobForm'; // Fork addition: where, when and common jobs as choices
+import { placeOf, DEFAULT_SCHEDULE, scheduleExpression } from '../../utils/jobForm'; // Fork addition
 
 const NewJobDialog = ({job, OnClose, refresh}) => {
   const { t } = useTranslation();
   const isEdit = job && typeof job === 'object';
   const [config, setConfig] = useState(null);
+  // Fork addition: where the job runs is a choice of its own (a new job: in a container, the safer of the two);
+  // marks: the fields a proposal filled (utils/proposals.js), the proposed schedule of a new job among them
+  const [place, setPlace] = useState(isEdit ? placeOf(job.Container) : 'container');
+  const [marks, setMarks] = useState(isEdit ? {} : { Crontab: scheduleExpression(DEFAULT_SCHEDULE) });
+  const { containers, loading: containersLoading } = useContainerChoices();
 
   const formik = useFormik({
     initialValues: {
       Enabled: isEdit ? job.Enabled : true,
       Name: isEdit ? job.Name : '',
-      Crontab: isEdit ? job.Crontab : '',
+      Crontab: isEdit ? job.Crontab : scheduleExpression(DEFAULT_SCHEDULE), // Fork addition: a new job is proposed every night at 03:00
       Command: isEdit ? job.Command : '',
       Container: isEdit ? job.Container : '',
     },
     validateOnChange: false,
     // Fork addition: a schedule the server would not run is not saved; nor is a job without a name or with nothing to run
     validate: (values) => ({
-      ...cronFieldErrors(values, ['Crontab']),
-      ...(jobNameProblem(values.Name) ? { Name: t('mgmt.cron.fork.nameRequired', 'Give the job a name, for example "Back up the photos"') } : {}),
+      ...cronFieldErrors(values, ['Crontab'], { fiveFields: true }),
+      ...({
+        required: { Name: t('mgmt.cron.fork.nameRequired', 'Give the job a name, for example "Back up the photos"') },
+        long: { Name: t('mgmt.cron.fork.nameLong', 'A job\'s name is at most 64 characters') },
+        chars: { Name: t('mgmt.cron.fork.nameChars', 'A job\'s name is plain text on one line, without < or >') },
+      }[jobNameProblem(values.Name)] || {}),
       ...(jobCommandProblem(values.Command) ? { Command: t('mgmt.cron.fork.commandRequired', 'Enter the command to run, for example ls -la /storage') } : {}),
+      ...(place === 'container' && !String(values.Container || '').trim() ? { Container: t('mgmt.cron.fork.containerRequired', 'Pick the container the job runs in, or choose "On the server itself"') } : {}),
     }),
     validationSchema: yup.object({
     }),
@@ -94,6 +106,7 @@ const NewJobDialog = ({job, OnClose, refresh}) => {
           return;
         }
         formik.setValues(configJob);
+        setPlace(placeOf(configJob.Container)); // Fork addition
       });
     }
   }, [job]);
@@ -111,8 +124,22 @@ const NewJobDialog = ({job, OnClose, refresh}) => {
               <DialogContentText>
                 <Stack spacing={2} style={{ marginTop: '10px', width: '500px', maxWidth: '100%' }}>
                   <div>
-                    {t('mgmt.cron.editCron.customText')} (<strong>{t('mgmt.cron.editCron.customText.onHostOnly')}</strong>).
+                    {/* Fork addition: the place is a choice below now (upstream: "leave the container field empty") */}
+                    {t('mgmt.cron.fork.intro', 'A job runs a shell command on a schedule, in a container of this server or on the server itself.')} (<strong>{t('mgmt.cron.editCron.customText.onHostOnly')}</strong>).
                   </div>
+                  {/* Fork addition: where it runs first, then the common jobs for the chosen container */}
+                  <JobWhere
+                    formik={formik}
+                    place={place}
+                    onPlace={(next) => {
+                      setPlace(next);
+                      if (next === 'server') formik.setFieldValue('Container', '');
+                    }}
+                    containers={containers}
+                    loading={containersLoading}
+                  />
+                  {place === 'container' && <JobProposals formik={formik} container={formik.values.Container} marks={marks} setMarks={setMarks} />}
+
                   <TextField
                     fullWidth
                     id="Name"
@@ -123,42 +150,26 @@ const NewJobDialog = ({job, OnClose, refresh}) => {
                     error={formik.touched.Name && Boolean(formik.errors.Name)}
                     helperText={formik.touched.Name && formik.errors.Name}
                   />
-                  
-                  <TextField
-                    fullWidth
-                    id="Crontab"
-                    name="Crontab"
-                    label={t('mgmt.cron.newCron.crontabInput.crontabLabel')}
-                    value={formik.values.Crontab}
-                    onChange={formik.handleChange}
-                    error={formik.touched.Crontab && Boolean(formik.errors.Crontab)}
-                    helperText={formik.touched.Crontab && formik.errors.Crontab}
-                  />
-                  {/* Fork addition: replaces the line that put the schedule in words */}
-                  <CronHelp formik={formik} name="Crontab" />
+
+                  {/* Fork addition: the schedule as a choice in words, the expression shown, "Type it myself", the next three runs */}
+                  <JobSchedule formik={formik} />
 
                   <TextField
                     fullWidth
+                    multiline
                     id="Command"
                     name="Command"
                     label={t('mgmt.cron.newCron.commandInput.commandLabel')}
                     value={formik.values.Command}
                     onChange={formik.handleChange}
                     error={formik.touched.Command && Boolean(formik.errors.Command)}
-                    helperText={(formik.touched.Command && formik.errors.Command) || /* Fork addition: where it runs */ (jobRunsIn(formik.values.Container) === 'container'
-                      ? t('mgmt.cron.fork.runsInContainer', 'Runs inside the container {{name}}, which has to be running at that time.', { name: formik.values.Container })
-                      : t('mgmt.cron.fork.runsOnServer', 'Runs on the server itself, with the rights of Cosmos. Pick a container below to run it inside an app instead.'))}
+                    helperText={(formik.touched.Command && formik.errors.Command) || /* Fork addition: where it runs */ (place === 'container'
+                      ? (formik.values.Container
+                        ? t('mgmt.cron.fork.runsInContainer', 'Runs inside the container {{name}}, which has to be running at that time.', { name: formik.values.Container })
+                        : t('mgmt.cron.fork.runsInContainerNone', 'Runs inside the container picked above.'))
+                      : t('mgmt.cron.fork.runsOnServerRoot', 'Runs on the server itself, with the rights of Cosmos: as root.'))}
                   />
 
-                  <CosmosContainerPicker
-                    formik={formik}
-                    onTargetChange={(_, name) => {
-                      formik.setFieldValue('Container', name);
-                    }}
-                    name='Container'
-                    nameOnly
-                  />
-                   
                   {formik.errors.submit && <Alert severity="error">{formik.errors.submit}</Alert>}
                 </Stack>
               </DialogContentText>

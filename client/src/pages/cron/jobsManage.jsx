@@ -137,7 +137,7 @@ export const CronManager = () => {
               },
               {
                 title: t('mgmt.scheduler.list.scheduleTitle'),
-                field: (r) => cronInWords(r.Crontab, t), // Fork addition: the same words as in the form (was crontabToText)
+                field: (r) => cronInWords(r.Crontab, t, { fiveFields: true }), // Fork addition: the same words as in the form (was crontabToText)
               },
               {
                 title: t('global.statusTitle'),

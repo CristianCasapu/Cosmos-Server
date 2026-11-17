@@ -5,12 +5,20 @@
 // Nothing here imports the UI.
 
 // Why a job cannot be saved under this name, or null:
-//   'required' | 'taken' (another job has it; `editing` is the name the job
+//   'required' | 'long' (over 64 characters) | 'chars' (a line break, an
+//   invisible character, < or >) | 'taken' (another job has it; `editing` is the name the job
 //   being edited had, which it may keep)
 export const jobNameProblem = (name, existing, editing) => {
   const text = String(name || '').trim();
   if (!text) {
     return 'required';
+  }
+  // as the server: at most 64 characters, one line, no < or > (src/cron/fork_job_check.go)
+  if ([...text].length > 64) {
+    return 'long';
+  }
+  if (/[\u0000-\u001f\u007f-\u009f<>]/.test(text)) {
+    return 'chars';
   }
   if (text !== editing && (existing || []).includes(text)) {
     return 'taken';
