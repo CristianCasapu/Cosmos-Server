@@ -189,11 +189,11 @@ func TestCopyBothWaysAndTwice(t *testing.T) {
 
 				// what each table holds afterwards
 				want := map[string]int64{
-					"monitoring_kv": before["monitoring_kv"] + 1,         // custom.source; custom.both was there
-					"metrics":       3,                                   // metric0..2
-					"metric_values": 3*10 + 2*4,                          // + the target's bucket that is the source's too; the expired one stays out
-					"events":        before["events"] + 120 + 2,          // + the twins, not the old one
-					"notifications": before["notifications"] + 12 + 1 - 1, // + upstream's row; ref00000001 is in both
+					"monitoring_kv":        before["monitoring_kv"] + 1,          // custom.source; custom.both was there
+					"metrics":              3,                                    // metric0..2
+					"metric_values":        3*10 + 2*4,                           // + the target's bucket that is the source's too; the expired one stays out
+					"events":               before["events"] + 120 + 2,           // + the twins, not the old one
+					"notifications":        before["notifications"] + 12 + 1 - 1, // + upstream's row; ref00000001 is in both
 					"fork_security_events": before["fork_security_events"] + 30,
 				}
 				if p.src == utils.DialectSQLite {

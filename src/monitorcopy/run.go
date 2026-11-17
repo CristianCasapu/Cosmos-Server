@@ -89,7 +89,9 @@ func localDSN(path string, readOnly bool) string {
 	return "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)&_txlock=immediate"
 }
 
-func openLocal(readOnly bool) (Store, error) { return openLocalAt(utils.LocalMonitoringFile(), readOnly) }
+func openLocal(readOnly bool) (Store, error) {
+	return openLocalAt(utils.LocalMonitoringFile(), readOnly)
+}
 
 func openLocalAt(path string, readOnly bool) (Store, error) {
 	db, err := sql.Open(utils.DialectSQLite, localDSN(path, readOnly))
@@ -339,7 +341,7 @@ func summarize(ctx context.Context, s Store, end int64) (*Summary, error) {
 		}
 		where, args := copyFilter(r, end)
 		query := "SELECT COUNT(*) FROM " + r.table + " WHERE 1 = 1" + where
-		if r.window != "" && r.table != "metric_values" {
+		if r.window != "" {
 			query = "SELECT COUNT(*), MIN(" + r.window + "), MAX(" + r.window + ") FROM " + r.table + " WHERE 1 = 1" + where
 		}
 		var n int64

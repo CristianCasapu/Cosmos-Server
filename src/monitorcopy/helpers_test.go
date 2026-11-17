@@ -118,12 +118,12 @@ func count(t testing.TB, s Store, query string, args ...interface{}) int64 {
 
 type contents struct {
 	node          string
-	metrics       int   // metrics, each with values buckets
-	values        int   // buckets per metric (hourly, going back from end)
-	events        int   // one a second, going back from end
-	notifications int   // one a minute, going back from end
-	security      int   // one a second, going back from end
-	end           int64 // unix ms: the newest time of the contents
+	metrics       int    // metrics, each with values buckets
+	values        int    // buckets per metric (hourly, going back from end)
+	events        int    // one a second, going back from end
+	notifications int    // one a minute, going back from end
+	security      int    // one a second, going back from end
+	end           int64  // unix ms: the newest time of the contents
 	ref           string // prefix of the notifications' references ("ref" when empty)
 }
 
