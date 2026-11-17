@@ -17,6 +17,8 @@ import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_RESOURCES } from '../../../utils/permissions';
 import { portHostIp, isHostIp } from './forkContainerFixes'; // Fork addition: the host address of a published port
 import { usePortHolders, hasBlockingPortConflict, PortConflictHint, PortConflictReport, EDIT_FORM } from '../../../components/portConflicts'; // Fork addition: host ports that are already taken
+import { useEditHints, ForkPortRow, forkNewPortRow, ForkDnsChoice, ForkNetworkMode, ForkNetworksHint } from './forkEditTabs'; // Fork addition (plan 47, I2c): the edit tab's proposals
+import { dnsProblem } from '../../../utils/editHints'; // Fork addition (plan 47, I2c)
 
 const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, OnChange, OnConnect, OnDisconnect, portSources, onPortsBlocked }) => {
   const { t } = useTranslation();
@@ -24,6 +26,7 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
   const portHolders = usePortHolders(newContainer ? '' : containerInfo.Name, portSources);
   const portRules = newContainer ? undefined : EDIT_FORM;
   const [networks, setNetworks] = React.useState([]);
+  const hints = useEditHints(containerInfo, !newContainer); // Fork addition (plan 47, I2c)
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -116,6 +119,10 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
           if (!newContainer && values.ports.some((port) => !isHostIp(port.hostIp))) {
             errors.ports = t('mgmt.servApps.networks.hostIpInput.hostIpValidation', 'Enter an IPv4 or IPv6 address, or leave it empty for every address');
           }
+          // Fork addition (plan 47, I2c): DNS servers are IP addresses
+          if (!newContainer && !(values.networkMode || '').startsWith('container:') && dnsProblem(values.dns)) {
+            errors.dns = t('mgmt.servapps.editTabs.dns.problem.' + dnsProblem(values.dns), 'Enter IP addresses separated by commas, for example 192.168.1.1, 1.1.1.1');
+          }
           // Fork addition: a host port that is taken is said under its row; nothing is sent meanwhile
           if (!newContainer && hasBlockingPortConflict(values.ports, portHolders, portRules)) {
             errors.ports = t('mgmt.servApps.ports.blocked', 'A host port in the list cannot be used. See the note under it.');
@@ -169,6 +176,19 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                       {t('mgmt.servApps.networks.forcedSecurityWarning')}          
                     </Alert>
                   )} */}
+                  {/* Fork addition (plan 47, I2c): the network mode as a choice on the edit tab */}
+                  {!newContainer ? <ForkNetworkMode formik={formik} networks={networks || []} picker={
+                  <CosmosContainerPicker
+                    formik={formik}
+                    onTargetChange={(_, name) => {
+                      if(!name) return;
+                      formik.setFieldValue('networkMode', `container:${name}`);
+                    }}
+                    name='Container'
+                    label={t('mgmt.servApps.networks.useAsVPN')}
+                    nameOnly
+                  />
+                  } /> : <>
                   <CosmosInputText
                     label={t('mgmt.servApps.networks.modeInput.modeLabel')}
                     name="networkMode"
@@ -188,11 +208,13 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                     label={t('mgmt.servApps.networks.useAsVPN')}
                     nameOnly
                   />
+                  </>}
                   {/* Fork addition: Docker refuses ports of a container that uses another one's network */}
                   {(formik.values.networkMode || '').startsWith('container:') && <Alert severity="info" sx={{ overflowWrap: 'anywhere' }} data-shared-network>
                     {t('mgmt.servapps.fork.sharedNetwork', 'This container uses the network of {{name}}: it cannot publish ports of its own, so the ports below are not published. Publish them on {{name}} instead.', { name: formik.values.networkMode.replace('container:', '') })}
                   </Alert>}
-                  {!(formik.values.networkMode || '').startsWith('container:') && <CosmosInputText
+                  {!(formik.values.networkMode || '').startsWith('container:') && !newContainer && <ForkDnsChoice formik={formik} hints={hints} />/* Fork addition (plan 47, I2c) */}
+                  {!(formik.values.networkMode || '').startsWith('container:') && newContainer && <CosmosInputText
                     label={t('mgmt.servApps.networks.dnsLabel')}
                     name="dns"
                     placeholder={'1.1.1.1, 8.8.8.8'}
@@ -200,7 +222,14 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                   />}
                   <CosmosFormDivider title={t('mgmt.servApps.networks.exposePortsTitle')} />
                   <div>
-                    {formik.values.ports.map((port, idx) => (
+                    {formik.values.ports.map((port, idx) => !newContainer ? (
+                      /* Fork addition (plan 47, I2c): the edit tab's row, with its proposals and who can reach it */
+                      <ForkPortRow key={idx} port={port} idx={idx} ports={formik.values.ports} hints={hints} holders={portHolders} padding={padding}
+                        onChange={(i, row) => { const newports = [...formik.values.ports]; newports[i] = row; formik.setFieldValue('ports', newports); }}
+                        onDelete={(i) => { const newports = [...formik.values.ports]; newports.splice(i, 1); formik.setFieldValue('ports', newports); }}>
+                        <PortConflictHint ports={formik.values.ports} index={idx} holders={portHolders} options={portRules} style={{ padding, paddingTop: 0 }} />
+                      </ForkPortRow>
+                    ) : (
                       <Grid container key={idx}>
                         {/* Fork addition: the address the port is bound to (not sent by the new container form) */}
                         {!newContainer && <Grid size={{ xs: 12, md: 3 }} style={{ padding }}>
@@ -286,11 +315,11 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
                       size='large'
                       onClick={() => {
                         const newports = [...formik.values.ports];
-                        newports.push({
+                        newports.push(newContainer ? {
                           port: '',
                           protocol: 'tcp',
                           hostPort: '',
-                        });
+                        } : forkNewPortRow(hints, formik.values.ports, portHolders)); // Fork addition (plan 47, I2c): proposed from the image
                         formik.setFieldValue('ports', newports);
                       }}
                     >
@@ -322,6 +351,7 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
               </MainCard>
               <MainCard title={t('global.networks')}>
                 <Stack spacing={2}>
+                {!newContainer && <ForkNetworksHint />/* Fork addition (plan 47, I2c) */}
 
                 {networks && <Stack spacing={2}>
                   {Object.keys(containerInfo.NetworkSettings.Networks).map((networkName) => {

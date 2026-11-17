@@ -31,6 +31,7 @@ import { useTranslation } from 'react-i18next';
 import PermissionGuard from '../../../components/permissionGuard';
 import { fieldProblems, limitsForForm } from '../../../utils/newContainer'; // Fork addition
 import { PERM_RESOURCES } from '../../../utils/permissions';
+import { useEditHints, ForkRestartChoice, ForkUserChoice, ForkPuidFix, ForkDeviceChoices, ForkLimits, ForkEnvAdd } from './forkEditTabs'; // Fork addition (plan 47, I2c): the edit tab's proposals
 
 const containerInfoFrom = (values) => {
   const labels = {};
@@ -82,6 +83,7 @@ const DockerContainerSetup = ({
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const padding = isMobile ? "6px 4px" : "12px 10px";
   const [latestImage, setLatestImage] = useState(containerInfo.Config.Image);
+  const hints = useEditHints(containerInfo, !newContainer && !installer); // Fork addition (plan 47, I2c)
 
   const wrapCard = (children) => {
     if (noCard) return children;
@@ -155,10 +157,17 @@ const DockerContainerSetup = ({
       Object.keys(problems).forEach((field) => {
         if (!installer) errors[field] = t(problems[field][0], problems[field][1]);
       });
+      // Fork addition (plan 47, I2c): a device added on the edit tab is a device of the server (checked again by the server)
+      if (!newContainer) {
+        const had = new Set((initialValues.devices || []).map((d) => d.key + '|' + d.value));
+        const bad = values.devices.find((d) => !had.has(d.key + '|' + d.value)
+          && (!/^\/dev\//.test(d.key || '') || /(^|\/)\.\.(\/|$)/.test(d.key || '') || !/^\//.test(d.value || '') || /(^|\/)\.\.(\/|$)/.test(d.value || '')));
+        if (bad) errors.submit = t('mgmt.servapps.editTabs.device.problem', 'A device is a path under /dev on the server, given to an absolute path in the container, for example /dev/dri/renderD128.');
+      }
       OnChange && OnChange(containerInfoFrom(values));
       return errors;
     },
-    [OnChange, newContainer, installer] // Fork addition: installer
+    [OnChange, newContainer, installer, initialValues] // Fork addition: installer, initialValues
   );
 
   const onSubmit = useCallback(
@@ -246,19 +255,20 @@ const DockerContainerSetup = ({
                           required
                         />
                         {afterImage}
-                        <CosmosSelect
+                        {/* Fork addition (plan 47, I2c): restart policy and user as choices on the edit tab */}
+                        {!newContainer ? <ForkRestartChoice formik={formik} /> : <CosmosSelect
                           name="restartPolicy"
                           label={t('mgmt.servapps.newContainer.restartPolicyInput.restartPolicyLabel')}
                           placeholder={t('mgmt.servapps.newContainer.restartPolicyInput.restartPolicyPlaceholder')}
                           options={restartPolicies}
                           formik={formik}
-                        />
-                        <CosmosInputText
+                        />}
+                        {!newContainer ? <><ForkUserChoice formik={formik} hints={hints} problem={formik.errors.user} /><ForkPuidFix formik={formik} hints={hints} /></> : <CosmosInputText
                           name="user"
                           label={t('global.user')}
                           placeholder={t('global.user')}
                           formik={formik}
-                        />
+                        />}
                         <CosmosCheckbox
                           name="interactive"
                           label={t('mgmt.servapps.newContainer.interactiveCheckbox.interactiveLabel')}
@@ -327,7 +337,8 @@ const DockerContainerSetup = ({
                         </Grid>
                       ))}
 
-                      <ResponsiveButton
+                      {/* Fork addition (plan 47, I2c): the names the image uses are offered when adding one */}
+                      {!newContainer && !installer ? <ForkEnvAdd formik={formik} hints={hints} image={containerInfo.Config.Image} /> : <ResponsiveButton
                         variant="outlined"
                         color="primary"
                         size="large"
@@ -339,7 +350,7 @@ const DockerContainerSetup = ({
                         startIcon={<PlusCircleOutlined />}
                       >
                         {t('global.addAction')}
-                      </ResponsiveButton>
+                      </ResponsiveButton>}
                     </Grid>
 
                     <CosmosFormDivider title={t('mgmt.servapps.newContainer.labelsTitle')} />
@@ -397,6 +408,7 @@ const DockerContainerSetup = ({
 
                     <CosmosFormDivider title={t('mgmt.servapps.newContainer.devicesTitle')} />
                     <Grid size={{ xs: 12 }}>
+                      {!newContainer && <ForkDeviceChoices formik={formik} hints={hints} />/* Fork addition (plan 47, I2c): the server's devices */}
                       {formik.values.devices.map((device, idx) => (
                         <Grid container key={idx}>
                           <Grid size={{ xs: 5 }} style={{ padding }}>
@@ -451,6 +463,8 @@ const DockerContainerSetup = ({
                     {!installer && (
                       <>
                         <CosmosFormDivider title={t('mgmt.servapps.newContainer.resourceLimitsTitle')} />
+                        {/* Fork addition (plan 47, I2c): limits as choices under the server's totals */}
+                        {!newContainer ? <ForkLimits formik={formik} hints={hints} errors={formik.errors} /> : <>
                         <CosmosInputText
                           name="memLimit"
                           label={t('mgmt.servapps.newContainer.memoryLimit')}
@@ -463,6 +477,7 @@ const DockerContainerSetup = ({
                           placeholder="e.g. 0.5, 1, 2, or 0 for unlimited"
                           formik={formik}
                         />
+                        </>}
                       </>
                     )}
                   </Grid>

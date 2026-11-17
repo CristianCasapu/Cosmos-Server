@@ -26,6 +26,7 @@ import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_RESOURCES } from '../../../utils/permissions';
 import { bindIsReadOnly, mountHostPath } from './forkContainerFixes'; // Fork addition: read-only mounts, real volume folders
 import { PaidOnly } from '../../../components/paidVisibility'; // Fork addition
+import { useEditHints, ForkDeclaredVolumes, ForkFolderNote, ForkSourcePlaces, ForkVolumeSource, ForkReadOnly } from './forkEditTabs'; // Fork addition (plan 47, I2c): the edit tab's proposals
 
 const VolumeContainerSetup = ({
   noCard,
@@ -38,6 +39,8 @@ const VolumeContainerSetup = ({
   const { t } = useTranslation();
   const [volumes, setVolumes] = React.useState([]);
   const theme = useTheme();
+  const hints = useEditHints(containerInfo, !newContainer); // Fork addition (plan 47, I2c)
+  const appName = containerInfo.Name.replace("/", ""); // Fork addition (plan 47, I2c)
 
   useEffect(() => {
     API.docker.volumeList().then((res) => {
@@ -75,7 +78,7 @@ const VolumeContainerSetup = ({
         ...(containerInfo.HostConfig.Binds || []).map((bind) => {
           const [source, destination, mode] = bind.split(":");
           return {
-            Type: "bind",
+            Type: source.startsWith("/") ? "bind" : "volume", // Fork addition (plan 47, I2c): "name:/path" is a named volume; saving it as a bind failed
             Source: source,
             Target: destination,
             ReadOnly: bindIsReadOnly(mode), // Fork addition
@@ -96,10 +99,24 @@ const VolumeContainerSetup = ({
       if (unique.length !== volumes.length) {
         errors.submit = t('mgmt.servapps.newContainer.volumes.mountNotUniqueError');
       }
+      // Fork addition (plan 47, I2c): what a new mount names is checked before saving (and again by the server)
+      if (!newContainer) {
+        const had = new Set((initialValues.volumes || []).map((v) => `${v.Type}|${v.Source}|${v.Target}`));
+        const dots = /(^|\/)\.\.(\/|$)/;
+        values.volumes.filter((v) => !had.has(`${v.Type}|${v.Source}|${v.Target}`)).forEach((v) => {
+          if (!/^\//.test(v.Target || '') || dots.test(v.Target || '')) {
+            errors.submit = t('mgmt.servapps.editTabs.mount.target', 'The folder in the container must be an absolute path such as /config, without "..".');
+          } else if (v.Type === 'bind' && (!/^\//.test(v.Source || '') || dots.test(v.Source || ''))) {
+            errors.submit = t('mgmt.servapps.editTabs.mount.source', 'The server folder must be an absolute path such as /mnt/data/app, without "..".');
+          } else if (v.Type === 'volume' && v.Source && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(v.Source)) {
+            errors.submit = t('mgmt.servapps.editTabs.mount.volume', 'A volume name may hold letters, digits and _ . - only, starting with a letter or a digit.');
+          }
+        });
+      }
       OnChange && OnChange(values, volumes);
       return errors;
     },
-    [OnChange]
+    [OnChange, newContainer, initialValues] // Fork addition: newContainer, initialValues
   );
 
   const onSubmit = useCallback(
@@ -152,6 +169,11 @@ const VolumeContainerSetup = ({
               {wrapCard(
                 <>
                   <Grid container spacing={4}>
+                    {/* Fork addition (plan 47, I2c): what the image keeps data in and the container does not mount */}
+                    {!newContainer && hints && <Grid size={{ xs: 12 }}>
+                      <ForkDeclaredVolumes hints={hints} volumes={formik.values.volumes} app={appName}
+                        onAdd={(row) => formik.setFieldValue("volumes", [...formik.values.volumes, row])} />
+                    </Grid>}
                     <Grid size={{ xs: 12 }}>
                       {volumes && (
                         <PrettyTableView
@@ -168,7 +190,7 @@ const VolumeContainerSetup = ({
                               onClick={() => {
                                 formik.setFieldValue("volumes", [
                                   ...formik.values.volumes,
-                                  {
+                                  !newContainer ? { Type: "bind", Source: "", Target: "", ReadOnly: false, forkNew: true } /* Fork addition (plan 47, I2c): a folder of a data place, chosen below */ : {
                                     Type: "volume",
                                     Name: "",
                                     Driver: "local",
@@ -249,6 +271,15 @@ const VolumeContainerSetup = ({
                                       }}
                                     />
                                     </Stack>
+                                  ) : null}
+                                  {/* Fork addition (plan 47, I2c): the folder's disk, owner and room; the data places for a new one */}
+                                  {r.Type == "bind" && !newContainer && <div style={{ whiteSpace: "normal" }}>
+                                    {r.forkNew && <ForkSourcePlaces row={r} hints={hints} app={appName} onPick={(path) => formik.setFieldValue(`volumes[${k}].Source`, path)} />}
+                                    <ForkFolderNote row={r} hints={hints} />
+                                  </div>}
+                                  {r.Type == "bind" ? null : r.Type == "volume" && !newContainer ? (
+                                    <ForkVolumeSource value={r.Source} volumes={volumes} disabled={frozenVolumes.includes(r.Source)}
+                                      onChange={(name) => formik.setFieldValue(`volumes[${k}].Source`, name)} />
                                   ) : r.Type == "tmpfs" ? (
                                     <TextField
                                       className="px-2 my-2"
@@ -318,6 +349,12 @@ const VolumeContainerSetup = ({
                                 </div>
                               ),
                             },
+                            // Fork addition (plan 47, I2c): read-only as a switch on the edit tab
+                            ...(!newContainer ? [{
+                              title: t('mgmt.servapps.editTabs.readOnly', 'Read-only'),
+                              field: (r, k) => r.Type == "tmpfs" ? null : <ForkReadOnly checked={r.ReadOnly} disabled={frozenVolumes.includes(r.Source)}
+                                onChange={(on) => formik.setFieldValue(`volumes[${k}].ReadOnly`, on)} />,
+                            }] : []),
                             {
                               title: "",
                               field: (r) => {

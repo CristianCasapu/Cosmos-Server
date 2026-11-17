@@ -97,6 +97,7 @@ func UpdateContainerRoute(w http.ResponseWriter, req *http.Request) {
 			// THIS IS HACK BECAUSE USER IS NULLABLE, BETTER SOLUTION TO COME
 			container.Config.User = form.User
 			container.HostConfig.RestartPolicy = containerType.RestartPolicy{Name: containerType.RestartPolicyMode(form.RestartPolicy)}
+			keepRestartRetries(&before, &container) // Fork addition (plan 47, I2c): on-failure:N keeps its N
 		}
 		if(form.Env != nil) {
 			// Fork addition: a masked value (***) from an account that may not read credentials keeps the current value (fork_masked_env.go)
@@ -177,10 +178,17 @@ func UpdateContainerRoute(w http.ResponseWriter, req *http.Request) {
 			container.HostConfig.RestartPolicy = containerType.RestartPolicy{Name: containerType.RestartPolicyMode("no")}
 		}
 
+		// Fork addition (plan 47, I2c): what changed is checked as at creation (fork_edit_check.go)
+		if forkRefuseBadEdit(w, before, container) {
+			return
+		}
+
 		// Fork addition: access to the server it did not have needs the admin's yes, as at creation
 		if forkRefuseUnconfirmedEdit(w, req, before, container) {
 			return
 		}
+
+		forkPrepareBindFolders(before, container, bindRoot()) // Fork addition (plan 47, I2c): a new data folder belongs to the app's user
 
 		_, err = EditContainer(container.ID, container, false)
 		if err != nil {

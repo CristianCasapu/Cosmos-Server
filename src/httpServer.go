@@ -1101,6 +1101,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/known-apps", behind.KnownAppsRoute)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/terminal/{action}", docker.TerminalRoute)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/update", docker.UpdateContainerRoute)
+	srapiAdmin.HandleFunc("/api/servapps/{containerId}/edit-hints", EditHintsRoute) // Fork addition (plan 47, I2c): what the edit tabs propose from (fork_edit_hints.go)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/export", docker.ExportContainerRoute)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/", docker.GetContainerRoute)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/network/{networkId}", docker.NetworkContainerRoutes)

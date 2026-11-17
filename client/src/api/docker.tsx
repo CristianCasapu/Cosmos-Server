@@ -240,6 +240,11 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
   }
 
   // Fork addition (plan 43): the server's addresses on the home network (src/proxy/fork_lan_addresses.go)
+  // Fork addition (plan 47, I2c): what a container's edit tabs propose from (src/fork_edit_hints.go); nothing is changed
+  function editHints(containerId: string): Promise<ApiResponse> {
+    return wrap(apiFetch('/cosmos/api/servapps/' + encodeURIComponent(containerId) + '/edit-hints', { method: 'GET' }), true)
+  }
+
   function lanAddresses(): Promise<ApiResponse> {
     return wrap(apiFetch('/cosmos/api/lan-addresses', { method: 'GET' }))
   }
@@ -508,6 +513,7 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
     startReport, // Fork addition (plan 43)
     probePort, // Fork addition (plan 43)
     lanAddresses, // Fork addition (plan 43)
+    editHints, // Fork addition (plan 47, I2c)
     createVolume,
     attachTerminal,
     createTerminal,
