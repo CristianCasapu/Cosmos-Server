@@ -49,7 +49,8 @@ if (phase === 'seed') {
   };
   const waitUp = async () => {
     for (let i = 0; i < 90; i++) {
-      if ((await call('GET', 'status')).status > 0) return;
+      const answer = (await call('GET', 'status')).status;
+      if (answer > 0 && answer !== 502) return; // 502: the stand-in proxy while the server restarts
       await sleep(1000);
     }
     throw new Error('the instance did not come back');
