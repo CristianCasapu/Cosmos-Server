@@ -808,7 +808,8 @@ func TestAnOpeningNotYetSentIsToldWithItsClosing(t *testing.T) {
 		mu.Lock()
 		refuse = false
 		mu.Unlock()
-		time.Sleep(2500 * time.Millisecond)
+		fake.waitFor(t, 2)
+		time.Sleep(1500 * time.Millisecond) // nothing more may come
 		sent := []fakeRequest{}
 		for _, req := range fake.received()[1:] {
 			sent = append(sent, req)

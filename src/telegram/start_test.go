@@ -298,8 +298,14 @@ func TestSavesInARowAreAllTold(t *testing.T) {
 		change(&after)
 		AnnounceSettingsChange(before, after, "mallory", "203.0.113.66")
 	}
-	time.Sleep(1500 * time.Millisecond)
-	all := strings.Join(fake.texts(), "\n")
+	all := ""
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		all = strings.Join(fake.texts(), "\n")
+		if strings.Contains(all, "no longer send error messages") && strings.Contains(all, "Disk failing") {
+			break
+		}
+	}
+	time.Sleep(300 * time.Millisecond)
 	for _, want := range []string{"Disk failing", "Docker does not answer", "sign-ins from a new country", "no longer send error messages"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("%q was not told: %s", want, all)
