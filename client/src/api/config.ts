@@ -338,6 +338,17 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }))
   }
 
+  // Fork addition: the protection cards of the security page (src/protection).
+  // GET only: the state of the host guard, Fail2ban and the automatic updates.
+  function protectionStatus() {
+    return wrap(apiFetch('/cosmos/api/protection', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }), true)
+  }
+
   function fail2banUnban(ip: string, jail: string) {
     return wrap(apiFetch('/cosmos/api/fail2ban/unban', {
       method: 'POST',
@@ -557,6 +568,7 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     telegramStatus,
     telegramTest,
     fail2banStatus,
+    protectionStatus, // Fork addition: the protection cards
     fail2banUnban,
     fail2banSettings,
     getBackup,
