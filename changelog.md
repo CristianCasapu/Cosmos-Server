@@ -10,7 +10,13 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 Merged into `custom` since `0.24.0-fork.36`, to be part of the next release:
 
-- Nothing yet.
+### Added
+- The home page opens each app on the address that works from where you are: the home address at home, the internet address when away. An app that only opens at home says "Only at home" and offers its address to copy, or (to administrators) an internet address through the Internet dialog.
+- "All addresses" on a tile, on ServApps and on the app's page lists every interface of an app (administration, page for users, API, published ports) with Open and Copy; ports that are not web pages are copy-only.
+- The URL form says what an address is to its app (administration, page for users, API, other), with a label and "kept at home on purpose".
+
+### Changed
+- One tile per app: the URLs that lead to the same container are one tile. Administrators land on the administration page first, other users on the page for users.
 
 ## Fork 0.24.0-fork.36 — 2026-11-17
 
