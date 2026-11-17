@@ -17,9 +17,9 @@ import (
 
 const secretNames = `pass(?:word|wd|phrase)?|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth(?:orization)?|cookie|session(?:id)?|otp|totp|mfa[_-]?code|credentials?|signature|sig`
 
-// a value: quoted whole, else up to a space or what closes a structure, so
-// that cutting twice gives what cutting once gave
-const secretValue = `(\[(?:hidden|token)\]|"[^"]*"?|'[^']*'?|[^\s"',;&}\])]+)`
+// a value: quoted whole (escaped quotes inside), else up to a space or what
+// closes a structure, so that cutting twice gives what cutting once gave
+const secretValue = `(\[(?:hidden|token)\]|"(?:[^"\\]|\\.)*"?|'[^']*'?|[^\s"',;&}\])]+)`
 
 var (
 	// key=value, key: value, "key":"value", key = "two words", with the name
@@ -60,6 +60,14 @@ var (
 	// a word of 32 or more letters, digits and + _ = - (no "/" nor "." : a path
 	// or a name is not one word): judged in error texts only
 	wordPattern = regexp.MustCompile(`[A-Za-z0-9+_=-]{32,}`)
+	// a key of 40 characters with "/" and "+" (an AWS secret key), judged
+	// in error texts only
+	keyPattern = regexp.MustCompile(`(?:^|[\s"'=:])([A-Za-z0-9+][A-Za-z0-9+/]{35,63})(?:$|[\s"',;])`)
+	// in error texts: an address's password up to its last "@" on the line
+	urlPasswordLinePattern = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://[^\s:/@]*:)[^\n]*@([A-Za-z0-9.-]+)`)
+	secretEnvWord          = regexp.MustCompile(`(?:^|_)(?:SECRET|KEY|TOKEN|PASS|PASSWORD|PASSWD|PWD|CREDENTIALS?|SALT)(?:_|$)`)
+	placeSuffix            = regexp.MustCompile(`_(?:URL|URI|FILE|PATH|HOST|NAME|USER|USERNAME|ID|TYPE|LENGTH|SIZE|DIR|ENDPOINT|EXPIRY|EXPIRES|TTL)$`)
+	plainWord              = regexp.MustCompile(`^[a-z]{1,12}[.!]?$`)
 )
 
 // maxGuarded is how much of a text the guard looks at: the values are cut
@@ -71,8 +79,37 @@ const maxGuarded = 16 << 10
 var firstPass = guardValue
 
 // guardValue cuts every secret out of a value: a name, an address, a
-// sentence's value. Applying it twice gives what applying it once gave.
+// sentence's value. A "key: value" is cut there only when the value looks
+// like a secret (not "invalid token: expired"). Applying it twice gives
+// what applying it once gave.
 func guardValue(text string, secrets []string) string {
+	return guard(text, secrets, false)
+}
+
+// guardRaw cuts every secret out of an error text: every "key: value",
+// the shapes of guardValue, an address's password up to its last "@", and
+// words that look made by a machine.
+func guardRaw(text string, secrets []string) string {
+	text = guard(text, secrets, true)
+	text = urlPasswordLinePattern.ReplaceAllString(text, "${1}"+hiddenSecret+"@${2}")
+	text = wordPattern.ReplaceAllStringFunc(text, func(word string) string {
+		if generated(word) {
+			return hiddenSecret
+		}
+		return word
+	})
+	// only the key itself is replaced, not what stands around it
+	matches := keyPattern.FindAllStringSubmatchIndex(text, -1)
+	for i := len(matches) - 1; i >= 0; i-- {
+		start, end := matches[i][2], matches[i][3]
+		if keyLike(text[start:end]) {
+			text = text[:start] + hiddenSecret + text[end:]
+		}
+	}
+	return text
+}
+
+func guard(text string, secrets []string, raw bool) string {
 	if len(text) > maxGuarded {
 		text = text[:maxGuarded]
 	}
@@ -96,21 +133,81 @@ func guardValue(text string, secrets []string) string {
 	text = curlUserPattern.ReplaceAllString(text, "${1}"+hiddenSecret)
 	text = commandPasswordPattern.ReplaceAllString(text, "${1}"+hiddenSecret)
 	text = envFlagPattern.ReplaceAllString(text, "${1}"+hiddenSecret)
-	text = envSecretPattern.ReplaceAllString(text, "${1}"+hiddenSecret)
-	text = secretFlagPattern.ReplaceAllString(text, "${1}"+hiddenSecret)
-	text = secretPairPattern.ReplaceAllString(text, "${1}"+hiddenSecret)
+	cut := func(pattern *regexp.Regexp, nameCheck bool) {
+		text = pattern.ReplaceAllStringFunc(text, func(m string) string {
+			parts := pattern.FindStringSubmatch(m)
+			name, value := parts[1], parts[2]
+			if nameCheck && !secretEnvName(name) {
+				return m
+			}
+			if placeSuffix.MatchString(strings.ToUpper(strings.TrimRight(strings.TrimSpace(name), "=: \"'"))) {
+				return m // the name of a place (TOKEN_URL, password_file), not of a secret
+			}
+			if !raw && !secretish(value) {
+				return m
+			}
+			return name + hiddenSecret
+		})
+	}
+	cut(envSecretPattern, true)
+	cut(secretFlagPattern, false)
+	cut(secretPairPattern, false)
 	return text
 }
 
-// guardRaw cuts every secret out of an error text: the shapes of
-// guardValue, and words that look made by a machine.
-func guardRaw(text string, secrets []string) string {
-	return wordPattern.ReplaceAllStringFunc(guardValue(text, secrets), func(word string) string {
-		if generated(word) {
-			return hiddenSecret
+// keyLike: a key with "/" and "+" (an AWS secret key): upper and lower
+// case and digits, many different characters; a path starts with "/" and
+// is not one.
+func keyLike(word string) bool {
+	var upper, lower, digit bool
+	counts := map[rune]int{}
+	for _, r := range word {
+		counts[r]++
+		switch {
+		case unicode.IsUpper(r):
+			upper = true
+		case unicode.IsLower(r):
+			lower = true
+		case unicode.IsDigit(r):
+			digit = true
 		}
-		return word
-	})
+	}
+	if !(upper && lower && digit) {
+		return false
+	}
+	n := float64(len(word))
+	entropy := 0.0
+	for _, c := range counts {
+		p := float64(c) / n
+		entropy -= p * math.Log2(p)
+	}
+	return entropy >= 4.2
+}
+
+// secretEnvName: the secret word is a whole part of the name (DB_PASSWORD,
+// SECRET_KEY_BASE, not KEYBOARD), and the name is not that of a place
+// (TOKEN_URL, PASSWORD_FILE).
+func secretEnvName(name string) bool {
+	name = strings.TrimRight(strings.TrimSpace(name), "=: ")
+	if !secretEnvWord.MatchString(name) {
+		return false
+	}
+	return !placeSuffix.MatchString(name)
+}
+
+// secretish: a value that can be a secret, not a word that says how
+// something is ("expired", "none", "started") nor an address.
+func secretish(value string) bool {
+	if value == hiddenSecret || value == hiddenToken {
+		return true
+	}
+	if strings.HasPrefix(value, `"`) || strings.HasPrefix(value, "'") {
+		return true
+	}
+	if strings.Contains(value, "://") {
+		return false
+	}
+	return !plainWord.MatchString(value)
 }
 
 // hideKnown cuts only the configuration's own secrets out of a text.

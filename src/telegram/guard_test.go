@@ -171,3 +171,33 @@ func TestErrorTextsAreBounded(t *testing.T) {
 		t.Errorf("an error text with the setting off:\n%s", text)
 	}
 }
+
+// Review, third round: the shapes still missed, the over-cutting in values, and the cut marker.
+func TestTheGuardThirdRound(t *testing.T) {
+	for text, secret := range map[string]string{
+		"aws s3 failed: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY12 denied": "wJalrXUtnFEMI",
+		`{"password":"x\"yz123abc"}`:                                       "yz123abc",
+		"connect postgres://app:p@ss w0rd@db.example.org:5432/app":         "ss w0rd",
+	} {
+		if got := guardRaw(text, nil); strings.Contains(got, secret) {
+			t.Errorf("%q kept %q: %q", text, secret, got)
+		}
+	}
+	for _, text := range []string{"invalid token: expired", "secret: none", "session: started", "KEYBOARD=us", "TOKEN_URL=https://auth.example.org/token", "PASSWORD_FILE=/run/secrets/db"} {
+		if got := guardValue(text, nil); got != text {
+			t.Errorf("value %q became %q", text, got)
+		}
+	}
+	// in error texts a key's value is always cut
+	if got := guardRaw("login failed, password: sunshine", nil); strings.Contains(got, "sunshine") {
+		t.Errorf("%q", got)
+	}
+	// never half a marker at the cut
+	for n := 1; n < 30; n++ {
+		value := strings.Repeat("a", n) + " password=x" + strings.Repeat("b", 40)
+		got := trimMarker(cleanValue(guardRaw(value, nil), 20))
+		if i := strings.LastIndex(got, "["); i >= 0 && !strings.Contains(got[i:], "]") {
+			t.Errorf("half a marker: %q", got)
+		}
+	}
+}

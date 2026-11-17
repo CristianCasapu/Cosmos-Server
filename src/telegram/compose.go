@@ -123,6 +123,20 @@ func (c *composer) value(text string, max int) *composer {
 	return c.covered("code", text, max)
 }
 
+// trimMarker never leaves half of "[hidden]" at the end of a cut value.
+func trimMarker(text string) string {
+	if !strings.HasSuffix(text, cutMark) {
+		return text
+	}
+	body := strings.TrimSuffix(text, cutMark)
+	if i := strings.LastIndex(body, "["); i >= 0 && !strings.Contains(body[i:], "]") {
+		if rest := body[i:]; strings.HasPrefix(hiddenSecret, rest) || strings.HasPrefix(hiddenToken, rest) {
+			return strings.TrimRight(body[:i], " ") + cutMark
+		}
+	}
+	return text
+}
+
 // pre adds an error text from outside the same way, as a block.
 func (c *composer) pre(text string, max int) *composer {
 	// an error text: its first line only, guarded with the machine-word rule too
@@ -136,7 +150,7 @@ func (c *composer) pre(text string, max int) *composer {
 var rawPass = guardRaw
 
 func (c *composer) covered(kind string, text string, max int) *composer {
-	cleaned := cleanValue(firstPass(text, c.secrets), max)
+	cleaned := trimMarker(cleanValue(firstPass(text, c.secrets), max))
 	if cleaned == "" {
 		return c.fixed("-")
 	}

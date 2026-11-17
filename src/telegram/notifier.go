@@ -214,6 +214,10 @@ func (n *notifier) Notify(nt notice) {
 	if !st.wants(nt) {
 		return
 	}
+	// put into words before the lock: the guard can take a while (review)
+	rendered := render(st, nt)
+	plain := renderWith(st, nt, false)
+	plain.button = nil
 
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -236,9 +240,7 @@ func (n *notifier) Notify(nt notice) {
 	}
 
 	it := &item{priority: p, at: now, since: nt.at, counts: map[string]int{nt.kind: 1}, nt: nt}
-	it.message = render(st, nt)
-	plain := renderWith(st, nt, false)
-	plain.button = nil
+	it.message = rendered
 	it.plain = plain
 
 	queue, room := &n.normal, n.limits.normalQueue
