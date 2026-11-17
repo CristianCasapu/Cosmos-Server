@@ -380,6 +380,17 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }))
   }
 
+  // Fork addition (plan 47): the chats the bot can write to; an empty token means the saved one
+  function telegramChats(token: string) {
+    return wrap(apiFetch('/cosmos/api/telegram/chats', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ token: token || '' }),
+    }))
+  }
+
   function snapshotsCleanup(source: string, name: string) {
     return wrap(apiFetch('/cosmos/api/snapshots/cleanup', {
       method: 'POST',
@@ -556,6 +567,7 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     snapshotsCleanup,
     telegramStatus,
     telegramTest,
+    telegramChats,
     fail2banStatus,
     fail2banUnban,
     fail2banSettings,
