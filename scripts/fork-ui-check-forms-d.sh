@@ -192,7 +192,12 @@ case "${1:-}" in
     start_all
     copy_scripts ;;
   setup) setup ;;
-  rebuild) build; stop_cosmos; start_cosmos; wait_up; say "rebuilt and restarted" ;;
+  rebuild)
+    build; stop_cosmos
+    # the stand-in is rebuilt too; it makes a new authority at start, which Cosmos reads at its start
+    rm -f "$SCRATCH/shared/ca.pem"; docker restart "$PREFIX-telegram" >/dev/null
+    for _ in $(seq 1 20); do [ -s "$SCRATCH/shared/ca.pem" ] && break; sleep 1; done
+    start_cosmos; wait_up; say "rebuilt and restarted" ;;
   restart) stop_cosmos; start_cosmos; wait_up ;;
   check) shift; copy_scripts; browser "$@" -- fork-ui-check-forms-d.mjs ;;
   node) shift; script=$1; shift; copy_scripts; cp "$here/$script" "$SCRATCH/pw/"; browser "$@" -- "$script" ;;

@@ -151,6 +151,106 @@ phases.telegram = async (page, id, size, ctx) => {
   expect(id + ': the token is not in the settings read', !raw.includes('AAFakeFake'));
 };
 
+// A nightly dump of maindb by choices only; then every minute, and the dump appears
+const dumps = async () => (await onServer('ls /d/cosmos-dumps 2>/dev/null | grep -c "^dump-" || true', ['/mnt/data/maindb:/d:ro'])).trim();
+const dropJobs = async (ctx) => {
+  const config = await getConfig(ctx);
+  if (config.CRON && Object.keys(config.CRON).length) { config.CRON = {}; await putConfig(ctx, config); await waitBack(ctx); }
+};
+phases.cron = async (page, id, size, ctx) => {
+  await dropJobs(ctx);
+  await page.goto(base + '/cosmos-ui/cron', { waitUntil: 'domcontentloaded' });
+  await sleep(3000);
+  await page.locator('button:has(.anticon-plus)').first().click();
+  const dialog = page.locator('[role=dialog]:visible').last();
+  await dialog.locator('#job-where').waitFor({ timeout: 15000 });
+  await dialog.getByRole('radio', { name: 'In a container of this server' }).click();
+  await dialog.locator('#Container').click();
+  await page.getByRole('option', { name: /^maindb/ }).click();
+  await dialog.getByText('A nightly dump of this database (PostgreSQL)').waitFor({ timeout: 15000 });
+  await dialog.getByRole('button', { name: 'Use this job' }).click();
+  expect(id + ': the job is named from the proposal', /maindb/.test(await dialog.locator('#Name').inputValue()), await dialog.locator('#Name').inputValue());
+  expect(id + ': the command is the dump of the proposal', /pg_dumpall/.test(await dialog.locator('#Command').inputValue()));
+  await dialog.getByRole('radio', { name: 'Every night' }).click();
+  const runs = await dialog.locator('[data-testid=job-next-runs] li').count();
+  expect(id + ': the next three runs are shown', runs === 3, runs);
+  expect(id + ': the expression is shown', /0 0 3 \* \* \*/.test(await dialog.locator('[data-testid=job-expression]').innerText()));
+  expect(id + ': it says where the dumps go on the server', /\/mnt\/data\/maindb\/cosmos-dumps/.test(await dialog.innerText()));
+  await layout(page, id, dialog, size);
+  await shot(page, id, 'cron-job');
+  await dialog.getByRole('button', { name: 'Submit' }).click();
+  await sleep(2000);
+  await waitBack(ctx);
+  const jobs = (await getConfig(ctx)).CRON || {};
+  const job = Object.values(jobs)[0];
+  expect(id + ': the job is saved for maindb, nightly', job && job.Container === 'maindb' && job.Crontab === '0 0 3 * * *', JSON.stringify(job && { c: job.Container, s: job.Crontab }));
+  if (!job) return;
+  // every minute, as an edit through the server's check
+  const before = Number(await dumps()) || 0;
+  const config = await getConfig(ctx);
+  config.CRON[job.Name] = { ...job, Crontab: '0 * * * * *' };
+  expect(id + ': the every-minute schedule is accepted', (await putConfig(ctx, config)).status === 200);
+  await waitBack(ctx);
+  let after = before;
+  for (let i = 0; i < 20 && after <= before; i += 1) { await sleep(5000); after = Number(await dumps()) || 0; }
+  expect(id + ': the job ran and the dump is in the data folder', after > before, `${before} -> ${after}`);
+  await page.goto(base + '/cosmos-ui/cron', { waitUntil: 'domcontentloaded' });
+  await sleep(3000);
+  await shot(page, id, 'cron-list');
+  // a job the form could not make, sent by a client of its own: refused in words
+  const bad = await getConfig(ctx);
+  bad.CRON['Broken'] = { Enabled: true, Name: 'Broken', Crontab: '0 0 25 * * *', Command: 'true', Container: 'no-such-container' };
+  const refused = await putConfig(ctx, bad);
+  expect(id + ': a bad job is refused in words', refused.status === 400 && /schedule|container/i.test(refused.body), refused.body);
+  await dropJobs(ctx);
+};
+
+// An alert from a ready-made one; a bad one changed on its way refused in words by the server
+phases.alert = async (page, id, size, ctx) => {
+  const config = await getConfig(ctx);
+  for (const name of Object.keys(config.MonitoringAlerts || {})) if (/^(Memory nearly full|Bad memory)/.test(name)) delete config.MonitoringAlerts[name];
+  await putConfig(ctx, config);
+  await waitBack(ctx);
+  await page.goto(base + '/cosmos-ui/monitoring', { waitUntil: 'domcontentloaded' });
+  await sleep(2500);
+  await page.getByRole('tab').nth(3).click();
+  await sleep(1500);
+  const openEditor = async () => {
+    await page.getByRole('button', { name: /Create$/ }).click();
+    const d = page.locator('[role=dialog]:visible').last();
+    await d.getByText('Memory nearly full').first().click();
+    return d;
+  };
+  let dialog = await openEditor();
+  await layout(page, id, null, size);
+  await shot(page, id, 'alert-editor');
+  await dialog.getByRole('button', { name: /^Save$/ }).click();
+  await sleep(2500);
+  await waitBack(ctx);
+  const saved = (await getConfig(ctx)).MonitoringAlerts || {};
+  expect(id + ': the alert is saved', Object.keys(saved).some((k) => /^Memory nearly full/.test(k)), Object.keys(saved).join(', '));
+  // the same editor, but the request is changed to a percentage of 150 before it leaves
+  await page.route('**/cosmos/api/config', async (route) => {
+    if (route.request().method() !== 'PUT') return route.continue();
+    const body = JSON.parse(route.request().postData());
+    for (const a of Object.values(body.MonitoringAlerts || {})) if (/^Bad memory/.test(a.Name)) a.Condition = { ...a.Condition, Percent: true, Value: 150 };
+    return route.continue({ postData: JSON.stringify(body) });
+  });
+  await page.goto(base + '/cosmos-ui/monitoring', { waitUntil: 'domcontentloaded' });
+  await sleep(2500);
+  await page.getByRole('tab').nth(3).click();
+  await sleep(1500);
+  dialog = await openEditor();
+  await dialog.locator('input[name=name]').fill('Bad memory alert');
+  await dialog.getByRole('button', { name: /^Save$/ }).click();
+  const shown = await page.getByText(/a percentage is from 0 to 100/).first().waitFor({ timeout: 15000 }).then(() => true, () => false);
+  expect(id + ': the server refuses it and the panel shows why', shown);
+  await shot(page, id, 'alert-refused');
+  await page.unroute('**/cosmos/api/config');
+  const after = (await getConfig(ctx)).MonitoringAlerts || {};
+  expect(id + ': the bad alert is not saved', !Object.keys(after).some((k) => /^Bad memory/.test(k)));
+};
+
 // ---------------------------------------------------------------------------------------------
 const order =phase === 'all' ? ['telegram', 'cron', 'alert', 'database', 'snapshots'] : phase.split(',');
 if (order.includes('setup')) {
