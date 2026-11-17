@@ -785,10 +785,12 @@ g_fail2ban() {
 	OUT=$(m sh /opt/cosmos/fork/fail2ban/install.sh --dry-run 2>&1; echo "RC=$?"); RC=$(printf '%s\n' "$OUT" | sed -n 's/^RC=//p')
 	expect_rc 0 "Fail2ban dry run on a machine without python3"
 	check "Fail2ban dry run: no file changed" test "$before_files" = "$(files_snapshot)"
-	check "--print-packages names python3, nftables and fail2ban" sh -c "[ \"\$(docker exec $M sh /opt/cosmos/fork/fail2ban/install.sh --print-packages | tr '\n' ' ')\" = 'python3 nftables fail2ban ' ]"
+	# nftables comes with Docker 29's packages; the distributions' Docker does not bring it
+	if m sh -c 'command -v nft' >/dev/null 2>&1; then want_pkgs='python3 fail2ban '; else want_pkgs='python3 nftables fail2ban '; fi
+	check "--print-packages names what is missing: $want_pkgs" sh -c "[ \"\$(docker exec $M sh /opt/cosmos/fork/fail2ban/install.sh --print-packages | tr '\n' ' ')\" = '$want_pkgs' ]"
 	OUT=$(m sh /opt/cosmos/fork/fail2ban/install.sh --yes --record /root/f2b.rec 2>&1; echo "RC=$?"); RC=$(printf '%s\n' "$OUT" | sed -n 's/^RC=//p')
 	expect_rc 0 "Fail2ban unattended on a bare machine"
-	check "the record names the packages it installed" sh -c "docker exec $M grep -c 'fail2ban	package	' /root/f2b.rec | grep -q 3"
+	check "the record names the packages it installed" sh -c "[ \$(docker exec $M grep -c 'fail2ban	package	' /root/f2b.rec) = $(printf '%s' "$want_pkgs" | wc -w) ]"
 	check "the sshd jail is off by default" sh -c "! docker exec $M fail2ban-client status sshd"
 	check "and it says so" says "off by default, --sshd to watch it"
 	check "it says what 100.64.0.0/10 means" says "carrier-grade NAT"
