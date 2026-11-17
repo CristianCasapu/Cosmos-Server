@@ -384,6 +384,26 @@ whole run. The home-network address is validated in the browser only, as
 on the Network tab. A container renamed keeps its old name in the proxy's
 cache for up to 10 s.
 
+## Sign-in details and managers: left for later (2026-11-17)
+
+MongoDB gets no web manager (mongo-express has published no image since
+2024-11): one once a maintained one exists. A database recognised without
+a recipe gets no manager offer. pgAdmin connects without typing only when
+it is created with its database (it reads its server list at its first
+start) and not for an administrator e-mail that starts with a digit. The
+password proposed for an app that makes its first account in its own page
+is not kept by Cosmos (keeping it encrypted next to the configuration
+would protect nothing: the key lives there too). Redis Insight asks to
+accept its terms at first open: Cosmos does not accept them for the owner.
+An administrator cannot make a manager's URL public on purpose (the server
+turns the protection back on at the next save). "Add a web manager" leaves
+an existing database on the networks it has, the default bridge included.
+Upstream's delete dialog can remove an app's networks before its
+containers are gone (`promises.concat` in deleteModal). The any-image
+check's private-registry, arm-only and data-disk steps need a test bed
+with those; the services check's story and bad phases need a Cosmos
+started without recipes.
+
 ## Apps behind the proxy: left for later (2026-11-17)
 
 Upstream's restart of the web server has a race: two saves of URLs a few
