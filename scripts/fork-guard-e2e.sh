@@ -11,7 +11,8 @@
 #   sh scripts/fork-guard-e2e.sh            shellcheck + every machine, every group
 #   sh scripts/fork-guard-e2e.sh fast       shellcheck + Debian 13, the core groups
 #   sh scripts/fork-guard-e2e.sh clean      remove what a kept run left
-# Options: MACHINES="debian12 debian13 ubuntu2404", TEST_GROUPS (see inner.sh),
+# Options: MACHINES="debian12-ce debian13-ce ubuntu2404-ce" (-ce: Docker 29 from
+# download.docker.com; -distro: the distribution's docker.io), TEST_GROUPS (see inner.sh),
 # PREFIX=fork-guard, SCRATCH (default /storage/dev/.cache/$PREFIX when that
 # exists, else $TMPDIR), KEEP=1 (leave the Docker in Docker), BREAK (inner.sh),
 # OLD_REF (the commit whose fork/fail2ban is "the current version" for the
@@ -40,8 +41,8 @@ clean() {
 }
 case "$MODE" in
 	clean) clean; exit 0 ;;
-	fast) MACHINES=${MACHINES:-debian13}; TEST_GROUPS=${TEST_GROUPS:-fast} ;;
-	all) MACHINES=${MACHINES:-debian12 debian13 ubuntu2404}; TEST_GROUPS=${TEST_GROUPS:-all} ;;
+	fast) MACHINES=${MACHINES:-debian13-ce}; TEST_GROUPS=${TEST_GROUPS:-fast} ;;
+	all) MACHINES=${MACHINES:-debian12-ce debian13-ce ubuntu2404-ce}; TEST_GROUPS=${TEST_GROUPS:-all} ;;
 	*) echo "usage: sh scripts/fork-guard-e2e.sh [all|fast|clean]" >&2; exit 2 ;;
 esac
 
@@ -74,11 +75,12 @@ docker exec "$D" sh -c '
 	cd /work/e2e
 	docker build -q -t cosmos-guard-test-client -f client.Dockerfile . >/dev/null
 	for m in '"$MACHINES"'; do
-		case "$m" in
+		case "${m%-*}" in
 			debian12) base=debian:12 ;; debian13) base=debian:13 ;; ubuntu2404) base=ubuntu:24.04 ;;
 			*) echo "unknown machine $m" >&2; exit 2 ;;
 		esac
-		docker build -q --build-arg BASE=$base -t cosmos-guard-test-machine:$m -f machine.Dockerfile . >/dev/null
+		case "$m" in *-ce) docker_flavour=ce ;; *-distro) docker_flavour=distro ;; *) echo "unknown machine $m (-ce or -distro)" >&2; exit 2 ;; esac
+		docker build -q --build-arg BASE=$base --build-arg DOCKER=$docker_flavour -t cosmos-guard-test-machine:$m -f machine.Dockerfile . >/dev/null
 	done
 	docker pull -q busybox:1.36 >/dev/null'
 echo "images ready after $(( $(date +%s) - start )) s"
