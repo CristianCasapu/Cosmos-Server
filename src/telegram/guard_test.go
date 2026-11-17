@@ -113,6 +113,7 @@ func TestTheGuardSecondRound(t *testing.T) {
 		"/var/lib/docker/volumes/nextcloud_data/_data",
 		"linuxserver/qbittorrent:4.6.7-r0-ls355",
 		"MediaServer_Jellyfin_Main_Library",
+		"AAAAbbbb1111AAAAbbbb1111AAAAbbbb1111", // every class, but a repeated pattern: no key
 	}
 	for _, text := range keep {
 		if got := guardValue(text, nil); got != text {
