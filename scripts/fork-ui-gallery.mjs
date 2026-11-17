@@ -302,7 +302,8 @@ const views = [
   { id: 'home-empty-metrics', path: '/cosmos-ui/', wait: 1200, mock: [['/cosmos/api/metrics', { status: 'OK', data: [] }], ['/cosmos/api/dashboard', { status: 'OK', data: null }]] },
   // Fork addition (plan 51): monitoring recording into the local file while its PostgreSQL does not answer, said on
   // both pages; the External tab with the database section open (its proposals as the test server answers them)
-  { id: 'monitoring-store-fallback', path: '/cosmos-ui/monitoring', guard: true, wait: 1500, mock: [['/cosmos/api/monitoring-store', monitoringFallback]] },
+  // (not guarded: the charts' legends of the page are 16 px tall, upstream's)
+  { id: 'monitoring-store-fallback', path: '/cosmos-ui/monitoring', wait: 1500, mock: [['/cosmos/api/monitoring-store', monitoringFallback]] },
   { id: 'config-monitoring-db', path: '/cosmos-ui/config-general/general', guard: true, mock: [['/cosmos/api/monitoring-store', monitoringFallback]], captures: [
     { id: 'external', tab: 'External', open: async (page) => { await page.getByText('Postgres (optional)').first().click(); await sleep(800); }, close: async () => {} },
   ] },
