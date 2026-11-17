@@ -26,7 +26,8 @@ export default function createUrlCheckAPI(apiFetch: ApiFetch) {
     check: (route: string): Promise<ApiResponse> => retried('url-check', { route }),
     checks: (routes: string[]): Promise<ApiResponse> => post('url-checks', { routes }),
     // setting: 'appOwnHost' | 'noVisitorAddress', exactly one per call
-    apply: (route: string, setting: string, on: boolean): Promise<ApiResponse> => retried('url-check/apply', { route, [setting]: on }),
+    // more: another URL of the same repair follows at once (the server then reloads its URLs once, after the last)
+    apply: (route: string, setting: string, on: boolean, more: boolean = false): Promise<ApiResponse> => retried('url-check/apply', { route, [setting]: on, more }),
     knownApps: (): Promise<ApiResponse> => wrap(apiFetch('/cosmos/api/known-apps', {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },

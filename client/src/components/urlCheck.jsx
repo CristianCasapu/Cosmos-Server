@@ -259,8 +259,10 @@ export const UrlCheckDialog = ({ routeNames, initial, recheck = true, onClose, r
     setError('');
     const outcomes = [];
     try {
-      for (const name of sharing) {
-        const res = await API.urlCheck.apply(name, repairs.route.setting, !!repairs.route.on);
+      for (let i = 0; i < sharing.length; i++) {
+        const name = sharing[i];
+        // every call but the last says that another follows: the server reloads its URLs once, after the last
+        const res = await API.urlCheck.apply(name, repairs.route.setting, !!repairs.route.on, i < sharing.length - 1);
         const r = res && res.data;
         if (r && r.verdict === 'notChecked' && r.reason === 'tooMany') {
           outcomes.push(null);
@@ -330,6 +332,9 @@ export const UrlCheckDialog = ({ routeNames, initial, recheck = true, onClose, r
           </Typography>
           {repairs.route.seen && <Typography variant="body2" sx={{ color: 'success.main' }} data-url-check-seen>
             <CheckCircleOutlined /> {t('mgmt.urlCheck.seen', 'Cosmos tried this and {{app}} then answered.', { app: appName, interpolation: { escapeValue: false } })}
+          </Typography>}
+          {sharing.length > 1 && <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }} data-url-check-apply-names>
+            {t('mgmt.urlCheck.applyNames', 'The setting is changed for: {{names}}.', { names: sharing.join(', '), interpolation: { escapeValue: false } })}
           </Typography>}
           <Button variant="contained" sx={{ alignSelf: 'flex-start' }} disabled={!!busy} loading={busy === 'route'} onClick={applyRoute} data-url-check-apply-route>
             {sharing.length > 1

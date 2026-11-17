@@ -60,6 +60,8 @@ var addressLookAlikes = []string{
 	"X-Forwarded-Protocol", "X-Url-Scheme", "Front-End-Https", "X-Forwarded-Ssl",
 	"X-Client-IP", "X-Cluster-Client-IP", "Client-IP", "X-Original-Forwarded-For", "X-Forwarded",
 	"Forwarded-For", "X-Originating-IP", "X-Remote-IP", "X-Remote-Addr", "X-ProxyUser-Ip",
+	// the path a server should act on instead of the one requested (IIS, older frameworks)
+	"X-Original-URL", "X-Rewrite-URL",
 }
 
 func init() {

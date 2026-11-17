@@ -6066,6 +6066,7 @@
 	"mgmt.urlCheck.publicHelp": "Cosmos then sends {{app}} the address the visitor typed, as it does for most apps.",
 	"mgmt.urlCheck.seen": "Cosmos tried this and {{app}} then answered.",
 	"mgmt.urlCheck.applyMany": "Apply to its {{count}} addresses",
+	"mgmt.urlCheck.applyNames": "The setting is changed for: {{names}}.",
 	"mgmt.urlCheck.applyOne": "Apply",
 	"mgmt.urlCheck.envIntro": "{{app}} has to be told its address in its settings. Cosmos proposes these values; it then creates the container again with them.",
 	"mgmt.urlCheck.envNow": "Today: {{value}}",

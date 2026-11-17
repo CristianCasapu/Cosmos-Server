@@ -5,8 +5,8 @@ package proxy
 
 import (
 	"bufio"
-	"crypto/tls"
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -128,7 +128,7 @@ func TestTheVisitorsHostIsPassedAsReceived(t *testing.T) {
 		"X-Forwarded-Port":  "1",
 		"X-Forwarded-Proto": "gopher",
 	})
-	expectApp(t, got, "APP.Example.ORG:2053", "APP.Example.ORG:2053", "2053", "https")
+	expectApp(t, got, "APP.Example.ORG:2053", "app.example.org:2053", "2053", "https")
 
 	// an upper-case URL name changes nothing of what the visitor sent
 	upper := utils.ProxyRouteConfig{Name: "up", UseHost: true, Host: "App.Example.ORG"}
@@ -257,11 +257,55 @@ func TestUpstreamOptionsKeepTheirMeaning(t *testing.T) {
 func TestURLWithoutANameOfItsOwn(t *testing.T) {
 	onServer(t, nil)
 	route := utils.ProxyRouteConfig{Name: "path", UsePathPrefix: true, PathPrefix: "/app"}
-	got, _ := asApp(t, route, "server.example.org:2053", "2053", nil)
-	expectApp(t, got, "server.example.org:2053", "server.example.org:2053", "2053", "https")
-	// reached by an address (a visitor at home): the app keeps that, as before
-	got, _ = asApp(t, route, "192.168.1.10:2053", "2053", nil)
-	expectApp(t, got, "192.168.1.10:2053", "192.168.1.10:2053", "2053", "https")
+	// such a URL answers ANY Host: the app keeps the visitor's Host (as before),
+	// but nothing the visitor wrote there is repeated in the forwarded headers:
+	// those stay upstream's (the server's own hostname)
+	for _, visitor := range []string{"server.example.org:2053", "192.168.1.10:2053", "evil.example.net:2053"} {
+		got, _ := asApp(t, route, visitor, "2053", nil)
+		if got.host != visitor {
+			t.Errorf("Host: the app received %q, want %q", got.host, visitor)
+		}
+		if v := got.header.Values("X-Forwarded-Host"); len(v) != 1 || v[0] != "server.example.org" {
+			t.Errorf("%s: X-Forwarded-Host is %q, want the server's own name", visitor, v)
+		}
+	}
+}
+
+// Second review F1: the router pins a URL's name, not what follows the
+// colon. Only a port NUMBER is ever repeated to the app: a list
+// ("name:,evil.example"), letters, markup or a space after the colon never
+// reach X-Forwarded-Host or X-Forwarded-Port (frameworks that read
+// X-Forwarded-Host as a list would believe the last name). Host itself
+// passes as the visitor sent it, as upstream.
+func TestOnlyAPortNumberIsRepeatedToTheApp(t *testing.T) {
+	onServer(t, nil)
+	route := utils.ProxyRouteConfig{Name: "app", UseHost: true, Host: "app.example.org"}
+	for visitor, want := range map[string][2]string{
+		"app.example.org:1":               {"app.example.org:1", "1"},
+		"app.example.org:02053":           {"app.example.org:2053", "2053"},
+		"app.example.org:abc":             {"app.example.org", "443"},
+		"app.example.org:,evil.example":   {"app.example.org", "443"},
+		"app.example.org:%40evil.example": {"app.example.org", "443"},
+		"app.example.org:\"><x>":          {"app.example.org", "443"},
+		"app.example.org: evil":           {"app.example.org", "443"},
+		"app.example.org:/evil":           {"app.example.org", "443"},
+		"app.example.org:99999":           {"app.example.org", "443"},
+		"app.example.org:0":               {"app.example.org", "443"},
+		"app.example.org":                 {"app.example.org", "443"},
+	} {
+		got, _ := asApp(t, route, visitor, "2053", nil)
+		if v := got.header.Values("X-Forwarded-Host"); len(v) != 1 || v[0] != want[0] {
+			t.Errorf("%q: X-Forwarded-Host is %q, want %q", visitor, v, want[0])
+		}
+		if v := got.header.Values("X-Forwarded-Port"); len(v) != 1 || v[0] != want[1] {
+			t.Errorf("%q: X-Forwarded-Port is %q, want %q", visitor, v, want[1])
+		}
+		for name, values := range got.header {
+			if strings.HasPrefix(name, "X-Forwarded-") && strings.Contains(strings.Join(values, " "), "evil") {
+				t.Errorf("%q: %s carries the visitor's text: %q", visitor, name, values)
+			}
+		}
+	}
 }
 
 func TestAppOwnHostOverWebSocket(t *testing.T) {
@@ -304,13 +348,13 @@ func TestOnlyTheImpossibleRedirectIsRepaired(t *testing.T) {
 		"http://sonarr.server.local:2053/login?returnUrl=%2F": "https://sonarr.server.local:2053/login?returnUrl=%2F",
 		"http://SONARR.server.local:2053/":                    "https://SONARR.server.local:2053/",
 		// everything else stays as the app said it
-		"/login":                                  "/login",
-		"https://sonarr.server.local:2053/":       "https://sonarr.server.local:2053/",
-		"http://sonarr.server.local/":             "http://sonarr.server.local/",
-		"http://sonarr.server.local:8989/":        "http://sonarr.server.local:8989/",
-		"http://other.example.org:2053/":          "http://other.example.org:2053/",
-		"http://user@sonarr.server.local:2053/":   "http://user@sonarr.server.local:2053/",
-		"http://172.30.0.23:8989/login":           "http://172.30.0.23:8989/login",
+		"/login":                                "/login",
+		"https://sonarr.server.local:2053/":     "https://sonarr.server.local:2053/",
+		"http://sonarr.server.local/":           "http://sonarr.server.local/",
+		"http://sonarr.server.local:8989/":      "http://sonarr.server.local:8989/",
+		"http://other.example.org:2053/":        "http://other.example.org:2053/",
+		"http://user@sonarr.server.local:2053/": "http://user@sonarr.server.local:2053/",
+		"http://172.30.0.23:8989/login":         "http://172.30.0.23:8989/login",
 	} {
 		if got := FixLocation(in, public, "https"); got != want {
 			t.Errorf("%s became %s, want %s", in, got, want)
