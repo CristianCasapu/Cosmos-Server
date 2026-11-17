@@ -55,28 +55,28 @@ type knownAppRole struct {
 
 var knownAppRoles = map[string]knownAppRole{
 	// one page, which is where the app is run: administration
-	"qbittorrent": {Role: utils.InterfaceAdmin},
+	"qbittorrent":  {Role: utils.InterfaceAdmin},
 	"transmission": {Role: utils.InterfaceAdmin},
-	"deluge":      {Role: utils.InterfaceAdmin},
-	"sonarr":      {Role: utils.InterfaceAdmin},
-	"radarr":      {Role: utils.InterfaceAdmin},
-	"codeserver":  {Role: utils.InterfaceAdmin},
-	"portainer":   {Role: utils.InterfaceAdmin},
-	"uptimekuma":  {Role: utils.InterfaceAdmin},
-	"syncthing":   {Role: utils.InterfaceAdmin},
-	"pihole":      {Role: utils.InterfaceAdmin}, // https://docs.pi-hole.net/ (the web interface is /admin)
-	"adguard":     {Role: utils.InterfaceAdmin},
-	"phpmyadmin":  {Role: utils.InterfaceAdmin},
-	"adminer":     {Role: utils.InterfaceAdmin},
-	"pgadmin":     {Role: utils.InterfaceAdmin},
+	"deluge":       {Role: utils.InterfaceAdmin},
+	"sonarr":       {Role: utils.InterfaceAdmin},
+	"radarr":       {Role: utils.InterfaceAdmin},
+	"codeserver":   {Role: utils.InterfaceAdmin},
+	"portainer":    {Role: utils.InterfaceAdmin},
+	"uptimekuma":   {Role: utils.InterfaceAdmin},
+	"syncthing":    {Role: utils.InterfaceAdmin},
+	"pihole":       {Role: utils.InterfaceAdmin}, // https://docs.pi-hole.net/ (the web interface is /admin)
+	"adguard":      {Role: utils.InterfaceAdmin},
+	"phpmyadmin":   {Role: utils.InterfaceAdmin},
+	"adminer":      {Role: utils.InterfaceAdmin},
+	"pgadmin":      {Role: utils.InterfaceAdmin},
 	// a page for users, with the administration on a path of its own
-	"jellyfin":      {Role: utils.InterfaceUser, AdminPath: "/web/#/dashboard"},          // https://jellyfin.org/docs/general/server/settings
+	"jellyfin":      {Role: utils.InterfaceUser, AdminPath: "/web/#/dashboard"},            // https://jellyfin.org/docs/general/server/settings
 	"emby":          {Role: utils.InterfaceUser, AdminPath: "/web/index.html#!/dashboard"}, // https://emby.media/support/articles/Server-Dashboard.html
-	"homeassistant": {Role: utils.InterfaceUser, AdminPath: "/config"},                   // https://www.home-assistant.io/docs/configuration/
-	"nextcloud":     {Role: utils.InterfaceUser, AdminPath: "/settings/admin"},           // https://docs.nextcloud.com/server/latest/admin_manual/
-	"vaultwarden":   {Role: utils.InterfaceUser, AdminPath: "/admin"},                    // https://github.com/dani-garcia/vaultwarden/wiki/Enabling-admin-page
-	"gitea":         {Role: utils.InterfaceUser, AdminPath: "/-/admin"},                  // https://docs.gitea.com/ (site administration, 1.21 and later)
-	"forgejo":       {Role: utils.InterfaceUser, AdminPath: "/-/admin"},                  // https://forgejo.org/docs/latest/admin/
+	"homeassistant": {Role: utils.InterfaceUser, AdminPath: "/config"},                     // https://www.home-assistant.io/docs/configuration/
+	"nextcloud":     {Role: utils.InterfaceUser, AdminPath: "/settings/admin"},             // https://docs.nextcloud.com/server/latest/admin_manual/
+	"vaultwarden":   {Role: utils.InterfaceUser, AdminPath: "/admin"},                      // https://github.com/dani-garcia/vaultwarden/wiki/Enabling-admin-page
+	"gitea":         {Role: utils.InterfaceUser, AdminPath: "/-/admin"},                    // https://docs.gitea.com/ (site administration, 1.21 and later)
+	"forgejo":       {Role: utils.InterfaceUser, AdminPath: "/-/admin"},                    // https://forgejo.org/docs/latest/admin/
 	"paperless":     {Role: utils.InterfaceUser},
 	"grafana":       {Role: utils.InterfaceUser},
 	"vite":          {Role: utils.InterfaceOther},
@@ -187,11 +187,12 @@ type ForkDashboardPort struct {
 type ForkDashboardFields struct {
 	AuthEnabled bool `json:"AuthEnabled,omitempty"` // behind Cosmos' sign-in
 	// what the URL is to its app: as set on the URL form, else proposed
-	ForkRole       string `json:"ForkRole,omitempty"`
-	ForkRoleSource string `json:"ForkRoleSource,omitempty"`
-	ForkLabel      string `json:"ForkLabel,omitempty"`
-	ForkHomeOnly   bool   `json:"ForkHomeOnly,omitempty"`
-	ForkAdminPath  string `json:"ForkAdminPath,omitempty"`
+	ForkRole         string `json:"ForkRole,omitempty"`
+	ForkRoleSource   string `json:"ForkRoleSource,omitempty"`
+	ForkRoleProposed string `json:"ForkRoleProposed,omitempty"` // what it would be without the setting (for the URL form)
+	ForkLabel        string `json:"ForkLabel,omitempty"`
+	ForkHomeOnly     bool   `json:"ForkHomeOnly,omitempty"`
+	ForkAdminPath    string `json:"ForkAdminPath,omitempty"`
 	// the app's names for use at home that copy this URL
 	ForkHomeHosts []string `json:"ForkHomeHosts,omitempty"`
 	// administrators only: the container, its image and its published ports
@@ -238,6 +239,7 @@ func forkDashboardRoutes(out []DashboardRoute, config utils.Config, containers [
 		}
 		proposal := proposeRole(route, image)
 		fields.ForkRole, fields.ForkRoleSource, fields.ForkAdminPath = proposal.Role, proposal.Source, proposal.AdminPath
+		fields.ForkRoleProposed = proposal.Role
 		if setting := route.ForkInterface; setting != nil && utils.RouteInterfaceProblem(setting) == "" {
 			if setting.Role != "" {
 				fields.ForkRole, fields.ForkRoleSource = setting.Role, roleFromSetting

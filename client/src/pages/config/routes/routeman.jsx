@@ -34,6 +34,7 @@ import proFeatures from '../../../pro';
 import ForkRouteGuide, { HostSeenHint } from './forkRouteGuide'; // Fork addition: the simple view of this form
 import { PaidOnly } from '../../../components/paidVisibility'; // Fork addition
 import { UrlCheckNotice } from '../../../components/urlCheck'; // Fork addition (plan 44): does the saved URL open
+import { ForkRouteRole, forkRoleValues, withForkRole } from './forkRouteRole'; // Fork addition (plan 49)
 
 const Hide = ({ children, h }) => {
   return h ? <div style={{ display: 'none' }}>
@@ -110,6 +111,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
           OverwriteHostHeader: routeConfig.OverwriteHostHeader,
           ForkAppOwnHost: routeConfig.ForkAppOwnHost === true, // Fork addition (plan 44)
           ForkNoVisitorAddress: routeConfig.ForkNoVisitorAddress === true, // Fork addition (plan 44)
+          ...forkRoleValues(routeConfig), // Fork addition (plan 49): what the address is to its app
           Tunnel: routeConfig.Tunnel,
           TunneledHost: routeConfig.TunneledHost,
           WhitelistInboundIPs: routeConfig.WhitelistInboundIPs && routeConfig.WhitelistInboundIPs.join(', '),
@@ -149,7 +151,7 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
             }
             delete fullValues._ExtraHeaders;
 
-            fullValues = sanitizeRoute(fullValues);
+            fullValues = withForkRole(sanitizeRoute(fullValues)); // Fork addition (plan 49): ForkInterface from the form
 
             if(IsRouteSocketProxy(fullValues)) {
               if(!fullValues.Host.includes(':')) {
@@ -205,6 +207,12 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
           } else {
             fullValues.WhitelistInboundIPs = [];
           }
+
+          // Fork addition (plan 49): the label is plain text, as the server checks it
+          if (/[\u0000-\u001f\u007f<>"'`\\{}\u2028\u2029]/.test(String(values._ForkLabel || '')) || String(values._ForkLabel || '').trim().length > 40) {
+            return { _ForkLabel: t('mgmt.appLinks.form.labelInvalid', 'At most 40 characters: letters, digits, spaces and simple punctuation') };
+          }
+          fullValues = withForkRole(fullValues);
 
           // check name is unique
           if (newRoute && routeNames.includes(fullValues.Name)) {
@@ -265,6 +273,9 @@ const RouteManagement = ({ routeConfig, routeNames, config, TargetContainer, noC
                     placeholder={t('global.description')}
                     formik={formik}
                   />
+
+                  {/* Fork addition (plan 49): administration, users, API: which address the app's tile opens */}
+                  <ForkRouteRole formik={formik} routeName={routeConfig.Name} />
 
                   <Hide h={lockTarget}>
                     <CosmosFormDivider title={t('mgmt.urls.edit.targetTypeTitle')} />

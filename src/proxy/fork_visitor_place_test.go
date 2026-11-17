@@ -43,27 +43,27 @@ func TestClassifyPlace(t *testing.T) {
 		{"127.0.0.1", PlaceHome, true},
 		{"::1", PlaceHome, true},
 		{"192.168.1.42", PlaceHome, true},
-		{"10.1.2.3", PlaceHome, true},            // another private range: still at home
-		{"172.17.0.5", PlaceHome, true},          // a container on the server
-		{"169.254.10.1", PlaceHome, true},        // link-local
-		{"fe80::1", PlaceHome, true},             // link-local IPv6
-		{"fe80::1%eth0", PlaceHome, true},        // with a zone
-		{"fd12:3456::9", PlaceHome, true},        // unique-local IPv6
-		{"2001:db8:1:2::abcd", PlaceHome, true},  // the home's global IPv6 prefix
+		{"10.1.2.3", PlaceHome, true},             // another private range: still at home
+		{"172.17.0.5", PlaceHome, true},           // a container on the server
+		{"169.254.10.1", PlaceHome, true},         // link-local
+		{"fe80::1", PlaceHome, true},              // link-local IPv6
+		{"fe80::1%eth0", PlaceHome, true},         // with a zone
+		{"fd12:3456::9", PlaceHome, true},         // unique-local IPv6
+		{"2001:db8:1:2::abcd", PlaceHome, true},   // the home's global IPv6 prefix
 		{"[2001:db8:1:2::abcd]", PlaceHome, true}, // in brackets
-		{"::ffff:192.168.1.42", PlaceHome, true}, // mapped IPv4
-		{"100.64.0.1", PlaceVPN, true},           // carrier-NAT range (Tailscale)
+		{"::ffff:192.168.1.42", PlaceHome, true},  // mapped IPv4
+		{"100.64.0.1", PlaceVPN, true},            // carrier-NAT range (Tailscale)
 		{"100.101.102.103", PlaceVPN, true},
 		{"100.127.255.254", PlaceVPN, true},
 		{"fd7a:115c:a1e0::1234", PlaceVPN, true}, // Tailscale IPv6, though unique-local
 		{"10.99.0.7", PlaceVPN, true},            // a WireGuard interface's range, though private
 		{"fd00:99::7", PlaceVPN, true},
-		{"100.128.0.1", PlaceAway, true},         // just outside the carrier-NAT range
+		{"100.128.0.1", PlaceAway, true}, // just outside the carrier-NAT range
 		{"100.63.255.255", PlaceAway, true},
-		{"203.0.113.7", PlaceHome, false},        // the home's own public address: hairpin or Cloudflare
+		{"203.0.113.7", PlaceHome, false}, // the home's own public address: hairpin or Cloudflare
 		{"198.51.100.20", PlaceAway, true},
-		{"2001:db8:9::1", PlaceAway, true},       // another IPv6 prefix
-		{"2001:db8:1:3::1", PlaceAway, true},     // the next /64 is not the home's
+		{"2001:db8:9::1", PlaceAway, true},   // another IPv6 prefix
+		{"2001:db8:1:3::1", PlaceAway, true}, // the next /64 is not the home's
 		{"", PlaceAway, false},
 		{"not an address", PlaceAway, false},
 		{"192.168.1.42, 10.0.0.1", PlaceAway, false},

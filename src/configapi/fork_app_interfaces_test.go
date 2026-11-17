@@ -67,16 +67,16 @@ func TestKnownAppRolesCoverTheKnownApps(t *testing.T) {
 
 func TestTargetPort(t *testing.T) {
 	for target, want := range map[string]int{
-		"http://rustfs:9001":       9001,
-		"http://rustfs:9001/x":     9001,
-		"https://app":              443,
-		"http://app/path":          80,
-		"http://[fd00::1]:8080":    8080,
-		"http://[fd00::1]":         80,
-		"rustfs:9001":              0,
-		"http://app:99999":         0,
-		"http://app:notaport":      0,
-		"":                         0,
+		"http://rustfs:9001":    9001,
+		"http://rustfs:9001/x":  9001,
+		"https://app":           443,
+		"http://app/path":       80,
+		"http://[fd00::1]:8080": 8080,
+		"http://[fd00::1]":      80,
+		"rustfs:9001":           0,
+		"http://app:99999":      0,
+		"http://app:notaport":   0,
+		"":                      0,
 	} {
 		if got := targetPort(target); got != want {
 			t.Errorf("targetPort(%q) = %d, want %d", target, got, want)
@@ -98,7 +98,7 @@ func TestRouteInterfaceValidation(t *testing.T) {
 		{Role: "Admin"},
 		{Label: "<img src=x onerror=alert(1)>"},
 		{Label: "a\nb"},
-		{Label: "x y"},
+		{Label: "x\u2028y"},
 		{Label: "\"quoted\""},
 		{Label: strings.Repeat("a", 41)},
 		{Label: " padded"},
@@ -198,7 +198,7 @@ func TestDashboardFieldsForAnAdministrator(t *testing.T) {
 	if r := by["jellyfin-example.org"]; !r.AuthEnabled || len(r.ForkHomeHosts) != 0 {
 		t.Errorf("jellyfin's public URL: %+v", r.ForkDashboardFields)
 	}
-	if r := by["qbittorrent"]; r.ForkRole != "other" || r.ForkRoleSource != "set" || r.ForkLabel != "Torrents" || !r.ForkHomeOnly || len(r.ForkPorts) != 2 {
+	if r := by["qbittorrent"]; r.ForkRole != "other" || r.ForkRoleSource != "set" || r.ForkRoleProposed != "admin" || r.ForkLabel != "Torrents" || !r.ForkHomeOnly || len(r.ForkPorts) != 2 {
 		t.Errorf("qbittorrent: %+v", r.ForkDashboardFields)
 	}
 	if _, ok := by["secret-admin"]; !ok {

@@ -58,7 +58,7 @@ func RouteInterfaceProblem(setting *ForkRouteInterface) string {
 		return "The label of the address starts or ends with a space"
 	}
 	for _, r := range label {
-		if unicode.IsControl(r) || strings.ContainsRune("<>\"'`\\{}", r) || r == ' ' || r == ' ' {
+		if unicode.IsControl(r) || strings.ContainsRune("<>\"'`\\{}", r) || r == '\u2028' || r == '\u2029' {
 			return "The label of the address may hold letters, digits, spaces and simple punctuation only"
 		}
 	}
