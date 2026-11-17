@@ -61,6 +61,7 @@ import (
 	"net"
 	"net/http"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -110,9 +111,14 @@ type restarts struct {
 	changed  chan struct{}
 
 	// a restart asked for from inside the reload: one more reload follows
-	again     bool
-	reentered int
+	again      bool
+	reentered  int
+	loopLogged bool
 }
+
+// maxReloadsAskedFromInside bounds the reloads that requests made from
+// inside a reload add to one restart.
+const maxReloadsAskedFromInside = 3
 
 func newRestarts() *restarts {
 	r := &restarts{
@@ -182,8 +188,17 @@ func (r *restarts) waitForFirstRequests() time.Duration {
 			return time.Since(start)
 		}
 	}
+	if len(waiting) > 0 {
+		// net/http marks the connection active just before it checks
+		// whether the server is shutting down: give its goroutine the
+		// moment it needs to pass that check
+		time.Sleep(firstRequestGrace)
+	}
 	return time.Since(start)
 }
+
+// firstRequestGrace: see waitForFirstRequests.
+const firstRequestGrace = 10 * time.Millisecond
 
 // restart runs reload unless a reload that began after this call has
 // finished meanwhile, then asks for a new generation of the servers. A panic
@@ -194,6 +209,7 @@ func (r *restarts) restart(reload func()) {
 	r.mu.Lock()
 	r.asked++
 	mine := r.asked
+	extra := 0
 	if r.reloading && insideReload() {
 		r.again = true
 		r.reentered++
@@ -213,7 +229,15 @@ func (r *restarts) restart(reload func()) {
 		r.mu.Lock()
 		if r.again {
 			r.again = false
-			mine = r.asked // what was asked for from inside: covered by the next one
+			if extra < maxReloadsAskedFromInside {
+				extra++
+				mine = r.asked // what was asked for from inside: covered by the next one
+			} else if !r.loopLogged {
+				// a callee asks for a restart on every reload: stop here
+				// rather than reload for ever (the caller would never return)
+				r.loopLogged = true
+				r.log("The reload keeps asking for a restart from inside itself: stopped after " + strconv.Itoa(maxReloadsAskedFromInside) + " more reloads")
+			}
 		}
 	}
 	r.mu.Unlock()
@@ -563,6 +587,8 @@ func (g *generationRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		case <-changed:
 		case <-deadline.C:
 			// the old router never answers once its generation ended
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Retry-After", "5")
 			http.Error(w, "The server is restarting, try again in a moment", http.StatusServiceUnavailable)
 			return
 		case <-req.Context().Done():
