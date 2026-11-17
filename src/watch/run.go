@@ -64,19 +64,8 @@ type slot struct {
 func (s *slot) start(now time.Time, work func()) {
 	s.mu.Lock()
 	if s.busy {
-		tell := !s.told && now.Sub(s.since) >= stuckAfter
-		if tell {
-			s.told = true
-		}
-		since := s.since
 		s.mu.Unlock()
-		if tell {
-			notify("warning", &utils.NotificationInfo{
-				Kind: "watch.stuck", Source: "server", Thread: "watch.stuck:" + s.what,
-				Title: utils.NText("notif.watch.stuck.title", "what", s.what),
-				What:  utils.NText("notif.watch.stuck.what", "what", s.what, "age", durationWords(now.Sub(since))),
-			})
-		}
+		s.checkStuck(now)
 		return
 	}
 	s.busy, s.since = true, now
@@ -85,11 +74,41 @@ func (s *slot) start(now time.Time, work func()) {
 		defer func() {
 			recover()
 			s.mu.Lock()
+			told, since := s.told, s.since
 			s.busy, s.told = false, false
 			s.mu.Unlock()
+			if told {
+				// review T2: the stuck check has its closing
+				thread := "watch.stuck:" + s.what
+				resolveThread(thread)
+				notify("success", &utils.NotificationInfo{
+					Kind: "watch.recovered", Source: "server", Thread: thread, Resolves: thread,
+					Title: utils.NText("notif.watch.recovered.title", "what", s.what),
+					What:  utils.NText("notif.watch.recovered.what", "what", s.what, "age", durationWords(time.Since(since))),
+				})
+			}
 		}()
 		work()
 	}()
+}
+
+// checkStuck says once that a watch has run for stuckAfter; asked every
+// round, so the hour is kept whatever the watch's own rhythm.
+func (s *slot) checkStuck(now time.Time) {
+	s.mu.Lock()
+	tell := s.busy && !s.told && now.Sub(s.since) >= stuckAfter
+	if tell {
+		s.told = true
+	}
+	since := s.since
+	s.mu.Unlock()
+	if tell {
+		notify("warning", &utils.NotificationInfo{
+			Kind: "watch.stuck", Source: "server", Thread: "watch.stuck:" + s.what,
+			Title: utils.NText("notif.watch.stuck.title", "what", s.what),
+			What:  utils.NText("notif.watch.stuck.what", "what", s.what, "age", durationWords(now.Sub(since))),
+		})
+	}
 }
 
 // loop starts the watches when they are due, each in its slot. A panic in
@@ -129,8 +148,13 @@ func loop(st *store, r Readers, started time.Time) {
 func round(st *store, r Readers, docker *dockerWatch, slots map[string]*slot, due func(string, time.Duration) bool) {
 	s := settingsNow()
 	now := time.Now()
+	for _, sl := range slots {
+		sl.checkStuck(now)
+	}
 	if s.Docker && r.DockerPing != nil {
 		slots["docker"].start(now, func() { docker.check(r.DockerPing, time.Now) })
+	} else {
+		docker.unwatched()
 	}
 	if due("smart", smartEvery) && s.SMART && r.Disks != nil {
 		slots["smart"].start(now, func() {

@@ -89,12 +89,12 @@ type smartMemo struct {
 	LastBad       time.Time `json:"lastBad,omitempty"`
 	Missing       int       `json:"missing,omitempty"`
 	Seen          time.Time `json:"seen"`
-	// Read: it was read once; Failures: reads failed in a row since;
+	// Read: it was read once; History: the last reads;
 	// Unwatchable: said once that it cannot be read without waking it
-	Read        bool `json:"read,omitempty"`
-	Failures    int  `json:"failures,omitempty"`
-	Unreadable  bool `json:"unreadable,omitempty"`
-	Unwatchable bool `json:"unwatchable,omitempty"`
+	Read        bool   `json:"read,omitempty"`
+	History     []bool `json:"history,omitempty"` // the last reads: ok or not
+	Unreadable  bool   `json:"unreadable,omitempty"`
+	Unwatchable bool   `json:"unwatchable,omitempty"`
 }
 
 // What the fill watch keeps of a mount.

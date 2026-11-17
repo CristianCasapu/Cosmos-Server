@@ -62,8 +62,14 @@ func TestAHungWatchStopsOnlyItself(t *testing.T) {
 		other.start(time.Now(), func() { mu.Lock(); runs++; mu.Unlock(); close(done) })
 		<-done
 	}
+	r.mu.Lock()
+	first := r.written[0]
+	r.mu.Unlock()
 	close(release)
-	if runs != 5 || r.kinds() != "watch.stuck" || !strings.Contains(r.written[0].Fork.What.Vars["what"], "filling") {
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline) && r.kinds() != "watch.stuck,watch.recovered"; {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if runs != 5 || r.kinds() != "watch.stuck,watch.recovered" || !strings.Contains(first.Fork.What.Vars["what"], "filling") {
 		t.Errorf("%d runs of the other watch, %s", runs, r.kinds())
 	}
 	// a panic in a watch frees its slot
@@ -191,4 +197,77 @@ func TestTheStateFileIsWrittenWhole(t *testing.T) {
 		}
 		return false
 	})
+}
+
+// Review T2: a disk that was read and then fails even the power check is
+// "cannot be read", never "not watched"; two failures in three reads reach
+// it too; reading well for the whole window closes it.
+func TestADiskThatStopsAnsweringIsNeverJustUnwatched(t *testing.T) {
+	r := record(t)
+	st := newStore("")
+	now := time.Now()
+	d := disk("S7")
+	checkSMART(st, []Disk{d}, now)
+	silent := Disk{Device: d.Device, Serial: "S7", Unwatchable: true}
+	for i := 1; i <= 3; i++ {
+		checkSMART(st, []Disk{silent}, now.Add(time.Duration(i)*time.Hour))
+	}
+	if r.kinds() != "smart.unreadable" {
+		t.Fatalf("%s", r.kinds())
+	}
+	// two failures in every three reads
+	r2 := record(t)
+	st2 := newStore("")
+	checkSMART(st2, []Disk{disk("S8")}, now)
+	bad := Disk{Device: d.Device, Serial: "S8", Unreadable: true}
+	for i := 1; i <= 9; i++ {
+		if i%3 == 0 {
+			checkSMART(st2, []Disk{disk("S8")}, now.Add(time.Duration(i)*time.Hour))
+		} else {
+			checkSMART(st2, []Disk{bad}, now.Add(time.Duration(i)*time.Hour))
+		}
+	}
+	if !strings.Contains(r2.kinds(), "smart.unreadable") {
+		t.Fatalf("two failures in three: %s", r2.kinds())
+	}
+	for i := 10; i <= 16; i++ {
+		checkSMART(st2, []Disk{disk("S8")}, now.Add(time.Duration(i)*time.Hour))
+	}
+	if !strings.HasSuffix(r2.kinds(), "smart.readable") || r2.written[len(r2.written)-1].Fork.Resolves != "smart:serial:S8:unreadable" {
+		t.Errorf("%s", r2.kinds())
+	}
+}
+
+// The disk's key does not change with the path it was seen on.
+func TestTheDiskKeyIsTheListedOne(t *testing.T) {
+	if (Disk{Serial: "A", WWN: "0x5"}).key() != "serial:A" || (Disk{WWN: "0x5", Device: "/dev/sda"}).key() != "wwn:0x5" {
+		t.Error("key")
+	}
+}
+
+// A stuck watch's end is told; an open Docker problem ends when its watch is switched off.
+func TestStuckAndUnwatchedHaveTheirClosings(t *testing.T) {
+	r := record(t)
+	previous := stuckAfter
+	stuckAfter = 30 * time.Millisecond
+	defer func() { stuckAfter = previous }()
+	release := make(chan struct{})
+	s := &slot{what: "late snapshots"}
+	s.start(time.Now(), func() { <-release })
+	time.Sleep(50 * time.Millisecond)
+	s.checkStuck(time.Now())
+	close(release)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(r.kinds(), "watch.recovered") {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if r.kinds() != "watch.stuck,watch.recovered" {
+		t.Errorf("%s", r.kinds())
+	}
+	w := &dockerWatch{open: true, failingSince: time.Now().Add(-time.Hour)}
+	w.unwatched()
+	w.unwatched()
+	if !strings.HasSuffix(r.kinds(), "docker.unwatched") || strings.Count(r.kinds(), "docker.unwatched") != 1 {
+		t.Errorf("%s", r.kinds())
+	}
 }

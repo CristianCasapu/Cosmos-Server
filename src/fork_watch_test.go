@@ -75,3 +75,18 @@ func TestNetworkSharesAreNotWatchedForFilling(t *testing.T) {
 		}
 	}
 }
+
+// Review T2: the serial the system lists stays the disk's key after a read.
+func TestTheListedSerialStays(t *testing.T) {
+	disk := watch.Disk{Serial: "WD-WCC7K4ABCD12"}
+	fillIdentity(&disk, "WDC WD40EFRX", "WD-WCC7K4ABCD12 ")
+	fillIdentity(&disk, "WDC WD40EFRX", "OTHER")
+	if disk.Serial != "WD-WCC7K4ABCD12" || disk.Model != "WDC WD40EFRX" {
+		t.Errorf("%+v", disk)
+	}
+	bare := watch.Disk{}
+	fillIdentity(&bare, "M", " S1 ")
+	if bare.Serial != "S1" {
+		t.Errorf("%+v", bare)
+	}
+}

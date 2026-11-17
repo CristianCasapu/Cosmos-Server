@@ -93,6 +93,26 @@ func newDockerWatch(st *store, started time.Time) *dockerWatch {
 	return w
 }
 
+// unwatched ends an open problem when the Docker watch is switched off:
+// whether Docker answers is not known any more (review T2).
+func (w *dockerWatch) unwatched() {
+	defer func() { recover() }()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.open {
+		return
+	}
+	w.open, w.failingSince = false, time.Time{}
+	w.remember()
+	resolveThread(dockerThread)
+	notify("info", &utils.NotificationInfo{
+		Kind: "docker.unwatched", Source: "containers", Thread: dockerThread, Resolves: dockerThread,
+		Title:   utils.NText("notif.docker.unwatched.title"),
+		What:    utils.NText("notif.docker.unwatched.what"),
+		Subject: &utils.NotificationSubject{Type: "service", Name: "Docker", Link: "/cosmos-ui/servapps"},
+	})
+}
+
 // remember keeps the open problem in the state file.
 func (w *dockerWatch) remember() {
 	if w.st == nil {

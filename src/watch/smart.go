@@ -26,7 +26,8 @@ const (
 	smartEvery   = time.Hour
 	goneAfter    = 3                  // checks a disk with an open problem may be missing before it counts as replaced
 	calmAfter    = 7 * 24 * time.Hour // a failing disk reads healthy again after this long without a new sign
-	failedReads  = 3                  // reads that fail in a row before a disk that was read is "cannot be read"
+	failedReads  = 3                  // failed reads among the last readWindow before a disk that was read is "cannot be read"
+	readWindow   = 6
 	maxReasonLen = 200
 )
 
@@ -35,7 +36,8 @@ const (
 type Disk struct {
 	Device string // /dev/sdb
 	Model  string
-	Serial string
+	Serial string // as the system lists it (lsblk), the key of the disk
+	WWN    string
 	Mounts []string
 	Asleep bool // not read: it sleeps
 	// Unreadable: the system lists it, its S.M.A.R.T. data could not be
@@ -55,8 +57,11 @@ type Disk struct {
 
 // key is what a disk is known by across checks: its serial, else its device.
 func (d Disk) key() string {
-	if d.Serial != "" {
+	switch {
+	case d.Serial != "":
 		return "serial:" + d.Serial
+	case d.WWN != "":
+		return "wwn:" + d.WWN
 	}
 	return "device:" + d.Device
 }
@@ -107,8 +112,13 @@ func checkSMART(st *store, disks []Disk, now time.Time) {
 				}
 				continue
 			}
+			if d.Unwatchable && before.Read {
+				// review T2: a disk that was read and no longer answers even
+				// the power check is a disk that cannot be read
+				d.Unwatchable, d.Unreadable = false, true
+			}
 			if d.Unwatchable {
-				// review: a disk whose power state cannot be asked is not read
+				// a disk whose power state could never be asked is not read
 				if !before.Unwatchable {
 					before.Unwatchable, before.Device, before.Seen = true, d.Device, now
 					notify("info", smartInfo("smart.unwatchable", d, ""))
@@ -118,14 +128,15 @@ func checkSMART(st *store, disks []Disk, now time.Time) {
 				continue
 			}
 			if d.Unreadable {
-				// review R4: listed by the system but not readable: never "healthy
-				// again"; after a few failed reads of a disk that was read, an error
+				// review R4/T2: listed by the system but not readable: never
+				// "healthy again"; failed reads counted among the last few
+				// checks (a disk failing two reads in three is told too)
 				before.Missing = 0
 				if before.Read {
-					before.Failures++
-					if before.Failures == failedReads && !before.Unreadable {
+					before.History = appendRead(before.History, false)
+					if failures(before.History) >= failedReads && !before.Unreadable {
 						before.Unreadable = true
-						notify("error", smartInfo("smart.unreadable", Disk{Device: d.Device, Model: before.Model, Serial: before.Serial, Mounts: d.Mounts}, ""))
+						notify("error", smartInfo("smart.unreadable", Disk{Device: d.Device, Model: before.Model, Serial: d.Serial, WWN: d.WWN, Mounts: d.Mounts}, ""))
 					}
 					data.SMART[key] = before
 				}
@@ -133,7 +144,14 @@ func checkSMART(st *store, disks []Disk, now time.Time) {
 			}
 			reasons := judge(before, had, d)
 			memo := smartMemo{Device: d.Device, Model: d.Model, Serial: d.Serial, Reallocated: d.Reallocated, Pending: d.Pending,
-				Uncorrectable: d.Uncorrectable, MediaErrors: d.MediaErrors, Open: before.Open, LastBad: before.LastBad, Seen: now, Read: true}
+				Uncorrectable: d.Uncorrectable, MediaErrors: d.MediaErrors, Open: before.Open, LastBad: before.LastBad, Seen: now, Read: true,
+				History: appendRead(before.History, true), Unreadable: before.Unreadable}
+			if memo.Unreadable && failures(memo.History) == 0 {
+				// read well for the whole window: the "cannot be read" is over
+				memo.Unreadable = false
+				resolveThread(smartThread(key) + ":unreadable")
+				notify("success", smartInfo("smart.readable", d, ""))
+			}
 			if len(reasons) > 0 {
 				memo.LastBad = now
 			}
@@ -219,10 +237,31 @@ func smartInfo(kind string, d Disk, reason string) *utils.NotificationInfo {
 	case "smart.unreadable":
 		info.Thread = thread + ":unreadable"
 		info.Means = utils.NText("notif.smart.unreadable.means")
+	case "smart.readable":
+		info.Thread, info.Resolves = thread+":unreadable", thread+":unreadable"
 	case "smart.unwatchable":
 		info.Thread = thread + ":unwatchable"
 	default:
 		info.Resolves = thread
 	}
 	return info
+}
+
+// appendRead adds the outcome of a read to the last readWindow ones.
+func appendRead(history []bool, ok bool) []bool {
+	history = append(history, ok)
+	if len(history) > readWindow {
+		history = history[len(history)-readWindow:]
+	}
+	return history
+}
+
+func failures(history []bool) int {
+	n := 0
+	for _, ok := range history {
+		if !ok {
+			n++
+		}
+	}
+	return n
 }

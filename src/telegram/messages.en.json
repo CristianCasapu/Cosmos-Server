@@ -434,6 +434,32 @@
       "todo": "look for a disk or a network share that hangs (an NFS or SMB mount).",
       "sample": {"what": "disks filling fast", "age": "1 hour"}
     },
+    "smart.readable": {
+      "severity": "info", "category": "storage", "closing": true,
+      "label": "Disk can be read again", "many": "disks readable again",
+      "preview": "Disk {{disk}} can be read again",
+      "whatKey": "notif.smart.readable.what",
+      "todo": "nothing; keep an eye on it.",
+      "page": "/cosmos-ui/storage",
+      "sample": {"disk": "/dev/sdb", "model": "WDC WD40EFRX"}
+    },
+    "watch.recovered": {
+      "severity": "info", "category": "system", "closing": true,
+      "label": "A check answers again", "many": "checks answering again",
+      "preview": "The check of {{what}} answers again",
+      "whatKey": "notif.watch.recovered.what",
+      "todo": "nothing.",
+      "sample": {"what": "disks filling fast", "age": "2 hours"}
+    },
+    "docker.unwatched": {
+      "severity": "info", "category": "apps", "closing": true,
+      "label": "Docker no longer watched", "many": "watches switched off",
+      "preview": "Docker no longer watched (switched off)",
+      "whatKey": "notif.docker.unwatched.what",
+      "todo": "switch the watch on again to know when Docker answers.",
+      "page": "/cosmos-ui/servapps",
+      "sample": {}
+    },
     "upnp.forward.failed": {
       "severity": "error", "category": "system",
       "label": "Router stopped forwarding a port", "many": "lost port forwards",

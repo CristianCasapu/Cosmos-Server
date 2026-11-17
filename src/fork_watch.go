@@ -56,7 +56,7 @@ func watchDisks() ([]watch.Disk, error) {
 		if device.Type != "disk" || len(disks) >= 32 {
 			continue
 		}
-		disk := watch.Disk{Device: device.Name, Model: strings.TrimSpace(device.Model), Serial: strings.TrimSpace(device.Serial),
+		disk := watch.Disk{Device: device.Name, Model: strings.TrimSpace(device.Model), Serial: strings.TrimSpace(device.Serial), WWN: strings.TrimSpace(device.WWN),
 			Reallocated: -1, Pending: -1, Uncorrectable: -1, MediaErrors: -1}
 		disk.Mounts = mountsOf(device)
 		dev, err := smart.Open(disk.Device)
@@ -112,7 +112,7 @@ func readSata(d sataDisk, disk *watch.Disk) {
 		return
 	}
 	if id, err := d.Identify(); err == nil && id != nil {
-		disk.Model, disk.Serial = strings.TrimSpace(id.ModelNumber()), strings.TrimSpace(id.SerialNumber())
+		fillIdentity(disk, id.ModelNumber(), id.SerialNumber())
 	}
 	page, err := d.ReadSMARTData()
 	if err != nil || page == nil {
@@ -140,7 +140,7 @@ func readSata(d sataDisk, disk *watch.Disk) {
 
 func readNVMe(d *smart.NVMeDevice, disk *watch.Disk) {
 	if id, _, err := d.Identify(); err == nil {
-		disk.Model, disk.Serial = strings.TrimSpace(id.ModelNumber()), strings.TrimSpace(id.SerialNumber())
+		fillIdentity(disk, id.ModelNumber(), id.SerialNumber())
 	}
 	log, err := d.ReadSMART()
 	if err != nil {
@@ -149,6 +149,17 @@ func readNVMe(d *smart.NVMeDevice, disk *watch.Disk) {
 	}
 	disk.CriticalWarning = log.CritWarning
 	disk.MediaErrors = int64(log.MediaErrors.Val[0] & 0x7fffffffffffffff)
+}
+
+// fillIdentity completes what the system listed: its serial stays the
+// disk's key on every path (review T2: two identities split one disk).
+func fillIdentity(disk *watch.Disk, model string, serial string) {
+	if disk.Model == "" {
+		disk.Model = strings.TrimSpace(model)
+	}
+	if disk.Serial == "" && disk.WWN == "" {
+		disk.Serial = strings.TrimSpace(serial)
+	}
 }
 
 // networkFileSystems are not watched for filling: a dead share would hang.

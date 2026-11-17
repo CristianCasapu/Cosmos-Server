@@ -26,6 +26,9 @@ var watchNotificationKinds = map[string]notificationKind{
 	"smart.unreadable":  {"storage", "notif.smart.unreadable.title"},
 	"smart.unwatchable": {"storage", "notif.smart.unwatchable.title"},
 	"watch.stuck":       {"server", "notif.watch.stuck.title"},
+	"watch.recovered":   {"server", "notif.watch.recovered.title"},
+	"smart.readable":    {"storage", "notif.smart.readable.title"},
+	"docker.unwatched":  {"containers", "notif.docker.unwatched.title"},
 }
 
 var watchNotificationTexts = map[string]string{
@@ -56,6 +59,12 @@ var watchNotificationTexts = map[string]string{
 	"notif.login.newcountry.title":  "{{user}} signed in from a new country: {{country}}",
 	"notif.login.newcountry.what":   "{{user}} signed in from {{ip}}, in {{country}}: a country this account never signed in from before (until now: {{known}}).",
 	"notif.login.newcountry.means":  "That is you travelling or on a VPN abroad, or someone else who has the password.",
+	"notif.smart.readable.title":    "Disk {{disk}} can be read again",
+	"notif.smart.readable.what":     "The S.M.A.R.T. data of the disk {{disk}} ({{model}}) was read without a failure for the last six checks.",
+	"notif.watch.recovered.title":   "The check of {{what}} answers again",
+	"notif.watch.recovered.what":    "The check of {{what}} finished again after {{age}}.",
+	"notif.docker.unwatched.title":  "Docker is no longer watched",
+	"notif.docker.unwatched.what":   "The watch of Docker was switched off while Docker did not answer: whether it answers now is not known.",
 	"notif.smart.unreadable.title":  "Disk {{disk}} cannot be read",
 	"notif.smart.unreadable.what":   "The S.M.A.R.T. data of the disk {{disk}} ({{model}}, serial ending {{serial}}, mounted at {{mounts}}) could not be read three times in a row; it was read before.",
 	"notif.smart.unreadable.means":  "A disk that stops answering is often failing: what is on it can be lost.",
