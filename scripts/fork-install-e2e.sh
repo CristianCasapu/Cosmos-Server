@@ -534,7 +534,7 @@ case_interrupt() { # kill -9 at three points, each followed by another run; pack
 	# and during the run that finishes, another one
 	M "$m" '(DEBIAN_FRONTEND=noninteractive setsid apt-get install -y -q -o DPkg::Lock::Timeout=600 hello </dev/null >/e2e/out/admin.txt 2>&1 &)
 		expect_exit 0 '"$INSTALL_A"' --yes </dev/null >/e2e/out/run-final.txt; installed_ok 80
-		for _ in $(seq 1 120); do dpkg-query -W -f="\${db:Status-Abbrev}" hello 2>/dev/null | grep -q ^ii && break; sleep 1; done
+		for _ in $(seq 1 120); do pkg_installed hello && break; sleep 1; done
 		check "the admin'\''s packages are installed" sh -c "dpkg-query -W less hello >/dev/null"
 		check "the record names neither of the admin'\''s packages" sh -c "! grep -qE \"^package (less|hello)\$\" /var/lib/cosmos-installer/record"
 		check "with --yes the code is not printed, its file is named" sh -c "! grep -q \"Setup code:\" /e2e/out/run-final.txt && grep -q \"sudo cat /var/lib/cosmos/setup-code\" /e2e/out/run-final.txt"
@@ -546,7 +546,8 @@ case_interrupt() { # kill -9 at three points, each followed by another run; pack
 		docker create --name e2e-app e2e-empty:1 /none >/dev/null
 		systemctl stop docker.socket docker.service
 		bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages </dev/null | tee /e2e/out/uninstall-1.txt
-		check "Docker is kept while its daemon cannot be asked" sh -c "dpkg-query -W -f=\"\${db:Status-Abbrev}\" docker-ce | grep -q ^ii && grep -q \"does not answer\" /e2e/out/uninstall-1.txt"
+		check "Docker is kept while its daemon cannot be asked" pkg_installed docker-ce
+		check "and the uninstaller says why" grep -q "does not answer" /e2e/out/uninstall-1.txt
 		check "the hostile lines did nothing" sh -c "test -d /etc && test -f /etc/passwd"
 		check "the admin'\''s packages stayed" sh -c "dpkg-query -W less hello >/dev/null"
 		systemctl start docker.service; docker rm e2e-app >/dev/null; docker image rm e2e-empty:1 >/dev/null
@@ -561,7 +562,7 @@ case_interrupt() { # kill -9 at three points, each followed by another run; pack
 
 case_docker_there() { # Docker of the distribution is used and left alone; protection pieces through the interface
 	local sys=$1 m
-	m=$(start_machine "$sys" docker docker)
+	m=$(start_machine "$sys" docker-there docker)
 	M "$m" 'check "Docker runs" systemctl is-active --quiet docker
 		dpkg-query -W docker.io >/e2e/out/docker-before
 		dpkg -L docker.io | while read -r f; do if [ -f "$f" ]; then md5sum "$f"; fi; done >/e2e/out/docker-files-before
@@ -605,7 +606,7 @@ case_aptfail() { # apt fails after the simulation passed: the lists held too lon
 		rc=0; COSMOS_INSTALL_APT_WAIT=20 '"$INSTALL_A"' --yes </dev/null >/e2e/out/locked.txt 2>&1 || rc=$?; tail -n 4 /e2e/out/locked.txt
 		check "the lists held too long end the run with 6" test $rc = 6
 		check "it said so" grep -q "held apt for longer than 20 seconds" /e2e/out/locked.txt
-		pkill -f "helper lock-file" || true
+		pkill -x helper || true
 		same before after-locked
 		# a package that apt simulates well but cannot install (its unpacking is refused)
 		printf "DPkg::Pre-Install-Pkgs { \"grep -q snapraid && exit 1 || exit 0\"; };\n" >/etc/apt/apt.conf.d/99e2e-refuse-snapraid
@@ -804,7 +805,7 @@ main() {
 
 case_fresh_fast() { # the checks of every push: install, refusal over it, a tampered zip, uninstall
 	local sys=$1 m
-	m=$(start_machine "$sys" fast)
+	m=$(start_machine "$sys" fresh-fast)
 	M "$m" 'snap before; '"$INSTALL_A"' --yes </dev/null; installed_ok 80; record_matches before
 		code=$(curl -s -o /e2e/out/r.json -w "%{http_code}" -X POST -H "Content-Type: application/json" --data "{}" http://127.0.0.1/cosmos/api/setup)
 		check "POST /cosmos/api/setup without the setup code is refused" sh -c "test $code = 403 && grep -q SC001 /e2e/out/r.json"

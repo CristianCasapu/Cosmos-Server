@@ -169,7 +169,9 @@ for p in $(recorded_pieces); do
 	say "- the protection piece $p (its own uninstall.sh)"
 done
 if recorded "dir $INSTALL_DIR"; then say "- the installation folder $INSTALL_DIR"; fi
-for f in $(lines_of file); do say "- the file $f"; done
+for f in $(lines_of file); do
+	case $f in /etc/apt/keyrings/docker.asc | /etc/apt/sources.list.d/docker.sources) say "- the file $f" ;; esac
+done
 if [ "$DELETE_DATA" = 1 ] || [ "$DELETE_DATA_YES" = 1 ]; then
 	say "- THE DATA FOLDER $DATA_DIR (settings, users, certificates: it cannot be undone)"
 elif [ "$data_named" = 1 ]; then

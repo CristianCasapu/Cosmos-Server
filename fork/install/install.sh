@@ -1466,7 +1466,7 @@ for _ in $(seq 1 180); do
 	# 200 on a new install; with the data of an earlier Cosmos (--reuse-data)
 	# it may answer only its own hostname (400) or send to HTTPS (30x): an
 	# answer of the server all the same.
-	code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' "http://127.0.0.1:$HTTP_PORT/cosmos-ui/" || true)
+	code=$("${CURL[@]}" -s -o /dev/null -m 5 -w '%{http_code}' "http://127.0.0.1:$HTTP_PORT/cosmos-ui/" || true)
 	case $code in 200 | 30[1278] | 400 | 401 | 403 | 404) up=1; break ;; esac
 	sleep 1
 done

@@ -192,3 +192,5 @@ packages_back() {
 		exit 1
 	fi
 }
+
+pkg_installed() { dpkg-query -W -f='${db:Status-Abbrev}' "$1" 2>/dev/null | grep -q '^ii'; }
