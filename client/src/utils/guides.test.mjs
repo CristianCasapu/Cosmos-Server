@@ -206,7 +206,7 @@ test('conditions inside a sentence, and no condition or placeholder left in any 
 });
 
 test('what Cosmos limits on the chosen address: none, some, the container place, and only for administrators', async () => {
-  const { limitParts, isStorageAPI, API_ROUTE_SETTINGS } = await import('./guides.js');
+  const { limitParts, isStorageAPI, apiProposal, API_ROUTE_SETTINGS } = await import('./guides.js');
   const open = { Shield: false, TimeoutMs: 0 };
   const limited = { Shield: true, ShieldRequestsPerHour: 36000, ShieldBytesPerHour: 429496729600, ShieldSimultaneous: 3000, ThrottlePerMinute: 10000, TimeoutMs: 14400000, BlockBots: true, BlockAPIAbuse: true };
   const routes = ownerRoutes({ ForkLimits: open }).map((r) => (r.Name === 's3-internet' ? { ...r, ForkLimits: limited } : r));
@@ -221,10 +221,18 @@ test('what Cosmos limits on the chosen address: none, some, the container place,
   assert.equal(guideFacts(appOf(plain), ctxOf('home', false), {}, 'home', {}).limits, null);
   // the URL form's proposal: the API of a storage app
   const dash = [{ ForkGuide: 's3', ForkContainer: 'rustfs', ForkServicePort: 9000, ForkRole: 'api', Target: 'http://rustfs:9000' }];
-  assert.equal(isStorageAPI('', 'rustfs', 9000, dash), true);
-  assert.equal(isStorageAPI('', 'rustfs', 9001, dash), false);
-  assert.equal(isStorageAPI('api', 'other', 80, []), true);
-  assert.equal(isStorageAPI('', 'web', 80, dash), false);
+  assert.equal(isStorageAPI('rustfs', 9000, dash), true);
+  assert.equal(isStorageAPI('rustfs', 9001, dash), false);
+  assert.equal(isStorageAPI('other', 80, [{ ForkRole: 'api', ForkContainer: 'other', Target: 'http://other:80' }]), false, 'an API without the storage guide is not storage');
+  assert.equal(isStorageAPI('web', 80, dash), false);
+  assert.equal(apiProposal('s3.example.org'), 'keep');
+  assert.equal(apiProposal('s3.local'), 'none');
+  assert.equal(apiProposal('192.168.1.10'), 'none');
+  // a timeout of 24 hours or more is not a limit for backups
+  assert.deepEqual(limitParts({ Shield: false, TimeoutMs: 86400000 }), []);
+  assert.deepEqual(limitParts({ Shield: false, TimeoutMs: 14400000 }).map((p) => p.what), ['timeout']);
+  // an invalid typed machine name withholds the bucket too
+  assert.equal(guideFacts(appOf(ownerRoutes()), ctxOf('home'), {}, 'home', { name: 'Bad Name' }).values.bucket, '');
   assert.equal(API_ROUTE_SETTINGS.SmartShieldEnabled, false);
   assert.equal(API_ROUTE_SETTINGS.Timeout, 86400000);
 });

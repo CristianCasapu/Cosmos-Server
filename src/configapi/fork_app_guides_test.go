@@ -236,4 +236,12 @@ func TestLimitsOfAGuidedURL(t *testing.T) {
 			t.Errorf("a plain user got the configuration's limits: %s", r.Name)
 		}
 	}
+	// a role with admin-read but without configuration-read gets no URL settings
+	mixed := adminCaller
+	mixed.configRead = false
+	for _, r := range forkDashboardRoutes(dashboardOf(config, true), containers, mixed, nil) {
+		if r.ForkLimits != nil {
+			t.Errorf("a caller without configuration-read got the URL's limits: %s", r.Name)
+		}
+	}
 }

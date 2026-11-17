@@ -21,7 +21,7 @@
 // shell quote, a string of any language or a code fence, so a value is safe
 // by construction or the example is refused ("could not be built").
 
-import { appInterfaces, parseHost, safeURL } from './appInterfaces.js';
+import { appInterfaces, hostKind, parseHost, safeURL } from './appInterfaces.js';
 
 // ---------------------------------------------------------------------------
 // reading a guide
@@ -305,7 +305,7 @@ export const guideFacts = (app, ctx, status, choice, typed) => {
     console: consoleItem ? consoleItem.url : '',
     region: String((apiRoute && apiRoute.ForkGuideRegion) || (routes.find((r) => r.ForkGuideRegion) || {}).ForkGuideRegion || 'us-east-1'),
     // a value the reader typed that is not valid withholds the examples that use it (never a default in its place)
-    bucket: t.bucket ? (validBucket(t.bucket) ? t.bucket : '') : 'backups-' + (t.name ? (validName(t.name) ? t.name : 'server1') : 'server1'),
+    bucket: t.bucket ? (validBucket(t.bucket) ? t.bucket : '') : (t.name ? (validName(t.name) ? 'backups-' + t.name : '') : 'backups-server1'),
     name: t.name ? (validName(t.name) ? t.name : '') : 'server1',
     network: networks[0] || '',
     container: target ? target.container : '',
@@ -465,7 +465,7 @@ export const limitParts = (limits) => {
   }
   if (limits.ThrottlePerMinute > 0) out.push({ what: 'throttle', value: limits.ThrottlePerMinute });
   if (limits.MaxBandwidth > 0) out.push({ what: 'bandwidth', value: limits.MaxBandwidth });
-  if (limits.TimeoutMs > 0) out.push({ what: 'timeout', value: limits.TimeoutMs });
+  if (limits.TimeoutMs > 0 && limits.TimeoutMs < 86400000) out.push({ what: 'timeout', value: limits.TimeoutMs });
   if (limits.BlockBots) out.push({ what: 'bots', value: 1 });
   if (limits.BlockAPIAbuse) out.push({ what: 'referer', value: 1 });
   return out;
@@ -477,13 +477,24 @@ export const limitParts = (limits) => {
 export const API_ROUTE_SETTINGS = { SmartShieldEnabled: false, ThrottlePerMinute: 0, BlockCommonBots: false, BlockAPIAbuse: false, MaxBandwith: 0, Timeout: 86400000 };
 
 // Whether a new URL to a container's port is the API of a storage app, as far
-// as the panel knows: the form says "API", or the container's other URLs have
-// a guide and that port is the recipe's service port or another API URL's port.
-export const isStorageAPI = (formRole, targetContainer, targetPort, dashboard) => {
-  if (formRole === 'api') return true;
+// as the panel knows: the container's other URLs have a storage guide and that
+// port is the recipe's service port or the port of an API URL of that app. A
+// URL whose role is "API" is not enough: any API is not storage.
+export const isStorageAPI = (targetContainer, targetPort, dashboard) => {
   const container = String(targetContainer || '').toLowerCase();
   const port = Number(targetPort);
   if (!container || !port) return false;
-  return (dashboard || []).some((r) => r && r.ForkGuide && String(r.ForkContainer || '').toLowerCase() === container
+  return (dashboard || []).some((r) => r && r.ForkGuide === 's3' && String(r.ForkContainer || '').toLowerCase() === container
     && (Number(r.ForkServicePort) === port || (r.ForkRole === 'api' && new RegExp(':' + port + '/?$').test(String(r.Target || '')))));
 };
+
+// The choice proposed for a new storage API URL: no limits for a name used at
+// home (or another container), Cosmos' protection kept for an internet name
+// (the proposal is shown, the other choice one click away).
+export const apiProposal = (host) => {
+  const kind = hostKind(host || '');
+  return kind === 'public' ? 'keep' : 'none';
+};
+
+// The advised timeout of a storage address: a URL with this one or longer (or none) is fine for backups.
+export const ADVISED_TIMEOUT_MS = 86400000;

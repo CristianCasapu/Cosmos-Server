@@ -81,15 +81,14 @@ func routeLimits(route utils.ProxyRouteConfig) *ForkRouteLimits {
 		BlockAPIAbuse:     route.BlockAPIAbuse,
 	}
 	if route.SmartShield.Enabled {
+		// the proxy's own arithmetic (src/proxy/shield.go judges requests with the same function)
 		policy := utils.ApplySmartShieldDefaults(route.SmartShield)
-		strictness := policy.PolicyStrictness
+		effective := utils.ShieldLimits(policy)
 		limits.Shield = true
-		limits.ShieldRequestsPerHour = policy.PerUserRequestLimit * strictness
-		limits.ShieldBytesPerHour = policy.PerUserByteLimit * int64(strictness)
-		if policy.PerUserTimeBudget > 0 {
-			limits.ShieldTimePerHourSeconds = policy.PerUserTimeBudget * float64(strictness) / 1000
-		}
-		limits.ShieldSimultaneous = policy.PerUserSimultaneous * strictness * 15
+		limits.ShieldRequestsPerHour = effective.Requests
+		limits.ShieldBytesPerHour = effective.Bytes
+		limits.ShieldTimePerHourSeconds = effective.TimeMs / 1000
+		limits.ShieldSimultaneous = effective.SimultaneousHTTP
 		limits.ShieldGlobalSimultaneous = policy.MaxGlobalSimultaneous
 	}
 	return limits

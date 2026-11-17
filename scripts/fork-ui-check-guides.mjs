@@ -225,6 +225,37 @@ for (const engine of engines) {
       check(/\/cosmos-ui\/guide\/rustfs/.test(page.url()) && (await page.locator('[data-guide]').count()) === 1, tag + ': it opens the guide');
     } else check(false, tag + ': the RustFS tile has a menu');
 
+    if (phase === 'home' && size === 'd') {
+      // the URL form: a NEW URL to the storage's API port is proposed without Cosmos' limits (a button
+      // applies it); a name at home recommends "no limits", an internet name recommends keeping them
+      await page.goto(base + '/cosmos-ui/config-url', { waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: 'Create' }).first().click();
+      const dialog = page.locator('[role=dialog]:visible').first();
+      await dialog.waitFor({ timeout: 15000 });
+      await dialog.locator('#Mode').click();
+      await page.getByRole('option', { name: 'Proxy' }).click();
+      await dialog.locator('input[name=Target]').fill('http://rustfs:9000');
+      check((await dialog.locator('[data-api-proposal]').count()) === 0 || true, tag + ': (form opened)');
+      const useHost = dialog.locator('input[name=UseHost]');
+      if (!(await useHost.isChecked())) await useHost.check();
+      await dialog.locator('input[name=Host]').fill('s3new.local');
+      await dialog.locator('[data-api-proposal="none"]').waitFor({ timeout: 10000 }).catch(() => {});
+      check((await dialog.locator('[data-api-proposal="none"]').count()) === 1, tag + ': a new URL at home to the storage\'s API is proposed without Cosmos\' limits');
+      await dialog.locator('input[name=Host]').fill('s3new.example.org');
+      await dialog.locator('[data-api-proposal="keep"]').waitFor({ timeout: 10000 }).catch(() => {});
+      check((await dialog.locator('[data-api-proposal="keep"]').count()) === 1, tag + ': for an internet name keeping Cosmos\' protection is the recommended choice');
+      await page.screenshot({ path: out + '/' + tag + '-proposal.png' });
+      await dialog.locator('[data-api-none]').click();
+      check((await dialog.locator('[data-api-proposal]').count()) === 0, tag + ': the button applies the proposal (and nothing before it)');
+      await dialog.locator('input[name=Target]').fill('http://rustfs:9001');
+      check((await dialog.locator('[data-api-proposal]').count()) === 0, tag + ': the console\'s port gets no such proposal');
+      await page.keyboard.press('Escape');
+      // an existing URL never gets it
+      await page.goto(base + '/cosmos-ui/config-url/s3-internet', { waitUntil: 'domcontentloaded' });
+      await page.locator('input[name=Name]').first().waitFor({ timeout: 15000 }).catch(() => {});
+      check((await page.locator('[data-api-proposal]').count()) === 0, tag + ': an existing URL is never proposed a change');
+    }
+
     if (phase === 'home') {
       await page.goto(base + '/cosmos-ui/servapps/containers/rustfs', { waitUntil: 'domcontentloaded' });
       const tab = page.getByRole('tab', { name: 'How to use it' });

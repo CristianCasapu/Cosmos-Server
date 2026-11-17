@@ -68,26 +68,39 @@ const GUIDE_TEXT = {
   none: ['mgmt.guide.kind.none', 'No guide'],
 };
 
-// plan 50: a NEW URL that is the API of a storage app (backups) is proposed
-// without Cosmos' limits: no shield, no throttle, no bot or referer blocking,
-// a timeout of 24 hours. Proposed with its reason; nothing changes until the
-// administrator presses the button and saves the form. Existing URLs are
-// never changed by themselves.
-const StorageApiProposal = ({ formik, dashboard }) => {
+// plan 50: a NEW URL that is the API of a storage app (an app with the S3
+// guide, on its service port) is proposed without Cosmos' limits: no shield,
+// no throttle, no bot or referer blocking, a timeout of 24 hours. For a name
+// used at home (or another container) that is the recommended choice; for an
+// internet name keeping Cosmos' protection is. Nothing changes until a button
+// is pressed and the form saved; existing URLs are never changed by themselves.
+export const StorageApiProposal = ({ formik, dashboard }) => {
   const { t } = useTranslation();
+  const [answered, setAnswered] = React.useState('');
   const v = formik.values;
   const m = String(v.Target || '').match(/^https?:\/\/([a-zA-Z0-9][a-zA-Z0-9_.-]*):(\d{1,5})\/?$/);
-  if (!m || !isStorageAPI(v._ForkRole, m[1], m[2], dashboard)) return null;
+  if (!m || !isStorageAPI(m[1], m[2], dashboard)) return null;
   const p = API_ROUTE_SETTINGS;
   const applied = v._SmartShield_Enabled === p.SmartShieldEnabled && Number(v.ThrottlePerMinute || 0) === p.ThrottlePerMinute
     && !v.BlockCommonBots && !v.BlockAPIAbuse && Number(v.MaxBandwith || 0) === 0 && Number(v.Timeout) === p.Timeout;
-  if (applied) return null;
-  return <Alert severity="info" data-api-proposal
-    action={<Button color="inherit" sx={{ minHeight: 44 }} onClick={() => formik.setValues({
-      ...v, _SmartShield_Enabled: p.SmartShieldEnabled, ThrottlePerMinute: p.ThrottlePerMinute, BlockCommonBots: p.BlockCommonBots,
-      BlockAPIAbuse: p.BlockAPIAbuse, MaxBandwith: p.MaxBandwith, Timeout: p.Timeout,
-    })}>{t('mgmt.guide.form.useApi', 'Use these settings')}</Button>}>
-    {t('mgmt.guide.form.apiProposal', 'This address is the API of a storage app: backup tools send many requests and very large ones. Proposed: no Cosmos shield, no limit per minute, no blocking of bots or of uploads without a Referer, and a timeout of 24 hours, so that backups are not slowed, refused (429) or cut. The storage\'s own keys protect it. You can change each of these after the URL is made.')}
+  if (applied || answered === 'keep') return null;
+  const recommended = apiProposal(v.UseHost ? v.Host : '');
+  const none = () => {
+    formik.setValues({ ...v, _SmartShield_Enabled: p.SmartShieldEnabled, ThrottlePerMinute: p.ThrottlePerMinute, BlockCommonBots: p.BlockCommonBots,
+      BlockAPIAbuse: p.BlockAPIAbuse, MaxBandwith: p.MaxBandwith, Timeout: p.Timeout });
+    setAnswered('none');
+  };
+  return <Alert severity="info" data-api-proposal={recommended} sx={{ '& .MuiAlert-message': { minWidth: 0 } }}>
+    {t('mgmt.guide.form.apiProposal2', 'This address is the API of a storage app: backup tools send many requests and very large ones, which Cosmos\' shield, a limit per minute, bot or Referer blocking or a short timeout would slow, refuse (429) or cut.')}
+    {' '}{recommended === 'keep'
+      ? t('mgmt.guide.form.apiInternet', 'This is an internet address: without Cosmos\' limits anyone may send it unlimited requests, and only the storage\'s keys decide what they may do. Keeping Cosmos\' protection is proposed; remove it only if backups from the internet are slowed or refused.')
+      : t('mgmt.guide.form.apiHome', 'For an address used at home, no Cosmos limit is proposed: no shield, no limit per minute, no blocking of bots or of uploads without a Referer, and a timeout of 24 hours.')}
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}>
+      <Button variant={recommended === 'none' ? 'contained' : 'outlined'} onClick={none} sx={{ minHeight: 44 }} data-api-none>
+        {t('mgmt.guide.form.useApi2', 'No Cosmos limits on this address')}</Button>
+      <Button variant={recommended === 'keep' ? 'contained' : 'outlined'} onClick={() => setAnswered('keep')} sx={{ minHeight: 44 }} data-api-keep>
+        {t('mgmt.guide.form.keepApi', 'Keep Cosmos\' protection')}</Button>
+    </Stack>
   </Alert>;
 };
 

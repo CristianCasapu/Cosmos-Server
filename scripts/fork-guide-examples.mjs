@@ -110,7 +110,7 @@ const PLACE_NET = {
 const MARIA_DATA = 'create database if not exists shop; create table if not exists shop.orders (id int); insert into shop.orders values (1),(2),(3);';
 const SETUP = {
   linux: 'service mariadb start >/dev/null 2>&1; mariadb -e "' + MARIA_DATA + '"',
-  pg: 'su postgres -c "initdb -D /tmp/pg >/dev/null && pg_ctl -D /tmp/pg -o \\"-k /var/run/postgresql\\" -l /tmp/pg.log start >/dev/null" && sleep 2 && createdb shop && psql -q -d shop -c "create table orders (id int); insert into orders values (1),(2),(3);"',
+  pg: 'su postgres -c "initdb -D /tmp/pg >/dev/null && pg_ctl -D /tmp/pg -o \\"-k /var/run/postgresql\\" -l /tmp/pg.log start >/dev/null" && sleep 2 && runuser -u postgres -- createdb shop && runuser -u postgres -- psql -q -d shop -c "create table orders (id int); insert into orders values (1),(2),(3);"',
   maria: '(MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1 docker-entrypoint.sh mariadbd >/tmp/db.log 2>&1 &) ; for i in $(seq 1 90); do grep -q "port: 3306" /tmp/db.log && mariadb -e "select 1" >/dev/null 2>&1 && break; sleep 1; done; mariadb -e "' + MARIA_DATA + '"',
   // MongoDB with its access control on: the guide's tools sign in with the config file's address
   mongo: 'mongod --bind_ip 127.0.0.1 --dbpath /tmp --fork --logpath /tmp/mongo.log --auth >/dev/null && mongosh --quiet admin --eval "db.createUser({user: \\"backup\\", pwd: \\"$DBPASS\\", roles: [\\"root\\"]})" >/dev/null && mongosh --quiet -u backup -p "$DBPASS" --authenticationDatabase admin --eval "db.getSiblingDB(\\"shop\\").orders.insertMany([{a:1},{a:2},{a:3}])" >/dev/null',
@@ -138,7 +138,9 @@ const POST = {
   php: [
     ['the dump (mysqldump) restores into an empty database, the same', 'sh /usr/local/share/site-compare.sh site_restored'],
     ['the PHP dumper too', 'sed -i "s/\'dumper\'   => \'auto\'/\'dumper\'   => \'php\'/" backup-config.php && grep -q "=> \'php\'" backup-config.php && php backup.php && php list.php && sh /usr/local/share/site-compare.sh site_restored2'],
+    ['40 runs keep two objects (the rest are versions the bucket\'s rule clears), and the dump of three runs ago comes back', 'sh /usr/local/share/php-40-runs.sh'],
     ['nothing is left in the working folder but the downloaded dump', 'rm -f backup-work/restored.sql; test -z "$(ls -A backup-work)"'],
+    ['the script refuses to back up a folder that holds its settings', 'sed -i "s#\'site\'     => \'/home/you/public_html\'#\'site\'     => \'/\'#" backup-config.php && grep -q "=> \'/\'," backup-config.php && if php backup.php; then exit 1; fi; cp /tmp/full-config.php backup-config.php'],
     ['the script refuses a working folder inside the web folder', 'sed -i "s#\'web_root\' => \'/home/you/public_html\'#\'web_root\' => \'/work\'#" backup-config.php && if php backup.php; then exit 1; fi'],
   ],
 };
@@ -171,7 +173,7 @@ const runChain = (chain, blocks, place, facts) => {
     const path = CA_PATH[runner] || '/etc/ssl/cosmos-ca.pem';
     pre.push('mkdir -p ' + path.replace(/\/[^/]+$/, '') + ' && cat > ' + path + " <<'COSMOS_CA_END'\n" + facts.values.ca_pem + '\nCOSMOS_CA_END');
   }
-  if (NEEDS_ENV.has(runner) || chain === 'recover') {
+  if (NEEDS_ENV.has(runner) || chain === 'recover' || chain === 'check') {
     // the Linux section's settings file and restic's password, as that section made them
     const env = codeBlocks(place.guide).find((b) => b.id === 'linux-env');
     pre.push("install -m 600 /dev/null /root/.s3-backup.env && cat > /root/.s3-backup.env <<'SETTINGS_END'\n" + unmark(renderCode(env, facts).text, place) + '\nSETTINGS_END');
@@ -216,7 +218,7 @@ const runChain = (chain, blocks, place, facts) => {
   } else {
     const name = 'gx-run-' + place.key + '-' + chain;
     docker('rm', '-f', '-v', name);
-    const extra = ['-e', 'DBPASS=' + place.dbPassword];
+    const extra = ['-e', 'DBPASS=' + place.dbPassword, '-e', 'ENDPOINT=' + facts.values.endpoint];
     if (runner === 'docker') extra.push('-v', '/var/run/docker.sock:/var/run/docker.sock');
     // the steps are copied in (not mounted), so that a run cannot write into the scratch folder's other files;
     // bash where the machine has it (as a person's terminal), else sh
@@ -252,6 +254,8 @@ const attack = (place, facts) => {
     'echo garbage | rclone rcat store:' + facts.values.bucket + '/restic/config',
     'rclone delete store:' + facts.values.bucket + '/www',
     'rclone delete store:' + facts.values.bucket + '/restic/index',
+    // garbage until the bucket's quota is full (the test set it just above what the bucket holds)
+    'for i in 1 2 3 4 5 6; do head -c 30000000 /dev/urandom | rclone rcat store:' + facts.values.bucket + '/restic/data/zz/garbage$i 2>/dev/null || { echo "the bucket is full after $i pieces of garbage"; break; }; done',
     'echo attacked'].join('\n');
   return docker('run', '--rm', ...PLACE_NET[place.key], '--entrypoint', 'bash', 'gx-linux', '-c', script);
 };
@@ -302,12 +306,23 @@ for (const key of PLACES) {
     const list = chains.get(chain);
     if (!list) continue;
     if (ONLY.length && chain !== 'admin' && !list.some((b) => ONLY.includes(b.id))) continue;
-    if (chain === 'docker') docker('run', '--rm', '-v', 'app-data:/d', 'alpine:3.22', 'sh', '-c', 'echo "app data" > /d/state.txt');
-    if (chain === 'recover') {
+    if (chain === 'docker') {
+      // the app of the Docker section: a running PostgreSQL on the volume app-db, with a table
+      docker('rm', '-f', '-v', 'app-db', 'app-db-check', 'app-db-new');
+      docker('volume', 'rm', '-f', 'app-db', 'app-db-restored');
+      docker('run', '-d', '--name', 'app-db', '-e', 'POSTGRES_USER=app', '-e', 'POSTGRES_PASSWORD=' + place.dbPassword, '-e', 'POSTGRES_DB=app', '-v', 'app-db:/var/lib/postgresql', 'postgres:18');
+      const ready = docker('run', '--rm', '-v', '/var/run/docker.sock:/var/run/docker.sock', 'gx-docker', 'sh', '-c',
+        'for i in $(seq 1 60); do docker exec app-db psql -U app -d app -c "select 1" >/dev/null 2>&1 && break; sleep 1; done; sleep 2; docker exec app-db psql -U app -d app -c "create table orders (id int); insert into orders values (1),(2),(3);"');
+      log('the Docker section\'s app:', (ready.stdout || '').trim(), (ready.stderr || '').trim().slice(-200));
+    }
+    if (chain === 'check') {
       // a moment before the damage (UTC), then the damage
       await sleep(2000);
       place.before = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
       await sleep(2000);
+      // the bucket's quota just above what it holds now, so that the attack fills it
+      const quota = docker('exec', 'rustfs', 'sh', '-c', 'umask 077; printf \'{"schema_version":1,"aliases":[{"name":"t","endpoint":"http://127.0.0.1:9000","region":"us-east-1","signature":"v4","bucket_lookup":"auto","credentials":{"access_key":"%s","secret_key":"%s"}}]}\' "$RUSTFS_ACCESS_KEY" "$RUSTFS_SECRET_KEY" > /tmp/t.json && rc alias import /tmp/t.json >/dev/null && rm -f /tmp/t.json && used=$(rc bucket quota info t/' + facts.values.bucket + ' --json | sed -n "s/.*\\"usage\\"[^0-9]*\\([0-9]*\\).*/\\1/p" | head -1) && rc bucket quota set t/' + facts.values.bucket + ' $((used + 50000000)) >/dev/null && rc alias remove t >/dev/null && echo "quota set to $((used + 50000000)) bytes"');
+      log('before the attack:', (quota.stdout || '').trim(), (quota.stderr || '').trim().slice(-200));
       const hit = attack(place, facts);
       log('attack at', place.before, '+2 s:', (hit.stdout || '').trim().split('\n').pop(), (hit.stderr || '').trim().slice(-300));
     }
@@ -318,10 +333,19 @@ for (const key of PLACES) {
       const pw = stepOutput(output, 'linux-password').trim().split('\n').pop();
       if (pw) place.repoPassword = pw; else log('FAIL the password block printed no password');
     }
-    if (chain === 'admin') {
+    if (chain === 'admin' || chain === 'recover-key') {
       // the key's secret, made by the guide's own block and printed once
-      const m = stepOutput(output, 'admin-key').match(/^Secret key: ([A-Za-z0-9]{20,})$/m);
-      if (m) place.secret = m[1]; else log('FAIL the administration block printed no secret key');
+      const m = stepOutput(output, chain === 'admin' ? 'admin-key' : 'recover-key').match(/^Secret key: ([A-Za-z0-9]{20,})$/m);
+      const before = place.secret;
+      if (m) place.secret = m[1]; else log('FAIL the block printed no secret key');
+      if (chain === 'recover-key' && m) {
+        // the attacker's copy of the old secret no longer works
+        const old = docker('run', '--rm', ...PLACE_NET[place.key], 'gx-curl', 'sh', '-c', (facts.flags.ca ? "cat > /tmp/ca.pem <<'COSMOS_CA_END'\n" + facts.values.ca_pem + "\nCOSMOS_CA_END\nexport CURL_CA_BUNDLE=/tmp/ca.pem\n" : '')
+          + 'curl -s -o /dev/null -w "%{http_code}" --aws-sigv4 "aws:amz:us-east-1:s3" --user "' + place.name + '-backup:' + before + '" "' + facts.values.endpoint + '/' + facts.values.bucket + '?list-type=2"');
+        const refused = (old.stdout || '').trim() === '403';
+        results.push({ place: key, id: 'check: the old secret is refused after the new one', ok: refused, note: 'HTTP ' + (old.stdout || '').trim() });
+        log((refused ? 'ok   ' : 'FAIL ') + key + ': the old secret is refused after the new one (' + (old.stdout || '').trim() + ')');
+      }
     }
     out.forEach((r) => {
       results.push({ place: key, chain, ...r });

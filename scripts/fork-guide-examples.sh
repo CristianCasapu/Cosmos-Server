@@ -35,17 +35,22 @@ DIND_IMAGE=docker:29-dind
 RUSTFS_IMAGE=${RUSTFS_IMAGE:-rustfs/rustfs:1.0.5}
 say() { echo "guide-examples: $*"; }
 # the scratch folder is removed by `clean` as root: it must be a folder of its own under the caches
+# (written as a plain path: no "//", no "." or ".." segment, no trailing "/", nothing but [A-Za-z0-9._/-],
+# and at least two levels below the caches, so that neither /storage/dev/.cache nor a cache of its own
+# such as /storage/dev/.cache/go-mod can be it)
 case "$SCRATCH" in
-  /storage/dev/.cache/?*/?*) ;;
-  *) say "SCRATCH must be a folder under /storage/dev/.cache/<name>/ (it is removed by clean): $SCRATCH"; exit 2 ;;
+  *//*|*/./*|*/../*|*/.|*/..|*/|*[!A-Za-z0-9._/-]*) say "SCRATCH must be a plain path (no //, . or .., no trailing /): $SCRATCH"; exit 2 ;;
 esac
-case "$SCRATCH" in *..*|*' '*) say "SCRATCH must be a plain path: $SCRATCH"; exit 2 ;; esac
+case "$SCRATCH" in
+  /storage/dev/.cache/*/*) ;;
+  *) say "SCRATCH must be a folder two levels under /storage/dev/.cache/ (it is removed by clean): $SCRATCH"; exit 2 ;;
+esac
 in_dind() { docker exec -i "$PREFIX-dind" "$@"; }
 
 images() {
   w=$SCRATCH/build
   mkdir -p "$w"
-  cp "$here/fork-guide-examples/site.sql" "$here/fork-guide-examples/site-compare.sh" "$w/"
+  cp "$here/fork-guide-examples/site.sql" "$here/fork-guide-examples/site-compare.sh" "$here/fork-guide-examples/php-40-runs.sh" "$w/"
   # a test "public" authority (it stands for the public authorities Cloudflare's certificates come from) and the stand-in's certificate
   in_dind sh -c 'docker network inspect gx-build >/dev/null 2>&1 || docker network create gx-build >/dev/null'
   if [ ! -s "$w/public-ca.pem" ]; then
@@ -113,7 +118,7 @@ FROM postgres:18
 RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates >/dev/null
 COPY --from=restic/restic:latest /usr/bin/restic /usr/local/bin/restic
 $trust_deb
-ENV PGHOST=/var/run/postgresql PGUSER=postgres
+ENV PGHOST=/var/run/postgresql
 EOF
   cat > "$w/maria.Dockerfile" <<EOF
 FROM mariadb:lts
@@ -158,7 +163,7 @@ $trust_deb
 RUN mkdir -p /home/you/public_html/wp-content && echo '<?php echo "hello";' > /home/you/public_html/index.php \
  && echo 'a page' > /home/you/public_html/about.html && echo '<?php // the site configuration' > /home/you/public_html/wp-config.php \
  && printf '[pdo_mysql]\npdo_mysql.default_socket=/run/mysqld/mysqld.sock\n' > /usr/local/etc/php/conf.d/socket.ini
-COPY site.sql site-compare.sh /usr/local/share/
+COPY site.sql site-compare.sh php-40-runs.sh /usr/local/share/
 EOF
   cat > "$w/go.Dockerfile" <<EOF
 FROM golang:1.27
@@ -182,6 +187,8 @@ RUN mkdir -p /root/Documents && echo 'a letter' > /root/Documents/letter.txt
 EOF
   cat > "$w/docker.Dockerfile" <<'EOF'
 FROM docker:29-cli
+COPY --from=restic/restic:latest /usr/bin/restic /usr/local/bin/restic
+RUN apk add -q --no-cache bash
 EOF
   for kind in linux pg maria mongo aws python node php go curl pwsh docker; do
     say "image gx-$kind"

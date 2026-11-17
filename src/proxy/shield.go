@@ -79,31 +79,32 @@ func isLocalGateway(clientID string) bool {
 }
 
 func overTimeBudget(policy utils.SmartShieldPolicy, seconds float64) bool {
-	if policy.PerUserTimeBudget <= 0 {
+	limit := utils.ShieldLimits(policy).TimeMs // Fork addition (plan 50): one place for the arithmetic, see utils.ShieldLimits
+	if limit <= 0 {
 		return false
 	}
-	return seconds*1000 > policy.PerUserTimeBudget*float64(policy.PolicyStrictness)
+	return seconds*1000 > limit
 }
 
 // budgetViolation names the first limit a client is over by the policy's
 // strictness factor. HTTP tolerates 15x the simultaneous limit before a
 // strike (browsers open many connections); TCP does not.
 func budgetViolation(policy utils.SmartShieldPolicy, u userUsedBudget, route string, tcp bool) (utils.ShieldBanReason, bool) {
-	strictness := policy.PolicyStrictness
+	limits := utils.ShieldLimits(policy) // Fork addition (plan 50): one place for the arithmetic, see utils.ShieldLimits
 	reason := utils.ShieldBanReason{Route: route}
 	switch {
 	case overTimeBudget(policy, u.Time):
-		reason.Limit, reason.Used, reason.Allowed = "time", u.Time*1000, policy.PerUserTimeBudget*float64(strictness)
-	case !tcp && u.Requests > policy.PerUserRequestLimit*strictness:
-		reason.Limit, reason.Used, reason.Allowed = "requests", float64(u.Requests), float64(policy.PerUserRequestLimit*strictness)
-	case tcp && u.Packets > int64(policy.PerUserRequestLimit*1000*strictness):
-		reason.Limit, reason.Used, reason.Allowed = "packets", float64(u.Packets), float64(policy.PerUserRequestLimit*1000*strictness)
-	case u.Bytes > policy.PerUserByteLimit*int64(strictness):
-		reason.Limit, reason.Used, reason.Allowed = "bytes", float64(u.Bytes), float64(policy.PerUserByteLimit*int64(strictness))
-	case !tcp && u.Simultaneous > policy.PerUserSimultaneous*strictness*15:
-		reason.Limit, reason.Used, reason.Allowed = "simultaneous", float64(u.Simultaneous), float64(policy.PerUserSimultaneous*strictness*15)
-	case tcp && u.Simultaneous > policy.PerUserSimultaneous*strictness:
-		reason.Limit, reason.Used, reason.Allowed = "simultaneous", float64(u.Simultaneous), float64(policy.PerUserSimultaneous*strictness)
+		reason.Limit, reason.Used, reason.Allowed = "time", u.Time*1000, limits.TimeMs
+	case !tcp && u.Requests > limits.Requests:
+		reason.Limit, reason.Used, reason.Allowed = "requests", float64(u.Requests), float64(limits.Requests)
+	case tcp && u.Packets > limits.Packets:
+		reason.Limit, reason.Used, reason.Allowed = "packets", float64(u.Packets), float64(limits.Packets)
+	case u.Bytes > limits.Bytes:
+		reason.Limit, reason.Used, reason.Allowed = "bytes", float64(u.Bytes), float64(limits.Bytes)
+	case !tcp && u.Simultaneous > limits.SimultaneousHTTP:
+		reason.Limit, reason.Used, reason.Allowed = "simultaneous", float64(u.Simultaneous), float64(limits.SimultaneousHTTP)
+	case tcp && u.Simultaneous > limits.SimultaneousTCP:
+		reason.Limit, reason.Used, reason.Allowed = "simultaneous", float64(u.Simultaneous), float64(limits.SimultaneousTCP)
 	default:
 		return reason, false
 	}

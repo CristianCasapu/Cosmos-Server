@@ -125,7 +125,8 @@ export const LimitsLine = ({ facts }) => {
     ? t('mgmt.guide.limits.internet', 'For the internet address this is your choice: without Cosmos\' limits the storage\'s own keys are its only protection') + (facts.flags.cloudflare ? t('mgmt.guide.limits.cloudflare', ', with Cloudflare\'s proxy in front.') : '.')
     : t('mgmt.guide.limits.home', 'For backups from the home network or another app, no limit is the right setting.');
   if (parts.length === 0) {
-    return <Alert severity="success" data-limits="none">{t('mgmt.guide.limits.none', 'Cosmos puts no limit on this address.')} {advice}</Alert>;
+    const long = limits.TimeoutMs >= 86400000 ? ' ' + t('mgmt.guide.limits.longTimeout', 'Requests longer than {{hours}} hours are cut.', { hours: Math.round(limits.TimeoutMs / 3600000) }) : '';
+    return <Alert severity="success" data-limits="none">{t('mgmt.guide.limits.none', 'Cosmos puts no limit on this address.')}{long} {advice}</Alert>;
   }
   const list = parts.map((p) => t(...LIMIT_TEXT[p.what], { value: limitValue(p.what, p.value) })).join('; ');
   return <Alert severity="warning" data-limits="limited" sx={{ '& .MuiAlert-message': { minWidth: 0 } }}

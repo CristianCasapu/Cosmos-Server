@@ -233,6 +233,8 @@ type dashboardCaller struct {
 	resources bool // PERM_ADMIN_READ and PERM_RESOURCES_READ: container, image, published ports (what /api/servapps gives)
 	tileWords bool // role, label, kept at home, sign-in, names for use at home
 	editsURLs bool // role source and proposed role
+
+	configRead bool // plan 50: PERM_CONFIGURATION_READ: a URL's own settings (what Cosmos limits on it)
 }
 
 // dashboardCallerOf: a person always gets what the tile needs; an API token
@@ -241,7 +243,7 @@ type dashboardCaller struct {
 // password confirmation itself when it saves).
 func dashboardCallerOf(req *http.Request) dashboardCaller {
 	ctx := utils.GetAuthContext(req)
-	caller := dashboardCaller{admin: utils.HasPermission(req, utils.PERM_ADMIN_READ)}
+	caller := dashboardCaller{configRead: utils.HasPermission(req, utils.PERM_CONFIGURATION_READ), admin: utils.HasPermission(req, utils.PERM_ADMIN_READ)}
 	caller.resources = caller.admin && utils.HasPermission(req, utils.PERM_RESOURCES_READ)
 	if ctx.APIToken != nil {
 		caller.tileWords = utils.HasPermission(req, utils.PERM_CONFIGURATION_READ)
@@ -336,7 +338,7 @@ func forkDashboardRoutes(out []DashboardRoute, containers []types.Container, cal
 		}
 		if caller.tileWords { // plan 50: the guide, for those who get the tile's words
 			fields.ForkGuideFields = guideFields(route, image, c, caller.resources, caller.editsURLs, fields.ForkHomeHosts)
-			if caller.admin && fields.ForkGuide != "" { // plan 50: what Cosmos limits on the URL (configuration: administrators)
+			if caller.admin && caller.configRead && fields.ForkGuide != "" { // plan 50: what Cosmos limits on the URL (configuration: administrators who may read it)
 				fields.ForkLimits = routeLimits(route)
 			}
 		}
