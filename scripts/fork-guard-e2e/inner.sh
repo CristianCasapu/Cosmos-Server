@@ -31,10 +31,10 @@ fresh() { # nat|pub: a new machine on new networks (DOCKER_MODE: ipv6, noipv6, n
 	topo_up "$1"
 	machine_up "$IMAGE"
 	if ! docker exec "$M" sh -c 'docker ps --format "{{.Names}}" | grep -q priv && docker ps --format "{{.Names}}" | grep -q pub' 2>/dev/null; then
-		bad "the test machine $IMAGE did not start"
+		# counted as a failure of this group; the next group tries a new machine
+		bad "group $GROUP: the test machine $IMAGE did not start, the group did not run ($(docker exec "$M" journalctl -u docker --no-pager 2>/dev/null | grep -o 'failed to start daemon: .*' | tail -n 1 | cut -c1-200))"
 		topo_down
-		log "$TAG: $PASS passed, $FAILED failed$FAILS"
-		exit 1
+		return 1
 	fi
 	case "$BREAK" in
 		open-port) msh "sed -i 's/^\[ -n \"\$PUBLIC_TCP\$PUBLIC_UDP\" \] ||/add_port 9999 tcp broken; &/' $G/install.sh" ;;
@@ -91,7 +91,7 @@ probe_matrix() { # label
 
 g_guard() {
 	log "== guard: dry run, install, probes, twice, uninstall ($TAG)"
-	fresh nat
+	fresh nat || return 1
 	before_rules=$(ruleset); before_files=$(files_snapshot); before_ipt=$(xtables)
 	had_nft=$(m sh -c 'command -v nft' || true)
 	guard_uninstall
@@ -180,7 +180,7 @@ no_gap() {
 
 g_ssh_unattended() {
 	log "== ssh: unattended runs from outside ($TAG)"
-	fresh nat
+	fresh nat || return 1
 	before_rules=$(ruleset); before_files=$(files_snapshot)
 	session_install "$OC" --yes --port 2053
 	session_result
@@ -205,7 +205,7 @@ g_ssh_unattended() {
 }
 
 g_ssh() {
-	g_ssh_unattended
+	g_ssh_unattended || return 1
 	log "== ssh: interactive runs from outside, under sudo ($TAG)"
 	before_rules=$(ruleset)
 	# confirmed in time
@@ -278,7 +278,7 @@ g_ssh() {
 
 g_follow() {
 	log "== follow: address changes without a gap ($TAG)"
-	fresh nat
+	fresh nat || return 1
 	guard_install "$HC" --yes --port 2053
 	expect_rc 0 "install"
 	# a client of the new prefix at home
@@ -314,7 +314,7 @@ g_follow() {
 
 g_docker() {
 	log "== docker: restart, recreated container, reboot ($TAG)"
-	fresh nat
+	fresh nat || return 1
 	guard_install "$HC" --yes --port 2053 --port 8443
 	expect_rc 0 "install"
 	m systemctl restart docker
@@ -335,7 +335,7 @@ g_docker() {
 
 g_vpn() {
 	log "== vpn: a VPN interface and a VPN's port ($TAG)"
-	fresh nat
+	fresh nat || return 1
 	# a VPN peer behind an interface without a default route (as tailscale0 or wg0)
 	msh 'ip netns add vpnpeer && ip link add vpn0 type veth peer name vpn0p && ip link set vpn0p netns vpnpeer && ip addr add 100.100.1.1/24 dev vpn0 && ip -6 addr add fd7a:115c:a1e0::1/64 dev vpn0 && ip link set vpn0 up && ip netns exec vpnpeer sh -c "ip addr add 100.100.1.2/24 dev vpn0p; ip -6 addr add fd7a:115c:a1e0::2/64 dev vpn0p; ip link set vpn0p up; ip link set lo up"'
 	# a VPN daemon listening for direct connections: tailscaled.service, root,
@@ -373,7 +373,7 @@ g_vpn() {
 
 g_pub4() {
 	log "== pub4: a host with a public IPv4 address; the provider's segment is not home ($TAG)"
-	fresh pub
+	fresh pub || return 1
 	guard_install_local --yes --port 2053 --port 8443 --port 9998/udp
 	expect_rc 0 "install on a host with a public IPv4 address (from the console)"
 	check "the installer chose to filter IPv4" says "IPv4        filtered: this server has a public IPv4 address"
@@ -429,7 +429,7 @@ g_pub4() {
 # the home behind NAT: on-link and link-local are home; forged sources from outside are not
 g_spoof() {
 	log "== spoof: home behind a router, link-local home, forged sources from outside ($TAG)"
-	fresh nat
+	fresh nat || return 1
 	guard_install "$HC" --yes --port 2053 --port 9998/udp
 	expect_rc 0 "install"
 	check "eth0 is a home network (private address, private router)" in_set lan_if '"eth0"'
@@ -463,7 +463,7 @@ g_spoof() {
 
 g_ufw() {
 	log "== ufw active ($TAG)"
-	fresh nat
+	fresh nat || return 1
 	msh 'DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ufw nftables >/dev/null 2>&1; ufw allow 22/tcp >/dev/null; ufw allow 2053/tcp >/dev/null; ufw allow 8443/tcp >/dev/null; ufw --force enable >/dev/null'
 	check "ufw is active" sh -c "docker exec $M ufw status | grep -q 'Status: active'"
 	before_rules=$(ruleset)
@@ -485,7 +485,7 @@ g_ufw() {
 
 g_firewalld() {
 	log "== firewalld active ($TAG)"
-	fresh nat
+	fresh nat || return 1
 	msh 'DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends firewalld >/dev/null 2>&1; systemctl reload dbus; systemctl enable --now firewalld >/dev/null 2>&1; firewall-cmd -q --add-port=2053/tcp --add-port=9999/tcp; firewall-cmd -q --runtime-to-permanent'
 	check "firewalld is active" m systemctl is-active --quiet firewalld
 	guard_install "$HC" --yes --port 2053
@@ -526,7 +526,7 @@ outside_run() { # description command (run in an SSH session from OC as tester)
 }
 g_live() {
 	log "== live: the SSH sessions are found from sshd's sockets, not the environment ($TAG)"
-	fresh nat
+	fresh nat || return 1
 	before_rules=$(ruleset)
 	outside_run "systemd-run from an outside session (no SSH_CONNECTION) is refused" \
 		"sudo systemd-run --quiet --wait --pipe sh $G/install.sh --yes --port 2053; echo RC=\$?"
@@ -569,8 +569,8 @@ g_live() {
 
 g_routes() {
 	log "== routes: default routes in another table, none at all, the watcher gone ($TAG)"
-	fresh nat
-	guard_install "$HC" --yes --port 2053
+	fresh nat || return 1
+	guard_install "$HC" --yes --port 2053 --port 8443
 	expect_rc 0 "install"
 	# the default routes only in a policy routing table
 	msh "ip route del default; ip -6 route del default; ip route add default via $RT4H table 100; ip -6 route add default via $RT6H table 100; ip rule add pref 100 lookup 100; ip -6 rule add pref 100 lookup 100"
@@ -593,8 +593,6 @@ g_routes() {
 	msh "ip route replace default via $RT4H; ip -6 route replace default via $RT6H"
 	sleep 3
 	check_not "the default route back: fail-closed mode ends at once" in_set failclosed_if '"eth0"'
-	# Docker's forwarded connections need a few seconds more to settle (not the guard)
-	sleep 12
 	check_not "the default route back: fail-closed mode ends" in_set failclosed_if '"eth0"'
 	probe_matrix "after the default route came back"
 	# the watcher killed again and again comes back (no start limit)
@@ -614,7 +612,7 @@ g_routes() {
 
 g_nftsvc() {
 	log "== nftsvc: nftables.service empties the ruleset; the guard comes back ($TAG)"
-	fresh nat
+	fresh nat || return 1
 	guard_install "$HC" --yes --port 2053
 	expect_rc 0 "install"
 	m systemctl start nftables.service
@@ -654,7 +652,7 @@ g_docker_mode() { # mode label
 		DOCKER_MODE=ipv6
 		return
 	fi
-	fresh nat
+	fresh nat || return 1
 	guard_install "$HC" --yes --port 2053 --port 8443
 	expect_rc 0 "install"
 	probe_matrix "$2"
@@ -668,7 +666,7 @@ g_docker_mode() { # mode label
 
 g_foreign() {
 	log "== foreign: another filtering table (a guard made by hand) is named, never removed ($TAG)"
-	fresh nat
+	fresh nat || return 1
 	m sh -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nftables >/dev/null 2>&1'
 	docker exec -i "$M" nft -f - <<'EOF'
 table inet cosmos_guard {
@@ -687,7 +685,7 @@ EOF
 
 g_race() {
 	log "== race: confirming at the moment the undo fires ($TAG)"
-	fresh nat
+	fresh nat || return 1
 	for i in 1 2 3; do
 		session_install "$OC" --port 2053 --confirm-timeout 30
 		session_wait 'Go on?' 30 || { bad "no question"; session_end; return; }
@@ -709,7 +707,7 @@ g_race() {
 
 g_validate() {
 	log "== validate: strict input, a table left behind ($TAG)"
-	fresh nat
+	fresh nat || return 1
 	for bad_home in 0.0.0.0/0 ::/0 192.168.1.1/24 2001:db8::/16 '4;x/8' 300.1.1.0/24 192.168.1.0; do
 		guard_install_local --dry-run --port 2053 --home "$bad_home"
 		expect_rc 2 "--home $bad_home is refused"
@@ -734,7 +732,7 @@ banned() { m sh -c "fail2ban-client status cosmos-auth | grep -q -- '$1'"; }
 
 g_fail2ban() {
 	log "== fail2ban: the current version, then this one over it; bans ($TAG)"
-	fresh nat
+	fresh nat || return 1
 	# the version on custom before this work, as the owner's server has it
 	docker cp /work/fail2ban-old "$M:/opt/fail2ban-old"
 	msh 'DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 nftables >/dev/null 2>&1'
@@ -782,7 +780,7 @@ g_fail2ban() {
 	OUT=$(m sh /opt/cosmos/fork/fail2ban/uninstall.sh --yes 2>&1; echo "RC=$?"); RC=$(printf '%s\n' "$OUT" | sed -n 's/^RC=//p')
 	expect_rc 0 "Fail2ban uninstall a second time"
 	# from nothing: python3 and the package installed by the script itself
-	fresh nat
+	fresh nat || return 1
 	before_files=$(files_snapshot)
 	OUT=$(m sh /opt/cosmos/fork/fail2ban/install.sh --dry-run 2>&1; echo "RC=$?"); RC=$(printf '%s\n' "$OUT" | sed -n 's/^RC=//p')
 	expect_rc 0 "Fail2ban dry run on a machine without python3"
@@ -804,7 +802,7 @@ g_fail2ban() {
 uu_value() { m apt-config dump | grep -F "$1"; }
 g_updates() {
 	log "== automatic security updates ($TAG)"
-	fresh nat
+	fresh nat || return 1
 	dpkg_docker=$(m cat /etc/test-docker-package)
 	m apt-mark hold "$dpkg_docker" >/dev/null
 	before_files=$(files_snapshot)
@@ -839,6 +837,7 @@ g_updates() {
 }
 
 for g in $GROUPS_WANTED; do
+	GROUP=$g
 	case "$g" in
 		guard) g_guard ;;
 		ssh) g_ssh ;;

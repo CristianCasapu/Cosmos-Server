@@ -127,7 +127,10 @@ cat > /var/lib/cosmos/cosmos.config.json <<'EOF'
 EOF
 case '${DOCKER_MODE:-ipv6}' in
 	noipv6) echo '{}' > /etc/docker/daemon.json ;;
-	nft) echo '{ \"ipv6\": true, \"fixed-cidr-v6\": \"fd00:dead:beef::/64\", \"firewall-backend\": \"nftables\" }' > /etc/docker/daemon.json ;;
+	nft) echo '{ \"ipv6\": true, \"fixed-cidr-v6\": \"fd00:dead:beef::/64\", \"firewall-backend\": \"nftables\" }' > /etc/docker/daemon.json
+	     # Docker's nftables backend does not switch forwarding on by itself (documented)
+	     printf 'net.ipv4.ip_forward = 1\nnet.ipv6.conf.all.forwarding = 1\nnet.ipv6.conf.default.forwarding = 1\n' > /etc/sysctl.d/90-test-forwarding.conf
+	     sysctl -q -p /etc/sysctl.d/90-test-forwarding.conf ;;
 	*) echo '{ \"ipv6\": true, \"fixed-cidr-v6\": \"fd00:dead:beef::/64\", \"ip6tables\": true, \"experimental\": true }' > /etc/docker/daemon.json ;;
 esac
 systemctl daemon-reload

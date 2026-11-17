@@ -566,7 +566,6 @@ fi
 OTHERS_TEXT=""
 if [ -n "$FOREIGN$OTHERS" ]; then
 	OTHERS_TEXT=$(printf '%s' "$FOREIGN" | sed 's/;/, /g')
-	[ -z "$OTHERS" ] || OTHERS_TEXT="${OTHERS_TEXT:+$OTHERS_TEXT; }active:$OTHERS"
 fi
 
 # ------------------------------------------------------- the files to write ---
@@ -678,6 +677,10 @@ elif [ -n "$OUTSIDE_PEERS" ]; then
 	say "              again from there; keep SSH open on purpose: --allow-ssh-from-outside;"
 	say "              better: come in through a VPN (its interface is never filtered)"
 fi
+for other in $OTHERS; do
+	say "  beside      $other is active and keeps its own rules: both filter, a connection must"
+	say "              pass both (the guard never changes $other's rules)"
+done
 if [ -n "$OTHERS_TEXT" ]; then
 	say "  beside      other rules also filter here: $OTHERS_TEXT."
 	say "              Both filter; a drop in either is final. This installer never removes them."
