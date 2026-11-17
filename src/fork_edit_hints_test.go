@@ -1,19 +1,23 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/azukaar/cosmos-server/src/edithints"
 	"github.com/azukaar/cosmos-server/src/proxy"
+	"github.com/azukaar/cosmos-server/src/utils"
 	"github.com/docker/docker/api/types"
 	containerType "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/go-connections/nat"
+	"github.com/gorilla/mux"
 )
 
 func hintsContainer(root string) types.ContainerJSON {
@@ -41,7 +45,7 @@ func TestBuildEditHints(t *testing.T) {
 	in := editHintsInput{
 		Container:  hintsContainer(root),
 		ImageVols:  []string{"/config"},
-		ImagePorts: []string{"7878/tcp", "9898/udp"},
+		ImagePorts: []string{"7878/tcp", "9898/udp", "443/tcp", "53/udp"},
 		ImageEnv:   []string{"PATH=/usr/bin", "HOME=/root"},
 		Plan:       installPlanAnswer{DataPath: "/mnt/data", Places: []installPlace{{Path: "/mnt/data", Kind: "disk"}, {Path: "/", Kind: "system"}}},
 		Server:     editHintsServer{Memory: 8 << 30, CPUs: 4},
@@ -50,7 +54,6 @@ func TestBuildEditHints(t *testing.T) {
 		Held:       map[string]bool{"7878/tcp": true},
 		CosmosPort: []int{80, 443},
 		Listen:     func(port int, protocol string) bool { return port == 7879 },
-		Asked:      []string{"443", "53/udp"},
 		Root:       root,
 	}
 	h := buildEditHints(in)
@@ -100,14 +103,43 @@ func TestBuildEditHintsBounds(t *testing.T) {
 	for i := 1; i <= 40; i++ {
 		asked = append(asked, strconv.Itoa(10000+i))
 	}
-	h := buildEditHints(editHintsInput{Container: c, Asked: asked, Listen: nil})
+	h := buildEditHints(editHintsInput{Container: c, ImagePorts: asked, Listen: nil})
 	if len(h.Folders) != editHintsMaxFolders || len(h.FreePorts) > editHintsMaxPorts || h.PortsListened {
 		t.Fatalf("not bounded: %d folders, %d ports", len(h.Folders), len(h.FreePorts))
 	}
 	if h.LAN == nil || h.Devices == nil || h.Places == nil {
 		t.Fatal("lists must be empty, not null")
 	}
-	var _ edithints.Taken = edithints.ListenTaken
+}
+
+func TestEditHintsRouteNeedsTheEditPermission(t *testing.T) {
+	serve := func(auth *utils.AuthContext) int {
+		req := httptest.NewRequest(http.MethodGet, "/cosmos/api/servapps/x/edit-hints", nil)
+		req = mux.SetURLVars(req, map[string]string{"containerId": "x"})
+		if auth != nil {
+			req = req.WithContext(context.WithValue(req.Context(), utils.AuthCtxKey, auth))
+		}
+		w := httptest.NewRecorder()
+		EditHintsRoute(w, req)
+		return w.Code
+	}
+	refused := map[string]*utils.AuthContext{
+		"no session":            nil,
+		"a plain user":          {Nickname: "bob", Permissions: []utils.Permission{utils.PERM_LOGIN}},
+		"a reader of resources": {Nickname: "bob", Permissions: []utils.Permission{utils.PERM_LOGIN, utils.PERM_RESOURCES_READ}},
+		"a read-only token": {Nickname: "alice", APIToken: &utils.APITokenContext{Name: "reader", Owner: "alice",
+			Permissions: []utils.Permission{utils.PERM_RESOURCES_READ, utils.PERM_CONFIGURATION_READ}}},
+	}
+	for name, auth := range refused {
+		if code := serve(auth); code != http.StatusUnauthorized && code != http.StatusForbidden {
+			t.Errorf("%s: %d", name, code)
+		}
+	}
+	// the edit's own permission passes the gate (then Docker is not there in a test)
+	admin := &utils.AuthContext{Nickname: "alice", IsSudoed: true, Permissions: []utils.Permission{utils.PERM_LOGIN, utils.PERM_RESOURCES}}
+	if code := serve(admin); code == http.StatusUnauthorized || code == http.StatusForbidden {
+		t.Errorf("the edit's permission refused: %d", code)
+	}
 }
 
 func TestEditHintsRouteRefuses(t *testing.T) {
@@ -126,5 +158,58 @@ func TestEditHintsRouteRefuses(t *testing.T) {
 		if _, _, ok := parsePortText(text); ok {
 			t.Errorf("%q accepted", text)
 		}
+	}
+}
+
+func TestEditHintsBounds(t *testing.T) {
+	// a read that does not end: given up at the bound, and not started again while it hangs
+	release := make(chan struct{})
+	started := 0
+	if boundedOn("/mnt/dead", 50*time.Millisecond, func() { started++; <-release }) {
+		t.Fatal("a hanging read was waited for")
+	}
+	if boundedOn("/mnt/dead", time.Second, func() { started++ }) || started != 1 {
+		t.Fatalf("a second read of the hanging disk was started: %d", started)
+	}
+	if !boundedOn("/mnt/alive", time.Second, func() {}) {
+		t.Fatal("another disk is not held up")
+	}
+	close(release)
+	for i := 0; i < 100 && !boundedOn("/mnt/dead", time.Second, func() {}); i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !boundedOn("/mnt/dead", time.Second, func() {}) {
+		t.Fatal("the disk stays given up after it answered")
+	}
+	// the rate: two at a time, sixty a minute
+	r := &hintsRate{}
+	now := time.Now()
+	if !r.start(now) || !r.start(now) || r.start(now) {
+		t.Fatal("more than two at a time")
+	}
+	r.done()
+	r.done()
+	for i := 0; i < 58; i++ {
+		if !r.start(now) {
+			t.Fatalf("refused at %d", i)
+		}
+		r.done()
+	}
+	if r.start(now) {
+		t.Fatal("more than sixty a minute")
+	}
+	if !r.start(now.Add(61 * time.Second)) {
+		t.Fatal("not again after a minute")
+	}
+	// a folder whose disk does not answer is said, not waited for
+	c := hintsContainer("")
+	h := buildEditHints(editHintsInput{Container: c, Inspect: func(source string, places []string, user edithints.RunAs) edithints.Folder {
+		return edithints.Folder{Source: source, State: "slow"}
+	}})
+	if len(h.Folders) == 0 || h.Folders[0].State != "slow" {
+		t.Fatalf("folders: %+v", h.Folders)
+	}
+	if h.VPN == nil {
+		t.Fatal("vpn must be a list")
 	}
 }

@@ -138,10 +138,25 @@ const open = async (type, name, viewport, mode, withSudo = true) => {
   });
   await ctx.request.post(base + '/cosmos/api/login', { data: { nickname: 'admin', password } });
   if (withSudo) await ctx.request.post(base + '/cosmos/api/sudo', { data: { password } });
+  // the panel's requests still under way: a save answers once the container runs again, and
+  // leaving the page before (go) would cancel it and the refresh that follows
+  page.pending = new Set();
+  page.on('request', (r) => { if (r.url().includes('/cosmos/api/') && r.resourceType() !== 'eventsource') page.pending.add(r); });
+  page.on('requestfinished', (r) => page.pending.delete(r));
+  page.on('requestfailed', (r) => page.pending.delete(r));
   return { browser, ctx, page };
 };
 const shot = (page, name, what) => page.screenshot({ path: `shots/${name}-${what}.png` });
+// waits until the page has no request under way for half a second (at most 60 s)
+const settle = async (page) => {
+  let quiet = 0;
+  for (let i = 0; i < 600 && quiet < 5; i++) {
+    quiet = page.pending && page.pending.size > 0 ? 0 : quiet + 1;
+    await page.waitForTimeout(100);
+  }
+};
 const go = async (page, container, tab) => {
+  await settle(page);
   await page.goto(`${base}/cosmos-ui/servapps/containers/${container}`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2500);
   if (tab) {

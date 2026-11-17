@@ -42,10 +42,18 @@ func containerSensitive(service string, c types.ContainerJSON, extra []string) [
 		if m.Type == mount.TypeBind {
 			addBind(m.Source)
 		}
+		// Fork addition (plan 47, I2c review): a volume that binds a host path, shared propagation
+		if volumeBindDevice(m) != "" || sharedPropagation(m) {
+			as.Volumes = append(as.Volumes, mount.Mount{Type: m.Type, Source: m.Source, VolumeOptions: m.VolumeOptions, BindOptions: m.BindOptions})
+		}
 	}
 	for _, bind := range c.HostConfig.Binds {
-		if source := strings.Split(bind, ":")[0]; strings.HasPrefix(source, "/") {
+		parts := strings.Split(bind, ":")
+		if source := parts[0]; strings.HasPrefix(source, "/") {
 			addBind(source)
+			if len(parts) > 2 && bindModeShared(parts[2]) {
+				as.Volumes = append(as.Volumes, mount.Mount{Type: mount.TypeBind, Source: source, BindOptions: &mount.BindOptions{Propagation: mount.PropagationRShared}})
+			}
 		}
 	}
 	for _, m := range c.Mounts {
@@ -56,7 +64,47 @@ func containerSensitive(service string, c types.ContainerJSON, extra []string) [
 	for _, device := range c.HostConfig.Devices {
 		as.Devices = append(as.Devices, device.PathOnHost+":"+device.PathInContainer)
 	}
-	return serviceSensitive(service, as, extra)
+	items := serviceSensitive(service, as, extra)
+	unique := []SensitiveItem{}
+	seenItem := map[string]bool{}
+	for _, item := range items {
+		if !seenItem[item.Key()] {
+			seenItem[item.Key()] = true
+			unique = append(unique, item)
+		}
+	}
+	return unique
+}
+
+// writableSources lists the host folders a container's settings mount
+// writable (Fork addition, plan 47 I2c review: a confirmed read-only folder
+// made writable is asked again).
+func writableSources(c types.ContainerJSON) map[string]bool {
+	out := map[string]bool{}
+	if c.HostConfig == nil {
+		return out
+	}
+	for _, m := range c.HostConfig.Mounts {
+		if m.Type == mount.TypeBind && !m.ReadOnly {
+			out[cleanHostPath(m.Source)] = true
+		}
+	}
+	for _, bind := range c.HostConfig.Binds {
+		parts := strings.Split(bind, ":")
+		if len(parts) >= 2 && strings.HasPrefix(parts[0], "/") && (len(parts) < 3 || !hasWord(parts[2], "ro")) {
+			out[cleanHostPath(parts[0])] = true
+		}
+	}
+	return out
+}
+
+func hasWord(mode, word string) bool {
+	for _, w := range strings.Split(mode, ",") {
+		if strings.TrimSpace(w) == word {
+			return true
+		}
+	}
+	return false
 }
 
 // unconfirmedEdit lists what `after` has that `before` had not and the request did not confirm.
@@ -76,8 +124,11 @@ func unconfirmedEdit(service string, before, after types.ContainerJSON, query ur
 		}
 	}
 	missing := []SensitiveItem{}
+	wasWritable, isWritable := writableSources(before), writableSources(after)
 	for _, item := range containerSensitive(service, after, extra) {
-		if !had[item.Key()] && !confirmed[item.Key()] {
+		// a folder or socket it had read-only and now gets writable is new access
+		madeWritable := (item.Kind == "bind" || item.Kind == "socket") && isWritable[item.Value] && !wasWritable[item.Value]
+		if (!had[item.Key()] || madeWritable) && !confirmed[item.Key()] {
 			missing = append(missing, item)
 		}
 	}

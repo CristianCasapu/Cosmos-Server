@@ -135,9 +135,24 @@ const open = async (type, name, viewport, mode) => {
   });
   await ctx.request.post(base + '/cosmos/api/login', { data: { nickname: 'admin', password } });
   await ctx.request.post(base + '/cosmos/api/sudo', { data: { password } });
+  // the panel's requests still under way: a save answers once the container runs again, and
+  // leaving the page before (go) would cancel it and the refresh that follows
+  page.pending = new Set();
+  page.on('request', (r) => { if (r.url().includes('/cosmos/api/') && r.resourceType() !== 'eventsource') page.pending.add(r); });
+  page.on('requestfinished', (r) => page.pending.delete(r));
+  page.on('requestfailed', (r) => page.pending.delete(r));
   return { browser, ctx, page };
 };
+// waits until the page has no request under way for half a second (at most 60 s)
+const settle = async (page) => {
+  let quiet = 0;
+  for (let i = 0; i < 600 && quiet < 5; i++) {
+    quiet = page.pending && page.pending.size > 0 ? 0 : quiet + 1;
+    await page.waitForTimeout(100);
+  }
+};
 const go = async (page, container, tab) => {
+  await settle(page);
   await page.goto(`${base}/cosmos-ui/servapps/containers/${container}`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2500);
   const t = page.getByRole('tab', { name: tab, exact: true });
@@ -151,6 +166,76 @@ const sideways = (page) => page.evaluate(() => document.scrollingElement.scrollW
 const dialog = (page) => page.locator('[data-sensitive-edit]');
 const shot = (page, name, what) => page.screenshot({ path: `shots/edit-tabs-${name}-${what}.png`, fullPage: true });
 const errorsShown = async (page) => (await page.locator('.MuiFormHelperText-root.Mui-error').allInnerTexts()).join(' | ');
+
+// --- PHASE=unchanged: a save of each tab without a change keeps everything the container had,
+// running and stopped (the shapes upstream's tabs used to change silently)
+const SHAPE = (name) => ({ Image: 'example/plainapp:1', User: '65534:65534', Env: ['SHAPE=1'], Labels: { 'shape.note': 'kept' },
+  ExposedPorts: { '9000/tcp': {}, '9001/udp': {}, '9002/tcp': {}, '9003/tcp': {} }, HostConfig: {
+    PortBindings: { '9000/tcp': [{ HostIp: '127.0.0.1', HostPort: name === 'shape-run' ? '18300' : '18310' }], '9001/udp': [{ HostIp: '0.0.0.0', HostPort: name === 'shape-run' ? '18301' : '18311' }], '9003/tcp': [{ HostPort: '' }] },
+    Devices: [{ PathOnHost: '/dev/null', PathInContainer: '/dev/fakenull', CgroupPermissions: 'r' }],
+    Binds: [`/mnt/data/${name}/a:/a:ro,z`, `/mnt/data/${name}/b:/b:rw,rslave`],
+    Mounts: [
+      { Type: 'tmpfs', Target: '/t', TmpfsOptions: { SizeBytes: 64 * 1024 * 1024, Mode: 0o1777 } },
+      { Type: 'volume', Source: `${name}-vol`, Target: '/v', VolumeOptions: { NoCopy: true } },
+      { Type: 'bind', Source: `/mnt/data/${name}/c`, Target: '/c', BindOptions: { Propagation: 'rslave' } },
+    ],
+    Tmpfs: { '/t2': 'size=32m' },
+    Dns: ['192.0.2.53'], RestartPolicy: { Name: 'on-failure', MaximumRetryCount: 2 },
+    Memory: 256 * 1024 * 1024, NanoCpus: 5e8 } });
+const fullShape = (c) => {
+  const h = c.HostConfig;
+  const labels = { ...(c.Config.Labels || {}) };
+  return JSON.stringify({
+    user: c.Config.User, env: [...c.Config.Env].sort(), labels, exposed: Object.keys(c.Config.ExposedPorts || {}).sort(),
+    ports: h.PortBindings, devices: h.Devices, binds: [...(h.Binds || [])].sort(),
+    mounts: [...(h.Mounts || [])].sort((a, b) => a.Target.localeCompare(b.Target)), tmpfs: h.Tmpfs,
+    dns: h.Dns, restart: h.RestartPolicy, memory: h.Memory, swap: h.MemorySwap, cpus: h.NanoCpus, mode: h.NetworkMode,
+  }, null, 0);
+};
+const diff = (a, b) => {
+  const x = JSON.parse(a), y = JSON.parse(b);
+  return Object.keys(x).filter((k) => JSON.stringify(x[k]) !== JSON.stringify(y[k])).map((k) => `${k}: ${JSON.stringify(x[k])} → ${JSON.stringify(y[k])}`).join('; ');
+};
+if (process.env.PHASE === 'unchanged') {
+  for (const engine of engines) {
+    for (const size of sizes) {
+      const viewport = size === 'm' ? { width: 393, height: 851 } : { width: 1366, height: 900 };
+      const name = `${engine}-${size === 'm' ? 393 : 1366}`;
+      note(`\n== unchanged ${name}`);
+      for (const c of ['shape-run', 'shape-stop']) {
+        await api.delete(`${dind}/containers/${c}?force=1&v=1`);
+        const folders = await once('edit-tabs-shape-folders', { Cmd: ['sh', '-c', `mkdir -p /d/${c}/a /d/${c}/b /d/${c}/c && echo made`], HostConfig: { Binds: ['/mnt/data:/d'] } });
+        if (folders !== 'made') note('folders:', folders);
+        const made = await api.post(`${dind}/containers/create?name=${c}`, { data: SHAPE(c) });
+        if (made.status() !== 201) note('create', c, made.status(), await made.text());
+        if (c === 'shape-run') await api.post(`${dind}/containers/${c}/start`);
+      }
+      await serverUp();
+      const { browser, page } = await open({ chromium, firefox, webkit }[engine], name, viewport, 'light');
+      try {
+        for (const c of ['shape-run', 'shape-stop']) {
+          for (const [tab, button] of [['Docker', /Update Container/], ['Network', 'Update Ports'], ['Storage', 'Update Volumes']]) {
+            const before = await inspect(c);
+            await go(page, c, tab);
+            await page.getByRole('button', { name: button }).click();
+            await until(`${c} saved from ${tab}`, async () => { const x = await inspect(c); return x && x.Id !== before.Id && (c === 'shape-stop' || x.State.Running); });
+            await serverUp();
+            const after = await inspect(c);
+            const d = diff(fullShape(before), fullShape(after));
+            expect(!d, `${name}: ${c}, ${tab}: unchanged${d ? ' — ' + d : ''}`);
+            expect(c !== 'shape-stop' || !after.State.Running, `${name}: ${c} stays stopped`);
+          }
+        }
+      } catch (e) {
+        expect(false, `${name}: ${e.message.split('\n')[0]}`);
+      }
+      await browser.close();
+    }
+  }
+  for (const c of ['shape-run', 'shape-stop']) await api.delete(`${dind}/containers/${c}?force=1&v=1`);
+  note(failures.length ? `\n${failures.length} FAILED:\n  ${failures.join('\n  ')}` : '\nALL OK');
+  process.exit(failures.length ? 1 : 0);
+}
 
 for (const engine of engines) {
   for (const size of sizes) {

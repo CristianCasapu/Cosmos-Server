@@ -56,6 +56,49 @@ export const REACH_TEXT = {
 
 // ---- container ports ------------------------------------------------------------
 
+// The rows of the Network tab for an existing container, from its settings
+// (not from what runs: a stopped container reports no ports, and saving its
+// tab used to drop them all): every published binding as it is stored, a
+// binding without a host port (Docker picks one) marked `random`, and every
+// port that is only exposed as a row without a host port.
+export const configuredPortRows = (containerInfo) => {
+  const bindings = (containerInfo && containerInfo.HostConfig && containerInfo.HostConfig.PortBindings) || {};
+  const exposed = Object.keys((containerInfo && containerInfo.Config && containerInfo.Config.ExposedPorts) || {});
+  const keys = [...new Set([...Object.keys(bindings), ...exposed])]
+    .sort((a, b) => (parseInt(a, 10) - parseInt(b, 10)) || a.localeCompare(b));
+  const rows = [];
+  keys.forEach((key) => {
+    const [port, protocol] = key.split('/');
+    const list = Array.isArray(bindings[key]) ? bindings[key].filter((b) => b && typeof b === 'object') : [];
+    if (list.length === 0) {
+      rows.push({ port, protocol: protocol || 'tcp', hostPort: '', hostIp: '' });
+      return;
+    }
+    list.forEach((b) => rows.push({
+      port, protocol: protocol || 'tcp', hostPort: b.HostPort || '', hostIp: b.HostIp || '', ...(b.HostPort ? {} : { random: true }),
+    }));
+  });
+  return rows;
+};
+
+// What the Network tab sends for its rows: the bindings (a row with a host
+// port, or a stored one Docker gives a port to) and every port listed.
+export const portsToSend = (rows) => {
+  const portBindings = {};
+  const exposedPorts = [];
+  (rows || []).forEach((row) => {
+    const port = String(row.port || '').trim();
+    if (!port) return;
+    const key = `${port}/${row.protocol === 'udp' ? 'udp' : 'tcp'}`;
+    if (!exposedPorts.includes(key)) exposedPorts.push(key);
+    if (String(row.hostPort || '').trim() || row.random) {
+      if (!portBindings[key]) portBindings[key] = [];
+      portBindings[key].push({ HostIp: row.hostIp || '', HostPort: String(row.hostPort || '').trim() });
+    }
+  });
+  return { portBindings, exposedPorts };
+};
+
 // The container ports the tab proposes, with where each comes from:
 // recipe (Cosmos' recipe of the image), known (an app Cosmos knows), image
 // (the image declares it). The first source of a port wins.
@@ -103,6 +146,10 @@ export const proposeHostPort = (hints, port, protocol, rows = [], holders = []) 
 
 // The address a new port is proposed on: the home-network address the
 // server's default route uses, else every address.
+// The VPN interface a host address is on, or null: a port published there
+// works only while the VPN is up.
+export const vpnOf = (hostIp, hints) => ((hints && hints.vpn) || []).find((v) => v.address === String(hostIp || '').trim()) || null;
+
 export const proposedHostIp = (lan) => {
   const list = lan || [];
   const pick = list.find((a) => a.defaultRoute) || list[0];
@@ -206,6 +253,24 @@ const folderName = (target) => (String(target).replace(/\/+$/, '').split('/').po
   .replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^[.-]+/, '') || 'data';
 const appFolder = (app) => String(app || 'app').replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^[.-]+/, '') || 'app';
 
+// A folder inside one the container already mounts writable: the app can
+// put a link there (to / for instance) before the container starts again, and
+// Docker would follow it. Never proposed (review of plan 47).
+export const insideWritableBind = (path, hints) => ((hints && hints.folders) || [])
+  .some((f) => f && f.source && !f.readOnly && path.startsWith(f.source.replace(/\/$/, '') + '/')); // the folder itself is safe: the app cannot replace its own mount
+
+// The same proposal beside the app's writable folders: <parent>/<app>-<folder>,
+// null when that is inside one too.
+const besideWritable = (path, hints) => {
+  if (!insideWritableBind(path, hints)) return path;
+  const parts = path.split('/');
+  if (parts.length < 4) return null;
+  const last = parts.pop();
+  const app = parts.pop();
+  const beside = [...parts, `${app}-${last}`].join('/');
+  return insideWritableBind(beside, hints) ? null : beside;
+};
+
 // Where a declared folder is proposed: the place the creation flow would
 // give the volume Docker makes for it (utils/dataPlaces.js: large data on the
 // data disk with the most room, settings moved off the system disk), else a
@@ -216,13 +281,20 @@ export const proposeDeclared = (target, hints, app) => {
   const name = appFolder(app);
   const volume = `${name}_${folderName(target)}`;
   const choice = proposePlace({ service: name, type: 'volume', source: volume, target, kind: volumeKind(target) }, plan, name);
-  if (choice.path) return { type: 'bind', source: choice.path, reason: choice.reason, place: placeOf(choice.path, plan.places) };
+  const bind = (path, reason) => {
+    const safe = besideWritable(path, hints);
+    return safe ? { type: 'bind', source: safe, reason, place: placeOf(safe, plan.places) } : null;
+  };
+  if (choice.path) {
+    const proposal = bind(choice.path, choice.reason);
+    if (proposal) return proposal;
+  }
   if (plan.dataPath) {
     // as a folder of the data path, which the creation flow moves off the system disk
     const source = `${plan.dataPath.replace(/\/$/, '')}/${name}/${folderName(target)}`;
     const asBind = proposePlace({ service: name, type: 'bind', source, target, kind: volumeKind(target) }, plan, name);
-    const path = asBind.path || source;
-    return { type: 'bind', source: path, reason: asBind.path ? asBind.reason : 'config', place: placeOf(path, plan.places) };
+    const proposal = bind(asBind.path || source, asBind.path ? asBind.reason : 'config');
+    if (proposal) return proposal;
   }
   return { type: 'volume', source: volume, reason: 'volume', place: null };
 };
@@ -231,20 +303,23 @@ export const proposeDeclared = (target, hints, app) => {
 // and the data disks, each with the folder the app would get there.
 export const sourcePlaces = (hints, target, app) => ((hints && hints.places) || [])
   .filter((p) => p.kind === 'data-path' || (p.kind === 'disk' && !p.osDisk))
-  .map((p) => ({ ...p, source: `${p.path.replace(/\/$/, '')}/${appFolder(app)}${target ? '/' + folderName(target) : ''}` }));
+  .map((p) => ({ ...p, source: besideWritable(`${p.path.replace(/\/$/, '')}/${appFolder(app)}${target ? '/' + folderName(target) : ''}`, hints) }))
+  .filter((p) => p.source);
 
 // What is said about a bind's folder, as a code with its parameters:
 // missing, file, outside, link, invalid, unknown, notWritable, writable.
 export const folderFinding = (folder, runsAs) => {
   if (!folder) return null;
   const params = { owner: folder.owner || '', user: (runsAs && runsAs.text) || '', mode: folder.mode || '' };
+  if (folder.linkTo && folder.state !== 'link') return { code: 'linkInside', severity: 'warning', params: { ...params, target: folder.linkTo } };
   if (folder.state === 'ok') {
     if (folder.writable === 'no') return { code: 'notWritable', severity: 'warning', params };
     return { code: folder.writable === 'yes' ? 'writable' : 'unknownUser', severity: 'info', params };
   }
   if (folder.state === 'missing') return { code: 'missing', severity: 'warning', params };
   if (folder.state === 'file') return { code: 'file', severity: 'info', params };
-  if (folder.state === 'link') return { code: 'link', severity: 'warning', params };
+  if (folder.state === 'link') return { code: 'link', severity: 'warning', params: { ...params, target: folder.linkTo || '' } };
+  if (folder.state === 'slow') return { code: 'slow', severity: 'info', params };
   return { code: folder.state || 'unknown', severity: 'info', params };
 };
 

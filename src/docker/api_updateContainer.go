@@ -28,6 +28,8 @@ type ContainerForm struct {
 	NetworkMode 	 string           `json:"networkMode"`
 	// DNS replaces the DNS servers of the container when sent, an empty list for the default of Docker
 	DNS            []string          `json:"dns"`
+	// Fork addition (plan 47, I2c): every port the Network tab lists, published or only exposed (fork_edit_keep.go)
+	ExposedPorts   []string          `json:"exposedPorts"`
 	MemLimit       string            `json:"memLimit"`
 	CPUs           float64           `json:"cpus"`
 }
@@ -178,8 +180,10 @@ func UpdateContainerRoute(w http.ResponseWriter, req *http.Request) {
 			container.HostConfig.RestartPolicy = containerType.RestartPolicy{Name: containerType.RestartPolicyMode("no")}
 		}
 
+		keepUnchanged(before, &container, form) // Fork addition (plan 47, I2c): what the form sent unchanged keeps its stored form (fork_edit_keep.go)
+
 		// Fork addition (plan 47, I2c): what changed is checked as at creation (fork_edit_check.go)
-		if forkRefuseBadEdit(w, before, container) {
+		if forkRefuseBadEdit(w, before, &container) {
 			return
 		}
 

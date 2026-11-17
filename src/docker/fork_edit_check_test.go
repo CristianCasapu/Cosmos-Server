@@ -2,12 +2,14 @@ package docker
 
 import (
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/azukaar/cosmos-server/src/edithints"
 	"github.com/docker/docker/api/types"
 	containerType "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
@@ -173,6 +175,13 @@ func TestEditRefuses(t *testing.T) {
 		"a bind with a newline": {func(c *types.ContainerJSON) {
 			c.HostConfig.Mounts = append(c.HostConfig.Mounts, mount.Mount{Type: mount.TypeBind, Source: "/mnt/data/x\n", Target: "/x"})
 		}, "absolute path"},
+		"a changed source of an existing mount": {func(c *types.ContainerJSON) {
+			for i := range c.HostConfig.Mounts {
+				if c.HostConfig.Mounts[i].Target == "/downloads" {
+					c.HostConfig.Mounts[i].Source = "/srv/../etc"
+				}
+			}
+		}, "without \"..\""},
 		"a volume name": {func(c *types.ContainerJSON) {
 			c.HostConfig.Mounts = append(c.HostConfig.Mounts, mount.Mount{Type: mount.TypeVolume, Source: "../x", Target: "/x"})
 		}, "volume name"},
@@ -257,7 +266,7 @@ func TestPrepareBindFolders(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "cosmos-storage/radarr/data")); err != nil || owned["/cosmos-storage"] != "" || owned["/cosmos-storage/radarr/data"] != "1000:1000" {
 		t.Fatalf("a missing data path: %v %v", err, owned)
 	}
-	// an app that runs as root: nothing is done (EditContainer makes the folder as before)
+	// an app that runs as root: the folder is made here too (through handles), and stays root's
 	clear(owned)
 	rootApp := edited(before, func(c *types.ContainerJSON) {
 		c.Config.Image = "nginx:1"
@@ -268,8 +277,8 @@ func TestPrepareBindFolders(t *testing.T) {
 	if len(owned) != 0 {
 		t.Fatalf("root's app: %v", owned)
 	}
-	if _, err := os.Stat(filepath.Join(root, "mnt/data/web")); err == nil {
-		t.Fatal("made for root's app")
+	if _, err := os.Stat(filepath.Join(root, "mnt/data/web")); err != nil {
+		t.Fatal("not made for root's app")
 	}
 }
 
@@ -290,19 +299,19 @@ func TestEditKeepsRestartRetries(t *testing.T) {
 	}
 }
 
-// recordChowns replaces the Lchown (the tests do not run as root) and
+// recordChowns replaces the fchown (the tests do not run as root) and
 // records, by path on the server, which folders were given to whom.
 func recordChowns(t *testing.T, root string) map[string]string {
 	t.Helper()
-	old := chownCreated
-	t.Cleanup(func() { chownCreated = old })
+	old := chownHandle
+	t.Cleanup(func() { chownHandle = old })
 	owned := map[string]string{}
-	chownCreated = func(r *os.Root, rel string, uid, gid int) error {
-		info, err := r.Lstat(rel)
-		if err != nil || !info.IsDir() {
-			t.Errorf("chown of %s, which is not a folder made here: %v", rel, err)
+	chownHandle = func(fd int, uid, gid int) error {
+		p, err := os.Readlink("/proc/self/fd/" + strconv.Itoa(fd))
+		if err != nil {
+			t.Errorf("no path for the handle: %v", err)
 		}
-		owned[strings.TrimPrefix(r.Name(), root)+"/"+rel] = strconv.Itoa(uid) + ":" + strconv.Itoa(gid)
+		owned[strings.TrimPrefix(p, root)] = strconv.Itoa(uid) + ":" + strconv.Itoa(gid)
 		return nil
 	}
 	return owned
@@ -345,15 +354,25 @@ func TestMakeOwnedFoldersStaysInThePlace(t *testing.T) {
 		t.Fatal("made on the machine itself")
 	}
 
-	// a link that stays inside the place is followed; only the folder made is chowned
-	if err := makeOwnedFolders(root, "/mnt/data", "/mnt/data/app/config/inside/cache", 1000, 1001); err != nil {
+	// a link, even one that stays inside the place, is not followed by the creation: the
+	// update route hands it the path without links (resolveNewBinds)
+	if err := makeOwnedFolders(root, "/mnt/data", "/mnt/data/app/config/inside/cache", 1000, 1001); err == nil {
+		t.Fatal("made through a link")
+	}
+	if _, err := os.Stat(filepath.Join(root, "mnt/data/app/config/cache")); err == nil || len(owned) != 0 {
+		t.Fatalf("made through the link inside the place: %v", owned)
+	}
+	// two levels: each made and given through its own handle
+	if err := makeOwnedFolders(root, "/mnt/data", "/mnt/data/app/new/deeper", 1000, 1001); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "mnt/data/app/config/cache")); err != nil {
-		t.Fatal("not made through the link inside the place")
-	}
-	if len(owned) != 1 || owned["/mnt/data/app/config/inside/cache"] != "1000:1001" {
+	if len(owned) != 2 || owned["/mnt/data/app/new"] != "1000:1001" || owned["/mnt/data/app/new/deeper"] != "1000:1001" {
 		t.Fatalf("owners: %v", owned)
+	}
+	// root's app: made, not chowned
+	clear(owned)
+	if err := makeOwnedFolders(root, "/mnt/data", "/mnt/data/app/rootfolder", 0, 0); err != nil || len(owned) != 0 {
+		t.Fatalf("root's folder: %v %v", err, owned)
 	}
 
 	// existing folders (the place, app, config) are left as they are: no chown, mode kept
@@ -408,5 +427,83 @@ func TestPrepareBindFoldersPlantedLink(t *testing.T) {
 	forkPrepareBindFolders(before, after, root)
 	if entries, _ := os.ReadDir(filepath.Join(root, "etc")); len(entries) != 0 || len(owned) != 0 {
 		t.Fatalf("followed the planted link: %v %v", entries, owned)
+	}
+}
+
+// A new bind is followed through its links as Docker will follow them: a
+// link planted at any level that leads out of the data places is refused, one
+// that leads to a sensitive folder is handed on as that folder (the tick then
+// names it), one that leads to another data place is used by its real path.
+func TestNewBindsAreResolved(t *testing.T) {
+	withServer(t)
+	root := t.TempDir()
+	for _, d := range []string{"mnt/data/app/config", "mnt/other/movies", "srv/elsewhere", "etc"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	links := map[string]string{
+		"mnt/data/app/config/escape": "/srv/elsewhere",    // the deepest level, absolute
+		"mnt/data/app/up":            "../../../srv",      // a middle level, relative
+		"mnt/data/app/config/etc":    "/etc",              // to a sensitive folder
+		"mnt/data/app/config/rootfs": "/",                 // to the whole server
+		"mnt/data/app/config/movies": "/mnt/other/movies", // to another data place
+		"mnt/data/app/config/inside": "../config",         // inside the same place
+		"mnt/linked":                 "/mnt/data",         // above the place
+	}
+	for at, target := range links {
+		if err := os.Symlink(target, filepath.Join(root, at)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldResolve, oldPlaces := resolveSource, EditDataPlaces
+	t.Cleanup(func() { resolveSource, EditDataPlaces = oldResolve, oldPlaces })
+	resolveSource = func(p string) (string, bool, error) { return edithints.ResolvePath(root, p) }
+	EditDataPlaces = func() []string { return []string{"/mnt/data", "/mnt/other"} }
+
+	before := ownersApp()
+	cases := []struct {
+		source, want, refused string
+	}{
+		{"/mnt/data/app/config/escape/new", "", "is a link to /srv/elsewhere/new"},
+		{"/mnt/data/app/up/elsewhere", "", "is a link to /srv/elsewhere"},
+		{"/mnt/data/app/config/etc/cron.d", "/etc/cron.d", ""},
+		{"/mnt/data/app/config/rootfs", "/", ""},
+		{"/mnt/data/app/config/movies/new", "/mnt/other/movies/new", ""},
+		{"/mnt/data/app/config/inside/cache", "/mnt/data/app/config/cache", ""},
+		{"/mnt/linked/app/data", "/mnt/data/app/data", ""},
+		{"/mnt/data/app/config/plain", "/mnt/data/app/config/plain", ""},
+	}
+	for _, c := range cases {
+		after := edited(before, func(x *types.ContainerJSON) {
+			x.HostConfig.Mounts = append(x.HostConfig.Mounts, mount.Mount{Type: mount.TypeBind, Source: c.source, Target: "/new"})
+		})
+		err := resolveNewBinds(before, &after)
+		got := after.HostConfig.Mounts[len(after.HostConfig.Mounts)-1].Source
+		if c.refused != "" {
+			if err == nil || !strings.Contains(err.Error(), c.refused) {
+				t.Errorf("%s: got %v, want a refusal saying %q", c.source, err, c.refused)
+			}
+			continue
+		}
+		if err != nil || got != c.want {
+			t.Errorf("%s: got %q %v, want %q", c.source, got, err, c.want)
+		}
+	}
+	// the tick follows the resolved path: the planted link to /etc needs it, named as /etc/cron.d
+	after := edited(before, func(x *types.ContainerJSON) {
+		x.HostConfig.Mounts = append(x.HostConfig.Mounts, mount.Mount{Type: mount.TypeBind, Source: "/mnt/data/app/config/etc/cron.d", Target: "/new"})
+	})
+	if err := resolveNewBinds(before, &after); err != nil {
+		t.Fatal(err)
+	}
+	missing := unconfirmedEdit("radarr", before, after, url.Values{}, nil)
+	if len(missing) != 1 || missing[0].Value != "/etc/cron.d" {
+		t.Fatalf("the tick: %+v", missing)
+	}
+	// a bind the container had is not looked at again
+	kept := edited(before, nil)
+	if err := resolveNewBinds(before, &kept); err != nil {
+		t.Fatal(err)
 	}
 }

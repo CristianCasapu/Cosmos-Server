@@ -18,7 +18,7 @@ import { PERM_RESOURCES } from '../../../utils/permissions';
 import { portHostIp, isHostIp } from './forkContainerFixes'; // Fork addition: the host address of a published port
 import { usePortHolders, hasBlockingPortConflict, PortConflictHint, PortConflictReport, EDIT_FORM } from '../../../components/portConflicts'; // Fork addition: host ports that are already taken
 import { useEditHints, ForkPortRow, forkNewPortRow, ForkDnsChoice, ForkNetworkMode, ForkNetworksHint } from './forkEditTabs'; // Fork addition (plan 47, I2c): the edit tab's proposals
-import { dnsProblem } from '../../../utils/editHints'; // Fork addition (plan 47, I2c)
+import { dnsProblem, configuredPortRows, portsToSend } from '../../../utils/editHints'; // Fork addition (plan 47, I2c)
 
 const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, OnChange, OnConnect, OnDisconnect, portSources, onPortsBlocked }) => {
   const { t } = useTranslation();
@@ -77,6 +77,7 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
   }
 
   const getPortBindings = () => {
+    if (!newContainer) return configuredPortRows(containerInfo); // Fork addition (plan 47, I2c): from the settings, also for a stopped container
     let portsBound = [];
     let portsConfig = containerInfo.NetworkSettings.Ports;
 
@@ -139,7 +140,9 @@ const NetworkContainerSetup = ({ config, containerInfo, refresh, newContainer, O
             // a container that shares the network of another one takes its DNS too
             dns: (values.networkMode || '').startsWith('container:') ? [] : values.dns.split(',').map((s) => s.trim()).filter(Boolean),
           };
-          values.ports.forEach((port) => {
+          // Fork addition (plan 47, I2c): stored bindings without a host port and ports only exposed are sent back too
+          if (!newContainer) Object.assign(realvalues, portsToSend(values.ports));
+          if (newContainer) values.ports.forEach((port) => {
             let key = `${port.port}/${port.protocol}`;
             
             if (port.hostPort) {

@@ -167,7 +167,19 @@ var dockerRootForPlan = docker.ForkDockerRoot
 var checkImagesForPlan = docker.CheckImagePlatforms
 
 // the processor check reuses what "Install any image" read (plan 40)
-func init() { docker.KnownPlatforms = anyimage.KnownPlatforms }
+func init() {
+	docker.KnownPlatforms = anyimage.KnownPlatforms
+	// Fork addition (plan 47, I2c): one rule for the user an app writes as (docker.ContainerRunsAs)
+	docker.RecipeEnvFor = func(image string) []string {
+		names := []string{}
+		if recipe := anyimage.RecipeForImage(image); recipe != nil {
+			for _, e := range recipe.Env {
+				names = append(names, e.Name)
+			}
+		}
+		return names
+	}
+}
 
 var protectedForPlan = docker.ForkProtectedDirs
 

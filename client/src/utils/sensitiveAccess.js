@@ -49,6 +49,35 @@ export const sensitiveBind = (source, extra = []) => {
 const mountType = (volume) => volume.type || volume.Type || '';
 const mountSource = (volume) => volume.source !== undefined ? volume.source : volume.Source;
 
+// A key of a Docker object in any case (Go reads JSON keys without case).
+const field = (object, name) => {
+  if (!object || typeof object !== 'object') return undefined;
+  const key = Object.keys(object).find((k) => k.toLowerCase() === name.toLowerCase());
+  return key === undefined ? undefined : object[key];
+};
+
+// The host path a volume's local driver binds ({type: none, o: bind,
+// device}), "" for none (plan 47 review; fork_volume_options.go).
+export const volumeBindDevice = (volume) => {
+  if (mountType(volume) !== 'volume') return '';
+  const driver = field(field(volume, 'VolumeOptions'), 'DriverConfig');
+  if (!driver) return '';
+  const name = String(field(driver, 'Name') || '').trim();
+  if (name !== '' && name !== 'local') return '';
+  const options = field(driver, 'Options') || {};
+  if (!Object.keys(options).length) return '';
+  const device = String(options.device || '').trim();
+  const kind = String(options.type || '').trim();
+  const binds = String(options.o || '').split(',').map((w) => w.trim()).some((w) => w === 'bind' || w === 'rbind');
+  if (binds || kind === 'none' || (kind === '' && device.startsWith('/'))) return device || '/';
+  return '';
+};
+
+export const sharedPropagation = (volume) => {
+  const propagation = field(field(volume, 'BindOptions'), 'Propagation');
+  return propagation === 'shared' || propagation === 'rshared';
+};
+
 // The items of a definition, as the server names them ("<service>|<kind>|<value>").
 export const sensitiveAccess = (definition, extra = []) => {
   const services = (definition && definition.services) || {};
@@ -57,6 +86,13 @@ export const sensitiveAccess = (definition, extra = []) => {
     const service = services[key] || {};
     (service.volumes || []).forEach((volume) => {
       if (!volume || typeof volume !== 'object') return;
+      // plan 47 review: a volume binding a host path is that path; shared propagation needs a tick
+      const device = volumeBindDevice(volume);
+      if (device) {
+        const kind = sensitiveBind(device, extra);
+        if (kind) items.push({ service: key, kind, value: cleanPath(device) });
+      }
+      if (sharedPropagation(volume)) items.push({ service: key, kind: 'propagation', value: cleanPath(String(mountSource(volume) || '')) });
       const type = mountType(volume);
       const source = String(mountSource(volume) || '');
       if (type !== 'bind' && type !== '') return;
@@ -93,6 +129,7 @@ export const TEXT = {
   cap: '{{service}} gets the capability {{value}}, which reaches outside its container.',
   unconfined: '{{service}} turns a protection off ({{value}}).',
   device: '{{service}} gets the server\'s device {{value}} (a disk, a graphics card, a USB device…) and uses it directly.',
+  propagation: '{{service}} gets the server folder {{value}} with shared propagation: what it mounts inside appears on the server.',
 };
 
 export const sentence = (item) => ({ key: 'mgmt.servapps.sensitive.' + item.kind, text: TEXT[item.kind], params: { service: item.service, value: item.value } });

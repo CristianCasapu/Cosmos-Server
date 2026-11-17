@@ -16,6 +16,7 @@ package main
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"path/filepath"
 	"regexp"
@@ -23,6 +24,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/azukaar/cosmos-server/src/anyimage"
 	"github.com/azukaar/cosmos-server/src/behind"
@@ -109,8 +112,15 @@ type editHints struct {
 	DNS       editHintsDNS       `json:"dns"`
 	Devices   []edithints.Device `json:"devices"`
 	FreePorts map[string]int     `json:"freePorts"`
-	// PortsListened: the free ports were also tried on the server (not when Cosmos runs in a container)
+	// PortsListened: the free ports were also checked against the server's sockets (not when Cosmos runs in a container)
 	PortsListened bool `json:"portsListened"`
+	// VPN: the server's addresses on VPN interfaces (a port published there works only while the VPN is up)
+	VPN []editHintsVPN `json:"vpn"`
+}
+
+type editHintsVPN struct {
+	Interface string `json:"interface"`
+	Address   string `json:"address"`
 }
 
 // what the hints are made of, gathered by editHintsFacts; the tests give their own
@@ -127,9 +137,11 @@ type editHintsInput struct {
 	Devices    []edithints.Device
 	Held       map[string]bool // "8080/tcp" published by another container
 	CosmosPort []int
-	Listen     edithints.Taken // nil when the server cannot be tried
-	Asked      []string        // more container ports to propose a host port for
-	Root       string          // where the server's files are seen
+	Listen     edithints.Taken // nil when the server's sockets cannot be read
+	VPN        []editHintsVPN
+	// Inspect gives the facts of one bind's folder (bounded in time by the route); edithints.InspectFolder when nil
+	Inspect func(source string, places []string, user edithints.RunAs) edithints.Folder
+	Root    string // where the server's files are seen
 }
 
 var anonymousVolume = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -203,6 +215,10 @@ func buildEditHints(in editHintsInput) editHints {
 		DNS:       in.DNS,
 		Devices:   in.Devices,
 		FreePorts: map[string]int{},
+		VPN:       in.VPN,
+	}
+	if hints.VPN == nil {
+		hints.VPN = []editHintsVPN{}
 	}
 	if hints.LAN == nil {
 		hints.LAN = []proxy.LANAddress{}
@@ -213,9 +229,9 @@ func buildEditHints(in editHintsInput) editHints {
 	if hints.Places == nil {
 		hints.Places = []installPlace{}
 	}
-	image, user, env := "", "", []string{}
+	image := ""
 	if c.Config != nil {
-		image, user, env = c.Config.Image, c.Config.User, c.Config.Env
+		image = c.Config.Image
 	}
 
 	wanted := []string{}
@@ -264,7 +280,7 @@ func buildEditHints(in editHintsInput) editHints {
 		}
 	}
 	hints.Linuxserver = edithints.LinuxserverStyle(image, recipeEnv)
-	hints.RunsAs = edithints.EffectiveUser(user, in.ImageUser, env, hints.Linuxserver)
+	hints.RunsAs = docker.ContainerRunsAs(c, in.ImageUser) // the update route's own rule
 
 	sortedPorts := append([]string{}, hints.Image.Ports...)
 	if c.Config != nil {
@@ -273,7 +289,7 @@ func buildEditHints(in editHintsInput) editHints {
 		}
 	}
 	sort.Strings(sortedPorts)
-	for _, text := range append(sortedPorts, in.Asked...) {
+	for _, text := range sortedPorts {
 		if port, protocol, ok := parsePortText(text); ok {
 			want(port, protocol)
 		}
@@ -304,13 +320,130 @@ func buildEditHints(in editHintsInput) editHints {
 		if string(m.Type) != "bind" || len(hints.Folders) >= editHintsMaxFolders {
 			continue
 		}
-		folder := edithints.InspectFolder(in.Root, m.Source, places, hints.RunsAs)
+		inspect := in.Inspect
+		if inspect == nil {
+			inspect = func(source string, places []string, user edithints.RunAs) edithints.Folder {
+				return edithints.InspectFolder(in.Root, source, places, user)
+			}
+		}
+		folder := inspect(m.Source, places, hints.RunsAs)
 		hints.Folders = append(hints.Folders, editHintsFolder{Folder: folder, Target: m.Destination, ReadOnly: !m.RW})
 	}
 	return hints
 }
 
+// ---- bounds of the route ----
+
+// editHintsMaxTime bounds the reads of the disks (statfs, lstat): a network
+// disk that does not answer must not hold the route.
+var editHintsMaxTime = 3 * time.Second
+
+var (
+	abandonedMu sync.Mutex
+	// abandoned: the keys (a data place, "places") whose read is still blocked in the kernel after
+	// the route gave up on it; at most one such read per key, none started again until it ends
+	abandoned = map[string]bool{}
+)
+
+// boundedOn runs fn in a goroutine and waits at most wait for it; false when
+// it gave up (or a read on the same key is still blocked from an earlier
+// request, in which case fn is not run at all).
+func boundedOn(key string, wait time.Duration, fn func()) bool {
+	abandonedMu.Lock()
+	if abandoned[key] || wait <= 0 {
+		abandonedMu.Unlock()
+		return false
+	}
+	abandonedMu.Unlock()
+	done := make(chan struct{})
+	var mu sync.Mutex
+	finished, gaveUp := false, false
+	go func() {
+		fn()
+		mu.Lock()
+		finished = true
+		if gaveUp {
+			abandonedMu.Lock()
+			delete(abandoned, key)
+			abandonedMu.Unlock()
+		}
+		mu.Unlock()
+		close(done)
+	}()
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		mu.Lock()
+		defer mu.Unlock()
+		if finished {
+			<-done
+			return true
+		}
+		gaveUp = true
+		abandonedMu.Lock()
+		abandoned[key] = true
+		abandonedMu.Unlock()
+		return false
+	}
+}
+
+// editHintsRate: at most 2 requests at a time and 60 a minute (each opening of a tab asks once)
+type hintsRate struct {
+	mu      sync.Mutex
+	running int
+	window  time.Time
+	count   int
+}
+
+var editHintsRate = &hintsRate{}
+
+func (r *hintsRate) start(now time.Time) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if now.Sub(r.window) > time.Minute {
+		r.window, r.count = now, 0
+	}
+	if r.running >= 2 || r.count >= 60 {
+		return false
+	}
+	r.running++
+	r.count++
+	return true
+}
+
+func (r *hintsRate) done() {
+	r.mu.Lock()
+	r.running--
+	r.mu.Unlock()
+}
+
 // ---- what the server tells ----
+
+var vpnInterface = regexp.MustCompile(`^(tun|tap|wg|tailscale|zt|nebula|ppp|utun|ipsec|vpn)`)
+
+// editHintsVPNAddresses lists the server's addresses on VPN interfaces.
+var editHintsVPNAddresses = func() []editHintsVPN {
+	out := []editHintsVPN{}
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return out
+	}
+	for _, iface := range interfaces {
+		if !vpnInterface.MatchString(iface.Name) {
+			continue
+		}
+		addresses, _ := iface.Addrs()
+		for _, a := range addresses {
+			if n, ok := a.(*net.IPNet); ok && len(out) < 16 {
+				out = append(out, editHintsVPN{Interface: iface.Name, Address: n.IP.String()})
+			}
+		}
+	}
+	return out
+}
 
 var editHintsDevices = func() []edithints.Device {
 	return edithints.Devices(edithints.Roots{Dev: hostFile("/dev"), Sys: "/sys"})
@@ -385,6 +518,11 @@ func EditHintsRoute(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "Method not allowed", http.StatusMethodNotAllowed, "HTTP001")
 		return
 	}
+	if !editHintsRate.start(time.Now()) {
+		utils.HTTPError(w, "Too many requests for the edit tabs' proposals: try again in a moment", http.StatusTooManyRequests, "EH004")
+		return
+	}
+	defer editHintsRate.done()
 	if err := docker.Connect(); err != nil {
 		utils.HTTPError(w, "Docker is not reachable", http.StatusInternalServerError, "DS002")
 		return
@@ -399,10 +537,47 @@ func EditHintsRoute(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "No such container", http.StatusNotFound, "EH002")
 		return
 	}
+	// ?folder=<path> (at most 8): only these folders' facts, for a row the form added
+	if asked := req.URL.Query()["folder"]; len(asked) > 0 {
+		if len(asked) > 8 {
+			utils.HTTPError(w, "At most 8 folders", http.StatusBadRequest, "EH003")
+			return
+		}
+		places := docker.EditDataPlaces()
+		user := docker.ContainerRunsAs(container, "")
+		deadline := time.Now().Add(editHintsMaxTime)
+		folders := []edithints.Folder{}
+		for _, source := range asked {
+			if len(source) > 4096 {
+				utils.HTTPError(w, "Invalid folder", http.StatusBadRequest, "EH003")
+				return
+			}
+			folder := edithints.Folder{Source: source, State: "slow"}
+			key := "outside"
+			for _, p := range places {
+				if clean := filepath.Clean(p); clean != "/" && (source == clean || strings.HasPrefix(source, clean+"/")) && len(clean) > len(key) {
+					key = clean
+				}
+			}
+			root := ""
+			if utils.IsInsideContainer {
+				root = "/mnt/host"
+			}
+			boundedOn(key, time.Until(deadline), func() { folder = edithints.InspectFolder(root, source, places, user) })
+			folders = append(folders, folder)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"status": "OK", "data": map[string]interface{}{"folders": folders}})
+		return
+	}
+
 	config := utils.GetMainConfig()
+	// the data places' free space is read from each disk: bounded, as the folders below
+	plan := installPlanAnswer{Places: []installPlace{}}
+	boundedOn("places", editHintsMaxTime, func() { plan = buildInstallPlan(nil, config) })
 	in := editHintsInput{
 		Container:  container,
-		Plan:       buildInstallPlan(nil, config),
+		Plan:       plan,
 		Server:     editHintsServerFacts(),
 		LAN:        proxy.LANAddresses(),
 		DNS:        editHintsDNSFacts(),
@@ -413,7 +588,21 @@ func EditHintsRoute(w http.ResponseWriter, req *http.Request) {
 	if utils.IsInsideContainer {
 		in.Root = "/mnt/host"
 	} else {
-		in.Listen = edithints.ListenTaken
+		listening := edithints.ListeningCached() // the kernel's socket tables: nothing is bound
+		in.Listen = func(port int, protocol string) bool { return listening[strconv.Itoa(port)+"/"+protocol] }
+	}
+	in.VPN = editHintsVPNAddresses()
+	deadline := time.Now().Add(editHintsMaxTime)
+	in.Inspect = func(source string, places []string, user edithints.RunAs) edithints.Folder {
+		folder := edithints.Folder{Source: source, State: "slow"}
+		key := "outside"
+		for _, p := range places {
+			if clean := filepath.Clean(p); clean != "/" && (source == clean || strings.HasPrefix(source, clean+"/")) && len(clean) > len(key) {
+				key = clean
+			}
+		}
+		boundedOn(key, time.Until(deadline), func() { folder = edithints.InspectFolder(in.Root, source, places, user) })
+		return folder
 	}
 	if image, _, err := docker.DockerClient.ImageInspectWithRaw(docker.DockerContext, container.Image); err == nil && image.Config != nil {
 		in.ImageUser, in.ImageEnv = image.Config.User, image.Config.Env

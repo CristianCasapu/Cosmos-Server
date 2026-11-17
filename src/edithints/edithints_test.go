@@ -334,3 +334,85 @@ func TestMemoryFromHint(t *testing.T) {
 		}
 	}
 }
+
+func TestListening(t *testing.T) {
+	dir := t.TempDir()
+	header := "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+	write(t, filepath.Join(dir, "tcp"), header+
+		"   0: 00000000:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 1\n"+ // 8080 listening
+		"   1: 0100007F:0CEA 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 2\n"+ // 3306 on 127.0.0.1
+		"   2: 0A00000A:D431 0A000001:01BB 01 00000000:00000000 00:00000000 00000000     0        0 3\n") // an outgoing connection
+	write(t, filepath.Join(dir, "tcp6"), header+
+		"   0: 00000000000000000000000000000000:20FB 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000 0 0 4\n") // 8443
+	write(t, filepath.Join(dir, "udp"), header+
+		"   0: 00000000:0035 00000000:0000 07 00000000:00000000 00:00000000 00000000     0        0 5\n") // 53
+	got := Listening(dir)
+	for _, want := range []string{"8080/tcp", "3306/tcp", "8443/tcp", "53/udp"} {
+		if !got[want] {
+			t.Errorf("%s not seen: %v", want, got)
+		}
+	}
+	if got["54321/tcp"] || got["443/tcp"] || len(got) != 4 {
+		t.Errorf("an outgoing connection counted: %v", got)
+	}
+	if len(Listening(filepath.Join(dir, "none"))) != 0 {
+		t.Error("no tables: nothing")
+	}
+}
+
+func TestLongAndUnusableDeviceNames(t *testing.T) {
+	root := t.TempDir()
+	dev := filepath.Join(root, "dev")
+	long := "usb-ITead_Sonoff_Zigbee_3.0_USB_Dongle_Plus_0123456789abcdef0123456789abcdef-if00-port0"
+	write(t, filepath.Join(dev, "ttyUSB0"), "")
+	write(t, filepath.Join(dev, "ttyUSB1"), "")
+	link(t, "../../ttyUSB0", filepath.Join(dev, "serial/by-id", long))
+	link(t, "../../ttyUSB1", filepath.Join(dev, "serial/by-id", "usb-Vendor_With:Colon-if00"))
+	old := isCharDevice
+	defer func() { isCharDevice = old }()
+	isCharDevice = func(info fs.FileInfo) bool { return info.Mode().IsRegular() }
+	got := Devices(Roots{Dev: dev, Sys: filepath.Join(root, "sys")})
+	if len(got) != 2 || got[0].Path != "/dev/serial/by-id/"+long || got[0].Problem != "" {
+		t.Fatalf("a long by-id name: %+v", got)
+	}
+	if got[1].Problem != "name" {
+		t.Fatalf("a name with a colon: %+v", got[1])
+	}
+}
+
+func TestResolvePath(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{"mnt/data/app", "srv"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link(t, "/srv", filepath.Join(root, "mnt/data/app/abs"))
+	link(t, "../../../srv", filepath.Join(root, "mnt/data/app/rel"))
+	link(t, "loop", filepath.Join(root, "mnt/data/app/loop"))
+	cases := map[string]struct {
+		want   string
+		linked bool
+	}{
+		"/mnt/data/app/x":        {"/mnt/data/app/x", false},
+		"/mnt/data/app/abs/new":  {"/srv/new", true},
+		"/mnt/data/app/rel/a/b":  {"/srv/a/b", true},
+		"/mnt/data/app/abs":      {"/srv", true},
+		"/mnt/data/missing/deep": {"/mnt/data/missing/deep", false},
+	}
+	for p, c := range cases {
+		got, linked, err := ResolvePath(root, p)
+		if err != nil || got != c.want || linked != c.linked {
+			t.Errorf("%s: got %q %v %v", p, got, linked, err)
+		}
+	}
+	if _, _, err := ResolvePath(root, "/mnt/data/app/loop/x"); err == nil {
+		t.Error("a loop of links followed")
+	}
+	if _, _, err := ResolvePath(root, "relative"); err == nil {
+		t.Error("a relative path")
+	}
+	if got := InspectFolder(root, "/mnt/data/app/abs/x", []string{"/mnt/data"}, RunAs{}); got.State != "link" || got.LinkTo != "/srv/x" {
+		t.Errorf("a link out of the place says where it leads: %+v", got)
+	}
+}

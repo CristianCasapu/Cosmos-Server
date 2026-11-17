@@ -21,7 +21,7 @@ import { isHostIp } from './forkContainerFixes';
 import {
   hostIpChoice, hostIpOf, reachOf, REACH_TEXT, containerPortOptions, proposeHostPort, proposedHostIp, newPortRow,
   dnsOptions, dnsChoice, dnsProblem, networkModeChoice, networkModeNetworks, declaredMissing, proposeDeclared,
-  sourcePlaces, folderFinding, userOptions, userChoice, puidMismatch, withPuid, userOnLinuxserver,
+  sourcePlaces, folderFinding, vpnOf, userOptions, userChoice, puidMismatch, withPuid, userOnLinuxserver,
   memoryOptions, cpuOptions, limitChoice, RESTART, envSuggestions, deviceOptions, deviceRow, sizeText,
 } from '../../../utils/editHints';
 
@@ -70,7 +70,7 @@ export const ForkPortRow = ({ port, idx, ports, onChange, onDelete, hints, holde
   const set = (fields) => onChange(idx, { ...port, ...fields });
   const choice = port.hostIpOther ? 'other' : hostIpChoice(port.hostIp, lan);
   const ipOk = isHostIp(port.hostIp);
-  const reach = reachOf(port.hostIp, port.hostPort, lan);
+  const reach = reachOf(port.hostIp, port.hostPort || (port.random ? '*' : ''), lan); // a stored binding without a host port: Docker picks one
   const others = containerPortOptions(hints).filter((o) => String(o.port) !== String(port.port) || o.protocol !== port.protocol);
   const addressOptions = [
     ...lan.map((a) => ({ value: 'lan:' + a.address, label: t(K + 'address.lan', 'Home network ({{ip}})', { ip: a.address }), description: t(K + 'address.lanHint', 'Only this address of the server ({{name}}), which devices of your home network use.', { name: a.interface }) })),
@@ -96,7 +96,8 @@ export const ForkPortRow = ({ port, idx, ports, onChange, onDelete, hints, holde
         label={t(K + 'hostPort', 'Host port')}
         value={'' + (port.hostPort || '')}
         slotProps={{ htmlInput: { inputMode: 'numeric', 'data-fork-host-port': idx } }}
-        onChange={(e) => set({ hostPort: e.target.value.trim(), proposed: null })}
+        placeholder={port.random ? t(K + 'randomPort', 'Docker picks one') : undefined}
+        onChange={(e) => set({ hostPort: e.target.value.trim(), proposed: null, random: false })}
       />
     </Grid>
     <Grid size={{ xs: 9, md: 4 }} style={{ padding }}>
@@ -144,6 +145,9 @@ export const ForkPortRow = ({ port, idx, ports, onChange, onDelete, hints, holde
       </Stack>}
       {ipOk && <FormHelperText data-fork-reach={reach} sx={wrapText}>
         {t(K + 'reach.' + reach, REACH_TEXT[reach], { ip: port.hostIp, port: port.hostPort })}
+      </FormHelperText>}
+      {ipOk && vpnOf(port.hostIp, hints) && <FormHelperText data-fork-vpn sx={wrapText}>
+        {t(K + 'reach.vpn', 'This address belongs to the VPN interface {{name}}: the port works only while the VPN is up (and the app does not start while it is down).', { name: vpnOf(port.hostIp, hints).interface })}
       </FormHelperText>}
       {reach === 'none' && String(port.port || '').trim() !== '' && (() => {
         // a port the container declares but does not publish: proposed, on the home network and a free host port
@@ -298,7 +302,11 @@ const findingText = (t, finding) => {
     notWritable: t(K + 'folder.notWritable', 'Owned by {{owner}} ({{mode}}): the app runs as {{user}} and probably cannot write in it.', p),
     missing: t(K + 'folder.missing', 'This folder does not exist yet: it is made when you save.'),
     file: t(K + 'folder.file', 'This is a file, not a folder.'),
-    link: t(K + 'folder.link', 'A link in this path leads out of the data disk: not looked at.'),
+    link: p.target
+      ? t(K + 'folder.linkTo', 'This path is a link to {{target}}, out of the data disk: not looked at. A new folder given this way is refused when you save.', p)
+      : t(K + 'folder.link', 'A link in this path leads out of the data disk: not looked at.'),
+    linkInside: t(K + 'folder.linkInside', 'This path is a link to {{target}}: Docker mounts that folder.', p),
+    slow: t(K + 'folder.slow', 'The disk did not answer in time: nothing is known about this folder.'),
     outside: '',
     invalid: t(K + 'folder.invalid', 'Give an absolute path, such as /mnt/data/app, without "..".'),
     unknown: '',
@@ -308,6 +316,19 @@ const findingText = (t, finding) => {
 // Under a bind's source: its disk, free space, owner and whether the app can write in it.
 export const ForkFolderNote = ({ row, hints }) => {
   const { t } = useTranslation();
+  const [asked, setAsked] = React.useState(null);
+  const known = hints && row && (hints.folders || []).some((f) => f.source === row.Source && f.target === row.Target);
+  const source = row && row.Type === 'bind' ? String(row.Source || '') : '';
+  React.useEffect(() => {
+    if (!hints || known || !source.startsWith('/') || !hints.container) return undefined;
+    let live = true;
+    const timer = setTimeout(() => {
+      API.docker.editHints(hints.container, [source])
+        .then((res) => { if (live) setAsked({ source, folder: res.data && res.data.folders && res.data.folders[0] }); })
+        .catch(() => {});
+    }, 600);
+    return () => { live = false; clearTimeout(timer); };
+  }, [source, known, hints && hints.container]);
   if (!hints || !row || row.Type !== 'bind' || !row.Source) return null;
   const folder = (hints.folders || []).find((f) => f.source === row.Source && f.target === row.Target);
   if (folder) {
@@ -319,7 +340,12 @@ export const ForkFolderNote = ({ row, hints }) => {
       {[text, place].filter(Boolean).join(' ')}
     </FormHelperText>;
   }
-  // a row the form added: where it would go
+  // a row the form added: what the server knows of that path (asked after typing stops), and where it would go
+  const askedFolder = asked && asked.source === row.Source ? asked.folder : null;
+  if (askedFolder && (askedFolder.state === 'link' || askedFolder.state === 'slow' || askedFolder.linkTo)) {
+    const finding = folderFinding(askedFolder, hints.runsAs);
+    return <FormHelperText data-fork-folder={finding.code} sx={{ ...wrapText, whiteSpace: 'normal', color: 'text.primary', fontWeight: 600 }}>{findingText(t, finding)}</FormHelperText>;
+  }
   const place = ((hints.places || []).filter((p) => p.kind !== 'system').sort((a, b) => b.path.length - a.path.length))
     .find((p) => row.Source === p.path || row.Source.startsWith(p.path.replace(/\/$/, '') + '/'));
   if (!place) return null;
@@ -452,10 +478,10 @@ export const ForkDeviceChoices = ({ formik, hints }) => {
         : t(K + 'device.allGiven', 'The app has every device of this server that apps usually need.')}
     </Typography>
     {offered.length > 0 && <Stack direction="row" useFlexGap spacing={1} sx={{ flexWrap: 'wrap' }}>
-      {offered.map((d) => <Chip key={d.path} variant="outlined" clickable icon={<PlusCircleOutlined />}
+      {offered.map((d) => <Chip key={d.path} variant="outlined" clickable={!d.problem} disabled={!!d.problem} icon={<PlusCircleOutlined />}
         sx={{ minHeight: 44, maxWidth: '100%', height: 'auto', '& .MuiChip-label': { whiteSpace: 'normal', overflowWrap: 'anywhere', py: 0.5 } }}
-        label={[d.name || d.node, deviceKind(t, d), d.name || d.path !== d.node ? d.path : ''].filter(Boolean).join(' · ')}
-        onClick={() => formik.setFieldValue('devices', [...formik.values.devices, deviceRow(d)])} />)}
+        label={[d.name || d.node, deviceKind(t, d), d.name || d.path !== d.node ? d.path : '', d.problem ? t(K + 'device.badName', 'its name cannot be given to Docker (it holds ":" or ",")') : ''].filter(Boolean).join(' · ')}
+        onClick={() => { if (!d.problem) formik.setFieldValue('devices', [...formik.values.devices, deviceRow(d)]); }} />)}
     </Stack>}
   </Stack>;
 };

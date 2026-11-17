@@ -30,6 +30,21 @@ type Device struct {
 	Kind string `json:"kind"`
 	// Name says what it is, from sysfs; "" when not known
 	Name string `json:"name"`
+	// Problem: "" or "name" (its path holds ":" or ",", which Docker's device setting cannot carry)
+	Problem string `json:"problem,omitempty"`
+}
+
+// printableName: printable ASCII, no "/", at most n characters (a udev by-id name can be long).
+func printableName(name string, n int) bool {
+	if name == "" || len(name) > n || strings.Contains(name, "/") {
+		return false
+	}
+	for _, r := range name {
+		if r < 0x20 || r >= 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 // Roots are the folders the device detection reads: /dev and /sys normally.
@@ -165,7 +180,7 @@ func byID(dev string) map[string]string {
 			continue
 		}
 		node := filepath.Base(link)
-		if _, taken := out[node]; !taken && cleanName(entry.Name()) == entry.Name() {
+		if _, taken := out[node]; !taken && printableName(entry.Name(), 255) {
 			out[node] = "/dev/serial/by-id/" + entry.Name()
 		}
 	}
@@ -200,6 +215,9 @@ func Devices(roots Roots) []Device {
 			device := Device{Path: node, Node: node, Kind: kind, Name: name(n)}
 			if stable != nil && stable[n] != "" {
 				device.Path = stable[n]
+			}
+			if strings.ContainsAny(device.Path, ":,") || strings.ContainsAny(device.Node, ":,") {
+				device.Problem = "name"
 			}
 			found = append(found, device)
 			count++

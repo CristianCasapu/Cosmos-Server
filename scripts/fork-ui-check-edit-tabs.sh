@@ -109,7 +109,11 @@ copy_scripts() {
 }
 
 images() {
-  in_dind docker image inspect busybox:1.36 >/dev/null 2>&1 || docker save busybox:1.36 | docker exec -i "$PREFIX-dind" docker load -q >/dev/null
+  # busybox:1.36 from the host's Docker once (or, when the test Cosmos' clean-up removed it, from the
+  # busybox-based nginx:1 stand-in still in use); a stopped container per image keeps them from the clean-up
+  if ! in_dind docker image inspect busybox:1.36 >/dev/null 2>&1; then
+    in_dind docker tag nginx:1 busybox:1.36 2>/dev/null || docker save busybox:1.36 | docker exec -i "$PREFIX-dind" docker load -q >/dev/null
+  fi
   in_dind sh -c '
     set -e
     mkdir -p /tmp/img/nginx /tmp/img/ls /tmp/img/plain
@@ -118,7 +122,10 @@ images() {
     printf "%s\n" "FROM busybox:1.36" "USER 1000:1000" "VOLUME /data" "EXPOSE 9000" "CMD [\"httpd\", \"-f\", \"-p\", \"9000\", \"-h\", \"/etc\"]" > /tmp/img/plain/Dockerfile
     docker build -q -t nginx:1 /tmp/img/nginx >/dev/null
     docker build -q -t lscr.io/linuxserver/fakeapp:1 /tmp/img/ls >/dev/null
-    docker build -q -t example/plainapp:1 /tmp/img/plain >/dev/null'
+    docker build -q -t example/plainapp:1 /tmp/img/plain >/dev/null
+    for i in busybox:1.36 nginx:1 lscr.io/linuxserver/fakeapp:1 example/plainapp:1; do
+      n=keep-$(echo "$i" | tr "/:." "---"); docker inspect "$n" >/dev/null 2>&1 || docker create --name "$n" "$i" true >/dev/null
+    done'
 }
 
 start_all() {
@@ -163,8 +170,9 @@ case "${1:-}" in
   start) start_all; copy_scripts ;;
   rebuild) build; stop_cosmos; start_cosmos; say "rebuilt and restarted" ;;
   restart) stop_cosmos; start_cosmos ;;
-  check) shift; copy_scripts; browser "$@" -- fork-ui-check-edit-tabs.mjs ;;
-  node) shift; script=$1; shift; copy_scripts; browser "$@" -- "$script" ;;
+  # Cosmos' own image clean-up removes the images no container uses: they are put back before each run
+  check) shift; images; copy_scripts; browser "$@" -- fork-ui-check-edit-tabs.mjs ;;
+  node) shift; script=$1; shift; images; copy_scripts; browser "$@" -- "$script" ;;
   stop) stop_all ;;
   clean)
     stop_all

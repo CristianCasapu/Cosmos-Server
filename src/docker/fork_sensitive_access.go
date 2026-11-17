@@ -28,7 +28,8 @@ import (
 type SensitiveItem struct {
 	Service string `json:"service"`
 	// Kind: bind (a host folder), socket (a container runtime's socket),
-	// privileged, network-host, cap (a capability), unconfined (security_opt), device (a device of the server)
+	// privileged, network-host, cap (a capability), unconfined (security_opt), device (a device of the server),
+	// propagation (a bind with shared propagation: mounts made inside reach the server)
 	Kind  string `json:"kind"`
 	Value string `json:"value"`
 }
@@ -126,6 +127,16 @@ func effectiveNetworkMode(service ContainerCreateRequestContainer) string {
 func serviceSensitive(key string, service ContainerCreateRequestContainer, extra []string) []SensitiveItem {
 	items := []SensitiveItem{}
 	for _, volume := range service.Volumes {
+		// Fork addition (plan 47, I2c review): a named volume whose local driver binds a host
+		// path is that host path (fork_volume_options.go), and shared propagation reaches the server's mounts
+		if device := volumeBindDevice(volume); device != "" {
+			if kind := SensitiveBind(device, extra); kind != "" {
+				items = append(items, SensitiveItem{Service: key, Kind: kind, Value: cleanHostPath(device)})
+			}
+		}
+		if sharedPropagation(volume) {
+			items = append(items, SensitiveItem{Service: key, Kind: "propagation", Value: cleanHostPath(volume.Source)})
+		}
 		if volume.Type != mount.TypeBind && volume.Type != "" {
 			continue
 		}
@@ -251,6 +262,8 @@ func sensitiveSentence(items []SensitiveItem) string {
 			parts = append(parts, item.Service+": "+item.Value)
 		case "device":
 			parts = append(parts, item.Service+": the device "+item.Value)
+		case "propagation":
+			parts = append(parts, item.Service+": the server folder "+item.Value+" with shared propagation (its mounts reach the server)")
 		}
 	}
 	return strings.Join(parts, "; ")

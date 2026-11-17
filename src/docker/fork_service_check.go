@@ -100,6 +100,12 @@ func CheckServiceRequest(request DockerServiceCreateRequest) error {
 				return fmt.Errorf("service %s, device %q: write it as /dev/on-the-server:/dev/in-the-container", key, device)
 			}
 		}
+		// Fork addition (plan 47, I2c review): a volume's driver options (fork_volume_options.go)
+		for _, volume := range service.Volumes {
+			if err := checkVolumeOptions(volume); err != nil {
+				return fmt.Errorf("service %s, %s", key, err.Error())
+			}
+		}
 		if err := checkServiceFields(service); err != nil {
 			return fmt.Errorf("service %s, %s", key, err.Error())
 		}

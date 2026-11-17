@@ -1,6 +1,7 @@
 package edithints
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 	"path"
@@ -27,6 +28,8 @@ type Folder struct {
 	Writable string `json:"writable,omitempty"`
 	Free     uint64 `json:"free,omitempty"`
 	Total    uint64 `json:"total,omitempty"`
+	// LinkTo is where the path leads when a link is on its way (state link, or a link inside the place)
+	LinkTo string `json:"linkTo,omitempty"`
 }
 
 const (
@@ -186,6 +189,7 @@ func InspectFolder(root, source string, places []string, user RunAs) Folder {
 		return folder
 	}
 	folder.Place = place
+	folder.LinkTo = LinkTarget(root, p)
 	resolved, state, info := walk(root, place, p)
 	folder.State = state
 	if state == "link" || state == "unknown" && info == nil {
@@ -209,4 +213,68 @@ func InspectFolder(root, source string, places []string, user RunAs) Folder {
 		folder.Total = fsStat.Blocks * uint64(fsStat.Bsize)
 	}
 	return folder
+}
+
+// ResolvePath follows a host path the way the kernel will when Docker mounts
+// it: from "/", one part at a time with Lstat, each link replaced by its
+// target (at most 40 links). It returns the path without links and whether
+// a link was passed; the parts that do not exist yet are kept as they are.
+// root is where the server's files are seen ("" normally).
+func ResolvePath(root, p string) (string, bool, error) {
+	p = CleanSource(p)
+	if p == "" {
+		return "", false, errors.New("not a clean absolute path")
+	}
+	current := "/"
+	rest := strings.Split(strings.TrimPrefix(p, "/"), "/")
+	linked, links := false, 0
+	for steps := 0; len(rest) > 0; steps++ {
+		if steps > 4096 {
+			return "", linked, errors.New("too many parts")
+		}
+		part := rest[0]
+		rest = rest[1:]
+		if part == "" || part == "." {
+			continue
+		}
+		if part == ".." {
+			current = path.Dir(current)
+			continue
+		}
+		next := path.Join(current, part)
+		info, err := os.Lstat(root + next)
+		if os.IsNotExist(err) {
+			return path.Join(append([]string{next}, rest...)...), linked, nil
+		}
+		if err != nil {
+			return "", linked, err
+		}
+		if info.Mode()&fs.ModeSymlink == 0 {
+			current = next
+			continue
+		}
+		links++
+		if links > 40 {
+			return "", true, errors.New("too many links")
+		}
+		target, err := os.Readlink(root + next)
+		if err != nil {
+			return "", true, err
+		}
+		linked = true
+		if strings.HasPrefix(target, "/") {
+			current = "/"
+		}
+		rest = append(strings.Split(strings.Trim(target, "/"), "/"), rest...)
+	}
+	return current, linked, nil
+}
+
+// LinkTarget is where a path leads when a link is on its way, "" when none is.
+func LinkTarget(root, p string) string {
+	resolved, linked, err := ResolvePath(root, p)
+	if err != nil || !linked {
+		return ""
+	}
+	return resolved
 }

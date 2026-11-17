@@ -22,7 +22,6 @@ package docker
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -35,6 +34,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/go-connections/nat"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -166,7 +166,7 @@ func mountsOf(c types.ContainerJSON) []mount.Mount {
 		if strings.HasPrefix(parts[0], "/") {
 			kind = mount.TypeBind
 		}
-		list = append(list, mount.Mount{Type: kind, Source: parts[0], Target: parts[1]})
+		list = append(list, mount.Mount{Type: kind, Source: parts[0], Target: parts[1], ReadOnly: len(parts) > 2 && hasWord(parts[2], "ro")})
 	}
 	return list
 }
@@ -190,6 +190,9 @@ func checkMounts(before, after types.ContainerJSON) error {
 		}
 		if cleanAbsolute(m.Target) == "" {
 			return fmt.Errorf("the folder in the container %q must be an absolute path such as /config, without \"..\"", m.Target)
+		}
+		if err := checkVolumeOptions(m); err != nil {
+			return err
 		}
 		switch m.Type {
 		case mount.TypeBind:
@@ -308,8 +311,11 @@ func checkEdit(before, after types.ContainerJSON) error {
 
 // forkRefuseBadEdit answers 400 (DS025) with the reason, and true, when the
 // edit holds a value the server refuses.
-func forkRefuseBadEdit(w http.ResponseWriter, before, after types.ContainerJSON) bool {
-	err := checkEdit(before, after)
+func forkRefuseBadEdit(w http.ResponseWriter, before types.ContainerJSON, after *types.ContainerJSON) bool {
+	err := resolveNewBinds(before, after)
+	if err == nil {
+		err = checkEdit(before, *after)
+	}
 	if err == nil {
 		return false
 	}
@@ -323,6 +329,59 @@ func bindRoot() string {
 		return "/mnt/host"
 	}
 	return ""
+}
+
+// resolveSource follows a host path's links; replaced by the tests.
+var resolveSource = func(p string) (string, bool, error) { return edithints.ResolvePath(bindRoot(), p) }
+
+func inDataPlace(p string, places []string) bool {
+	for _, place := range places {
+		place = cleanAbsolute(place)
+		if place != "" && place != "/" && within(p, place) {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveNewBinds follows the links of each new or changed bind's source the
+// way Docker will. A source without a link is left as it is. One that passes
+// a link (an app can plant one in a folder it has) is handed to Docker as the
+// path it leads to when that is on a data place, or when it is a sensitive
+// folder (the tick then names the real folder); anything else is refused in
+// words. From then on the checks, the tick, the folder's creation and Docker
+// see the same path; what remains is the time between this look and Docker's
+// mount at the container's start (and each later start): a folder inside a
+// folder the app can write can be swapped for a link then, which is why the
+// panel never proposes one.
+func resolveNewBinds(before types.ContainerJSON, after *types.ContainerJSON) error {
+	had := map[string]bool{}
+	for _, m := range mountsOf(before) {
+		had[mountKey(m)] = true
+	}
+	places := EditDataPlaces()
+	for i, m := range after.HostConfig.Mounts {
+		if m.Type != mount.TypeBind || had[mountKey(m)] {
+			continue
+		}
+		source := cleanAbsolute(m.Source)
+		if source == "" {
+			continue // refused by checkMounts in words
+		}
+		resolved, linked, err := resolveSource(source)
+		if err != nil {
+			return fmt.Errorf("the server folder %s: its links cannot be followed (%s)", source, err.Error())
+		}
+		if !linked {
+			continue
+		}
+		if inDataPlace(resolved, places) || SensitiveBind(resolved, extraSensitiveDirs()) != "" {
+			after.HostConfig.Mounts[i].Source = resolved
+			continue
+		}
+		return fmt.Errorf("the server folder %s is a link to %s, which is not on a data disk: give %s itself if that is the folder you mean", source, resolved, resolved)
+	}
+	return nil
 }
 
 // keepRestartRetries keeps the number of tries of "on-failure:N" when the
@@ -344,51 +403,74 @@ func keepRestartRetries(before, after *types.ContainerJSON) {
 // (fork_edit_hints.go), which knows them.
 var EditDataPlaces = func() []string { return nil }
 
-// chownCreated gives a folder makeOwnedFolders has just created to the
-// app's user, inside the data place's os.Root and without following a link
-// (Lchown). Replaced by the tests, which do not run as root.
-var chownCreated = func(r *os.Root, rel string, uid, gid int) error { return r.Lchown(rel, uid, gid) }
+// chownHandle gives a folder makeOwnedFolders has just created to the app's
+// user, through the folder's own descriptor (fchown): no path is resolved
+// again between the creation and the chown. Replaced by the tests, which do
+// not run as root.
+var chownHandle = func(fd int, uid, gid int) error { return unix.Fchown(fd, uid, gid) }
 
-// makeOwnedFolders creates the missing folders of source below place, each
-// one it creates given to uid:gid. Everything goes through an os.Root opened
-// on the place: a link (one an app could have planted in its own data folder)
-// is followed only while it stays inside the place, and a path that leads out
-// is refused by the os.Root, so nothing is created or changed outside it. A
-// folder that exists already (or a link) is left exactly as it is: only a
-// folder this call has just created is chowned, with Lchown.
+const folderOpenFlags = unix.O_RDONLY | unix.O_DIRECTORY | unix.O_NOFOLLOW | unix.O_CLOEXEC
+
+// makeOwnedFolders creates the missing folders of source below place, one
+// level at a time through directory descriptors: each level is made with
+// mkdirat in its parent's descriptor and opened with openat(O_NOFOLLOW |
+// O_DIRECTORY), and the next level is made in that descriptor. A link (one an
+// app could have planted in its own folder, or swapped in meanwhile) is never
+// followed: the opening fails and nothing more is made. Only a folder this
+// call has just made is given to uid:gid (fchown on its descriptor; nothing
+// when uid is 0); a folder that existed is left exactly as it is.
 func makeOwnedFolders(root, place, source string, uid, gid int) error {
 	if source == place || !strings.HasPrefix(source, place+"/") {
 		return errors.New("not below the data place")
 	}
-	r, err := os.OpenRoot(root + place)
+	dir, err := unix.Open(root+place, folderOpenFlags, 0)
 	if err != nil {
-		return err
+		return fmt.Errorf("the data place %s: %w", place, err)
 	}
-	defer r.Close()
-	parts := strings.Split(strings.TrimPrefix(source, place+"/"), "/")
-	for i := range parts {
-		rel := strings.Join(parts[:i+1], "/")
-		err := r.Mkdir(rel, 0o755)
-		if errors.Is(err, fs.ErrExist) {
-			continue
+	defer func() { unix.Close(dir) }()
+	for _, name := range strings.Split(strings.TrimPrefix(source, place+"/"), "/") {
+		if name == "" || name == "." || name == ".." {
+			return errors.New("not a clean path")
 		}
+		made := false
+		switch err := unix.Mkdirat(dir, name, 0o755); {
+		case err == nil:
+			made = true
+		case errors.Is(err, unix.EEXIST):
+		default:
+			return fmt.Errorf("making %s: %w", name, err)
+		}
+		next, err := unix.Openat(dir, name, folderOpenFlags, 0)
 		if err != nil {
-			return err
+			return fmt.Errorf("%s is not a folder of its own (a link?): %w", name, err)
 		}
-		if err := chownCreated(r, rel, uid, gid); err != nil {
-			return err
+		unix.Close(dir)
+		dir = next
+		if made && uid != 0 {
+			if err := chownHandle(dir, uid, gid); err != nil {
+				return fmt.Errorf("giving %s to the app's user: %w", name, err)
+			}
 		}
 	}
 	return nil
 }
 
-// containerRunsAs is the numeric user the container writes as, from its settings.
-func containerRunsAs(c types.ContainerJSON) edithints.RunAs {
+// RecipeEnvFor names the variables Cosmos' recipe of an image sets (a
+// recipe that names PUID makes an image PUID-style); set by package main
+// from src/anyimage, which this package does not import.
+var RecipeEnvFor = func(image string) []string { return nil }
+
+// ContainerRunsAs is the user a container writes its files as: the one rule
+// for the update route's new folders and for the panel (the edit hints send
+// its result). imageUser only says where the user came from.
+func ContainerRunsAs(c types.ContainerJSON, imageUser string) edithints.RunAs {
 	if c.Config == nil {
 		return edithints.RunAs{}
 	}
-	return edithints.EffectiveUser(c.Config.User, "", c.Config.Env, edithints.LinuxserverStyle(c.Config.Image, nil))
+	return edithints.EffectiveUser(c.Config.User, imageUser, c.Config.Env, edithints.LinuxserverStyle(c.Config.Image, RecipeEnvFor(c.Config.Image)))
 }
+
+func containerRunsAs(c types.ContainerJSON) edithints.RunAs { return ContainerRunsAs(c, "") }
 
 // forkPrepareBindFolders creates the source folder of each new bind that
 // does not exist and lies under a data place, owned by the container's user
@@ -400,8 +482,12 @@ func forkPrepareBindFolders(before, after types.ContainerJSON, root string) {
 		had[m.Source] = true
 	}
 	user := containerRunsAs(after)
-	if !user.Known || user.UID == 0 {
-		return
+	uid, gid := 0, 0 // a user given by name, or root: the folder stays root's, as EditContainer would make it
+	if user.Known && user.UID != 0 {
+		uid, gid = user.UID, user.GID
+		if gid < 0 {
+			gid = user.UID
+		}
 	}
 	places := EditDataPlaces()
 	for _, m := range after.HostConfig.Mounts {
@@ -416,10 +502,6 @@ func forkPrepareBindFolders(before, after types.ContainerJSON, root string) {
 		if folder.State != "missing" {
 			continue
 		}
-		gid := user.GID
-		if gid < 0 {
-			gid = user.UID
-		}
 		// a data path that does not exist yet (before the first installation) is made as
 		// EditContainer would make it: the administrator's (root), 0755
 		if _, err := os.Lstat(root + folder.Place); os.IsNotExist(err) {
@@ -428,7 +510,7 @@ func forkPrepareBindFolders(before, after types.ContainerJSON, root string) {
 				continue
 			}
 		}
-		if err := makeOwnedFolders(root, folder.Place, source, user.UID, gid); err != nil {
+		if err := makeOwnedFolders(root, folder.Place, source, uid, gid); err != nil {
 			utils.Error("Edit: making the folder of a new bind for the app's user", err)
 		}
 	}

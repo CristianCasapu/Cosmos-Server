@@ -6406,5 +6406,12 @@
 	"mgmt.servapps.editTabs.dns.problem.notIp": "Enter IP addresses separated by commas, for example 192.168.1.1, 1.1.1.1",
 	"mgmt.servapps.editTabs.dns.problem.tooMany": "At most 8 DNS servers.",
 	"mgmt.servapps.editTabs.publishHome": "Publish it for the home network, on port {{port}}",
-	"mgmt.servapps.editTabs.publishAll": "Publish it on port {{port}}"
+	"mgmt.servapps.editTabs.publishAll": "Publish it on port {{port}}",
+	"mgmt.servapps.sensitive.propagation": "{{service}} gets the server folder {{value}} with shared propagation: what it mounts inside appears on the server.",
+	"mgmt.servapps.editTabs.randomPort": "Docker picks one",
+	"mgmt.servapps.editTabs.reach.vpn": "This address belongs to the VPN interface {{name}}: the port works only while the VPN is up (and the app does not start while it is down).",
+	"mgmt.servapps.editTabs.folder.linkTo": "This path is a link to {{target}}, out of the data disk: not looked at. A new folder given this way is refused when you save.",
+	"mgmt.servapps.editTabs.folder.linkInside": "This path is a link to {{target}}: Docker mounts that folder.",
+	"mgmt.servapps.editTabs.folder.slow": "The disk did not answer in time: nothing is known about this folder.",
+	"mgmt.servapps.editTabs.device.badName": "its name cannot be given to Docker (it holds \":\" or \",\")"
 }

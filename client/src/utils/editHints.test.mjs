@@ -232,3 +232,60 @@ test('variables and devices are offered when they are not there yet', () => {
   assert.deepEqual(deviceOptions(hints, [{ key: '/dev/ttyUSB0', value: '/dev/ttyUSB0' }]).map((d) => d.kind), ['render']);
   assert.deepEqual(deviceRow(hints.devices[1]), { key: '/dev/serial/by-id/usb-dongle', value: '/dev/ttyUSB0' });
 });
+
+import { configuredPortRows, portsToSend, insideWritableBind, vpnOf } from './editHints.js';
+import { sensitiveAccess, volumeBindDevice } from './sensitiveAccess.js';
+import { readFileSync } from 'node:fs';
+
+test('the Network tab reads ports from the settings, so a stopped container keeps them all', () => {
+  const stopped = {
+    NetworkSettings: { Ports: null },
+    Config: { ExposedPorts: { '9000/tcp': {}, '9001/udp': {}, '9002/tcp': {}, '9003/tcp': {} } },
+    HostConfig: { PortBindings: { '9000/tcp': [{ HostIp: '127.0.0.1', HostPort: '18300' }], '9001/udp': [{ HostIp: '0.0.0.0', HostPort: '18301' }], '9003/tcp': [{ HostIp: '', HostPort: '' }] } },
+  };
+  const rows = configuredPortRows(stopped);
+  assert.deepEqual(rows.map((r) => `${r.port}/${r.protocol}|${r.hostIp}|${r.hostPort}|${r.random ? 'random' : ''}`),
+    ['9000/tcp|127.0.0.1|18300|', '9001/udp|0.0.0.0|18301|', '9002/tcp|||', '9003/tcp|||random']);
+  const sent = portsToSend(rows);
+  assert.deepEqual(sent.exposedPorts, ['9000/tcp', '9001/udp', '9002/tcp', '9003/tcp']);
+  assert.deepEqual(sent.portBindings, {
+    '9000/tcp': [{ HostIp: '127.0.0.1', HostPort: '18300' }], '9001/udp': [{ HostIp: '0.0.0.0', HostPort: '18301' }], '9003/tcp': [{ HostIp: '', HostPort: '' }],
+  });
+  // a row removed is not sent; a row without a port is not either
+  assert.deepEqual(portsToSend([{ port: '', protocol: 'tcp', hostPort: '1' }]), { portBindings: {}, exposedPorts: [] });
+});
+
+test('nothing is proposed inside a folder the app can write', () => {
+  const whole = { ...hints, folders: [{ source: '/storage/cosmos/radarr', target: '/config', state: 'ok', readOnly: false }] };
+  assert.equal(insideWritableBind('/storage/cosmos/radarr/config', whole), true);
+  assert.equal(insideWritableBind('/storage/cosmos/radarr-config', whole), false);
+  // the proposal moves beside it
+  assert.equal(proposeDeclared('/config', whole, 'radarr').source, '/storage/cosmos/radarr-config');
+  assert.ok(sourcePlaces(whole, '/data', 'radarr').every((p) => !insideWritableBind(p.source, whole)));
+  // a read-only folder is not a risk
+  const ro = { ...hints, folders: [{ source: '/storage/cosmos/radarr', target: '/config', state: 'ok', readOnly: true }] };
+  assert.equal(proposeDeclared('/config', ro, 'radarr').source, '/storage/cosmos/radarr/config');
+  // the whole data path writable: no folder beside it either, a named volume instead
+  const all = { ...hints, folders: [{ source: '/storage', target: '/all', state: 'ok' }, { source: '/archive', target: '/b', state: 'ok' }] };
+  assert.equal(proposeDeclared('/config', all, 'radarr').type, 'volume');
+  assert.deepEqual(sourcePlaces(all, '/data', 'radarr'), []);
+});
+
+test('links, slow disks and VPN addresses are said', () => {
+  assert.equal(folderFinding({ state: 'link', linkTo: '/' }, hints.runsAs).params.target, '/');
+  assert.equal(folderFinding({ state: 'ok', linkTo: '/storage/x', writable: 'yes' }, hints.runsAs).code, 'linkInside');
+  assert.equal(folderFinding({ state: 'slow' }, hints.runsAs).code, 'slow');
+  const vpn = { vpn: [{ interface: 'wg0', address: '10.8.0.1' }] };
+  assert.equal(vpnOf('10.8.0.1', vpn).interface, 'wg0');
+  assert.equal(vpnOf('192.168.1.10', vpn), null);
+});
+
+test('a volume that binds a host path, and shared propagation, follow the server\'s cases', () => {
+  const cases = JSON.parse(readFileSync(new URL('../../../src/docker/testdata/sensitive_cases.json', import.meta.url), 'utf8'));
+  assert.ok(cases.mounts.length > 0);
+  for (const c of cases.mounts) {
+    const items = sensitiveAccess({ services: { s: { volumes: [c.mount] } } }).map((i) => `${i.kind}|${i.value}`);
+    assert.deepEqual(items, c.items, JSON.stringify(c.mount));
+  }
+  assert.equal(volumeBindDevice({ type: 'volume', volumeOptions: { driverConfig: { options: { o: 'bind', device: '/x' } } } }), '/x');
+});

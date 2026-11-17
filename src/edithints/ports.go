@@ -1,11 +1,15 @@
 package edithints
 
 import (
+	"bufio"
+	"io"
 	"math"
-	"net"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Taken says whether a host port of a protocol is in use.
@@ -36,24 +40,60 @@ func ProposeHostPort(wanted int, protocol string, taken Taken) int {
 	return 0
 }
 
-// ListenTaken is the test the server makes: a port that cannot be listened
-// on (every address) is taken.
-func ListenTaken(port int, protocol string) bool {
-	address := ":" + strconv.Itoa(port)
-	if protocol == "udp" {
-		conn, err := net.ListenPacket("udp", address)
+// Listening reads what holds a port on the server from the kernel's socket
+// tables (proc/net/tcp, tcp6: sockets in LISTEN; udp, udp6: every bound
+// socket), without binding anything. procNet is the folder of the tables
+// (/proc/net normally). Each table is read up to 8 MB. What the tables do not
+// show: a port forwarded by a firewall rule alone (Docker without its proxy,
+// nftables/iptables DNAT of another program) and ports of other network
+// namespaces; Docker's published ports and Cosmos' own are added by the caller.
+func Listening(procNet string) map[string]bool {
+	held := map[string]bool{}
+	read := func(file, protocol string, listenOnly bool) {
+		f, err := os.Open(procNet + "/" + file)
 		if err != nil {
-			return true
+			return
 		}
-		conn.Close()
-		return false
+		defer f.Close()
+		scanner := bufio.NewScanner(io.LimitReader(f, 8<<20))
+		for lines := 0; scanner.Scan() && lines < 200000; lines++ {
+			// sl local_address rem_address st ...
+			fields := strings.Fields(scanner.Text())
+			if len(fields) < 4 || !strings.Contains(fields[1], ":") {
+				continue
+			}
+			if listenOnly && fields[3] != "0A" {
+				continue
+			}
+			hexPort := fields[1][strings.LastIndex(fields[1], ":")+1:]
+			port, err := strconv.ParseUint(hexPort, 16, 16)
+			if err != nil || port == 0 {
+				continue
+			}
+			held[strconv.Itoa(int(port))+"/"+protocol] = true
+		}
 	}
-	listener, err := net.Listen("tcp", address)
-	if err != nil {
-		return true
+	read("tcp", "tcp", true)
+	read("tcp6", "tcp", true)
+	read("udp", "udp", false)
+	read("udp6", "udp", false)
+	return held
+}
+
+var (
+	listeningMu    sync.Mutex
+	listeningAt    time.Time
+	listeningCache map[string]bool
+)
+
+// ListeningCached is Listening of /proc/net, read at most every 5 seconds.
+func ListeningCached() map[string]bool {
+	listeningMu.Lock()
+	defer listeningMu.Unlock()
+	if listeningCache == nil || time.Since(listeningAt) > 5*time.Second {
+		listeningCache, listeningAt = Listening("/proc/net"), time.Now()
 	}
-	listener.Close()
-	return false
+	return listeningCache
 }
 
 var sizePart = regexp.MustCompile(`(?i)(\d+(?:\.\d+)?)\s*(kb|mb|gb|tb|k|m|g|t)\b`)
