@@ -123,8 +123,9 @@ const openExternal = async (page) => {
 const answerPrompt = async (page) => {
   const prompt = page.locator('[data-sudo-prompt]');
   if (!(await prompt.waitFor({ timeout: 8000 }).then(() => true, () => false))) return false;
-  await prompt.locator('input').first().fill(PASSWORD);
-  await prompt.getByRole('button', { name: 'Submit' }).click();
+  const input = prompt.locator('input').first();
+  await input.fill(PASSWORD);
+  await input.press('Enter'); // the prompt is a form: Enter sends it (a click raced its re-render in WebKit)
   await prompt.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
   return true;
 };
