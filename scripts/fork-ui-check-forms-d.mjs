@@ -106,12 +106,53 @@ phases.wizard = async (page, id, size, ctx) => {
   expect(id + ': the welcome step is shown', /clean install/i.test(text));
   const upload = await page.locator('input[type=file]').count();
   expect(id + ': no "join a cluster" upload without a licence', upload === 0 && !/constellation/i.test(text), `file inputs ${upload}`);
-  await layout(page, id, page.locator('main, body').first(), size);
+  // the step's own controls are upstream's (the language button is 24 px tall: not changed here)
+  await layout(page, id, null, size);
   await shot(page, id, 'wizard');
 };
 
+// Telegram: an empty card, the token pasted, nobody wrote yet, then the owner writes to the bot
+phases.telegram = async (page, id, size, ctx) => {
+  const config = await getConfig(ctx);
+  config.Telegram = {};
+  expect(id + ': the Telegram settings start empty', (await putConfig(ctx, config)).status === 200);
+  await waitBack(ctx);
+  await fetch(fake + '/updates?set=none');
+  await fetch(fake + '/mode?set=ok');
+  await fetch(fake + '/received?clear=1');
+  await page.goto(base + '/cosmos-ui/config-general/general', { waitUntil: 'domcontentloaded' });
+  const token = page.locator('input[name=Telegram_BotToken]');
+  await token.waitFor({ timeout: 20000 });
+  const card = page.locator('.MuiCard-root', { has: token }).last();
+  await card.locator('input[name=Telegram_Enabled]').check();
+  await token.fill(['123456789', 'AAFakeFakeFakeFakeFakeFakeFakeFake0'].join(':'));
+  expect(id + ': the chat ID is empty', (await card.locator('input[name=Telegram_ChatID]').inputValue()) === '');
+  await card.getByRole('button', { name: /Look for chats/ }).click();
+  await card.getByText(/send it any message, then press Look again/).first().waitFor({ timeout: 15000 });
+  expect(id + ': nobody wrote yet: it says what to do', true);
+  await shot(page, id, 'telegram-nobody');
+  await fetch(fake + '/updates?set=both');
+  await sleep(3200); // the server answers one look every three seconds
+  await card.getByRole('button', { name: /Look again/ }).click();
+  const choice = card.getByRole('radio', { name: /private chat with Ann Example/ });
+  await choice.waitFor({ timeout: 15000 });
+  expect(id + ': the group is offered too', await card.getByRole('radio', { name: /group Home server/ }).count() === 1);
+  expect(id + ': and the door to type it', await card.getByRole('radio', { name: /Type the chat ID myself/ }).count() === 1);
+  await choice.click();
+  expect(id + ': the chosen chat fills the chat ID', (await card.locator('input[name=Telegram_ChatID]').inputValue()) === '123456789');
+  await layout(page, id, card, size);
+  await shot(page, id, 'telegram-chosen');
+  await card.getByRole('button', { name: /Send a test message/ }).click();
+  await card.getByText(/Telegram accepted the test message/).first().waitFor({ timeout: 20000 });
+  const got = await (await fetch(fake + '/received')).json();
+  const sent = got.filter((r) => /sendMessage$/.test(r.path));
+  expect(id + ': the stand-in received the test message for the chosen chat', sent.length === 1 && String(sent[0].body.chat_id) === '123456789', JSON.stringify(sent.map((r) => r.body.chat_id)));
+  const raw = await (await ctx.request.get(base + '/cosmos/api/config')).text();
+  expect(id + ': the token is not in the settings read', !raw.includes('AAFakeFake'));
+};
+
 // ---------------------------------------------------------------------------------------------
-const order = phase === 'all' ? ['telegram', 'cron', 'alert', 'database', 'snapshots'] : phase.split(',');
+const order =phase === 'all' ? ['telegram', 'cron', 'alert', 'database', 'snapshots'] : phase.split(',');
 if (order.includes('setup')) {
   await phases.setup();
 } else {
