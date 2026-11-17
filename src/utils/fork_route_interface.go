@@ -29,6 +29,9 @@ type ForkRouteInterface struct {
 	Role     string `yaml:"role,omitempty" json:"Role,omitempty"`
 	Label    string `yaml:"label,omitempty" json:"Label,omitempty"`
 	HomeOnly bool   `yaml:"home_only,omitempty" json:"HomeOnly,omitempty"`
+	// plan 50: the app's "How to use it" guide: "" as proposed, "none", or
+	// a kind of src/guides (checked there, on every save: configapi)
+	Guide string `yaml:"guide,omitempty" json:"Guide,omitempty"`
 }
 
 // ValidInterfaceRole reports whether a role is one of the four ("" is "as proposed").
@@ -49,6 +52,9 @@ func RouteInterfaceProblem(setting *ForkRouteInterface) string {
 	}
 	if !ValidInterfaceRole(setting.Role) {
 		return "The role of the address must be admin, user, api or other"
+	}
+	if len(setting.Guide) > 24 || strings.Trim(setting.Guide, "abcdefghijklmnopqrstuvwxyz0123456789-") != "" {
+		return "The guide of the address must be a short name of lower-case letters"
 	}
 	label := setting.Label
 	if !utf8.ValidString(label) || utf8.RuneCountInString(label) > RouteInterfaceLabelMax {

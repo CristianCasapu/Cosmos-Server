@@ -33,6 +33,10 @@ func validateRoute(route utils.ProxyRouteConfig) string {
 	if msg := utils.RouteInterfaceProblem(route.ForkInterface); msg != "" {
 		return msg + " (route \"" + route.Name + "\")"
 	}
+	// Fork addition (plan 50): the URL's guide, see fork_app_guides.go
+	if msg := forkGuideSettingProblem(route); msg != "" {
+		return msg + " (route \"" + route.Name + "\")"
+	}
 	return ""
 }
 

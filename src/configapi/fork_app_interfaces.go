@@ -199,6 +199,7 @@ type ForkDashboardFields struct {
 	ForkContainer string              `json:"ForkContainer,omitempty"`
 	ForkImage     string              `json:"ForkImage,omitempty"`
 	ForkPorts     []ForkDashboardPort `json:"ForkPorts,omitempty"`
+	ForkGuideFields // Fork addition (plan 50): the app's guide and what it needs to know, see fork_app_guides.go
 }
 
 // forkDashboardRoutes is the hook of DashboardApiGet: it fills the fork's
@@ -234,7 +235,7 @@ func forkDashboardRoutes(out []DashboardRoute, config utils.Config, containers [
 		if route.Mode == "SERVAPP" {
 			c = containerOf(extractContainerName(route.Target))
 			if c != nil {
-				image = c.Image
+				image = resolvedImage(c) // plan 50: an image pinned by digest is listed as its ID
 			}
 		}
 		proposal := proposeRole(route, image)
@@ -259,6 +260,7 @@ func forkDashboardRoutes(out []DashboardRoute, config utils.Config, containers [
 			fields.ForkImage = c.Image
 			fields.ForkPorts = dashboardPorts(c)
 		}
+		fields.ForkGuideFields = guideFields(route, image, c, isAdmin, fields.ForkHomeHosts) // plan 50
 		out[i].ForkDashboardFields = fields
 	}
 	return out
