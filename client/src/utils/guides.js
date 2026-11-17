@@ -21,7 +21,7 @@
 // shell quote, a string of any language or a code fence, so a value is safe
 // by construction or the example is refused ("could not be built").
 
-import { appInterfaces, hostKind, parseHost, safeURL } from './appInterfaces.js';
+import { appInterfaces, parseHost, safeURL } from './appInterfaces.js';
 
 // ---------------------------------------------------------------------------
 // reading a guide
@@ -488,12 +488,26 @@ export const isStorageAPI = (targetContainer, targetPort, dashboard) => {
     && (Number(r.ForkServicePort) === port || (r.ForkRole === 'api' && new RegExp(':' + port + '/?$').test(String(r.Target || '')))));
 };
 
-// The choice proposed for a new storage API URL: no limits for a name used at
-// home (or another container), Cosmos' protection kept for an internet name
-// (the proposal is shown, the other choice one click away).
-export const apiProposal = (host) => {
-  const kind = hostKind(host || '');
-  return kind === 'public' ? 'keep' : 'none';
+// The choice proposed for a new storage API URL: "no limits" only when the
+// proxy itself keeps the URL to the home network (homeOnly: the server's own
+// answer, GET /api/host-home-only, the proxy's rule); "keep" for everything
+// else: no host (the URL answers every name), a name the proxy does not
+// confine, an answer not known yet.
+export const apiProposal = (useHost, host, homeOnly) => (useHost && String(host || '').trim() && homeOnly === true ? 'none' : 'keep');
+
+// Whether the URL form shows the proposal, and which choice it recommends:
+// null (not shown) or { recommended }. Only for a NEW URL (no route key) to a
+// storage app's API port, and not once the form already holds the settings.
+export const proposalFor = ({ routeKey, values, dashboard, homeOnly }) => {
+  if (routeKey) return null;
+  const v = values || {};
+  const m = String(v.Target || '').match(/^https?:\/\/([a-zA-Z0-9][a-zA-Z0-9_.-]*):(\d{1,5})\/?$/);
+  if (!m || !isStorageAPI(m[1], m[2], dashboard)) return null;
+  const p = API_ROUTE_SETTINGS;
+  const applied = v._SmartShield_Enabled === p.SmartShieldEnabled && Number(v.ThrottlePerMinute || 0) === p.ThrottlePerMinute
+    && !v.BlockCommonBots && !v.BlockAPIAbuse && Number(v.MaxBandwith || 0) === 0 && Number(v.Timeout) === p.Timeout;
+  if (applied) return null;
+  return { recommended: apiProposal(v.UseHost, v.Host, homeOnly) };
 };
 
 // The advised timeout of a storage address: a URL with this one or longer (or none) is fine for backups.

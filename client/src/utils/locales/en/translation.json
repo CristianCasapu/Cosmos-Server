@@ -6531,9 +6531,9 @@
 	"mgmt.guide.limits.some": "Cosmos limits this address: {{list}}. A large backup will be slowed, refused with 429 or cut.",
 	"mgmt.guide.typedBad": "This example appears once the name typed above is valid.",
 	"mgmt.guide.form.apiHome": "For an address used at home, no Cosmos limit is proposed: no shield, no limit per minute, no blocking of bots or of uploads without a Referer, and a timeout of 24 hours.",
-	"mgmt.guide.form.apiInternet": "This is an internet address: without Cosmos' limits anyone may send it unlimited requests, and only the storage's keys decide what they may do. Keeping Cosmos' protection is proposed; remove it only if backups from the internet are slowed or refused.",
 	"mgmt.guide.form.apiProposal2": "This address is the API of a storage app: backup tools send many requests and very large ones, which Cosmos' shield, a limit per minute, bot or Referer blocking or a short timeout would slow, refuse (429) or cut.",
 	"mgmt.guide.form.keepApi": "Keep Cosmos' protection",
 	"mgmt.guide.form.useApi2": "No Cosmos limits on this address",
-	"mgmt.guide.limits.longTimeout": "Requests longer than {{hours}} hours are cut."
+	"mgmt.guide.limits.longTimeout": "Requests longer than {{hours}} hours are cut.",
+	"mgmt.guide.form.apiOpen": "Cosmos does not keep this address to the home network (no host, or a name or address reachable from the internet): without Cosmos' limits anyone may send it unlimited requests, and only the storage's keys decide what they may do. Keeping Cosmos' protection is proposed; remove it only if backups are slowed or refused."
 }

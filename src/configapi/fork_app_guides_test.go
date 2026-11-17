@@ -1,7 +1,10 @@
 package configapi
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -243,5 +246,24 @@ func TestLimitsOfAGuidedURL(t *testing.T) {
 		if r.ForkLimits != nil {
 			t.Errorf("a caller without configuration-read got the URL's limits: %s", r.Name)
 		}
+	}
+}
+
+// The caller is read from the request: configuration-read is what the
+// person's (or token's) permissions say, nothing else.
+func TestDashboardCallerReadsConfigurationRead(t *testing.T) {
+	request := func(perms ...utils.Permission) *http.Request {
+		req := httptest.NewRequest("GET", "/cosmos/api/dashboard", nil)
+		auth := &utils.AuthContext{Nickname: "someone", Permissions: append([]utils.Permission{utils.PERM_LOGIN}, perms...)}
+		return req.WithContext(context.WithValue(req.Context(), utils.AuthCtxKey, auth))
+	}
+	if c := dashboardCallerOf(request(utils.PERM_ADMIN_READ)); c.configRead || !c.admin {
+		t.Errorf("admin-read without configuration-read: %+v", c)
+	}
+	if c := dashboardCallerOf(request(utils.PERM_ADMIN_READ, utils.PERM_CONFIGURATION_READ)); !c.configRead || !c.admin {
+		t.Errorf("admin-read and configuration-read: %+v", c)
+	}
+	if c := dashboardCallerOf(request()); c.configRead || c.admin {
+		t.Errorf("a plain user: %+v", c)
 	}
 }

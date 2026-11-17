@@ -126,6 +126,15 @@ const CA_PATH = { pwsh: '/work/cosmos-ca.pem', docker: '/work/cosmos-ca.pem', ph
 
 // checks run after a chain, in the same container (the test's own, not the guide's): each must exit 0
 const POST = {
+  docker: [
+    ['a copy that fails makes the stop-copy-start block fail, and the app is running again',
+      'cp backup.env /tmp/env.bak && sed -i "s#^RESTIC_PASSWORD=.*#RESTIC_PASSWORD=wrong-password#" backup.env && if bash STEP(docker-stopped); then echo "the block succeeded"; cp /tmp/env.bak backup.env; exit 1; fi; cp /tmp/env.bak backup.env; docker inspect -f "{{.State.Running}}" app-db | grep -qx true'],
+    ['an app that cannot be stopped is not copied',
+      'set -a; . ./backup.env; set +a; before=$(restic snapshots --tag volumes --json | grep -o "\"id\"" | wc -l); sed "s/app-db/no-such-app/g" STEP(docker-stopped) > /tmp/stopfail.sh; if bash /tmp/stopfail.sh; then echo "the block succeeded"; exit 1; fi; after=$(restic snapshots --tag volumes --json | grep -o "\"id\"" | wc -l); test "$before" = "$after" || { echo "copied anyway ($before -> $after)"; exit 1; }'],
+  ],
+  pwsh: [
+    ['the script refuses to run without its own restic.exe', 'mv /work/restic.exe /tmp/restic.exe.bak && if pwsh -NoProfile -File /work/backup.ps1; then mv /tmp/restic.exe.bak /work/restic.exe; exit 1; fi; mv /tmp/restic.exe.bak /work/restic.exe'],
+  ],
   rustfs: [
     ['the administrator\'s key is not left in rc\'s settings', 'rc alias list | grep -q adm && exit 1; ! grep -q "secret" "$HOME/.config/rc/config.toml"'],
   ],
@@ -139,6 +148,7 @@ const POST = {
     ['the dump (mysqldump) restores into an empty database, the same', 'sh /usr/local/share/site-compare.sh site_restored'],
     ['the PHP dumper too', 'sed -i "s/\'dumper\'   => \'auto\'/\'dumper\'   => \'php\'/" backup-config.php && grep -q "=> \'php\'" backup-config.php && php backup.php && php list.php && sh /usr/local/share/site-compare.sh site_restored2'],
     ['40 runs keep two objects (the rest are versions the bucket\'s rule clears), and the dump of three runs ago comes back', 'sh /usr/local/share/php-40-runs.sh'],
+    ['list.php refuses a number that is not a whole number', 'if php list.php abc; then exit 1; fi; if php list.php 0; then exit 1; fi'],
     ['nothing is left in the working folder but the downloaded dump', 'rm -f backup-work/restored.sql; test -z "$(ls -A backup-work)"'],
     ['the script refuses to back up a folder that holds its settings', 'sed -i "s#\'site\'     => \'/home/you/public_html\'#\'site\'     => \'/\'#" backup-config.php && grep -q "=> \'/\'," backup-config.php && if php backup.php; then exit 1; fi; cp /tmp/full-config.php backup-config.php'],
     ['the script refuses a working folder inside the web folder', 'sed -i "s#\'web_root\' => \'/home/you/public_html\'#\'web_root\' => \'/work\'#" backup-config.php && if php backup.php; then exit 1; fi'],
@@ -179,9 +189,11 @@ const runChain = (chain, blocks, place, facts) => {
     pre.push("install -m 600 /dev/null /root/.s3-backup.env && cat > /root/.s3-backup.env <<'SETTINGS_END'\n" + unmark(renderCode(env, facts).text, place) + '\nSETTINGS_END');
     pre.push("install -m 600 /dev/null /root/.restic-password && printf '%s\\n' '" + place.repoPassword + "' > /root/.restic-password");
   }
+  if (runner === 'pwsh') pre.push('cp /usr/local/bin/restic /work/restic.exe');
   if (SETUP[runner]) pre.unshift(SETUP[runner]);
   writeFileSync(dir + '/00-pre.sh', 'set -e\n' + pre.join('\n') + '\n');
   let dbStep = '';
+  const stepOf = {};
   blocks.forEach((b, i) => {
     const rendered = renderCode(b, facts);
     const text = unmark(rendered.text, place);
@@ -189,6 +201,7 @@ const runChain = (chain, blocks, place, facts) => {
     if (b.attrs.file) writeFileSync(dir + '/' + n + '.file', text + '\n');
     else writeFileSync(dir + '/' + n + (b.lang === 'powershell' ? '.ps1' : '.sh'), text + '\n');
     if (b.id === 'linux-restic-db') dbStep = n + '.sh';
+    stepOf[b.id] = '/steps/' + n + (b.lang === 'powershell' ? '.ps1' : '.sh');
     steps.push({ b, n });
   });
   // the driver: each block in turn, in one shell (blocks share their environment, as in one terminal);
@@ -198,13 +211,14 @@ const runChain = (chain, blocks, place, facts) => {
     driver.push('echo "=== step ' + b.id + '"');
     if (b.attrs.file) driver.push('cp /steps/' + n + '.file ' + (b.attrs.file.startsWith('/') ? b.attrs.file : '/work/' + b.attrs.file));
     else if (b.lang === 'powershell') driver.push('pwsh -NoProfile -NonInteractive -File /steps/' + n + '.ps1');
+    else if (b.attrs.run === 'script') driver.push('bash /steps/' + n + '.sh'); // a block the guide says to run as a script of its own
     else driver.push('. /steps/' + n + '.sh');
     driver.push('echo "=== ok ' + b.id + '"');
   });
   (POST[runner] || []).forEach(([what, script], i) => {
     if (runner === 'linux' && chain !== 'linux') return;
     const file = 'post' + i + '.sh';
-    writeFileSync(dir + '/' + file, script.replace('DB_STEP', dbStep) + '\n');
+    writeFileSync(dir + '/' + file, script.replace('DB_STEP', dbStep).replace(/STEP\(([a-z0-9-]+)\)/g, (m, id) => stepOf[id] || '/dev/null') + '\n');
     driver.push('echo "=== check ' + i + '"', '("$(command -v bash || echo sh)" -e /steps/' + file + ') && echo "=== check ok ' + i + '" || echo "=== check failed ' + i + '"');
   });
   writeFileSync(dir + '/driver.sh', driver.join('\n') + '\n');
@@ -323,6 +337,8 @@ for (const key of PLACES) {
       // the bucket's quota just above what it holds now, so that the attack fills it
       const quota = docker('exec', 'rustfs', 'sh', '-c', 'umask 077; printf \'{"schema_version":1,"aliases":[{"name":"t","endpoint":"http://127.0.0.1:9000","region":"us-east-1","signature":"v4","bucket_lookup":"auto","credentials":{"access_key":"%s","secret_key":"%s"}}]}\' "$RUSTFS_ACCESS_KEY" "$RUSTFS_SECRET_KEY" > /tmp/t.json && rc alias import /tmp/t.json >/dev/null && rm -f /tmp/t.json && used=$(rc bucket quota info t/' + facts.values.bucket + ' --json | sed -n "s/.*\\"usage\\"[^0-9]*\\([0-9]*\\).*/\\1/p" | head -1) && rc bucket quota set t/' + facts.values.bucket + ' $((used + 50000000)) >/dev/null && rc alias remove t >/dev/null && echo "quota set to $((used + 50000000)) bytes"');
       log('before the attack:', (quota.stdout || '').trim(), (quota.stderr || '').trim().slice(-200));
+      const set = (quota.stdout || '').match(/quota set to (\d+) bytes/);
+      if (set && Number(set[1]) > 100000000) place.quotaAtAttack = set[1];
       const hit = attack(place, facts);
       log('attack at', place.before, '+2 s:', (hit.stdout || '').trim().split('\n').join(' / '));
     }
@@ -351,6 +367,26 @@ for (const key of PLACES) {
       results.push({ place: key, chain, ...r });
       log((r.ok ? 'ok   ' : 'FAIL ') + key + ' ' + r.id + (r.note ? ' [' + r.note + ']' : '') + ' (' + list[0].runner + ', ' + Math.round((Date.now() - started) / 1000) + ' s)');
     });
+    if (chain === 'recover-clean' && key === 'home' && place.quotaAtAttack) {
+      const env = codeBlocks(place.guide).find((b) => b.id === 'linux-env');
+      const backup = (label) => docker('run', '--rm', ...PLACE_NET[place.key], '--entrypoint', 'bash', 'gx-linux', '-c', ['set -e',
+        "install -m 600 /dev/null /root/.s3-backup.env && cat > /root/.s3-backup.env <<'SETTINGS_END'\n" + unmark(renderCode(env, facts).text, place) + '\nSETTINGS_END',
+        "install -m 600 /dev/null /root/.restic-password && printf '%s\\n' '" + place.repoPassword + "' > /root/.restic-password",
+        facts.flags.ca ? "cat > /etc/ssl/cosmos-ca.pem <<'COSMOS_CA_END'\n" + facts.values.ca_pem + '\nCOSMOS_CA_END' : 'true',
+        'set -a; . /root/.s3-backup.env; set +a', 'export RESTIC_REPOSITORY="$RESTIC_REPOSITORY-restored"',
+        'mkdir -p /tmp/new && head -c 40000000 /dev/urandom > /tmp/new/' + label + '.bin',
+        'restic backup --host ' + place.name + ' --tag after-repair /tmp/new'].join('\n'));
+      const setQuota = (bytes) => docker('exec', 'rustfs', 'sh', '-c', 'umask 077; printf \'{"schema_version":1,"aliases":[{"name":"t","endpoint":"http://127.0.0.1:9000","region":"us-east-1","signature":"v4","bucket_lookup":"auto","credentials":{"access_key":"%s","secret_key":"%s"}}]}\' "$RUSTFS_ACCESS_KEY" "$RUSTFS_SECRET_KEY" > /tmp/t.json && rc alias import /tmp/t.json >/dev/null && rm -f /tmp/t.json && rc bucket quota set t/' + facts.values.bucket + ' ' + bytes + ' >/dev/null && rc alias remove t >/dev/null');
+      const raised = backup('raised');
+      results.push({ place: key, id: 'check: with the quota kept raised, the next backup to the repaired copy passes', ok: raised.status === 0 });
+      log((raised.status === 0 ? 'ok   ' : 'FAIL ') + key + ': with the quota kept raised, the next backup to the repaired copy passes');
+      setQuota(place.quotaAtAttack);
+      const early = backup('early');
+      const refused = early.status !== 0;
+      results.push({ place: key, id: 'check: the quota put back right after the purge would refuse it', ok: refused });
+      log((refused ? 'ok   ' : 'FAIL ') + key + ': the quota put back right after the purge would refuse the next backup');
+      setQuota('400G');
+    }
     if (out.some((r) => !r.ok)) log('---- output of ' + key + '/' + chain + ' (end):\n' + out[0].output + '\n----');
   }
 }

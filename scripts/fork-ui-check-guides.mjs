@@ -244,6 +244,14 @@ for (const engine of engines) {
       await dialog.locator('input[name=Host]').fill('s3new.local');
       await dialog.locator('[data-api-proposal="none"]').waitFor({ timeout: 10000 }).catch(() => {});
       check((await dialog.locator('[data-api-proposal="none"]').count()) === 1, tag + ': a new URL at home to the storage\'s API is proposed without Cosmos\' limits');
+      // no host: the URL would answer every name, the internet one included
+      await useHost.uncheck();
+      await dialog.locator('[data-api-proposal="keep"]').waitFor({ timeout: 10000 }).catch(() => {});
+      check((await dialog.locator('[data-api-proposal="keep"]').count()) === 1, tag + ': without a host, keeping Cosmos\' protection is recommended');
+      await useHost.check();
+      await dialog.locator('input[name=Host]').fill('s3');
+      await dialog.locator('[data-api-proposal="keep"]').waitFor({ timeout: 10000 }).catch(() => {});
+      check((await dialog.locator('[data-api-proposal="keep"]').count()) === 1, tag + ': a bare name is not kept at home by the proxy: keep is recommended');
       await dialog.locator('input[name=Host]').fill('s3new.example.org');
       await dialog.locator('[data-api-proposal="keep"]').waitFor({ timeout: 10000 }).catch(() => {});
       check((await dialog.locator('[data-api-proposal="keep"]').count()) === 1, tag + ': for an internet name keeping Cosmos\' protection is the recommended choice');

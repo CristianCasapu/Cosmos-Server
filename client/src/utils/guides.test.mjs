@@ -206,7 +206,7 @@ test('conditions inside a sentence, and no condition or placeholder left in any 
 });
 
 test('what Cosmos limits on the chosen address: none, some, the container place, and only for administrators', async () => {
-  const { limitParts, isStorageAPI, apiProposal, API_ROUTE_SETTINGS } = await import('./guides.js');
+  const { limitParts, isStorageAPI, apiProposal, proposalFor, API_ROUTE_SETTINGS } = await import('./guides.js');
   const open = { Shield: false, TimeoutMs: 0 };
   const limited = { Shield: true, ShieldRequestsPerHour: 36000, ShieldBytesPerHour: 429496729600, ShieldSimultaneous: 3000, ThrottlePerMinute: 10000, TimeoutMs: 14400000, BlockBots: true, BlockAPIAbuse: true };
   const routes = ownerRoutes({ ForkLimits: open }).map((r) => (r.Name === 's3-internet' ? { ...r, ForkLimits: limited } : r));
@@ -225,9 +225,23 @@ test('what Cosmos limits on the chosen address: none, some, the container place,
   assert.equal(isStorageAPI('rustfs', 9001, dash), false);
   assert.equal(isStorageAPI('other', 80, [{ ForkRole: 'api', ForkContainer: 'other', Target: 'http://other:80' }]), false, 'an API without the storage guide is not storage');
   assert.equal(isStorageAPI('web', 80, dash), false);
-  assert.equal(apiProposal('s3.example.org'), 'keep');
-  assert.equal(apiProposal('s3.local'), 'none');
-  assert.equal(apiProposal('192.168.1.10'), 'none');
+  // "no limits" only when the server says the proxy keeps the host to the home network
+  assert.equal(apiProposal(true, 's3.local', true), 'none');
+  assert.equal(apiProposal(true, '192.168.1.10', true), 'none');
+  assert.equal(apiProposal(true, 's3.example.org', false), 'keep');
+  assert.equal(apiProposal(false, '', true), 'keep', 'no host: the URL answers every name');
+  assert.equal(apiProposal(true, '', true), 'keep');
+  assert.equal(apiProposal(true, 's3', false), 'keep', 'a bare name');
+  assert.equal(apiProposal(true, 'localhost', false), 'keep');
+  assert.equal(apiProposal(true, 'not a host', false), 'keep');
+  assert.equal(apiProposal(true, '100.101.102.103', false), 'keep', 'a VPN address the proxy does not confine');
+  assert.equal(apiProposal(true, 's3.local', null), 'keep', 'not known yet');
+  // shown only for a NEW URL to the storage API port, never on edit, never once applied
+  const storage = { Target: 'http://rustfs:9000', UseHost: true, Host: 's3n.local', _SmartShield_Enabled: true, ThrottlePerMinute: 10000, Timeout: 14400000 };
+  assert.deepEqual(proposalFor({ routeKey: '', values: storage, dashboard: dash, homeOnly: true }), { recommended: 'none' });
+  assert.equal(proposalFor({ routeKey: 'k1', values: storage, dashboard: dash, homeOnly: true }), null, 'never on edit');
+  assert.equal(proposalFor({ routeKey: '', values: { ...storage, Target: 'http://web:80' }, dashboard: dash, homeOnly: true }), null, 'a normal target');
+  assert.equal(proposalFor({ routeKey: '', values: { ...storage, _SmartShield_Enabled: false, ThrottlePerMinute: 0, BlockCommonBots: false, BlockAPIAbuse: false, MaxBandwith: 0, Timeout: 86400000 }, dashboard: dash, homeOnly: true }), null, 'already applied');
   // a timeout of 24 hours or more is not a limit for backups
   assert.deepEqual(limitParts({ Shield: false, TimeoutMs: 86400000 }), []);
   assert.deepEqual(limitParts({ Shield: false, TimeoutMs: 14400000 }).map((p) => p.what), ['timeout']);

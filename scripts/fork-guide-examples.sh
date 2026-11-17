@@ -34,17 +34,21 @@ SCRATCH=${SCRATCH:-/storage/dev/.cache/cosmos-guides/examples}
 DIND_IMAGE=docker:29-dind
 RUSTFS_IMAGE=${RUSTFS_IMAGE:-rustfs/rustfs:1.0.5}
 say() { echo "guide-examples: $*"; }
-# the scratch folder is removed by `clean` as root: it must be a folder of its own under the caches
-# (written as a plain path: no "//", no "." or ".." segment, no trailing "/", nothing but [A-Za-z0-9._/-],
-# and at least two levels below the caches, so that neither /storage/dev/.cache nor a cache of its own
-# such as /storage/dev/.cache/go-mod can be it)
+# the scratch folder is removed by `clean` as root: it must be exactly one folder in
+# /storage/dev/.cache/<PREFIX>/, written as a plain path, with no symbolic link on the way, and it must
+# hold the marker file that `up` writes; anything else is refused before any rm
+SCRATCH_PARENT=/storage/dev/.cache/$PREFIX
 case "$SCRATCH" in
   *//*|*/./*|*/../*|*/.|*/..|*/|*[!A-Za-z0-9._/-]*) say "SCRATCH must be a plain path (no //, . or .., no trailing /): $SCRATCH"; exit 2 ;;
 esac
-case "$SCRATCH" in
-  /storage/dev/.cache/*/*) ;;
-  *) say "SCRATCH must be a folder two levels under /storage/dev/.cache/ (it is removed by clean): $SCRATCH"; exit 2 ;;
-esac
+if [ "$(dirname "$SCRATCH")" != "$SCRATCH_PARENT" ]; then
+  say "SCRATCH must be a folder directly in $SCRATCH_PARENT: $SCRATCH"; exit 2
+fi
+if [ -e "$SCRATCH_PARENT" ] && [ "$(realpath -e "$SCRATCH_PARENT")" != "$SCRATCH_PARENT" ]; then
+  say "$SCRATCH_PARENT goes through a symbolic link: refused"; exit 2
+fi
+if [ -L "$SCRATCH" ]; then say "SCRATCH is a symbolic link: refused"; exit 2; fi
+MARKER=$SCRATCH/.guide-examples
 in_dind() { docker exec -i "$PREFIX-dind" "$@"; }
 
 images() {
@@ -214,6 +218,7 @@ case "${1:-}" in
 up)
   test -x "${BIN:?BIN=<cosmos binary>}"
   mkdir -p "$SCRATCH/run" "$SCRATCH/out" "$SCRATCH/docker" "$SCRATCH/build"
+  echo "made by scripts/fork-guide-examples.sh up; clean removes this folder" > "$MARKER"
   cmp -s "$BIN" "$SCRATCH/run/cosmos" || cp "$BIN" "$SCRATCH/run/cosmos"   # stop the test server first (clean) to change it
   echo '{"version":"test"}' > "$SCRATCH/run/meta.json"
   rm -rf "$SCRATCH/run/static" && mkdir -p "$SCRATCH/run/static"
@@ -301,7 +306,10 @@ clean)
   touch "$SCRATCH/run/stop" 2>/dev/null || true
   docker rm -f -v "$PREFIX-dind" >/dev/null 2>&1 || true
   docker network rm "$PREFIX-out" >/dev/null 2>&1 || true
-  [ -d "$SCRATCH" ] && docker run --rm --entrypoint rm -v "$(dirname "$SCRATCH"):/p" "$DIND_IMAGE" -rf "/p/$(basename "$SCRATCH")"
+  if [ -d "$SCRATCH" ]; then
+    if [ ! -f "$MARKER" ]; then say "$SCRATCH holds no marker of this script: not removed"; exit 2; fi
+    docker run --rm --entrypoint rm -v "$SCRATCH_PARENT:/p" "$DIND_IMAGE" -rf "/p/$(basename "$SCRATCH")"
+  fi
   say "cleaned"
   ;;
 *) echo "usage: $0 up|run|clean" >&2; exit 2 ;;

@@ -79,11 +79,10 @@ func isLocalGateway(clientID string) bool {
 }
 
 func overTimeBudget(policy utils.SmartShieldPolicy, seconds float64) bool {
-	limit := utils.ShieldLimits(policy).TimeMs // Fork addition (plan 50): one place for the arithmetic, see utils.ShieldLimits
-	if limit <= 0 {
+	if policy.PerUserTimeBudget <= 0 {
 		return false
 	}
-	return seconds*1000 > limit
+	return seconds*1000 > utils.ShieldLimits(policy).TimeMs // Fork addition (plan 50): one place for the arithmetic, see utils.ShieldLimits
 }
 
 // budgetViolation names the first limit a client is over by the policy's

@@ -15,7 +15,8 @@ import { CosmosCheckbox, CosmosInputText, CosmosSelect } from '../users/formShor
 import { useDashboardRoutes } from '../../../components/appOpen';
 import { ROLES, dashboardEntryFor } from '../../../utils/appInterfaces';
 import { Alert, Button, Stack } from '@mui/material';
-import { API_ROUTE_SETTINGS, apiProposal, isStorageAPI } from '../../../utils/guides'; // plan 50
+import { API_ROUTE_SETTINGS, proposalFor } from '../../../utils/guides'; // plan 50
+import * as API from '../../../api'; // plan 50
 
 const ROLE_TEXT = {
   admin: ['mgmt.appLinks.role.admin', 'Administration'],
@@ -72,21 +73,31 @@ const GUIDE_TEXT = {
 
 // plan 50: a NEW URL that is the API of a storage app (an app with the S3
 // guide, on its service port) is proposed without Cosmos' limits: no shield,
-// no throttle, no bot or referer blocking, a timeout of 24 hours. For a name
-// used at home (or another container) that is the recommended choice; for an
-// internet name keeping Cosmos' protection is. Nothing changes until a button
-// is pressed and the form saved; existing URLs are never changed by themselves.
-export const StorageApiProposal = ({ formik, dashboard }) => {
+// no throttle, no bot or referer blocking, a timeout of 24 hours. "No limits"
+// is recommended only when the proxy itself keeps the URL to the home network
+// (the server's answer, its own rule); for everything else keeping Cosmos'
+// protection is. Nothing changes until a button is pressed and the form
+// saved; existing URLs are never changed by themselves (utils/guides.js
+// proposalFor decides).
+const StorageApiProposalInner = ({ formik, dashboard, routeKey }) => {
   const { t } = useTranslation();
   const [answered, setAnswered] = React.useState('');
+  const [homeOnly, setHomeOnly] = React.useState(null);
   const v = formik.values;
-  const m = String(v.Target || '').match(/^https?:\/\/([a-zA-Z0-9][a-zA-Z0-9_.-]*):(\d{1,5})\/?$/);
-  if (!m || !isStorageAPI(m[1], m[2], dashboard)) return null;
+  const host = v.UseHost ? String(v.Host || '').trim() : '';
+  React.useEffect(() => {
+    setHomeOnly(null);
+    if (!host) return undefined;
+    let live = true;
+    const timer = setTimeout(() => {
+      API.config.hostHomeOnly(host).then((res) => { if (live) setHomeOnly(!!(res && res.data && res.data.homeOnly)); }).catch(() => { if (live) setHomeOnly(false); });
+    }, 400);
+    return () => { live = false; clearTimeout(timer); };
+  }, [host]);
+  const proposal = proposalFor({ routeKey, values: v, dashboard, homeOnly });
+  if (!proposal || answered === 'keep') return null;
   const p = API_ROUTE_SETTINGS;
-  const applied = v._SmartShield_Enabled === p.SmartShieldEnabled && Number(v.ThrottlePerMinute || 0) === p.ThrottlePerMinute
-    && !v.BlockCommonBots && !v.BlockAPIAbuse && Number(v.MaxBandwith || 0) === 0 && Number(v.Timeout) === p.Timeout;
-  if (applied || answered === 'keep') return null;
-  const recommended = apiProposal(v.UseHost ? v.Host : '');
+  const recommended = proposal.recommended;
   const none = () => {
     formik.setValues({ ...v, _SmartShield_Enabled: p.SmartShieldEnabled, ThrottlePerMinute: p.ThrottlePerMinute, BlockCommonBots: p.BlockCommonBots,
       BlockAPIAbuse: p.BlockAPIAbuse, MaxBandwith: p.MaxBandwith, Timeout: p.Timeout });
@@ -95,7 +106,7 @@ export const StorageApiProposal = ({ formik, dashboard }) => {
   return <Alert severity="info" data-api-proposal={recommended} sx={{ '& .MuiAlert-message': { minWidth: 0 } }}>
     {t('mgmt.guide.form.apiProposal2', 'This address is the API of a storage app: backup tools send many requests and very large ones, which Cosmos\' shield, a limit per minute, bot or Referer blocking or a short timeout would slow, refuse (429) or cut.')}
     {' '}{recommended === 'keep'
-      ? t('mgmt.guide.form.apiInternet', 'This is an internet address: without Cosmos\' limits anyone may send it unlimited requests, and only the storage\'s keys decide what they may do. Keeping Cosmos\' protection is proposed; remove it only if backups from the internet are slowed or refused.')
+      ? t('mgmt.guide.form.apiOpen', 'Cosmos does not keep this address to the home network (no host, or a name or address reachable from the internet): without Cosmos\' limits anyone may send it unlimited requests, and only the storage\'s keys decide what they may do. Keeping Cosmos\' protection is proposed; remove it only if backups are slowed or refused.')
       : t('mgmt.guide.form.apiHome', 'For an address used at home, no Cosmos limit is proposed: no shield, no limit per minute, no blocking of bots or of uploads without a Referer, and a timeout of 24 hours.')}
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}>
       <Button variant={recommended === 'none' ? 'contained' : 'outlined'} onClick={none} sx={{ minHeight: 44 }} data-api-none>
@@ -105,6 +116,16 @@ export const StorageApiProposal = ({ formik, dashboard }) => {
     </Stack>
   </Alert>;
 };
+
+// A failure of the proposal never takes the URL form down: it shows nothing and logs.
+class ProposalBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { failed: false }; }
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(error) { console.error('The storage proposal of the URL form failed', error); }
+  render() { return this.state.failed ? null : this.props.children; }
+}
+
+export const StorageApiProposal = (props) => <ProposalBoundary><StorageApiProposalInner {...props} /></ProposalBoundary>;
 
 export const ForkRouteRole = ({ formik, routeKey }) => {
   const { t } = useTranslation();
@@ -124,7 +145,7 @@ export const ForkRouteRole = ({ formik, routeKey }) => {
     ? t('mgmt.guide.form.proposed', 'As proposed: {{guide}} (from what Cosmos knows about this image)', { guide: t(...GUIDE_TEXT[guideProposed]) })
     : t('mgmt.guide.form.proposedNone', 'As proposed: none (Cosmos does not know this image)');
   return <>
-    {!routeKey && <StorageApiProposal formik={formik} dashboard={dashboard} />}
+    {!routeKey && <StorageApiProposal formik={formik} dashboard={dashboard} routeKey={routeKey} />}
     <CosmosSelect
       name="_ForkRole"
       label={t('mgmt.appLinks.form.role', 'This address is the app\'s')}
