@@ -14,6 +14,8 @@ import { useTranslation } from 'react-i18next';
 import { CosmosCheckbox, CosmosInputText, CosmosSelect } from '../users/formShortcuts';
 import { useDashboardRoutes } from '../../../components/appOpen';
 import { ROLES, dashboardEntryFor } from '../../../utils/appInterfaces';
+import { Alert, Button, Stack } from '@mui/material';
+import { API_ROUTE_SETTINGS, apiProposal, isStorageAPI } from '../../../utils/guides'; // plan 50
 
 const ROLE_TEXT = {
   admin: ['mgmt.appLinks.role.admin', 'Administration'],

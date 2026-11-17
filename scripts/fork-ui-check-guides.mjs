@@ -113,7 +113,7 @@ for (const engine of engines) {
     const errors = [];
     // the home page's reachability probe of an address that does not open from here (work/links) is
     // reported by WebKit as an error of the page: not this check's subject
-    page.on('pageerror', (e) => { if (!/__cosmos_probe/.test(e.message)) errors.push(e.message.slice(0, 200)); });
+    page.on('pageerror', (e) => { if (!/__cosmos_probe/.test(e.message)) { errors.push(e.message.slice(0, 200)); console.log('PAGEERROR', e.message.slice(0, 300), (e.stack || '').slice(0, 600)); } });
     await context.request.post(base + '/cosmos/api/login', { data: who, failOnStatusCode: false });
     if (who === admin) await context.request.post(base + '/cosmos/api/sudo', { data: { password: admin.password }, failOnStatusCode: false });
 
@@ -232,11 +232,14 @@ for (const engine of engines) {
       await page.getByRole('button', { name: 'Create' }).first().click();
       const dialog = page.locator('[role=dialog]:visible').first();
       await dialog.waitFor({ timeout: 15000 });
+      // the form opens in its simple view: the proposal is asked about in "All settings" too
+      const all = dialog.getByRole('button', { name: 'All settings' });
+      if (await all.count()) await all.first().click();
       await dialog.locator('#Mode').click();
       await page.getByRole('option', { name: 'Proxy' }).click();
       await dialog.locator('input[name=Target]').fill('http://rustfs:9000');
       check((await dialog.locator('[data-api-proposal]').count()) === 0 || true, tag + ': (form opened)');
-      const useHost = dialog.locator('input[name=UseHost]');
+      const useHost = dialog.getByLabel('Use Host', { exact: true }).first();
       if (!(await useHost.isChecked())) await useHost.check();
       await dialog.locator('input[name=Host]').fill('s3new.local');
       await dialog.locator('[data-api-proposal="none"]').waitFor({ timeout: 10000 }).catch(() => {});

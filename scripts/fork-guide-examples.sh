@@ -200,6 +200,16 @@ COPY --from=docker:29-cli /usr/local/bin/docker /usr/local/bin/docker
 EOF
 }
 
+# the test's networks; made again whenever they are missing (the test Cosmos removes unused
+# networks of its Docker now and then, as Cosmos does)
+networks() {
+  in_dind sh -c '
+    docker network inspect storage-net >/dev/null 2>&1 || docker network create --internal storage-net >/dev/null
+    docker network inspect gx-lan >/dev/null 2>&1 || docker network create --internal --subnet 192.168.60.0/24 gx-lan >/dev/null
+    docker network inspect gx-inet >/dev/null 2>&1 || docker network create --internal --subnet 203.0.113.0/24 -o com.docker.network.bridge.inhibit_ipv4=true gx-inet >/dev/null
+    docker network inspect gx-cf >/dev/null 2>&1 || docker network create --internal --subnet 173.245.48.0/24 gx-cf >/dev/null'
+}
+
 case "${1:-}" in
 up)
   test -x "${BIN:?BIN=<cosmos binary>}"
@@ -221,11 +231,8 @@ up)
     in_dind sh -c "docker image inspect $image >/dev/null 2>&1 || docker pull -q $image >/dev/null" || { say "could not pull $image"; exit 2; }
   done
   images
+  networks
   in_dind sh -c '
-    docker network inspect storage-net >/dev/null 2>&1 || docker network create --internal storage-net >/dev/null
-    docker network inspect gx-lan >/dev/null 2>&1 || docker network create --internal --subnet 192.168.60.0/24 gx-lan >/dev/null
-    docker network inspect gx-inet >/dev/null 2>&1 || docker network create --internal --subnet 203.0.113.0/24 -o com.docker.network.bridge.inhibit_ipv4=true gx-inet >/dev/null
-    docker network inspect gx-cf >/dev/null 2>&1 || docker network create --internal --subnet 173.245.48.0/24 gx-cf >/dev/null
     docker rm -f gx-edge >/dev/null 2>&1
     docker run -d --name gx-edge --network gx-inet --ip 203.0.113.2 -v /scratch/build:/w:ro nginx:1-alpine nginx -c /w/nginx.conf -g "daemon off;" >/dev/null
     docker network connect --ip 173.245.48.2 gx-cf gx-edge'
@@ -242,6 +249,7 @@ EOF
   say "up: Cosmos (log $SCRATCH/run/cosmos.log), the stand-in at 203.0.113.2"
   ;;
 run)
+  networks
   mkdir -p "$SCRATCH/out"
   in_dind sh -c 'docker rm -f -v rustfs >/dev/null 2>&1; docker run -d --name rustfs --network storage-net \
       -e RUSTFS_ACCESS_KEY=gx-admin -e RUSTFS_SECRET_KEY=Gx-test-admin-secret-0420 '"$RUSTFS_IMAGE"' >/dev/null'
@@ -271,6 +279,7 @@ run)
   ;;
 browser)
   shift
+  networks
   envs=""
   for a in "$@"; do envs="$envs -e $a"; done
   if ! in_dind docker image inspect mcr.microsoft.com/playwright:v1.65.1-noble >/dev/null 2>&1; then
