@@ -486,7 +486,7 @@ const healthOf = (h) => (h ? { test: h.test, interval: h.interval, timeout: h.ti
 // One service for an image. `settings` as proposedSettings gives them (changed
 // or not); a declared default the administrator left alone is not copied
 // (copying would pin it against the image's next version).
-export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, extraEnv = {}, links = [], networks = [], command = '', networkMode = '' }) => {
+export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, extraEnv = {}, links = [], networks = [], command = '', networkMode = '', known = null }) => {
   const image = `${ref.name}:${tag}`;
   const env = [];
   const declaredMap = Object.fromEntries(declaredSettings(declared).map((s) => [s.name, s.value]));
@@ -499,6 +499,10 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
     const i = env.findIndex((line) => envKey(line) === key);
     if (i >= 0) env[i] = `${key}=${value}`; else env.push(`${key}=${value}`);
   });
+  // Fork addition (plan 44): what a known app must be told of its address (utils/urlCheck.js' knownAppNeeds), unless set by hand
+  if (known && host) {
+    (known.env || []).forEach((e) => { if (e.value && !env.some((line) => envKey(line) === e.name)) env.push(`${e.name}=${e.value}`); });
+  }
   const service = {
     image,
     container_name: name,
@@ -533,6 +537,7 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
       name, description: `${name} in Cosmos`, useHost: true, host, target: `http://${name}:${web}`, mode: 'SERVAPP',
       Timeout: 14400000, ThrottlePerMinute: 10000, BlockCommonBots: true, SmartShield: { Enabled: true },
       ...(admins ? { AuthEnabled: true, AdminOnly: true } : {}),
+      ...(known && known.appOwnHost ? { ForkAppOwnHost: true } : {}), // Fork addition (plan 44)
     }];
   }
   if (links.length) service.links = [...links];
@@ -547,7 +552,7 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
 // plan 45: `manager` ({ recipe, ref, tag, name, settings, host }): a web manager
 // created with this database, on a network the two share.
 // `suffix` (random, from the dialog) makes the names of the networks made here new.
-export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, host, reachers = [], database = null, need = null, command = '', manager = null, suffix = '' }) => {
+export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, host, reachers = [], database = null, need = null, command = '', manager = null, suffix = '', known = null }) => {
   const fresh = (base) => (suffix ? `${base}-${suffix}` : base);
   let appNetworkMode = '';
   const services = {};
@@ -585,7 +590,7 @@ export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, ho
     appNetworks = [own];
     appNetworkMode = own;
   }
-  const app = serviceFor({ ref, tag, name, recipe, declared, settings, host, extraEnv, links: [...appLinks, ...reachers], networks: appNetworks, command, networkMode: appNetworkMode });
+  const app = serviceFor({ ref, tag, name, recipe, declared, settings, host, extraEnv, links: [...appLinks, ...reachers], networks: appNetworks, command, networkMode: appNetworkMode, known });
   services[name] = app.service;
   if (database && database.mode === 'new' && Object.keys(services).length > 1) {
     services[name].labels = { 'cosmos-stack': name, 'cosmos-stack-main': name };

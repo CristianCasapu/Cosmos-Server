@@ -620,6 +620,10 @@ type ProxyRouteConfig struct {
 	HideFromDashboard          bool                        `yaml:"hide_from_dashboard"`
 	DisableHeaderHardening     bool                        `yaml:"disable_header_hardening"`
 	SpoofHostname              bool                        `yaml:"spoof_hostname"`
+	// Fork addition (plan 44): Host is the app's own address, the public one goes in X-Forwarded-Host/-Port (src/proxy/fork_public_host.go)
+	ForkAppOwnHost             bool                        `yaml:"fork_app_own_host,omitempty" json:"ForkAppOwnHost,omitempty"`
+	// Fork addition (plan 44): the app is not told the visitor's address (no X-Forwarded-For, X-Real-IP), see src/proxy/fork_public_host.go
+	ForkNoVisitorAddress       bool                        `yaml:"fork_no_visitor_address,omitempty" json:"ForkNoVisitorAddress,omitempty"`
 	AddionalFilters          []AddionalFiltersConfig       `yaml:"additional_filters,omitempty"`
 	RestrictToConstellation    bool                        `yaml:"restrict_to_constellation"`
 	OverwriteHostHeader        string                      `yaml:"overwrite_host_header,omitempty"`

@@ -10,6 +10,7 @@ import { serverBack } from '../../utils/appLinks'; // Fork addition
 import { keepOnBackdrop } from '../../components/formHelpers'; // Fork addition
 import { newAppRoute } from '../../utils/routeGuide'; // Fork addition
 import { RouteExposure, sendExposure } from '../../components/exposure'; // Fork addition
+import { UrlCheckNotice } from '../../components/urlCheck'; // Fork addition (plan 44)
 import { useClientInfos } from '../../utils/hooks'; // Fork addition
 import { PERM_ADMIN } from '../../utils/permissions'; // Fork addition
 import { ServiceInfo, PortCheck, classifyService } from '../../components/serviceInfo'; // Fork addition (plan 43): an app that is not web
@@ -120,6 +121,7 @@ const ExposeModal = ({ openModal, setOpenModal, config, updateRoutes, container,
                     {t('mgmt.expose.newUrl.retry', 'The URL is kept. The app\'s Internet chip opens the same choices to try again.')}
                   </>}
               </Alert>
+              <UrlCheckNotice routeNames={[outcome.name, ...(outcome.routes || [])]} refresh={refresh} />{/* Fork addition (plan 44): does it open */}
             </Stack>}
             {!outcome && asService && <ServiceInfo containerName={appName} classification={service} onInsist={() => setInsist(true)} refresh={refresh} /* Fork addition (plan 43) */ />}
             {!outcome && !asService && <DialogContentText>

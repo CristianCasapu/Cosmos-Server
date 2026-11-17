@@ -50,6 +50,26 @@ var guardedHeaders = map[string]bool{
 	"true-client-ip":     true,
 }
 
+// Fork addition (plan 44): the other headers through which proxies tell an
+// app the name, scheme, port, path prefix or client address of a request.
+// Cosmos never sets them; a visitor's are dropped, so that an app reading one
+// of them (frameworks look at several) hears nothing but what this server
+// says. A URL's own ExtraHeaders may still set them (applied last).
+var addressLookAlikes = []string{
+	"X-Original-Host", "X-Forwarded-Server", "X-Host", "X-Forwarded-Prefix", "X-Forwarded-Scheme",
+	"X-Forwarded-Protocol", "X-Url-Scheme", "Front-End-Https", "X-Forwarded-Ssl",
+	"X-Client-IP", "X-Cluster-Client-IP", "Client-IP", "X-Original-Forwarded-For", "X-Forwarded",
+	"Forwarded-For", "X-Originating-IP", "X-Remote-IP", "X-Remote-Addr", "X-ProxyUser-Ip",
+	// the path a server should act on instead of the one requested (IIS, older frameworks)
+	"X-Original-URL", "X-Rewrite-URL",
+}
+
+func init() {
+	for _, h := range addressLookAlikes {
+		guardedHeaders[strings.ToLower(h)] = true
+	}
+}
+
 // forwardedHeaders is the hook of the proxy's director, called before it sets
 // anything.
 func forwardedHeaders(req *http.Request, route utils.ProxyRouteConfig) {
@@ -60,6 +80,9 @@ func forwardedHeaders(req *http.Request, route utils.ProxyRouteConfig) {
 	client := GetClientID(req, route)
 
 	req.Header.Del("Forwarded")
+	for _, h := range addressLookAlikes { // Fork addition (plan 44)
+		req.Header.Del(h)
+	}
 	if client == "" || client == peer {
 		// nobody in front is trusted: the reverse proxy writes the peer's address
 		req.Header.Del("X-Forwarded-For")

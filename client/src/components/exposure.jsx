@@ -27,6 +27,7 @@ import { installPorts, shownAddress } from '../utils/routerPorts';
 import { serverBack } from '../utils/appLinks';
 import { ServiceInfo, classifyService } from './serviceInfo'; // Fork addition (plan 43): a service is not put on the internet by default
 import { containerPorts } from '../utils/routeGuide'; // Fork addition (plan 43)
+import { UrlCheckNotice } from './urlCheck'; // Fork addition (plan 44): does the new address open
 import {
   accessSentence, choiceProblems, definitionPorts, exposureChanges, initialChoices, portPlan, routeExposure, text, throughSentence,
   webPlan, withRoutes,
@@ -254,6 +255,7 @@ export const ExposeDialog = ({ config, containerName, image, onClose, refresh })
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   const [done, setDone] = React.useState(false);
+  const [checkRoutes, setCheckRoutes] = React.useState([]); // Fork addition (plan 44): the URLs made or changed, checked after
   const [insist, setInsist] = React.useState(false); // Fork addition (plan 43)
 
   React.useEffect(() => {
@@ -279,9 +281,12 @@ export const ExposeDialog = ({ config, containerName, image, onClose, refresh })
   const save = async () => {
     setBusy(true);
     setError('');
+    setCheckRoutes([]);
     let reloaded = false;
+    const made = [];
     for (const body of [changes.withdraw, changes.expose].filter(Boolean)) {
       const res = await API.config.expose(body);
+      if (res.ok && body === changes.expose && res.data && Array.isArray(res.data.routes)) made.push(...res.data.routes); // Fork addition (plan 44): checked below
       if (!res.ok) {
         setError(refusalText(t, res));
         setBusy(false);
@@ -293,6 +298,7 @@ export const ExposeDialog = ({ config, containerName, image, onClose, refresh })
     await afterChange(reloaded, refresh);
     setBusy(false);
     setDone(true);
+    setCheckRoutes(made);
     setValue(null);
   };
 
@@ -326,6 +332,7 @@ export const ExposeDialog = ({ config, containerName, image, onClose, refresh })
           <div><RouterPortLinks config={config} containerNames={[containerName]} chipStyle={{ margin: '0 5px 5px 0' }} /></div>
         </Stack>}
         {done && <Alert severity="success">{t('mgmt.expose.saved', 'Done. Records at Cloudflare and the router follow within a minute.')}</Alert>}
+        {done && checkRoutes.length > 0 && <UrlCheckNotice routeNames={checkRoutes} refresh={refresh} />}{/* Fork addition (plan 44): does the new address open */}
         {error && <Alert severity="error" sx={{ overflowWrap: 'anywhere' }}>{error}</Alert>}
       </Stack>
     </DialogContent>
@@ -477,6 +484,7 @@ export const RouteExposure = ({ config, containerName, image, route, container, 
 // dialog does.
 export const sendExposure = async (changes) => {
   let reloaded = false;
+  const routes = [];
   for (const body of [changes && changes.withdraw, changes && changes.expose].filter(Boolean)) {
     const res = await API.config.expose(body);
     if (!res.ok) {
@@ -484,9 +492,10 @@ export const sendExposure = async (changes) => {
       return { ok: false, message: res.message || '' };
     }
     reloaded = reloaded || !!(res.data && res.data.reloaded);
+    if (body === changes.expose && res.data && Array.isArray(res.data.routes)) routes.push(...res.data.routes); // Fork addition (plan 44)
   }
   await afterChange(reloaded);
-  return { ok: true, message: '' };
+  return { ok: true, message: '', routes };
 };
 
 // The chip that opens the dialog, beside an app's URLs.

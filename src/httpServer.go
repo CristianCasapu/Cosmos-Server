@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/azukaar/cosmos-server/src/behind" // Fork addition (plan 44)
 	"sync"
 	"sync/atomic"
     "net/http"
@@ -1093,6 +1094,11 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/sign-in/reveal", appsignin.RevealRoute)   // Fork addition (plan 45): one of its secrets, recorded
 	srapiAdmin.HandleFunc("/api/app-sign-in/defaults", appsignin.DefaultsRoute)                  // Fork addition (plan 45): what an installation proposes
 	srapiAdmin.HandleFunc("/api/lan-addresses", proxy.LANAddressesRoute) // Fork addition: where a service may be published for the home network (proxy/fork_lan_addresses.go)
+	// Fork addition: does an app accept the address it is reached at (src/behind, plan 44)
+	srapiAdmin.HandleFunc("/api/url-check", behind.CheckRoute)
+	srapiAdmin.HandleFunc("/api/url-checks", behind.ChecksRoute)
+	srapiAdmin.HandleFunc("/api/url-check/apply", behind.ApplyRoute)
+	srapiAdmin.HandleFunc("/api/known-apps", behind.KnownAppsRoute)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/terminal/{action}", docker.TerminalRoute)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/update", docker.UpdateContainerRoute)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/export", docker.ExportContainerRoute)

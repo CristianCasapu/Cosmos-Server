@@ -67,6 +67,7 @@ const IGNORED = [
   /^\/api\/certificates\/(domain|delegation)\b/, // Fork addition: lookups for "Add another domain", which shows what was found itself
   /^\/api\/cloudflare\/origin-pulls\b/, // Fork addition: the card says what each step gave, in words, where it was asked for
   /^\/api\/turnstile\b/, // Fork addition: the sign-in check's card says what each step gave, in words
+  /^\/api\/url-checks?$/, // Fork addition (plan 44): the URL check shows its answer where it was asked
   /^\/api\/reach-watch\/check\b/, // Fork addition: the watch's card and the notification say what "Test now" started, in words
   /^\/api\/servapps\/[^/]+\/(logs|terminal|export|check-update|probe|start-report|sign-in)\b/, // Fork addition (plan 43): probe, start-report: the dialogs show the answer where it was asked; plan 45: sign-in (and its reveal): the card shows it
   /^\/api\/app-sign-in\b/, // Fork addition (plan 45): the defaults an installation proposes, shown by the review
@@ -134,6 +135,7 @@ const COMMANDS = [
   ['POST', /^\/api\/local-names$/, () => ['activity.localNames.check', 'Check the local names on the network']],
 
   // Cloudflare (src/cloudflare): the status is read with GET, which is never followed
+  ['POST', /^\/api\/url-check\/apply$/, () => ['activity.urlCheck.apply', 'Change how the URL tells its app its address']], // Fork addition (plan 44)
   ['POST', /^\/api\/expose$/, () => ['activity.expose', 'Change how the app is reached from the internet']], // Fork addition: utils/exposure.js
   ['POST', /^\/api\/cloudflare\/shield$/, () => ['activity.cloudflare.shield', 'Change how the address is served']],
   ['POST', /^\/api\/cloudflare\/panel$/, () => ['activity.cloudflare.panel', 'Set the panel\'s address']],

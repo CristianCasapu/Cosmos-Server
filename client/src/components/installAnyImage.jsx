@@ -14,6 +14,8 @@ import {
 import { AppstoreAddOutlined, CopyOutlined, DatabaseOutlined, DownOutlined, RightOutlined, SearchOutlined, StarOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import * as API from '../api';
+import { useKnownApps } from './urlCheck'; // Fork addition (plan 44)
+import { knownAppFor, knownAppNeeds, publicFacts } from '../utils/urlCheck';
 import NewDockerService from '../pages/servapps/containers/newService';
 import ResponsiveButton from './responseiveButton';
 import PermissionGuard from './permissionGuard';
@@ -190,6 +192,10 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
   const dbRecipes = need ? databaseRecipes(desc.databases, need.kinds) : [];
   const existing = need ? existingDatabases(containers, desc.databases, need.kinds) : [];
   const host = ref && config ? localAddress(name || 'app', config) : '';
+  // Fork addition (plan 44): what a known app needs behind Cosmos, for the address it gets
+  const knownApps = useKnownApps();
+  const cosmosHttps = (config && config.HTTPConfig && config.HTTPConfig.HTTPSPort) || '443';
+  const known = ref && host ? knownAppNeeds(knownAppFor(knownApps, ref.name), publicFacts(host, cosmosHttps)) : null;
   const others = containers.map((c) => String((c.Names || [''])[0]).replace(/^\//, '')).filter((n) => n && n !== name);
   const isService = !!(recipe && recipe.service);
   // Fork addition (plan 45): a database gets its web manager; defaults that arrive after the image was read still apply
@@ -234,8 +240,8 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
     } else if (db.mode === 'existing') {
       database = { mode: 'existing', container: db.container, recipe: db.recipe, env: dbEnv };
     }
-    return buildDefinition({ ref, tag: desc.tag, name, recipe, declared, settings: [...settings.filter((s) => !extraSettings.some((e) => e.name === s.name)), ...extraSettings] /* Fork addition (plan 43): a name typed by hand replaces the proposal */, host, reachers, database, need, command: openFields ? custom.command : '', manager: mgr.manager, suffix: netSuffix /* Fork addition (plan 45) */ }).definition;
-  }, [ready, desc, name, settings, host, reachers, db, dbDesc, dbSettings, dbEnv, custom, mgr.manager && JSON.stringify(mgr.manager)]);
+    return buildDefinition({ ref, tag: desc.tag, name, recipe, declared, settings: [...settings.filter((s) => !extraSettings.some((e) => e.name === s.name)), ...extraSettings] /* Fork addition (plan 43): a name typed by hand replaces the proposal */, host, reachers, database, need, command: openFields ? custom.command : '', manager: mgr.manager, suffix: netSuffix /* Fork addition (plan 45) */, known /* Fork addition (plan 44) */ }).definition;
+  }, [ready, desc, name, settings, host, reachers, db, dbDesc, dbSettings, dbEnv, custom, mgr.manager && JSON.stringify(mgr.manager), known && JSON.stringify(known)]);
 
   const lines = desc && rawDeclared ? facts({ recipe, declared: rawDeclared, name: name || 'app', tag: desc.tag, host: definition && definition.services[name] && definition.services[name].routes ? host : '', settings, size: desc.size }) : [];
   const problem = desc && desc.problem ? problemText(desc) : null;

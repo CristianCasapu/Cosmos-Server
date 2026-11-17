@@ -100,7 +100,7 @@ const open = async (type, name, viewport) => {
   const page = await ctx.newPage();
   page.on('pageerror', (e) => {
     // the server reloads after a new URL: a poll of the page in flight then fails (as the any-image and sensitive-edit checks count it)
-    if (/Failed to fetch|Load failed|NetworkError/.test(e.message)) return;
+    if (/Failed to fetch|Load failed|NetworkError|due to access control checks/.test(e.message)) return; // (WebKit's words for a request cut by the reload, too)
     failures.push(`${name} PAGEERROR: ${e.message.slice(0, 300)} ${String(e.stack || '').split('\n').slice(1, 3).join(' ').slice(0, 300)}`);
   });
   const a = await ctx.request.post(base + '/cosmos/api/login', { data: { nickname: 'admin', password } });
