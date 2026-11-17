@@ -133,7 +133,7 @@ systemctl restart docker"
 	# a container whose published port is public (given with --port 8443) and one whose port is not
 	msh 'docker run -d --restart=always --name pub -p 8443:80 busybox:1.36 httpd -f -p 80 >/dev/null
 docker run -d --restart=always --name priv -p 18080:80 busybox:1.36 httpd -f -p 80 >/dev/null'
-	for _ in $(seq 1 30); do tcp "$HC" "$TM6" 8443 && tcp "$HC" "$TM6" 2053 && break; sleep 1; done
+	for _ in $(seq 1 30); do tcp "$HC" "$TM6" 8443 2>/dev/null && tcp "$HC" "$TM6" 2053 2>/dev/null && break; sleep 1; done
 }
 
 wait_boot() {
@@ -149,7 +149,7 @@ wait_boot() {
 reboot_machine() {
 	docker restart -t 20 "$M" >/dev/null
 	wait_boot
-	for _ in $(seq 1 60); do tcp "$HC" "$TM6" 8443 && tcp "$HC" "$TM6" 2053 && break; sleep 1; done
+	for _ in $(seq 1 60); do tcp "$HC" "$TM6" 8443 2>/dev/null && tcp "$HC" "$TM6" 2053 2>/dev/null && break; sleep 1; done
 }
 
 topo_down() {
@@ -167,5 +167,8 @@ files_snapshot() {
 	# shellcheck disable=SC2016
 	msh 'find /etc /usr/local /var/lib/cosmos-protection /var/backups -xdev \( -type f -o -type l \) 2>/dev/null | grep -v -E "^/etc/(ld.so.cache|machine-id|resolv.conf|hostname|hosts|mtab)$" | sort | while read -r f; do printf "%s " "$f"; if [ -L "$f" ]; then readlink "$f"; else md5sum < "$f" | cut -c1-32; fi; done'
 }
+
+# Docker's rules as iptables shows them, without counters
+xtables() { msh 'iptables-save; ip6tables-save' 2>/dev/null | grep -v '^#' | sed 's/\[[0-9]*:[0-9]*\]//'; }
 
 guard_loaded() { m nft list table inet cosmos_host_guard >/dev/null 2>&1; }

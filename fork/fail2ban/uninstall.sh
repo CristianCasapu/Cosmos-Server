@@ -36,6 +36,8 @@
 set -eu
 
 ETC=/etc/fail2ban
+PIECE=fail2ban
+STATE_DIR=/var/lib/cosmos-protection
 BACKUP_ROOT=/var/backups/cosmos-fail2ban
 TNAME=f2b-cosmos
 TABLE="inet $TNAME"
@@ -57,8 +59,6 @@ DRY_RUN=0
 YES=0
 PURGE=0
 RECORD=""
-PIECE=fail2ban
-STATE_DIR=/var/lib/cosmos-protection
 
 say()  { printf '%s\n' "$*"; }
 warn() { printf 'WARNING: %s\n' "$*" >&2; }
