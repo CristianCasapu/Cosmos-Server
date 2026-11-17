@@ -264,6 +264,12 @@ export const KIND_TEXT = {
     todo: 'Nothing to do. If it is one of your own devices, lift the block in the list of the card "Block abusers at Cloudflare".',
     link: 'domains',
   },
+  'telegram.warning.lost': { // plan 48
+    label: 'Telegram warning not delivered',
+    what: 'The Telegram chat that lost (part of) the notifications could not be told about it for 30 minutes.',
+    stopped: 'na',
+    todo: 'Look at who changed the Telegram settings in the security record, and at the settings themselves.',
+  },
   'recorder.dropped': {
     label: 'Security events lost',
     what: 'Cosmos could not store some security events in time because the database did not answer.',
