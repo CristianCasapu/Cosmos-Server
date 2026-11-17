@@ -43,7 +43,7 @@
 import { chromium, firefox, webkit } from 'playwright';
 import { mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { storageMock, usersPatch, notificationsMock, eventsMock, notificationPagesMock, NOTIFICATION_ITEMS, edgeMock, edgeOverviewPatch, anyImageMock } from './fork-ui-gallery-fixtures.mjs';
+import { storageMock, usersPatch, notificationsMock, eventsMock, notificationPagesMock, NOTIFICATION_ITEMS, edgeMock, edgeOverviewPatch, anyImageMock, protectionMock } from './fork-ui-gallery-fixtures.mjs';
 
 const base = process.env.BASE || 'http://polish.test:18080';
 const out = process.env.OUT || 'gallery';
@@ -77,6 +77,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 //                   prev:<selector> the card before that one
 //   close: fn       undo it (default after `open`: Escape)
 //   core: true      part of the small set
+//   scope: selector  measure text and controls inside its first match only (for a guarded card on a page
+//                   whose other parts are not guarded); sideways scroll is still the whole page's
 //   mock: [[path, body, status, headers]]  answer the calls under `path` (any origin) with `body` instead of asking the server
 //   patch: [[path, fn]]   ask the server, then change its JSON answer with fn(json, url) before the page gets it
 // A step that cannot be done is reported in the summary, not fatal.
@@ -406,6 +408,10 @@ const views = [
     { id: 'chip', at: '[data-edge-chip]' },
     { id: 'block', open: async (page) => { await page.locator('[data-edge-block]').first().click(); } },
   ] },
+  // the protection cards of the security dashboard in four states (guarded inside the cards: the dashboard's
+  // own icon buttons are 30 px high on a phone, see security-edge)
+  ...['none', 'all', 'unloaded', 'unknown'].map((state) => ({ id: 'security-protection-' + state, path: '/cosmos-ui/security', wait: 1500, guard: true,
+    scope: '[data-protection]', mock: protectionMock(state), captures: [{ at: '[data-protection-card=guard]' }, { id: 'updates', phoneOnly: true, at: '[data-protection-card=updates]' }] })),
   // the OpenID client form, its values to copy, and the new secret
   { id: 'openid-client', path: '/cosmos-ui/openid-manage', wait: 800, captures: [
     { id: 'form', open: async (page) => {
@@ -437,7 +443,9 @@ const views = [
 // ---------------------------------------------------------------------------
 // What a script can measure on a rendered page. Runs inside the page.
 // ---------------------------------------------------------------------------
-const audit = () => {
+const audit = (scope) => {
+  // scope: the measures of text and controls are taken inside the first match only (the page's sideways scroll always)
+  const root = (scope && document.querySelector(scope)) || document.body;
   const vw = window.innerWidth;
   const MAX = 12; // samples kept per finding
   const result = {
@@ -568,7 +576,7 @@ const audit = () => {
 
   // --- every element that holds text of its own
   const seen = new Set();
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const text = node.nodeValue;
     if (!text || !text.trim()) continue;
@@ -657,7 +665,7 @@ const audit = () => {
     return right - left > 0 && bottom - top > 0 ? { left, right, top, bottom, width: right - left, height: bottom - top } : null;
   };
   const lines = [];
-  const textWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const textWalker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   for (let node = textWalker.nextNode(); node && lines.length < 3000; node = textWalker.nextNode()) {
     const text = node.nodeValue;
     if (!text || !text.trim()) continue;
@@ -697,7 +705,7 @@ const audit = () => {
   }
 
   // --- controls: a name for assistive technology, their size on a phone, overlaps
-  const controls = [...document.querySelectorAll('button, a[href], [role=button], [role=tab], [role=menuitem], input:not([type=hidden]), select, textarea, [role=checkbox], [role=switch]')]
+  const controls = [...root.querySelectorAll('button, a[href], [role=button], [role=tab], [role=menuitem], input:not([type=hidden]), select, textarea, [role=checkbox], [role=switch]')]
     .filter((el) => visible(el) && !el.closest('[aria-hidden="true"]'));
   const named = (el) => {
     if ((el.innerText || '').trim()) return true;
@@ -908,7 +916,7 @@ const run = async (engineName, viewport, mode) => {
     await (byName ? page.locator('[role=listbox] li', { hasText: index }).first() : page.locator('[role=listbox] li').nth(index)).click();
   };
 
-  const capture = async (name, problems, guarded, at) => {
+  const capture = async (name, problems, guarded, at, scope) => {
     const file = join(dir, name + '.png');
     // a full-page picture taken on a scrolled page draws the fixed top bar in the middle of it
     // (`at`: one screen, scrolled so that the first element matching the selector is just under the bar)
@@ -939,7 +947,7 @@ const run = async (engineName, viewport, mode) => {
       else await page.screenshot({ path: file, fullPage: true });
     } catch (e) { problems.push('screenshot: ' + String(e.message).slice(0, 200)); }
     let measured = null;
-    try { measured = await page.evaluate(audit); } catch (e) { problems.push('audit: ' + String(e.message).slice(0, 200)); }
+    try { measured = await page.evaluate(audit, scope || null); } catch (e) { problems.push('audit: ' + String(e.message).slice(0, 200)); }
     const summary = {
       view: name, engine: engineName, viewport: `${viewport.width}x${viewport.height}`, mode,
       url: page.url().replace(base, ''), file: `${label}/${name}.png`, guard: !!guarded,
@@ -993,7 +1001,7 @@ const run = async (engineName, viewport, mode) => {
         if (step.open) { await room(40); await step.open(page); }
         await settle(step.wait || 0);
       } catch (e) { problems.push('step: ' + String(e.message).split('\n')[0].slice(0, 200)); }
-      await capture(name, problems, view.guard, step.at);
+      await capture(name, problems, view.guard, step.at, view.scope);
       try {
         if (step.open) {
           if (step.close) await step.close(page); else await page.keyboard.press('Escape');

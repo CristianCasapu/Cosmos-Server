@@ -456,3 +456,42 @@ export const anyImageMock = [
     return ok(ANY_IMAGE.postgres);
   }],
 ];
+
+// The protection cards of the security page (GET /cosmos/api/protection, src/protection), in four states:
+// nothing installed, all installed and active, the guard installed with its table not loaded, and a Cosmos
+// that may not read the firewall. The shape is the one src/protection/protection_test.go checks.
+const protectionPiece = (piece, installed, extra = {}) => ({
+  installed, active: false, state: installed ? 'active' : 'notInstalled', stateFile: installed ? 'ok' : 'missing',
+  command: `sudo sh /opt/cosmos/fork/${piece}/${installed ? 'uninstall' : 'install'}.sh`, commandKind: installed ? 'uninstall' : 'install',
+  ...extra,
+});
+const noTable = { loaded: false, inputHooked: false, forwardHooked: false, publicTcp: [], publicUdp: [], vpnUdp: [], wanInterfaces: [] };
+const PROTECTION = {
+  none: {
+    time: '2026-11-17T10:00:00Z', cosmosPort: 2053,
+    guard: protectionPiece('nftables', false, { table: noTable, publicTcp: [], publicUdp: [], portMissing: false, keptOpen: [] }),
+    fail2ban: protectionPiece('fail2ban', false, { clientInstalled: false, running: false, configInstalled: false }),
+    updates: protectionPiece('unattended-upgrades', false, { binaryInstalled: true, enabled: false, timerEnabled: true, incomplete: false }),
+  },
+  all: {
+    time: '2026-11-17T10:00:00Z', cosmosPort: 2053,
+    guard: protectionPiece('nftables', true, {
+      active: true, since: '2026-11-17T10:00:00Z', by: 'fork',
+      table: { loaded: true, inputHooked: true, forwardHooked: true, droppedInput: { packets: 48213, bytes: 2892780 }, droppedForward: { packets: 1290, bytes: 77400 }, publicTcp: [2052, 2053], publicUdp: [], vpnUdp: [41641], wanInterfaces: ['eth0'] },
+      publicTcp: [2052, 2053], publicUdp: [], ipv4: true, sshOpen: false, portMissing: false, keptOpen: [2052, 2053],
+    }),
+    fail2ban: protectionPiece('fail2ban', true, { active: true, since: '2026-11-16T09:00:00Z', by: 'fork', clientInstalled: true, running: true, configInstalled: true, sshd: true, cosmosJails: true }),
+    updates: protectionPiece('unattended-upgrades', true, { active: true, since: '2026-11-15T08:00:00Z', by: 'fork', binaryInstalled: true, enabled: true, timerEnabled: true, config: '/etc/apt/apt.conf.d/52cosmos-security-upgrades', incomplete: false }),
+  },
+};
+PROTECTION.unloaded = {
+  ...PROTECTION.all,
+  cosmosPort: 8443,
+  guard: { ...PROTECTION.all.guard, active: false, state: 'inactive', reason: 'tableMissing', table: noTable, portMissing: true, keptOpen: [2052, 2053] },
+};
+PROTECTION.unknown = {
+  ...PROTECTION.all,
+  guard: { ...PROTECTION.all.guard, active: false, state: 'unknown', reason: 'notPermitted', unknown: 'notPermitted', table: undefined },
+  updates: { ...PROTECTION.all.updates, by: 'administrator', stateFile: 'missing', since: '2025-03-02T07:41:00Z', config: '/etc/apt/apt.conf.d/20auto-upgrades', command: undefined, commandKind: undefined },
+};
+export const protectionMock = (state) => [['/cosmos/api/protection', ok(PROTECTION[state])]];
