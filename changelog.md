@@ -8,7 +8,11 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Merged into `custom` since `0.24.0-fork.36`, to be part of the next release:
+Merged into `custom` since `0.24.0-fork.37`, to be part of the next release:
+
+- Nothing yet.
+
+## Fork 0.24.0-fork.37 — 2026-11-17
 
 ### Added
 - The home page opens each app on the address that works from where you are: the home address at home, the internet address when away. An app that only opens at home says "Only at home" and offers its address to copy, or (to administrators) an internet address through the Internet dialog.
