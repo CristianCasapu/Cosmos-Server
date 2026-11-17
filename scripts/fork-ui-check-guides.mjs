@@ -172,9 +172,12 @@ for (const engine of engines) {
     await page.locator('[data-typed="bucket"]').fill('backups-web1');
     check(/backups-web1\/restic/.test(await codeText(page, 'linux-env')), tag + ': a bucket typed by the reader goes into the examples');
     await page.locator('[data-typed="bucket"]').fill("x'; rm -rf /");
-    const after = await codeText(page, 'linux-env');
-    check(!/rm -rf/.test(after) && (await page.locator('[data-typed="bucket"][aria-invalid="true"]').count()) === 1, tag + ': a hostile bucket name is refused, not used');
+    await page.locator('[data-code="linux-env"][data-code-problem]').waitFor({ timeout: 5000 }).catch(() => {});
+    const withheld = (await page.locator('[data-code="linux-env"][data-code-problem]').count()) === 1 && (await page.locator('[data-code-text="linux-env"]').count()) === 0;
+    const leaked = (await page.locator('[data-guide]').innerText()).includes("x'; rm -rf /");
+    check(withheld && !leaked && (await page.locator('[data-typed="bucket"][aria-invalid="true"]').count()) === 1, tag + ': a hostile bucket name is refused and the examples that use it are withheld (no default in its place)');
     await page.locator('[data-typed="bucket"]').fill('');
+    await page.locator('[data-code-text="linux-env"]').waitFor({ timeout: 5000 });
 
     // Copy copies exactly the block
     const block = page.locator('[data-copy-block="linux-rclone"]').first();
