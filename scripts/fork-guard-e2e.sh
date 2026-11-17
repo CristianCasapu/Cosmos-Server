@@ -58,6 +58,7 @@ for _ in $(seq 1 60); do docker exec "$D" docker info >/dev/null 2>&1 && break; 
 docker exec "$D" sh -c 'rm -rf /work/fork /work/e2e /work/fail2ban-old'
 docker cp "$repo/fork" "$D:/work/fork"
 docker cp "$here/fork-guard-e2e" "$D:/work/e2e"
+docker cp "$here/fork-guard-e2e.sh" "$D:/work/e2e/outer.sh"
 if git -C "$repo" cat-file -e "$OLD_REF:fork/fail2ban/install.sh" 2>/dev/null; then
 	mkdir -p "$SCRATCH/old"
 	git -C "$repo" archive "$OLD_REF" fork/fail2ban | tar -x -C "$SCRATCH/old"
@@ -85,7 +86,7 @@ echo "images ready after $(( $(date +%s) - start )) s"
 status=0
 echo "== shellcheck"
 if docker exec "$D" docker run --rm -v /work:/work:ro cosmos-guard-test-client sh -c \
-	'shellcheck -s sh /work/fork/nftables/install.sh /work/fork/nftables/uninstall.sh /work/fork/nftables/cosmos-host-guard /work/fork/fail2ban/install.sh /work/fork/fail2ban/uninstall.sh /work/fork/unattended-upgrades/install.sh /work/fork/unattended-upgrades/uninstall.sh && shellcheck -s sh -x -P /work/e2e /work/e2e/lib.sh /work/e2e/inner.sh'; then
+	'shellcheck -s sh /work/fork/nftables/install.sh /work/fork/nftables/uninstall.sh /work/fork/nftables/cosmos-host-guard /work/fork/fail2ban/install.sh /work/fork/fail2ban/uninstall.sh /work/fork/unattended-upgrades/install.sh /work/fork/unattended-upgrades/uninstall.sh && shellcheck -s sh -x -P /work/e2e /work/e2e/lib.sh /work/e2e/inner.sh /work/e2e/outer.sh'; then
 	echo "shellcheck: clean"
 else
 	status=1
