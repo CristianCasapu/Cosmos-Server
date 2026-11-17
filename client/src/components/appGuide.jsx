@@ -24,7 +24,7 @@ import { DownloadFile } from '../api/downloadButton';
 import { copyToClipboard } from './appOpen';
 import { notify } from '../utils/activity';
 import {
-  parseGuide, guideFacts, visibleBlocks, visibleSections, renderCode, inlineValue, validBucket, validName, guidePath, PLACES,
+  parseGuide, guideFacts, visibleBlocks, visibleInline, visibleSections, renderCode, inlineValue, validBucket, validName, guidePath, PLACES,
 } from '../utils/guides';
 import s3Guide from '../../../src/guides/s3.md?raw';
 
@@ -52,7 +52,7 @@ const useCopy = () => {
 // ---------------------------------------------------------------------------
 // text
 
-const Inline = ({ items, facts }) => <>{(items || []).map((x, i) => {
+const Inline = ({ items, facts }) => <>{visibleInline(items, facts.flags).map((x, i) => {
   if (x.t === 'code') return <Box key={i} component="code" sx={{ fontFamily: 'monospace', fontSize: '0.92em', px: 0.5, borderRadius: 1, bgcolor: 'action.hover', overflowWrap: 'anywhere' }}>{fillInline(x.text, facts)}</Box>;
   if (x.t === 'strong') return <strong key={i}>{x.text}</strong>;
   if (x.t === 'link') return <Link key={i} href={x.href} target="_blank" rel="noopener noreferrer">{x.text}</Link>;

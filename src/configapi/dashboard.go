@@ -94,6 +94,7 @@ func DashboardApiGet(w http.ResponseWriter, req *http.Request) {
 			Icon:              route.Icon,
 			HideFromDashboard: route.HideFromDashboard,
 		}
+		dashRoute.ForkDashboardFields = forkDashboardSource(route) // Fork addition (plan 49): the route this entry is made from
 
 		// For SERVAPP routes, find matching container
 		if route.Mode == "SERVAPP" {
@@ -119,7 +120,7 @@ func DashboardApiGet(w http.ResponseWriter, req *http.Request) {
 		dashboardRoutes = append(dashboardRoutes, dashRoute)
 	}
 
-	dashboardRoutes = forkDashboardRoutes(dashboardRoutes, config, containerList, isAdmin, utils.CurrentHomePlan().Names) // Fork addition (plan 49)
+	dashboardRoutes = forkDashboardRoutes(dashboardRoutes, containerList, dashboardCallerOf(req), utils.CurrentHomePlan().Names) // Fork addition (plan 49)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status": "OK",

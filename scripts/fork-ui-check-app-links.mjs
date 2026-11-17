@@ -49,7 +49,8 @@ if (phase === 'seed') {
   };
   const waitUp = async () => {
     for (let i = 0; i < 90; i++) {
-      if ((await call('GET', 'status')).status > 0) return;
+      const answer = (await call('GET', 'status')).status;
+      if (answer > 0 && answer !== 502) return; // 502: the stand-in proxy while the server restarts
       await sleep(1000);
     }
     throw new Error('the instance did not come back');
@@ -273,6 +274,13 @@ for (const engine of engines) {
       await page.locator('[role=menu]:visible').waitFor();
       const q = await menuItems(page);
       check(q.every((i) => !i.endpoint && !/published port/.test(i.text)), tag + ': no published port in a plain user\'s menu');
+      await page.keyboard.press('Escape');
+      await sleep(400);
+      await page.locator('[data-app-more="jellyfin"]').click();
+      await page.locator('[role=menu]:visible').waitFor();
+      const j = await menuItems(page);
+      check(j.length > 0 && j.every((i) => !/dashboard/.test(i.href + i.copy) && i.interface !== 'admin'), tag + ': no administration link for a plain user');
+      check(!JSON.stringify(dash).match(/ForkAdminPath|ForkRoleSource|ForkRoleProposed/), tag + ': no administration path or role source reaches a plain user');
       await page.keyboard.press('Escape');
     }
 

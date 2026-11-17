@@ -14,7 +14,11 @@ package configapi
 //     whose certificate is signed by Cosmos' own authority, so that a client
 //     must be given that authority's certificate;
 //   - administrators only: the container's Docker networks (another
-//     container reaches the app there).
+//     container reaches the app there); to those who may edit URLs only:
+//     where the guide comes from and what it would be without the setting.
+//
+// Callers who do not get the tile's words (an API token without
+// configuration-read) get none of this.
 //
 // Nothing here sends a request anywhere or reads an app's credentials.
 
@@ -50,15 +54,19 @@ type ForkGuideFields struct {
 var ForkHostOwnCA func(host string) bool
 
 // guideFields is the hook of forkDashboardRoutes.
-func guideFields(route utils.ProxyRouteConfig, image string, c *types.Container, isAdmin bool, homeHosts []string) ForkGuideFields {
+func guideFields(route utils.ProxyRouteConfig, image string, c *types.Container, isAdmin bool, editsURLs bool, homeHosts []string) ForkGuideFields {
 	fields := ForkGuideFields{}
 	setting := ""
 	if route.ForkInterface != nil {
 		setting = route.ForkInterface.Guide
 	}
-	proposed, _ := guides.For("", image)
-	fields.ForkGuideProposed = proposed
+	if editsURLs { // like the role's proposal: for those who may edit URLs (the form)
+		fields.ForkGuideProposed, _ = guides.For("", image)
+	}
 	fields.ForkGuide, fields.ForkGuideSource = guides.For(setting, image)
+	if !editsURLs {
+		fields.ForkGuideSource = ""
+	}
 	if fields.ForkGuide != "" {
 		fields.ForkGuideRegion = guides.Region(fields.ForkGuide, image)
 	}

@@ -64,13 +64,21 @@ func TestDashboardCarriesTheGuide(t *testing.T) {
 		{Names: []string{"/postgres"}, Image: "postgres:18"},
 	}
 	for _, admin := range []bool{true, false} {
-		got := forkDashboardRoutes(dashboardOf(config, admin), config, containers, admin, nil)
+		caller := plainCaller
+		if admin {
+			caller = adminCaller
+		}
+		got := forkDashboardRoutes(dashboardOf(config, admin), containers, caller, nil)
 		by := map[string]DashboardRoute{}
 		for _, r := range got {
 			by[r.Name] = r
 		}
 		s3 := by["s3"]
-		if s3.ForkGuide != "s3" || s3.ForkGuideSource != "recipe" || s3.ForkGuideRegion != "us-east-1" || s3.ForkRole != "api" {
+		wantSource := ""
+		if admin {
+			wantSource = "recipe"
+		}
+		if s3.ForkGuide != "s3" || s3.ForkGuideSource != wantSource || s3.ForkGuideRegion != "us-east-1" || s3.ForkRole != "api" {
 			t.Errorf("admin %v: the S3 URL of a digest-pinned RustFS: %+v", admin, s3.ForkGuideFields)
 		}
 		if len(s3.ForkOwnCAHosts) != 1 || s3.ForkOwnCAHosts[0] != "s3.local" || s3.ForkShielded {
@@ -80,11 +88,14 @@ func TestDashboardCarriesTheGuide(t *testing.T) {
 		if !internet.ForkShielded || len(internet.ForkOwnCAHosts) != 0 {
 			t.Errorf("admin %v: the shielded name: %+v", admin, internet.ForkGuideFields)
 		}
-		if by["db"].ForkGuide != "" || by["store"].ForkGuide != "s3" || by["store"].ForkGuideSource != "set" {
+		if by["db"].ForkGuide != "" || by["store"].ForkGuide != "s3" || (admin && by["store"].ForkGuideSource != "set") {
 			t.Errorf("admin %v: db %+v store %+v", admin, by["db"].ForkGuideFields, by["store"].ForkGuideFields)
 		}
-		if by["hidden"].ForkGuide != "" || by["hidden"].ForkGuideProposed != "s3" {
+		if by["hidden"].ForkGuide != "" || (admin && by["hidden"].ForkGuideProposed != "s3") || (!admin && by["hidden"].ForkGuideProposed != "") {
 			t.Errorf("admin %v: a guide switched off: %+v", admin, by["hidden"].ForkGuideFields)
+		}
+		if admin && !strings.HasPrefix(s3.ForkImage, "rustfs/rustfs@") {
+			t.Errorf("an administrator gets the image's name, not its ID: %q", s3.ForkImage)
 		}
 		networks := strings.Join(s3.ForkNetworks, ",")
 		if admin && networks != "media" {
@@ -92,6 +103,9 @@ func TestDashboardCarriesTheGuide(t *testing.T) {
 		}
 		if !admin {
 			body, _ := json.Marshal(got)
+			if strings.Contains(string(body), "ForkGuideSource") || strings.Contains(string(body), "ForkGuideProposed") {
+				t.Errorf("a plain user got where the guide comes from: %s", body)
+			}
 			if strings.Contains(string(body), "ForkNetworks") || strings.Contains(string(body), "media") {
 				t.Errorf("a plain user got the networks: %s", body)
 			}
@@ -122,4 +136,14 @@ func withConfig(t *testing.T, config utils.Config) {
 	previous := utils.GetBaseMainConfig()
 	utils.LoadBaseMainConfig(config)
 	t.Cleanup(func() { utils.LoadBaseMainConfig(previous) })
+}
+
+func TestNoGuideForACallerWithoutTheTileWords(t *testing.T) {
+	config := utils.Config{}
+	config.HTTPConfig.ProxyConfig.Routes = []utils.ProxyRouteConfig{servapp("s3", "http://rustfs:9000", "s3.local")}
+	withConfig(t, config)
+	got := forkDashboardRoutes(dashboardOf(config, false), []types.Container{{Names: []string{"/rustfs"}, Image: "rustfs/rustfs:1.0.5"}}, dashboardCaller{}, nil)
+	if len(got) != 1 || got[0].ForkGuide != "" || got[0].ForkGuideRegion != "" {
+		t.Errorf("a token without configuration-read got the guide: %+v", got)
+	}
 }

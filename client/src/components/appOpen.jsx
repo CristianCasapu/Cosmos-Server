@@ -24,7 +24,7 @@ import { useClientInfos } from '../utils/hooks';
 import { PERM_ADMIN, PERM_ADMIN_READ } from '../utils/permissions';
 import { notify } from '../utils/activity';
 import {
-  appTile, containerApp, interfaceOfRoute, menuOrder, mergeDashboard, readPreference, reachMark, visitorPlace, writePreference,
+  appTile, containerApp, interfaceOfRoute, menuOrder, mergeDashboard, sharedAnswer, readPreference, reachMark, visitorPlace, writePreference,
 } from '../utils/appInterfaces';
 import { proposeAccess } from '../utils/exposure';
 import { useCosmosPorts } from './routerPorts';
@@ -36,32 +36,18 @@ import { appGuide, guidePath } from '../utils/guides'; // Fork addition (plan 50
 // ---------------------------------------------------------------------------
 // what every opener needs: where the visitor is, the URLs' roles, the ports
 
-let statusStore = { at: 0, data: null, promise: null };
-let dashboardStore = { at: 0, data: null, promise: null };
-const FRESH = 15000;
-
-const cached = (store, load, set) => {
-  if (store.promise || (store.data && Date.now() - store.at < FRESH)) return store.promise || Promise.resolve(store.data);
-  const promise = load().then((res) => {
-    set({ at: Date.now(), data: (res && res.data) || null, promise: null });
-    return res && res.data;
-  }).catch(() => {
-    set({ at: Date.now(), data: null, promise: null });
-    return null;
-  });
-  set({ ...store, promise });
-  return promise;
-};
+const statusAnswer = sharedAnswer(() => API.getStatus());
+const dashboardAnswer = sharedAnswer(() => API.config.getDashboard());
 
 // The server's status (for "visitor"), shared by every opener of a page.
 // The home page passes its own and nothing is asked again.
 export const useVisitorStatus = (given) => {
   const own = given === undefined; // null: the page loads it itself (the home page), nothing is asked here
-  const [data, setData] = React.useState(statusStore.data);
+  const [data, setData] = React.useState(null);
   React.useEffect(() => {
     if (!own) return undefined;
     let live = true;
-    cached(statusStore, () => API.getStatus(), (s) => { statusStore = s; }).then((d) => { if (live) setData(d); });
+    statusAnswer.get().then((d) => { if (live) setData(d); });
     return () => { live = false; };
   }, [own]);
   return own ? data : given;
@@ -70,11 +56,11 @@ export const useVisitorStatus = (given) => {
 // The URLs' roles, labels and names for use at home (GET /api/dashboard), for
 // the pages that list URLs from the configuration.
 export const useDashboardRoutes = (given) => {
-  const [data, setData] = React.useState(given || dashboardStore.data);
+  const [data, setData] = React.useState(given || null);
   React.useEffect(() => {
     if (given) return undefined;
     let live = true;
-    cached(dashboardStore, () => API.config.getDashboard(), (s) => { dashboardStore = s; }).then((d) => { if (live) setData(d); });
+    dashboardAnswer.get().then((d) => { if (live) setData(d); });
     return () => { live = false; };
   }, [given]);
   return given || data;
@@ -82,7 +68,7 @@ export const useDashboardRoutes = (given) => {
 
 // Forget what was loaded (after a URL was saved).
 export const forgetAppLinks = () => {
-  dashboardStore = { at: 0, data: null, promise: null };
+  dashboardAnswer.invalidate();
 };
 
 const readStorage = () => {

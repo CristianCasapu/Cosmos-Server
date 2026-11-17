@@ -46,7 +46,7 @@ const COND = /^\{\{(if (!?[a-z_]+)|end)\}\}$/;
 export const parseInline = (text) => {
   const out = [];
   const s = String(text || '');
-  const re = /`([^`\n]+)`|\*\*([^*\n]+)\*\*|\[([^\]\n]+)\]\(([^)\s]+)\)|\{\{([a-z_]+)\}\}/g;
+  const re = /`([^`\n]+)`|\*\*([^*\n]+)\*\*|\[([^\]\n]+)\]\(([^)\s]+)\)|\{\{([a-z_]+)\}\}|\{\{if (!?[a-z_]+)\}\}/g;
   let last = 0;
   let m;
   while ((m = re.exec(s)) !== null) {
@@ -56,7 +56,9 @@ export const parseInline = (text) => {
     else if (m[3] !== undefined) {
       const href = /^https?:\/\//i.test(m[4]) ? safeURL(m[4]) : '';
       out.push(href ? { t: 'link', text: m[3], href } : { t: 'text', text: m[0] });
-    } else out.push({ t: 'value', name: m[5] });
+    } else if (m[5] === 'end') out.push({ t: 'end' });
+    else if (m[5] !== undefined) out.push({ t: 'value', name: m[5] });
+    else out.push({ t: 'if', cond: m[6] });
     last = re.lastIndex;
   }
   if (last < s.length) out.push({ t: 'text', text: s.slice(last) });
@@ -260,7 +262,8 @@ export const guideFacts = (app, ctx, status, choice, typed) => {
   };
   const homeItem = pick(HOME_KINDS);
   const netItem = pick(['public']);
-  const consoleItem = interfaces.find((i) => i.web && i.role === 'admin' && !i.derived && (i.kind === 'local' || i.kind === 'home' || i.kind === 'lan'))
+  // the console (the app's administration) is named to administrators only
+  const consoleItem = !c.isAdmin ? null : interfaces.find((i) => i.web && i.role === 'admin' && !i.derived && (i.kind === 'local' || i.kind === 'home' || i.kind === 'lan'))
     || interfaces.find((i) => i.web && i.role === 'admin');
   const apiRoute = (homeItem && byName.get(homeItem.route)) || (netItem && byName.get(netItem.route)) || routes.find((r) => r.ForkGuide && targetOf(r)) || null;
   const target = apiRoute && apiRoute.Mode === 'SERVAPP' ? targetOf(apiRoute) : null;
@@ -330,6 +333,19 @@ const condHolds = (cond, flags) => {
   const name = not ? cond.slice(1) : cond;
   const value = !!(flags && flags[name]);
   return not ? !value : value;
+};
+
+// Keeps the parts of a line whose conditions ("{{if x}} … {{end}}" inside a
+// sentence) hold.
+export const visibleInline = (items, flags) => {
+  const out = [];
+  const stack = [];
+  (items || []).forEach((x) => {
+    if (x.t === 'if') stack.push(x.cond);
+    else if (x.t === 'end') stack.pop();
+    else if (stack.every((cond) => condHolds(cond, flags))) out.push(x);
+  });
+  return out;
 };
 
 // Keeps the blocks whose conditions hold.

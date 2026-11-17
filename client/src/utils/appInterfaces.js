@@ -30,6 +30,7 @@
 // their syntax; anything else is left out. Labels are text.
 
 import { SERVICE_PORTS, serviceFamily, connectionTemplate } from './services.js';
+import { createSharedRequest } from './sharedRequest.js';
 
 export const ROLES = ['admin', 'user', 'api', 'other'];
 export const KINDS = ['panel', 'local', 'home', 'lan', 'vpn', 'public'];
@@ -206,7 +207,8 @@ const appKey = (route, index) => {
 export const groupApps = (routes, skip) => {
   const apps = new Map();
   (routes || []).forEach((route, index) => {
-    if (!route || (skip && skip(route))) return;
+    // a disabled URL answers nothing: never part of a tile (the server leaves it out of the dashboard too)
+    if (!route || route.Disabled === true || (skip && skip(route))) return;
     const key = appKey(route, index);
     if (!apps.has(key)) apps.set(key, { key, container: containerOf(route), routes: [] });
     apps.get(key).routes.push(route);
@@ -286,7 +288,8 @@ export const appInterfaces = (app, ctx) => {
       const url = routeURL(r, c.location, c.ports);
       if (!url) return;
       add({ ...base, kind, host: host || '', url, reach: reachFrom(kind, place), homeName: i > 0 });
-      if (role === 'user' && route.ForkAdminPath) {
+      // an administration path is offered to administrators only (the server sends it to them only)
+      if (c.isAdmin && role === 'user' && route.ForkAdminPath) {
         const adminURL = routeURL(r, c.location, c.ports, String(route.ForkAdminPath));
         if (adminURL) add({ ...base, role: 'admin', roleSource: 'path', label: '', derived: true, kind, host: host || '', url: adminURL, reach: reachFrom(kind, place), homeName: i > 0 });
       }
@@ -502,3 +505,15 @@ export const writePreference = (storage, value) => {
     // private mode: the default stays
   }
 };
+
+// ---------------------------------------------------------------------------
+// one answer for every opener of a page
+
+// The `data` of an API answer, asked once for everyone who asks within `ttl`
+// ms. A failed request counts as the answer null and is kept as long, so that
+// the chips of a page do not each ask again (an expired session, a server
+// that is down). `get()` never rejects; `invalidate()` forgets.
+export const sharedAnswer = (load, ttl = 15000, now) => createSharedRequest(
+  () => Promise.resolve().then(load).then((res) => (res && res.data) || null, () => null),
+  { ttl, now },
+);

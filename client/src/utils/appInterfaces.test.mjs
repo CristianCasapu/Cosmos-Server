@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   appTiles, appTile, containerApp, appInterfaces, chooseInterface, groupApps, hostKind, parseHost, reachFrom, routeURL, safeURL,
-  visitorPlace, interfaceOfRoute, readPreference, writePreference, PREFER_KEY, mergeDashboard, inspectPorts, menuOrder, urlReach,
+  visitorPlace, interfaceOfRoute, readPreference, writePreference, PREFER_KEY, mergeDashboard, inspectPorts, menuOrder, urlReach, sharedAnswer,
 } from './appInterfaces.js';
 
 const app = (name, host, target, more = {}) => ({ Name: name, UseHost: !!host, Host: host, Target: target, Mode: 'SERVAPP', ForkRole: 'user', ...more });
@@ -232,7 +232,10 @@ test('a plain user gets no more than the URLs he sees', () => {
     assert.equal(i.web, true);
     assert.ok(!i.direct);
   }));
-  assert.equal(tiles.reduce((n, t) => n + t.interfaces.length, 0), 12, 'the 8 URLs, the name for use at home and Jellyfin\'s dashboard on its three addresses');
+  assert.equal(tiles.reduce((n, t) => n + t.interfaces.length, 0), 9, 'the 8 URLs and the name for use at home');
+  assert.ok(tiles.every((t) => t.interfaces.every((i) => !i.derived && !/dashboard/.test(i.url))), 'no administration path for a plain user, even when one was sent');
+  const admin = appTiles(owner, { place: HOME, location: homeLocal, isAdmin: true });
+  assert.equal(admin.reduce((n, t) => n + t.interfaces.filter((i) => i.derived).length, 0), 3, 'administrators: Jellyfin\'s dashboard on its three addresses');
 });
 
 test('URLs of one container are one app, named after the URL that carries its name', () => {
@@ -324,4 +327,42 @@ test('a server-built address: does it open from here', () => {
   assert.equal(urlReach('https://s3.example.org', { place: AWAY }), 'opens');
   assert.equal(urlReach('javascript:alert(1)', { place: AWAY }), '');
   assert.equal(urlReach('', { place: AWAY }), '');
+});
+
+test('disabled, hidden and stopped URLs are no part of a tile or its menu', () => {
+  const routes = [
+    app('jellyfin', 'jellyfin.local', 'http://jellyfin:8096'),
+    app('jellyfin-off', 'jellyfin-off.example.org', 'http://jellyfin:8096', { Disabled: true }),
+    app('jellyfin-hidden', 'jellyfin-hidden.example.org', 'http://jellyfin:8096', { HideFromDashboard: true }),
+    app('stopped', 'stopped.example.org', 'http://stopped:80', { ContainerRunning: false }),
+  ];
+  const skip = (r) => r.HideFromDashboard || r.ContainerRunning === false;
+  const tiles = appTiles(routes, { place: AWAY, location: away, isAdmin: true }, skip);
+  assert.equal(tiles.length, 1);
+  assert.deepEqual(tiles[0].interfaces.map((i) => i.host), ['jellyfin.local']);
+  assert.equal(tiles[0].state, 'home-only', 'not the disabled public URL');
+  // without a skip, the disabled one is still left out
+  assert.ok(appTiles(routes, { place: AWAY, location: away }).every((t) => t.interfaces.every((i) => i.host !== 'jellyfin-off.example.org')));
+  assert.equal(groupApps(routes, skip).length, 1);
+});
+
+test('one shared answer: asked once, a failure kept as null for a while too', async () => {
+  let calls = 0;
+  let clock = 0;
+  let fail = true;
+  const shared = sharedAnswer(() => { calls += 1; if (fail) throw new Error('401'); return { data: { visitor: { where: 'home' } } }; }, 15000, () => clock);
+  assert.equal(await shared.get(), null);
+  assert.equal(await shared.get(), null);
+  assert.equal(calls, 1, 'a failure is not asked again within the time');
+  fail = false;
+  clock = 16000;
+  assert.deepEqual(await shared.get(), { visitor: { where: 'home' } });
+  assert.equal(calls, 2);
+  await Promise.all([shared.get(), shared.get()]);
+  assert.equal(calls, 2);
+  shared.invalidate();
+  await shared.get();
+  assert.equal(calls, 3);
+  const rejecting = sharedAnswer(() => Promise.reject(new Error('down')));
+  assert.equal(await rejecting.get(), null);
 });

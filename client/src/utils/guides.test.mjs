@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  parseGuide, parseInline, codeBlocks, renderCode, guideFacts, visibleBlocks, visibleSections, fillValue,
+  visibleInline, parseGuide, parseInline, codeBlocks, renderCode, guideFacts, visibleBlocks, visibleSections, fillValue,
   validBucket, validName, findGuideApp, guidePath, appGuide, VALUE_TYPES,
 } from './guides.js';
 import { groupApps } from './appInterfaces.js';
@@ -169,4 +169,21 @@ test('pages of guides: found by container or URL name; a guide path is plain', (
   assert.equal(guidePath(apps[0], 'linux'), '/cosmos-ui/guide/rustfs#linux');
   assert.equal(guidePath(apps[0], 'x#y'), '/cosmos-ui/guide/rustfs');
   assert.equal(appGuide(apps[0]), 's3');
+});
+
+test('conditions inside a sentence, and no condition or placeholder left in any text', () => {
+  const items = parseInline('a{{if ca}} b{{end}}{{if !ca}} c{{end}} d');
+  assert.equal(visibleInline(items, { ca: true }).map((x) => x.text).join(''), 'a b d');
+  assert.equal(visibleInline(items, { ca: false }).map((x) => x.text).join(''), 'a c d');
+  const guide = parseGuide(s3);
+  const texts = [];
+  const walk = (blocks) => blocks.forEach((b) => {
+    if (b.type === 'if') walk(b.blocks);
+    [b.inline, ...(b.items || []), ...(b.head || []), ...((b.rows || []).flat())].filter(Boolean).forEach((inline) => inline.forEach((x) => texts.push(x)));
+  });
+  walk(guide.intro);
+  guide.sections.forEach((sec) => walk(sec.blocks));
+  texts.filter((x) => x.t === 'text').forEach((x) => assert.ok(!/\{\{/.test(x.text), 'left in the text: ' + x.text));
+  texts.filter((x) => x.t === 'code').forEach((x) => [...x.text.matchAll(/\{\{([^}]*)\}\}/g)].forEach((m) => assert.ok(VALUE_TYPES[m[1]], 'in code: ' + m[0])));
+  texts.filter((x) => x.t === 'value').forEach((x) => assert.ok(VALUE_TYPES[x.name], 'unknown value ' + x.name));
 });
