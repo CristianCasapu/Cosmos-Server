@@ -158,6 +158,12 @@ reboot_machine() {
 
 topo_down() {
 	for c in "$M" "$RT" "$HC" "$OC" "$OC2"; do docker rm -f -v "$c" >/dev/null 2>&1 || true; done
+	# a systemd machine can take a while to go: wait until its name is free
+	for _ in $(seq 1 60); do
+		docker container inspect "$M" >/dev/null 2>&1 || break
+		docker rm -f -v "$M" >/dev/null 2>&1 || true
+		sleep 1
+	done
 	docker volume rm "$M-docker" "$M-containerd" >/dev/null 2>&1 || true
 	docker network rm "$P-home" "$P-out" >/dev/null 2>&1 || true
 }
