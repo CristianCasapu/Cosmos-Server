@@ -166,7 +166,7 @@ test('a first-run app gets a proposal to copy and a label, and no password in it
 });
 
 test('an unknown image is guessed by names, said so, and labelled with names only', () => {
-  const definition = { services: { forms: { image: 'registry.example.org/a/forms:1', environment: ['ADMIN_EMAIL=', 'ADMIN_PASSWORD=change-me', 'SMTP_PASSWORD='] } } };
+  const definition = { services: { forms: { image: 'registry.example.org/a/forms:1', environment: ['ADMIN_EMAIL=', 'ADMIN_PASSWORD=', 'SMTP_PASSWORD='] } } };
   const r = proposeSignIn(definition, plan, defaults, new Map(), random);
   const env = Object.fromEntries(r.definition.services.forms.environment.map((l) => [l.split('=')[0], l.slice(l.indexOf('=') + 1)]));
   assert.equal(env.ADMIN_EMAIL, 'owner@example.org');
@@ -175,6 +175,31 @@ test('an unknown image is guessed by names, said so, and labelled with names onl
   assert.equal(r.lines[0].kind, 'guess');
   assert.equal(r.definition.services.forms.labels[LABEL], 'where=web;email=ADMIN_EMAIL;password=ADMIN_PASSWORD;from=guess');
   assert.ok(!r.definition.services.forms.labels[LABEL].includes(env.ADMIN_PASSWORD));
+});
+
+test('a password Cosmos did not make is named, kept, and replaced only when asked (review minor 5)', () => {
+  const definition = { services: { forms: { image: 'registry.example.org/a/forms:1', environment: ['ADMIN_USER=admin', 'ADMIN_PASSWORD=changeit'] } } };
+  const cache = new Map();
+  const r = proposeSignIn(definition, plan, defaults, cache, random);
+  const env = Object.fromEntries(r.definition.services.forms.environment.map((l) => [l.split('=')[0], l.slice(l.indexOf('=') + 1)]));
+  assert.equal(env.ADMIN_USER, 'admin', 'a username already there is never replaced');
+  assert.equal(env.ADMIN_PASSWORD, 'changeit');
+  assert.equal(r.lines[0].preset, true);
+  assert.equal(r.lines[0].generated, false);
+  const asked = proposeSignIn(definition, plan, defaults, cache, random, { replace: new Set(['forms/ADMIN_PASSWORD']) });
+  const after = Object.fromEntries(asked.definition.services.forms.environment.map((l) => [l.split('=')[0], l.slice(l.indexOf('=') + 1)]));
+  assert.ok(followsRule(after.ADMIN_PASSWORD, PLAIN_RULE) && after.ADMIN_PASSWORD !== 'changeit');
+  assert.equal(asked.lines[0].generated, true);
+  assert.equal(asked.lines[0].preset, false);
+});
+
+test('a label a file or a template brought is replaced by the review\'s own (review F1)', () => {
+  const definition = { services: { a: { image: 'registry.example.org/a/forms:1', environment: ['ADMIN_PASSWORD=', 'API_KEY=x'], labels: { [LABEL]: 'where=web;user=API_KEY;password=ADMIN_PASSWORD', other: 'kept' } },
+    b: { image: 'registry.example.org/a/plain:1', environment: [], labels: { [LABEL]: 'where=web;password=API_KEY' } } } };
+  const r = proposeSignIn(definition, plan, defaults, new Map(), random);
+  assert.equal(r.definition.services.a.labels[LABEL], 'where=web;password=ADMIN_PASSWORD;from=guess');
+  assert.equal(r.definition.services.a.labels.other, 'kept');
+  assert.equal(r.definition.services.b.labels[LABEL], undefined);
 });
 
 test('without defaults the passwords are still generated, the names left alone', () => {

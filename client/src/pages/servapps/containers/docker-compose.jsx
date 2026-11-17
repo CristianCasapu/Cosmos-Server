@@ -215,8 +215,12 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
   }
   // Fork addition (plan 45): the username and e-mail of Configuration > Sign-in details for new apps, for the template's form
   const [signInDefaults, setSignInDefaults] = useState(null);
+  const [signInAsked, setSignInAsked] = useState(false); // the form waits for the answer, so that nothing typed is ever replaced
   useEffect(() => {
-    if (openModal && API.signIn) API.signIn.defaults().then((res) => setSignInDefaults((res && res.data) || null)).catch(() => {});
+    if (!openModal) return;
+    if (!API.signIn) { setSignInAsked(true); return; }
+    setSignInAsked(false);
+    API.signIn.defaults().then((res) => setSignInDefaults((res && res.data) || null)).catch(() => {}).finally(() => setSignInAsked(true));
   }, [openModal]);
 
 
@@ -248,7 +252,7 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
   }, [serviceName, hostnames, context]);
 
   useEffect(() => {
-    if (!openModal || dockerCompose === '') {
+    if (!openModal || dockerCompose === '' || !signInAsked /* Fork addition (plan 45) */) {
       return;
     }
 
@@ -448,7 +452,7 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
       setYmlError(e.message);
       return;
     }
-  }, [openModal, dockerCompose, serviceName, hostnames, overrides, installer, config, rootProtocol, envContent, domains, signInDefaults /* Fork addition (plan 45) */]);
+  }, [openModal, dockerCompose, serviceName, hostnames, overrides, installer, config, rootProtocol, envContent, domains, signInDefaults, signInAsked /* Fork addition (plan 45) */]);
 
   const openModalFunc = () => {
     setOpenModal(true);

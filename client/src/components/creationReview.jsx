@@ -85,7 +85,7 @@ const PlaceLine = ({ volume, choice, proposal, plan, onChoose, busy }) => {
 // `sensitive`: sensitiveAccess(definition); `confirmed`/`onConfirm`: the
 // ticks; `choices`/`onChoices`: where the data goes; `anyArch`/`onAnyArch`.
 const CreationReview = ({
-  definition, base, plan, notes, proposed, frozen, sensitive, confirmed, onConfirm, choices, onChoices, anyArch, onAnyArch, busy, edit, signIn, signInMail,
+  definition, base, plan, notes, proposed, frozen, sensitive, confirmed, onConfirm, choices, onChoices, anyArch, onAnyArch, busy, edit, signIn, signInMail, onSignInReplace,
 }) => {
   const { t } = useTranslation();
   const say = useSay();
@@ -116,7 +116,7 @@ const CreationReview = ({
       </>}
     </Stack>}
 
-    {!edit && <SignInReview lines={signIn} mail={signInMail} />}
+    {!edit && <SignInReview lines={signIn} mail={signInMail} onReplace={onSignInReplace} busy={busy} />}
 
     {!edit && volumes.length > 0 && <Stack spacing={1} sx={{ minWidth: 0 }}>
       <Typography variant="subtitle1">{t('mgmt.servapps.creation.dataTitle', 'Where the data goes')}</Typography>
@@ -207,6 +207,7 @@ export const useCreation = (service, { edit, frozen } = {}) => {
   // plan 45: the sign-in of every door, filled where empty, once the plan says what each image takes
   const [signInDefaults, setSignInDefaults] = React.useState(null);
   const signInCache = React.useRef(new Map());
+  const [signInReplace, setSignInReplace] = React.useState(() => new Set()); // review minor 5: passwords Cosmos did not make, replaced on request
   React.useEffect(() => {
     if (edit || !API.signIn) return undefined;
     let live = true;
@@ -217,9 +218,9 @@ export const useCreation = (service, { edit, frozen } = {}) => {
     if (edit) return { definition: service, proposed: [], signIn: [] };
     const base = proposeDefaults(service, plan);
     if (!plan) return { ...base, signIn: [] };
-    const signed = proposeSignIn(base.definition, plan, signInDefaults, signInCache.current, browserRandom);
+    const signed = proposeSignIn(base.definition, plan, signInDefaults, signInCache.current, browserRandom, { replace: signInReplace });
     return { definition: signed.definition, proposed: [...base.proposed, ...signed.proposed], signIn: signed.lines };
-  }, [service, plan, edit, signInDefaults]);
+  }, [service, plan, edit, signInDefaults, signInReplace]);
   const volumes = React.useMemo(() => dataVolumes(defaults.definition, frozen || []), [defaults, frozen]);
   const proposals = React.useMemo(() => (plan && !edit ? proposePlaces(volumes, plan, null) : {}), [volumes, plan, edit]);
   const choices = React.useMemo(() => {
@@ -232,5 +233,6 @@ export const useCreation = (service, { edit, frozen } = {}) => {
   }, [volumes, proposals, picked]);
   const final = React.useMemo(() => (edit ? service : applyPlaces(defaults.definition, volumes, choices)), [defaults, volumes, choices, edit, service]);
 
-  return { plan, final, base: defaults.definition, proposed: defaults.proposed, choices, setChoices: setPicked, signIn: defaults.signIn, signInMail: signInDefaults && signInDefaults.mail };
+  return { plan, final, base: defaults.definition, proposed: defaults.proposed, choices, setChoices: setPicked, signIn: defaults.signIn, signInMail: signInDefaults && signInDefaults.mail,
+    replaceSignIn: (key, variable) => setSignInReplace((old) => new Set([...old, `${key}/${variable}`])) };
 };

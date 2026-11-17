@@ -49,7 +49,7 @@ const kindsText = (t, rule) => {
     : t('mgmt.servapps.signIn.review.kindsPlain', 'letters and digits');
 };
 
-const AccountLine = ({ line, rule }) => {
+const AccountLine = ({ line, rule, onReplace, busy }) => {
   const { t } = useTranslation();
   const who = line.email
     ? t('mgmt.servapps.signIn.review.asEmail', 'the e-mail {{email}}', { email: line.email, interpolation: { escapeValue: false } })
@@ -69,8 +69,12 @@ const AccountLine = ({ line, rule }) => {
       <Typography variant="caption" sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }}>
         {line.generated
           ? t('mgmt.servapps.signIn.review.generated', 'Password ({{name}}): generated now, {{length}} characters: {{kinds}}.', { name: line.passwordVar, length: String(line.value || '').length, kinds: kindsText(t, rule), interpolation: { escapeValue: false } })
-          : t('mgmt.servapps.signIn.review.setAbove', 'Password ({{name}}): as set above.', { name: line.passwordVar, interpolation: { escapeValue: false } })}
+          : line.preset
+            ? t('mgmt.servapps.signIn.review.preset', 'Password ({{name}}): set before this review, typed by you or the image\'s or the template\'s own value. Cosmos did not generate it: a value written in a template or an image is known to everyone who reads it.', { name: line.passwordVar, interpolation: { escapeValue: false } })
+            : t('mgmt.servapps.signIn.review.setAbove', 'Password ({{name}}): as set above.', { name: line.passwordVar, interpolation: { escapeValue: false } })}
       </Typography>
+      {line.preset && onReplace && !busy && <Button size="small" variant="outlined" sx={{ flexShrink: 0, '&&&': { minHeight: { xs: 44, sm: 0 } } }} data-signin-replace={line.passwordVar}
+        onClick={() => onReplace(line.key, line.passwordVar)}>{t('mgmt.servapps.signIn.review.replace', 'Use a generated password')}</Button>}
       {line.generated && line.value && <CopyButton value={line.value} label={t('mgmt.servapps.signIn.review.copyPassword', 'Copy the password of {{service}}', { service: line.service })} />}
     </Stack>}
   </Stack>;
@@ -109,7 +113,7 @@ const MAIL = {
 };
 
 // `lines`: proposeSignIn's (each with its password rule); `mail`: the defaults' mail state.
-const SignInReview = ({ lines, mail }) => {
+const SignInReview = ({ lines, mail, onReplace, busy }) => {
   const { t } = useTranslation();
   if (!(lines || []).length) return null;
   return <Stack spacing={1} sx={{ minWidth: 0 }} data-review-signin>
@@ -120,7 +124,7 @@ const SignInReview = ({ lines, mail }) => {
         <KeyOutlined style={{ marginRight: 6 }} />
         {t('mgmt.servapps.signIn.review.via', '{{service}}: sign in with the user and password of the database it opens (that database\'s Sign-in details show them).', { service: line.service, interpolation: { escapeValue: false } })}
       </Typography>
-      : <AccountLine key={i} line={line} rule={line.rule} />))}
+      : <AccountLine key={i} line={line} rule={line.rule} onReplace={onReplace} busy={busy} />))}
     {lines.some((l) => l.kind === 'account' || l.kind === 'guess') && <Typography variant="caption" sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }}>
       {t('mgmt.servapps.signIn.review.kept', 'The passwords are kept only in the app\'s own settings (and so in Cosmos\' backup of container definitions). After the creation they are on its page, under Sign-in details, for those who may read credentials, after the password confirmation.')}
     </Typography>}

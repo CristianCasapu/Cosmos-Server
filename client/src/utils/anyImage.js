@@ -409,11 +409,16 @@ export const managerEnv = (manager, db) => {
 // Cosmos' sign-in (a tool that controls data), never a published port.
 // `existing`: the database is already on the server; the two get a network of
 // their own through upstream's links (the database is not changed).
-export const managerService = ({ manager, ref, tag, name, settings, db, host, existing = false }) => {
-  const network = `${db.name}-manager`;
+// Review F2: a manager is never on Docker's default bridge (where any other
+// container would reach it without Cosmos' sign-in): its network mode is a
+// network made for it, with a name that cannot collide (`suffix`, random).
+// Next to an existing database it gets one of its own plus the link network
+// with the database; a new database shares the manager's.
+export const managerService = ({ manager, ref, tag, name, settings, db, host, existing = false, suffix = '' }) => {
+  const network = existing ? `${name}${suffix ? '-' + suffix : ''}` : `${db.name}-manager${suffix ? '-' + suffix : ''}`;
   const { service, frozen } = serviceFor({
     ref, tag, name, recipe: manager, declared: null, settings, host, extraEnv: managerEnv(manager, db),
-    networks: existing ? [] : [network], links: existing ? [db.name] : [],
+    networks: [network], links: existing ? [db.name] : [], networkMode: network,
   });
   if (service.routes) service.routes = service.routes.map((r) => ({ ...r, AuthEnabled: true, AdminOnly: true }));
   service.ports = [];
@@ -423,8 +428,8 @@ export const managerService = ({ manager, ref, tag, name, settings, db, host, ex
 
 // The definition that adds a manager to a database already on the server.
 export const managerDefinition = (args) => {
-  const { service, frozen } = managerService({ ...args, existing: true });
-  const definition = { services: { [args.name]: service } };
+  const { service, frozen, network } = managerService({ ...args, existing: true });
+  const definition = { services: { [args.name]: service }, networks: { [network]: { driver: 'bridge' } } };
   if (frozen.length) definition['cosmos-installer'] = { 'frozen-volumes': frozen };
   return definition;
 };
@@ -481,7 +486,7 @@ const healthOf = (h) => (h ? { test: h.test, interval: h.interval, timeout: h.ti
 // One service for an image. `settings` as proposedSettings gives them (changed
 // or not); a declared default the administrator left alone is not copied
 // (copying would pin it against the image's next version).
-export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, extraEnv = {}, links = [], networks = [], command = '' }) => {
+export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, extraEnv = {}, links = [], networks = [], command = '', networkMode = '' }) => {
   const image = `${ref.name}:${tag}`;
   const env = [];
   const declaredMap = Object.fromEntries(declaredSettings(declared).map((s) => [s.name, s.value]));
@@ -532,6 +537,7 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
   }
   if (links.length) service.links = [...links];
   if (networks.length) service.networks = Object.fromEntries(networks.map((n) => [n, {}]));
+  if (networkMode) service.network_mode = networkMode; // plan 45 (review F2): created on this network, never on Docker's default bridge
   return { service, frozen, web };
 };
 
@@ -540,7 +546,10 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
 // { mode: 'existing', container, recipe, env } | { mode: 'none' } | null.
 // plan 45: `manager` ({ recipe, ref, tag, name, settings, host }): a web manager
 // created with this database, on a network the two share.
-export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, host, reachers = [], database = null, need = null, command = '', manager = null }) => {
+// `suffix` (random, from the dialog) makes the names of the networks made here new.
+export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, host, reachers = [], database = null, need = null, command = '', manager = null, suffix = '' }) => {
+  const fresh = (base) => (suffix ? `${base}-${suffix}` : base);
+  let appNetworkMode = '';
   const services = {};
   const networks = {};
   let frozen = [];
@@ -548,11 +557,11 @@ export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, ho
   let appLinks = [];
   let appNetworks = [];
   if (database && database.mode === 'new' && database.recipe) {
-    const net = `${name}-db`;
+    const net = fresh(`${name}-db`);
     networks[net] = { driver: 'bridge' };
     appNetworks = [net];
     const values = Object.fromEntries((database.settings || []).map((s) => [s.name, s.value]));
-    const dbService = serviceFor({ ref: database.ref, tag: database.tag, name: database.name, recipe: database.recipe, declared: null, settings: database.settings, host: '', networks: [net] });
+    const dbService = serviceFor({ ref: database.ref, tag: database.tag, name: database.name, recipe: database.recipe, declared: null, settings: database.settings, host: '', networks: [net], networkMode: net });
     services[database.name] = dbService.service;
     frozen = frozen.concat(dbService.frozen);
     extraEnv = fillFromConnection(need, connectionOf(database.recipe, database.name, values), database.recipe.provides);
@@ -565,11 +574,18 @@ export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, ho
   let managed = null;
   if (manager && manager.recipe && recipe) {
     const values = Object.fromEntries((settings || []).map((s) => [s.name, s.value]));
-    managed = managerService({ manager: manager.recipe, ref: manager.ref, tag: manager.tag, name: manager.name, settings: manager.settings, host: manager.host, db: { name, recipe, values } });
+    managed = managerService({ manager: manager.recipe, ref: manager.ref, tag: manager.tag, name: manager.name, settings: manager.settings, host: manager.host, db: { name, recipe, values }, suffix });
     networks[managed.network] = { driver: 'bridge' };
     appNetworks = [...appNetworks, managed.network];
+    appNetworkMode = managed.network;
+  } else if (recipe && ['database', 'cache'].includes(recipe.kind) && !appNetworks.length) {
+    // plan 45 (review F2): a database on its own network, not Docker's default bridge; "Let these apps reach it" links apps to it
+    const own = fresh(`${name}-net`);
+    networks[own] = { driver: 'bridge' };
+    appNetworks = [own];
+    appNetworkMode = own;
   }
-  const app = serviceFor({ ref, tag, name, recipe, declared, settings, host, extraEnv, links: [...appLinks, ...reachers], networks: appNetworks, command });
+  const app = serviceFor({ ref, tag, name, recipe, declared, settings, host, extraEnv, links: [...appLinks, ...reachers], networks: appNetworks, command, networkMode: appNetworkMode });
   services[name] = app.service;
   if (database && database.mode === 'new' && Object.keys(services).length > 1) {
     services[name].labels = { 'cosmos-stack': name, 'cosmos-stack-main': name };

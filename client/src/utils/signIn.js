@@ -23,6 +23,15 @@ export const PLAIN_RULE = { min: 16, max: 64, symbols: '', require: ['lower', 'u
 
 export const DEFAULT_LENGTH = 24;
 
+// A random suffix that makes a new network's name one that cannot collide (review minor 2).
+export const networkSuffix = (random) => {
+  const draw = makeDraw(random);
+  const set = 'abcdefghijkmnpqrstuvwxyz23456789';
+  let out = '';
+  for (let i = 0; i < 6; i += 1) out += set[draw(set.length)];
+  return out;
+};
+
 // a stream of uniform random numbers below n (rejection sampling: no bias)
 const makeDraw = (random) => {
   let pool = [];
@@ -56,6 +65,12 @@ export const lengthFor = (rule, wanted) => {
 // A password for a rule: one character of each class the rule allows, the
 // rest from all of them, shuffled; never a symbol first or last (some tools
 // read a leading "-" as an option).
+// The values Cosmos generated on this page (in memory only, gone with the
+// page): the review tells them from a value typed or brought by a template.
+const GENERATED = new Set();
+export const isGenerated = (value) => !!value && GENERATED.has(String(value));
+const generated = (value) => { GENERATED.add(value); return value; };
+
 export const generatePassword = (rule, random, wanted) => {
   const draw = makeDraw(random);
   const classes = classesOf(rule);
@@ -74,7 +89,7 @@ export const generatePassword = (rule, random, wanted) => {
     const k = chars.findIndex((c, i) => i > 0 && i < chars.length - 1 && !isSymbol(c));
     if (k > 0) [chars[edge], chars[k]] = [chars[k], chars[edge]];
   });
-  return chars.join('');
+  return generated(chars.join(''));
 };
 
 // Whether a value follows a rule (the tests, and a value typed by hand).
@@ -97,7 +112,7 @@ export const marketPassword = (random) => {
   const set = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let out = '';
   for (let i = 0; i < 24; i += 1) out += set[draw(set.length)];
-  return out;
+  return generated(out);
 };
 
 // ---- usernames and e-mail addresses ----------------------------------------------------
@@ -218,9 +233,8 @@ export const marketFieldDefault = (field, defaults, random, length) => {
   const keep = { value: initial, filled: '' };
   if (!field || foreign) return keep;
   if (field.type === 'password') {
-    if (typeof initial === 'string' || initial === undefined) {
-      if (isPlaceholder(initial, 'password')) return { value: generatePassword(PLAIN_RULE, random, length), filled: 'password' };
-    }
+    // review minor 5: a template's password, placeholder or not, is known to everyone who reads the template
+    if (typeof initial === 'string' || initial === undefined) return { value: generatePassword(PLAIN_RULE, random, length), filled: 'password' };
     return keep;
   }
   if ((field.type === 'text' || field.type === 'email' || !field.type) && defaults && (typeof initial === 'string' || initial === undefined)) {
@@ -251,19 +265,12 @@ export const composeVarDefault = (name, defaults, random) => {
 };
 
 // The value a form field should take now, or undefined to leave it as it is:
-// once when it has none, and once more when the defaults arrive while it
-// still holds the template's placeholder. Never twice, never over a typed value.
+// once, when the field has no value yet; never over a value, typed or not
+// (the form is built only after the defaults were asked for: docker-compose.jsx).
 export const marketFormValue = (field, current, defaults, random) => {
-  const length = defaults && defaults.length;
-  if (current === undefined) {
-    const d = marketFieldDefault(field, defaults, random, length);
-    return d.filled ? d.value : undefined;
-  }
-  if (defaults && field && current === field.initialValue) {
-    const d = marketFieldDefault(field, defaults, random, length);
-    if ((d.filled === 'user' || d.filled === 'email') && d.value !== current) return d.value;
-  }
-  return undefined;
+  if (current !== undefined) return undefined;
+  const d = marketFieldDefault(field, defaults, random, defaults && defaults.length);
+  return d.filled ? d.value : undefined;
 };
 
 // ---- the label the review sets (src/appsignin/label.go) -----------------------------------
@@ -307,7 +314,13 @@ const setEnv = (list, name, value) => {
 //   cache:      a Map kept by the caller, so that a value is generated once
 // Returns { definition, lines, proposed } — lines for "Who signs in with what",
 // proposed for "Filled in by Cosmos" (names only).
-export const proposeSignIn = (definition, plan, defaults, cache, random) => {
+//   options.replace: a Set of "serviceKey/VARIABLE" the administrator asked to
+//                    replace with a generated password (a value Cosmos did not make)
+// The review fills only what is EMPTY (review minor 5): a value already there
+// was typed by the administrator or brought by the image or the template; a
+// password Cosmos did not generate is said ("preset") with the offer to replace it.
+export const proposeSignIn = (definition, plan, defaults, cache, random, options = {}) => {
+  const replace = options.replace || new Set();
   const services = (definition && definition.services) || {};
   const out = { ...definition, services: {} };
   const lines = [];
@@ -320,14 +333,19 @@ export const proposeSignIn = (definition, plan, defaults, cache, random) => {
   Object.entries(services).forEach(([key, original]) => {
     const service = { ...original };
     out.services[key] = service;
+    // review F1: the sign-in label is the review's own, never one a file or a template brought
+    if (service.labels && service.labels[LABEL] !== undefined) {
+      service.labels = { ...service.labels };
+      delete service.labels[LABEL];
+    }
     const name = service.container_name || key;
     const image = String(service.image || '').trim();
     const info = (plan && plan.signIn && plan.signIn[image]) || null;
     const env = envList(service.environment);
     const values = Object.fromEntries(env.map((line) => [envKey(line), envValue(line)]));
     let changed = false;
-    const fill = (variable, kind, make) => {
-      if (!variable || !isPlaceholder(values[variable], kind)) return false;
+    const fill = (variable, kind, make, force = false) => {
+      if (!variable || !(force || String(values[variable] == null ? '' : values[variable]).trim() === '')) return false;
       const value = make();
       if (!value) return false;
       setEnv(env, variable, value);
@@ -355,8 +373,11 @@ export const proposeSignIn = (definition, plan, defaults, cache, random) => {
           }
         }
         if (account.password) {
-          const generated = fill(account.password, 'password', () => remember(`${key}/${account.password}`, () => generatePassword(login.password || PLAIN_RULE, random, length)));
-          line.generated = generated || cache.get(`${key}/${account.password}`) === values[account.password];
+          const asked = replace.has(`${key}/${account.password}`) && !isGenerated(values[account.password]);
+          fill(account.password, 'password', () => remember(`${key}/${account.password}${asked ? '#replaced' : ''}`, () => generatePassword(login.password || PLAIN_RULE, random, length)), asked);
+          line.generated = isGenerated(values[account.password]);
+          line.preset = !line.generated && !!values[account.password];
+          line.key = key;
           line.passwordVar = account.password;
           if (line.generated) line.value = values[account.password];
         }
@@ -378,11 +399,11 @@ export const proposeSignIn = (definition, plan, defaults, cache, random) => {
           if (guess.user) fill(guess.user, 'user', () => userVariant(defaults.user, null).value);
           if (guess.email) { const mail = emailVariant(defaults.email, null); if (mail.ok) fill(guess.email, 'email', () => mail.value); }
         }
-        const generated = fill(guess.password, 'password', () => remember(`${key}/${guess.password}`, () => generatePassword(PLAIN_RULE, random, length)));
-        const isOurs = generated || cache.get(`${key}/${guess.password}`) === values[guess.password];
-        lines.push({ service: name, kind: 'guess', rule: PLAIN_RULE, user: (guess.user && values[guess.user]) || '', email: (guess.email && values[guess.email]) || '', passwordVar: guess.password, generated: isOurs, value: isOurs ? values[guess.password] : '', source: 'guess' });
-        const existing = (service.labels || {})[LABEL];
-        if (!existing) service.labels = { ...(service.labels || {}), [LABEL]: signInLabel({ where: 'web', user: guess.user, email: guess.email, password: guess.password, from: 'guess' }) };
+        const asked = replace.has(`${key}/${guess.password}`) && !isGenerated(values[guess.password]);
+        fill(guess.password, 'password', () => remember(`${key}/${guess.password}${asked ? '#replaced' : ''}`, () => generatePassword(PLAIN_RULE, random, length)), asked);
+        const isOurs = isGenerated(values[guess.password]);
+        lines.push({ service: name, key, kind: 'guess', rule: PLAIN_RULE, user: (guess.user && values[guess.user]) || '', email: (guess.email && values[guess.email]) || '', passwordVar: guess.password, generated: isOurs, preset: !isOurs && !!values[guess.password], value: isOurs ? values[guess.password] : '', source: 'guess' });
+        service.labels = { ...(service.labels || {}), [LABEL]: signInLabel({ where: 'web', user: guess.user, email: guess.email, password: guess.password, from: 'guess' }) };
       }
     }
     if (changed) service.environment = env;

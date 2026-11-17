@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 import fs from 'node:fs';
 import { backupCommand, buildDefinition, managerDefinition, managerEnv, managersFor, parseReference, proposedSettings } from './anyImage.js';
-import { composeVarDefault, followsRule, marketFieldDefault, marketFormValue, LABEL, MANAGER_LABEL } from './signIn.js';
+import { composeVarDefault, followsRule, isGenerated, marketFieldDefault, marketFormValue, LABEL, MANAGER_LABEL } from './signIn.js';
 
 const random = (n) => { const a = new Uint32Array(n); webcrypto.getRandomValues(a); return a; };
 
@@ -75,6 +75,9 @@ test('a database and its manager share a network of their own; the manager is fo
   const db = definition.services['notes-db'];
   const m = definition.services['notes-db-pgadmin'];
   assert.deepEqual(Object.keys(definition.networks), ['notes-db-manager']);
+  // review F2: both are created on that network, never on Docker's default bridge
+  assert.equal(db.network_mode, 'notes-db-manager');
+  assert.equal(m.network_mode, 'notes-db-manager');
   assert.deepEqual(Object.keys(db.networks), ['notes-db-manager']);
   assert.deepEqual(Object.keys(m.networks), ['notes-db-manager']);
   assert.deepEqual(m.ports, []);
@@ -98,7 +101,12 @@ test('a manager for a database already on the server joins it through a link, th
   const def = managerDefinition({ manager: adminer, ref: parseReference('adminer'), tag: '5', name: 'old-db-adminer', settings: [], host: 'old-db-adminer.server.local', db: { name: 'old-db', recipe: pg, values: { POSTGRES_PASSWORD: 'x' } } });
   assert.deepEqual(Object.keys(def.services), ['old-db-adminer']);
   assert.deepEqual(def.services['old-db-adminer'].links, ['old-db']);
-  assert.equal(def.services['old-db-adminer'].networks, undefined);
+  // review F2: its own new network (never the default bridge) plus the link network made with the database
+  assert.deepEqual(Object.keys(def.services['old-db-adminer'].networks), ['old-db-adminer']);
+  assert.equal(def.services['old-db-adminer'].network_mode, 'old-db-adminer');
+  assert.deepEqual(def.networks, { 'old-db-adminer': { driver: 'bridge' } });
+  const fresh = managerDefinition({ manager: adminer, ref: parseReference('adminer'), tag: '5', name: 'old-db-adminer', settings: [], host: '', db: { name: 'old-db', recipe: pg, values: {} }, suffix: 'k3x9ab' });
+  assert.equal(fresh.services['old-db-adminer'].network_mode, 'old-db-adminer-k3x9ab');
   assert.ok(def.services['old-db-adminer'].environment.includes('ADMINER_DEFAULT_SERVER=old-db'));
   assert.equal(def.services['old-db-adminer'].routes[0].AdminOnly, true);
 });
@@ -117,8 +125,11 @@ test('the Market\'s form fields take the defaults over placeholders, never over 
   assert.equal(marketFieldDefault({ name: 'ADMIN_USER', type: 'text', initialValue: 'keep-me' }, defaults, random).value, 'keep-me');
   // once, then again only while the template's placeholder is still there
   assert.equal(marketFormValue(user, undefined, null, random), undefined);
-  assert.equal(marketFormValue(user, 'admin', defaults, random), 'Owner.Name');
-  assert.equal(marketFormValue(user, 'Owner.Name', defaults, random), undefined);
+  // a value already there (typed, or the template's while the form waited) is never replaced (review minor 5)
+  assert.equal(marketFormValue(user, 'admin', defaults, random), undefined);
+  assert.equal(marketFormValue(user, undefined, defaults, random), 'Owner.Name');
+  // any password a template carries is replaced by a generated one when the form is built
+  assert.ok(isGenerated(marketFieldDefault({ name: 'X_PASSWORD', type: 'password', initialValue: 'changeit' }, defaults, random).value));
   assert.equal(marketFormValue(user, 'typed', defaults, random), undefined);
   const first = marketFormValue(pass, undefined, null, random);
   assert.ok(first && first !== 'change-me');
@@ -155,6 +166,20 @@ test('the real recipes give pgAdmin what the live test proved', () => {
   assert.deepEqual(managersFor(all, 'postgres').map((r) => r.id), ['pgadmin', 'adminer']);
   assert.deepEqual(managersFor(all, 'mysql').map((r) => r.id), ['phpmyadmin', 'adminer']);
   assert.deepEqual(managersFor(all, 'redis').map((r) => r.id), ['redisinsight']);
+});
+
+test('a database alone gets a network of its own; the suffix makes every new network new', () => {
+  const settings = proposedSettings(pg, null, random, defaults);
+  const alone = buildDefinition({ ref: parseReference('postgres'), tag: '18', name: 'db', recipe: pg, declared: null, settings, host: '', suffix: 'q7w8e9' });
+  assert.equal(alone.definition.services.db.network_mode, 'db-net-q7w8e9');
+  assert.deepEqual(alone.definition.networks, { 'db-net-q7w8e9': { driver: 'bridge' } });
+  const manager = { recipe: pgadmin, ref: parseReference('dpage/pgadmin4'), tag: '9', name: 'db-pgadmin', settings: [], host: '' };
+  const both = buildDefinition({ ref: parseReference('postgres'), tag: '18', name: 'db', recipe: pg, declared: null, settings, host: '', manager, suffix: 'q7w8e9' });
+  assert.equal(both.definition.services.db.network_mode, 'db-manager-q7w8e9');
+  assert.equal(both.definition.services['db-pgadmin'].network_mode, 'db-manager-q7w8e9');
+  // an app (not a database) keeps the way it was made
+  const web = buildDefinition({ ref: parseReference('nginx'), tag: '1', name: 'web', recipe: { id: 'nginx', kind: 'web', web: { port: 80 } }, declared: null, settings: [], host: '', suffix: 'q7w8e9' });
+  assert.equal(web.definition.services.web.network_mode, undefined);
 });
 
 test('the label of the review never carries a value', () => {

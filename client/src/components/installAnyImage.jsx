@@ -27,6 +27,7 @@ import {
 import { HandSettings, ImageNeeds, hintHelp } from './imageNeeds'; // Fork addition (plan 43): what an image needs, and where that is known from
 import { hintSettings } from '../utils/services'; // Fork addition (plan 43)
 import { ManagerChoice, useManager } from './managerChoice'; // Fork addition (plan 45): a web manager with a database
+import { networkSuffix } from '../utils/signIn'; // Fork addition (plan 45)
 
 // "NAME=value" lines typed by the administrator, as settings.
 const linesToSettings = (text) => String(text || '').split('\n').map((l) => l.trim())
@@ -118,6 +119,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
   const [dbEnv, setDbEnv] = React.useState([]);
   const [custom, setCustom] = React.useState({ volume: '', port: '', command: '', env: '' });
   const [signInDefaults, setSignInDefaults] = React.useState(null); // Fork addition (plan 45)
+  const [netSuffix] = React.useState(() => networkSuffix(browserRandom)); // Fork addition (plan 45): new networks get names that cannot collide
   const asked = React.useRef(0);
 
   const reset = () => {
@@ -232,7 +234,7 @@ const InstallAnyImage = ({ open, onClose, initial, refresh }) => {
     } else if (db.mode === 'existing') {
       database = { mode: 'existing', container: db.container, recipe: db.recipe, env: dbEnv };
     }
-    return buildDefinition({ ref, tag: desc.tag, name, recipe, declared, settings: [...settings.filter((s) => !extraSettings.some((e) => e.name === s.name)), ...extraSettings] /* Fork addition (plan 43): a name typed by hand replaces the proposal */, host, reachers, database, need, command: openFields ? custom.command : '', manager: mgr.manager /* Fork addition (plan 45) */ }).definition;
+    return buildDefinition({ ref, tag: desc.tag, name, recipe, declared, settings: [...settings.filter((s) => !extraSettings.some((e) => e.name === s.name)), ...extraSettings] /* Fork addition (plan 43): a name typed by hand replaces the proposal */, host, reachers, database, need, command: openFields ? custom.command : '', manager: mgr.manager, suffix: netSuffix /* Fork addition (plan 45) */ }).definition;
   }, [ready, desc, name, settings, host, reachers, db, dbDesc, dbSettings, dbEnv, custom, mgr.manager && JSON.stringify(mgr.manager)]);
 
   const lines = desc && rawDeclared ? facts({ recipe, declared: rawDeclared, name: name || 'app', tag: desc.tag, host: definition && definition.services[name] && definition.services[name].routes ? host : '', settings, size: desc.size }) : [];

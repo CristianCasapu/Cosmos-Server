@@ -17,7 +17,7 @@ import * as API from '../api';
 import NewDockerService from '../pages/servapps/containers/newService';
 import { localAddress } from './hostnameSuggestions';
 import { browserRandom, managerDefinition, managersFor, parseReference, proposedSettings } from '../utils/anyImage';
-import { MANAGER_LABEL } from '../utils/signIn';
+import { MANAGER_LABEL, networkSuffix } from '../utils/signIn';
 
 const wrap = { overflowWrap: 'anywhere', minWidth: 0, '& .MuiAlert-message': { minWidth: 0 } };
 const touchChip = { '&&&': { height: { xs: 'auto', sm: 32 }, minHeight: { xs: 44, sm: 0 } }, '& .MuiChip-label': { whiteSpace: 'normal' } };
@@ -134,6 +134,7 @@ export const AddManagerDialog = ({ open, onClose, containerName, refresh }) => {
   const [desc, setDesc] = React.useState(null);
   const [config, setConfig] = React.useState(null);
   const [defaults, setDefaults] = React.useState(null);
+  const [suffix] = React.useState(() => networkSuffix(browserRandom));
   React.useEffect(() => {
     if (!open) return;
     API.docker.get(containerName).then((res) => {
@@ -150,7 +151,7 @@ export const AddManagerDialog = ({ open, onClose, containerName, refresh }) => {
   const masked = Object.values(values).some((v) => /^\*{3,}$/.test(v));
   const state = useManager({ kind: recipe && recipe.provides, managers: (desc && desc.managers) || [], dbName: containerName, defaults, config });
   const definition = state.manager && recipe && !masked
-    ? managerDefinition({ manager: state.manager.recipe, ref: state.manager.ref, tag: state.manager.tag, name: state.manager.name, settings: state.manager.settings, host: state.manager.host, db: { name: containerName, recipe, values } })
+    ? managerDefinition({ manager: state.manager.recipe, ref: state.manager.ref, tag: state.manager.tag, name: state.manager.name, settings: state.manager.settings, host: state.manager.host, db: { name: containerName, recipe, values }, suffix })
     : null;
   return <Dialog open={open} onClose={(e, reason) => { if (reason !== 'backdropClick') onClose(); }} fullWidth maxWidth="md" fullScreen={phone} data-add-manager>
     <DialogTitle>{t('mgmt.servapps.manager.addTitle', 'A web manager for {{name}}', { name: containerName })}</DialogTitle>
