@@ -359,7 +359,7 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 		}
 
 		// Fork addition: changed monitoring database settings must have their shapes, see fork_postgres.go
-		if problem := checkPostgresSettings(&request, config); problem != nil {
+		if problem := checkPostgresSettings(req, &request, config); problem != nil { // plan 51: and they must work (or "Save anyway")
 			utils.HTTPError(w, problem.Message, http.StatusBadRequest, problem.Code)
 			return
 		}

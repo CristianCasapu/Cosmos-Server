@@ -260,6 +260,8 @@ const SENTENCES = {
   },
   'snapshot.restore.started': { text: '{{actor}} started restoring {{target}} from the snapshot {{snapshot}}', ip: true },
   'api.change': { text: '{{actor}} sent {{method}} {{path}}', ip: true },
+  // Fork addition (plan 51): Configuration > External, "Save anyway"; never the password
+  'config.database.unchecked': { text: '{{actor}} saved the monitoring database {{target}} although it did not answer the check', ip: true },
 
   // Fork addition: blocks at Cloudflare's edge (src/edgeblock)
   'edge.blocked': {

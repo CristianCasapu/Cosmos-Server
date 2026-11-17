@@ -38,7 +38,8 @@ var ErrDatabaseClosed = errors.New("database: not initialized")
 // runs its schema. Deliberately close-then-open so it can be re-invoked when
 // CONFIGFOLDER or the Postgres config changes, mirroring InitStore.
 func InitMetricsDatabase() error {
-	config := GetMainConfig()
+	defer forkMonitoringInitLock()() // Fork addition (plan 51): one opening at a time, see fork_monitoring_store.go
+	config := forkMonitoringConfig(GetMainConfig()) // Fork addition (plan 51): a PostgreSQL that does not answer leaves the store on the local file, see fork_monitoring_store.go
 
 	monitorMu.Lock()
 	defer monitorMu.Unlock()

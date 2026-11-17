@@ -107,6 +107,7 @@ const (
 	SecServerRestart        = "server.restart"
 	SecSnapshotRestore      = "snapshot.restore.started"
 	SecAPIChange            = "api.change"
+	SecDatabaseUnchecked    = "config.database.unchecked" // plan 51: monitoring database settings saved without the connection check
 
 	// Fail2ban (src/fail2ban). A kind is lower-case letters and dots, hence "firewall".
 	SecFail2banBan      = "firewall.ban"

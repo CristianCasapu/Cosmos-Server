@@ -163,10 +163,11 @@ func TestCheckPostgresLive(t *testing.T) {
 }
 
 func TestPostgresSettingsCheckedOnSave(t *testing.T) {
+	stubPostgresStore(t, nil)
 	stored := utils.Config{Database: utils.DatabaseConfig{PostgresHost: "an odd value://", PostgresPassword: postgresTestSecret}}
 	request := stored
 	request.Database.PostgresPassword = "***"
-	if p := checkPostgresSettings(&request, stored); p != nil {
+	if p := checkPostgresSettings(nil, &request, stored); p != nil {
 		t.Fatalf("an unchanged odd value blocks the save: %v", p)
 	}
 	for _, good := range []utils.DatabaseConfig{
@@ -177,7 +178,7 @@ func TestPostgresSettingsCheckedOnSave(t *testing.T) {
 		{PostgresHost: " notes-db:5432 ", PostgresUsername: "owner_name"},
 	} {
 		request := utils.Config{Database: good}
-		if p := checkPostgresSettings(&request, stored); p != nil {
+		if p := checkPostgresSettings(nil, &request, stored); p != nil {
 			t.Errorf("%+v refused: %v", good, p)
 		}
 	}
@@ -189,7 +190,7 @@ func TestPostgresSettingsCheckedOnSave(t *testing.T) {
 		{PostgresHost: "db", PostgresUsername: "a;drop"},
 	} {
 		request := utils.Config{Database: bad}
-		if p := checkPostgresSettings(&request, stored); p == nil || p.Code != "UC045" {
+		if p := checkPostgresSettings(nil, &request, stored); p == nil || p.Code != "UC045" {
 			t.Errorf("%+v accepted", bad)
 		}
 	}
@@ -248,17 +249,138 @@ func TestTheMaskedPostgresPasswordStaysWithItsServer(t *testing.T) {
 		t.Error("the saved password was lost")
 	}
 
-	// another server with a password typed for it: fine
+	// another server with a password typed for it: not refused for the
+	// password; (plan 51) a closed local port is refused by the connection
+	// check, and saved with "Save anyway" by an administrator only
 	reset()
 	settings = readSettingsAs(t, asConfigurationToken)
-	// (a closed local port: the save opens the monitoring database there at once)
 	settings.Database.PostgresHost = "127.0.0.1:1"
 	settings.Database.PostgresPassword = "typed-for-the-new-server"
-	if w := save(asConfigurationToken, settings); w.Code != http.StatusOK {
-		t.Fatalf("a new server with its own password: %d %s", w.Code, w.Body.String())
+	if w := save(asConfigurationToken, settings); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "UC047") ||
+		!strings.Contains(w.Body.String(), "Nothing answers at 127.0.0.1:1") || strings.Contains(w.Body.String(), "typed-for-the-new-server") {
+		t.Fatalf("a closed port: %d %s", w.Code, w.Body.String())
+	}
+	if stored := utils.ReadConfigFromFile().Database; stored != saved {
+		t.Errorf("refused, but stored %+v", stored)
+	}
+	unchecked := func(as func(*http.Request) *http.Request) func(*http.Request) *http.Request {
+		return func(req *http.Request) *http.Request {
+			req.URL.RawQuery = "database=unchecked"
+			return as(req)
+		}
+	}
+	if w := save(unchecked(asConfigurationToken), settings); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "UC048") {
+		t.Fatalf("Save anyway by a token without the admin permission: %d %s", w.Code, w.Body.String())
+	}
+	settings.Database.PostgresPassword = "typed-for-the-new-server"
+	if w := save(unchecked(asAdmin), settings); w.Code != http.StatusOK {
+		t.Fatalf("Save anyway by an administrator: %d %s", w.Code, w.Body.String())
 	}
 	if stored := utils.ReadConfigFromFile().Database; stored.PostgresPassword != "typed-for-the-new-server" || stored.PostgresHost != "127.0.0.1:1" {
 		t.Errorf("stored %+v", stored)
+	}
+}
+
+func stubPostgresStore(t *testing.T, problem *utils.PostgresProblem) *[]utils.DatabaseConfig {
+	t.Helper()
+	tried := &[]utils.DatabaseConfig{}
+	old, oldAdvice := checkPostgresStore, postgresAdvice
+	checkPostgresStore = func(ctx context.Context, d utils.DatabaseConfig) *utils.PostgresProblem {
+		*tried = append(*tried, d)
+		return problem
+	}
+	postgresAdvice = func(ctx context.Context, typed string, reason string) string {
+		return "On this server PostgreSQL's port is published on 192.168.1.10 only, not on localhost: use 192.168.1.10:5432."
+	}
+	t.Cleanup(func() { checkPostgresStore, postgresAdvice = old, oldAdvice })
+	return tried
+}
+
+// Plan 51: a save that changes the settings connects first; one that does
+// not never connects; the refusal says what failed and what to try.
+func TestPostgresSaveConnectsOnlyWhenTheSettingsChange(t *testing.T) {
+	refused := &utils.PostgresProblem{Reason: "closed", Message: "Nothing answers at localhost:5432: check the address and the port, and that the database runs."}
+	tried := stubPostgresStore(t, refused)
+	stored := utils.Config{Database: utils.DatabaseConfig{PostgresHost: "192.168.1.10:5432", PostgresDatabase: "cosmos", PostgresUsername: "cosmos", PostgresPassword: postgresTestSecret}}
+
+	// unchanged (the mask, or the password put back): nothing is tried, even with the database down
+	for _, password := range []string{"***", postgresTestSecret} {
+		request := stored
+		request.Database.PostgresPassword = password
+		request.ServerCountry = "RO"
+		if p := checkPostgresSettings(nil, &request, stored); p != nil {
+			t.Errorf("unchanged settings refused: %v", p)
+		}
+	}
+	// back to the local file: nothing to connect to
+	if p := checkPostgresSettings(nil, &utils.Config{}, stored); p != nil {
+		t.Errorf("back to the local file: %v", p)
+	}
+	if len(*tried) != 0 {
+		t.Fatalf("connected for an unchanged save: %+v", *tried)
+	}
+
+	request := stored
+	request.Database.PostgresHost = "localhost:5432"
+	p := checkPostgresSettings(nil, &request, stored)
+	if p == nil || p.Code != "UC047" || !strings.Contains(p.Message, "Nothing answers at localhost:5432") ||
+		!strings.Contains(p.Message, "use 192.168.1.10:5432") || !strings.Contains(p.Message, "Nothing was saved") {
+		t.Fatalf("refusal: %+v", p)
+	}
+	if len(*tried) != 1 || (*tried)[0].PostgresPassword != postgresTestSecret || (*tried)[0].PostgresHost != "localhost:5432" {
+		t.Errorf("tried %+v", *tried)
+	}
+	// a password in a remote's sentence is never repeated
+	*refused = utils.PostgresProblem{Reason: "refused", Message: "odd " + postgresTestSecret}
+	if p := checkPostgresSettings(nil, &request, stored); p == nil || strings.Contains(p.Message, postgresTestSecret) {
+		t.Errorf("the password came out: %+v", p)
+	}
+	// the database answers: saved
+	*refused = utils.PostgresProblem{}
+	checkPostgresStore = func(context.Context, utils.DatabaseConfig) *utils.PostgresProblem { return nil }
+	if p := checkPostgresSettings(nil, &request, stored); p != nil {
+		t.Errorf("working settings refused: %v", p)
+	}
+}
+
+// One save check at a time: a second one is refused, not queued.
+func TestPostgresSaveCheckOneAtATime(t *testing.T) {
+	stubPostgresStore(t, nil)
+	release, entered := make(chan struct{}), make(chan struct{})
+	checkPostgresStore = func(context.Context, utils.DatabaseConfig) *utils.PostgresProblem {
+		close(entered)
+		<-release
+		return nil
+	}
+	stored := utils.Config{}
+	done := make(chan *httpSettingsProblem)
+	go func() {
+		request := utils.Config{Database: utils.DatabaseConfig{PostgresHost: "192.168.1.10:5432", PostgresUsername: "cosmos"}}
+		done <- checkPostgresSettings(nil, &request, stored)
+	}()
+	<-entered
+	request := utils.Config{Database: utils.DatabaseConfig{PostgresHost: "192.168.1.11:5432", PostgresUsername: "cosmos"}}
+	if p := checkPostgresSettings(nil, &request, stored); p == nil || p.Code != "UC049" {
+		t.Errorf("a second check at once: %+v", p)
+	}
+	close(release)
+	if p := <-done; p != nil {
+		t.Errorf("first: %+v", p)
+	}
+}
+
+// The test answers the advice next to the reason.
+func TestPostgresTestAnswersTheAdvice(t *testing.T) {
+	withSavedDatabase(t, utils.DatabaseConfig{})
+	stubPostgresStore(t, nil)
+	checkPostgres = func(context.Context, utils.DatabaseConfig) *utils.PostgresProblem {
+		return &utils.PostgresProblem{Reason: "closed", Message: "Nothing answers at localhost:5432."}
+	}
+	_, answer, body := postgresTestCall(t, `{"host":"localhost:5432","database":"cosmos","username":"cosmos","password":"x-typed"}`)
+	data, _ := answer["data"].(map[string]interface{})
+	advice, _ := data["advice"].(string)
+	if data["success"] != false || !strings.Contains(advice, "192.168.1.10:5432") {
+		t.Errorf("%s", body)
 	}
 }
 
