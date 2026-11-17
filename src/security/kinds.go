@@ -189,6 +189,8 @@ var catalogue = func() map[string]Kind {
 		audit(utils.SecEdgeBlockAdded, SeverityMedium, "Blocked at Cloudflare by hand", "An administrator asked Cloudflare to block or challenge an address. Target: the address or IPv6 network. Details: mode, until."),
 		audit(utils.SecEdgeUnblocked, SeverityMedium, "Block at Cloudflare lifted", "A block Cosmos made at Cloudflare was removed. Target: the address or IPv6 network. Details: reason is admin (lifted by an administrator), all (everything lifted), off (the feature was switched off), expired (its time was up), removed_at_cloudflare (somebody deleted it in Cloudflare's dashboard) or admin_seen (an administrator signed in from it)."),
 
+		audit(utils.SecMonitoringCopy, SeverityMedium, "Monitoring history copy", "An administrator started or cancelled the copy of the monitoring history (metrics, events, notifications, this record) between the local file and PostgreSQL. Details: action is start or cancel, direction is to-postgres or to-local. Nothing is deleted by it."), // Fork addition (plan 51)
+
 		incident(utils.SecRecorderDropped, SeverityMedium, OutcomeFailed, "Events lost", "The record could not keep up (the database did not answer): Count events were not stored."),
 	}
 	byKind := make(map[string]Kind, len(kinds))

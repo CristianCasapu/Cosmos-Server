@@ -17,6 +17,7 @@ import (
 		"github.com/azukaar/cosmos-server/src/docker"
 		"github.com/azukaar/cosmos-server/src/authorizationserver"
 		"github.com/azukaar/cosmos-server/src/market"
+		"github.com/azukaar/cosmos-server/src/monitorcopy" // Fork addition (plan 51)
 	"github.com/azukaar/cosmos-server/src/anyimage" // Fork addition: install any image
 	"github.com/azukaar/cosmos-server/src/appsignin" // Fork addition (plan 45): sign-in details of apps
 		"github.com/azukaar/cosmos-server/src/constellation"
@@ -1097,6 +1098,9 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/sign-in/reveal", appsignin.RevealRoute)   // Fork addition (plan 45): one of its secrets, recorded
 	srapiAdmin.HandleFunc("/api/app-sign-in/defaults", appsignin.DefaultsRoute)                  // Fork addition (plan 45): what an installation proposes
 	srapiAdmin.HandleFunc("/api/config/postgres-proposals", appsignin.PostgresProposalsRoute)    // Fork addition (plan 47): the PostgreSQL containers proposed for the monitoring database, no secret
+	srapiAdmin.HandleFunc("/api/monitoring-copy", monitorcopy.StatusRoute)        // Fork addition (plan 51): the copy of the monitoring history between the local file and PostgreSQL, see monitorcopy/
+	srapiAdmin.HandleFunc("/api/monitoring-copy/start", monitorcopy.StartRoute)   // Fork addition (plan 51)
+	srapiAdmin.HandleFunc("/api/monitoring-copy/cancel", monitorcopy.CancelRoute) // Fork addition (plan 51)
 	srapiAdmin.HandleFunc("/api/lan-addresses", proxy.LANAddressesRoute) // Fork addition: where a service may be published for the home network (proxy/fork_lan_addresses.go)
 	// Fork addition: does an app accept the address it is reached at (src/behind, plan 44)
 	srapiAdmin.HandleFunc("/api/url-check", behind.CheckRoute)

@@ -200,6 +200,16 @@ const SENTENCES = {
     pick: (e) => (!detail(e, 'sections') || detail(e, 'sections') === '(none)' ? 'nochange' : ''),
     variants: { nochange: '{{actor}} saved the settings without changing anything' },
   },
+  // Fork addition (plan 51): the copy of the monitoring history (src/monitorcopy)
+  'config.monitoring.copy': {
+    text: '{{actor}} started copying the monitoring history from the local file into PostgreSQL', ip: true,
+    pick: (e) => (detail(e, 'action') === 'cancel' ? 'cancel' : '') + (detail(e, 'direction') === 'to-local' ? 'local' : ''),
+    variants: {
+      local: '{{actor}} started copying the monitoring records of PostgreSQL into the local file',
+      cancel: '{{actor}} cancelled the copy of the monitoring history',
+      cancellocal: '{{actor}} cancelled the copy of the monitoring history',
+    },
+  },
   'route.created': { text: '{{actor}} created the URL {{target}}', ip: true },
   'route.updated': { text: '{{actor}} changed the URL {{target}}', ip: true },
   'route.deleted': { text: '{{actor}} deleted the URL {{target}}', ip: true },
