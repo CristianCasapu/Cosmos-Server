@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 	"time"
 )
 
@@ -255,5 +257,35 @@ func TestFallbackHealsLive(t *testing.T) {
 	store, _ := MonitoringWriteDB()
 	if err := store.QueryRow("SELECT count(*) FROM metric_values").Scan(new(int)); err != nil {
 		t.Fatalf("tables in PostgreSQL: %v", err)
+	}
+}
+
+// Plan 51: a schema made at the same moment by the store in use (a race of
+// two CREATE TABLE IF NOT EXISTS in PostgreSQL) is tried again; other
+// failures are not.
+func TestPrepareMonitoringSchemaRetriesARace(t *testing.T) {
+	prevPause := schemaRacePause
+	schemaRacePause = time.Millisecond
+	t.Cleanup(func() { schemaRacePause = prevPause })
+	tries := 0
+	err := retrySchemaRace(func() error {
+		tries++
+		if tries < 3 {
+			return &pgconn.PgError{Code: "23505", Message: "duplicate key value violates unique constraint \"pg_type_typname_nsp_index\""}
+		}
+		return nil
+	})
+	if err != nil || tries != 3 {
+		t.Errorf("race: %v after %d tries", err, tries)
+	}
+	tries = 0
+	err = retrySchemaRace(func() error { tries++; return &pgconn.PgError{Code: "42501"} })
+	if err == nil || tries != 1 {
+		t.Errorf("a refusal is not retried: %v after %d tries", err, tries)
+	}
+	tries = 0
+	err = retrySchemaRace(func() error { tries++; return &pgconn.PgError{Code: "42P07"} })
+	if err == nil || tries != schemaRaceTries {
+		t.Errorf("bounded: %v after %d tries", err, tries)
 	}
 }

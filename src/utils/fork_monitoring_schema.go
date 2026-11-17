@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"sort"
 	"sync"
+	"time"
 )
 
 type monitoringSchemaHook struct {
@@ -53,6 +54,37 @@ func RegisteredMonitoringSchemas() []string {
 // registered one, in the order of their names. It is what opening the store
 // does, so running it on a store that is already prepared changes nothing.
 func PrepareMonitoringSchema(db *sql.DB, dialect string) error {
+	// plan 51: the store in use may be making the same tables at the same
+	// moment (the security record makes its table on its first write): two
+	// CREATE TABLE IF NOT EXISTS racing in PostgreSQL fail one of them with a
+	// duplicate; the schema is then there, and the next try passes
+	return retrySchemaRace(func() error { return prepareMonitoringSchema(db, dialect) })
+}
+
+// schemaRaceTries and schemaRacePause bound the retries; variables for the tests.
+var (
+	schemaRaceTries = 4
+	schemaRacePause = 300 * time.Millisecond
+)
+
+// retrySchemaRace runs prepare again when it failed for a concurrent DDL
+// (23505 unique violation in the catalogue, 42P07 duplicate table, 40P01
+// deadlock, 40001 serialization failure).
+func retrySchemaRace(prepare func() error) error {
+	var err error
+	for try := 1; try <= schemaRaceTries; try++ {
+		err = prepare()
+		switch postgresErrorCode(err) {
+		case "23505", "42P07", "40P01", "40001":
+			time.Sleep(time.Duration(try) * schemaRacePause)
+			continue
+		}
+		return err
+	}
+	return err
+}
+
+func prepareMonitoringSchema(db *sql.DB, dialect string) error {
 	if err := initMetricsSchema(db, dialect); err != nil {
 		return err
 	}
