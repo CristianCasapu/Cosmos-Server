@@ -47,14 +47,13 @@ func AnnounceSettingsChange(before utils.Config, after utils.Config, actor strin
 		return
 	}
 
-	c := &composer{}
-	header(c, was, "Security alert")
-	c.fixed("The Telegram notifications of this server " + what + ": this chat no longer receives them as before. If that was not you, look at the server.").line()
-	if !was.hideDetails && (actor != "" || ip != "") {
-		c.fixed("Changed by ").value(actor, maxValue).fixed(" from ").value(ip, maxValue).line()
+	nt := newNotice("telegram.moved", map[string]string{"what": what})
+	nt.at = time.Now()
+	nt.key = "telegram.moved"
+	if actor != "" || ip != "" {
+		nt.extra = movedBy(actor, ip)
 	}
-	c.fixed(time.Now().Format(stampLayout))
-	text, entities := c.result()
+	m := render(was, nt)
 
 	select {
 	case changeSlots <- struct{}{}:
@@ -66,7 +65,7 @@ func AnnounceSettingsChange(before utils.Config, after utils.Config, actor strin
 		defer func() { recover() }()
 		for attempt := 0; ; attempt++ {
 			ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)
-			failure := directClient.send(ctx, was, text, entities, false)
+			_, failure := directClient.sendMessage(ctx, was, outgoing{message: m})
 			cancel()
 			if failure == nil || !failure.Retryable || attempt >= len(changeRetries) {
 				return
@@ -74,4 +73,11 @@ func AnnounceSettingsChange(before utils.Config, after utils.Config, actor strin
 			time.Sleep(changeRetries[attempt])
 		}
 	}()
+}
+
+// movedBy writes who changed the settings, from where.
+func movedBy(actor string, ip string) func(c *composer) {
+	return func(c *composer) {
+		c.fixed("Changed by ").value(actor, maxValue).fixed(" from ").value(ip, maxValue).fixed(".")
+	}
 }

@@ -1,120 +1,84 @@
 package telegram
 
 // A notification that carries its sentences (utils.NotificationInfo) is
-// told with them: the plain sentence of what happened, the object, how
-// often it happened, and a link to its details in the panel. The values in
-// the sentence are covered by code entities like every other value.
+// told with them: the first line from the table of messages.go, what
+// happened in the notification's own sentence, what it means and what to
+// do from the table, how often it happened, and a button to its details in
+// the panel. A notification that ends something (Resolves) is a closing
+// message: a reply to the one that opened it.
 
 import (
-	"net"
-	"regexp"
-	"strconv"
 	"strings"
 
-	"github.com/azukaar/cosmos-server/src/upnp"
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
-var (
-	sentenceVar      = regexp.MustCompile(`\{\{(\w+)\}\}`)
-	hostnameOK       = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
-	refOK            = regexp.MustCompile(`^[0-9a-f]{16}$`)
-	categoryOfSource = map[string]string{
-		"containers": CategoryApps,
-		"storage":    CategoryStorage,
-	}
-)
-
-// writeSentence writes an English sentence: its words as they are, its
-// values as values.
-func writeSentence(c *composer, text string, vars map[string]string, config utils.Config) {
-	last := 0
-	for _, m := range sentenceVar.FindAllStringSubmatchIndex(text, -1) {
-		c.fixed(text[last:m[0]])
-		c.value(hideSecrets(vars[text[m[2]:m[3]]], config), maxFreeText)
-		last = m[1]
-	}
-	c.fixed(text[last:])
-}
-
-// panelLink is the address of a notification's details, or "" when the
-// server has no name to be reached by.
-func panelLink(ref string, config utils.Config) string {
-	host := strings.TrimSpace(config.HTTPConfig.Hostname)
-	if !refOK.MatchString(ref) || !hostnameOK.MatchString(host) || host == "localhost" {
-		return ""
-	}
-	if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsUnspecified()) {
-		return ""
-	}
-	scheme, port := "http", config.HTTPConfig.HTTPPort
-	if utils.IsHTTPS {
-		scheme = "https"
-		if p := upnp.ExternalHTTPSPort(); p > 0 {
-			port = strconv.Itoa(p)
-		} else {
-			port = config.HTTPConfig.HTTPSPort
-		}
-	}
-	address := scheme + "://" + host
-	if port != "" && !(scheme == "https" && port == "443") && !(scheme == "http" && port == "80") {
-		if _, err := strconv.Atoi(port); err == nil {
-			address += ":" + port
-		}
-	}
-	return address + "/cosmos-ui/notifications/r/" + ref
+var categoryOfSource = map[string]string{
+	"containers": CategoryApps,
+	"storage":    CategoryStorage,
 }
 
 func noticeFromInfo(n utils.Notification, config utils.Config) notice {
 	info := n.Fork
-	category := categoryOfSource[info.Source]
-	if category == "" {
-		category = CategorySystem
-	}
-	switch {
-	case info.Kind == "alert.disk":
-		category = CategoryStorage
-	case info.Kind == "alert.triggered" && info.What != nil && appAlertNames[info.What.Vars["name"]]:
-		category = CategoryApps
-	}
-	priority := priorityNormal
-	level := strings.ToLower(n.Level)
-	if level == "info" || level == "success" || info.Resolves != "" {
-		priority = priorityLow
-	}
-	label := "Notification"
-	if info.Title != nil {
-		// the title's words without its values, for summaries
-		label = strings.TrimSpace(sentenceVar.ReplaceAllString(utils.NotificationEnglish(info.Title.Key), "…"))
-	}
-	nt := notice{category: category, key: "n:" + info.Kind, label: label, priority: priority, title: label + "."}
-	what := ""
-	var vars map[string]string
-	if info.What != nil {
-		what, vars = utils.NotificationEnglish(info.What.Key), info.What.Vars
-	}
-	link := panelLink(info.Ref, config)
-	count, first := info.Count, int64(0)
-	if len(info.Seen) > 0 {
-		first = info.Seen[0]
-	}
-	nt.details = func(c *composer) {
-		if what != "" {
-			writeSentence(c, what, vars, config)
+	vars := map[string]string{}
+	for _, text := range []*utils.NotificationText{info.Title, info.What, info.Means} {
+		if text == nil {
+			continue
 		}
-		if info.Subject != nil && info.Subject.Name != "" {
-			c.line().fixed("About: ").value(hideSecrets(info.Subject.Name, config), maxValue)
-		}
-		if count > 1 {
-			c.line().fixed("Seen " + strconv.Itoa(count) + " times")
-			if first > 0 {
-				c.fixed(" since " + utils.MillisToTime(first).Local().Format("2006-01-02 15:04"))
+		for key, value := range text.Vars {
+			if _, set := vars[key]; !set {
+				vars[key] = value
 			}
-			c.fixed(".")
 		}
 	}
-	if link != "" {
-		nt.link = link
+	if info.Subject != nil && info.Subject.Name != "" {
+		vars["subject"] = info.Subject.Name
 	}
+
+	nt := newNotice(info.Kind, vars)
+	kt := nt.texts()
+	if nt.kind == "notification.other" {
+		// a kind the table does not know (yet): its own title and sentence
+		title := ""
+		if info.Title != nil {
+			title = utils.RenderNotificationText(*info.Title)
+		}
+		if title == "" {
+			title = info.Kind
+		}
+		nt.vars["title"] = title
+		nt.vars["text"] = utils.RenderNotificationText(*info.What)
+		if category := categoryOfSource[info.Source]; category != "" {
+			nt.category = category
+		} else {
+			nt.category = CategorySystem
+		}
+	} else {
+		nt.what = utils.NotificationEnglish(info.What.Key)
+	}
+	if info.Means != nil && kt.Means == "" {
+		nt.means = utils.NotificationEnglish(info.Means.Key)
+	}
+	if info.Kind == "alert.triggered" && appAlertNames[vars["name"]] {
+		nt.category = CategoryApps
+	}
+	if kt.Level || nt.kind == "notification.other" {
+		nt.severity = levelSeverity(n.Level, nt.severity)
+	}
+	nt.raw = info.Raw
+	if strings.TrimSpace(nt.raw) == strings.TrimSpace(utils.RenderNotificationText(*info.What)) {
+		nt.raw = "" // said already
+	}
+	nt.ref = info.Ref
+	nt.thread, nt.resolves = info.Thread, info.Resolves
+	if info.Resolves != "" {
+		nt.closing = true
+	}
+	nt.repeat = info.Repeat
+	nt.count = info.Count
+	if len(info.Seen) > 0 && info.Seen[0] > 0 {
+		nt.first = utils.MillisToTime(info.Seen[0])
+	}
+	nt.key = "n:" + info.Kind
 	return nt
 }

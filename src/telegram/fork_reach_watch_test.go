@@ -27,12 +27,12 @@ func TestTheOutageMessageIsEnoughOnItsOwn(t *testing.T) {
 	n := reachwatch.DownNotification(o, primary, reachwatch.Plan{Port: 2053, Interval: 5 * time.Minute}, now.Add(time.Minute), now)
 	n.Fork.Ref = "0123456789abcdef"
 	nt, tell := noticeFromNotification(n, config)
-	if !tell || nt.priority != priorityNormal || nt.category != CategorySystem {
+	if !tell || nt.priority() != priorityCritical || nt.category != CategorySystem || nt.thread != "reach:connect" {
 		t.Fatalf("%v %+v", tell, nt)
 	}
 	text, _ := textOf(t, settingsOf(config), nt)
-	for _, want := range []string{"Cosmos cannot be reached from the internet", "Since 09:12", "error 522", "port 2053",
-		"Cosmos asked the router to forward the port again", "keeps testing", "About: example.org, app.example.org"} {
+	for _, want := range []string{"🔴 Critical · Unreachable from the internet (port 2053)\n", "Cosmos cannot be reached from the internet", "Since 09:12", "error 522", "port 2053",
+		"Cosmos asked the router to forward the port again", "keeps testing"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q in:\n%s", want, text)
 		}
@@ -43,7 +43,7 @@ func TestTheOutageMessageIsEnoughOnItsOwn(t *testing.T) {
 	back := reachwatch.RestoredNotification(o, reachwatch.Plan{Port: 2053, Interval: 5 * time.Minute}, end)
 	nt, _ = noticeFromNotification(back, config)
 	text, _ = textOf(t, settingsOf(config), nt)
-	if nt.priority != priorityLow || !strings.Contains(text, "can be reached from the internet again") || !strings.Contains(text, "34 minutes") {
-		t.Errorf("follow-up (%v):\n%s", nt.priority, text)
+	if nt.priority() != priorityLow || !strings.HasPrefix(text, "🟢 OK · Reachable from the internet again\n") || !strings.Contains(text, "34 minutes") || nt.resolves != "reach:connect" {
+		t.Errorf("follow-up (%v):\n%s", nt.priority(), text)
 	}
 }

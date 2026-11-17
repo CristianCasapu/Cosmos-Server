@@ -114,7 +114,16 @@ func (h *harness) waitUntil(t *testing.T, what string, wanted func(Status) bool)
 }
 
 func plainNotice(key string, p priority) notice {
-	return notice{category: CategorySecurity, key: key, label: "Label of " + key, priority: p, title: "Title of " + key + "."}
+	nt := newNotice("notification.other", map[string]string{"title": "Title of " + key + ".", "text": "Text of " + key + "."})
+	nt.key = key
+	nt.category = CategorySecurity
+	switch p {
+	case priorityCritical:
+		nt.severity = sevCritical
+	case priorityLow:
+		nt.severity = sevInfo
+	}
+	return nt
 }
 
 func (h *harness) queued() (normal int, critical int, held int) {
@@ -288,26 +297,32 @@ func TestNothingIsKeptWhenSwitchedOffOrTheCategoryIsOff(t *testing.T) {
 
 func TestTheSummarySaysWhatWasNotSent(t *testing.T) {
 	now := time.Date(2026, 11, 13, 12, 0, 0, 0, time.Local)
-	text, entities := composeDigest(testSettings(), map[string]int{"Failed login": 12, "Probe for a vulnerable path": 5, otherLabel: 3}, now.Add(-5*time.Minute), now, priorityNormal)
-	want := "Cosmos · home.example · Summary\n" +
-		"20 more events in the last 5 minutes, not sent one by one:\n" +
-		"12 × Failed login\n" +
-		"5 × Probe for a vulnerable path\n" +
+	m := composeDigest(testSettings(), map[string]int{"auth.login.failed": 12, "scan.probe": 5, otherKinds: 3}, now.Add(-5*time.Minute), now, sevWarn)
+	want := "🟡 Warning · 20 more events in the last 5 min: 12 failed sign-ins, 5 probes, 3 other events\n\n" +
+		"These were not sent one by one, so that the chat is not flooded:\n" +
+		"12 × failed sign-ins\n" +
+		"5 × probes\n" +
 		"3 × other events\n" +
-		"The details are in the panel.\n" +
-		now.Format(stampLayout)
-	if text != want {
-		t.Errorf("summary:\n%s\nwant:\n%s", text, want)
+		"Nothing was lost: every event is in the panel.\n" +
+		"What to do: Look at the notifications or the security record in the panel.\n" +
+		"home.example · " + now.Format("2 Jan 15:04")
+	if m.text != want {
+		t.Errorf("summary:\n%s\nwant:\n%s", m.text, want)
 	}
-	if parts := covered(t, text, entities); len(parts) != 1 || parts[0] != "home.example" {
+	if parts := covered(t, m.text, m.entities); len(parts) != 1 || parts[0] != "home.example" {
 		t.Errorf("entities cover %q", parts)
 	}
 
-	text, _ = composeDigest(testSettings(), map[string]int{"Temporary ban": 1}, now.Add(-20*time.Second), now, priorityCritical)
-	if !strings.Contains(text, "Summary with alerts") || !strings.Contains(text, "1 more event in the last minute") {
-		t.Errorf("summary of one critical event: %s", text)
+	// one kind: the preview says which, and how many
+	m = composeDigest(testSettings(), map[string]int{"auth.login.failed": 47}, now.Add(-10*time.Minute), now, sevWarn)
+	if PreviewLine(m.text) != "🟡 Warning · 47 more failed sign-ins in the last 10 min" {
+		t.Errorf("summary of one kind: %s", PreviewLine(m.text))
 	}
-	if got := spanWords(3 * time.Hour); got != "in the last 3 hours" {
+	m = composeDigest(testSettings(), map[string]int{"shield.ban.temporary": 1}, now.Add(-20*time.Second), now, sevCritical)
+	if PreviewLine(m.text) != "🔴 Critical · 1 more temporary bans in the last minute" {
+		t.Errorf("summary of one critical event: %s", m.text)
+	}
+	if got := spanWords(3 * time.Hour); got != "in the last 3 h" {
 		t.Errorf("three hours: %q", got)
 	}
 }
@@ -327,13 +342,13 @@ func TestMessagesArriveCriticalFirst(t *testing.T) {
 	order := []string{}
 	for _, req := range got {
 		text, _ := req.body["text"].(string)
-		order = append(order, strings.Split(text, "\n")[1])
+		order = append(order, strings.SplitN(PreviewLine(text), " · ", 2)[1])
 	}
 	want := []string{"Title of first.", "Title of urgent.", "Title of second.", "Title of third."}
 	if strings.Join(order, "|") != strings.Join(want, "|") {
 		t.Errorf("order %q, want %q", order, want)
 	}
-	if !strings.HasPrefix(fake.texts()[1], "Cosmos · home.example · Security alert\n") {
+	if !strings.HasPrefix(fake.texts()[1], "🔴 Critical · ") {
 		t.Errorf("a critical message does not say so: %q", fake.texts()[1])
 	}
 	// low priority arrives without sound, the others with
@@ -466,7 +481,7 @@ func TestWhatCouldNotBeDeliveredIsToldLater(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !strings.Contains(summary, "2 more events") || !strings.Contains(summary, "1 × Label of a") || !strings.Contains(summary, "1 × Label of b") {
+	if !strings.Contains(summary, "2 more notifications") || !strings.Contains(summary, "2 × notifications") {
 		t.Errorf("the summary after the outage: %q", summary)
 	}
 	// told once, however long it lasted
@@ -523,7 +538,7 @@ func TestARefusedTokenPausesSendingAndIsToldOnce(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !strings.Contains(summary, "51 more events") || !strings.Contains(summary, "Summary with alerts") {
+	if !strings.HasPrefix(summary, "🔴 Critical · 51 more notifications") {
 		t.Errorf("the summary after the pause: %q", summary)
 	}
 }
@@ -545,7 +560,7 @@ func TestThePauseEndsByItself(t *testing.T) {
 	if gap := got[1].at.Sub(got[0].at); gap < 280*time.Millisecond {
 		t.Errorf("the next request came %v after a refusal, the pause is 300ms", gap)
 	}
-	if text := fake.texts()[1]; !strings.Contains(text, "1 more event") {
+	if text := fake.texts()[1]; !strings.Contains(text, "1 more notifications") {
 		t.Errorf("after the pause: %q", text)
 	}
 }
@@ -555,10 +570,10 @@ func TestAFloodBecomesAFewMessagesAndASummary(t *testing.T) {
 	h := newHarness(t, fake, false)
 
 	for i := 0; i < 12; i++ {
-		h.Notify(notice{category: CategorySecurity, key: "sec:auth.login.failed", label: "Failed login", priority: priorityNormal, title: "Failed login."})
+		h.Notify(newNotice("auth.login.failed", map[string]string{"actor": "admin", "ip": "203.0.113.7"}))
 	}
 	for i := 0; i < 5; i++ {
-		h.Notify(notice{category: CategorySecurity, key: "sec:scan.probe", label: "Probe for a vulnerable path", priority: priorityNormal, title: "Probe."})
+		h.Notify(newNotice("scan.probe", map[string]string{"ip": "203.0.113.8", "probe": "wordpress"}))
 	}
 	// 3 failed logins and 3 probes fit the budgets and the cap of 6; 11 do not
 	got := fake.waitFor(t, 7)
@@ -567,7 +582,7 @@ func TestAFloodBecomesAFewMessagesAndASummary(t *testing.T) {
 		t.Fatalf("%d messages for 17 events, want 6 and a summary: %q", len(all), fake.texts())
 	}
 	summary, _ := got[6].body["text"].(string)
-	for _, part := range []string{"11 more events", "9 × Failed login", "2 × Probe for a vulnerable path"} {
+	for _, part := range []string{"🟡 Warning · 11 more events in the last minute: 9 failed sign-ins, 2 probes", "9 × failed sign-ins", "2 × probes"} {
 		if !strings.Contains(summary, part) {
 			t.Errorf("the summary does not say %q:\n%s", part, summary)
 		}
@@ -627,7 +642,7 @@ func TestAMessageRefusedForItsFormGoesOutWithoutValues(t *testing.T) {
 	h := newHarness(t, fake, false)
 
 	nt := plainNotice("a", priorityCritical)
-	nt.details = func(c *composer) { c.fixed("By ").value("mallory", maxValue) }
+	nt.extra = func(c *composer) { c.fixed("By ").value("mallory", maxValue) }
 	h.Notify(nt)
 
 	got := fake.waitFor(t, 2)
@@ -636,7 +651,7 @@ func TestAMessageRefusedForItsFormGoesOutWithoutValues(t *testing.T) {
 	if !strings.Contains(first, "By mallory") {
 		t.Errorf("the first attempt: %q", first)
 	}
-	if strings.Contains(second, "mallory") || !strings.Contains(second, "Title of a.") || !strings.Contains(second, "The details are in the panel.") {
+	if strings.Contains(second, "mallory") || !strings.HasPrefix(second, "🔴 Critical · Notification\n") || !strings.Contains(second, "The names and addresses are in the panel.") {
 		t.Errorf("the second attempt: %q", second)
 	}
 	h.waitUntil(t, "the message counts as sent", func(status Status) bool { return status.Sent == 1 })
@@ -652,16 +667,17 @@ func TestDetailsCanBeLeftOut(t *testing.T) {
 	h.setConfig(func(c *utils.Config) { c.Telegram.HideDetails = true; c.Telegram.ServerName = "Cellar" })
 
 	nt := plainNotice("a", priorityNormal)
-	nt.details = func(c *composer) {
+	nt.extra = func(c *composer) {
 		c.fixed("By ").value("alice", maxValue).fixed(" from ").value("192.0.2.7", maxValue)
 	}
+	nt.vars["title"] = "alice from 192.0.2.7"
 	h.Notify(nt)
 
 	text := fake.waitFor(t, 1)[0].body["text"].(string)
 	if strings.Contains(text, "alice") || strings.Contains(text, "192.0.2.7") {
 		t.Errorf("a name or an address left the server: %q", text)
 	}
-	if !strings.HasPrefix(text, "Cosmos · Cellar · Security\nTitle of a.\nThe details are in the panel.\n") {
+	if !strings.HasPrefix(text, "🟡 Warning · Notification\n\n") || !strings.Contains(text, "The names and addresses are in the panel.\n") || !strings.Contains(text, "Cellar · ") {
 		t.Errorf("message: %q", text)
 	}
 }

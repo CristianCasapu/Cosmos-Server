@@ -51,14 +51,14 @@ func TestTheSourcesReachTheChat(t *testing.T) {
 	if len(fake.received()) != 3 {
 		t.Fatalf("%d messages, want 3:\n%s", len(fake.received()), texts)
 	}
-	for _, part := range []string{"Host terminal opened", "By admin from 192.0.2.7", "Router port forwarding failed", "Reason: no answer", "Container jellyfin stopped 3 times"} {
+	for _, part := range []string{"🔴 Critical · Root terminal opened on the server by admin\n", "from 192.0.2.7", "🟠 Error · Router stopped forwarding a port\n", "\nno answer\n", "🟠 Error · jellyfin keeps stopping (exit 1)\n"} {
 		if !strings.Contains(texts, part) {
 			t.Errorf("no message says %q:\n%s", part, texts)
 		}
 	}
 	// the critical one overtook nothing here, but it is marked
 	first, _ := got[0].body["text"].(string)
-	if !strings.Contains(first, "Security alert") {
+	if !strings.HasPrefix(first, "🔴 Critical · ") {
 		t.Errorf("the first message: %s", first)
 	}
 }
@@ -125,7 +125,7 @@ func TestStartsAndEndsAreToldAcrossRuns(t *testing.T) {
 
 	fake.waitFor(t, 3)
 	texts := strings.Join(fake.texts(), "\n---\n")
-	for _, part := range []string{"From version 0.24.0-fork.8 to 0.24.0-fork.9", "Cosmos restarted, as asked for", "after an unexpected stop"} {
+	for _, part := range []string{"🔵 Info · Server updated to 0.24.0-fork.9\n", "from 0.24.0-fork.8 to 0.24.0-fork.9", "🔵 Info · Cosmos restarted after a change of settings\n", "🟠 Error · Cosmos back after a crash or power loss\n"} {
 		if !strings.Contains(texts, part) {
 			t.Errorf("no message says %q:\n%s", part, texts)
 		}
@@ -143,7 +143,7 @@ func TestAnUpdateThatFailedIsToldWithoutSecrets(t *testing.T) {
 
 	handleSituation(utils.NoticeUpdateFailed, map[string]string{"version": "9", "reason": "could not write: smtp-password-123 and " + testToken})
 	text, _ := fake.waitFor(t, 1)[0].body["text"].(string)
-	if !strings.Contains(text, "The server update could not be installed") || !strings.Contains(text, "[hidden]") {
+	if !strings.HasPrefix(text, "🟠 Error · Server update 9 not installed\n") || !strings.Contains(text, "[hidden]") {
 		t.Errorf("message: %s", text)
 	}
 	mustNotContain(t, "the message", text, "smtp-password-123")
@@ -173,7 +173,7 @@ func TestTheChatIsToldWhenItLosesTheNotifications(t *testing.T) {
 		if req.path != "/bot"+testToken+"/sendMessage" || !strings.Contains(req.raw, `"chat_id":`+testChat) {
 			t.Errorf("%s: sent to %s %s", what, req.path, req.raw)
 		}
-		if !strings.Contains(text, "Security alert") || !strings.Contains(text, "The Telegram notifications of this server "+what) || !strings.Contains(text, "Changed by mallory from 203.0.113.66") {
+		if !strings.HasPrefix(text, "🔴 Critical · Telegram notifications ") || !strings.Contains(text, "The Telegram notifications of this server "+what) || !strings.Contains(text, "Changed by mallory from 203.0.113.66") {
 			t.Errorf("%s: %s", what, text)
 		}
 	}
@@ -218,7 +218,7 @@ func TestTheNotifierHearsTheSecurityRecord(t *testing.T) {
 	utils.RecordSecurityEvent(utils.SecurityEvent{Kind: utils.SecShieldBanPerm, IP: "203.0.113.9"})
 
 	text, _ := fake.waitFor(t, 1)[0].body["text"].(string)
-	if !strings.Contains(text, "Permanent ban") || !strings.Contains(text, "From 203.0.113.9") {
+	if !strings.HasPrefix(text, "🔴 Critical · SmartShield banned 203.0.113.9 for good\n") {
 		t.Errorf("message: %s", text)
 	}
 }

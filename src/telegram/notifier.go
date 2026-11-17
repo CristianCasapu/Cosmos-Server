@@ -2,8 +2,6 @@ package telegram
 
 import (
 	"context"
-	"sort"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -22,27 +20,6 @@ const (
 	// is tried for hours and rings during the quiet hours.
 	priorityCritical
 )
-
-// notice is one thing to tell the administrator, before it is put into
-// words for the settings in use.
-type notice struct {
-	category string
-	// key is what the budget is kept per: a kind of security event, a
-	// kind of notification. It comes from a bounded set, never from input.
-	key string
-	// label is what a summary calls this, in fixed words.
-	label    string
-	priority priority
-	at       time.Time
-	// title is the first line of the body, in fixed words.
-	title string
-	// details writes what is known about this one event: who, where,
-	// what. It is left out when the settings say so. May be nil.
-	details func(c *composer)
-	// link is the address of the notification's details in the panel,
-	// built by this server from its own name; "" when there is none.
-	link string
-}
 
 // limits are the numbers the notifier works with. The tests shorten them.
 type limits struct {
@@ -96,16 +73,17 @@ type bucket struct {
 type item struct {
 	priority priority
 	at       time.Time // the age limit counts from here
-	// what it stands for, by label: one event, or for a summary many
+	// what it stands for, by kind: one event, or for a summary many
 	counts map[string]int
 	since  time.Time // the first of them
 	digest bool
 
-	text          string
-	entities      []entity
-	plainText     string // the same without values
-	plainEntities []entity
-	triedPlain    bool
+	message    message
+	plain      message // the same without values
+	triedPlain bool
+
+	// plan 48: how it arrives, and what it opens or closes
+	nt notice
 }
 
 // Status is what the settings page shows about deliveries.
@@ -133,6 +111,8 @@ type notifier struct {
 	client   *apiClient
 	settings func() settings
 	now      func() time.Time
+	// threads remembers the messages that opened something that lasts.
+	threads *threadMemory
 	// raise tells the administrators in the panel that deliveries fail.
 	raise func(reason string)
 	// logf writes a line to the server's log.
@@ -199,7 +179,7 @@ func (n *notifier) close() {
 // a summary, or dropped because its category is off, and the call returns.
 func (n *notifier) Notify(nt notice) {
 	st := n.settings()
-	if !st.usable || !st.categories[nt.category] {
+	if !st.usable || !st.wants(nt) {
 		return
 	}
 	if nt.at.IsZero() {
@@ -212,30 +192,49 @@ func (n *notifier) Notify(nt notice) {
 
 	// while the token or the chat is refused nothing is queued: it is
 	// counted, and told in one message once sending works again
+	p := nt.priority()
 	if n.pausedLocked(st, now) {
-		n.holdLocked(nt.label, 1, nt.priority, now)
+		n.holdLocked(nt.kind, 1, p, now)
 		return
 	}
-	if !n.takeLocked(nt.key, nt.priority, now) {
-		n.holdLocked(nt.label, 1, nt.priority, now)
+	// a closing message is not held back: it ends what was told
+	if !(nt.closing && nt.resolves != "") && !n.takeLocked(nt.budgetKey(), p, now) {
+		n.holdLocked(nt.kind, 1, p, now)
 		return
 	}
-	if nt.priority != priorityCritical && !n.underCapLocked(st.maxPerMinute, now) {
-		n.holdLocked(nt.label, 1, nt.priority, now)
+	if p != priorityCritical && !n.underCapLocked(st.maxPerMinute, now) {
+		n.holdLocked(nt.kind, 1, p, now)
 		return
 	}
 
-	it := &item{priority: nt.priority, at: now, since: nt.at, counts: map[string]int{nt.label: 1}}
-	it.text, it.entities = composeNotice(st, nt, !st.hideDetails)
-	it.plainText, it.plainEntities = composeNotice(st, nt, false)
+	it := &item{priority: p, at: now, since: nt.at, counts: map[string]int{nt.kind: 1}, nt: nt}
+	it.message = render(st, nt)
+	plain := renderWith(st, nt, false)
+	plain.button = nil
+	it.plain = plain
 
 	queue, room := &n.normal, n.limits.normalQueue
-	if nt.priority == priorityCritical {
+	if p == priorityCritical {
 		queue, room = &n.critical, n.limits.criticalQueue
 	}
 	if len(*queue) >= room {
-		n.holdLocked(nt.label, 1, nt.priority, now)
-		return
+		// full: the least severe, oldest message gives way, counted in the
+		// summary; when none is less severe, this one is counted
+		victim := -1
+		for i, waiting := range *queue {
+			if waiting.priority < p && (victim < 0 || waiting.priority < (*queue)[victim].priority) {
+				victim = i
+			}
+		}
+		if victim < 0 {
+			n.holdLocked(nt.kind, 1, p, now)
+			return
+		}
+		dropped := (*queue)[victim]
+		*queue = append((*queue)[:victim], (*queue)[victim+1:]...)
+		for kind, count := range dropped.counts {
+			n.holdLocked(kind, count, dropped.priority, now)
+		}
 	}
 	*queue = append(*queue, it)
 	n.signal()
@@ -331,7 +330,7 @@ func (n *notifier) underCapLocked(max int, now time.Time) bool {
 
 // holdLocked counts events that are not sent one by one. They go out
 // together, as one summary.
-func (n *notifier) holdLocked(label string, count int, p priority, now time.Time) {
+func (n *notifier) holdLocked(kind string, count int, p priority, now time.Time) {
 	if count <= 0 {
 		return
 	}
@@ -342,8 +341,8 @@ func (n *notifier) holdLocked(label string, count int, p priority, now time.Time
 	if p > n.digestTop {
 		n.digestTop = p
 	}
-	if _, known := n.digest[label]; known || len(n.digest) < n.limits.maxLabels {
-		n.digest[label] += count
+	if _, known := n.digest[kind]; known || len(n.digest) < n.limits.maxLabels {
+		n.digest[kind] += count
 	} else {
 		n.digestOther += count
 	}
@@ -410,11 +409,24 @@ func (n *notifier) next() (*item, time.Duration) {
 func (n *notifier) takeDigestLocked(st settings, now time.Time) *item {
 	counts := n.digest
 	if n.digestOther > 0 {
-		counts[otherLabel] += n.digestOther
+		counts[otherKinds] += n.digestOther
+	}
+	top := sevInfo
+	switch n.digestTop {
+	case priorityCritical:
+		top = sevCritical
+	case priorityNormal:
+		top = sevWarn
+	}
+	for kind := range counts {
+		if kt, known := texts.Kinds[kind]; known && kt.severity > top && kt.severity < sevCritical {
+			top = kt.severity
+		}
 	}
 	it := &item{priority: n.digestTop, at: now, since: n.digestSince, counts: counts, digest: true}
-	it.text, it.entities = composeDigest(st, counts, n.digestSince, now, n.digestTop)
-	it.plainText, it.plainEntities = it.text, it.entities
+	it.message = composeDigest(st, counts, n.digestSince, now, top)
+	it.plain = it.message
+	it.nt = notice{kind: "summary", severity: top}
 
 	n.digest, n.digestOther = map[string]int{}, 0
 	n.digestTop = priorityLow
@@ -482,8 +494,8 @@ func (n *notifier) deliver(it *item) bool {
 		}
 
 		now := n.now()
-		silent := it.priority == priorityLow ||
-			(st.inQuietHours(now.Hour()*60+now.Minute()) && (it.priority != priorityCritical || st.silenceCrit))
+		silent := n.silent(st, it, now)
+		replyTo := n.replyTo(st, it)
 
 		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)
 		go func() {
@@ -493,7 +505,7 @@ func (n *notifier) deliver(it *item) bool {
 			case <-ctx.Done():
 			}
 		}()
-		failure := n.client.send(ctx, st, it.text, it.entities, silent)
+		messageID, failure := n.client.sendMessage(ctx, st, outgoing{message: it.message, silent: silent, replyTo: replyTo})
 		cancel()
 
 		n.mu.Lock()
@@ -502,13 +514,20 @@ func (n *notifier) deliver(it *item) bool {
 
 		if failure == nil {
 			n.succeeded()
+			n.afterSent(st, it, messageID)
 			return true
 		}
 
+		// the button was refused (the panel's address): once more without it
+		if failure.Reason == ReasonBadButton && it.message.button != nil {
+			it.message.button = nil
+			attempt--
+			continue
+		}
 		// refused for its form: once more, without the values
 		if failure.Reason == ReasonBadMessage && !it.triedPlain && !it.digest {
 			it.triedPlain = true
-			it.text, it.entities = it.plainText, it.plainEntities
+			it.message = it.plain
 			attempt--
 			continue
 		}
@@ -549,14 +568,83 @@ func (n *notifier) deliver(it *item) bool {
 	}
 }
 
+// silent decides whether a message arrives without sound: its severity
+// says so, or it is the quiet hours (critical ones still ring, unless the
+// settings say otherwise).
+func (n *notifier) silent(st settings, it *item, now time.Time) bool {
+	if st.mode(it.nt) == DeliverSilent {
+		return true
+	}
+	return st.inQuietHours(now.Hour()*60+now.Minute()) && (it.priority != priorityCritical || st.silenceCrit)
+}
+
+// replyTo is the message a closing message or a repeat answers.
+func (n *notifier) replyTo(st settings, it *item) int {
+	thread := it.nt.resolves
+	if thread == "" && it.nt.repeat {
+		thread = it.nt.thread
+	}
+	if thread == "" || n.threads == nil {
+		return 0
+	}
+	if open, ok := n.threads.get(st, thread); ok {
+		return open.MessageID
+	}
+	return 0
+}
+
+// afterSent remembers the opening of something that lasts, pins a critical
+// one, and for a closing message unpins and forgets its opening. Pins are
+// a help: a failure is not retried.
+func (n *notifier) afterSent(st settings, it *item, messageID int) {
+	if n.threads == nil {
+		return
+	}
+	nt := it.nt
+	unpin := []int{}
+	switch {
+	case nt.resolves != "":
+		if open, ok := n.threads.close(st, nt.resolves); ok && open.Pinned {
+			unpin = append(unpin, open.MessageID)
+		}
+	case nt.thread != "" && messageID > 0 && !nt.repeat:
+		pin := nt.texts().Pin && nt.severity == sevCritical
+		unpin = n.threads.open(st, nt.thread, messageID, pin)
+		if pin {
+			n.pinMessage(st, messageID, true)
+		}
+	}
+	for _, id := range unpin {
+		n.pinMessage(st, id, false)
+	}
+}
+
+func (n *notifier) pinMessage(st settings, messageID int, pin bool) {
+	n.mu.Lock()
+	paced := n.lastRequest.Add(n.limits.pace).Sub(n.now())
+	n.mu.Unlock()
+	if !n.sleep(paced) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)
+	failure := n.client.pin(ctx, st, messageID, pin)
+	cancel()
+	n.mu.Lock()
+	n.lastRequest = n.now()
+	n.mu.Unlock()
+	if failure != nil {
+		n.logf("Telegram: a message could not be pinned or unpinned: " + failure.Message)
+	}
+}
+
 // giveUp moves what a message stood for into the next summary.
 func (n *notifier) giveUp(it *item) {
 	now := n.now()
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	empty := n.heldLocked() == 0
-	for label, count := range it.counts {
-		n.holdLocked(label, count, it.priority, now)
+	for kind, count := range it.counts {
+		n.holdLocked(kind, count, it.priority, now)
 	}
 	if empty || it.since.Before(n.digestSince) {
 		n.digestSince = it.since
@@ -641,101 +729,3 @@ func (n *notifier) Status() Status {
 	return status
 }
 
-// otherLabel stands for the kinds a summary has no room to name.
-const otherLabel = "other events"
-
-var categoryTitles = map[string]string{
-	CategorySecurity: "Security",
-	CategoryLogins:   "Login",
-	CategorySystem:   "System",
-	CategoryStorage:  "Storage",
-	CategoryApps:     "Apps",
-	CategoryOther:    "Notice",
-}
-
-const stampLayout = "2006-01-02 15:04:05 MST"
-
-// header writes the first line: where the message comes from.
-func header(c *composer, st settings, what string) {
-	c.fixed("Cosmos · ").value(st.serverName, maxServerName).fixed(" · " + what).line()
-}
-
-// composeNotice puts a notice into words.
-func composeNotice(st settings, nt notice, details bool) (string, []entity) {
-	c := &composer{}
-	what := categoryTitles[nt.category]
-	if what == "" {
-		what = categoryTitles[CategoryOther]
-	}
-	if nt.priority == priorityCritical {
-		what += " alert"
-	}
-	header(c, st, what)
-	c.fixed(nt.title).line()
-	if details && nt.details != nil {
-		before := c.length
-		nt.details(c)
-		if c.length > before {
-			c.line()
-		}
-	} else if nt.details != nil {
-		c.fixed("The details are in the panel.").line()
-	}
-	if nt.link != "" {
-		c.fixed("Details: " + nt.link).line()
-	}
-	c.fixed(nt.at.Local().Format(stampLayout))
-	return c.result()
-}
-
-// composeDigest writes the summary of what was not sent one by one. It
-// holds fixed words and numbers only.
-func composeDigest(st settings, counts map[string]int, since time.Time, now time.Time, top priority) (string, []entity) {
-	labels := make([]string, 0, len(counts))
-	total := 0
-	for label, count := range counts {
-		labels = append(labels, label)
-		total += count
-	}
-	sort.Slice(labels, func(i, j int) bool {
-		if (labels[i] == otherLabel) != (labels[j] == otherLabel) {
-			return labels[j] == otherLabel
-		}
-		if counts[labels[i]] != counts[labels[j]] {
-			return counts[labels[i]] > counts[labels[j]]
-		}
-		return labels[i] < labels[j]
-	})
-
-	c := &composer{}
-	what := "Summary"
-	if top == priorityCritical {
-		what = "Summary with alerts"
-	}
-	header(c, st, what)
-
-	events := " more events"
-	if total == 1 {
-		events = " more event"
-	}
-	c.fixed(strconv.Itoa(total) + events + " " + spanWords(now.Sub(since)) + ", not sent one by one:").line()
-	for _, label := range labels {
-		c.fixed(strconv.Itoa(counts[label]) + " × " + label).line()
-	}
-	c.fixed("The details are in the panel.").line()
-	c.fixed(now.Local().Format(stampLayout))
-	return c.result()
-}
-
-// spanWords says how long ago the first event of a summary was.
-func spanWords(span time.Duration) string {
-	minutes := int((span + 30*time.Second) / time.Minute)
-	switch {
-	case minutes <= 1:
-		return "in the last minute"
-	case minutes < 120:
-		return "in the last " + strconv.Itoa(minutes) + " minutes"
-	default:
-		return "in the last " + strconv.Itoa((minutes+30)/60) + " hours"
-	}
-}

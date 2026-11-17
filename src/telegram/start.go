@@ -33,6 +33,7 @@ func Start(version string) {
 
 		n := newNotifier(newAPIClient(), currentSettings)
 		n.raise = raiseInPanel
+		n.threads = newThreadMemory(threadsPath())
 		n.logf = utils.Warn
 		n.start()
 		std.Store(n)
@@ -125,7 +126,7 @@ func handleSituation(kind string, values map[string]string) {
 		values["reason"] = hideSecrets(reason, utils.GetMainConfig())
 	}
 	nt, tell := noticeFromSituation(kind, values)
-	if !tell || !st.categories[nt.category] {
+	if !tell || !st.wants(nt) {
 		return
 	}
 	if kind == utils.NoticeUpdateAvailable && !firstAnnouncement(statePath(), values["version"]) {

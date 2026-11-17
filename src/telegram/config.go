@@ -140,6 +140,27 @@ func ValidateConfig(cfg *utils.TelegramConfig) error {
 	if cfg.MaxPerMinute < 0 || cfg.MaxPerMinute > maxMaxPerMinute {
 		return errors.New("Telegram: the number of messages per minute is between 1 and " + strconv.Itoa(maxMaxPerMinute))
 	}
+	if len(cfg.Kinds) > len(texts.Kinds) {
+		return errors.New("Telegram: unknown kind of message")
+	}
+	for name := range cfg.Kinds {
+		if !knownKind(name) || ownKinds[name] {
+			return errors.New("Telegram: unknown kind of message")
+		}
+	}
+	if len(cfg.Delivery) > len(SeverityNames) {
+		return errors.New("Telegram: unknown severity")
+	}
+	for name, mode := range cfg.Delivery {
+		if _, known := parseSeverity(name); !known {
+			return errors.New("Telegram: unknown severity")
+		}
+		switch mode {
+		case DeliverSound, DeliverSilent, DeliverOff:
+		default:
+			return errors.New("Telegram: a severity is sent with sound, silently, or not at all")
+		}
+	}
 	if cfg.Enabled && cfg.BotToken == "" {
 		return errors.New("Telegram: enter the bot token, or switch the notifications off")
 	}
@@ -167,7 +188,23 @@ type settings struct {
 	maxPerMinute int
 	usable       bool   // enabled, and token and chat have the right shape
 	fingerprint  string // changes when the token, the chat or the topic change
+	// plan 48
+	kinds    map[string]bool // only the kinds switched explicitly
+	delivery [4]string       // per severity: DeliverSound, DeliverSilent or DeliverOff
+	secrets  []string        // what no message may hold
+	panel    string          // "https://host[:port]" of the panel, "" when unknown
 }
+
+// How a severity is delivered.
+const (
+	DeliverSound  = "sound"
+	DeliverSilent = "silent"
+	DeliverOff    = "off"
+)
+
+// DefaultDelivery is how each severity is delivered when the settings say
+// nothing: what the notifications did before the severities existed.
+var DefaultDelivery = map[string]string{"info": DeliverSilent, "warn": DeliverSound, "error": DeliverSound, "critical": DeliverSound}
 
 // settingsOf reads the configuration. Settings that would not pass
 // ValidateConfig (a file edited by hand) are not used: usable is false.
@@ -211,9 +248,56 @@ func settingsOf(config utils.Config) settings {
 			st.quiet, st.quietFrom, st.quietTo = true, from, to
 		}
 	}
+	st.kinds = map[string]bool{}
+	for name, on := range cfg.Kinds {
+		if knownKind(name) && !ownKinds[name] {
+			st.kinds[name] = on
+		}
+	}
+	for i, name := range SeverityNames {
+		st.delivery[i] = DefaultDelivery[name]
+		switch mode := cfg.Delivery[name]; mode {
+		case DeliverSound, DeliverSilent, DeliverOff:
+			st.delivery[i] = mode
+		}
+	}
+	st.secrets = secretsOf(secretSource{cfg.BotToken, config.EmailConfig.Password, config.Database.PostgresPassword, config.ServerToken, config.Licence})
+	st.panel = panelBase(config)
 	st.usable = st.enabled && ValidToken(st.token) && ValidChatID(st.chatID)
 	st.fingerprint = st.token + "\x00" + st.chatID + "\x00" + strconv.Itoa(st.topicID)
 	return st
+}
+
+// wants decides whether a notice is sent at all: its kind switched on (by
+// itself, or by its category), its severity not switched off.
+func (st settings) wants(nt notice) bool {
+	if ownKinds[nt.kind] {
+		return true
+	}
+	if on, set := st.kinds[nt.kind]; set {
+		if !on {
+			return false
+		}
+	} else if !st.categories[nt.category] {
+		return false
+	}
+	return st.mode(nt) != DeliverOff
+}
+
+// forced reports whether a kind was switched on by itself, which sends it
+// even below the minimum severity of the security record.
+func (st settings) forced(kind string) bool {
+	return st.kinds[kind]
+}
+
+// mode is how a notice is delivered. A closing message is delivered like
+// information.
+func (st settings) mode(nt notice) string {
+	sev := nt.severity
+	if nt.closing {
+		sev = sevInfo
+	}
+	return st.delivery[sev]
 }
 
 // minutesOf reads "HH:MM" as minutes after midnight.
