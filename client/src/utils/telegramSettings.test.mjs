@@ -63,7 +63,8 @@ test('saving the form as it was loaded changes nothing and keeps the stored toke
   const values = telegramInitialValues(saved);
   const out = telegramToConfig(values, saved);
   assert.equal(out.BotToken, MASKED, 'the mask goes back: the server keeps what it has');
-  assert.deepEqual({ ...out, Categories: undefined }, { ...saved.Telegram, Categories: undefined });
+  // settings saved before plan 48 have no switches per kind and no delivery: empty ones mean the same
+  assert.deepEqual({ ...out, Categories: undefined }, { ...saved.Telegram, Categories: undefined, Kinds: {}, Delivery: {} });
   assert.deepEqual(out.Categories, { security: true, logins: true, system: true, storage: true, apps: false, other: true });
   assert.equal(telegramUnsaved(values, saved), false);
   assert.equal(telegramUnsaved({ ...values, Telegram_ChatID: '5' }, saved), true);
