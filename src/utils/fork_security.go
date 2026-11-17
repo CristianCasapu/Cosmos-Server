@@ -131,6 +131,10 @@ const (
 	SecEdgeBlockAdded = "edge.block.added"
 	SecEdgeUnblocked  = "edge.unblocked"
 
+	// Fork addition (plan 51): the copy of the monitoring history between the
+	// local file and PostgreSQL (src/monitorcopy) started or cancelled
+	SecMonitoringCopy = "config.monitoring.copy"
+
 	// the record about itself
 	SecRecorderDropped = "recorder.dropped"
 )

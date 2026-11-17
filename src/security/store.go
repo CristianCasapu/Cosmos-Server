@@ -124,7 +124,8 @@ func createSchema(db *sql.DB, dialect string) error {
 	// later versions of the table are brought up to date here, by what the
 	// key says: "current < 2" and so on
 	set := "INSERT INTO monitoring_kv(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
-	if _, err := tx.Exec(utils.MonitoringRebind(set), schemaVersionKey, strconv.Itoa(schemaVersion)); err != nil {
+	// Fork addition (plan 51): the placeholders of dialect, not of the store in use: the history copy prepares the other store
+	if _, err := tx.Exec(utils.RebindFor(dialect, set), schemaVersionKey, strconv.Itoa(schemaVersion)); err != nil {
 		return err
 	}
 	return tx.Commit()

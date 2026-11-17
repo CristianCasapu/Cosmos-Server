@@ -63,6 +63,8 @@ test('sentences: the examples', () => {
     [{ kind: 'user.mfa.reset', target: 'maria' }, 'someone reset the two-factor of maria'],
     [{ kind: 'token.created', actor: 'admin' }, 'admin created the API token (no name)'],
     [{ kind: 'api.change', actor: 'admin', method: 'POST', path: '/cosmos/api/cron' }, 'admin sent POST /cosmos/api/cron'],
+    [{ kind: 'config.monitoring.copy', actor: 'admin', details: { action: 'start', direction: 'to-local' } }, 'admin started copying the monitoring records of PostgreSQL into the local file'], // Fork addition (plan 51)
+    [{ kind: 'config.monitoring.copy', actor: 'admin', details: { action: 'cancel', direction: 'to-postgres' } }, 'admin cancelled the copy of the monitoring history'],
     [{ kind: 'some.future.kind', actor: 'admin' }, 'admin: some.future.kind'],
   ];
   for (const [event, want] of cases) assert.equal(auditSentence(event), want, event.kind);
