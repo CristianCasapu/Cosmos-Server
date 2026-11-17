@@ -403,6 +403,7 @@ func jobRunner_OnSuccess(schedulerName, jobName string) func() {
 			job.Running = false
 			jobsList[job.Scheduler][job.Name] = job
 			triggerJobUpdated("success", job.Name)
+			go utils.ForkJobSucceeded(job.Name) // Fork addition (plan 48): a failed job that works again is said so
 			utils.Log("CRON job " + job.Name + " finished")
 			
 			InternalProcessTracker.EndProcess()
