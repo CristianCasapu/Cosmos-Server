@@ -8,7 +8,11 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Merged into `custom` since `0.24.0-fork.34`, to be part of the next release:
+Merged into `custom` since `0.24.0-fork.35`, to be part of the next release:
+
+- Nothing yet.
+
+## Fork 0.24.0-fork.35 — 2026-11-17
 
 ### Fixed
 - Saving settings or URLs close together can no longer leave the last change not applied, a listener dead or the server stopped (the web server's restarts ran over each other). Visitors' connections are no longer refused while the server reloads: they wait about a fifth of a second.
