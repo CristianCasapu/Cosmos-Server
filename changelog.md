@@ -8,7 +8,11 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Merged into `custom` since `0.24.0-fork.35`, to be part of the next release:
+Merged into `custom` since `0.24.0-fork.36`, to be part of the next release:
+
+- Nothing yet.
+
+## Fork 0.24.0-fork.36 — 2026-11-17
 
 ### Added
 - Telegram: after the bot token is pasted, "Look for chats" offers the chats that wrote to the bot, so the chat ID no longer has to be found by hand.
