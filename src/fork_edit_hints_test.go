@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -164,21 +165,23 @@ func TestEditHintsRouteRefuses(t *testing.T) {
 func TestEditHintsBounds(t *testing.T) {
 	// a read that does not end: given up at the bound, and not started again while it hangs
 	release := make(chan struct{})
-	started := 0
-	if boundedOn("/mnt/dead", 50*time.Millisecond, func() { started++; <-release }) {
+	var started atomic.Int32
+	if _, ok := boundedOn("/mnt/dead", 50*time.Millisecond, func() bool { started.Add(1); <-release; return true }); ok {
 		t.Fatal("a hanging read was waited for")
 	}
-	if boundedOn("/mnt/dead", time.Second, func() { started++ }) || started != 1 {
-		t.Fatalf("a second read of the hanging disk was started: %d", started)
+	if _, ok := boundedOn("/mnt/dead", time.Second, func() bool { started.Add(1); return true }); ok || started.Load() != 1 {
+		t.Fatalf("a second read of the hanging disk was started: %d", started.Load())
 	}
-	if !boundedOn("/mnt/alive", time.Second, func() {}) {
-		t.Fatal("another disk is not held up")
+	if v, ok := boundedOn("/mnt/alive", time.Second, func() int { return 7 }); !ok || v != 7 {
+		t.Fatal("another disk is held up")
 	}
 	close(release)
-	for i := 0; i < 100 && !boundedOn("/mnt/dead", time.Second, func() {}); i++ {
+	answered := false
+	for i := 0; i < 100 && !answered; i++ {
+		_, answered = boundedOn("/mnt/dead", time.Second, func() bool { return true })
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !boundedOn("/mnt/dead", time.Second, func() {}) {
+	if !answered {
 		t.Fatal("the disk stays given up after it answered")
 	}
 	// the rate: two at a time, sixty a minute

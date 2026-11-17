@@ -345,48 +345,51 @@ var (
 	abandoned = map[string]bool{}
 )
 
-// boundedOn runs fn in a goroutine and waits at most wait for it; false when
-// it gave up (or a read on the same key is still blocked from an earlier
-// request, in which case fn is not run at all).
-func boundedOn(key string, wait time.Duration, fn func()) bool {
+// boundedOn runs fn in a goroutine and waits at most wait for its result;
+// ok is false when it gave up (or a read on the same key is still blocked
+// from an earlier request, in which case fn is not run at all). The result
+// goes through a channel: a read given up on writes nothing the route still
+// holds.
+func boundedOn[T any](key string, wait time.Duration, fn func() T) (T, bool) {
+	var zero T
 	abandonedMu.Lock()
 	if abandoned[key] || wait <= 0 {
 		abandonedMu.Unlock()
-		return false
+		return zero, false
 	}
 	abandonedMu.Unlock()
-	done := make(chan struct{})
+	results := make(chan T, 1)
 	var mu sync.Mutex
-	finished, gaveUp := false, false
+	gaveUp := false
 	go func() {
-		fn()
+		value := fn()
 		mu.Lock()
-		finished = true
 		if gaveUp {
 			abandonedMu.Lock()
 			delete(abandoned, key)
 			abandonedMu.Unlock()
 		}
 		mu.Unlock()
-		close(done)
+		results <- value
 	}()
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	select {
-	case <-done:
-		return true
+	case value := <-results:
+		return value, true
 	case <-timer.C:
 		mu.Lock()
 		defer mu.Unlock()
-		if finished {
-			<-done
-			return true
+		select {
+		case value := <-results:
+			return value, true
+		default:
 		}
 		gaveUp = true
 		abandonedMu.Lock()
 		abandoned[key] = true
 		abandonedMu.Unlock()
-		return false
+		return zero, false
 	}
 }
 
@@ -563,7 +566,9 @@ func EditHintsRoute(w http.ResponseWriter, req *http.Request) {
 			if utils.IsInsideContainer {
 				root = "/mnt/host"
 			}
-			boundedOn(key, time.Until(deadline), func() { folder = edithints.InspectFolder(root, source, places, user) })
+			if got, ok := boundedOn(key, time.Until(deadline), func() edithints.Folder { return edithints.InspectFolder(root, source, places, user) }); ok {
+				folder = got
+			}
 			folders = append(folders, folder)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -573,8 +578,10 @@ func EditHintsRoute(w http.ResponseWriter, req *http.Request) {
 
 	config := utils.GetMainConfig()
 	// the data places' free space is read from each disk: bounded, as the folders below
-	plan := installPlanAnswer{Places: []installPlace{}}
-	boundedOn("places", editHintsMaxTime, func() { plan = buildInstallPlan(nil, config) })
+	plan, ok := boundedOn("places", editHintsMaxTime, func() installPlanAnswer { return buildInstallPlan(nil, config) })
+	if !ok {
+		plan = installPlanAnswer{Places: []installPlace{}}
+	}
 	in := editHintsInput{
 		Container:  container,
 		Plan:       plan,
@@ -601,7 +608,9 @@ func EditHintsRoute(w http.ResponseWriter, req *http.Request) {
 				key = clean
 			}
 		}
-		boundedOn(key, time.Until(deadline), func() { folder = edithints.InspectFolder(in.Root, source, places, user) })
+		if got, ok := boundedOn(key, time.Until(deadline), func() edithints.Folder { return edithints.InspectFolder(in.Root, source, places, user) }); ok {
+			return got
+		}
 		return folder
 	}
 	if image, _, err := docker.DockerClient.ImageInspectWithRaw(docker.DockerContext, container.Image); err == nil && image.Config != nil {
