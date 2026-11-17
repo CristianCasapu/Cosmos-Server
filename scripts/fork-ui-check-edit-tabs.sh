@@ -169,7 +169,7 @@ case "${1:-}" in
   clean)
     stop_all
     # the test Docker's files are root's: removed from a container
-    [ -d "$SCRATCH" ] && docker run --rm -v "$(dirname "$SCRATCH"):/p" "$DIND_IMAGE" rm -rf "/p/$(basename "$SCRATCH")"
+    [ -d "$SCRATCH" ] && docker run --rm --entrypoint rm -v "$(dirname "$SCRATCH"):/p" "$DIND_IMAGE" -rf "/p/$(basename "$SCRATCH")"
     say "clean" ;;
   *) die "usage: $0 up|build|start|rebuild|restart|check|node|stop|clean" ;;
 esac
