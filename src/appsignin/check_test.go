@@ -4,6 +4,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/azukaar/cosmos-server/src/docker"
 	"github.com/azukaar/cosmos-server/src/utils"
@@ -214,6 +215,36 @@ func TestAURLSavedLaterToAManagerIsForAdministrators(t *testing.T) {
 	}
 	if len(told) != 1 || told[0].Recipient != "owner" || told[0].Fork.Kind != "route.protected" {
 		t.Fatalf("not told: %+v", told)
+	}
+}
+
+// Third review: the callers hold the configuration's lock. A Docker that
+// hangs must not keep a save waiting: past guardWait the URLs are saved as
+// they came, unchanged, and nothing is told.
+func TestAHungDockerNeverHoldsASaveOfURLs(t *testing.T) {
+	old, oldNotify, oldWait := imageOf, notify, guardWait
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release); imageOf, notify, guardWait = old, oldNotify, oldWait })
+	guardWait = 50 * time.Millisecond
+	imageOf = func(name string) string { <-release; return "adminer:5" }
+	told := 0
+	notify = func(utils.Notification) { told++ }
+	routes := []utils.ProxyRouteConfig{{Name: "tool", Mode: "SERVAPP", UseHost: true, Host: "tool.example.org", Target: "http://db-adminer:8080"}}
+	begun := time.Now()
+	changed := guardRoutes(routes, "owner")
+	if time.Since(begun) > 2*time.Second {
+		t.Fatalf("the save waited %s on Docker", time.Since(begun))
+	}
+	if len(changed) != 0 || routes[0].AuthEnabled || routes[0].AdminOnly || told != 0 {
+		t.Fatalf("changed without Docker's answer: %v %+v told %d", changed, routes[0], told)
+	}
+	// a URL that is protected already asks Docker nothing at all
+	asked := 0
+	imageOf = func(name string) string { asked++; return "" }
+	guardRoutes([]utils.ProxyRouteConfig{{Name: "p", Mode: "SERVAPP", UseHost: true, Host: "p.example.org", Target: "http://db-adminer:8080", AuthEnabled: true, AdminOnly: true},
+		{Name: "x", Mode: "PROXY", UseHost: true, Host: "x.example.org", Target: "http://192.0.2.9:80"}}, "owner")
+	if asked != 0 {
+		t.Errorf("Docker was asked %d time(s) for URLs that need no look", asked)
 	}
 }
 

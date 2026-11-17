@@ -324,6 +324,11 @@ func dataLines(app installed) []string {
 
 // buildMessage is the whole message (headers, a plain part and an HTML part).
 func buildMessage(config utils.Config, to string, apps []installed) (string, []byte, bool) {
+	// the last check of this exit (secrets.go), before a word of the message is
+	// written: the fields from the apps' variables, checked again
+	for i := range apps {
+		clean(&apps[i].Details, apps[i].secretValues)
+	}
 	subject := "Cosmos: " + namesText(apps) + " installed"
 	if len(apps) > 1 {
 		subject = fmt.Sprintf("Cosmos: %d apps installed (%s)", len(apps), namesText(apps))
@@ -396,11 +401,6 @@ func buildMessage(config utils.Config, to string, apps []installed) (string, []b
 	note := "This e-mail never contains a password: Cosmos shows the passwords on the app's page, after you confirm your own password. Cosmos sends it because \"Send me an e-mail when an app is installed\" is on in Configuration, General."
 	plain.WriteString(note + "\n")
 	body.WriteString("<p style=\"margin-top:20px\">" + esc(note) + "</p>")
-
-	// the last check of this exit (secrets.go): the fields from the apps' variables, checked again
-	for i := range apps {
-		clean(&apps[i].Details, apps[i].secretValues)
-	}
 
 	server := serverURL("")
 	htmlPart := emailHTML(server+"logo", body.String(), server)
