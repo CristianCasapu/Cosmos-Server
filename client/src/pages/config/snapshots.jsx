@@ -133,6 +133,7 @@ export const snapshotsValidation = (t) => {
 const pathChipSx = {
   height: 'auto',
   maxWidth: '100%',
+  minHeight: { xs: 44, md: 0 }, // Fork addition (plan 47): a finger's width on a phone
   '& .MuiChip-label': { whiteSpace: 'normal', overflowWrap: 'anywhere', py: 0.5 },
 };
 

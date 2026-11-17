@@ -81,6 +81,14 @@ const layout = async (page, id, scope, size) => {
     .filter((b) => b.h > 0 && (b.h < 44 && b.w < 44 || b.h < 32)));
   expect(id + ': touch targets of at least 44 px', small.length === 0, JSON.stringify(small.slice(0, 6)));
 };
+// a tab by its name: tabs on a wide screen, a select on a phone
+const openTab = async (page, label) => {
+  const tab = page.getByRole('tab', { name: label });
+  if (await tab.count() && await tab.first().isVisible()) return tab.first().click();
+  await page.locator('main [role=combobox]').first().click();
+  await page.getByRole('option', { name: label, exact: true }).click();
+};
+const shotOf = (locator, id, name) => locator.screenshot({ path: `shots/${id}-${name}-part.png` }).catch(() => {});
 const shot = (page, id, name) => page.screenshot({ path: `shots/${id}-${name}.png`, fullPage: true }).catch(() => {});
 
 // ---------------------------------------------------------------------------------------------
@@ -142,6 +150,7 @@ phases.telegram = async (page, id, size, ctx) => {
   expect(id + ': the chosen chat fills the chat ID', (await card.locator('input[name=Telegram_ChatID]').inputValue()) === '123456789');
   await layout(page, id, card, size);
   await shot(page, id, 'telegram-chosen');
+  await shotOf(card.locator('#Telegram_ChatChoice').locator('xpath=ancestor::div[contains(@class,"MuiGrid")][1]'), id, 'telegram-chosen');
   await card.getByRole('button', { name: /Send a test message/ }).click();
   await card.getByText(/Telegram accepted the test message/).first().waitFor({ timeout: 20000 });
   const got = await (await fetch(fake + '/received')).json();
@@ -178,6 +187,7 @@ phases.cron = async (page, id, size, ctx) => {
   expect(id + ': it says where the dumps go on the server', /\/mnt\/data\/maindb\/cosmos-dumps/.test(await dialog.innerText()));
   await layout(page, id, dialog, size);
   await shot(page, id, 'cron-job');
+  await shotOf(dialog, id, 'cron-job');
   await dialog.getByRole('button', { name: 'Submit' }).click();
   await sleep(2000);
   await waitBack(ctx);
@@ -213,7 +223,7 @@ phases.alert = async (page, id, size, ctx) => {
   await waitBack(ctx);
   await page.goto(base + '/cosmos-ui/monitoring', { waitUntil: 'domcontentloaded' });
   await sleep(2500);
-  await page.getByRole('tab').nth(3).click();
+  await openTab(page, 'Alerts');
   await sleep(1500);
   const openEditor = async () => {
     await page.getByRole('button', { name: /Create$/ }).click();
@@ -238,7 +248,7 @@ phases.alert = async (page, id, size, ctx) => {
   });
   await page.goto(base + '/cosmos-ui/monitoring', { waitUntil: 'domcontentloaded' });
   await sleep(2500);
-  await page.getByRole('tab').nth(3).click();
+  await openTab(page, 'Alerts');
   await sleep(1500);
   dialog = await openEditor();
   await dialog.locator('input[name=name]').fill('Bad memory alert');
@@ -251,8 +261,85 @@ phases.alert = async (page, id, size, ctx) => {
   expect(id + ': the bad alert is not saved', !Object.keys(after).some((k) => /^Bad memory/.test(k)));
 };
 
+// The monitoring database: maindb proposed, its password on request, the connection tested (not saved)
+phases.database = async (page, id, size, ctx) => {
+  await page.goto(base + '/cosmos-ui/config-general/general', { waitUntil: 'domcontentloaded' });
+  await sleep(1500);
+  await openTab(page, 'External');
+  const found = page.locator('[data-fork-postgres-found]');
+  await found.waitFor({ timeout: 20000 });
+  expect(id + ': the running PostgreSQL is named', /maindb/.test(await found.innerText()), await found.innerText());
+  await page.getByText('Postgres (optional)').first().click();
+  const box = page.locator('[data-fork-postgres-proposal=maindb]');
+  await box.waitFor({ timeout: 10000 });
+  await sleep(800); // the section unfolds
+  const text = await box.innerText();
+  expect(id + ': host, database and user are proposed from its settings', /127\.0\.0\.1:5432/.test(text) && /maindb/.test(text) && /main\b/.test(text), text);
+  expect(id + ': the password is not in the proposal', !/Main-test-pw/.test(await page.locator('body').innerText()));
+  expect(id + ': nothing is filled in by itself', (await page.locator('input[name=PostgresHost]').inputValue()) === '');
+  const alert = page.locator('.MuiAlert-root', { has: box });
+  await alert.getByRole('button', { name: 'Use these' }).click();
+  expect(id + ': "Use these" fills the host', (await page.locator('input[name=PostgresHost]').inputValue()) === '127.0.0.1:5432');
+  expect(id + ': and the database and user', (await page.locator('input[name=PostgresDatabase]').inputValue()) === 'maindb' && (await page.locator('input[name=PostgresUsername]').inputValue()) === 'main');
+  expect(id + ': the password stays empty until asked for', (await page.locator('input[name=PostgresPassword]').inputValue()) === '');
+  await alert.getByRole('button', { name: 'Use its password' }).click();
+  await sleep(2500);
+  expect(id + ': "Use its password" fills the password', (await page.locator('input[name=PostgresPassword]').inputValue()) === 'Main-test-pw-0420');
+  await page.locator('[data-fork-postgres-test]').click();
+  const result = page.locator('[data-fork-postgres-result]');
+  await result.waitFor({ timeout: 20000 });
+  expect(id + ': the connection is tested', /these settings work/.test(await result.innerText()), await result.innerText());
+  await layout(page, id, page.locator('.MuiCard-root', { has: box }).last(), size);
+  await shot(page, id, 'database');
+  await shotOf(page.locator('.MuiCard-root', { has: box }).last(), id, 'database');
+  // a wrong password is said in words
+  await sleep(3200);
+  await page.locator('input[name=PostgresPassword]').fill('wrong-password');
+  await page.locator('[data-fork-postgres-test]').click();
+  await sleep(4000);
+  expect(id + ': a wrong password is said in words', /password/i.test(await result.innerText()), await result.innerText());
+};
+
+// Snapshots: the destination proposed on the data disk, excludes offered from what /srv/appdata holds
+phases.snapshots = async (page, id, size, ctx) => {
+  const config = await getConfig(ctx);
+  config.Snapshots = { Enabled: false, Destination: '', Sources: ['/srv/appdata'], Excludes: [] };
+  expect(id + ': the snapshot settings are reset', (await putConfig(ctx, config)).status === 200);
+  await waitBack(ctx);
+  await page.goto(base + '/cosmos-ui/config-general/general', { waitUntil: 'domcontentloaded' });
+  const destination = page.locator('input[name=Snapshots_Destination]');
+  await destination.waitFor({ timeout: 20000 });
+  const note = page.locator('[data-fork-snapshot-destination-note]');
+  await note.waitFor({ timeout: 15000 });
+  // the test instance has two data disks: the loop file at /mnt/data and its own folder's disk at /cosmos
+  const chips = await page.locator('[data-fork-snapshot-destination]').evaluateAll((els) => els.map((el) => el.getAttribute('data-fork-snapshot-destination')));
+  expect(id + ': the data disk is offered', chips.includes('/mnt/data/snapshots'), chips.join(', '));
+  expect(id + ': the empty destination takes the first offer', (await destination.inputValue()) === chips[0], await destination.inputValue());
+  expect(id + ': with a word on where it came from', /Proposed/.test(await note.innerText()), await note.innerText());
+  expect(id + ': the free space is shown', /free/.test(await page.locator('[data-fork-snapshot-destination]').first().innerText()));
+  const excludes = page.locator('textarea[name=Snapshots_Excludes]').first();
+  await excludes.fill('keep-this');
+  const look = page.locator('[data-fork-snapshot-look="/srv/appdata"]');
+  await look.getByRole('button', { name: /Look in/ }).click();
+  const cache = page.locator('input[data-fork-exclude="cache"]');
+  await cache.waitFor({ state: 'attached', timeout: 15000 });
+  for (const pattern of ['.thumbnails', 'tmp', '*.part', 'transcodes']) {
+    expect(`${id}: "${pattern}" is offered`, await page.locator(`input[data-fork-exclude="${pattern}"]`).count() === 1);
+  }
+  const offered = await look.innerText();
+  expect(id + ': the link to / is not followed', !/\bproc\b|\bsys\b|\betc\b/.test(offered), offered.slice(0, 200));
+  await cache.check();
+  expect(id + ': a tick adds its pattern', (await excludes.inputValue()).split('\n').includes('cache'), await excludes.inputValue());
+  await cache.uncheck();
+  const left = (await excludes.inputValue()).split('\n');
+  expect(id + ': unticking removes only its own line', !left.includes('cache') && left.includes('keep-this'), left.join('|'));
+  await layout(page, id, page.locator('.MuiCard-root', { has: destination }).last(), size);
+  await shot(page, id, 'snapshots');
+  await shotOf(look, id, 'snapshots');
+};
+
 // ---------------------------------------------------------------------------------------------
-const order =phase === 'all' ? ['telegram', 'cron', 'alert', 'database', 'snapshots'] : phase.split(',');
+const order = phase === 'all' ? ['telegram', 'cron', 'alert', 'database', 'snapshots'] : phase.split(',');
 if (order.includes('setup')) {
   await phases.setup();
 } else {

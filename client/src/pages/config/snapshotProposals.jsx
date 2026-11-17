@@ -16,7 +16,8 @@ import { simplifyNumber } from '../dashboard/components/utils';
 import { bigEntries, destinationProposals, hasPattern, togglePattern } from '../../utils/snapshotExcludes';
 
 const touch = { minHeight: 44 };
-const wrapSx = { height: 'auto', maxWidth: '100%', minHeight: 32, '& .MuiChip-label': { whiteSpace: 'normal', overflowWrap: 'anywhere', py: 0.5 } };
+const wrapSx = { height: 'auto', maxWidth: '100%', minHeight: { xs: 44, md: 32 }, // a finger's width on a phone
+  '& .MuiChip-label': { whiteSpace: 'normal', overflowWrap: 'anywhere', py: 0.5 } };
 const size = (bytes) => simplifyNumber(bytes || 0, 'B');
 
 // The places, asked once per page.
