@@ -34,6 +34,8 @@ import cmp from 'semver-compare';
 import { HostnameChecker, getHostnameFromName } from '../../../utils/routes';
 import { CosmosContainerPicker } from '../../config/users/containerPicker';
 import { randomString } from '../../../utils/indexs';
+import { composeVarDefault, marketFormValue, marketPassword, stripForkLabels } from '../../../utils/signIn'; // Fork addition (plan 45)
+import { browserRandom } from '../../../utils/anyImage'; // Fork addition (plan 45)
 import { useTranslation } from 'react-i18next';
 import { FilePickerButton } from '../../../components/filePicker';
 import PermissionGuard from '../../../components/permissionGuard';
@@ -183,7 +185,7 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
           if (currentEnv[v] !== undefined) {
             return `${v}=${currentEnv[v]}`;
           }
-          return `${v}=`;
+          return `${v}=${composeVarDefault(v, signInDefaults, browserRandom)}`; // Fork addition (plan 45): a secret generated, an administrator's name or e-mail from the configuration
         });
         setEnvContent(newEnvLines.join('\n'));
       }
@@ -205,21 +207,21 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
     return broken;
   }
 
-  const [passwords, setPasswords] = useState([
-    randomString(24),
-    randomString(24),
-    randomString(24),
-    randomString(24)
-  ]);
+  // Fork addition (plan 45): the same alphabet and length as upstream's randomString(24), drawn with the browser's cryptographic generator
+  const [passwords, setPasswords] = useState(() => [0, 1, 2, 3].map(() => marketPassword(browserRandom)));
 
   const resetPassword = () => {
-    setPasswords([
-      randomString(24),
-      randomString(24),
-      randomString(24),
-      randomString(24)
-    ]);
+    setPasswords([0, 1, 2, 3].map(() => marketPassword(browserRandom)));
   }
+  // Fork addition (plan 45): the username and e-mail of Configuration > Sign-in details for new apps, for the template's form
+  const [signInDefaults, setSignInDefaults] = useState(null);
+  const [signInAsked, setSignInAsked] = useState(false); // the form waits for the answer, so that nothing typed is ever replaced
+  useEffect(() => {
+    if (!openModal) return;
+    if (!API.signIn) { setSignInAsked(true); return; }
+    setSignInAsked(false);
+    API.signIn.defaults().then((res) => setSignInDefaults((res && res.data) || null)).catch(() => {}).finally(() => setSignInAsked(true));
+  }, [openModal]);
 
 
   function refreshConfig() {
@@ -250,7 +252,7 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
   }, [serviceName, hostnames, context]);
 
   useEffect(() => {
-    if (!openModal || dockerCompose === '') {
+    if (!openModal || dockerCompose === '' || !signInAsked /* Fork addition (plan 45) */) {
       return;
     }
 
@@ -301,6 +303,14 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
         }
       }
 
+      // Fork addition (plan 45): the fork's own labels never come from a file or a template; the review says so
+      const forkLabelNotes = jsoned ? stripForkLabels(jsoned) : [];
+      if (forkLabelNotes.length) setNotes((old) => {
+        const kept = (old || []).filter((n) => n.code !== 'label.fork');
+        const next = [...kept, ...forkLabelNotes];
+        return JSON.stringify(next) === JSON.stringify(old) ? old : next;
+      });
+
       if (typeof jsoned['cosmos-installer'] === 'object' || typeof jsoned['x-cosmos-installer'] === 'object') {
         setInstaller(true);
 
@@ -342,10 +352,16 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
 
           // SET DEFAULT CONTEXT
           let newContext = {};
+          let forkFilled = false; // Fork addition (plan 45)
           if (jsoned['cosmos-installer'] && jsoned['cosmos-installer'].form) {
             jsoned['cosmos-installer'].form.forEach((field) => {
               [field.name, field['name-container']].forEach((fieldName) => {
-                if(typeof context[fieldName] === "undefined" && typeof field.initialValue !== "undefined") {
+                // Fork addition (plan 45): an empty or placeholder sign-in field gets the configured name or e-mail, a password field a generated value
+                const forked = fieldName === field.name ? marketFormValue(field, context[fieldName], signInDefaults, browserRandom) : undefined;
+                if (forked !== undefined) {
+                  newContext[fieldName] = forked;
+                  forkFilled = true;
+                } else if(typeof context[fieldName] === "undefined" && typeof field.initialValue !== "undefined") {
                   newContext[fieldName] = field.initialValue;
                 } else if (typeof context[fieldName] !== "undefined") {
                   newContext[fieldName] = context[fieldName];
@@ -353,8 +369,8 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
               });
             });
           }
-          
-          if(JSON.stringify(Object.keys(newContext)) !== JSON.stringify(Object.keys(context)))
+
+          if(forkFilled || JSON.stringify(Object.keys(newContext)) !== JSON.stringify(Object.keys(context)))
             setContext({...newContext});
 
           Object.keys(jsoned.services).forEach((key) => {
@@ -444,7 +460,7 @@ const DockerComposeImport = ({ refresh, dockerComposeInit, installerInit, defaul
       setYmlError(e.message);
       return;
     }
-  }, [openModal, dockerCompose, serviceName, hostnames, overrides, installer, config, rootProtocol, envContent, domains]);
+  }, [openModal, dockerCompose, serviceName, hostnames, overrides, installer, config, rootProtocol, envContent, domains, signInDefaults, signInAsked /* Fork addition (plan 45) */]);
 
   const openModalFunc = () => {
     setOpenModal(true);

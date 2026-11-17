@@ -62,7 +62,7 @@ export const HandSettings = ({ value, onChange, busy }) => {
 export const hintHelp = (t, setting) => {
   if (!setting || setting.from !== 'description') return null;
   const base = setting.type === 'secret'
-    ? t('mgmt.services.hint.secret', 'From its description. Generated for you: copy it now, it is not shown again after the creation.')
+    ? t('mgmt.services.hint.secret', 'From its description. Generated for you; after the creation it is on the app\'s page, under Sign-in details (or in its settings).')
     : setting.type === 'needed'
       ? t('mgmt.services.hint.needed', 'From its description, which says it is required: enter its value.')
       : t('mgmt.services.hint.optional', 'From its description. Left empty, it is not set.');

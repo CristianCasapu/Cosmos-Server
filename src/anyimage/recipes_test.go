@@ -101,7 +101,7 @@ func TestRecipesAreValid(t *testing.T) {
 		}
 		if r.Needs != nil {
 			for _, k := range r.Needs.Kinds {
-				if k != "postgres" && k != "mysql" && k != "mongo" {
+				if k != "postgres" && k != "mysql" && k != "mongo" && k != "redis" {
 					t.Errorf("%s: needs %s", r.ID, k)
 				}
 			}

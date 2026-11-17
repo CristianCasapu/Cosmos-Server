@@ -43,6 +43,11 @@ var catalogue = []repo{
 	{"nginx", "Official build of Nginx.", 21000, 13000000000, true},
 	{"busybox", "Busybox base image.", 3400, 9500000000, true},
 	{"example/dbapp", "A small app that keeps its data in PostgreSQL (test image).", 3, 1200, false},
+	// plan 45: the databases and web managers of scripts/fork-ui-check-credentials.mjs
+	{"mariadb", "MariaDB Server is a high performing open source relational database, forked from MySQL.", 6000, 1000000000, true},
+	{"dpage/pgadmin4", "pgAdmin 4 is a web based administration tool for the PostgreSQL database.", 1500, 300000000, false},
+	{"phpmyadmin", "phpMyAdmin - A web interface for MySQL and MariaDB.", 1100, 500000000, true},
+	{"adminer", "Database management in a single PHP file.", 1000, 200000000, true},
 }
 
 func main() {

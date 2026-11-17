@@ -55,7 +55,9 @@ const note = (...a) => console.log(...a);
 const failures = [];
 const expect = (ok, what) => { note(ok ? '  ok  ' : '  FAIL', what); if (!ok) failures.push(what); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const api = await request.newContext();
+// INSECURE=1: a test instance on HTTPS with a self-signed certificate (as fork-ui-check-credentials.sh makes it)
+const insecure = process.env.INSECURE === '1' ? { ignoreHTTPSErrors: true } : {};
+const api = await request.newContext({ ...insecure });
 const until = async (what, check, seconds = 90) => {
   for (let i = 0; i < seconds; i++) {
     try { if (await check()) return true; } catch (e) { /* reloading */ }
@@ -81,13 +83,13 @@ const psqlWorks = async (container, secret) => {
   return { good: /42/.test(good), bad: !/exit=0/.test(bad), text: good.trim().slice(0, 100) };
 };
 
-const session = await request.newContext({ baseURL: base });
+const session = await request.newContext({ baseURL: base, ...insecure });
 await session.post('/cosmos/api/login', { data: { nickname: 'admin', password } });
 await session.post('/cosmos/api/sudo', { data: { password } });
 
 const open = async (type, name, viewport, mode) => {
   const browser = await type.launch();
-  const ctx = await browser.newContext({ viewport, colorScheme: mode, serviceWorkers: 'block' });
+  const ctx = await browser.newContext({ viewport, colorScheme: mode, serviceWorkers: 'block', ...insecure });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => {
     if (/Failed to fetch|Load failed|NetworkError/.test(e.message)) return; // the server reloads after a new URL
@@ -295,7 +297,7 @@ if (phase === 'story' || phase === 'bad') {
       const token = made.data && (made.data.token || made.data.Token);
       expect(!!token, 'an API token with resources but without credentials-read');
       if (token) {
-        const asToken = await request.newContext({ baseURL: base, extraHTTPHeaders: { Authorization: 'Bearer ' + token } });
+        const asToken = await request.newContext({ baseURL: base, extraHTTPHeaders: { Authorization: 'Bearer ' + token }, ...insecure });
         const seen = (await (await asToken.get('/cosmos/api/servapps/envkeeper/')).json()).data;
         const env = (seen && seen.Config && seen.Config.Env) || [];
         expect(env.includes('SECRET_ONE=***'), `the token reads masked values (${env.filter((e) => e.startsWith('SECRET')).join()})`);

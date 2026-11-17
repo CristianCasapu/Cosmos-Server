@@ -69,7 +69,8 @@ const IGNORED = [
   /^\/api\/turnstile\b/, // Fork addition: the sign-in check's card says what each step gave, in words
   /^\/api\/url-checks?$/, // Fork addition (plan 44): the URL check shows its answer where it was asked
   /^\/api\/reach-watch\/check\b/, // Fork addition: the watch's card and the notification say what "Test now" started, in words
-  /^\/api\/servapps\/[^/]+\/(logs|terminal|export|check-update|probe|start-report)\b/, // Fork addition (plan 43): probe, start-report: the dialogs show the answer where it was asked
+  /^\/api\/servapps\/[^/]+\/(logs|terminal|export|check-update|probe|start-report|sign-in)\b/, // Fork addition (plan 43): probe, start-report: the dialogs show the answer where it was asked; plan 45: sign-in (and its reveal): the card shows it
+  /^\/api\/app-sign-in\b/, // Fork addition (plan 45): the defaults an installation proposes, shown by the review
   /^\/api\/constellation\/(ping|devices\/[^/]+\/ping)\b/,
   /^\/rclone\/(config\/(dump|listremotes)|operations\/about|vfs\/stats|core\/stats)\b/,
 ];

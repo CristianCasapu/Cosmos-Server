@@ -50,14 +50,48 @@ type installPlace struct {
 }
 
 type installPlanAnswer struct {
-	Server   docker.ServerPlatform  `json:"server"`
+	Server   docker.ServerPlatform   `json:"server"`
 	Images   []docker.ImagePlatforms `json:"images"`
-	DataPath string                 `json:"dataPath"`
-	Places   []installPlace         `json:"places"`
+	DataPath string                  `json:"dataPath"`
+	Places   []installPlace          `json:"places"`
 	// Owner of the data path ("1000:1000"), "" when not known: proposed for PUID/PGID
 	DataOwner string `json:"dataOwner"`
 	// This server's folders that need a confirmation besides the system's (docker/fork_sensitive_access.go)
 	Protected []string `json:"protected"`
+	// Plan 45: per image, how one signs in to it and what its passwords
+	// must be (its recipe's login), or that it makes its first account in its
+	// own page; the review fills the sign-in of every door from it
+	SignIn map[string]installSignIn `json:"signIn"`
+}
+
+type installSignIn struct {
+	Name string `json:"name,omitempty"`
+	// AdminOnly: its address is made for administrators behind Cosmos' sign-in by the server (appsignin/check.go)
+	AdminOnly bool                  `json:"adminOnly,omitempty"`
+	Login     *anyimage.RecipeLogin `json:"login,omitempty"`
+	FirstRun  *anyimage.FirstRunApp `json:"firstRun,omitempty"`
+}
+
+func signInOfImages(images []string) map[string]installSignIn {
+	out := map[string]installSignIn{}
+	for _, image := range images {
+		entry := installSignIn{}
+		if recipe := anyimage.RecipeForImage(image); recipe != nil && recipe.Login != nil {
+			entry.Name, entry.Login = recipe.Name, recipe.Login
+		} else if first := anyimage.FirstRunForImage(image); first != nil {
+			entry.Name, entry.FirstRun = first.Name, first
+		}
+		if recipe := anyimage.RecipeForImage(image); recipe != nil && (recipe.Manager != nil || (recipe.Login != nil && recipe.Login.Via == "database") || recipeHasNote(recipe, "noAuth")) {
+			entry.AdminOnly = true
+			if entry.Name == "" {
+				entry.Name = recipe.Name
+			}
+		}
+		if entry.Login != nil || entry.FirstRun != nil || entry.AdminOnly {
+			out[image] = entry
+		}
+	}
+	return out
 }
 
 // hostFile is where a host path is seen from Cosmos.
@@ -178,6 +212,7 @@ func buildInstallPlan(images []string, config utils.Config) installPlanAnswer {
 	add("/", "system")
 	answer.Places = places
 	answer.Protected = protectedForPlan()
+	answer.SignIn = signInOfImages(images)
 
 	if answer.DataPath != "" {
 		answer.DataOwner = ownerOf(answer.DataPath)
@@ -223,4 +258,13 @@ func InstallPlanRoute(w http.ResponseWriter, req *http.Request) {
 	answer := buildInstallPlan(images, utils.GetMainConfig())
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "OK", "data": answer})
+}
+
+func recipeHasNote(recipe *anyimage.Recipe, note string) bool {
+	for _, n := range recipe.Notes {
+		if n == note {
+			return true
+		}
+	}
+	return false
 }

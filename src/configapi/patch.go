@@ -146,6 +146,7 @@ func ConfigApiPatch(w http.ResponseWriter, req *http.Request) {
 		}
 
 	config.HTTPConfig.ProxyConfig.Routes = routes
+	utils.ForkGuardRoutes(config.HTTPConfig.ProxyConfig.Routes, utils.GetAuthContext(req).Nickname) // Fork addition (plan 45): a manager's URL stays for administrators
 	utils.SetBaseMainConfig(config)
 
 	utils.TriggerEvent(

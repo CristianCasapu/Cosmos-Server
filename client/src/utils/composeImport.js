@@ -64,6 +64,7 @@ export const TEXT = {
   'key.pull': '{{service}}, pull_policy: Cosmos always pulls the image.',
   'key.unknown': '{{service}}, {{key}}: Cosmos does not support this setting, so it is not applied.',
   'top.unknown': '{{key}} (top level): not used.',
+  'label.fork': '{{service}}, label {{key}}: Cosmos writes this label itself (plan 45), so the file\'s is not used.',
 };
 
 export const text = (code, params) => ({ key: 'mgmt.servapps.compose.note.' + code, text: TEXT[code], params: params || {} });

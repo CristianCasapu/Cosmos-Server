@@ -9,6 +9,7 @@ import { looksLikeWeb } from './routerPorts.js';
 import { proposeAccess } from './exposure.js';
 import { isRiskyPort } from './exposure.js';
 import { sizeText } from './dataPlaces.js';
+import { emailVariant, generatePassword, MANAGER_LABEL, userVariant } from './signIn.js'; // plan 45
 
 const P = 'mgmt.servapps.anyImage.';
 
@@ -51,7 +52,7 @@ export const TEXT = {
   'fact.declaredPort': 'The image listens on port {{port}}{{web}}.',
   'fact.declaredPortWeb': ' (looks like a web interface)',
   'fact.declaredSecretDefault': 'The image sets {{name}} to "{{value}}" unless told otherwise: anyone who knows the image knows that value. Cosmos proposes a generated one instead.',
-  'fact.secretsWhere': 'The generated values are shown here once. Cosmos keeps them only in the container\'s settings, which every administrator can read on its page.',
+  'fact.secretsWhere': 'Cosmos keeps the generated values only in the container\'s settings. After the creation they are on its page, under Sign-in details (or in its settings), for those who may read credentials, after the password confirmation.',
   'why.risky': 'a service other apps use, not for the house or the internet',
   'why.other': 'not needed by the app\'s users',
   'why.xProtocol': 'MySQL\'s X protocol, for MySQL Shell',
@@ -365,19 +366,106 @@ export const fillFromConnection = (need, conn, dbKind) => {
   return out;
 };
 
+// ---- a web manager with a database (plan 45) -------------------------------------------------
+
+// The managers of a kind of database ("postgres", "mysql", "redis", "mongo"), the proposal first.
+export const managersFor = (all, kind) => (all || [])
+  .filter((r) => r && r.manager && (r.manager.for || []).includes(kind))
+  .sort((a, b) => (a.manager.rank || 9) - (b.manager.rank || 9));
+
+// a field of a .pgpass line: backslash and colon escaped (PostgreSQL's format)
+const pgpassField = (v) => String(v == null ? '' : v).replace(/\\/g, '\\\\').replace(/:/g, '\\:');
+
+// The manager's variables for a database `db` ({ name, recipe, values }):
+// what its recipe's needs map (host, port, user, password, database, url),
+// pgAdmin's list of servers (no password in it) and its password file.
+export const managerEnv = (manager, db) => {
+  const needs = (manager && manager.needs) || {};
+  const conn = connectionOf(db.recipe, db.name, db.values || {});
+  const account = ((db.recipe && db.recipe.login && db.recipe.login.accounts) || [])[0] || {};
+  if (!conn.user) conn.user = account.userFixed || account.userUnset || '';
+  const out = {};
+  Object.entries(needs.env || {}).forEach(([role, variable]) => {
+    if (variable && conn[role] !== undefined && conn[role] !== '') out[variable] = String(conn[role]);
+  });
+  if (needs.servers) {
+    // pgAdmin in server mode reads a pass file only inside the user's storage folder: the image copies
+    // its PGPASS_FILE there as .pgpass at first start, which "/.pgpass" names (measured by the live test)
+    const server = {
+      Name: db.name, Group: 'Servers', Host: db.name, Port: Number(conn.port) || 5432,
+      MaintenanceDB: conn.database || conn.user || 'postgres', Username: conn.user || 'postgres',
+      ConnectionParameters: { sslmode: 'prefer', connect_timeout: 10, ...(needs.passFile && conn.password ? { passfile: '/.pgpass' } : {}) },
+    };
+    out[needs.servers] = JSON.stringify({ Servers: { 1: server } });
+  }
+  if (needs.passFile && conn.password) {
+    out[needs.passFile] = [db.name, conn.port || '*', '*', pgpassField(conn.user), pgpassField(conn.password)].join(':');
+  }
+  return out;
+};
+
+// The manager as a service of the definition: on a network only it and its
+// database share, an address in Cosmos for administrators only behind
+// Cosmos' sign-in (a tool that controls data), never a published port.
+// `existing`: the database is already on the server; the two get a network of
+// their own through upstream's links (the database is not changed).
+// Review F2: a manager is never on Docker's default bridge (where any other
+// container would reach it without Cosmos' sign-in): its network mode is a
+// network made for it, with a name that cannot collide (`suffix`, random).
+// Next to an existing database it gets one of its own plus the link network
+// with the database; a new database shares the manager's.
+export const managerService = ({ manager, ref, tag, name, settings, db, host, existing = false, suffix = '' }) => {
+  const network = existing ? `${name}${suffix ? '-' + suffix : ''}` : `${db.name}-manager${suffix ? '-' + suffix : ''}`;
+  const { service, frozen } = serviceFor({
+    ref, tag, name, recipe: manager, declared: null, settings, host, extraEnv: managerEnv(manager, db),
+    networks: [network], links: existing ? [db.name] : [], networkMode: network,
+  });
+  if (service.routes) service.routes = service.routes.map((r) => ({ ...r, AuthEnabled: true, AdminOnly: true }));
+  service.ports = [];
+  service.labels = { ...(service.labels || {}), [MANAGER_LABEL]: db.name };
+  return { service, frozen, network };
+};
+
+// The definition that adds a manager to a database already on the server.
+export const managerDefinition = (args) => {
+  const { service, frozen, network } = managerService({ ...args, existing: true });
+  const definition = { services: { [args.name]: service }, networks: { [network]: { driver: 'bridge' } } };
+  if (frozen.length) definition['cosmos-installer'] = { 'frozen-volumes': frozen };
+  return definition;
+};
+
 // ---- the definition ---------------------------------------------------------------------------
 
 const folderOf = (target) => (String(target).replace(/\/+$/, '').split('/').pop() || 'data').replace(/[^A-Za-z0-9_.-]+/g, '-');
 
 // The settings proposed for a recipe or a declaration, before the
 // administrator changes them: [{ name, value, type: secret|name|optional|fixed|declared }].
-export const proposedSettings = (recipe, declared, random) => {
+// plan 45: `defaults` ({ user, email, length }, Configuration > Sign-in details
+// for new apps) go to the account of the recipe's login that takes them, as the
+// form the app accepts; secrets follow the login's password rule.
+export const proposedSettings = (recipe, declared, random, defaults = null) => {
   if (recipe) {
-    return (recipe.env || []).map((e) => ({
-      name: e.name,
-      type: e.type,
-      value: e.type === 'secret' ? generateSecret(random, { strong: !!e.strong }) : (e.value || ''),
-    }));
+    const login = recipe.login || null;
+    const account = login && defaults ? (login.accounts || []).find((a) => a.defaults) : null;
+    return (recipe.env || []).map((e) => {
+      const setting = {
+        name: e.name,
+        type: e.type,
+        value: e.type === 'secret'
+          ? (login && login.password ? generatePassword(login.password, random, defaults && defaults.length) : generateSecret(random, { strong: !!e.strong }))
+          : (e.value || ''),
+      };
+      if (account && e.name === account.user && defaults.user) {
+        const variant = userVariant(defaults.user, login.user);
+        if (variant.value) Object.assign(setting, { value: variant.value, fromDefaults: 'user', ...(variant.changed ? { variant: variant.reason, typed: defaults.user } : {}) });
+      }
+      if (account && e.name === account.email) {
+        const mail = emailVariant(defaults.email, login.email);
+        if (mail.ok) Object.assign(setting, { value: mail.value, fromDefaults: 'email' });
+        else if (defaults.email) setting.refused = mail.reason;
+      }
+      return setting;
+    });
   }
   // a secret the image sets itself is known to everyone who knows the image: a generated one is proposed
   return declaredSettings(declared).map((s) => (s.secret
@@ -398,7 +486,7 @@ const healthOf = (h) => (h ? { test: h.test, interval: h.interval, timeout: h.ti
 // One service for an image. `settings` as proposedSettings gives them (changed
 // or not); a declared default the administrator left alone is not copied
 // (copying would pin it against the image's next version).
-export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, extraEnv = {}, links = [], networks = [], command = '', known = null }) => {
+export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, extraEnv = {}, links = [], networks = [], command = '', networkMode = '', known = null }) => {
   const image = `${ref.name}:${tag}`;
   const env = [];
   const declaredMap = Object.fromEntries(declaredSettings(declared).map((s) => [s.name, s.value]));
@@ -435,6 +523,7 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
   const runAs = runAsFor(recipe, tag);
   if (runAs) service.user = runAs;
   if (recipe && recipe.command) service.command = recipe.command;
+  if (recipe && recipe.entrypoint) service.entrypoint = recipe.entrypoint; // plan 45: pgAdmin's wrapper that writes its list of servers
   if (recipe && recipe.labels) service.labels = { ...recipe.labels };
   if (command && String(command).trim()) service.command = String(command).trim();
   if (recipe && recipe.hostname) service.hostname = name;
@@ -453,13 +542,19 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
   }
   if (links.length) service.links = [...links];
   if (networks.length) service.networks = Object.fromEntries(networks.map((n) => [n, {}]));
+  if (networkMode) service.network_mode = networkMode; // plan 45 (review F2): created on this network, never on Docker's default bridge
   return { service, frozen, web };
 };
 
 // The whole definition: the image, and its new database when one is added.
 // `database`: { mode: 'new', ref, tag, recipe, name, settings } |
 // { mode: 'existing', container, recipe, env } | { mode: 'none' } | null.
-export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, host, reachers = [], database = null, need = null, command = '', known = null }) => {
+// plan 45: `manager` ({ recipe, ref, tag, name, settings, host }): a web manager
+// created with this database, on a network the two share.
+// `suffix` (random, from the dialog) makes the names of the networks made here new.
+export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, host, reachers = [], database = null, need = null, command = '', manager = null, suffix = '', known = null }) => {
+  const fresh = (base) => (suffix ? `${base}-${suffix}` : base);
+  let appNetworkMode = '';
   const services = {};
   const networks = {};
   let frozen = [];
@@ -467,11 +562,11 @@ export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, ho
   let appLinks = [];
   let appNetworks = [];
   if (database && database.mode === 'new' && database.recipe) {
-    const net = `${name}-db`;
+    const net = fresh(`${name}-db`);
     networks[net] = { driver: 'bridge' };
     appNetworks = [net];
     const values = Object.fromEntries((database.settings || []).map((s) => [s.name, s.value]));
-    const dbService = serviceFor({ ref: database.ref, tag: database.tag, name: database.name, recipe: database.recipe, declared: null, settings: database.settings, host: '', networks: [net] });
+    const dbService = serviceFor({ ref: database.ref, tag: database.tag, name: database.name, recipe: database.recipe, declared: null, settings: database.settings, host: '', networks: [net], networkMode: net });
     services[database.name] = dbService.service;
     frozen = frozen.concat(dbService.frozen);
     extraEnv = fillFromConnection(need, connectionOf(database.recipe, database.name, values), database.recipe.provides);
@@ -481,11 +576,31 @@ export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, ho
     const values = Object.fromEntries(((database.env || [])).map((line) => [envKey(line), envValue(line)]));
     extraEnv = fillFromConnection(need, connectionOf(database.recipe, database.container, values), database.recipe && database.recipe.provides);
   }
-  const app = serviceFor({ ref, tag, name, recipe, declared, settings, host, extraEnv, links: [...appLinks, ...reachers], networks: appNetworks, command, known });
+  let managed = null;
+  if (manager && manager.recipe && recipe) {
+    const values = Object.fromEntries((settings || []).map((s) => [s.name, s.value]));
+    managed = managerService({ manager: manager.recipe, ref: manager.ref, tag: manager.tag, name: manager.name, settings: manager.settings, host: manager.host, db: { name, recipe, values }, suffix });
+    networks[managed.network] = { driver: 'bridge' };
+    appNetworks = [...appNetworks, managed.network];
+    appNetworkMode = managed.network;
+  } else if (recipe && (['database', 'cache'].includes(recipe.kind) || recipe.manager) && !appNetworks.length) {
+    // a web manager installed alone too (second review): never on Docker's default bridge
+    // plan 45 (review F2): a database on its own network, not Docker's default bridge; "Let these apps reach it" links apps to it
+    const own = fresh(`${name}-net`);
+    networks[own] = { driver: 'bridge' };
+    appNetworks = [own];
+    appNetworkMode = own;
+  }
+  const app = serviceFor({ ref, tag, name, recipe, declared, settings, host, extraEnv, links: [...appLinks, ...reachers], networks: appNetworks, command, networkMode: appNetworkMode, known });
   services[name] = app.service;
-  if (Object.keys(services).length > 1) {
+  if (database && database.mode === 'new' && Object.keys(services).length > 1) {
     services[name].labels = { 'cosmos-stack': name, 'cosmos-stack-main': name };
     services[name].depends_on = { [database.name]: { condition: 'service_started' } };
+  }
+  if (managed) {
+    services[manager.name] = { ...managed.service, labels: { ...managed.service.labels, 'cosmos-stack': name, 'cosmos-stack-main': name }, depends_on: { [name]: { condition: 'service_started' } } };
+    services[name].labels = { ...(services[name].labels || {}), 'cosmos-stack': name, 'cosmos-stack-main': name };
+    frozen = frozen.concat(managed.frozen);
   }
   frozen = frozen.concat(app.frozen);
   const definition = { services: { ...services } };
@@ -495,6 +610,17 @@ export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, ho
 };
 
 // ---- what the panel says -------------------------------------------------------------------
+
+// plan 45: a recipe's backup command with the user the settings really have
+// ("pg_dumpall -U app" becomes "-U owner_name" when the defaults gave that).
+export const backupCommand = (recipe, settings) => {
+  const command = String((recipe && recipe.backup) || '');
+  const userVar = recipe && recipe.client && recipe.client.user;
+  const own = userVar && (recipe.env || []).find((e) => e.name === userVar);
+  const now = userVar && (settings || []).find((s) => s.name === userVar);
+  if (!own || !own.value || !now || !now.value || now.value === own.value || !/^[A-Za-z0-9_.@-]+$/.test(now.value)) return command;
+  return command.replace(new RegExp('(-U|-u|--user[= ])\\s*' + own.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z0-9_])'), (m, flag) => `${flag}${/[= ]$/.test(flag) ? '' : ' '}${now.value}`);
+};
 
 // The sentences about an image and the choices, as { key, text, params }
 // (and `why`, a second text for the {{why}} of a closed port): what it is
@@ -518,7 +644,7 @@ export const facts = ({ recipe, declared, name, tag, host, settings, size }) => 
       lines.push({ ...text('fact.portKept', { port: p.port }), why: text('why.' + p.why) });
     });
     recipeVolumes(recipe, tag, declared).forEach((v) => lines.push(text(v.keepVolume ? 'fact.dataKept' : 'fact.data', { target: v.target })));
-    if (recipe.backup) lines.push(text('fact.backup', { command: recipe.backup }));
+    if (recipe.backup) lines.push(text('fact.backup', { command: backupCommand(recipe, settings) }));
     if (recipe.memory) lines.push(text('fact.memory', { memory: recipe.memory }));
     if (recipe.healthcheck && !(declared && declared.healthcheck)) lines.push(text('fact.healthcheck', { test: recipe.healthcheck.test.filter((x) => !/^CMD(-SHELL)?$/.test(x)).join(' ') }));
     (recipe.notes || []).forEach((n) => lines.push(text('note.' + n)));
