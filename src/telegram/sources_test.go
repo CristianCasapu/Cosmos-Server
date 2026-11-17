@@ -278,7 +278,7 @@ func TestNotificationsBecomeMessagesOfTheRightCategory(t *testing.T) {
 			[]string{"🟡 Warning · Certificate ends soon\n", "example.org (14 days left): The DNS provider refused the credentials"}},
 		{utils.Notification{Title: titleCertUntrusted, Vars: "a.b.example.org, app.example.org", Level: "warning"}, CategorySystem, priorityNormal,
 			[]string{"🟡 Warning · Untrusted certificate on a.b.example.org, app.exampl…\n", "a.b.example.org, app.example.org"}},
-		{utils.Notification{Title: titleSnapshotsFailed, Vars: "/storage/photos: destination not mounted"}, CategoryStorage, priorityNormal, []string{"🟠 Error · Backup had problems: /storage/photos: destinatio…\n", "/storage/photos: destination not mounted"}},
+		{utils.Notification{Title: titleSnapshotsFailed, Vars: "/storage/photos: destination not mounted"}, CategorySystem, priorityNormal, []string{"🟠 Error · Backup had problems: /storage/photos: destinatio…\n", "/storage/photos: destination not mounted"}},
 		{utils.Notification{Title: titleContainerUpdate, Vars: "jellyfin", Level: "info"}, CategoryApps, priorityLow, []string{"🔵 Info · jellyfin updated to a new image\n"}},
 		{utils.Notification{Title: titleAlertTriggered, Vars: "Disk Full Notification (storage)", Level: "warn"}, CategoryStorage, priorityNormal, []string{"🟡 Warning · Disk storage nearly full\n"}},
 		{utils.Notification{Title: titleAlertTriggered, Vars: "Anti Crypto-Miner", Level: "warn"}, CategoryApps, priorityNormal, []string{"🟡 Warning · Alert Anti Crypto-Miner triggered\n"}},

@@ -283,6 +283,7 @@ func noticeFromNotification(n utils.Notification, config utils.Config) (notice, 
 	switch n.Title {
 	case titleServerError:
 		nt := newNotice("error.other", map[string]string{})
+		nt.category = CategoryOther // as before plan 48, for an error no prefix names
 		for _, known := range serverErrors {
 			if strings.HasPrefix(n.Message, known.prefix) {
 				nt = newNotice(known.kind, map[string]string{})

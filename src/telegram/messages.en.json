@@ -361,7 +361,7 @@
       "sample": {"duration": "7 minutes"}
     },
     "snapshots.late": {
-      "severity": "warn", "category": "storage",
+      "severity": "warn", "category": "system",
       "label": "No recent snapshot", "many": "late snapshots",
       "preview": "No snapshot of {{folder}} for {{age}}",
       "whatKey": "notif.snapshots.late.what",
@@ -370,7 +370,7 @@
       "sample": {"folder": "/mnt/data/photos", "age": "2 days", "last": "15 Nov 03:00", "period": "day"}
     },
     "snapshots.ontime": {
-      "severity": "info", "category": "storage", "closing": true,
+      "severity": "info", "category": "system", "closing": true,
       "label": "Snapshots made again", "many": "folders snapshotted again",
       "preview": "{{folder}} has a new snapshot",
       "whatKey": "notif.snapshots.ontime.what",
@@ -544,7 +544,7 @@
       "sample": {"names": "pgadmin.example.org"}
     },
     "snapshots.failed": {
-      "severity": "error", "category": "storage",
+      "severity": "error", "category": "system",
       "label": "Incremental backup had problems", "many": "backup problems",
       "preview": "Backup had problems: {{summary}}",
       "whatKey": "notif.snapshots.failed.what",
@@ -570,7 +570,7 @@
       "sample": {"name": "Anti Memory Leak"}
     },
     "fail2ban.down": {
-      "severity": "error", "category": "security",
+      "severity": "error", "category": "system",
       "label": "Fail2ban not running", "many": "Fail2ban outages",
       "preview": "Fail2ban not running: no firewall bans",
       "whatKey": "notif.fail2ban.down.what",
@@ -578,7 +578,7 @@
       "sample": {}
     },
     "fail2ban.restored": {
-      "severity": "info", "category": "security", "closing": true,
+      "severity": "info", "category": "system", "closing": true,
       "label": "Fail2ban runs again", "many": "Fail2ban recoveries",
       "preview": "Fail2ban runs again",
       "whatKey": "notif.fail2ban.restored.what",
@@ -784,7 +784,7 @@
       "sample": {"message": "the certificate could not be made"}
     },
     "error.other": {
-      "severity": "error", "category": "other",
+      "severity": "error", "category": "system",
       "label": "Server error", "many": "server errors",
       "preview": "Server error: {{message}}",
       "whatKey": "notif.error.other.what",

@@ -13,9 +13,13 @@ import (
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
+// categoryOfSource is how a notification's source gives its category, as
+// before plan 48: an owner who chose categories keeps receiving what they
+// received. "security" is new (sign-ins from a new country).
 var categoryOfSource = map[string]string{
 	"containers": CategoryApps,
 	"storage":    CategoryStorage,
+	"security":   CategorySecurity,
 }
 
 func noticeFromInfo(n utils.Notification, config utils.Config) notice {
@@ -37,6 +41,18 @@ func noticeFromInfo(n utils.Notification, config utils.Config) notice {
 
 	nt := newNotice(info.Kind, vars)
 	kt := nt.texts()
+	// the category comes from the source, as it always did
+	nt.category = CategorySystem
+	source := info.Source
+	if source == "" {
+		source = utils.NotificationKindSource(info.Kind)
+	}
+	if category := categoryOfSource[source]; category != "" {
+		nt.category = category
+	}
+	if info.Kind == "alert.disk" {
+		nt.category = CategoryStorage
+	}
 	if nt.kind == "notification.other" {
 		// a kind the table does not know (yet): its own title and sentence
 		title := ""
@@ -48,11 +64,6 @@ func noticeFromInfo(n utils.Notification, config utils.Config) notice {
 		}
 		nt.vars["title"] = title
 		nt.vars["text"] = utils.RenderNotificationText(*info.What)
-		if category := categoryOfSource[info.Source]; category != "" {
-			nt.category = category
-		} else {
-			nt.category = CategorySystem
-		}
 	} else {
 		nt.what = utils.NotificationEnglish(info.What.Key)
 	}

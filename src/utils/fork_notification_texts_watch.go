@@ -89,3 +89,10 @@ func ForkJobSucceeded(name string) {
 		Subject: &NotificationSubject{Type: "job", Name: strings.TrimSpace(name), Link: "/cosmos-ui/cron"},
 	}})
 }
+
+// NotificationKindSource is the source of a kind of notification ("" when
+// the kind is unknown): what a notification without its source is
+// counted under (plan 48: the Telegram category follows it).
+func NotificationKindSource(kind string) string {
+	return notificationKinds[kind].Source
+}
