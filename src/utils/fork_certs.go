@@ -35,6 +35,13 @@ var (
 	ForkCertDue         func(key string, cert ZoneCert, now time.Time) bool
 	ForkMayOrder        func(key string, names []string, force bool, now time.Time) bool
 	ForkNoHTTPChallenge func(config Config) bool
+
+	// ForkFreeServerPorts closes the web server's listening sockets, which
+	// are kept from one generation of the servers to the next, when no
+	// generation serves (a restart building its router), so that an order's
+	// own challenge servers can take the ports. Set by the main package
+	// (fork_server_lifecycle.go, plan 46); nil: nothing to free.
+	ForkFreeServerPorts func()
 )
 
 // ForkZoneCertKey and ForkLocalCertKey name a certificate for the questions

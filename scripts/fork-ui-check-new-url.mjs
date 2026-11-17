@@ -21,7 +21,7 @@
 //   and its default route through the stand-in router
 //   (docker run --rm --network container:<cosmos> --cap-add NET_ADMIN
 //    --entrypoint ip docker:29-dind route replace default via <IGD address>);
-// - Playwright 1.49.1 installed next to this script (the network has no way out).
+// - the playwright package of the version the Playwright image carries, installed next to this script (the network has no way out).
 // It finishes the set-up wizard and connects example.org itself (as
 // fork-ui-check-expose.mjs does). Per engine and size n: appa-n gets a local
 // URL with nothing ticked (the dialog closes, as before), appb-n a local URL

@@ -200,10 +200,10 @@ const (
 )
 
 // reloadRoutes reloads the URLs once for changes made close together (the
-// panel applies a repair to each of an app's URLs in a row): restarts of the
-// HTTP server that overlap can leave its HTTPS listener refusing every
-// connection until Cosmos is started again (upstream's RestartHTTPServer
-// shuts the server down from a goroutine while the next one starts).
+// panel applies a repair to each of an app's URLs in a row): one restart of
+// the web server for the whole repair instead of one per URL. Restarts close
+// together are safe (they are serialised and coalesced, see the main
+// package's fork_server_lifecycle.go); this only saves the work.
 //
 // more: the caller has another change of the same repair to send right
 // away. The reload then waits for it (each apply also waits for its check,

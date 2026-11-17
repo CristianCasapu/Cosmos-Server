@@ -55,9 +55,10 @@ func startHTTPServer(router *mux.Router) error {
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout: 0,
 		IdleTimeout: 30 * time.Second,
-		Handler: router,
+		Handler: forkRestarts.routerOf(router), // Fork addition: once this generation ended its requests go to the next router, see fork_server_lifecycle.go
 		DisableGeneralOptionsHandler: true,
 		ConnContext: proxy.HandoffConnContext,
+		ConnState: forkConnState, // Fork addition: a restart lets the connections just taken send their request, see fork_server_lifecycle.go
 	}
 
 	// before the socket proxy: its HTTP routes hand their connections to this server
@@ -78,7 +79,7 @@ func startHTTPServer(router *mux.Router) error {
 
 	utils.Log("Listening to HTTP on : 0.0.0.0:" + serverPortHTTP)
 
-	return HTTPServer.ListenAndServe()
+	return forkRestarts.serve(HTTPServer, false, nil) // Fork addition: listens, and closes when a restart is asked for, see fork_server_lifecycle.go (upstream listened here itself)
 }
 
 var primaryCert *tls.Certificate
@@ -488,10 +489,12 @@ func startHTTPSServer(router *mux.Router) error {
 	// IsHTTPS is about the server's own hostname: on a server that serves both,
 	// it follows the zone of that hostname
 	utils.HTTPSListening = true
+	gated := forkRestarts.routerOf(router) // Fork addition: once this generation ended its requests go to the next router, see fork_server_lifecycle.go
 	utils.IsHTTPS = !utils.HostIsHTTPOnly(utils.GetMainConfig(), utils.GetMainConfig().HTTPConfig.Hostname)
 
-	go (func () {
-		httpRouter := plainHTTPHandler(router)
+	// Fork addition: built here and served with the HTTPS server of the same generation, see fork_server_lifecycle.go (upstream: started from a goroutine of its own)
+	{
+		httpRouter := plainHTTPHandler(gated) // Fork addition: was router
 
 		HTTPServer2 = &http.Server{
 			Addr: "0.0.0.0:" + serverPortHTTP,
@@ -501,14 +504,9 @@ func startHTTPSServer(router *mux.Router) error {
 			IdleTimeout: 30 * time.Second,
 			Handler: httpRouter,
 			DisableGeneralOptionsHandler: true,
+			ConnState: forkConnState, // Fork addition: see fork_server_lifecycle.go
 		}
-
-		err := HTTPServer2.ListenAndServe()
-		
-		if err != nil && err != http.ErrServerClosed {
-			utils.Fatal("Listening to HTTP (Redirecting to HTTPS)", err)
-		}
-	})()
+	}
 
 	utils.Log("Listening to HTTP on :" + serverPortHTTP)
 	utils.Log("Listening to HTTPS on :" + serverPortHTTPS)
@@ -561,11 +559,13 @@ func startHTTPSServer(router *mux.Router) error {
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout: 0,
 		IdleTimeout: 30 * time.Second,
-		Handler: router,
+		Handler: gated, // Fork addition: was router
 		DisableGeneralOptionsHandler: true,
 		ConnContext: proxy.HandoffConnContext,
+		ConnState: forkConnState, // Fork addition: see fork_server_lifecycle.go
 	}
 	forkTLSNames(HTTPServer) // Fork addition: a stranger's handshake for a name not served to it is refused, see fork_tls_names.go
+	nameHTTP2(HTTPServer) // Fork addition: HTTP/2 is set up whichever of the handoff's Serve and ServeTLS comes first, see fork_http2.go
 
 	// before the socket proxy: its HTTP routes hand their connections to this server
 	proxy.StartHTTPHandoff(HTTPServer, true)
@@ -586,7 +586,7 @@ func startHTTPSServer(router *mux.Router) error {
 
 	utils.Log("Now listening to HTTPS on :" + serverPortHTTPS)
 
-	return HTTPServer.ListenAndServeTLS("", "")
+	return forkRestarts.serve(HTTPServer, true, HTTPServer2) // Fork addition: both listeners of this generation, closed together when a restart is asked for, see fork_server_lifecycle.go (upstream listened here itself)
 }
 
 func tokenMiddleware(next http.Handler) http.Handler {
@@ -1457,6 +1457,22 @@ func StartServer() {
 }
 
 func RestartHTTPServer() {
+	forkRestarts.restart(reloadForRestart) // Fork addition: one reload at a time, then a new generation of the servers is asked for, see fork_server_lifecycle.go
+}
+
+// reloadForRestart is upstream's RestartHTTPServer up to the shutdown (Fork addition: split)
+//
+// Fork addition: reloads run one at a time (fork_server_lifecycle.go), so
+// what this calls must never wait for a restart: a RestartHTTPServer from
+// inside it is only recorded (one more reload follows), and the locks it
+// may take are utils.ConfigLockInternal (reading the file, briefly) and,
+// inside a container, docker.DockerNetworkLock (BootstrapAllContainersFromTags
+// editing a container). It never takes utils.ConfigLock, which is why
+// docker.CreateService may hold that lock across its RestartHTTPServer:
+// the reload it runs or waits for never needs it. A caller holding
+// DockerNetworkLock must not call RestartHTTPServer synchronously
+// (none does; TestReloadForRestartNeverRestartsItself guards the rest).
+func reloadForRestart() {
 	utils.LetsEncryptErrors = []string{}
 	IconCache = map[string]CachedImage{}
 	
@@ -1467,12 +1483,5 @@ func RestartHTTPServer() {
 
 	docker.BootstrapAllContainersFromTags()
 
-	go func() {
-		if HTTPServer2 != nil {
-			HTTPServer2.Shutdown(context.Background())
-		}
-		HTTPServer.Shutdown(context.Background())
-	}()
-
-	utils.Log("HTTPServer shutdown.")
+	// Fork addition: the servers are no longer shut down from here (upstream: from a goroutine, without a lock, whichever servers the variables held then); the serving loop does it, see fork_server_lifecycle.go
 }
