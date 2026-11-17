@@ -62,7 +62,7 @@ const IGNORED = [
   /^\/api\/(metrics|events|notifications|list-dir|dns-check|_logs|_memory)\b/,
   /^\/api\/jobs\/(get|running)\b/,
   /^\/api\/(config\/test-email|upnp|server-update|force-server-update)\b/,
-  /^\/api\/telegram\b/, // the Telegram card shows what a test message gave, in words, where it was asked for
+  /^\/api\/telegram\b/, // the Telegram card shows what a test message gave, and (plan 47) which chats the bot has, in words, where it was asked for
   /^\/api\/cloudflare\/(check|preview)\b/, // Fork addition: the guided set-up shows these answers itself
   /^\/api\/certificates\/(domain|delegation)\b/, // Fork addition: lookups for "Add another domain", which shows what was found itself
   /^\/api\/cloudflare\/origin-pulls\b/, // Fork addition: the card says what each step gave, in words, where it was asked for

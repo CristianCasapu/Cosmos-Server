@@ -77,7 +77,7 @@ func TestTelegramRoutesAreRegisteredAndProtected(t *testing.T) {
 	api := router.PathPrefix("/cosmos").Subrouter()
 	registerTelegramRoutes(api)
 
-	for _, request := range [][2]string{{"GET", "/cosmos/api/telegram"}, {"POST", "/cosmos/api/telegram/test"}} {
+	for _, request := range [][2]string{{"GET", "/cosmos/api/telegram"}, {"POST", "/cosmos/api/telegram/test"}, {"POST", "/cosmos/api/telegram/chats"}} {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, httptest.NewRequest(request[0], "http://cosmos.example"+request[1], strings.NewReader("{}")))
 		if w.Code != http.StatusUnauthorized {

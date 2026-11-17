@@ -339,6 +339,13 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
+		// Fork addition: new and changed monitoring alerts are checked like the alert editor checks them, see fork_alerts.go
+		if problem := checkAlerts(&request, config); problem != nil {
+			utils.Error("SettingsUpdate: "+problem.Message, nil)
+			utils.HTTPError(w, problem.Message, http.StatusBadRequest, problem.Code)
+			return
+		}
+
 		// Fork addition: changed HTTP settings must not take the panel away (ports, admin whitelist, hostname), see fork_http_settings.go
 		if problem := checkHTTPSettings(req, &request, config); problem != nil {
 			utils.Error("SettingsUpdate: "+problem.Message, nil)

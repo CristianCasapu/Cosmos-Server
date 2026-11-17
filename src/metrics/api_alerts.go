@@ -111,6 +111,10 @@ func alertsCreate(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "Alert name is required", http.StatusBadRequest, "AL011")
 		return
 	}
+	if err := CheckAlert(alert.Name, alert); err != nil { // Fork addition: checked like the alert editor does, see fork_alert_check.go
+		utils.HTTPError(w, err.Error(), http.StatusBadRequest, "AL013")
+		return
+	}
 
 	utils.ConfigLock.Lock()
 	defer utils.ConfigLock.Unlock()
@@ -172,6 +176,10 @@ func alertsUpdate(w http.ResponseWriter, req *http.Request) {
 
 	if _, exists := config.MonitoringAlerts[name]; !exists {
 		utils.HTTPError(w, "Alert not found", http.StatusNotFound, "AL021")
+		return
+	}
+	if err := alertUpdateProblem(name, alert, config.MonitoringAlerts[name]); err != nil { // Fork addition: a changed alert is checked, see fork_alert_check.go
+		utils.HTTPError(w, err.Error(), http.StatusBadRequest, "AL022")
 		return
 	}
 
