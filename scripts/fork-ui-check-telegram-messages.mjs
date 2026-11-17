@@ -70,6 +70,10 @@ const check = async (engine, size) => {
   }
   if (shownPreviews.length !== kinds.length) problem(`${name}: ${shownPreviews.length} kinds shown, the server has ${kinds.length}`);
 
+  // plan 48: the watches are in the card
+  const watches = await card.locator('#telegram-watches').count();
+  if (!watches || !(await card.innerText()).includes('Disks that report they are failing')) problem(`${name}: the watches' section is missing`);
+
   // the whole message, as it arrives
   const dying = card.locator('.telegram-kind[data-kind="container.dying"]');
   await dying.getByRole('button', { name: 'Show the message' }).click();
@@ -118,8 +122,19 @@ const check = async (engine, size) => {
     await sleep(3000);
     const after = await messagesAtFake(ctx);
     if (after.length !== sent && after.slice(sent).some((m) => m.preview.includes('Failed sign-in'))) problem(`${name}: a failed sign-in was sent although switched off`);
+    // plan 48: the watches' settings: a number of days saved and read back
+    const days = page.locator('input[name=Watch_FillDays]');
+    await days.scrollIntoViewIfNeeded();
+    await days.fill('5');
+    await page.getByRole('button', { name: 'Save', exact: true }).last().click();
+    await sleep(4000);
+    const watchSaved = (await (await ctx.request.get(base + '/cosmos/api/config')).json()).data.Watch || {};
+    note(name, 'saved Watch:', JSON.stringify(watchSaved));
+    if (watchSaved.FillDays !== 5) problem(`${name}: the days of a disk filling fast were not saved: ${JSON.stringify(watchSaved)}`);
     // put it back
     await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('input[name=Watch_FillDays]').waitFor({ timeout: 30000 });
+    await page.locator('input[name=Watch_FillDays]').fill('3');
     await page.locator('.telegram-kind[data-kind="auth.login.failed"]').waitFor({ timeout: 30000 });
     await page.locator('.telegram-kind[data-kind="auth.login.failed"] input[type=checkbox]').click();
     await page.getByRole('button', { name: 'Save', exact: true }).last().click();

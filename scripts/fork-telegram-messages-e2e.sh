@@ -11,6 +11,9 @@
 #   sh scripts/fork-telegram-messages-e2e.sh events    cause the events: a burst of failed sign-ins, an app that
 #                                                      keeps stopping, an app stopped and started, a disk alert,
 #                                                      a restart of Cosmos
+#   sh scripts/fork-telegram-messages-e2e.sh events2   plan 48's watches that can be faked here: the test's own
+#                                                      Docker paused for four minutes (Docker not answering, then
+#                                                      again), a scheduled job that fails and then works again
 #   sh scripts/fork-telegram-messages-e2e.sh messages  print what the stand-in received (also to $SCRATCH/messages.txt)
 #   sh scripts/fork-telegram-messages-e2e.sh clean     remove everything it made
 #
@@ -110,6 +113,8 @@ up() {
 		c.HTTPConfig.Hostname = "cosmos.example.org";
 		c.Telegram = { Enabled: true, BotToken: process.env.TOKEN, ChatID: "100200300", ServerName: "test server",
 			Kinds: { "auth.login.failed": true } };
+		// a scheduled job that fails until /config/ok exists (events2)
+		c.CRON = { ...(c.CRON || {}), flaky: { Enabled: true, Name: "flaky", Crontab: "*/20 * * * * *", Command: "test -f /config/ok" } };
 		for (const [name, alert] of Object.entries(c.MonitoringAlerts || {})) {
 			if (name.startsWith("Disk Full Notification")) { alert.Condition.Value = 1; alert.Enabled = true; }
 		}
@@ -149,6 +154,18 @@ events() {
 	sleep 10
 }
 
+events2() {
+	echo "== a scheduled job that fails (every 20 s) and then works again"
+	sleep 45
+	docker run --rm -v "$SCRATCH/config:/config" "$BOX_IMAGE" touch /config/ok
+	sleep 45
+	echo "== the test's own Docker paused for four minutes, then running again"
+	docker pause "$PREFIX-dind" >/dev/null
+	sleep 240
+	docker unpause "$PREFIX-dind" >/dev/null
+	sleep 60
+}
+
 messages() {
 	ctl curl -s "http://$FAKE:8080/messages" > "$SCRATCH/messages.json"
 	docker run --rm -v "$SCRATCH:/s" "$NODE_IMAGE" node -e '
@@ -168,8 +185,9 @@ messages() {
 case "${1:-}" in
 up) up ;;
 events) events ;;
+events2) events2 ;;
 messages) messages ;;
 clean) clean ;;
 ctl) shift; ctl "$@" ;;
-*) echo "usage: $0 up|events|messages|clean|ctl ..."; exit 2 ;;
+*) echo "usage: $0 up|events|events2|messages|clean|ctl ..."; exit 2 ;;
 esac
