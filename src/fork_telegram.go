@@ -19,12 +19,13 @@ func startTelegram() {
 	telegram.Start(GetCosmosVersion())
 }
 
-// registerTelegramRoutes adds the two routes to the admin router: behind
+// registerTelegramRoutes adds the routes to the admin router: behind
 // the token check, the SmartShield and the admin address restriction, like
 // their neighbours. Each checks its permission itself.
 func registerTelegramRoutes(admin *mux.Router) {
 	admin.HandleFunc("/api/telegram", telegram.StatusRoute)
 	admin.HandleFunc("/api/telegram/test", telegram.TestRoute)
+	admin.HandleFunc("/api/telegram/chats", telegram.ChatsRoute) // plan 47: the chats the bot can write to, see telegram/fork_chats.go
 }
 
 // announceServerUpdate reports that a newer release exists. The check runs

@@ -427,15 +427,23 @@ export const appTile = (app, ctx) => {
 export const appTiles = (routes, ctx, skip) => groupApps(routes, skip).map((app) => appTile(app, { ...(ctx || {}), allRoutes: routes }));
 
 // URLs as the configuration holds them, with what GET /api/dashboard adds
-// (role, label, names for use at home, the container's ports): matched by name.
+// (role, label, names for use at home, the container's ports): matched by the
+// route's opaque key (ForkKey, which the server gives the same route in both
+// answers), never by name: two URLs may share a name. A route without a key
+// (an older server) gets nothing added.
 const DASHBOARD_FIELDS = ['ForkRole', 'ForkRoleSource', 'ForkLabel', 'ForkHomeOnly', 'ForkAdminPath', 'ForkHomeHosts', 'ForkContainer', 'ForkImage', 'ForkPorts',
   // plan 50: the guide's facts
   'ForkGuide', 'ForkGuideSource', 'ForkGuideProposed', 'ForkGuideRegion', 'ForkShielded', 'ForkOwnCAHosts', 'ForkNetworks'];
+export const dashboardEntryFor = (dashboard, key) => {
+  if (!key || typeof key !== 'string') return null;
+  return (Array.isArray(dashboard) ? dashboard : []).find((d) => d && d.ForkKey === key) || null;
+};
+
 export const mergeDashboard = (routes, dashboard) => {
-  const byName = new Map();
-  (Array.isArray(dashboard) ? dashboard : []).forEach((d) => { if (d && d.Name && !byName.has(d.Name)) byName.set(d.Name, d); });
+  const byKey = new Map();
+  (Array.isArray(dashboard) ? dashboard : []).forEach((d) => { if (d && d.ForkKey && !byKey.has(d.ForkKey)) byKey.set(d.ForkKey, d); });
   return (routes || []).filter(Boolean).map((route) => {
-    const d = byName.get(route.Name);
+    const d = route.ForkKey ? byKey.get(route.ForkKey) : null;
     if (!d) return route;
     const out = { ...route };
     DASHBOARD_FIELDS.forEach((field) => { if (d[field] !== undefined) out[field] = d[field]; });

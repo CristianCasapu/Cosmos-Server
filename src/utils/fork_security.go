@@ -322,6 +322,8 @@ var securityUnlistedReads = []string{
 	"/cosmos/api/jobs/get",
 	"/cosmos/api/jobs/running",
 	"/cosmos/api/config/http-check", // checks the HTTP settings before a save, changes nothing
+	"/cosmos/api/config/postgres-test", // connects to the monitoring database of the form and says whether it answers, changes nothing
+	"/cosmos/api/snapshots/look",       // what a folder holds that is worth leaving out of the snapshots, changes nothing
 	"/cosmos/api/install/plan",      // the platforms and places for data an installation would use, changes nothing
 	"/cosmos/api/images/search",     // Docker Hub's answer for "Install any image" (plan 40), changes nothing
 	"/cosmos/api/images/describe",   // what an image declares, read from its registry, changes nothing

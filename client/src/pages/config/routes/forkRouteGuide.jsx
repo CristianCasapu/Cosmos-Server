@@ -119,7 +119,7 @@ const plainErrors = (errors, t) => {
   return plain;
 };
 
-const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarget, isNew, readOnly, hostError, onHostChange, addressExtra, children }) => {
+const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarget, isNew, readOnly, hostError, onHostChange, addressExtra, routeKey, children }) => {
   const { t } = useTranslation();
   const [view, setView] = React.useState('simple');
   const [containers, setContainers] = React.useState(null);
@@ -533,7 +533,7 @@ const ForkRouteGuide = ({ formik, config, routeNames, TargetContainer, lockTarge
     <HostSeenHint values={values} image={imageOf(container)} config={config} isNew={isNew} onAppOwnHost={(on) => change({ ForkAppOwnHost: on })} />
 
     {/* Fork addition (plan 49): what the address is to its app, as in "All settings" */}
-    <ForkRouteRole formik={formik} routeName={isNew ? '' : values.Name} />
+    <ForkRouteRole formik={formik} routeKey={isNew ? '' : routeKey} />
 
     <Grid size={{ xs: 12 }}>
       {showName || nameError

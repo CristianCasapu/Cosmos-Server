@@ -1050,6 +1050,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/config/test-email", configapi.ConfigApiTestEmail)
 	srapiAdmin.HandleFunc("/api/config/email-detect", maildetect.Route) // Fork addition: proposes SMTP settings for an email address
 	srapiAdmin.HandleFunc("/api/config/http-check", configapi.HTTPCheckRoute) // Fork addition: checks the HTTP settings before a save, see configapi/fork_http_settings.go
+	srapiAdmin.HandleFunc("/api/config/postgres-test", configapi.PostgresTestRoute) // Fork addition: does the monitoring database answer, see configapi/fork_postgres.go
 	srapiAdmin.HandleFunc("/api/upnp", upnp.StatusRoute)
 	srapiAdmin.HandleFunc("/api/reachability", reach.StatusRoute) // Fork addition: can the apps be reached from the internet
 	srapiAdmin.HandleFunc("/api/local-names", proxy.LocalNamesRoute) // Fork addition: are the .local names published and answered, see proxy/fork_mdns_status.go
@@ -1060,6 +1061,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/snapshots/run", snapshots.RunRoute) // fork addition
 	srapiAdmin.HandleFunc("/api/snapshots/restore", snapshots.RestoreRoute) // fork addition
 	srapiAdmin.HandleFunc("/api/snapshots/cleanup", snapshots.CleanupRoute) // fork addition
+	srapiAdmin.HandleFunc("/api/snapshots/look", snapshots.LookRoute) // Fork addition (plan 47): what a folder holds that is worth leaving out, bounded
 	srapiAdmin.HandleFunc("/api/zones/{zone}", configapi.ZonesIdRoute)
 	srapiAdmin.HandleFunc("/api/zones", configapi.ZonesRoute)
 	srapiAdmin.HandleFunc("/api/zones-addresses", configapi.ZonesApiAddresses)
@@ -1093,6 +1095,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/sign-in", appsignin.SignInRoute)           // Fork addition (plan 45): the app's sign-in details, no secret
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/sign-in/reveal", appsignin.RevealRoute)   // Fork addition (plan 45): one of its secrets, recorded
 	srapiAdmin.HandleFunc("/api/app-sign-in/defaults", appsignin.DefaultsRoute)                  // Fork addition (plan 45): what an installation proposes
+	srapiAdmin.HandleFunc("/api/config/postgres-proposals", appsignin.PostgresProposalsRoute)    // Fork addition (plan 47): the PostgreSQL containers proposed for the monitoring database, no secret
 	srapiAdmin.HandleFunc("/api/lan-addresses", proxy.LANAddressesRoute) // Fork addition: where a service may be published for the home network (proxy/fork_lan_addresses.go)
 	// Fork addition: does an app accept the address it is reached at (src/behind, plan 44)
 	srapiAdmin.HandleFunc("/api/url-check", behind.CheckRoute)
@@ -1250,6 +1253,7 @@ func InitServer() *mux.Router {
 
 	srapiAdmin.HandleFunc("/api/cron/{name}", cron.CronConfigIdRoute)
 	srapiAdmin.HandleFunc("/api/cron", cron.CronConfigRoute)
+	srapiAdmin.HandleFunc("/api/cron-proposals/{containerId}", cron.ProposalsRoute) // Fork addition: common jobs for a container (a database dump), see cron/fork_proposals.go
 
 	srapiAdmin.HandleFunc("/api/listen=jobs", cron.ListJobs)
 	srapiAdmin.HandleFunc("/api/jobs", cron.ListJobs)

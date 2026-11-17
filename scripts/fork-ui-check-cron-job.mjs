@@ -51,7 +51,11 @@ for (const name of names) for (const size of wanted) {
     await page.waitForTimeout(3500);
     await page.locator('button:has(.anticon-plus)').first().click();
     await page.waitForTimeout(1500);
-    return page.locator('[role=dialog]:visible').last();
+    const found = page.locator('[role=dialog]:visible').last();
+    // where it runs and the schedule are choices since plan 47 (pages/cron/forkJobForm.jsx): these jobs run on the server, typed schedules
+    await found.getByRole('radio', { name: 'On the server itself' }).click();
+    await found.getByRole('radio', { name: 'Type it myself' }).click();
+    return found;
   };
   let dialog = await open();
   expect(id + ': a new job is called a new job', /New Job/.test(await dialog.locator('h2').first().innerText()), await dialog.locator('h2').first().innerText());

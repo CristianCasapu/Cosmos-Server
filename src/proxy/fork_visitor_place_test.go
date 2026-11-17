@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/azukaar/cosmos-server/src/utils"
@@ -158,22 +159,61 @@ func TestPlaceOfUsesTheVisitorAddress(t *testing.T) {
 }
 
 func TestVPNInterfaceNames(t *testing.T) {
+	eth := map[string]bool{"eth0": true}
 	for _, name := range []string{"tailscale0", "wg0", "tun0", "tun12", "zt12345", "nebula1", "utun3"} {
-		if !isVPNInterface(name, "eth0") {
+		if !isVPNInterface(name, eth) {
 			t.Errorf("%s is not taken for a VPN", name)
 		}
 	}
 	for _, name := range []string{"eth0", "enp3s0", "eno1", "br-0123456789ab", "docker0", "wlan0", "bond0", "ppp0", "pppoe-wan", "tunl0"} {
-		if isVPNInterface(name, "eth0") {
+		if isVPNInterface(name, eth) {
 			t.Errorf("%s is taken for a VPN", name)
 		}
 	}
 	// a server whose way out is the tunnel: that tunnel is not a VPN of visitors
-	if isVPNInterface("tun0", "tun0") {
+	if isVPNInterface("tun0", map[string]bool{"tun0": true}) {
 		t.Errorf("the default route's tunnel is taken for a VPN")
 	}
-	if !isVPNInterface("wg0", "wg0") {
+	if !isVPNInterface("wg0", map[string]bool{"wg0": true}) {
 		t.Errorf("WireGuard on the default route is still a VPN interface")
+	}
+	if !isVPNInterface("tun0", nil) {
+		t.Errorf("without default routes known, tun0 is a VPN interface")
+	}
+}
+
+func TestDefaultRoutes(t *testing.T) {
+	v4 := strings.NewReader(`Iface	Destination	Gateway 	Flags	RefCnt	Use	Metric	Mask		MTU	Window	IRTT
+eth0	00000000	0101A8C0	0003	0	0	100	00000000	0	0	0
+eth0	0001A8C0	00000000	0001	0	0	100	00FFFFFF	0	0	0
+tun0	00000000	0100080A	0003	0	0	0	00000080	0	0	0
+tun0	00000080	0100080A	0003	0	0	0	00000080	0	0	0
+tun1	00000000	0100090A	0003	0	0	0	00000080	0	0	0
+`)
+	v6 := strings.NewReader(`00000000000000000000000000000000 00 00000000000000000000000000000000 00 fe800000000000000000000000000001 00000400 00000001 00000000 00000003 wg6
+00000000000000000000000000000000 01 00000000000000000000000000000000 00 00000000000000000000000000000000 00000400 00000001 00000000 00000001 tun5
+80000000000000000000000000000000 01 00000000000000000000000000000000 00 00000000000000000000000000000000 00000400 00000001 00000000 00000001 tun5
+00000000000000000000000000000000 00 00000000000000000000000000000000 00 00000000000000000000000000000000 ffffffff 00000001 00000000 00200200 lo
+20010db8000100020000000000000000 40 00000000000000000000000000000000 00 00000000000000000000000000000000 00000100 00000001 00000000 00000001 eth0
+`)
+	got := parseDefaultRoutes(v4, v6)
+	want := map[string]bool{"eth0": true, "tun0": true, "wg6": true, "tun5": true}
+	if len(got) != len(want) {
+		t.Errorf("default routes %v, want %v", got, want)
+	}
+	for k := range want {
+		if !got[k] {
+			t.Errorf("%s carries a default route and was not seen (%v)", k, got)
+		}
+	}
+	if got["tun1"] {
+		t.Errorf("one half of def1 is not a default route")
+	}
+	if len(parseDefaultRoutes(nil, nil)) != 0 {
+		t.Errorf("nothing to read gives routes")
+	}
+	if isVPNInterface("tun0", got) || !isVPNInterface("tun1", got) || isVPNInterface("tun5", got) {
+		t.Errorf("def1 (IPv4 or IPv6) on a tunnel makes it the way out, one half does not")
 	}
 }
 

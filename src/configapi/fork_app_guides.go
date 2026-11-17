@@ -13,7 +13,7 @@ package configapi
 //   - ForkOwnCAHosts: the URL's names (its host, its names for use at home)
 //     whose certificate is signed by Cosmos' own authority, so that a client
 //     must be given that authority's certificate;
-//   - administrators only: the container's Docker networks (another
+//   - those who get the container's details (administrators with resources-read): its Docker networks (another
 //     container reaches the app there); to those who may edit URLs only:
 //     where the guide comes from and what it would be without the setting.
 //
@@ -54,7 +54,7 @@ type ForkGuideFields struct {
 var ForkHostOwnCA func(host string) bool
 
 // guideFields is the hook of forkDashboardRoutes.
-func guideFields(route utils.ProxyRouteConfig, image string, c *types.Container, isAdmin bool, editsURLs bool, homeHosts []string) ForkGuideFields {
+func guideFields(route utils.ProxyRouteConfig, image string, c *types.Container, containerDetails bool, editsURLs bool, homeHosts []string) ForkGuideFields {
 	fields := ForkGuideFields{}
 	setting := ""
 	if route.ForkInterface != nil {
@@ -86,7 +86,7 @@ func guideFields(route utils.ProxyRouteConfig, image string, c *types.Container,
 			}
 		}
 	}
-	if isAdmin && c != nil && c.NetworkSettings != nil {
+	if containerDetails && c != nil && c.NetworkSettings != nil {
 		for name := range c.NetworkSettings.Networks {
 			if networkName.MatchString(name) && len(fields.ForkNetworks) < 16 {
 				fields.ForkNetworks = append(fields.ForkNetworks, name)

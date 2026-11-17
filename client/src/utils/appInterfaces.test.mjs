@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   appTiles, appTile, containerApp, appInterfaces, chooseInterface, groupApps, hostKind, parseHost, reachFrom, routeURL, safeURL,
-  visitorPlace, interfaceOfRoute, readPreference, writePreference, PREFER_KEY, mergeDashboard, inspectPorts, menuOrder, urlReach, sharedAnswer,
+  visitorPlace, interfaceOfRoute, readPreference, writePreference, PREFER_KEY, mergeDashboard, dashboardEntryFor, inspectPorts, menuOrder, urlReach, sharedAnswer,
 } from './appInterfaces.js';
 
 const app = (name, host, target, more = {}) => ({ Name: name, UseHost: !!host, Host: host, Target: target, Mode: 'SERVAPP', ForkRole: 'user', ...more });
@@ -294,13 +294,21 @@ test('chooseInterface with nothing', () => {
   assert.deepEqual(appInterfaces({ routes: [] }, {}), []);
 });
 
-test('URLs from the configuration get the dashboard\'s roles by name', () => {
-  const merged = mergeDashboard([{ Name: 'a', Host: 'a.local', UseHost: true }, { Name: 'b' }, null], [{ Name: 'a', ForkRole: 'admin', ForkHomeHosts: ['a.home.example.org'], Host: 'evil.example.org' }, null]);
-  assert.equal(merged.length, 2);
+test('URLs from the configuration get the dashboard\'s fields by their key, never by name', () => {
+  const merged = mergeDashboard(
+    [{ Name: 'x', ForkKey: 'k1', Host: 'a.local', UseHost: true }, { Name: 'x', ForkKey: 'k2', Host: 'b.example.org', UseHost: true }, { Name: 'old' }, null],
+    [{ Name: 'x', ForkKey: 'k2', ForkRole: 'user', ForkLabel: 'B' }, { Name: 'x', ForkKey: 'k1', ForkRole: 'admin', ForkLabel: 'A', ForkHomeHosts: ['a.home.example.org'], Host: 'evil.example.org' }, { Name: 'old', ForkRole: 'admin' }, null],
+  );
+  assert.equal(merged.length, 3);
+  assert.equal(merged[0].ForkLabel, 'A');
   assert.equal(merged[0].ForkRole, 'admin');
   assert.equal(merged[0].Host, 'a.local', 'only the fork\'s fields are taken');
-  assert.deepEqual(merged[1], { Name: 'b' });
+  assert.equal(merged[1].ForkLabel, 'B', 'two URLs of one name keep their own fields');
+  assert.deepEqual(merged[2], { Name: 'old' }, 'no key, nothing taken (never by name)');
   assert.deepEqual(mergeDashboard(null, null), []);
+  assert.equal(dashboardEntryFor([{ Name: 'x', ForkKey: 'k1' }, { Name: 'x', ForkKey: 'k2', Disabled: true }], 'k2').Disabled, true, 'the URL form finds a disabled URL\'s proposal by its key');
+  assert.equal(dashboardEntryFor([{ Name: 'x', ForkKey: 'k1' }], ''), null);
+  assert.equal(dashboardEntryFor(null, 'k1'), null);
 });
 
 test('published ports from a container\'s inspection', () => {
