@@ -111,6 +111,9 @@ func cronConfigCreate(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "CRON job name is required", http.StatusBadRequest, "CR011")
 		return
 	}
+	if refuseJob(w, cronJob.Name, cronJob, "CR013") { // Fork addition: schedule, command and container checked, see fork_job_check.go
+		return
+	}
 
 	utils.ConfigLock.Lock()
 	defer utils.ConfigLock.Unlock()
@@ -162,6 +165,9 @@ func cronConfigUpdate(w http.ResponseWriter, req *http.Request) {
 	if err := json.NewDecoder(req.Body).Decode(&cronJob); err != nil {
 		utils.Error("CronConfigUpdate: Invalid request", err)
 		utils.HTTPError(w, "Invalid request", http.StatusBadRequest, "CR020")
+		return
+	}
+	if refuseJob(w, jobKey(name, cronJob), cronJob, "CR022") { // Fork addition: schedule, command and container checked, see fork_job_check.go
 		return
 	}
 
