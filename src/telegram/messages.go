@@ -183,6 +183,10 @@ type notice struct {
 	// counted: the security record's summary row stands for this many.
 	counted int
 	sample  bool
+	// mergedLabel: the opening of this closing was never sent (it is told
+	// here, with how long it lasted since mergedSince)
+	mergedLabel string
+	mergedSince time.Time
 }
 
 func (nt notice) texts() kindTexts {
@@ -329,6 +333,9 @@ func renderWith(st settings, nt notice, details bool) message {
 			}
 		}
 		writeTemplate(c, kt.Preview, safe, maxPreview)
+		if nt.mergedLabel != "" {
+			c.fixed(strings.NewReplacer("{{label}}", strings.ToLower(nt.mergedLabel), "{{duration}}", mergedDuration(nt)).Replace(word("mergedWas")))
+		}
 	} else {
 		c.fixed(nt.label())
 	}
@@ -340,6 +347,9 @@ func renderWith(st settings, nt notice, details bool) message {
 		if kt.WhatAuto != "" && strings.TrimSpace(vars["at"]) != "" {
 			what = kt.WhatAuto
 		}
+	}
+	if nt.mergedLabel != "" {
+		c.fixed(word("mergedWhy")).line()
 	}
 	if what != "" && (details || !usesVars(what)) {
 		writeTemplate(c, what, vars, maxFreeText)
@@ -473,6 +483,14 @@ func previewSafe(text string) string {
 		}
 	}
 	return b.String()
+}
+
+// mergedDuration says how long what was never told lasted.
+func mergedDuration(nt notice) string {
+	if nt.mergedSince.IsZero() || nt.at.IsZero() || nt.at.Before(nt.mergedSince) {
+		return "a while"
+	}
+	return utils.NotificationDuration(nt.at.Sub(nt.mergedSince))
 }
 
 // PreviewLine is what a phone shows of a message before it is opened: its

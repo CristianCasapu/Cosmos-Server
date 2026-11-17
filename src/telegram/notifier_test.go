@@ -775,3 +775,50 @@ func TestACriticalAlertIsDeliveredPastARetriedBan(t *testing.T) {
 		t.Errorf("%q", texts)
 	}
 }
+
+// Review R1: an opening Telegram did not take is still waiting when its
+// closing comes: one message says it happened and is over; nothing is
+// pinned, and the stale opening is never sent.
+func TestAnOpeningNotYetSentIsToldWithItsClosing(t *testing.T) {
+	for _, pair := range [][2]string{{"reach.down", "reach.restored"}, {"fail2ban.down", "fail2ban.restored"}} {
+		fake := newFakeTelegram(t)
+		var mu sync.Mutex
+		refuse := true
+		fake.answerWith(func(n int, req fakeRequest) fakeAnswer {
+			mu.Lock()
+			defer mu.Unlock()
+			if refuse {
+				return fakeAnswer{status: 502, body: "bad gateway"}
+			}
+			return answerOK
+		})
+		h := newHarness(t, fake, false, func(h *harness) {
+			h.threads = newThreadMemory("")
+			h.limits.backoff = []time.Duration{time.Second}
+			h.limits.normalAge, h.limits.criticalAge = time.Minute, time.Minute
+		})
+		open := sampleNotice(pair[0])
+		open.sample, open.thread, open.at = false, "t:"+pair[0], time.Now().Add(-12*time.Minute)
+		h.Notify(open)
+		fake.waitFor(t, 1) // refused, waiting for its back-off of a second
+		time.Sleep(100 * time.Millisecond)
+		closing := sampleNotice(pair[1])
+		closing.sample, closing.thread, closing.resolves, closing.at = false, open.thread, open.thread, time.Now()
+		h.Notify(closing)
+		mu.Lock()
+		refuse = false
+		mu.Unlock()
+		time.Sleep(2500 * time.Millisecond)
+		sent := []fakeRequest{}
+		for _, req := range fake.received()[1:] {
+			sent = append(sent, req)
+		}
+		if len(sent) != 1 || !strings.HasSuffix(sent[0].path, "/sendMessage") {
+			t.Fatalf("%s: %d requests after the refusal: %q", pair[0], len(sent), fake.texts())
+		}
+		text, _ := sent[0].body["text"].(string)
+		if !strings.HasPrefix(text, "🟢 OK · ") || !strings.Contains(PreviewLine(text), "(was: ") || !strings.Contains(PreviewLine(text), "12 minutes") || sent[0].body["reply_parameters"] != nil {
+			t.Errorf("%s: %s", pair[0], text)
+		}
+	}
+}

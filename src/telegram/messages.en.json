@@ -14,6 +14,8 @@
     "again": "Still going on.",
     "raw": "Error text:",
     "request": "The request:",
+    "mergedWas": " (was: {{label}}, {{duration}})",
+    "mergedWhy": "The message that told it could not be sent while it lasted.",
     "summaryOne": "{{count}} more {{many}} {{span}}",
     "summaryMany": "{{count}} more events {{span}}: {{list}}",
     "summaryWhat": "These were not sent one by one, so that the chat is not flooded:",

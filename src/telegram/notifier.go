@@ -218,6 +218,20 @@ func (n *notifier) Notify(nt notice) {
 		return
 	}
 
+	if nt.resolves != "" {
+		// review R1: the opening of what is over was not sent yet (Telegram
+		// could not be reached): one message says it happened and is over,
+		// and the opening is dropped; nothing is pinned
+		for _, queue := range []*[]*item{&n.critical, &n.normal} {
+			for i, waiting := range *queue {
+				if !waiting.nt.closing && waiting.nt.resolves == "" && waiting.nt.thread == nt.resolves {
+					*queue = append((*queue)[:i], (*queue)[i+1:]...)
+					nt.mergedLabel, nt.mergedSince = waiting.nt.label(), waiting.nt.at
+					break
+				}
+			}
+		}
+	}
 	it := &item{priority: p, at: now, since: nt.at, counts: map[string]int{nt.kind: 1}, nt: nt}
 	it.message = render(st, nt)
 	plain := renderWith(st, nt, false)
@@ -652,6 +666,9 @@ func (n *notifier) silent(st settings, it *item, now time.Time) bool {
 // replyTo is the message a closing message or a repeat answers.
 func (n *notifier) replyTo(st settings, it *item) int {
 	thread := it.nt.resolves
+	if it.nt.mergedLabel != "" {
+		return 0 // its opening was never sent
+	}
 	if thread == "" && it.nt.repeat {
 		thread = it.nt.thread
 	}
