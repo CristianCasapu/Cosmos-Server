@@ -78,7 +78,7 @@ fi
 OURS=0
 [ -f "$STATE" ] || [ -f "$MANIFEST" ] && OURS=1
 if [ "$OURS" = 1 ]; then
-	for f in "$ETC/cosmos-host-guard.nft" "$ETC/settings.nft" "$ETC/README" "$SBIN" "$STATE"; do
+	for f in "$ETC/cosmos-host-guard.nft" "$ETC/settings.nft" "$ETC/options" "$ETC/allow" "$ETC/README" "$SBIN" "$STATE"; do
 		case "
 $FILES
 " in *"
@@ -95,6 +95,19 @@ TABLE_LOADED=0
 if [ "$OURS" = 1 ] && command -v nft >/dev/null 2>&1 && nft list table inet "$TNAME" >/dev/null 2>&1; then TABLE_LOADED=1; fi
 
 if [ "$OURS" = 0 ]; then
+	# the table carries this guard's own name: left behind by an interrupted
+	# install or a failed undo, it is removed (nothing else is)
+	if command -v nft >/dev/null 2>&1 && nft list table inet "$TNAME" >/dev/null 2>&1; then
+		say "The host guard is not installed, but its table $TABLE is loaded (left by an interrupted run)."
+		if [ "$DRY_RUN" = 1 ]; then say "Dry run: nothing was changed."; exit 0; fi
+		systemctl stop "$UNDO_UNIT.timer" "$UNDO_UNIT.service" >/dev/null 2>&1 || true
+		nft delete table inet "$TNAME" || fail 6 "could not remove the table $TABLE"
+		rm -rf "$RUN_DIR"
+		record table "$TABLE"
+		record status removed
+		say "removed  the table $TABLE"
+		exit 0
+	fi
 	say "The host guard of the Cosmos fork is not installed here: nothing to remove."
 	if [ -e "$ETC" ] || [ -e "$UNIT_DIR/cosmos-host-guard.service" ]; then
 		warn "$ETC or the unit cosmos-host-guard.service exists without this installer's state: left alone"

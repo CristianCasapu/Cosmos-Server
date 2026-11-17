@@ -221,8 +221,10 @@ fi
 nft list tables >/dev/null 2>&1 || die "nft cannot read the packet filter here: bans could not be enforced"
 
 # SSH: what was chosen before stays, unless an option says otherwise
+SSHD_DEFAULT=0
 if [ -z "$WITH_SSHD" ]; then
 	WITH_SSHD=0
+	SSHD_DEFAULT=1
 	if [ -f "$ETC/jail.d/cosmos-50-host.local" ] && awk '
 		/^\[/ { in_sshd = ($0 ~ /^\[sshd\][[:space:]]*$/); next }
 		in_sshd && $1 == "enabled" && $3 == "true" { found = 1 }
@@ -330,6 +332,35 @@ if [ -n "$SESSION" ]; then
 		*) ;; # not an address: nothing to protect
 	esac
 fi
+
+# Every signed-in SSH session open now is never banned either. They are found
+# from sshd's sockets (a connection to an SSH port held by "sshd...: user@pts/N"
+# or "...@notty"): under sudo, su, tmux or screen the environment may not name
+# the session, or name an old one. A connection still signing in does not count.
+SSH_PORTS=$({
+	sshd -T 2>/dev/null | awk '$1 == "port" {print $2}'
+	systemctl show -p Listen --value ssh.socket sshd.socket 2>/dev/null | tr ' ' '\n' | grep -E ':[0-9]+$' | sed 's/.*://'
+} | grep -E '^[0-9]{1,5}$' | sort -un | tr '\n' ' ')
+[ -n "$SSH_PORTS" ] || SSH_PORTS=22
+LIVE_NOTE=""
+for peer in $(ss -Htnp state established 2>/dev/null | while read -r _ _ local remote procs; do
+	case " $SSH_PORTS " in *" ${local##*:} "*) ;; *) continue ;; esac
+	for pid in $(printf '%s' "$procs" | grep -oE 'pid=[0-9]+' | cut -d= -f2); do
+		if tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -qE '^sshd[^ ]*: [^ ]+@(pts/[0-9]+|notty)'; then
+			a=${remote%:*}; a=${a#[}; a=${a%]}; a=${a%%%*}
+			printf '%s\n' "$a"
+			break
+		fi
+	done
+done | sort -u); do
+	status=0
+	# shellcheck disable=SC2086
+	covered "$peer" $IGNORE || status=$?
+	if [ "$status" = 1 ]; then
+		IGNORE="$IGNORE $(canonical "$peer")"
+		LIVE_NOTE="$LIVE_NOTE $peer"
+	fi
+done
 
 # Settings saved in Cosmos' panel are read after this script's files and
 # replace the list for the fork's jails: if they are there and do not hold
@@ -539,7 +570,11 @@ fi
 if [ "$WITH_SSHD" = 1 ]; then
 	say "    sshd           5 failed SSH logins in 10 minutes                 -> banned 1 hour"
 else
-	say "    (SSH is not watched)"
+	if [ "$SSHD_DEFAULT" = 1 ]; then
+		say "    (SSH is not watched: off by default, --sshd to watch it; Debian's own sshd jail is turned off too)"
+	else
+		say "    (SSH is not watched)"
+	fi
 fi
 say "    recidive       3 bans in 24 hours, by any jail                   -> banned 1 week"
 say "    A ban drops everything from the address: Cosmos, SSH, file sharing and the"
@@ -554,6 +589,15 @@ for network in $IGNORE; do
 	esac
 done
 [ -z "$SESSION_NOTE" ] || say "    ($SESSION_NOTE)"
+[ -z "$LIVE_NOTE" ] || say "    (signed-in SSH sessions open now from outside:$LIVE_NOTE: added to the addresses that are never banned)"
+case " $IGNORE " in *" 100.64.0.0/10 "*)
+	say "    (100.64.0.0/10 is never banned: Tailscale and other VPNs use it. It is also the range of"
+	say "    carrier-grade NAT: on a server whose own outside address is in it, the carrier's other"
+	say "    customers are never banned either; take it out in the panel's never-ban list then)"
+	if ip -o -4 addr show scope global 2>/dev/null | awk '{sub(/\/.*/, "", $4); print $4}' | grep -qE '^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.'; then
+		warn "this server has an address in 100.64.0.0/10 (carrier-grade NAT?): its neighbours in that range are never banned"
+	fi ;;
+esac
 [ -z "$PANEL_NOTE" ] || warn "$PANEL_NOTE"
 say "    (and this machine's own addresses)"
 if [ -n "$CF_RANGES" ]; then

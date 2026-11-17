@@ -10,12 +10,14 @@ Wants=network-pre.target
 Requires=cosmos-host-guard.service
 PartOf=cosmos-host-guard.service
 Conflicts=shutdown.target
+# it must always come back: no start limit (the timer covers the seconds between)
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 ExecStart=/usr/local/sbin/cosmos-host-guard watch
 Restart=always
-RestartSec=2
+RestartSec=3
 
 [Install]
 WantedBy=cosmos-host-guard.service

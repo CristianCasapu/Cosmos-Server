@@ -60,7 +60,8 @@ topo_up() { # nat|pub
 	docker network create --ipv6 --subnet 2001:db8:1::/64 --subnet "$NET4.0/24" "$P-home" >/dev/null
 	docker network create --ipv6 --subnet 2001:db8:2::/64 --subnet 198.51.100.0/24 "$P-out" >/dev/null
 	docker run -d --name "$RT" --cap-add NET_ADMIN --network "$P-home" --ip "$RT4H" --ip6 "$RT6H" \
-		--sysctl net.ipv4.ip_forward=1 --sysctl net.ipv6.conf.all.forwarding=1 "$IMG_C" sleep infinity >/dev/null
+		--sysctl net.ipv4.ip_forward=1 --sysctl net.ipv6.conf.all.forwarding=1 \
+		--sysctl net.ipv4.conf.all.rp_filter=0 --sysctl net.ipv4.conf.default.rp_filter=0 "$IMG_C" sleep infinity >/dev/null
 	docker network connect --ip "$RT4O" --ip6 "$RT6O" "$P-out" "$RT"
 	for c in "$HC:$HC4:$HC6:home" "$OC:$OC4:$OC6:out" "$OC2:$OC24:$OC26:out"; do
 		name=${c%%:*}; rest=${c#*:}; a4=${rest%%:*}; rest=${rest#*:}; net=${rest##*:}; a6=${rest%:*}
@@ -124,9 +125,11 @@ cat > /var/lib/cosmos/cosmos.config.json <<'EOF'
   }
 }
 EOF
-cat > /etc/docker/daemon.json <<'EOF'
-{ \"ipv6\": true, \"fixed-cidr-v6\": \"fd00:dead:beef::/64\", \"ip6tables\": true, \"experimental\": true }
-EOF
+case '${DOCKER_MODE:-ipv6}' in
+	noipv6) echo '{}' > /etc/docker/daemon.json ;;
+	nft) echo '{ \"ipv6\": true, \"fixed-cidr-v6\": \"fd00:dead:beef::/64\", \"firewall-backend\": \"nftables\" }' > /etc/docker/daemon.json ;;
+	*) echo '{ \"ipv6\": true, \"fixed-cidr-v6\": \"fd00:dead:beef::/64\", \"ip6tables\": true, \"experimental\": true }' > /etc/docker/daemon.json ;;
+esac
 systemctl daemon-reload
 systemctl enable --now test-routes.service stub-http@2052 stub-http@2053 stub-http@9999 >/dev/null 2>&1
 systemctl restart docker"
@@ -173,3 +176,8 @@ files_snapshot() {
 xtables() { msh 'iptables-save; ip6tables-save' 2>/dev/null | grep -v '^#' | sed 's/\[[0-9]*:[0-9]*\]//'; }
 
 guard_loaded() { m nft list table inet cosmos_host_guard >/dev/null 2>&1; }
+in_set() { m nft get element inet cosmos_host_guard "$1" "{ $2 }" >/dev/null 2>&1; }
+# the test machine's link-local address on its home/outside interface
+tm_ll() { m ip -o -6 addr show dev eth0 scope link | awk '{sub(/\/.*/, "", $4); print $4; exit}'; }
+# udp_sent <client> <source> <address> <port>: three datagrams from that source
+udp_sent() { docker exec "$1" sh -c "for i in 1 2 3; do echo probe | nc -u -w 1 -s $2 $3 $4; done" >/dev/null 2>&1 || true; }

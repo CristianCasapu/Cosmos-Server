@@ -175,7 +175,19 @@ else
 fi
 say "  updates    once a day, from the $FLAVOUR security archive only"
 say "  restart    never automatic"
-say "  holds      not touched (apt-mark); other repositories (Docker's) are not updated"
+say "  holds      not touched (apt-mark); packages from other repositories (docker-ce and"
+say "             containerd.io from download.docker.com) are never updated by it"
+say "  origins    it replaces the package's list of where updates come from (the file"
+say "             50unattended-upgrades): an origin added there is no longer used; add your own"
+say "             in a file read after this one, such as 60unattended-upgrades-local"
+for p in docker.io containerd runc; do
+	if installed "$p"; then
+		say "  Docker     the distribution's own $p is installed: its security updates are"
+		say "             installed too, and an update of Docker restarts every container. To"
+		say "             keep it back, hold it (apt-mark hold docker.io containerd runc)."
+		break
+	fi
+done
 [ -z "$TIMERS" ] || warn "apt's daily timers are not enabled:$TIMERS. Nothing runs until they are (systemctl enable --now apt-daily.timer apt-daily-upgrade.timer); this script leaves them as they are"
 say ""
 
