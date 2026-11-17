@@ -25,6 +25,7 @@ type storeStub struct {
 func withMonitoringStore(t *testing.T, db DatabaseConfig, problem *PostgresProblem) *storeStub {
 	t.Helper()
 	stub := &storeStub{problem: problem}
+	storeWatchPaused.Store(true) // the test's own looks only
 	prevFolder, prevConfig := CONFIGFOLDER, GetBaseMainConfig()
 	prevProbe, prevDown, prevBack, prevResolve := probeMonitoringPostgres, monitoringTellDown, monitoringTellBack, monitoringResolveDown
 	CONFIGFOLDER = t.TempDir() + "/"
@@ -47,6 +48,7 @@ func withMonitoringStore(t *testing.T, db DatabaseConfig, problem *PostgresProbl
 	storeNoticePending, storeForceLocal = false, false
 	storeStateMu.Unlock()
 	t.Cleanup(func() {
+		storeWatchPaused.Store(false)
 		CloseMetricsDatabase()
 		CONFIGFOLDER = prevFolder
 		LoadBaseMainConfig(prevConfig)
@@ -195,19 +197,32 @@ func TestNoGoroutinePerOpening(t *testing.T) {
 
 // The probe makes a table in a transaction it rolls back, and says when the
 // account may not create tables (a real PostgreSQL only).
-func TestCheckPostgresStoreLive(t *testing.T) {
+func livePostgres(t *testing.T) DatabaseConfig {
+	t.Helper()
 	host := os.Getenv("COSMOS_FORK_PG_TEST")
 	if host == "" {
 		t.Skip("COSMOS_FORK_PG_TEST not set")
 	}
+	or := func(name, fallback string) string {
+		if v := os.Getenv(name); v != "" {
+			return v
+		}
+		return fallback
+	}
+	return DatabaseConfig{PostgresHost: host, PostgresDatabase: or("COSMOS_FORK_PG_TEST_DB", "cosmos"),
+		PostgresUsername: or("COSMOS_FORK_PG_TEST_USER", "cosmos"), PostgresPassword: or("COSMOS_FORK_PG_TEST_PASSWORD", "cosmos-test-pw")}
+}
+
+func TestCheckPostgresStoreLive(t *testing.T) {
+	ok := livePostgres(t)
+	host := ok.PostgresHost
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	ok := DatabaseConfig{PostgresHost: host, PostgresDatabase: "cosmos", PostgresUsername: "cosmos", PostgresPassword: "cosmos-test-pw"}
 	if p := CheckPostgresStore(ctx, ok); p != nil {
 		t.Fatalf("working settings: %+v", p)
 	}
 	// the role "reader" (made by the test setup) may sign in but not create
-	reader := DatabaseConfig{PostgresHost: host, PostgresDatabase: "cosmos", PostgresUsername: "reader", PostgresPassword: "reader-test-pw"}
+	reader := DatabaseConfig{PostgresHost: host, PostgresDatabase: ok.PostgresDatabase, PostgresUsername: "reader", PostgresPassword: "reader-test-pw"}
 	if p := CheckPostgresStore(ctx, reader); p == nil || p.Reason != "create" || !strings.Contains(p.Message, "GRANT CREATE ON SCHEMA public TO reader") {
 		t.Errorf("reader: %+v", p)
 	}
@@ -222,11 +237,7 @@ func TestCheckPostgresStoreLive(t *testing.T) {
 // up later (the switch, told), down again (the pings reopen the local file).
 // COSMOS_FORK_PG_TEST_DOWN is a host:port where nothing answers.
 func TestFallbackHealsLive(t *testing.T) {
-	host := os.Getenv("COSMOS_FORK_PG_TEST")
-	if host == "" {
-		t.Skip("COSMOS_FORK_PG_TEST not set")
-	}
-	db := DatabaseConfig{PostgresHost: host, PostgresDatabase: "cosmos", PostgresUsername: "cosmos", PostgresPassword: "cosmos-test-pw"}
+	db := livePostgres(t)
 	stub := withMonitoringStore(t, db, refusedProblem)
 	InitMetricsDatabase()
 	if s := GetMonitoringStoreState(); !s.Fallback || s.InUse != DialectSQLite {

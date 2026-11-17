@@ -35,6 +35,7 @@ import (
 	"database/sql"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -87,6 +88,8 @@ var (
 
 	storeWatchOnce sync.Once
 	storeKick      = make(chan struct{}, 1)
+	// storeWatchPaused: the tests drive the looks themselves
+	storeWatchPaused atomic.Bool
 
 	// probeMonitoringPostgres asks the database whether it can be the store;
 	// replaced by the tests.
@@ -229,7 +232,10 @@ func watchMonitoringStore() {
 				}
 			}
 		}
-		wait := w.look(kicked)
+		wait := monitoringRetryFirst
+		if !storeWatchPaused.Load() {
+			wait = w.look(kicked)
+		}
 		timer.Reset(wait)
 	}
 }

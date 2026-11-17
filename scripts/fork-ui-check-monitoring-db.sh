@@ -19,7 +19,8 @@
 #                     is the "server's home-network address". In its Docker, on the default bridge:
 #                     "postgresql"  bitnami/postgresql, the owner's shape: POSTGRESQL_USERNAME=cosmos,
 #                                   POSTGRESQL_PASSWORD=Cosmos-test-pw-51, POSTGRESQL_DATABASE=cosmos_monitoring,
-#                                   port 5432 published on SUBNET.5 ONLY (not on 127.0.0.1)
+#                                   port 5432 published on SUBNET.5 ONLY (not on 127.0.0.1); a role
+#                                   "reader" (reader-test-pw) that may sign in but not create tables
 #                     "pgofficial"  postgres:18 with the official names (POSTGRES_USER=app,
 #                                   POSTGRES_PASSWORD=App-test-pw-51, POSTGRES_DB=appdb), port 5432 not published
 #   .9  PREFIX-browser the Playwright image, run per check
@@ -119,7 +120,7 @@ wait_up() {
 
 databases() { # the two PostgreSQL containers as at `up`
   in_dind sh -c 'docker rm -f -v postgresql pgofficial >/dev/null 2>&1; true'
-  in_dind docker run -d --name postgresql -e POSTGRESQL_USERNAME=cosmos -e POSTGRESQL_PASSWORD=Cosmos-test-pw-51 \
+  in_dind docker run -d --name postgresql -e POSTGRESQL_USERNAME=cosmos -e POSTGRESQL_PASSWORD=Cosmos-test-pw-51 -e POSTGRESQL_POSTGRES_PASSWORD=Root-test-pw-51 \
     -e POSTGRESQL_DATABASE=cosmos_monitoring -p "$SUBNET.5:5432:5432" bitnami/postgresql:latest >/dev/null || die "could not make postgresql"
   in_dind docker run -d --name pgofficial -e POSTGRES_USER=app -e POSTGRES_PASSWORD=App-test-pw-51 -e POSTGRES_DB=appdb \
     postgres:18 >/dev/null || die "could not make pgofficial"
@@ -128,7 +129,7 @@ databases() { # the two PostgreSQL containers as at `up`
     sleep 1
   done
   # a role that may sign in but not create tables (the live test of the check)
-  in_dind docker exec postgresql sh -c "PGPASSWORD=Cosmos-test-pw-51 psql -h 127.0.0.1 -U cosmos -d cosmos_monitoring -c \"CREATE ROLE reader LOGIN PASSWORD 'reader-test-pw'\"" >/dev/null 2>&1 || true
+  in_dind docker exec postgresql sh -c "PGPASSWORD=Root-test-pw-51 psql -h 127.0.0.1 -U postgres -d cosmos_monitoring -c \"CREATE ROLE reader LOGIN PASSWORD 'reader-test-pw'\"" >/dev/null 2>&1 || true
 }
 
 start_all() {
