@@ -100,6 +100,7 @@ func MergeComposeRoutes(routes []utils.ProxyRouteConfig, spec DockerServiceCreat
 			}
 			if idx == -1 {
 				changed = true
+				route = forkKnownRoute(spec, route, onLog) // Fork addition (plan 44): what a known app needs of its new URL, see fork_url_check.go
 				routes = append([]utils.ProxyRouteConfig{route}, routes...)
 				continue
 			}

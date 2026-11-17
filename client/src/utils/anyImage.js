@@ -398,7 +398,7 @@ const healthOf = (h) => (h ? { test: h.test, interval: h.interval, timeout: h.ti
 // One service for an image. `settings` as proposedSettings gives them (changed
 // or not); a declared default the administrator left alone is not copied
 // (copying would pin it against the image's next version).
-export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, extraEnv = {}, links = [], networks = [], command = '' }) => {
+export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, extraEnv = {}, links = [], networks = [], command = '', known = null }) => {
   const image = `${ref.name}:${tag}`;
   const env = [];
   const declaredMap = Object.fromEntries(declaredSettings(declared).map((s) => [s.name, s.value]));
@@ -411,6 +411,10 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
     const i = env.findIndex((line) => envKey(line) === key);
     if (i >= 0) env[i] = `${key}=${value}`; else env.push(`${key}=${value}`);
   });
+  // Fork addition (plan 44): what a known app must be told of its address (utils/urlCheck.js' knownAppNeeds), unless set by hand
+  if (known && host) {
+    (known.env || []).forEach((e) => { if (e.value && !env.some((line) => envKey(line) === e.name)) env.push(`${e.name}=${e.value}`); });
+  }
   const service = {
     image,
     container_name: name,
@@ -444,6 +448,7 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
       name, description: `${name} in Cosmos`, useHost: true, host, target: `http://${name}:${web}`, mode: 'SERVAPP',
       Timeout: 14400000, ThrottlePerMinute: 10000, BlockCommonBots: true, SmartShield: { Enabled: true },
       ...(admins ? { AuthEnabled: true, AdminOnly: true } : {}),
+      ...(known && known.appOwnHost ? { ForkAppOwnHost: true } : {}), // Fork addition (plan 44)
     }];
   }
   if (links.length) service.links = [...links];
@@ -454,7 +459,7 @@ export const serviceFor = ({ ref, tag, name, recipe, declared, settings, host, e
 // The whole definition: the image, and its new database when one is added.
 // `database`: { mode: 'new', ref, tag, recipe, name, settings } |
 // { mode: 'existing', container, recipe, env } | { mode: 'none' } | null.
-export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, host, reachers = [], database = null, need = null, command = '' }) => {
+export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, host, reachers = [], database = null, need = null, command = '', known = null }) => {
   const services = {};
   const networks = {};
   let frozen = [];
@@ -476,7 +481,7 @@ export const buildDefinition = ({ ref, tag, name, recipe, declared, settings, ho
     const values = Object.fromEntries(((database.env || [])).map((line) => [envKey(line), envValue(line)]));
     extraEnv = fillFromConnection(need, connectionOf(database.recipe, database.container, values), database.recipe && database.recipe.provides);
   }
-  const app = serviceFor({ ref, tag, name, recipe, declared, settings, host, extraEnv, links: [...appLinks, ...reachers], networks: appNetworks, command });
+  const app = serviceFor({ ref, tag, name, recipe, declared, settings, host, extraEnv, links: [...appLinks, ...reachers], networks: appNetworks, command, known });
   services[name] = app.service;
   if (Object.keys(services).length > 1) {
     services[name].labels = { 'cosmos-stack': name, 'cosmos-stack-main': name };

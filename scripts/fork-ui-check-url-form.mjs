@@ -83,7 +83,8 @@ for (const name of names) for (const size of wanted) {
   expect(id + ': and the form says where the proposal comes from', /Proposed: 7878 is the usual web port of radarr/.test(text));
   expect(id + ': http is picked', await picked(dialog, 'guide-scheme') === 'http');
   expect(id + ': anyone may open it, as upstream', await picked(dialog, 'guide-access') === 'Anyone with the address');
-  expect(id + ': it says which name the app will see', /receives its requests under the name radarr\.local\. Some apps only answer to names they know/.test(text));
+  // (plan 44: Radarr is a known app: the form says it works behind Cosmos as it is)
+  expect(id + ': it says what the app needs behind Cosmos', /Radarr works behind Cosmos as it is/.test(text));
   expect(id + ': the name is proposed, not asked', /Saved as "radarr"/.test(text) && await dialog.locator('#Name').count() === 0);
   // (since plan 23 the dialog offers the internet choices of the Internet dialog: components/exposure.jsx)
   expect(id + ': the domain can be attached right there', /Reach it from the internet as well\?/.test(text) && /radarr\.example\.org/.test(text));
