@@ -337,7 +337,9 @@ export const proposeSignIn = (definition, plan, defaults, cache, random) => {
       return true;
     };
     const login = info && info.login;
-    if (login && (login.accounts || []).length) {
+    if (login && login.via === 'database') {
+      lines.push({ service: name, app: info.name || '', kind: 'via', source: 'recipe' });
+    } else if (login && (login.accounts || []).length) {
       (login.accounts || []).slice(0, 4).forEach((account) => {
         const line = { service: name, app: info.name || '', kind: 'account', role: account.role, where: login.where, source: 'recipe', rule: login.password || PLAIN_RULE };
         if (account.defaults && defaults) {

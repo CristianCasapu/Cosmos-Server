@@ -116,8 +116,12 @@ const SignInReview = ({ lines, mail }) => {
     <Typography variant="subtitle1">{t('mgmt.servapps.signIn.review.title', 'Who signs in with what')}</Typography>
     {lines.map((line, i) => (line.kind === 'firstRun'
       ? <FirstRunLine key={i} line={line} />
+      : line.kind === 'via' ? <Typography key={i} variant="body2" sx={{ overflowWrap: 'anywhere' }} data-signin-line={line.service}>
+        <KeyOutlined style={{ marginRight: 6 }} />
+        {t('mgmt.servapps.signIn.review.via', '{{service}}: sign in with the user and password of the database it opens (that database\'s Sign-in details show them).', { service: line.service, interpolation: { escapeValue: false } })}
+      </Typography>
       : <AccountLine key={i} line={line} rule={line.rule} />))}
-    {lines.some((l) => l.kind !== 'firstRun') && <Typography variant="caption" sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }}>
+    {lines.some((l) => l.kind === 'account' || l.kind === 'guess') && <Typography variant="caption" sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }}>
       {t('mgmt.servapps.signIn.review.kept', 'The passwords are kept only in the app\'s own settings (and so in Cosmos\' backup of container definitions). After the creation they are on its page, under Sign-in details, for those who may read credentials, after the password confirmation.')}
     </Typography>}
     {mail && <Typography variant="caption" sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }} data-review-signin-mail>

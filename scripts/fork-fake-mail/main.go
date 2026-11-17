@@ -20,6 +20,11 @@
 //	hosted.test     MX aspmx.l.google.com (a domain "hosted at Google");
 //	                smtp.gmail.com does not resolve here, so nothing answers
 //
+// FAKE_HOSTS (optional, for scripts/fork-ui-check-credentials.sh) adds names
+// that resolve: "name=address,…"; a name answers for itself and every name
+// below it (cosmos-test.example.org=198.51.100.5 also answers for
+// app.cosmos-test.example.org).
+//
 // Build: CGO_ENABLED=0 go build -o fake-mail ./scripts/fork-fake-mail
 package main
 
@@ -69,6 +74,7 @@ type message struct {
 	To      []string `json:"to"`
 	Header  string   `json:"header"`
 	Subject string   `json:"subject"`
+	Data    string   `json:"data"` // the whole message as sent, headers and body (for checks of its content)
 }
 
 var state struct {
@@ -114,9 +120,12 @@ func serveDNS(here net.IP) {
 		state.Questions = append(state.Questions, dns.TypeToString[q.Qtype]+" "+name)
 		state.Unlock()
 		header := dns.RR_Header{Name: q.Name, Rrtype: q.Qtype, Class: dns.ClassINET, Ttl: 30}
-		known := hosts[name] || name == domain+"." || name == "hosted.test." || name == "plainmail.test." ||
+		extra := extraHost(name)
+		known := extra != nil || hosts[name] || name == domain+"." || name == "hosted.test." || name == "plainmail.test." ||
 			strings.HasSuffix(name, "._tcp."+domain+".")
 		switch {
+		case q.Qtype == dns.TypeA && extra != nil:
+			reply.Answer = append(reply.Answer, &dns.A{Hdr: header, A: extra})
 		case q.Qtype == dns.TypeA && hosts[name]:
 			reply.Answer = append(reply.Answer, &dns.A{Hdr: header, A: here})
 		case q.Qtype == dns.TypeMX && name == domain+".":
@@ -138,6 +147,23 @@ func serveDNS(here net.IP) {
 		server := &dns.Server{Addr: ":53", Net: network, Handler: handler}
 		go func() { log.Fatal(server.ListenAndServe()) }()
 	}
+}
+
+// extraHost answers the address FAKE_HOSTS gives a name (or a name above it), or nil.
+func extraHost(name string) net.IP {
+	for _, pair := range strings.Split(os.Getenv("FAKE_HOSTS"), ",") {
+		host, address, ok := strings.Cut(strings.TrimSpace(pair), "=")
+		if !ok || host == "" {
+			continue
+		}
+		host = strings.ToLower(strings.TrimSuffix(host, ".")) + "."
+		if name == host || strings.HasSuffix(name, "."+host) {
+			if ip := net.ParseIP(address).To4(); ip != nil {
+				return ip
+			}
+		}
+	}
+	return nil
 }
 
 // ---- mail server --------------------------------------------------------------
@@ -299,6 +325,7 @@ func session(conn net.Conn, upgrade *tls.Config, encrypted, greet bool) {
 			say("354 end with <CRLF>.<CRLF>")
 			m := message{From: from, To: to}
 			inHeaders := true
+			var data strings.Builder
 			for {
 				l, ok := read()
 				if !ok {
@@ -306,6 +333,9 @@ func session(conn net.Conn, upgrade *tls.Config, encrypted, greet bool) {
 				}
 				if l == "." {
 					break
+				}
+				if data.Len() < 1<<20 {
+					data.WriteString(strings.TrimPrefix(l, ".") + "\n")
 				}
 				if l == "" {
 					inHeaders = false
@@ -317,6 +347,7 @@ func session(conn net.Conn, upgrade *tls.Config, encrypted, greet bool) {
 					m.Subject = strings.TrimSpace(l[len("Subject:"):])
 				}
 			}
+			m.Data = data.String()
 			state.Lock()
 			state.Messages = append(state.Messages, m)
 			state.Unlock()

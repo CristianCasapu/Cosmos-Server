@@ -183,3 +183,11 @@ test('without defaults the passwords are still generated, the names left alone',
   const names = r.definition.services.db.environment.map((l) => l.split('=')[0]);
   assert.deepEqual(names, ['POSTGRES_PASSWORD']);
 });
+
+test('a tool that signs in with its database\'s accounts says so', () => {
+  const p = { signIn: { 'phpmyadmin:5': { name: 'phpMyAdmin', login: { where: 'web', via: 'database' } } } };
+  const r = proposeSignIn({ services: { pma: { image: 'phpmyadmin:5', environment: ['PMA_HOST=db'] } } }, p, defaults, new Map(), random);
+  assert.equal(r.lines.length, 1);
+  assert.equal(r.lines[0].kind, 'via');
+  assert.deepEqual(r.definition.services.pma.environment, ['PMA_HOST=db']);
+});

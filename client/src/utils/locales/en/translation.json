@@ -6179,5 +6179,6 @@
 	"securityAudit.sentence.credentials.revealed.show": "{{actor}} showed a password of the app {{target}} on its page",
 	"securityAudit.sentence.credentials.revealed.copy": "{{actor}} copied a password of the app {{target}} from its page",
 	"mgmt.servapps.manager.alsoDelete": "Also delete its web manager ({{list}})",
-	"mgmt.servapps.signIn.card.noAuth": "It has no sign-in of its own: only the apps you let reach it can use it, and its web page (if it has one) is open to administrators only, behind Cosmos' sign-in."
+	"mgmt.servapps.signIn.card.noAuth": "It has no sign-in of its own: only the apps you let reach it can use it, and its web page (if it has one) is open to administrators only, behind Cosmos' sign-in.",
+	"mgmt.servapps.signIn.review.via": "{{service}}: sign in with the user and password of the database it opens (that database's Sign-in details show them)."
 }

@@ -105,7 +105,9 @@ const DeleteModal = ({Ids, containers, refreshServApps, setIsUpdatingId, config}
         let key = container.Name + '-container';
         if (ignored.includes(key)) return;
 
-        return API.docker.manageContainer(container.Name, 'remove')
+        // Fork addition (plan 45): a web manager added to the deletion still runs: stopped first, as the database was
+        return (managers.some((m) => m.Name === container.Name) ? API.docker.manageContainer(container.Name, 'stop').catch(() => {}) : Promise.resolve())
+        .then(() => API.docker.manageContainer(container.Name, 'remove'))
         .then(() => {
           setDeleted((prev) => {
             if(!prev) return [key];
