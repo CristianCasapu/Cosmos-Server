@@ -209,7 +209,11 @@ build_releases() {
 		zip=cosmos-cloud-'"$VA"'-amd64.zip sig=cosmos-cloud-'"$VA"'.sig
 		mk() { mkdir "$1"; cp "$a/$zip" "$a/$zip.md5" "$a/$sig" "$1/"; }
 		mk good
-		mk tampered-zip; printf "\x01" | dd of=tampered-zip/$zip bs=1 seek=$(( $(stat -c %s tampered-zip/$zip) / 2 )) conv=notrunc status=none
+		# one byte in the middle of the zip, flipped (so it surely differs)
+		mk tampered-zip; at=$(( $(stat -c %s tampered-zip/$zip) / 2 ))
+		byte=$(od -An -tu1 -j "$at" -N1 tampered-zip/$zip | tr -d " ")
+		printf "\\$(printf %o $(( 255 - byte )))" | dd of=tampered-zip/$zip bs=1 seek="$at" conv=notrunc status=none
+		cmp -s tampered-zip/$zip "$a/$zip" && { echo "the tampered zip is not tampered" >&2; exit 1; }
 		mk tampered-sig; sed -i "3s/^sha256 \(.\)/sha256 \1\1/; 3s/^\(sha256 .\{64\}\)./\1/" tampered-sig/$sig
 		mk other-key
 		head -n 3 other-key/$sig >other-key/manifest

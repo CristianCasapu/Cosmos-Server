@@ -958,11 +958,21 @@ start_state() {
 
 # dpkg left half-done, by the interruption of an earlier run of this script
 # (or by anything else): only when dpkg says so, and saying what it does.
+# A package that another program is installing right now is not
+# "unfinished": while dpkg is locked, this waits (APT_WAIT) and looks again.
 repair_dpkg() {
-	local pending
+	local pending waited=0
 	[ "$RESUMING" = 1 ] || return 0
-	pending=$(dpkg --audit 2>/dev/null || true)
-	[ -n "$pending" ] || return 0
+	while :; do
+		pending=$(dpkg --audit 2>/dev/null || true)
+		[ -n "$pending" ] || return 0
+		# dpkg's own locks, as the kernel lists them (lslocks, util-linux)
+		if ! lslocks -n -o PATH 2>/dev/null | grep -qE '^/var/lib/dpkg/lock(-frontend)?$'; then break; fi
+		[ "$waited" -lt "$APT_WAIT" ] || die $EXIT_FAILED "another program holds dpkg for longer than $APT_WAIT seconds"
+		[ "$waited" -gt 0 ] || say "Another program is using dpkg; waiting for it before looking for unfinished packages..."
+		sleep 5
+		waited=$((waited + 5))
+	done
 	say "The package database has unfinished packages (dpkg --audit):"
 	printf '%s\n' "$pending" | head -n 20 | sed 's/^/  /'
 	say "Finishing ALL of them, not only those of the interrupted run (dpkg --configure -a; apt-get -f install):"
