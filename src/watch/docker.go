@@ -26,6 +26,7 @@ const (
 
 type dockerWatch struct {
 	mu           sync.Mutex
+	st           *store // its open problem survives a restart; nil: in memory only
 	started      time.Time
 	failingSince time.Time
 	reason       string
@@ -36,12 +37,15 @@ type dockerWatch struct {
 // step records one answer (err nil: Docker answered) and writes what
 // started or ended.
 func (w *dockerWatch) step(err error, now time.Time) {
+	defer func() { recover() }() // review: a panic here never stops the watches
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if err == nil {
 		if w.open {
 			lasted := now.Sub(w.failingSince)
 			w.open = false
+			w.remember()
+			logLine("Watches: Docker answers again")
 			resolveThread(dockerThread)
 			notify("success", &utils.NotificationInfo{
 				Kind: "docker.restored", Source: "containers", Thread: dockerThread, Resolves: dockerThread,
@@ -61,6 +65,8 @@ func (w *dockerWatch) step(err error, now time.Time) {
 		return
 	}
 	w.open = true
+	w.remember()
+	logLine("Watches: Docker does not answer: " + reasonWords(w.reason))
 	minutes := int(now.Sub(w.failingSince).Minutes() + 0.5)
 	notify("error", &utils.NotificationInfo{
 		Kind: "docker.down", Source: "containers", Thread: dockerThread,
@@ -71,6 +77,36 @@ func (w *dockerWatch) step(err error, now time.Time) {
 		Raw:     w.reason,
 	})
 }
+
+// newDockerWatch starts the Docker watch with what a previous run left: an
+// open problem stays open, so that its end answers it.
+func newDockerWatch(st *store, started time.Time) *dockerWatch {
+	w := &dockerWatch{st: st, started: started}
+	if st != nil {
+		st.with(func(data *stateData) bool {
+			if data.Docker.Open {
+				w.open, w.failingSince = true, data.Docker.Since
+			}
+			return false
+		})
+	}
+	return w
+}
+
+// remember keeps the open problem in the state file.
+func (w *dockerWatch) remember() {
+	if w.st == nil {
+		return
+	}
+	memo := dockerMemo{Open: w.open, Since: w.failingSince}
+	w.st.with(func(data *stateData) bool {
+		data.Docker = memo
+		return true
+	})
+}
+
+// logLine writes one line to the server's log. A variable for the tests.
+var logLine = func(line string) { utils.Warn(line) }
 
 // reasonWords says the usual failures in words; anything else is "no answer"
 // (the error text itself is the notification's technical text).

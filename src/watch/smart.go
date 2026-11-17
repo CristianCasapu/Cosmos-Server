@@ -26,6 +26,7 @@ const (
 	smartEvery   = time.Hour
 	goneAfter    = 3                  // checks a disk with an open problem may be missing before it counts as replaced
 	calmAfter    = 7 * 24 * time.Hour // a failing disk reads healthy again after this long without a new sign
+	failedReads  = 3                  // reads that fail in a row before a disk that was read is "cannot be read"
 	maxReasonLen = 200
 )
 
@@ -37,6 +38,11 @@ type Disk struct {
 	Serial string
 	Mounts []string
 	Asleep bool // not read: it sleeps
+	// Unreadable: the system lists it, its S.M.A.R.T. data could not be
+	// read. Unwatchable: its power state cannot be asked, so it is not read
+	// (that could wake it).
+	Unreadable  bool
+	Unwatchable bool
 	// PreFail names the pre-fail attributes at or under their threshold.
 	PreFail       []string
 	Reallocated   int64
@@ -101,9 +107,33 @@ func checkSMART(st *store, disks []Disk, now time.Time) {
 				}
 				continue
 			}
+			if d.Unwatchable {
+				// review: a disk whose power state cannot be asked is not read
+				if !before.Unwatchable {
+					before.Unwatchable, before.Device, before.Seen = true, d.Device, now
+					notify("info", smartInfo("smart.unwatchable", d, ""))
+				}
+				before.Missing = 0
+				data.SMART[key] = before
+				continue
+			}
+			if d.Unreadable {
+				// review R4: listed by the system but not readable: never "healthy
+				// again"; after a few failed reads of a disk that was read, an error
+				before.Missing = 0
+				if before.Read {
+					before.Failures++
+					if before.Failures == failedReads && !before.Unreadable {
+						before.Unreadable = true
+						notify("error", smartInfo("smart.unreadable", Disk{Device: d.Device, Model: before.Model, Serial: before.Serial, Mounts: d.Mounts}, ""))
+					}
+					data.SMART[key] = before
+				}
+				continue
+			}
 			reasons := judge(before, had, d)
 			memo := smartMemo{Device: d.Device, Model: d.Model, Serial: d.Serial, Reallocated: d.Reallocated, Pending: d.Pending,
-				Uncorrectable: d.Uncorrectable, MediaErrors: d.MediaErrors, Open: before.Open, LastBad: before.LastBad, Seen: now}
+				Uncorrectable: d.Uncorrectable, MediaErrors: d.MediaErrors, Open: before.Open, LastBad: before.LastBad, Seen: now, Read: true}
 			if len(reasons) > 0 {
 				memo.LastBad = now
 			}
@@ -183,9 +213,15 @@ func smartInfo(kind string, d Disk, reason string) *utils.NotificationInfo {
 		What:    utils.NText("notif."+kind+".what", "disk", d.Device, "model", model, "serial", serialEnd(d.Serial), "mounts", where, "reason", reason),
 		Subject: &utils.NotificationSubject{Type: "disk", Name: d.Device, Link: "/cosmos-ui/storage"},
 	}
-	if kind == "smart.failing" {
+	switch kind {
+	case "smart.failing":
 		info.Means = utils.NText("notif.smart.failing.means")
-	} else {
+	case "smart.unreadable":
+		info.Thread = thread + ":unreadable"
+		info.Means = utils.NText("notif.smart.unreadable.means")
+	case "smart.unwatchable":
+		info.Thread = thread + ":unwatchable"
+	default:
 		info.Resolves = thread
 	}
 	return info

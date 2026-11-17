@@ -1,0 +1,77 @@
+package main
+
+import (
+	"errors"
+	"testing"
+
+	"github.com/anatol/smart.go"
+
+	"github.com/azukaar/cosmos-server/src/watch"
+)
+
+// fakeSata is a SATA disk for the reader: it counts the reads that could
+// wake it.
+type fakeSata struct {
+	mode     smart.AtaPowerMode
+	modeErr  error
+	reads    int
+	readErr  error
+	identify int
+}
+
+func (f *fakeSata) CheckPowerMode() (smart.AtaPowerMode, error) { return f.mode, f.modeErr }
+func (f *fakeSata) Identify() (*smart.AtaIdentifyDevice, error) {
+	f.identify++
+	return nil, errors.New("no identify in the fake")
+}
+func (f *fakeSata) ReadSMARTData() (*smart.AtaSmartPage, error) {
+	f.reads++
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
+	return &smart.AtaSmartPage{Attrs: map[uint8]smart.AtaSmartAttr{5: {Id: 5, ValueRaw: 12}, 197: {Id: 197, ValueRaw: 0}}}, nil
+}
+func (f *fakeSata) ReadSMARTThresholds() (*smart.AtaSmartThresholdsPage, error) {
+	return &smart.AtaSmartThresholdsPage{Thresholds: map[uint8]uint8{}}, nil
+}
+
+// A sleeping disk, or one that cannot say whether it sleeps, is never read
+// (review, second round: the power check ignored survived).
+func TestASleepingOrSilentDiskIsNotRead(t *testing.T) {
+	asleep := &fakeSata{mode: smart.AtaPowerModeStandby}
+	disk := watch.Disk{}
+	readSata(asleep, &disk)
+	if !disk.Asleep || asleep.reads != 0 || asleep.identify != 0 {
+		t.Errorf("standby: %+v, %d reads, %d identify", disk, asleep.reads, asleep.identify)
+	}
+	silent := &fakeSata{modeErr: errors.New("bridge does not pass the command")}
+	disk = watch.Disk{}
+	readSata(silent, &disk)
+	if !disk.Unwatchable || silent.reads != 0 {
+		t.Errorf("power check failed: %+v, %d reads", disk, silent.reads)
+	}
+	awake := &fakeSata{mode: smart.AtaPowerModeActiveOrIdle}
+	disk = watch.Disk{Reallocated: -1, Pending: -1, Uncorrectable: -1}
+	readSata(awake, &disk)
+	if awake.reads != 1 || disk.Reallocated != 12 || disk.Pending != 0 {
+		t.Errorf("awake: %+v", disk)
+	}
+	broken := &fakeSata{mode: smart.AtaPowerModeIdle, readErr: errors.New("I/O error")}
+	disk = watch.Disk{}
+	readSata(broken, &disk)
+	if !disk.Unreadable {
+		t.Errorf("a failed read is not unreadable: %+v", disk)
+	}
+}
+
+func TestNetworkSharesAreNotWatchedForFilling(t *testing.T) {
+	for _, kind := range []string{"nfs4", "cifs", "fuse.rclone", "sshfs"} {
+		network := false
+		for _, prefix := range networkFileSystems {
+			network = network || len(kind) >= len(prefix) && kind[:len(prefix)] == prefix
+		}
+		if !network {
+			t.Errorf("%s is watched", kind)
+		}
+	}
+}

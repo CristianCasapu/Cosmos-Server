@@ -12,6 +12,7 @@ package watch
 import (
 	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/azukaar/cosmos-server/src/utils"
 )
@@ -76,9 +77,18 @@ func checkSignIn(st *store, user string, ip string, lookup func(string) (string,
 		}
 		if !has {
 			if len(data.Countries) >= maxUsers {
-				return false
+				// the account whose countries changed longest ago makes room
+				oldest, at := "", time.Time{}
+				for name := range data.Countries {
+					if t := data.CountriesAt[name]; oldest == "" || t.Before(at) {
+						oldest, at = name, t
+					}
+				}
+				delete(data.Countries, oldest)
+				delete(data.CountriesAt, oldest)
 			}
 			data.Countries[user] = []string{country}
+			data.CountriesAt[user] = time.Now()
 			return true // the first one only records
 		}
 		before := strings.Join(known, ", ")
@@ -87,6 +97,7 @@ func checkSignIn(st *store, user string, ip string, lookup func(string) (string,
 			known = known[len(known)-maxCountries:]
 		}
 		data.Countries[user] = known
+		data.CountriesAt[user] = time.Now()
 		notify("warning", &utils.NotificationInfo{
 			Kind: "login.newcountry", Source: "security",
 			Title:   utils.NText("notif.login.newcountry.title", "user", user, "country", country),
@@ -95,5 +106,28 @@ func checkSignIn(st *store, user string, ip string, lookup func(string) (string,
 			Subject: &utils.NotificationSubject{Type: "setting", Name: user, Link: "/cosmos-ui/security-audit"},
 		})
 		return true
+	})
+}
+
+// checkAccounts forgets the countries of accounts that no longer exist, so
+// that a new account of the same name starts afresh.
+func checkAccounts(st *store, users []string) {
+	if users == nil {
+		return // the list could not be read: nothing is forgotten
+	}
+	exists := map[string]bool{}
+	for _, user := range users {
+		exists[user] = true
+	}
+	st.with(func(data *stateData) bool {
+		changed := false
+		for user := range data.Countries {
+			if !exists[user] {
+				delete(data.Countries, user)
+				delete(data.CountriesAt, user)
+				changed = true
+			}
+		}
+		return changed
 	})
 }

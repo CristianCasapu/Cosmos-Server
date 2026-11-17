@@ -7,15 +7,33 @@ package docker
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 )
 
-// ForkPing asks Docker whether it answers, within timeout.
+var (
+	forkPingMu         sync.Mutex
+	forkLastReconnect  time.Time
+	forkReconnectPause = 10 * time.Minute
+)
+
+// ForkPing asks Docker whether it answers, within timeout. Without a client
+// it asks Connect for one at most every ten minutes (each failed Connect
+// writes a line to the log).
 func ForkPing(timeout time.Duration) error {
 	dockerConnectLock.Lock()
 	c := DockerClient
 	dockerConnectLock.Unlock()
 	if c == nil {
+		forkPingMu.Lock()
+		wait := time.Since(forkLastReconnect) < forkReconnectPause
+		if !wait {
+			forkLastReconnect = time.Now()
+		}
+		forkPingMu.Unlock()
+		if wait {
+			return errors.New("not connected to Docker")
+		}
 		if err := Connect(); err != nil {
 			return err
 		}

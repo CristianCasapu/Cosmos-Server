@@ -58,9 +58,12 @@ func periodWords(frequency string) string {
 	return "day"
 }
 
-// checkSnapshots compares the last snapshot of each folder (last: zero when
-// it has none) with its schedule.
-func checkSnapshots(st *store, cfg utils.SnapshotsConfig, last map[string]time.Time, override time.Duration, now time.Time) {
+// checkSnapshots compares the last snapshot of each folder with its
+// schedule. last is what the snapshot module knows in memory (zero: no
+// success since Cosmos started); readDisk reads a folder's last snapshot on
+// the backup disk, asked only when a folder looks late and is not known
+// late yet, so that the backup disk is not woken every hour.
+func checkSnapshots(st *store, cfg utils.SnapshotsConfig, last map[string]time.Time, readDisk func(source string) time.Time, override time.Duration, now time.Time) {
 	enabled := cfg.Enabled && strings.TrimSpace(cfg.Destination) != ""
 	sources := []string{}
 	if enabled {
@@ -72,14 +75,46 @@ func checkSnapshots(st *store, cfg utils.SnapshotsConfig, last map[string]time.T
 	}
 	sort.Strings(sources)
 	limit := lateAfter(cfg.Frequency, override)
+	known := map[string]time.Time{}
+	for source, at := range last {
+		known[source] = at
+	}
+	// which folders look late by what is known without the disk
+	suspect := []string{}
+	st.with(func(data *stateData) bool {
+		for _, source := range sources {
+			at := known[source]
+			if data.SnapLast[source].After(at) {
+				at = data.SnapLast[source]
+			}
+			first, seen := data.SnapFirst[source]
+			if at.IsZero() && seen {
+				at = first
+			}
+			if seen && now.Sub(at) > limit && !data.SnapLate[source] {
+				suspect = append(suspect, source)
+			}
+		}
+		return false
+	})
+	if readDisk != nil {
+		for _, source := range suspect {
+			if at := readDisk(source); at.After(known[source]) {
+				known[source] = at
+			}
+		}
+	}
 	st.with(func(data *stateData) bool {
 		watched := map[string]bool{}
 		for _, source := range sources {
 			watched[source] = true
-			if _, known := data.SnapFirst[source]; !known {
+			if _, seen := data.SnapFirst[source]; !seen {
 				data.SnapFirst[source] = now
 			}
-			since := last[source]
+			if known[source].After(data.SnapLast[source]) {
+				data.SnapLast[source] = known[source]
+			}
+			since := data.SnapLast[source]
 			lastWords := since.Local().Format("2 Jan 15:04")
 			if since.IsZero() {
 				since = data.SnapFirst[source]
@@ -116,6 +151,7 @@ func checkSnapshots(st *store, cfg utils.SnapshotsConfig, last map[string]time.T
 				}
 				delete(data.SnapFirst, source)
 				delete(data.SnapLate, source)
+				delete(data.SnapLast, source)
 			}
 		}
 		return true

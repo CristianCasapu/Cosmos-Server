@@ -89,6 +89,12 @@ type smartMemo struct {
 	LastBad       time.Time `json:"lastBad,omitempty"`
 	Missing       int       `json:"missing,omitempty"`
 	Seen          time.Time `json:"seen"`
+	// Read: it was read once; Failures: reads failed in a row since;
+	// Unwatchable: said once that it cannot be read without waking it
+	Read        bool `json:"read,omitempty"`
+	Failures    int  `json:"failures,omitempty"`
+	Unreadable  bool `json:"unreadable,omitempty"`
+	Unwatchable bool `json:"unwatchable,omitempty"`
 }
 
 // What the fill watch keeps of a mount.
@@ -109,6 +115,16 @@ type stateData struct {
 	SnapFirst map[string]time.Time `json:"snapFirst,omitempty"`
 	SnapLate  map[string]bool      `json:"snapLate,omitempty"`
 	Countries map[string][]string  `json:"countries,omitempty"`
+	// review (second round): when an account's countries last changed (for
+	// the bound), the last snapshot seen per folder, Docker's open problem
+	CountriesAt map[string]time.Time `json:"countriesAt,omitempty"`
+	SnapLast    map[string]time.Time `json:"snapLast,omitempty"`
+	Docker      dockerMemo           `json:"docker,omitempty"`
+}
+
+type dockerMemo struct {
+	Open  bool      `json:"open,omitempty"`
+	Since time.Time `json:"since,omitempty"`
 }
 
 // store keeps stateData in a file; path "" keeps it in memory only.
@@ -150,15 +166,34 @@ func (s *store) with(change func(d *stateData) bool) {
 	if s.data.Countries == nil {
 		s.data.Countries = map[string][]string{}
 	}
+	if s.data.CountriesAt == nil {
+		s.data.CountriesAt = map[string]time.Time{}
+	}
+	if s.data.SnapLast == nil {
+		s.data.SnapLast = map[string]time.Time{}
+	}
 	if change(&s.data) && s.path != "" {
 		if raw, err := json.Marshal(s.data); err == nil && len(raw) <= maxStateBytes {
-			tmp := s.path + ".tmp"
-			if os.WriteFile(tmp, raw, 0600) == nil {
-				if os.Rename(tmp, s.path) != nil {
-					os.Remove(tmp)
-				}
-			}
+			writeFileSynced(s.path, raw)
 		}
+	}
+}
+
+// writeFileSynced writes a file beside the target, flushes it to the disk
+// and renames it over the target, so that a power loss leaves the old file
+// or the new one, never an empty one.
+func writeFileSynced(path string, raw []byte) {
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		return
+	}
+	_, err = f.Write(raw)
+	if err == nil {
+		err = f.Sync()
+	}
+	if f.Close() != nil || err != nil || os.Rename(tmp, path) != nil {
+		os.Remove(tmp)
 	}
 }
 

@@ -15,10 +15,14 @@ type Readers struct {
 	Usages     func() []Usage
 	DockerPing func(timeout time.Duration) error
 	// Snapshots gives the settings of the incremental backup and the last
-	// finished snapshot of each folder.
-	Snapshots func() (utils.SnapshotsConfig, map[string]time.Time)
-	// Country is the local country lookup (GeoLite file).
+	// success of each folder the snapshot module knows in memory;
+	// SnapshotOnDisk reads a folder's last snapshot on the backup disk.
+	Snapshots      func() (utils.SnapshotsConfig, map[string]time.Time)
+	SnapshotOnDisk func(source string) time.Time
+	// Country is the local country lookup (GeoLite file); Users lists the
+	// accounts (nil when it cannot).
 	Country func(ip string) (string, error)
+	Users   func() []string
 }
 
 var startOnce sync.Once
@@ -43,55 +47,109 @@ func Start(r Readers) func(user string, ip string) {
 	}
 }
 
-func loop(st *store, r Readers, started time.Time) {
-	defer func() {
-		if p := recover(); p != nil {
-			utils.Error("Watches: stopped after an unexpected error", nil)
+// stuckAfter is how long a watch may run before it is said to hang.
+var stuckAfter = time.Hour
+
+// slot runs one watch at a time in a goroutine of its own: a watch that
+// hangs (a dead network share) stops only itself, is not started again
+// while it hangs, and is said once (watch.stuck).
+type slot struct {
+	what  string
+	mu    sync.Mutex
+	busy  bool
+	since time.Time
+	told  bool
+}
+
+func (s *slot) start(now time.Time, work func()) {
+	s.mu.Lock()
+	if s.busy {
+		tell := !s.told && now.Sub(s.since) >= stuckAfter
+		if tell {
+			s.told = true
 		}
+		since := s.since
+		s.mu.Unlock()
+		if tell {
+			notify("warning", &utils.NotificationInfo{
+				Kind: "watch.stuck", Source: "server", Thread: "watch.stuck:" + s.what,
+				Title: utils.NText("notif.watch.stuck.title", "what", s.what),
+				What:  utils.NText("notif.watch.stuck.what", "what", s.what, "age", durationWords(now.Sub(since))),
+			})
+		}
+		return
+	}
+	s.busy, s.since = true, now
+	s.mu.Unlock()
+	go func() {
+		defer func() {
+			recover()
+			s.mu.Lock()
+			s.busy, s.told = false, false
+			s.mu.Unlock()
+		}()
+		work()
 	}()
+}
+
+// loop starts the watches when they are due, each in its slot. A panic in
+// one round starts the next round all the same.
+func loop(st *store, r Readers, started time.Time) {
 	for !ready() {
 		time.Sleep(30 * time.Second)
 	}
-	docker := &dockerWatch{started: started}
+	docker := newDockerWatch(st, started)
+	slots := map[string]*slot{
+		"docker": {what: "Docker"}, "smart": {what: "failing disks"}, "fill": {what: "disks filling fast"},
+		"snapshots": {what: "late snapshots"}, "accounts": {what: "accounts"},
+	}
 	next := map[string]time.Time{
 		"smart":     time.Now().Add(5 * time.Minute),
 		"fill":      time.Now().Add(time.Minute),
 		"snapshots": time.Now().Add(10 * time.Minute),
+		"accounts":  time.Now().Add(15 * time.Minute),
 	}
-	run := func(name string, every time.Duration, work func()) {
+	due := func(name string, every time.Duration) bool {
 		if time.Now().Before(next[name]) {
-			return
+			return false
 		}
 		next[name] = time.Now().Add(every)
-		func() {
-			defer func() { recover() }()
-			work()
-		}()
+		return true
 	}
 	for {
-		s := settingsNow()
-		if s.Docker && r.DockerPing != nil {
-			docker.check(r.DockerPing, time.Now)
-		}
-		run("smart", smartEvery, func() {
-			if s.SMART && r.Disks != nil {
-				if disks, err := r.Disks(); err == nil {
-					checkSMART(st, disks, time.Now())
-				}
-			}
-		})
-		run("fill", fillEvery, func() {
-			if s.Fill && r.Usages != nil {
-				checkFill(st, r.Usages(), s.FillDays, time.Now())
-			}
-		})
-		run("snapshots", snapshotsEvery, func() {
-			if s.Snapshots && r.Snapshots != nil {
-				cfg, last := r.Snapshots()
-				checkSnapshots(st, cfg, last, s.SnapshotLate, time.Now())
-			}
-		})
+		func() {
+			defer func() { recover() }()
+			round(st, r, docker, slots, due)
+		}()
 		time.Sleep(dockerEvery)
+	}
+}
+
+// round starts what is due.
+func round(st *store, r Readers, docker *dockerWatch, slots map[string]*slot, due func(string, time.Duration) bool) {
+	s := settingsNow()
+	now := time.Now()
+	if s.Docker && r.DockerPing != nil {
+		slots["docker"].start(now, func() { docker.check(r.DockerPing, time.Now) })
+	}
+	if due("smart", smartEvery) && s.SMART && r.Disks != nil {
+		slots["smart"].start(now, func() {
+			if disks, err := r.Disks(); err == nil {
+				checkSMART(st, disks, time.Now())
+			}
+		})
+	}
+	if due("fill", fillEvery) && s.Fill && r.Usages != nil {
+		slots["fill"].start(now, func() { checkFill(st, r.Usages(), s.FillDays, time.Now()) })
+	}
+	if due("snapshots", snapshotsEvery) && s.Snapshots && r.Snapshots != nil {
+		slots["snapshots"].start(now, func() {
+			cfg, last := r.Snapshots()
+			checkSnapshots(st, cfg, last, r.SnapshotOnDisk, s.SnapshotLate, time.Now())
+		})
+	}
+	if due("accounts", time.Hour) && r.Users != nil {
+		slots["accounts"].start(now, func() { checkAccounts(st, r.Users()) })
 	}
 }
 

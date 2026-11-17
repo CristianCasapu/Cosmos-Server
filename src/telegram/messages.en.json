@@ -408,6 +408,32 @@
       "sample": {"user": "admin", "country": "PT", "ip": "203.0.113.7", "known": "RO"}
     },
 
+    "smart.unreadable": {
+      "severity": "error", "category": "storage",
+      "label": "Disk cannot be read", "many": "disks that cannot be read",
+      "preview": "Disk {{disk}} cannot be read any more",
+      "whatKey": "notif.smart.unreadable.what",
+      "todo": "look at the disk now: copy what matters off it if it still mounts.",
+      "page": "/cosmos-ui/storage",
+      "sample": {"disk": "/dev/sdb", "model": "WDC WD40EFRX", "serial": "…4F2A", "mounts": "/mnt/data"}
+    },
+    "smart.unwatchable": {
+      "severity": "info", "category": "storage",
+      "label": "Disk health not watched", "many": "disks not watched",
+      "preview": "Health of {{disk}} not watched (it could wake)",
+      "whatKey": "notif.smart.unwatchable.what",
+      "todo": "nothing; connect the disk directly (not through USB) to have it watched.",
+      "page": "/cosmos-ui/storage",
+      "sample": {"disk": "/dev/sdc", "model": "USB disk"}
+    },
+    "watch.stuck": {
+      "severity": "warn", "category": "system",
+      "label": "A check does not answer", "many": "checks that do not answer",
+      "preview": "The check of {{what}} does not answer",
+      "whatKey": "notif.watch.stuck.what",
+      "todo": "look for a disk or a network share that hangs (an NFS or SMB mount).",
+      "sample": {"what": "disks filling fast", "age": "1 hour"}
+    },
     "upnp.forward.failed": {
       "severity": "error", "category": "system",
       "label": "Router stopped forwarding a port", "many": "lost port forwards",

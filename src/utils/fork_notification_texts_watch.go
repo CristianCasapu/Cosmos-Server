@@ -23,6 +23,9 @@ var watchNotificationKinds = map[string]notificationKind{
 	"update.proven":     {"updates", "notif.update.proven.title"},
 	"job.restored":      {"jobs", "notif.job.restored.title"},
 	"login.newcountry":  {"security", "notif.login.newcountry.title"},
+	"smart.unreadable":  {"storage", "notif.smart.unreadable.title"},
+	"smart.unwatchable": {"storage", "notif.smart.unwatchable.title"},
+	"watch.stuck":       {"server", "notif.watch.stuck.title"},
 }
 
 var watchNotificationTexts = map[string]string{
@@ -53,6 +56,13 @@ var watchNotificationTexts = map[string]string{
 	"notif.login.newcountry.title":  "{{user}} signed in from a new country: {{country}}",
 	"notif.login.newcountry.what":   "{{user}} signed in from {{ip}}, in {{country}}: a country this account never signed in from before (until now: {{known}}).",
 	"notif.login.newcountry.means":  "That is you travelling or on a VPN abroad, or someone else who has the password.",
+	"notif.smart.unreadable.title":  "Disk {{disk}} cannot be read",
+	"notif.smart.unreadable.what":   "The S.M.A.R.T. data of the disk {{disk}} ({{model}}, serial ending {{serial}}, mounted at {{mounts}}) could not be read three times in a row; it was read before.",
+	"notif.smart.unreadable.means":  "A disk that stops answering is often failing: what is on it can be lost.",
+	"notif.smart.unwatchable.title": "The health of {{disk}} is not watched",
+	"notif.smart.unwatchable.what":  "The disk {{disk}} ({{model}}) does not say whether it sleeps, so Cosmos does not read its S.M.A.R.T. data: that could wake it. Its health is not watched.",
+	"notif.watch.stuck.title":       "The check of {{what}} does not answer",
+	"notif.watch.stuck.what":        "The check of {{what}} has not finished for {{age}}: a disk or a share it reads does not answer. The other checks go on.",
 }
 
 func init() {
