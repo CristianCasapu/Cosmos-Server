@@ -81,8 +81,9 @@ topo_up() { # nat|pub
 
 machine_up() { # image
 	docker volume create "$M-docker" >/dev/null
+	docker volume create "$M-containerd" >/dev/null
 	docker run -d --name "$M" --hostname server --privileged --cgroupns=private --tmpfs /run --tmpfs /run/lock \
-		-v "$M-docker:/var/lib/docker" --network "$P-home" --ip "$TM4" --ip6 "$TM6" "$1" >/dev/null
+		-v "$M-docker:/var/lib/docker" -v "$M-containerd:/var/lib/containerd" --network "$P-home" --ip "$TM4" --ip6 "$TM6" "$1" >/dev/null
 	wait_boot
 	docker cp "${FORK_DIR:-/work/fork}" "$M:/opt/cosmos-fork"
 	msh 'rm -rf /opt/cosmos && mkdir -p /opt/cosmos && mv /opt/cosmos-fork /opt/cosmos/fork'
@@ -154,7 +155,7 @@ reboot_machine() {
 
 topo_down() {
 	for c in "$M" "$RT" "$HC" "$OC" "$OC2"; do docker rm -f -v "$c" >/dev/null 2>&1 || true; done
-	docker volume rm "$M-docker" >/dev/null 2>&1 || true
+	docker volume rm "$M-docker" "$M-containerd" >/dev/null 2>&1 || true
 	docker network rm "$P-home" "$P-out" >/dev/null 2>&1 || true
 }
 

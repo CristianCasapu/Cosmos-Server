@@ -29,6 +29,12 @@ fresh() { # nat|pub: a new machine on new networks
 	topo_down
 	topo_up "$1"
 	machine_up "$IMAGE"
+	if ! docker exec "$M" sh -c 'docker ps --format "{{.Names}}" | grep -q priv && docker ps --format "{{.Names}}" | grep -q pub' 2>/dev/null; then
+		bad "the test machine $IMAGE did not start"
+		topo_down
+		log "$TAG: $PASS passed, $FAILED failed$FAILS"
+		exit 1
+	fi
 	case "$BREAK" in
 		open-port) msh "sed -i 's/^\[ -n \"\$PUBLIC_TCP\$PUBLIC_UDP\" \] ||/add_port 9999 tcp broken; &/' $G/install.sh" ;;
 		no-ssh-allow) msh "sed -i -e '/ssh_allow6 { \$SESSION_ADDR }\" ;;/d' -e '/ssh_allow4 { \$SESSION_ADDR }\" ;;/d' -e 's/^\tif \[ -n \"\$SESSION_ADDR\" \]; then\$/\tif false; then/' $G/install.sh" ;;
