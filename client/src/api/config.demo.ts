@@ -186,6 +186,15 @@ function telegramTest(telegramConfig) {
   });
 }
 
+function telegramChats(token) {
+  return new Promise((resolve, reject) => {
+    resolve({
+      "status": "OK",
+      "data": { "success": false, "chats": [], "reason": "demo", "message": "The demo asks Telegram nothing." }
+    })
+  });
+}
+
 function canSendEmail() {
   return new Promise((resolve, reject) => {
     resolve({
@@ -328,6 +337,7 @@ export {
   snapshotsCleanup,
   telegramStatus,
   telegramTest,
+  telegramChats,
   getDashboard,
   getBackup,
 };
