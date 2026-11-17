@@ -1250,6 +1250,7 @@ func InitServer() *mux.Router {
 
 	srapiAdmin.HandleFunc("/api/cron/{name}", cron.CronConfigIdRoute)
 	srapiAdmin.HandleFunc("/api/cron", cron.CronConfigRoute)
+	srapiAdmin.HandleFunc("/api/cron-proposals/{containerId}", cron.ProposalsRoute) // Fork addition: common jobs for a container (a database dump), see cron/fork_proposals.go
 
 	srapiAdmin.HandleFunc("/api/listen=jobs", cron.ListJobs)
 	srapiAdmin.HandleFunc("/api/jobs", cron.ListJobs)
