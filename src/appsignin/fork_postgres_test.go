@@ -26,7 +26,9 @@ func withPostgres(t *testing.T, candidates []pgCandidate, inside bool) {
 	reachMu.Lock()
 	reachCache = map[string]reachEntry{}
 	reachMu.Unlock()
-	t.Cleanup(func() { postgresCandidates, insideContainer, cosmosNetworks, reachDial = oldList, oldInside, oldNets, oldDial })
+	t.Cleanup(func() {
+		postgresCandidates, insideContainer, cosmosNetworks, reachDial = oldList, oldInside, oldNets, oldDial
+	})
 }
 
 func proposalsOf(t *testing.T, auth *utils.AuthContext) (int, []interface{}, string) {

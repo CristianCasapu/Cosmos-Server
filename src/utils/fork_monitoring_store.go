@@ -39,15 +39,15 @@ import (
 )
 
 const (
-	monitoringProbeAtStart   = 5 * time.Second
-	monitoringProbeTimeout   = 8 * time.Second
-	monitoringRetryFirst     = 5 * time.Second
-	monitoringRetryMax       = 5 * time.Minute
-	monitoringPingEvery      = 15 * time.Second
-	monitoringPingTimeout    = 5 * time.Second
-	monitoringPingFailures   = 2
-	monitoringStoreThread    = "monitoring.store"
-	monitoringIdleLook       = time.Minute
+	monitoringProbeAtStart = 5 * time.Second
+	monitoringProbeTimeout = 8 * time.Second
+	monitoringRetryFirst   = 5 * time.Second
+	monitoringRetryMax     = 5 * time.Minute
+	monitoringPingEvery    = 15 * time.Second
+	monitoringPingTimeout  = 5 * time.Second
+	monitoringPingFailures = 2
+	monitoringStoreThread  = "monitoring.store"
+	monitoringIdleLook     = time.Minute
 )
 
 // MonitoringStoreState is what the panel shows about the store. No secret.
@@ -373,8 +373,8 @@ func tellMonitoringDown(s MonitoringStoreState) {
 		What:    NText("notif.monitoring.store.down.what", "host", s.Host, "at", s.Since.Local().Format("15:04"), "reason", s.Message),
 		Means:   NText("notif.monitoring.store.down.means"),
 		Doing:   NText("notif.monitoring.store.down.doing"),
-		Steps: []NotificationStep{{NotificationText: *NText("notif.step.monitoringdb.open"), Link: "/cosmos-ui/config-general?tab=external"}},
-		Facts: []NotificationFact{{Key: "host", Value: s.Host}, {Key: "reason", Value: s.Reason}},
+		Steps:   []NotificationStep{{NotificationText: *NText("notif.step.monitoringdb.open"), Link: "/cosmos-ui/config-general?tab=external"}},
+		Facts:   []NotificationFact{{Key: "host", Value: s.Host}, {Key: "reason", Value: s.Reason}},
 	}})
 }
 

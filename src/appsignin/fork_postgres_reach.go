@@ -174,9 +174,19 @@ func adviceFor(typed string, reason string, candidates []pgCandidate, proposals 
 		loopback = true
 	}
 	if loopback && (reason == "closed" || reason == "timeout") {
-		// is the port published elsewhere only?
+		// is the port published elsewhere only? (the typed port first)
+		bindings := []pgBinding{}
 		for _, c := range candidates {
 			for _, b := range c.Published {
+				if b.HostPort == port {
+					bindings = append([]pgBinding{b}, bindings...)
+				} else {
+					bindings = append(bindings, b)
+				}
+			}
+		}
+		{
+			for _, b := range bindings {
 				ip := net.ParseIP(b.HostIP)
 				if ip == nil || ip.IsLoopback() || ip.IsUnspecified() {
 					continue

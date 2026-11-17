@@ -59,8 +59,8 @@ type PostgresProposal struct {
 	// HostSource: published (a port of the server), container-network (Cosmos
 	// runs in a container and reaches it by name), address (the container's
 	// own address, which changes when the container is made again)
-	HostSource     string `json:"hostSource"`
-	HostNote       string `json:"hostNote,omitempty"`
+	HostSource string `json:"hostSource"`
+	HostNote   string `json:"hostNote,omitempty"`
 	// Reach: answers / silent, a TCP connect from Cosmos to Host (plan 51)
 	Reach          string `json:"reach,omitempty"`
 	Database       string `json:"database,omitempty"`
