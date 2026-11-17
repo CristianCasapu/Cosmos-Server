@@ -117,6 +117,14 @@ export default function createCronAPI(apiFetch: ApiFetch, createWs: (path: strin
     }))
   }
 
+  // Fork addition: common jobs for a container (a database dump), see src/cron/fork_proposals.go
+  function proposals(container: string): Promise<ApiResponse> {
+    return wrap(apiFetch(`/cosmos/api/cron-proposals/${encodeURIComponent(container)}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    }))
+  }
+
   function runningJobs(): Promise<ApiResponse> {
     return wrap(apiFetch('/cosmos/api/jobs/running', {
       method: 'GET',
@@ -134,6 +142,7 @@ export default function createCronAPI(apiFetch: ApiFetch, createWs: (path: strin
     get,
     deleteJob,
     runningJobs,
+    proposals, // Fork addition
     listCronConfigs,
     getCronConfig,
     createCronConfig,

@@ -316,6 +316,16 @@ cool-down, the 72 hours the previous files are kept, the 15-minute window.
   Cloudflare, e-mail, Telegram, Fail2ban and UPnP checks, were each run on
   their own branch only (each needs a set-up of its own).
 
+## Forms, part D: left for later (2026-11-17)
+
+- `raidDialog.jsx`/`raid.jsx` and `oldTerminal.jsx` are unreachable upstream files (nothing imports them, they are not bundled): left in place to keep upstream merges clean.
+- A Mongo dump proposal for scheduled jobs: mongodump takes its password on the command line, so none is proposed.
+- SnapRAID's schedule still needs six fields; the job form takes five or six.
+- The shared choice chips are 32 px tall on phones (the gallery does not flag them); the wizard's language button is 24 px (upstream's).
+- The installation's progress shows nothing between "Creating network…" and the end while the image is pulled: a slow or failing pull looks like a hang for minutes. Show the pull as a step, and the failure with its reason and "Try again".
+- A caller who may change settings can point the Telegram chat ID elsewhere while the token stays masked (the old chat is told): the owner's call whether a chat change should need the token again.
+- A whole-settings save refused by the job and alert recheck under the write lock (another save in the microseconds since the early recheck) can follow the replicated parts already published; closing it would mean changing the replication code.
+
 ## Creating apps: left for later (2026-11-14)
 
 - An image's declared volumes and ports are known only when the image is
@@ -414,10 +424,9 @@ started without recipes.
 
 ## Apps behind the proxy: left for later (2026-11-17)
 
-Upstream's restart of the web server has a race: two saves of URLs a few
-seconds apart can leave the HTTPS listener closing every connection until
-Cosmos is restarted (the one-click repair avoids it by reloading once; the
-URL form does not): to fix at its root. A refusal that only shows on a
+Connections of port routes that arrive during a restart of the web server
+still go to the old, closed handoff (as upstream): to hand them to the
+next generation. A refusal that only shows on a
 sign-in (POST) is not provoked: for known apps Cosmos reads their variables
 instead. Configuration files inside containers are not read, so an advised
 line is not confirmed to be in place. No periodic check of all URLs with a

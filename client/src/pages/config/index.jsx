@@ -44,7 +44,7 @@ import { snapshotsInitialValues, snapshotsToConfig, snapshotsValidation } from '
 import { telegramInitialValues, telegramToConfig, telegramValidation } from './telegram'; // fork addition
 import ConfigHTTP from './configHTTP';
 import ConfigHTTPS from './configHTTPS';
-import ConfigExternal from './configExternal';
+import ConfigExternal, { postgresValidation } from './configExternal'; // Fork addition (plan 47): postgresValidation
 import ConfigAppearance from './configAppearance';
 import { PWASettings } from '../../components/pwa'; // Fork addition: the installable app
 import ConfigAPITokens from './configAPITokens';
@@ -267,6 +267,7 @@ const ConfigManagement = () => {
           UPnP_ReservedPorts: Yup.string().max(200).matches(/^\s*(none|(\d{1,5}[\s,;]*)*)\s*$/i,
             t('mgmt.config.internet.reserved.validation', 'Enter port numbers separated by commas, "none", or leave it empty for the usual list')),
           ...snapshotsValidation(t), // fork addition
+          ...postgresValidation(t), // Fork addition (plan 47): the monitoring database's fields, checked again by the server
           ...telegramValidation(t, config), // fork addition
           ...appSignInValidation(t), // fork addition (plan 45)
           ...httpSettingsValidation(t, config), // fork addition: hostname, ports and address lists, only when changed (forkHttpSettings.jsx)

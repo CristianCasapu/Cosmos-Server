@@ -8,9 +8,30 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Nothing merged into `custom` since `0.24.0-fork.34` yet.
+Merged into `custom` since `0.24.0-fork.36`, to be part of the next release:
 
-Work in progress on a separate branch (not released, and may change before it is): restarts of the web server that cannot leave a listener dead.
+- Nothing yet.
+
+## Fork 0.24.0-fork.36 — 2026-11-17
+
+### Added
+- Telegram: after the bot token is pasted, "Look for chats" offers the chats that wrote to the bot, so the chat ID no longer has to be found by hand.
+- Scheduled jobs are made by choices: where the job runs (a container, or the server itself as root), when (in words, with the next three runs shown), and for a PostgreSQL or MariaDB/MySQL container a nightly dump is proposed.
+- The monitoring database is proposed from a PostgreSQL running on the server, with "Test the connection" before saving.
+- Snapshots: excludes (caches, thumbnails, temporary files, Docker's data folder) are offered as ticks with their sizes, the destination as a choice of data disks.
+
+### Changed
+- The first-run wizard no longer shows "join a cluster" without a licence; a node joins from the Constellation page after the wizard.
+
+### Security
+- New and changed scheduled jobs and alerts are checked by the server and refused in words; stored ones are untouched, and switching one off is never refused.
+- A saved monitoring-database password is no longer sent to a server whose address was changed: the password must be typed again.
+
+## Fork 0.24.0-fork.35 — 2026-11-17
+
+### Fixed
+- Saving settings or URLs close together can no longer leave the last change not applied, a listener dead or the server stopped (the web server's restarts ran over each other). Visitors' connections are no longer refused while the server reloads: they wait about a fifth of a second.
+- After some reloads every browser connection was closed right after it was made, until Cosmos was restarted (HTTP/2 was not set up for that run of the server): fixed.
 
 ## Fork 0.24.0-fork.34 — 2026-11-17
 

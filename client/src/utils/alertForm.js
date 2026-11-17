@@ -17,7 +17,7 @@ const KINDS = [
   { prefix: 'cosmos.system.temp.', kind: 'temp', unit: '°C', percent: false },
   { prefix: 'cosmos.system.disk-health.temperature.', kind: 'temp', unit: '°C', percent: false },
   { prefix: 'cosmos.system.docker.cpu.', kind: 'container-cpu', unit: '%', percent: false },
-  { prefix: 'cosmos.system.docker.ram.', kind: 'container-ram', unit: 'bytes', percent: false },
+  { prefix: 'cosmos.system.docker.ram.', kind: 'container-ram', unit: 'bytes', percent: true }, // its maximum is the server's memory (src/metrics/system.go)
   { prefix: 'cosmos.system.docker.net', kind: 'container-net', unit: 'bytes', percent: false },
   { prefix: 'cosmos.system.net', kind: 'net', unit: 'bytes', percent: false },
   { prefix: 'cosmos.proxy.', kind: 'proxy', unit: 'count', percent: false },
