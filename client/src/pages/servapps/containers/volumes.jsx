@@ -40,7 +40,7 @@ const VolumeContainerSetup = ({
   const [volumes, setVolumes] = React.useState([]);
   const theme = useTheme();
   const hints = useEditHints(containerInfo, !newContainer); // Fork addition (plan 47, I2c)
-  const appName = containerInfo.Name.replace("/", ""); // Fork addition (plan 47, I2c)
+  const appName = (containerInfo.Name || "").replace("/", ""); // Fork addition (plan 47, I2c): the new-container form has no name yet
 
   useEffect(() => {
     API.docker.volumeList().then((res) => {

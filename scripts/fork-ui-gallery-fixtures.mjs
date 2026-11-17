@@ -462,7 +462,6 @@ export const anyImageMock = [
 // linuxserver.io image whose data folder belongs to another user, a declared
 // folder that is not kept, a render node and a serial dongle, the home
 // network, the router and the resolver
-const TB = 1e12;
 export const EDIT_HINTS = {
   container: 'jellyfin',
   image: { user: '', volumes: ['/config', '/cache'], ports: ['8096/tcp', '7359/udp'], env: ['PATH', 'HOME'] },
@@ -494,4 +493,33 @@ export const EDIT_HINTS = {
   freePorts: { '8096/tcp': 8097, '7359/udp': 7359 },
   portsListened: true,
 };
-export const editHintsMock = [['/cosmos/api/servapps/jellyfin/edit-hints', { status: 'OK', data: EDIT_HINTS }]];
+// the container itself, so that the view needs no Docker (the CI smoke has none)
+const EDIT_CONTAINER = {
+  Id: 'f00dfeed00000000000000000000000000000000000000000000000000000001', Name: '/jellyfin', Image: 'sha256:0', Created: '2026-11-01T10:00:00Z',
+  State: { Status: 'running', Running: true, StartedAt: '2026-11-17T08:00:00Z', Health: null },
+  Config: { Image: 'lscr.io/linuxserver/jellyfin:latest', User: '', Tty: false, OpenStdin: false,
+    Env: ['PUID=1000', 'PGID=1000', 'TZ=Europe/Paris', 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'],
+    Labels: { 'cosmos-force-network-secured': 'false' }, ExposedPorts: { '8096/tcp': {}, '7359/udp': {} } },
+  HostConfig: { NetworkMode: 'bridge', RestartPolicy: { Name: 'unless-stopped', MaximumRetryCount: 0 }, Dns: [], Memory: 0, NanoCpus: 0,
+    Devices: [], Mounts: [], PortBindings: { '8096/tcp': [{ HostIp: '', HostPort: '8096' }] },
+    Binds: ['/srv/cosmos/jellyfin/config:/config', '/mnt/media-library-with-a-rather-long-name/movies:/movies:ro'] },
+  NetworkSettings: { Ports: { '8096/tcp': [{ HostIp: '0.0.0.0', HostPort: '8096' }], '7359/udp': null }, Networks: { bridge: { IPAddress: '172.17.0.5' } } },
+  Mounts: [
+    { Type: 'bind', Source: '/srv/cosmos/jellyfin/config', Destination: '/config', RW: true },
+    { Type: 'bind', Source: '/mnt/media-library-with-a-rather-long-name/movies', Destination: '/movies', RW: false },
+    { Type: 'volume', Name: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', Source: '/var/lib/docker/volumes/x/_data', Destination: '/cache', RW: true },
+  ],
+};
+export const editHintsMock = [
+  ['/cosmos/api/servapps/jellyfin', (url) => {
+    const path = url.pathname.replace(/\/$/, '');
+    if (path.endsWith('/edit-hints')) return { status: 'OK', data: EDIT_HINTS };
+    if (path === '/cosmos/api/servapps/jellyfin') return { status: 'OK', data: EDIT_CONTAINER };
+    return { status: 'OK', data: null }; // sign-in details, start report, …: nothing to show
+  }],
+  ['/cosmos/api/networks', { status: 'OK', data: [
+    { Id: 'n1', Name: 'bridge', Driver: 'bridge', Scope: 'local', IPAM: { Config: [{ Subnet: '172.17.0.0/16' }] }, Created: '2026-11-01T10:00:00Z' },
+    { Id: 'n2', Name: 'media-apps', Driver: 'bridge', Scope: 'local', IPAM: { Config: [{ Subnet: '172.20.0.0/16' }] }, Created: '2026-11-01T10:00:00Z' },
+  ] }],
+  ['/cosmos/api/volumes', { status: 'OK', data: { Volumes: [{ Name: 'jellyfin_cache', Driver: 'local', Mountpoint: '/var/lib/docker/volumes/jellyfin_cache/_data', CreatedAt: '2026-11-01T10:00:00Z' }] } }],
+];

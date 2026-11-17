@@ -315,7 +315,7 @@ export const ForkFolderNote = ({ row, hints }) => {
     const text = finding && findingText(t, finding);
     const place = folder.total ? t(K + 'folder.space', '{{free}} free of {{total}} on {{place}}.', { free: sizeText(folder.free), total: sizeText(folder.total), place: folder.place }) : '';
     if (!text && !place) return null;
-    return <FormHelperText data-fork-folder={finding && finding.code} sx={{ ...wrapText, whiteSpace: 'normal', color: finding && finding.severity === 'warning' ? 'warning.main' : undefined }}>
+    return <FormHelperText data-fork-folder={finding && finding.code} sx={{ ...wrapText, whiteSpace: 'normal', color: finding && finding.severity === 'warning' ? 'text.primary' : undefined, fontWeight: finding && finding.severity === 'warning' ? 600 : undefined }}>
       {[text, place].filter(Boolean).join(' ')}
     </FormHelperText>;
   }
@@ -453,8 +453,8 @@ export const ForkDeviceChoices = ({ formik, hints }) => {
     </Typography>
     {offered.length > 0 && <Stack direction="row" useFlexGap spacing={1} sx={{ flexWrap: 'wrap' }}>
       {offered.map((d) => <Chip key={d.path} variant="outlined" clickable icon={<PlusCircleOutlined />}
-        sx={{ minHeight: 44, maxWidth: '100%', height: 'auto', '& .MuiChip-label': { whiteSpace: 'normal', py: 0.5 } }}
-        label={`${d.name || d.node} · ${deviceKind(t, d)} · ${d.path}`}
+        sx={{ minHeight: 44, maxWidth: '100%', height: 'auto', '& .MuiChip-label': { whiteSpace: 'normal', overflowWrap: 'anywhere', py: 0.5 } }}
+        label={[d.name || d.node, deviceKind(t, d), d.name || d.path !== d.node ? d.path : ''].filter(Boolean).join(' · ')}
         onClick={() => formik.setFieldValue('devices', [...formik.values.devices, deviceRow(d)])} />)}
     </Stack>}
   </Stack>;
