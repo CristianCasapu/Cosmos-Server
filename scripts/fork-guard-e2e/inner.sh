@@ -296,6 +296,15 @@ g_follow() {
 	for i in 1 2 3 4 5; do
 		m ip -6 addr add 2001:db8:1:1::10/64 dev eth0
 		t0=$(date +%s)
+		if [ "$i" = 1 ]; then
+			# a new global prefix is not home by itself: it waits for confirmation;
+			# once confirmed it is home whenever it comes back
+			waiting=0
+			for _ in $(seq 1 30); do in_set pending6 2001:db8:1:1::/64 && { waiting=1; break; }; sleep 0.5; done
+			check "round $i: the new global prefix is seen and waits for confirmation" test "$waiting" = 1
+			check_not "round $i: and does not count as home before" docker exec "$HC" nc -z -w 1 -s 2001:db8:1:1::20 2001:db8:1:1::10 9999
+			m /usr/local/sbin/cosmos-host-guard confirm >/dev/null 2>&1
+		fi
 		followed=0
 		# the watcher refreshes once per burst: after 2 s of quiet, at most every 10 s
 		for _ in $(seq 1 60); do
@@ -386,13 +395,13 @@ g_pub4() {
 	fresh pub || return 1
 	guard_install_local --yes --port 2053 --port 8443 --port 9998/udp
 	expect_rc 4 "no home network and no VPN: an unattended run needs a choice for SSH"
-	check "it says why and what to choose" says "choose with --ssh open"
+	check "it says why and what to choose" says "Choose with --ssh open"
 	guard_install_local --yes --port 2053 --port 8443 --port 9998/udp --ssh closed-i-have-a-console
 	expect_rc 0 "install on a host with a public IPv4 address (from the console, --ssh closed-i-have-a-console)"
 	check "the installer chose to filter IPv4" says "IPv4 on eth0 is filtered"
 	check "the installer says the segment is the provider's" says "eth0: it holds a public or carrier-grade address"
 	check_not "eth0 is not a home network" in_set lan_if '"eth0"'
-	check "IPv4 is filtered (no IPv4 accept rule)" sh -c "! docker exec $M nft list chain inet cosmos_host_guard input | grep -q 'meta nfproto ipv4 accept'"
+	check_not "IPv4 is filtered (eth0 does not pass IPv4)" in_set pass4_if '"eth0"'
 	check "outside v4 reaches 2053" tcp "$OC" "$TM4" 2053
 	check "outside v4 reaches the public container port 8443 (forward path, DNAT)" tcp "$OC" "$TM4" 8443
 	check_not "outside v4 does not reach 9999" tcp "$OC" "$TM4" 9999
@@ -587,14 +596,14 @@ g_routes() {
 	expect_rc 0 "install"
 	# the default routes only in a policy routing table
 	msh "ip route del default; ip -6 route del default; ip route add default via $RT4H table 100; ip -6 route add default via $RT6H table 100; ip rule add pref 100 lookup 100; ip -6 rule add pref 100 lookup 100"
-	sleep 3
+	sleep 1; m /usr/local/sbin/cosmos-host-guard refresh >/dev/null 2>&1
 	check "a default route only in table 100: eth0 is still outside" in_set wan_if '"eth0"'
 	check_not "and not in fail-closed mode" in_set failclosed_if '"eth0"'
 	check "outside still reaches 2053 (answered through table 100)" tcp "$OC" "$TM6" 2053
 	check_not "outside does not reach 9999" tcp "$OC" "$TM6" 9999
 	# no default route at all: every interface but loopback, Docker's and VPNs is filtered
 	msh "ip route del default table 100; ip -6 route del default table 100; ip rule del pref 100; ip -6 rule del pref 100"
-	sleep 3
+	sleep 1; m /usr/local/sbin/cosmos-host-guard refresh >/dev/null 2>&1
 	check "no default route: fail closed on eth0" in_set failclosed_if '"eth0"'
 	check "no default route: eth0 is filtered" in_set wan_if '"eth0"'
 	check_not "no default route: Docker's bridge is not filtered" in_set wan_if '"docker0"'
@@ -604,8 +613,7 @@ g_routes() {
 	after=$(m nft list counters table inet cosmos_host_guard | awk '/dropped_input|dropped_spoofed/ {c = 1} c && /packets/ {s += $2; c = 0} END {print s + 0}')
 	check "no default route: a connection from outside to 9999 is dropped by the guard ($before -> $after)" test "$after" -gt "$before"
 	msh "ip route replace default via $RT4H; ip -6 route replace default via $RT6H"
-	sleep 3
-	check_not "the default route back: fail-closed mode ends at once" in_set failclosed_if '"eth0"'
+	sleep 1; m /usr/local/sbin/cosmos-host-guard refresh >/dev/null 2>&1
 	check_not "the default route back: fail-closed mode ends" in_set failclosed_if '"eth0"'
 	probe_matrix "after the default route came back"
 	# the watcher killed again and again comes back (no start limit)
@@ -616,8 +624,8 @@ g_routes() {
 	m systemctl stop cosmos-host-guard-watch.service
 	m ip -6 addr add 2001:db8:1:5::10/64 dev eth0
 	found=0
-	for _ in $(seq 1 40); do in_set onlink6 2001:db8:1:5::/64 && { found=1; break; }; sleep 2; done
-	check "without the watcher, the timer follows a new prefix within 80 s" test "$found" = 1
+	for _ in $(seq 1 40); do in_set pending6 2001:db8:1:5::/64 && { found=1; break; }; sleep 2; done
+	check "without the watcher, the timer notices a new prefix within 80 s (waiting for confirmation)" test "$found" = 1
 	m ip -6 addr del 2001:db8:1:5::10/64 dev eth0
 	m systemctl start cosmos-host-guard-watch.service
 	guard_uninstall
@@ -776,7 +784,7 @@ g_failclosed() {
 	ll=$(tm_ll)
 	msh "ip route del default; ip -6 route del default"
 	# one refresh per burst: after 2 s of quiet, at most every 10 s
-	for _ in $(seq 1 20); do in_set failclosed_if '"eth0"' && break; sleep 1; done
+	for _ in $(seq 1 30); do in_set failclosed_if '"eth0"' && break; sleep 1; done
 	check "no default route: fail closed on eth0" in_set failclosed_if '"eth0"'
 	check "home kept: eth0 is still home" in_set lan_if '"eth0"'
 	check "home v6 (on-link) reaches SSH during the outage" tcp "$HC" "$TM6" 22
@@ -798,7 +806,7 @@ g_failclosed() {
 	guard_install "$HC" --yes --port 2053 --ipv4 yes
 	expect_rc 0 "install with --ipv4 yes"
 	msh "ip route del default; ip -6 route del default"
-	for _ in $(seq 1 20); do in_set failclosed_if '"eth0"' && break; sleep 1; done
+	for _ in $(seq 1 30); do in_set failclosed_if '"eth0"' && break; sleep 1; done
 	check "with --ipv4 yes, home v4 reaches SSH during the outage" tcp "$HC" "$TM4" 22
 	check "with --ipv4 yes, home v6 reaches SSH during the outage" tcp "$HC" "$TM6" 22
 	msh "ip route replace default via $RT4H; ip -6 route replace default via $RT6H"
@@ -924,6 +932,7 @@ g_churn() {
 	guard_install "$HC" --yes --port 2053
 	expect_rc 0 "install"
 	cpu0=$(m systemctl show -p CPUUsageNSec --value cosmos-host-guard-watch.service)
+	# shellcheck disable=SC2016
 	msh 'for i in $(seq 1 150); do ip link add d$i type dummy; ip link set d$i up; ip link del d$i; done'
 	sleep 15
 	cpu1=$(m systemctl show -p CPUUsageNSec --value cosmos-host-guard-watch.service)

@@ -225,6 +225,10 @@ dynamic() {
 	for dev in $lan; do
 		in_csv "$dev" "$p4" && ! in_csv "$dev" "$nop4" && pass4="$pass4 $dev"
 	done
+	p4any=$(record pass4any | tr '\n' ',')
+	for dev in $wan; do
+		in_csv "$dev" "$p4any" && pass4="$pass4 $dev"
+	done
 	# IPv4 filtering may start by itself, never stop by itself: an interface that
 	# lost the home evidence (a public address appeared) stays filtered over IPv4
 	# until a new install or `confirm` (written to the record, as it is a
@@ -317,9 +321,9 @@ judge() {
 			for p in $(onlink 6 "$dev"); do echo "net6 $p"; ula6 "$p" && echo "ula yes"; done
 			for p in $(onlink 4 "$dev"); do b=$(block4 "$p"); [ -z "$b" ] || { echo "net4 $p"; echo "priv4 $b"; }; done
 			case "$mode" in yes) ;; *) echo "pass4 $dev" ;; esac
-		elif [ "$mode" = no ]; then
-			echo "pass4 $dev"
 		fi
+		# --ipv4 no: the administrator leaves IPv4 alone on every outside interface
+		[ "$mode" != no ] || echo "pass4any $dev"
 	done | sort -u
 }
 
