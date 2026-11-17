@@ -68,12 +68,29 @@ type Table struct {
 	DroppedForward *Counter `json:"droppedForward,omitempty"`
 	// DroppedSpoofed: packets from outside with a forged source.
 	DroppedSpoofed *Counter `json:"droppedSpoofed,omitempty"`
-	// IPv4Passed: the input chain lets every IPv4 packet through (the guard
-	// was installed without IPv4 filtering).
-	IPv4Passed bool  `json:"ipv4Passed"`
-	PublicTCP  []int `json:"publicTcp"`
-	PublicUDP  []int `json:"publicUdp"`
-	VPNUDP     []int `json:"vpnUdp"`
+	// DroppedRPF: packets that would not be answered through the interface
+	// they came in on (strict reverse-path check; counted in DroppedSpoofed
+	// before the guard had this counter).
+	DroppedRPF *Counter `json:"droppedRpf,omitempty"`
+	// IPv4Passed: a chain lets every IPv4 packet through on every interface
+	// (an older guard installed without IPv4 filtering).
+	IPv4Passed bool `json:"ipv4Passed"`
+	// IPv4PassInterfaces are the interfaces on which IPv4 is not filtered
+	// (pass4_if, a home network behind a router), when a chain holds the
+	// rule that passes them; empty: IPv4 is filtered on every outside
+	// interface (unless IPv4Passed).
+	IPv4PassInterfaces []string `json:"ipv4PassInterfaces"`
+	// RPFInterfaces are the interfaces with the strict reverse-path check.
+	RPFInterfaces []string `json:"rpfInterfaces"`
+	// TrustedInterfaces were trusted with --trust-interface: they carry a
+	// default route and nothing arriving through them is filtered.
+	TrustedInterfaces []string `json:"trustedInterfaces"`
+	// PendingPrefixes are new prefixes on a home interface waiting for the
+	// administrator's confirmation: not home yet.
+	PendingPrefixes []string `json:"pendingPrefixes"`
+	PublicTCP       []int    `json:"publicTcp"`
+	PublicUDP       []int    `json:"publicUdp"`
+	VPNUDP          []int    `json:"vpnUdp"`
 	// WANInterfaces are the interfaces the guard filters (those with a
 	// default route, or every one when none has: FailClosedInterfaces).
 	WANInterfaces []string `json:"wanInterfaces"`
@@ -194,7 +211,8 @@ func emptyTable() Table {
 	return Table{
 		PublicTCP: []int{}, PublicUDP: []int{}, VPNUDP: []int{}, WANInterfaces: []string{},
 		LANInterfaces: []string{}, FailClosedInterfaces: []string{}, SSHPorts: []int{},
-		SSHAllowed: []Allowance{}, HomeNetworks: []string{},
+		SSHAllowed: []Allowance{}, HomeNetworks: []string{}, IPv4PassInterfaces: []string{},
+		RPFInterfaces: []string{}, TrustedInterfaces: []string{}, PendingPrefixes: []string{},
 	}
 }
 
@@ -247,6 +265,9 @@ func parseTable(out []byte) (Table, error) {
 	table := emptyTable()
 	var allow4, allow6 []Allowance
 	var home4, home6 []string
+	// pass4: a chain holds `iifname @pass4_if meta nfproto ipv4 accept`;
+	// pass4If: the set's elements
+	pass4, pass4If := false, []string{}
 	ours := func(family, name string) bool { return family == guardFamily && name == guardTable }
 	for _, object := range answer.Nftables {
 		switch {
@@ -278,6 +299,8 @@ func parseTable(out []byte) (Table, error) {
 				table.DroppedForward = counter
 			case "dropped_spoofed":
 				table.DroppedSpoofed = counter
+			case "dropped_rpf":
+				table.DroppedRPF = counter
 			}
 		case object.Rule != nil:
 			r := object.Rule
@@ -289,8 +312,11 @@ func parseTable(out []byte) (Table, error) {
 				table.InputFilters = true
 			case r.Chain == "forward" && isCountedDrop(r.Expr, "dropped_forward"):
 				table.ForwardFilters = true
-			case r.Chain == "input" && isIPv4Pass(r.Expr):
+			// IPv4 passed to the server or to the containers: either opens it
+			case (r.Chain == "input" || r.Chain == "forward") && isIPv4Pass(r.Expr):
 				table.IPv4Passed = true
+			case (r.Chain == "input" || r.Chain == "forward") && isIPv4PassOn(r.Expr):
+				pass4 = true
 			}
 		case object.Set != nil:
 			s := object.Set
@@ -310,6 +336,14 @@ func parseTable(out []byte) (Table, error) {
 				table.LANInterfaces = nameElements(s.Elem)
 			case "failclosed_if":
 				table.FailClosedInterfaces = nameElements(s.Elem)
+			case "pass4_if":
+				pass4If = nameElements(s.Elem)
+			case "rpf_if":
+				table.RPFInterfaces = nameElements(s.Elem)
+			case "trusted_if":
+				table.TrustedInterfaces = nameElements(s.Elem)
+			case "pending6":
+				table.PendingPrefixes = networkElements(s.Elem, false)
 			case "ssh_port":
 				table.SSHPorts = portElements(s.Elem)
 			case "ssh_allow4":
@@ -326,6 +360,9 @@ func parseTable(out []byte) (Table, error) {
 	if !table.Loaded {
 		// an answer without the table is no answer about it
 		return Table{}, errNotNft
+	}
+	if pass4 {
+		table.IPv4PassInterfaces = pass4If
 	}
 	table.SSHAllowed = append(append(table.SSHAllowed, allow4...), allow6...)
 	table.HomeNetworks = append(append(table.HomeNetworks, home4...), home6...)
@@ -406,36 +443,49 @@ func isCountedDrop(expr []json.RawMessage, counter string) bool {
 	return drop
 }
 
-// isIPv4Pass: the rule is exactly "meta nfproto ipv4 accept", which the
-// installer puts in when IPv4 is not to be filtered.
-func isIPv4Pass(expr []json.RawMessage) bool {
-	if len(expr) != 2 {
+// ruleMatch is one match expression of a rule.
+type ruleMatch struct {
+	Match *struct {
+		Op   string `json:"op"`
+		Left struct {
+			Meta *struct {
+				Key string `json:"key"`
+			} `json:"meta"`
+		} `json:"left"`
+		Right json.RawMessage `json:"right"`
+	} `json:"match"`
+}
+
+// isMetaMatch: the expression is "meta <key> <right>" (== or the implicit in).
+func isMetaMatch(raw json.RawMessage, key string, right string) bool {
+	var expr ruleMatch
+	if json.Unmarshal(raw, &expr) != nil || expr.Match == nil || expr.Match.Left.Meta == nil {
 		return false
 	}
-	var first struct {
-		Match *struct {
-			Op   string `json:"op"`
-			Left struct {
-				Meta *struct {
-					Key string `json:"key"`
-				} `json:"meta"`
-			} `json:"left"`
-			Right json.RawMessage `json:"right"`
-		} `json:"match"`
-	}
-	var second map[string]json.RawMessage
-	if json.Unmarshal(expr[0], &first) != nil || first.Match == nil || first.Match.Left.Meta == nil {
+	m := expr.Match
+	return (m.Op == "==" || m.Op == "in") && m.Left.Meta.Key == key && string(m.Right) == right
+}
+
+// isAccept: the expression is a bare accept.
+func isAccept(raw json.RawMessage) bool {
+	var verdict map[string]json.RawMessage
+	if json.Unmarshal(raw, &verdict) != nil || len(verdict) != 1 {
 		return false
 	}
-	m := first.Match
-	if (m.Op != "==" && m.Op != "in") || m.Left.Meta.Key != "nfproto" || string(m.Right) != `"ipv4"` {
-		return false
-	}
-	if json.Unmarshal(expr[1], &second) != nil || len(second) != 1 {
-		return false
-	}
-	_, accept := second["accept"]
+	_, accept := verdict["accept"]
 	return accept
+}
+
+// isIPv4Pass: the rule is exactly "meta nfproto ipv4 accept", which an older
+// installer put in when IPv4 was not to be filtered at all.
+func isIPv4Pass(expr []json.RawMessage) bool {
+	return len(expr) == 2 && isMetaMatch(expr[0], "nfproto", `"ipv4"`) && isAccept(expr[1])
+}
+
+// isIPv4PassOn: the rule is exactly "iifname @pass4_if meta nfproto ipv4
+// accept": IPv4 is not filtered on the interfaces of pass4_if.
+func isIPv4PassOn(expr []json.RawMessage) bool {
+	return len(expr) == 3 && isMetaMatch(expr[0], "iifname", `"@pass4_if"`) && isMetaMatch(expr[1], "nfproto", `"ipv4"`) && isAccept(expr[2])
 }
 
 // maxExpires bounds the seconds an allowance may have left (ten years):

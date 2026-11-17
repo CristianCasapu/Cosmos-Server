@@ -27,7 +27,7 @@ type world struct {
 func newWorld(t *testing.T) *world {
 	t.Helper()
 	w := &world{t: t, root: t.TempDir()}
-	for _, dir := range []string{"state", "apt.conf.d", "bin", "wants", "sbin", "cosmos"} {
+	for _, dir := range []string{"state", "apt.conf.d", "bin", "wants", "sbin", "cosmos", "run"} {
 		if err := os.MkdirAll(filepath.Join(w.root, dir), 0755); err != nil {
 			t.Fatal(err)
 		}
@@ -38,7 +38,8 @@ func newWorld(t *testing.T) *world {
 		run                             func(string) ([]byte, string, error)
 		summary                         func() fail2ban.Summary
 		exe                             func() (string, error)
-	}{StateDir, aptConfigDir, upgradeBinary, upgradeTimer, nftPaths, runNft, fail2banSummary, executable}
+		alive, refresh                  string
+	}{StateDir, aptConfigDir, upgradeBinary, upgradeTimer, nftPaths, runNft, fail2banSummary, executable, alivePath, refreshPath}
 	StateDir = filepath.Join(w.root, "state")
 	aptConfigDir = filepath.Join(w.root, "apt.conf.d")
 	upgradeBinary = filepath.Join(w.root, "bin", "unattended-upgrade")
@@ -50,10 +51,13 @@ func newWorld(t *testing.T) *world {
 	}
 	fail2banSummary = func() fail2ban.Summary { return w.fail2ban }
 	executable = func() (string, error) { return filepath.Join(w.root, "cosmos", "cosmos"), nil }
+	alivePath = filepath.Join(w.root, "run", "alive")
+	refreshPath = filepath.Join(w.root, "run", "last-refresh")
 	forget()
 	t.Cleanup(func() {
 		StateDir, aptConfigDir, upgradeBinary, upgradeTimer = previous.stateDir, previous.aptDir, previous.binary, previous.timer
 		nftPaths, runNft, fail2banSummary, executable = previous.nft, previous.run, previous.summary, previous.exe
+		alivePath, refreshPath = previous.alive, previous.refresh
 		forget()
 	})
 	return w

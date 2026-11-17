@@ -37,16 +37,17 @@ const (
 
 // Reasons (codes the panel puts in words) for a state that is not plain.
 const (
-	reasonStateInvalid = "stateInvalid" // the state file is there but cannot be read
-	reasonTableMissing = "tableMissing" // guard: installed, its table is not in the kernel
-	reasonNotHooked    = "notHooked"    // guard: the table is there, a base chain is not hooked
-	reasonChainEmpty   = "chainEmpty"   // guard: the chains are hooked but do not hold their rules (flushed)
-	reasonNoOutside    = "noOutside"    // guard: no outside interface in wan_if, nothing is filtered
-	reasonStopped      = "stopped"      // fail2ban: installed, not running
-	reasonNoJails      = "noJails"      // fail2ban: running, the fork's jail file is not there
-	reasonNoBinary     = "noBinary"     // fail2ban, updates: the program itself is not installed
-	reasonNotEnabled   = "notEnabled"   // updates: APT::Periodic::Unattended-Upgrade is not "1"
-	reasonNoTimer      = "noTimer"      // updates: the apt-daily-upgrade timer is not enabled
+	reasonStateInvalid = "stateInvalid"  // the state file is there but cannot be read
+	reasonTableMissing = "tableMissing"  // guard: installed, its table is not in the kernel
+	reasonNotHooked    = "notHooked"     // guard: the table is there, a base chain is not hooked
+	reasonChainEmpty   = "chainEmpty"    // guard: the chains are hooked but do not hold their rules (flushed)
+	reasonNoOutside    = "noOutside"     // guard: no outside interface in wan_if, nothing is filtered
+	reasonTrusted      = "trustedUplink" // guard: an outside interface is trusted (--trust-interface): nothing through it is filtered
+	reasonStopped      = "stopped"       // fail2ban: installed, not running
+	reasonNoJails      = "noJails"       // fail2ban: running, the fork's jail file is not there
+	reasonNoBinary     = "noBinary"      // fail2ban, updates: the program itself is not installed
+	reasonNotEnabled   = "notEnabled"    // updates: APT::Periodic::Unattended-Upgrade is not "1"
+	reasonNoTimer      = "noTimer"       // updates: the apt-daily-upgrade timer is not enabled
 )
 
 // Piece is what every card shows.
@@ -103,6 +104,26 @@ type Guard struct {
 	PortMissing bool `json:"portMissing"`
 	// KeptOpen are the TCP ports that comparison was made against.
 	KeptOpen []int `json:"keptOpen"`
+	// Cloud is the cloud the installer detected ("Amazon EC2"), empty when
+	// none was; Virt the virtualisation it found (kvm, lxc, none).
+	Cloud string `json:"cloud,omitempty"`
+	Virt  string `json:"virt,omitempty"`
+	// VPNFound are the VPNs the installer found, with their UDP port when
+	// known.
+	VPNFound []VPN `json:"vpnFound"`
+	// UDPNotOpen are UDP ports listening on the server that do not answer
+	// from outside, as the installer found them.
+	UDPNotOpen []int `json:"udpNotOpen"`
+	// SSHMode is how the installer left SSH from outside: allowance, open,
+	// from, console.
+	SSHMode string `json:"sshMode,omitempty"`
+	// TrustedInterfaces are the interfaces trusted with --trust-interface,
+	// as the installer recorded them (the table's set says which are in
+	// force).
+	TrustedInterfaces []string `json:"trustedInterfaces"`
+	// Liveness: whether its watcher and its timer still run, for a guard
+	// whose table is loaded.
+	Liveness *Liveness `json:"liveness,omitempty"`
 }
 
 // Fail2ban is the card of Fail2ban (fork/fail2ban).
@@ -212,7 +233,10 @@ const repairCommand = "sudo systemctl reload cosmos-host-guard"
 
 func readGuard(now time.Time) Guard {
 	state, file := readState(PieceGuard)
-	guard := Guard{Piece: Piece{StateFile: file}, PublicTCP: []int{}, PublicUDP: []int{}, KeptOpen: []int{}, OtherFilters: []string{}}
+	guard := Guard{
+		Piece: Piece{StateFile: file}, PublicTCP: []int{}, PublicUDP: []int{}, KeptOpen: []int{}, OtherFilters: []string{},
+		VPNFound: []VPN{}, UDPNotOpen: []int{}, TrustedInterfaces: []string{},
+	}
 	if file == fileOK {
 		guard.Since = timePointer(state.InstalledAt)
 		if state.PublicTCP != nil {
@@ -225,6 +249,16 @@ func readGuard(now time.Time) Guard {
 		guard.IPv4Reason, guard.Exposed = state.IPv4Reason, state.Exposed
 		if state.OtherFilters != nil {
 			guard.OtherFilters = state.OtherFilters
+		}
+		guard.Cloud, guard.Virt, guard.SSHMode = state.Cloud, state.Virt, state.SSHMode
+		if state.VPNs != nil {
+			guard.VPNFound = state.VPNs
+		}
+		if state.UDPNotOpen != nil {
+			guard.UDPNotOpen = state.UDPNotOpen
+		}
+		if state.TrustedInterfaces != nil {
+			guard.TrustedInterfaces = state.TrustedInterfaces
 		}
 	}
 
@@ -257,6 +291,10 @@ func readGuard(now time.Time) Guard {
 		guard.State, guard.Reason = StateInactive, reasonChainEmpty
 	case len(guard.Table.WANInterfaces) == 0:
 		guard.State, guard.Reason = StateInactive, reasonNoOutside
+	case len(guard.Table.TrustedInterfaces) > 0:
+		// an uplink nothing is filtered on: whatever reaches the server
+		// through it reaches every port, so the guard is not Active
+		guard.State, guard.Reason = StateInactive, reasonTrusted
 	default:
 		guard.State, guard.Active = StateActive, true
 		if file == fileInvalid {
@@ -266,6 +304,10 @@ func readGuard(now time.Time) Guard {
 	switch guard.Reason {
 	case reasonTableMissing, reasonNotHooked, reasonChainEmpty:
 		guard.RepairCommand = repairCommand
+	}
+	if loaded {
+		live := readLiveness(now)
+		guard.Liveness = &live
 	}
 	// an inactive guard keeps the reason it does not filter; stateFile
 	// "invalid" tells that its record cannot be read as well

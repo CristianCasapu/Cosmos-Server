@@ -189,3 +189,76 @@ func TestStateFileOfTodaysGuardDropsWhatDoesNotPass(t *testing.T) {
 		t.Errorf("16 entries (one table): %v", state.OtherFilters)
 	}
 }
+
+func TestStateFileOfTheGuardWithWhatItFound(t *testing.T) {
+	newWorld(t)
+	writeState(t, PieceGuard, guardState+"cloud=Amazon EC2\nvirt=kvm\nvpn_found=tailscale:41641;wireguard wg0:unknown;nebula:4242;tailscale:41641\nudp_not_open=51820,5353\nssh_mode=console\ntrusted_if=tun0, wg1,tun0\n")
+	state, file := readState(PieceGuard)
+	port := func(p int) *int { return &p }
+	wantVPNs := []VPN{{Kind: "tailscale", Port: port(41641)}, {Kind: "wireguard", Interface: "wg0"}, {Kind: "nebula", Port: port(4242)}}
+	if file != fileOK || state.Cloud != "Amazon EC2" || state.Virt != "kvm" || state.SSHMode != "console" ||
+		!reflect.DeepEqual(state.VPNs, wantVPNs) || !reflect.DeepEqual(state.UDPNotOpen, []int{5353, 51820}) || !reflect.DeepEqual(state.TrustedInterfaces, []string{"tun0", "wg1"}) {
+		t.Errorf("%v %+v", file, state)
+	}
+	for _, mode := range []string{"allowance", "open", "from", "console"} {
+		writeState(t, PieceGuard, guardState+"ssh_mode="+mode+"\n")
+		if state, _ := readState(PieceGuard); state.SSHMode != mode {
+			t.Errorf("ssh_mode=%s: %q", mode, state.SSHMode)
+		}
+	}
+	writeState(t, PieceGuard, guardState+"cloud=\nvpn_found=\nudp_not_open=\ntrusted_if=\n")
+	if state, _ := readState(PieceGuard); state.Cloud != "" || state.VPNs == nil || len(state.VPNs) != 0 || state.UDPNotOpen == nil || state.TrustedInterfaces == nil || len(state.TrustedInterfaces) != 0 {
+		t.Errorf("empty values: %+v, want empty lists", state)
+	}
+	writeState(t, PieceGuard, guardState+"cloud=Google Compute Engine (n2) 1/2._x-y\n")
+	if state, _ := readState(PieceGuard); state.Cloud != "Google Compute Engine (n2) 1/2._x-y" {
+		t.Errorf("cloud %q", state.Cloud)
+	}
+}
+
+func TestStateFileOfTheGuardDropsWhatItFoundWhenItDoesNotPass(t *testing.T) {
+	newWorld(t)
+	tooManyVPNs := strings.TrimSuffix(strings.Repeat("nebula:1;", maxVPNs+1), ";")
+	tooManyIfs := strings.TrimSuffix(strings.Repeat("eth0,", maxInterfaces+1), ",")
+	for _, bad := range []string{
+		"cloud=Amazon EC2;reboot", "cloud=" + strings.Repeat("a", 65), "cloud=<b>x</b>", "cloud=a\tb",
+		"virt=KVM", "virt=kvm lxc", "virt=" + strings.Repeat("a", 33),
+		"vpn_found=tailscale", "vpn_found=tailscale:0", "vpn_found=tailscale:65536", "vpn_found=tailscale:123456",
+		"vpn_found=openvpn:1194", "vpn_found=wireguard:51820", "vpn_found=wireguard wg0 x:51820",
+		"vpn_found=wireguard this-name-is-far-too-long:1", "vpn_found=wireguard $(x):1", "vpn_found=tailscale:41641;", "vpn_found=tailscale:41641,nebula:4242",
+		"vpn_found=Tailscale:41641", "vpn_found=" + tooManyVPNs,
+		"udp_not_open=0", "udp_not_open=5353;51820", "udp_not_open=" + strings.Repeat("1,", maxPorts) + "1",
+		"ssh_mode=closed", "ssh_mode=Console", "ssh_mode=console;x",
+		"trusted_if=bad name", "trusted_if=tun0,", "trusted_if=this-name-is-far-too-long", "trusted_if=$(x)", "trusted_if=tun0;wg1", "trusted_if=" + tooManyIfs,
+	} {
+		writeState(t, PieceGuard, guardState+bad+"\n")
+		state, file := readState(PieceGuard)
+		key, _, _ := strings.Cut(bad, "=")
+		var kept bool
+		switch key {
+		case "cloud":
+			kept = state.Cloud != ""
+		case "virt":
+			kept = state.Virt != ""
+		case "vpn_found":
+			kept = state.VPNs != nil
+		case "udp_not_open":
+			kept = state.UDPNotOpen != nil
+		case "ssh_mode":
+			kept = state.SSHMode != ""
+		case "trusted_if":
+			kept = state.TrustedInterfaces != nil
+		}
+		if file != fileOK || kept {
+			t.Errorf("%q: %v %+v, want the file taken and the value left out", bad, file, state)
+		}
+		if !reflect.DeepEqual(state.PublicTCP, []int{2052, 2053}) {
+			t.Errorf("%q: the rest of the file was lost", bad)
+		}
+	}
+	exactly := strings.TrimSuffix(strings.Repeat("nebula:1;", maxVPNs), ";")
+	writeState(t, PieceGuard, guardState+"vpn_found="+exactly+"\n")
+	if state, _ := readState(PieceGuard); len(state.VPNs) != 1 {
+		t.Errorf("16 entries (one VPN): %v", state.VPNs)
+	}
+}

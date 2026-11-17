@@ -15,7 +15,7 @@ import * as API from '../../api';
 import MainCard from '../../components/MainCard';
 import { useClientInfos } from '../../utils/hooks';
 import { PERM_ADMIN_READ } from '../../utils/permissions';
-import { cardsOf } from '../../utils/protection';
+import { cardsOf, sayText } from '../../utils/protection';
 
 // at least 44 px to touch on a phone
 const touch = { minWidth: { xs: 44, sm: 32 }, minHeight: { xs: 44, sm: 32 } };
@@ -58,7 +58,7 @@ const Command = ({ label, text }) => {
 
 const PieceCard = ({ card }) => {
   const { t } = useTranslation();
-  const say = (entry) => t(entry[0], entry[1], entry[2] || {});
+  const say = (entry) => sayText(t, entry);
   return <MainCard sx={{ height: '100%' }} contentSX={{ p: 2.25 }} data-protection-card={card.id}>
     <Stack spacing={1.25}>
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }} useFlexGap>
@@ -75,6 +75,7 @@ const PieceCard = ({ card }) => {
         {card.lines.map((line, index) => <Typography key={index + line[0]} variant="body2" sx={{ overflowWrap: 'anywhere' }}>{say(line)}</Typography>)}
       </Stack>}
       {card.repair && <Command label={say(card.repair.label)} text={card.repair.text} />}
+      {card.confirm && <Command label={say(card.confirm.label)} text={card.confirm.text} />}
       {card.command && <Command label={say(card.command.label)} text={card.command.text} />}
     </Stack>
   </MainCard>;

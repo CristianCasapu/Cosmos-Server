@@ -341,14 +341,14 @@ func TestRouteIsForAdministratorsAndGetOnly(t *testing.T) {
 	}
 	var guard map[string]json.RawMessage
 	json.Unmarshal(body.Data["guard"], &guard)
-	for _, key := range []string{"installed", "active", "state", "stateFile", "command", "commandKind", "table", "publicTcp", "publicUdp", "portMissing", "keptOpen", "otherFilters"} {
+	for _, key := range []string{"installed", "active", "state", "stateFile", "command", "commandKind", "table", "publicTcp", "publicUdp", "portMissing", "keptOpen", "otherFilters", "vpnFound", "udpNotOpen", "trustedInterfaces"} {
 		if _, found := guard[key]; !found {
 			t.Errorf("guard has no %q: %s", key, body.Data["guard"])
 		}
 	}
 	var table map[string]json.RawMessage
 	json.Unmarshal(guard["table"], &table)
-	if got := keys(table); !reflect.DeepEqual(got, []string{"failClosedInterfaces", "forwardFilters", "forwardHooked", "homeNetworks", "inputFilters", "inputHooked", "ipv4Passed", "lanInterfaces", "loaded", "publicTcp", "publicUdp", "sshAllowed", "sshPorts", "vpnUdp", "wanInterfaces"}) {
+	if got := keys(table); !reflect.DeepEqual(got, []string{"failClosedInterfaces", "forwardFilters", "forwardHooked", "homeNetworks", "inputFilters", "inputHooked", "ipv4PassInterfaces", "ipv4Passed", "lanInterfaces", "loaded", "pendingPrefixes", "publicTcp", "publicUdp", "rpfInterfaces", "sshAllowed", "sshPorts", "trustedInterfaces", "vpnUdp", "wanInterfaces"}) {
 		t.Errorf("table keys %v", got)
 	}
 	var updates map[string]json.RawMessage
@@ -438,5 +438,87 @@ func TestGuardCarriesWhatTheInstallerRecorded(t *testing.T) {
 	}
 	if guard.IPv4 == nil || *guard.IPv4 || !guard.Table.IPv4Passed {
 		t.Errorf("ipv4 %v, passed %v", guard.IPv4, guard.Table.IPv4Passed)
+	}
+}
+
+// The coordinator's principle: never Active while something the guard does
+// not filter is reachable from outside. A trusted uplink is such a path.
+func TestGuardWithATrustedUplinkIsNotActive(t *testing.T) {
+	w := newWorld(t)
+	w.state(PieceGuard, guardState+"trusted_if=tun0\n")
+	w.table("nft-guard-v3-trusted.json")
+	guard := GetStatus().Guard
+	if guard.Active || guard.State != StateInactive || guard.Reason != reasonTrusted || guard.RepairCommand != "" {
+		t.Errorf("trusted uplink: %s/%s active %v repair %q", guard.State, guard.Reason, guard.Active, guard.RepairCommand)
+	}
+	if !reflect.DeepEqual(guard.Table.TrustedInterfaces, []string{"tun0"}) || !reflect.DeepEqual(guard.TrustedInterfaces, []string{"tun0"}) {
+		t.Errorf("trusted %v / recorded %v", guard.Table.TrustedInterfaces, guard.TrustedInterfaces)
+	}
+	// a trust recorded but not in force (the interface is not up): Active
+	for _, fixture := range []string{"nft-guard-v3-filtered.json", "nft-guard-v3-pass4.json"} {
+		forget()
+		w.table(fixture)
+		if guard := GetStatus().Guard; !guard.Active || guard.State != StateActive || guard.Reason != "" {
+			t.Errorf("%s: %s/%s", fixture, guard.State, guard.Reason)
+		}
+	}
+	// a flushed chain still says so first
+	forget()
+	w.table("nft-guard-v3-trusted.json")
+	w.nftOut = []byte(strings.Replace(string(w.nftOut), `"expr": [{"counter": "dropped_input"}, {"drop": null}]`, `"expr": [{"counter": "dropped_input"}, {"accept": null}]`, 1))
+	if guard := GetStatus().Guard; guard.Reason != reasonChainEmpty {
+		t.Errorf("flushed with a trusted uplink: %s", guard.Reason)
+	}
+}
+
+func TestGuardCarriesWhatTheInstallerFound(t *testing.T) {
+	w := newWorld(t)
+	w.table("nft-guard-v3-pass4.json")
+	w.state(PieceGuard, guardState+"cloud=Amazon EC2\nvirt=kvm\nvpn_found=tailscale:41641;wireguard wg0:unknown\nudp_not_open=5353,51820\nssh_mode=from\n")
+	guard := GetStatus().Guard
+	port := 41641
+	if guard.Cloud != "Amazon EC2" || guard.Virt != "kvm" || guard.SSHMode != "from" || !reflect.DeepEqual(guard.UDPNotOpen, []int{5353, 51820}) ||
+		!reflect.DeepEqual(guard.VPNFound, []VPN{{Kind: "tailscale", Port: &port}, {Kind: "wireguard", Interface: "wg0"}}) {
+		t.Errorf("found: %+v", guard)
+	}
+	answer, _ := json.Marshal(guard)
+	for _, part := range []string{`"vpnFound":[{"kind":"tailscale","port":41641},{"kind":"wireguard","interface":"wg0"}]`, `"cloud":"Amazon EC2"`, `"ipv4PassInterfaces":["eth0"]`, `"pendingPrefixes":["2001:db8:5::/64"]`, `"droppedRpf":{"packets":0,"bytes":0}`} {
+		if !strings.Contains(string(answer), part) {
+			t.Errorf("the answer has no %s: %s", part, answer)
+		}
+	}
+}
+
+func TestGuardSaysWhetherItsWatcherAndTimerRun(t *testing.T) {
+	w := newWorld(t)
+	w.state(PieceGuard, guardState)
+	w.table("nft-guard-v3-filtered.json")
+	// no marks: not known, no warning
+	guard := GetStatus().Guard
+	if guard.Liveness == nil || guard.Liveness.WatcherAt != nil || guard.Liveness.WatcherStale || guard.Liveness.RefreshStale {
+		t.Errorf("no marks: %+v", guard.Liveness)
+	}
+	now := time.Now()
+	touch(t, alivePath, now.Add(-5*time.Minute))
+	touch(t, refreshPath, now.Add(-10*time.Second))
+	forget()
+	guard = GetStatus().Guard
+	if guard.Liveness == nil || !guard.Liveness.WatcherStale || guard.Liveness.RefreshStale || guard.Liveness.WatcherAt == nil {
+		t.Errorf("watcher stopped: %+v", guard.Liveness)
+	}
+	// still Active: the rules filter, the warning says the rest
+	if !guard.Active {
+		t.Errorf("a stopped watcher made the guard %s", guard.State)
+	}
+	touch(t, refreshPath, now.Add(-10*time.Minute))
+	forget()
+	if live := GetStatus().Guard.Liveness; !live.WatcherStale || !live.RefreshStale {
+		t.Errorf("both stopped: %+v", live)
+	}
+	// a guard whose table is not loaded says nothing of them
+	forget()
+	w.noTable()
+	if guard := GetStatus().Guard; guard.Liveness != nil {
+		t.Errorf("not loaded: %+v", guard.Liveness)
 	}
 }
