@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -329,14 +330,21 @@ func TestTheSummarySaysWhatWasNotSent(t *testing.T) {
 
 func TestMessagesArriveCriticalFirst(t *testing.T) {
 	fake := newFakeTelegram(t)
-	fake.always(fakeAnswer{status: 200, body: answerOK.body, delay: 30 * time.Millisecond})
+	gate := make(chan struct{})
+	fake.answerWith(func(n int, _ fakeRequest) fakeAnswer {
+		if n == 0 {
+			<-gate // the worker is busy with the first until all are queued
+		}
+		return answerOK
+	})
 	h := newHarness(t, fake, false)
 
 	h.Notify(plainNotice("first", priorityNormal))
-	fake.waitFor(t, 1) // the worker is busy with this one
+	fake.waitFor(t, 1)
 	h.Notify(plainNotice("second", priorityNormal))
 	h.Notify(plainNotice("third", priorityLow))
 	h.Notify(plainNotice("urgent", priorityCritical))
+	close(gate)
 
 	got := fake.waitFor(t, 4)
 	order := []string{}
@@ -364,16 +372,34 @@ func TestMessagesArriveCriticalFirst(t *testing.T) {
 }
 
 func TestNotifyNeverWaitsForTelegram(t *testing.T) {
+	// Telegram holds every request until the end of the test: the notices
+	// must all be taken while it has answered nothing (event-driven: no
+	// wall-clock bound that a busy machine could miss)
 	fake := newFakeTelegram(t)
-	fake.always(fakeAnswer{status: 200, body: answerOK.body, delay: 3 * time.Second})
+	hold := make(chan struct{})
+	var answered atomic.Int32
+	fake.answerWith(func(int, fakeRequest) fakeAnswer {
+		<-hold
+		answered.Add(1)
+		return answerOK
+	})
 	h := newHarness(t, fake, false)
+	defer close(hold)
 
-	started := time.Now()
-	for i := 0; i < 5000; i++ {
-		h.Notify(plainNotice(fmt.Sprintf("kind-%d", i%50), priority(i%3)))
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 5000; i++ {
+			h.Notify(plainNotice(fmt.Sprintf("kind-%d", i%50), priority(i%3)))
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Minute):
+		t.Fatal("Notify waited for Telegram")
 	}
-	if took := time.Since(started); took > time.Second {
-		t.Errorf("5000 notices took %v while Telegram was slow", took)
+	if answered.Load() != 0 {
+		t.Error("Telegram answered: the test proves nothing")
 	}
 }
 

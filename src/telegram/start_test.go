@@ -321,9 +321,11 @@ func TestSavesInARowAreAllTold(t *testing.T) {
 // waitForNoChanges waits until no announcement of an earlier test is under way.
 func waitForNoChanges(t *testing.T) {
 	t.Helper()
+	changeMu.Lock()
 	previous := changeRetries
 	changeRetries = []time.Duration{10 * time.Millisecond}
-	t.Cleanup(func() { changeRetries = previous })
+	changeMu.Unlock()
+	t.Cleanup(func() { changeMu.Lock(); changeRetries = previous; changeMu.Unlock() })
 	deadline := time.Now().Add(40 * time.Second)
 	for time.Now().Before(deadline) {
 		changeMu.Lock()
@@ -410,11 +412,13 @@ func TestAWarningOutlastsAnOutageOrIsReported(t *testing.T) {
 	})
 	useFake(t, fake)
 	waitForNoChanges(t)
-	changeRetries = []time.Duration{50 * time.Millisecond}
 	lost := make(chan string, 4)
+	changeMu.Lock()
+	changeRetries = []time.Duration{50 * time.Millisecond}
 	previousLost, previousFor := lostWarning, changeRetryFor
 	lostWarning = func(what string, by string) { lost <- what + " | " + by }
-	t.Cleanup(func() { lostWarning, changeRetryFor = previousLost, previousFor })
+	changeMu.Unlock()
+	t.Cleanup(func() { changeMu.Lock(); lostWarning, changeRetryFor = previousLost, previousFor; changeMu.Unlock() })
 
 	after := testConfig()
 	after.Telegram.Enabled = false
@@ -434,7 +438,9 @@ func TestAWarningOutlastsAnOutageOrIsReported(t *testing.T) {
 	}
 	waitForNoChanges(t)
 	// never delivered within the time: reported
+	changeMu.Lock()
 	changeRetryFor = 200 * time.Millisecond
+	changeMu.Unlock()
 	mu.Lock()
 	down = true
 	mu.Unlock()

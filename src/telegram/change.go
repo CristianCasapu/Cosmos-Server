@@ -101,7 +101,8 @@ func queueChange(was settings, what string, actor string, ip string) {
 	entry := changeChats[was.fingerprint]
 	if entry == nil {
 		if len(changeChats) >= maxChangeChats {
-			go lostWarning(what, by)
+			lost := lostWarning
+			go lost(what, by)
 			return
 		}
 		entry = &chatChange{was: was}
@@ -177,7 +178,10 @@ func sendChange(entry *chatChange) {
 		nt.extra = func(c *composer) { c.fixed("Changed by ").value(by, maxFreeText).fixed(".") }
 	}
 	m := render(entry.was, nt)
-	deadline := time.Now().Add(changeRetryFor)
+	changeMu.Lock()
+	retries, retryFor, lost := changeRetries, changeRetryFor, lostWarning
+	changeMu.Unlock()
+	deadline := time.Now().Add(retryFor)
 	for attempt := 0; ; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)
 		_, failure := directClient.sendMessage(ctx, entry.was, outgoing{message: m})
@@ -188,13 +192,13 @@ func sendChange(entry *chatChange) {
 		wait := failure.RetryAfter
 		if wait <= 0 {
 			step := attempt
-			if step >= len(changeRetries) {
-				step = len(changeRetries) - 1
+			if step >= len(retries) {
+				step = len(retries) - 1
 			}
-			wait = changeRetries[step]
+			wait = retries[step]
 		}
 		if !failure.Retryable || time.Now().Add(wait).After(deadline) {
-			lostWarning(what, by)
+			lost(what, by)
 			return
 		}
 		time.Sleep(wait)
