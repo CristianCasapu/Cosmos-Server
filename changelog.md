@@ -8,7 +8,15 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Nothing merged into `custom` since `0.24.0-fork.32` yet.
+Merged into `custom` since `0.24.0-fork.32`, to be part of the next release:
+
+### Added
+- "Does it open?": when an app refuses the address it is reached at (qBittorrent answers "Unauthorized" when the port in the address is not its own), ServApps shows "Does not open" on it; Cosmos says what the app objects to and offers the repair it has just seen work, with one confirmation. The same check runs after a URL is saved, on the URL's page and on the app's page. For known apps (26 of them) Cosmos also knows which variable or configuration line they need behind a proxy, and shows it to copy.
+- Two settings for a URL: "Tell the app its own address" and "Do not tell the app the visitor's address" (a temporary step some apps need, with what it opens said next to it).
+
+### Fixed
+- Sonarr and Radarr sent a signed-out visitor to plain http on the HTTPS port: that redirect is now sent as https.
+- Apps are told the port of the address they are reached at (code-server refused its editor's connection without it), and a visitor can no longer tell an app anything about the name, scheme or address through less common headers.
 
 ## Fork 0.24.0-fork.32 — 2026-11-16
 
