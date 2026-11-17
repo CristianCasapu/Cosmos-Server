@@ -343,10 +343,24 @@ SSH_PORTS=$({
 } | grep -E '^[0-9]{1,5}$' | sort -un | tr '\n' ' ')
 [ -n "$SSH_PORTS" ] || SSH_PORTS=22
 LIVE_NOTE=""
+# the root-owned listening sshd (or ssh.service's main process): a signed-in
+# session's process descends from it (a user's process with a forged title does not)
+SSHD_PIDS=$({ ss -Htlnp 2>/dev/null | grep -oE '"sshd",pid=[0-9]+' | grep -oE '[0-9]+$'
+	systemctl show -p MainPID --value ssh.service sshd.service 2>/dev/null; } | grep -E '^[1-9][0-9]*$' | sort -u | while read -r p; do
+	[ "$(awk '/^Uid:/ {print $2}' "/proc/$p/status" 2>/dev/null)" = 0 ] && echo "$p"; done | tr '\n' ' ')
+from_sshd() { # pid: an ancestor is one of SSHD_PIDS
+	p=$1; depth=0
+	while [ "$p" -gt 1 ] 2>/dev/null && [ "$depth" -lt 64 ]; do
+		p=$(awk '/^PPid:/ {print $2}' "/proc/$p/status" 2>/dev/null || echo 0)
+		case " $SSHD_PIDS " in *" $p "*) return 0 ;; esac
+		depth=$((depth + 1))
+	done
+	return 1
+}
 for peer in $(ss -Htnp state established 2>/dev/null | while read -r _ _ local remote procs; do
 	case " $SSH_PORTS " in *" ${local##*:} "*) ;; *) continue ;; esac
 	for pid in $(printf '%s' "$procs" | grep -oE 'pid=[0-9]+' | cut -d= -f2); do
-		if tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -qE '^sshd[^ ]*: [^ ]+@(pts/[0-9]+|notty)'; then
+		if tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -qE '^sshd[^ ]*: [^ ]+@(pts/[0-9]+|notty)' && from_sshd "$pid"; then
 			a=${remote%:*}; a=${a#[}; a=${a%]}; a=${a%%%*}
 			printf '%s\n' "$a"
 			break
