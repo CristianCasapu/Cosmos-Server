@@ -35,7 +35,7 @@ func withMail(t *testing.T, containers map[string]containerInfo, config utils.Co
 	notify = func(n utils.Notification) { *notes = append(*notes, n) }
 	async = func(f func()) { f() }
 	sentMu.Lock()
-	sent = nil
+	sent = map[string][]time.Time{}
 	sentMu.Unlock()
 	t.Cleanup(func() { deliver, notify, async = oldDeliver, oldNotify, oldAsync })
 	return mails, notes
@@ -133,14 +133,14 @@ func TestTheInstallationEmailCarriesNoSecret(t *testing.T) {
 
 func TestTheEmailEscapesWhatTheInstallerTyped(t *testing.T) {
 	app := containerInfo{Name: "/x", Image: "registry.example.org/a/b:1",
-		Env:    []string{"ADMIN_USER=<script>alert(1)</script>", "ADMIN_PASSWORD=" + testPassword},
+		Env:    []string{"ADMIN_USER=<img>&x", "ADMIN_PASSWORD=" + testPassword},
 		Labels: map[string]string{LabelKey: "where=web;user=ADMIN_USER;password=ADMIN_PASSWORD"}}
 	mails, _ := withMail(t, map[string]containerInfo{"x": app}, mailConfig())
 	req := httptest.NewRequest("POST", "http://cosmos.example.org/", nil)
 	req = req.WithContext(context.WithValue(req.Context(), utils.AuthCtxKey, sudoed))
 	afterCreation(req, creationRequest("x"), docker.StartCheck{})
 	_, _, htmlPart := readParts(t, (*mails)[0].msg)
-	if strings.Contains(htmlPart, "<script>") || !strings.Contains(htmlPart, "&lt;script&gt;") {
+	if strings.Contains(htmlPart, "<img>") || !strings.Contains(htmlPart, "&lt;img&gt;&amp;x") {
 		t.Fatalf("not escaped: %s", htmlPart)
 	}
 }

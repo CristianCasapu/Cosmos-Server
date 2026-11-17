@@ -41,11 +41,12 @@ func withFakes(t *testing.T, containers map[string]containerInfo) *[]utils.Secur
 }
 
 var (
-	sudoed   = &utils.AuthContext{Nickname: "owner", IsSudoed: true, Permissions: []utils.Permission{utils.PERM_LOGIN, utils.PERM_RESOURCES_READ, utils.PERM_RESOURCES, utils.PERM_CREDENTIALS_READ}}
-	notSudo  = &utils.AuthContext{Nickname: "owner", IsSudoed: false, Permissions: []utils.Permission{utils.PERM_LOGIN, utils.PERM_RESOURCES_READ, utils.PERM_RESOURCES, utils.PERM_CREDENTIALS_READ}}
-	noCreds  = &utils.AuthContext{Nickname: "helper", IsSudoed: true, Permissions: []utils.Permission{utils.PERM_LOGIN, utils.PERM_RESOURCES_READ, utils.PERM_RESOURCES}}
-	tokenNo  = &utils.AuthContext{APIToken: &utils.APITokenContext{Name: "deploy", Permissions: []utils.Permission{utils.PERM_RESOURCES_READ, utils.PERM_RESOURCES}}}
-	tokenYes = &utils.AuthContext{APIToken: &utils.APITokenContext{Name: "vault", Permissions: []utils.Permission{utils.PERM_RESOURCES_READ, utils.PERM_CREDENTIALS_READ}}}
+	sudoed       = &utils.AuthContext{Nickname: "owner", IsSudoed: true, Permissions: []utils.Permission{utils.PERM_LOGIN, utils.PERM_RESOURCES_READ, utils.PERM_RESOURCES, utils.PERM_CREDENTIALS_READ}}
+	notSudo      = &utils.AuthContext{Nickname: "owner", IsSudoed: false, Permissions: []utils.Permission{utils.PERM_LOGIN, utils.PERM_RESOURCES_READ, utils.PERM_RESOURCES, utils.PERM_CREDENTIALS_READ}}
+	noCreds      = &utils.AuthContext{Nickname: "helper", IsSudoed: true, Permissions: []utils.Permission{utils.PERM_LOGIN, utils.PERM_RESOURCES_READ, utils.PERM_RESOURCES}}
+	configReader = &utils.AuthContext{Nickname: "owner", IsSudoed: true, Permissions: []utils.Permission{utils.PERM_LOGIN, utils.PERM_RESOURCES, utils.PERM_CONFIGURATION_READ, utils.PERM_CREDENTIALS_READ}}
+	tokenNo      = &utils.AuthContext{APIToken: &utils.APITokenContext{Name: "deploy", Permissions: []utils.Permission{utils.PERM_RESOURCES_READ, utils.PERM_RESOURCES}}}
+	tokenYes     = &utils.AuthContext{APIToken: &utils.APITokenContext{Name: "vault", Permissions: []utils.Permission{utils.PERM_RESOURCES_READ, utils.PERM_CREDENTIALS_READ}}}
 )
 
 func call(handler http.HandlerFunc, method string, path string, vars map[string]string, body string, auth *utils.AuthContext) (int, map[string]interface{}, string) {
@@ -170,7 +171,13 @@ func TestTheDefaultsAreTheCallersOwn(t *testing.T) {
 		c.AppSignIn = utils.ForkAppSignInConfig{User: "house", Email: "house@example.org", MailOff: true, Length: 32}
 		return c
 	}
+	// one who may not see the configured values unmasked gets their own (review minor 4)
 	_, answer, body = call(DefaultsRoute, "GET", "/d", nil, "", sudoed)
+	data, _ = answer["data"].(map[string]interface{})
+	if data["user"] != "owner" || data["email"] != "owner@example.org" || data["userFrom"] != "account" {
+		t.Fatalf("resources only: %s", body)
+	}
+	_, answer, body = call(DefaultsRoute, "GET", "/d", nil, "", configReader)
 	data, _ = answer["data"].(map[string]interface{})
 	if data["user"] != "house" || data["email"] != "house@example.org" || data["userFrom"] != "config" || data["length"] != float64(32) || data["mail"].(map[string]interface{})["why"] != "off" {
 		t.Fatalf("configured: %s", body)

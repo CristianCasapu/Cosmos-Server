@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	mailsPerHour  = 10
+	mailsPerHour  = 10 // per recipient
 	maxMailApps   = 8
 	inspectBudget = 20 * time.Second
 )
@@ -42,6 +42,7 @@ const (
 // Start sets the hook of the creation route.
 func Start() {
 	docker.ForkAfterCreation = afterCreation
+	docker.ForkBeforeCreation = beforeCreation
 }
 
 // installed is one app of a creation, as the e-mail tells it.
@@ -64,24 +65,32 @@ var (
 
 var (
 	sentMu sync.Mutex
-	sent   []time.Time
+	sent   = map[string][]time.Time{}
 )
 
-// mailAllowed counts the e-mails of the last hour for the whole server.
-func mailAllowed(now time.Time) bool {
+// mailAllowed counts the e-mails of the last hour for one recipient (review
+// minor 6: one account's installations never use up another's e-mails).
+func mailAllowed(address string, now time.Time) bool {
 	sentMu.Lock()
 	defer sentMu.Unlock()
-	kept := sent[:0]
-	for _, t := range sent {
+	kept := []time.Time{}
+	for _, t := range sent[address] {
 		if now.Sub(t) < time.Hour {
 			kept = append(kept, t)
 		}
 	}
-	sent = kept
-	if len(sent) >= mailsPerHour {
+	if len(kept) >= mailsPerHour {
+		sent[address] = kept
 		return false
 	}
-	sent = append(sent, now)
+	sent[address] = append(kept, now)
+	if len(sent) > 256 {
+		for k, times := range sent {
+			if len(times) == 0 || now.Sub(times[len(times)-1]) >= time.Hour {
+				delete(sent, k)
+			}
+		}
+	}
 	return true
 }
 
@@ -164,11 +173,14 @@ func tell(nickname string, byToken bool, apps []installed) {
 	}
 	mailFailed := ""
 	if reason == "" {
-		if !mailAllowed(clock()) {
+		if !mailAllowed(strings.ToLower(address), clock()) {
 			mailFailed = fmt.Sprintf("more than %d e-mails about installations in the last hour", mailsPerHour)
 		} else {
-			subject, msg := buildMessage(config, address, apps)
-			if err := deliver(config.EmailConfig, config.EmailConfig.From, []string{address}, msg); err != nil {
+			subject, msg, clear := buildMessage(config, address, apps)
+			if !clear {
+				mailFailed = "it would have held a secret value of the app, so it was not sent"
+				utils.Warn("App installed: the e-mail would hold a secret value: not sent")
+			} else if err := deliver(config.EmailConfig, config.EmailConfig.From, []string{address}, msg); err != nil {
 				// the mail server's answer is not repeated: it may name the account
 				mailFailed = "the mail server could not be reached or refused it (the e-mail settings have a test)"
 				utils.Error("App installed: the e-mail could not be sent", nil)
@@ -194,7 +206,11 @@ func tell(nickname string, byToken bool, apps []installed) {
 		steps = append(steps, utils.NotificationStep{NotificationText: *utils.NText("notif.step.app.signIn", "name", app.Container), Link: "/cosmos-ui/servapps/containers/" + app.Container + "#sign-in"})
 		facts = append(facts, utils.NotificationFact{Key: "notif.fact.container", Value: app.Container})
 	}
-	notify(utils.Notification{Recipient: recipient, Level: "info", Fork: &utils.NotificationInfo{
+	secrets := []string{}
+	for _, app := range apps {
+		secrets = append(secrets, app.secretValues...)
+	}
+	installedInfo := &utils.NotificationInfo{
 		Kind:     "app.installed",
 		Subject:  &utils.NotificationSubject{Type: "container", Name: first, Link: "/cosmos-ui/servapps/containers/" + first + "#sign-in"},
 		Title:    utils.NText("notif.app.installed.title", "name", namesText(apps)),
@@ -204,7 +220,12 @@ func tell(nickname string, byToken bool, apps []installed) {
 		Steps:    steps,
 		Facts:    facts,
 		Security: &utils.NotificationSecurity{Kinds: []string{"container.*"}, Target: first},
-	}})
+	}
+	if jsonLeaks(installedInfo, secrets) { // the last check of this exit: never with a secret value
+		utils.Warn("App installed: the notification would hold a secret value: left out")
+	} else {
+		notify(utils.Notification{Recipient: recipient, Level: "info", Fork: installedInfo})
+	}
 	if mailFailed != "" {
 		notify(utils.Notification{Recipient: recipient, Level: "warning", Fork: &utils.NotificationInfo{
 			Kind:    "app.installMail.failed",
@@ -309,7 +330,7 @@ func dataLines(app installed) []string {
 }
 
 // buildMessage is the whole message (headers, a plain part and an HTML part).
-func buildMessage(config utils.Config, to string, apps []installed) (string, []byte) {
+func buildMessage(config utils.Config, to string, apps []installed) (string, []byte, bool) {
 	subject := "Cosmos: " + namesText(apps) + " installed"
 	if len(apps) > 1 {
 		subject = fmt.Sprintf("Cosmos: %d apps installed (%s)", len(apps), namesText(apps))
@@ -383,6 +404,15 @@ func buildMessage(config utils.Config, to string, apps []installed) (string, []b
 	plain.WriteString(note + "\n")
 	body.WriteString("<p style=\"margin-top:20px\">" + esc(note) + "</p>")
 
+	// the last check of this exit (secrets.go): no secret value of these apps in either part
+	secrets := []string{}
+	for _, app := range apps {
+		secrets = append(secrets, app.secretValues...)
+	}
+	if leaks(plain.String(), secrets) || leaks(body.String(), secrets) || leaks(subject, secrets) || leaks(html.UnescapeString(body.String()), secrets) {
+		return subject, nil, false
+	}
+
 	server := serverURL("")
 	htmlPart := emailHTML(server+"logo", body.String(), server)
 	_, sender := utils.EmailSender(config.EmailConfig.From)
@@ -405,7 +435,7 @@ func buildMessage(config utils.Config, to string, apps []installed) (string, []b
 		msg.WriteString("\r\n")
 	}
 	msg.WriteString("--" + boundary + "--\r\n")
-	return subject, msg.Bytes()
+	return subject, msg.Bytes(), true
 }
 
 // emailHTML is upstream's template (utils.Template) without its header lines:

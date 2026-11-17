@@ -41,8 +41,16 @@ var inspect = func(ctx context.Context, name string) (containerInfo, error) {
 	if c.Config != nil {
 		info.Image = c.Config.Image
 		info.Env = c.Config.Env
-		if c.Config.Labels != nil {
-			info.Labels = c.Config.Labels
+		for key, value := range c.Config.Labels {
+			info.Labels[key] = value
+		}
+		// the fork's own labels count only when they are not the image's (fork_image_labels.go)
+		for _, key := range []string{LabelKey, ManagerLabel} {
+			if value := docker.ForkAdminLabel(c, key); value != "" {
+				info.Labels[key] = value
+			} else {
+				delete(info.Labels, key)
+			}
 		}
 	}
 	for _, m := range c.Mounts {
@@ -143,6 +151,11 @@ func SignInRoute(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	details := resolve(c, routesNow(), serverURL)
+	if jsonLeaks(details, details.secretValues) { // the last check of this exit (secrets.go)
+		utils.Warn("Sign-in details of " + details.Container + ": the answer would hold a secret value: withheld")
+		utils.HTTPError(w, "The sign-in details of this app cannot be shown", http.StatusInternalServerError, "SI005")
+		return
+	}
 	noStore(w)
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "OK", "data": details})
 }
@@ -224,7 +237,12 @@ var configNow = utils.GetMainConfig
 func defaultsFor(req *http.Request) Defaults {
 	config := configNow()
 	ctx := utils.GetAuthContext(req)
-	d := Defaults{User: config.AppSignIn.User, Email: config.AppSignIn.Email, Length: config.AppSignIn.PasswordLength()}
+	d := Defaults{Length: config.AppSignIn.PasswordLength()}
+	// review minor 4: the configured name and e-mail are personal data, given only to those who see them
+	// unmasked on the configuration page; anyone else is proposed their own
+	if utils.HasPermission(req, utils.PERM_CONFIGURATION_READ) && utils.HasPermission(req, utils.PERM_CREDENTIALS_READ) {
+		d.User, d.Email = config.AppSignIn.User, config.AppSignIn.Email
+	}
 	if d.User != "" {
 		d.UserFrom = "config"
 	}

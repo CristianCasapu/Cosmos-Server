@@ -97,23 +97,24 @@ type Details struct {
 	// Source: recipe, label, guess, firstRun or none
 	Source string `json:"source"`
 	// Where: database, web, s3, amqp, http, "" when not known
-	Where        string     `json:"where,omitempty"`
-	Via          string     `json:"via,omitempty"`
-	ViaContainer string     `json:"viaContainer,omitempty"`
-	ManagerOf    string     `json:"managerOf,omitempty"`
-	Addresses    []Address  `json:"addresses"`
-	Host         string     `json:"host,omitempty"`
-	Port         int        `json:"port,omitempty"`
-	Accounts     []Account  `json:"accounts"`
-	FirstRun     *FirstRun  `json:"firstRun,omitempty"`
+	Where        string      `json:"where,omitempty"`
+	Via          string      `json:"via,omitempty"`
+	ViaContainer string      `json:"viaContainer,omitempty"`
+	ManagerOf    string      `json:"managerOf,omitempty"`
+	Addresses    []Address   `json:"addresses"`
+	Host         string      `json:"host,omitempty"`
+	Port         int         `json:"port,omitempty"`
+	Accounts     []Account   `json:"accounts"`
+	FirstRun     *FirstRun   `json:"firstRun,omitempty"`
 	Data         []DataPlace `json:"data"`
 	// NoAuth: its recipe says it has no sign-in of its own (Redis, Redis Insight)
 	NoAuth bool `json:"noAuth,omitempty"`
 	// Provides: the kind of database it is (postgres, mysql, mongo, redis), for "Add a web manager"
 	Provides string `json:"provides,omitempty"`
 
-	// the variables of each secret id; never sent
-	secrets map[string]secretSource
+	// the variables of each secret id, and the container's secret values; never sent
+	secrets      map[string]secretSource
+	secretValues []string
 }
 
 type secretSource struct {
@@ -217,9 +218,10 @@ func resolve(c containerInfo, routes []utils.ProxyRouteConfig, serverURL func(ho
 	env := envMap(c.Env)
 	name := strings.TrimPrefix(c.Name, "/")
 	l := loginOf(c, env)
+	secrets := secretsOf(env)
 	d := Details{Container: name, Image: c.Image, Name: l.name, Source: l.source, Where: l.where, Via: l.via,
 		Addresses: addressesOf(name, routes, serverURL), Accounts: []Account{}, FirstRun: l.firstRun,
-		Data: dataOf(c.Mounts), secrets: map[string]secretSource{}}
+		Data: dataOf(c.Mounts), secrets: map[string]secretSource{}, secretValues: secrets}
 	if recipe := anyimage.RecipeForImage(c.Image); recipe != nil && (recipe.Kind == "database" || recipe.Kind == "cache") {
 		d.Provides = recipe.Provides
 	}
@@ -235,7 +237,7 @@ func resolve(c containerInfo, routes []utils.ProxyRouteConfig, serverURL func(ho
 	}
 	if l.via == "database" {
 		if recipe := anyimage.RecipeForImage(c.Image); recipe != nil && recipe.Needs != nil {
-			if host := shown(env[recipe.Needs.Env["host"]]); host != "" && validContainerName(host) {
+			if host := field(env, recipe.Needs.Env["host"], containerName, secrets); host != "" {
 				d.ViaContainer = host
 			}
 		}
@@ -252,16 +254,16 @@ func resolve(c containerInfo, routes []utils.ProxyRouteConfig, serverURL func(ho
 		switch {
 		case a.UserFixed != "":
 			account.User = a.UserFixed
-		case a.User != "" && env[a.User] != "":
-			account.User = shown(env[a.User])
+		case a.User != "" && field(env, a.User, identifier, secrets) != "":
+			account.User = field(env, a.User, identifier, secrets)
 		case a.UserUnset != "":
 			account.User = a.UserUnset
 		}
 		if a.Email != "" {
-			account.Email = shown(env[a.Email])
+			account.Email = field(env, a.Email, emailShape, secrets)
 		}
 		if a.Database != "" {
-			account.Database = shown(env[a.Database])
+			account.Database = field(env, a.Database, databaseShape, secrets)
 		}
 		if a.Password != "" && env[a.Password] != "" {
 			account.Password = "password." + strconv.Itoa(i)
@@ -272,8 +274,15 @@ func resolve(c containerInfo, routes []utils.ProxyRouteConfig, serverURL func(ho
 			account.ConnectionSecret = "connection." + strconv.Itoa(i)
 			d.secrets[account.ConnectionSecret] = secretSource{variable: a.Password, account: i}
 		}
+		if secretName(a.User) || secretName(a.Email) || secretName(a.Database) {
+			account.UserVar, account.EmailVar = "", "" // a label or a guess that named a secret: not repeated
+		}
 		d.Accounts = append(d.Accounts, account)
 	}
+	if d.FirstRun != nil && d.FirstRun.User != "" && (!identifier.MatchString(d.FirstRun.User) || holdsSecret(d.FirstRun.User, secrets)) {
+		d.FirstRun.User = ""
+	}
+	clean(&d, secrets)
 	return d
 }
 

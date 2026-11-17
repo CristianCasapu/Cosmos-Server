@@ -18,9 +18,9 @@ var (
 
 func postgresContainer() containerInfo {
 	return containerInfo{
-		Name:  "/notes-db",
-		Image: "postgres:18",
-		Env:   []string{"POSTGRES_PASSWORD=" + testPassword, "POSTGRES_USER=owner_name", "POSTGRES_DB=notes", "OTHER_TOKEN=" + testOther, "PATH=/usr/bin"},
+		Name:   "/notes-db",
+		Image:  "postgres:18",
+		Env:    []string{"POSTGRES_PASSWORD=" + testPassword, "POSTGRES_USER=owner_name", "POSTGRES_DB=notes", "OTHER_TOKEN=" + testOther, "PATH=/usr/bin"},
 		Mounts: []mountInfo{{Type: "bind", Source: "/mnt/data/cosmos-storage/notes-db/postgresql", Destination: "/var/lib/postgresql"}},
 	}
 }

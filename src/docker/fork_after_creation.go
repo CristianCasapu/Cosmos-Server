@@ -8,7 +8,10 @@ package docker
 // It must return at once (it works off the request) and never fail the
 // creation.
 
-import "net/http"
+import (
+	"fmt"
+	"net/http"
+)
 
 // ForkAfterCreation receives the request (who installed it), the
 // definition that was created and the start check's result.
@@ -21,4 +24,20 @@ func forkAfterCreation(req *http.Request, request DockerServiceCreateRequest, ch
 	}
 	defer func() { recover() }()
 	ForkAfterCreation(req, request, check)
+}
+
+// ForkBeforeCreation checks, and may correct, a creation's request before
+// anything is made (plan 45, set by src/appsignin): the fork's own labels
+// must be the ones its review writes, the routes of web managers and of
+// tools without a sign-in are for administrators behind Cosmos' sign-in,
+// and a manager's networks are new. The error is a sentence for the log.
+var ForkBeforeCreation = func(req *http.Request, request *DockerServiceCreateRequest) error { return nil }
+
+func forkBeforeCreation(w http.ResponseWriter, req *http.Request, request *DockerServiceCreateRequest, flush func()) bool {
+	if err := ForkBeforeCreation(req, request); err != nil {
+		fmt.Fprintf(w, "[OPERATION FAILED] %s\n", err.Error())
+		flush()
+		return false
+	}
+	return true
 }

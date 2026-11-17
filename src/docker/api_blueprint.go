@@ -283,6 +283,9 @@ func CreateServiceRoute(w http.ResponseWriter, req *http.Request) {
 		if !forkRefuseService(w, req, serviceRequest, flusher.Flush) { // Fork addition: checked before anything is created, see fork_service_check.go
 			return
 		}
+		if !forkBeforeCreation(w, req, &serviceRequest, flusher.Flush) { // Fork addition (plan 45): the sign-in labels and the managers' routes and networks, fork_after_creation.go
+			return
+		}
 
 		onLog := func (msg string) {
 				fmt.Fprintf(w, "%s", msg)
