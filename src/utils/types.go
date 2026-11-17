@@ -219,6 +219,8 @@ type Config struct {
 	Snapshots SnapshotsConfig `json:"Snapshots,omitempty"`
 	// Fork addition: notifications through Telegram, see src/telegram.
 	Telegram TelegramConfig `json:"Telegram,omitempty"`
+	// Fork addition (plan 48): what Cosmos watches by itself, see src/watch.
+	Watch WatchConfig `json:"Watch,omitempty"`
 	// Fork addition: what the panel set for the Fail2ban jails, see src/fail2ban.
 	Fail2ban Fail2banConfig `json:"Fail2ban,omitempty"`
 	// Fork addition: show the panel's features that need a licence when there is
@@ -470,6 +472,21 @@ type TelegramConfig struct {
 	MaxPerMinute         int
 	Kinds                map[string]bool   `json:"Kinds,omitempty"`
 	Delivery             map[string]string `json:"Delivery,omitempty"`
+}
+
+// WatchConfig (fork addition, plan 48) tunes the watches of src/watch.
+// Every zero value is the default: everything watched, a disk warned about
+// when it fills within FillDays (3) at its present rate, a snapshot folder
+// late when its last snapshot is older than its schedule plus a margin
+// (SnapshotLateHours overrides that, 0: derived from the schedule).
+type WatchConfig struct {
+	SMARTOff          bool
+	FillOff           bool
+	FillDays          int
+	DockerOff         bool
+	SnapshotsOff      bool
+	SnapshotLateHours int
+	CountryOff        bool
 }
 
 const (

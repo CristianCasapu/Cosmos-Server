@@ -278,7 +278,7 @@ func (st settings) wants(nt notice) bool {
 		if !on {
 			return false
 		}
-	} else if !st.categories[nt.category] {
+	} else if !st.categories[nt.category] || texts.Kinds[nt.kind].Off {
 		return false
 	}
 	return st.mode(nt) != DeliverOff

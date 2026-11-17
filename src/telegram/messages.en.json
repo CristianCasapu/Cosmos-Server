@@ -306,6 +306,106 @@
       "sample": {"_label": "Permission refused", "subject": "editor · 192.168.1.20", "_description": "An action was refused because the account lacks the permission."}
     },
 
+    "smart.failing": {
+      "severity": "error", "category": "storage",
+      "label": "Disk failing (S.M.A.R.T.)", "many": "failing disks",
+      "preview": "Disk {{disk}} failing: {{reason}}",
+      "whatKey": "notif.smart.failing.what",
+      "todo": "copy what matters off this disk now, and plan to replace it.",
+      "page": "/cosmos-ui/storage",
+      "sample": {"disk": "/dev/sdb", "model": "WDC WD40EFRX", "serial": "4F2A", "mounts": "/mnt/data", "reason": "12 reallocated sectors (5 more since the last check)"}
+    },
+    "smart.restored": {
+      "severity": "info", "category": "storage", "closing": true,
+      "label": "Disk healthy again", "many": "disks healthy again",
+      "preview": "Disk {{disk}} reads healthy again",
+      "whatKey": "notif.smart.restored.what",
+      "todo": "nothing.",
+      "page": "/cosmos-ui/storage",
+      "sample": {"disk": "/dev/sdb", "model": "WDC WD40EFRX", "serial": "4F2A"}
+    },
+    "disk.filling": {
+      "severity": "warn", "category": "storage",
+      "label": "Disk filling fast", "many": "disks filling fast",
+      "preview": "{{mount}} full in about {{left}} at this rate",
+      "whatKey": "notif.disk.filling.what",
+      "todo": "find what grows (downloads, logs, backups) and free space or move it.",
+      "page": "/cosmos-ui/storage",
+      "sample": {"mount": "/mnt/data", "grown": "180 GB", "hours": "24", "left": "2 days", "free": "350 GB"}
+    },
+    "disk.filling.over": {
+      "severity": "info", "category": "storage", "closing": true,
+      "label": "Disk no longer filling fast", "many": "disks no longer filling fast",
+      "preview": "{{mount}} no longer fills fast",
+      "whatKey": "notif.disk.filling.over.what",
+      "todo": "nothing.",
+      "page": "/cosmos-ui/storage",
+      "sample": {"mount": "/mnt/data", "free": "410 GB"}
+    },
+    "docker.down": {
+      "severity": "error", "category": "apps",
+      "label": "Docker does not answer", "many": "Docker outages",
+      "preview": "Docker not answering for {{minutes}} min",
+      "whatKey": "notif.docker.down.what",
+      "todo": "on the server: systemctl status docker, and the free space of its disk.",
+      "page": "/cosmos-ui/servapps",
+      "sample": {"minutes": "3", "reason": "the connection was refused"}
+    },
+    "docker.restored": {
+      "severity": "info", "category": "apps", "closing": true,
+      "label": "Docker answers again", "many": "Docker recoveries",
+      "preview": "Docker answers again",
+      "whatKey": "notif.docker.restored.what",
+      "todo": "nothing; look at the apps if some did not start again.",
+      "page": "/cosmos-ui/servapps",
+      "sample": {"duration": "7 minutes"}
+    },
+    "snapshots.late": {
+      "severity": "warn", "category": "storage",
+      "label": "No recent snapshot", "many": "late snapshots",
+      "preview": "No snapshot of {{folder}} for {{age}}",
+      "whatKey": "notif.snapshots.late.what",
+      "todo": "look at the incremental backup card: the destination disk and the last run's errors.",
+      "page": "/cosmos-ui/config-general",
+      "sample": {"folder": "/mnt/data/photos", "age": "2 days", "last": "15 Nov 03:00", "period": "day"}
+    },
+    "snapshots.ontime": {
+      "severity": "info", "category": "storage", "closing": true,
+      "label": "Snapshots made again", "many": "folders snapshotted again",
+      "preview": "{{folder}} has a new snapshot",
+      "whatKey": "notif.snapshots.ontime.what",
+      "todo": "nothing.",
+      "page": "/cosmos-ui/config-general",
+      "sample": {"folder": "/mnt/data/photos", "last": "17 Nov 03:00"}
+    },
+    "update.proven": {
+      "severity": "info", "category": "system",
+      "label": "Update proved itself", "many": "updates proven",
+      "preview": "Version {{version}} proved itself after its update",
+      "whatKey": "notif.update.proven.what",
+      "todo": "nothing.",
+      "page": "/cosmos-ui/config-general",
+      "sample": {"version": "0.24.0-fork.36", "duration": "2 minutes", "run": "1"}
+    },
+    "job.restored": {
+      "severity": "info", "category": "system", "closing": true,
+      "label": "Scheduled job works again", "many": "jobs working again",
+      "preview": "Scheduled job {{name}} works again",
+      "whatKey": "notif.job.restored.what",
+      "todo": "nothing.",
+      "page": "/cosmos-ui/cron",
+      "sample": {"name": "nightly-cleanup"}
+    },
+    "login.newcountry": {
+      "severity": "warn", "category": "security", "off": true,
+      "label": "Sign-in from a new country", "many": "sign-ins from new countries",
+      "preview": "{{user}} signed in from {{country}}, a new country",
+      "whatKey": "notif.login.newcountry.what",
+      "todo": "if it was not you, change the password of {{user}} and sign out its sessions.",
+      "page": "/cosmos-ui/security-audit",
+      "sample": {"user": "admin", "country": "PT", "ip": "203.0.113.7", "known": "RO"}
+    },
+
     "upnp.forward.failed": {
       "severity": "error", "category": "system",
       "label": "Router stopped forwarding a port", "many": "lost port forwards",

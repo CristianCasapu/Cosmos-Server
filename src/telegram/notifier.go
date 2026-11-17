@@ -728,4 +728,3 @@ func (n *notifier) Status() Status {
 	}
 	return status
 }
-

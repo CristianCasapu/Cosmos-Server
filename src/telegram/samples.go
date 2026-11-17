@@ -42,6 +42,8 @@ type KindSample struct {
 	Record string `json:"record,omitempty"`
 	// Own: a message of the notifications themselves; it has no switch.
 	Own bool `json:"own,omitempty"`
+	// Off: not sent unless switched on by itself.
+	Off bool `json:"off,omitempty"`
 	// The message as it arrives: text, entities (UTF-16 offsets), button.
 	Text     string   `json:"text"`
 	Entities []entity `json:"entities"`
@@ -69,7 +71,7 @@ func samples(st settings) []KindSample {
 		}
 		sample := KindSample{
 			Kind: kind, Severity: nt.severity.String(), Category: nt.category, Label: nt.label(),
-			Closing: nt.closing, Own: ownKinds[kind],
+			Closing: nt.closing, Own: ownKinds[kind], Off: nt.texts().Off,
 			Text: m.text, Entities: entities, Button: m.button, Preview: PreviewLine(m.text),
 		}
 		if known, ok := security.KindOf(kind); ok {

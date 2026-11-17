@@ -377,7 +377,13 @@ func startUpdateTrial() {
 	}
 	run := *armedRun
 	utils.Log("Update: version " + run.Version + " is on trial (start " + strconv.Itoa(run.Run) + "; it goes back after " + strconv.Itoa(forkrelease.TrialStarts) + " failed starts)")
-	go proveUpdateTrial(folder, run, serverTrialChecks(), time.Sleep)
+	started := time.Now()
+	go func() {
+		// plan 48: told once the proof is complete; the proof itself is unchanged
+		if proveUpdateTrial(folder, run, serverTrialChecks(), time.Sleep) {
+			noteUpdateProven(run, time.Since(started))
+		}
+	}()
 }
 
 // pruneKept removes the copy kept by the last update once its version has

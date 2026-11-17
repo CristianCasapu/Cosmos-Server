@@ -216,8 +216,8 @@ const (
 	titleTurnstileProblem      = "header.notification.title.turnstileProblem"
 	messageTurnstileKeyRefused = "header.notification.message.turnstileKeyRefused"
 	// raised by src/edgeblock/events.go (Fork addition)
-	titleEdgeBlocksProblem = "header.notification.title.edgeBlocksProblem"
-	messageEdgeBlocksToken = "header.notification.message.edgeBlocksToken"
+	titleEdgeBlocksProblem   = "header.notification.title.edgeBlocksProblem"
+	messageEdgeBlocksToken   = "header.notification.message.edgeBlocksToken"
 	messageEdgeBlocksWAF     = "header.notification.message.edgeBlocksPermissionWAF"
 	messageEdgeBlocksAccount = "header.notification.message.edgeBlocksPermissionAccount"
 	// TitleDeliveryFailed is this package's own notification. It is never

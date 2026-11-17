@@ -89,7 +89,10 @@ type kindTexts struct {
 	// Level: the notification's level may lower the severity (a warning
 	// stays a warning). Closing: the kind says that something is over. Pin:
 	// the message is pinned while what it tells lasts.
-	Level   bool              `json:"level,omitempty"`
+	Level bool `json:"level,omitempty"`
+	// Off: not sent unless switched on by itself (like the security
+	// events under the minimum severity).
+	Off     bool              `json:"off,omitempty"`
 	Closing bool              `json:"closing,omitempty"`
 	Pin     bool              `json:"pin,omitempty"`
 	Sample  map[string]string `json:"sample"`

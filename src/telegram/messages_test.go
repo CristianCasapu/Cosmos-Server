@@ -284,7 +284,7 @@ func TestNoSecretReachesTelegramInAnyKind(t *testing.T) {
 func TestALongMessageIsCutAtTheEndOfALine(t *testing.T) {
 	c := &composer{}
 	for i := 0; c.length < 3*maxMessageUnits; i++ {
-		c.fixed("line " + strconv.Itoa(i) + ": ").value(strings.Repeat("v", 150), 200).line()
+		c.fixed("line "+strconv.Itoa(i)+": ").value(strings.Repeat("v", 150), 200).line()
 	}
 	text, entities := c.result()
 	if units(text) > maxMessageUnits || !strings.HasSuffix(text, "\n…") {
