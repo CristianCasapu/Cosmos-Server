@@ -110,6 +110,10 @@ jobs:
           build: ${{ steps.version.outputs.build }}
           release: 'true'
 
+      # The zips laid out like upstream's, with fork/ inside (and install.sh
+      # stamped with this commit's release keys and the version), the
+      # scripts as assets, the notes: scripts/fork-release-package.sh, the
+      # very script the install scripts' test bed packages its releases with.
       - name: Package like upstream
         if: steps.version.outputs.skip != 'true'
         env:
@@ -118,44 +122,29 @@ jobs:
           BUILD: ${{ steps.version.outputs.build }}
           PREVIOUS: ${{ steps.version.outputs.previous }}
         run: |
-          pkg="cosmos-cloud-$VERSION"
-          mkdir release
+          bash scripts/fork-release-package.sh --build build --version "$VERSION" --repository "$GITHUB_REPOSITORY" \
+            --keys src/forkrelease/keys.go --out release \
+            --upstream "$UPSTREAM" --build-number "$BUILD" --previous "$PREVIOUS"
 
-          # What this release changes in its dependencies, from the lines the
-          # automatic update writes into its commits: dependencies.json for
-          # the release, a section of the notes, and a summary in meta.json,
-          # which is signed with the zip (the server reads it after installing).
-          deps=$(node scripts/fork-deps-notes.mjs "$PREVIOUS" release "$(date -u +%F)")
-          if [ "$deps" != "{}" ]; then
-            jq --argjson d "$deps" '.forkDependencies = $d' build/meta.json > build/meta.json.new
-            mv build/meta.json.new build/meta.json
-          fi
+      # The install scripts on every supported system, every case (install,
+      # refusals, tampered releases, interruptions, apt locked, a package
+      # missing, the download cut, Docker already there, the update and the
+      # rollback through the installed server's own updater), with test
+      # releases signed by a test key. Nothing is published when one fails.
+      # About 40 minutes.
+      - name: Check the install scripts on every system
+        if: steps.version.outputs.skip != 'true'
+        run: bash scripts/fork-install-e2e.sh full
+        env:
+          BUILD: build
 
-          mkdir "$pkg"
-          cp -r build/* "$pkg/"
-          rm "$pkg/cosmos-launcher-arm64" "$pkg/cosmos-arm64" "$pkg/nebula-arm" "$pkg/nebula-arm-cert" "$pkg/restic-arm"
-
-          mkdir "$pkg-arm64"
-          cp -r build/* "$pkg-arm64/"
-          mv "$pkg-arm64/cosmos-arm64" "$pkg-arm64/cosmos"
-          mv "$pkg-arm64/cosmos-launcher-arm64" "$pkg-arm64/cosmos-launcher"
-          mv "$pkg-arm64/restic-arm" "$pkg-arm64/restic"
-
-          zip -qr "release/$pkg-amd64.zip" "$pkg"
-          zip -qr "release/$pkg-arm64.zip" "$pkg-arm64"
-          (cd release && md5sum "$pkg-amd64.zip" > "$pkg-amd64.zip.md5" && md5sum "$pkg-arm64.zip" > "$pkg-arm64.zip.md5")
-          {
-            echo "Fork build $BUILD on top of upstream Cosmos $UPSTREAM (commit $GITHUB_SHA)."
-            if [ -n "$PREVIOUS" ]; then
-              echo
-              echo "Changes since ${PREVIOUS#v}:"
-              echo
-              git log --no-merges --format='- %s' "$PREVIOUS..HEAD" | head -n 40
-            fi
-            cat release/dependencies.md
-          } > release/notes.md
-          rm release/dependencies.md
-          ls -l release
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure() && steps.version.outputs.skip != 'true'
+        with:
+          name: install-e2e
+          path: ${{ runner.temp }}/fork-install-e2e-results/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.version.outputs.skip != 'true'
@@ -199,7 +188,8 @@ jobs:
           fi
           cd release
           expected=$(printf '%s\n' "cosmos-cloud-$VERSION-amd64.zip" "cosmos-cloud-$VERSION-amd64.zip.md5" \
-            "cosmos-cloud-$VERSION-arm64.zip" "cosmos-cloud-$VERSION-arm64.zip.md5" notes.md dependencies.json | sort)
+            "cosmos-cloud-$VERSION-arm64.zip" "cosmos-cloud-$VERSION-arm64.zip.md5" notes.md dependencies.json \
+            install.sh uninstall.sh SHA256SUMS | sort)
           found=$(find . -mindepth 1 -printf '%P\n' | sort)
           if [ "$found" != "$expected" ]; then
             echo "::error::The build handed over other files than a release has"; printf '%s\n' "$found"; exit 1
@@ -211,6 +201,19 @@ jobs:
           if [ "$(stat -c %s dependencies.json)" -gt 262144 ] || ! jq -e '.schema == 1 and (.changes | type) == "array"' dependencies.json > /dev/null; then
             echo "::error::dependencies.json is not what the build writes"; exit 1
           fi
+          # The scripts: bounded, the version and only release keys stamped
+          # in (compared with keys.go of this commit when signing is checked),
+          # and listed in SHA256SUMS.
+          for f in install.sh uninstall.sh SHA256SUMS; do
+            if [ "$(stat -c %s "$f")" -gt 1048576 ]; then echo "::error::$f is larger than a script should be"; exit 1; fi
+          done
+          if [ "$(sed -n "s/^RELEASE_VERSION='\(.*\)'\$/\1/p" install.sh)" != "$VERSION" ]; then
+            echo "::error::install.sh does not carry the version $VERSION"; exit 1
+          fi
+          if ! [[ "$(sed -n "s/^RELEASE_KEYS='\(.*\)'\$/\1/p" install.sh)" =~ ^[A-Za-z0-9+/]{43}=(\ [A-Za-z0-9+/]{43}=)?$ ]]; then
+            echo "::error::install.sh does not carry the release keys"; exit 1
+          fi
+          sha256sum --quiet -c SHA256SUMS || { echo "::error::SHA256SUMS does not match the scripts"; exit 1; }
           for arch in amd64 arm64; do
             zip="cosmos-cloud-$VERSION-$arch.zip"
             if [ "$(stat -c %s "$zip")" -gt 1073741824 ]; then
@@ -237,6 +240,16 @@ jobs:
             done
           } > manifest
           cat manifest
+          # The install scripts are signed in a file of their own: the
+          # servers' parser refuses any name but the two zips in the .sig.
+          {
+            echo "cosmos-fork-scripts-v1"
+            echo "version $VERSION"
+            for f in install.sh uninstall.sh; do
+              echo "sha256 $(sha256sum "release/$f" | awk '{print $1}') $f"
+            done
+          } > manifest.scripts
+          cat manifest.scripts
 
       # The only step that sees the signing key(s). Nothing here prints them:
       # no tracing, and openssl reads the key from a file in a private folder
@@ -256,6 +269,8 @@ jobs:
           trap 'rm -rf "$keys"' EXIT
           cp manifest "release/cosmos-cloud-$VERSION.sig"
           chmod 644 "release/cosmos-cloud-$VERSION.sig"
+          cp manifest.scripts "release/cosmos-cloud-$VERSION.scripts.sig"
+          chmod 644 "release/cosmos-cloud-$VERSION.scripts.sig"
           signed=0
           for slot in 1 2; do
             name="FORK_RELEASE_SIGNING_KEY_$slot"
@@ -264,8 +279,12 @@ jobs:
             if ! openssl pkeyutl -sign -inkey "$keys/key.pem" -rawin -in manifest -out "$keys/signature" 2>/dev/null; then
               echo "::error::The secret $name is not a usable Ed25519 private key"; exit 1
             fi
-            rm -f "$keys/key.pem"
             echo "signature $(base64 -w0 "$keys/signature")" >> "release/cosmos-cloud-$VERSION.sig"
+            if ! openssl pkeyutl -sign -inkey "$keys/key.pem" -rawin -in manifest.scripts -out "$keys/signature" 2>/dev/null; then
+              echo "::error::The secret $name could not sign the scripts"; exit 1
+            fi
+            rm -f "$keys/key.pem"
+            echo "signature $(base64 -w0 "$keys/signature")" >> "release/cosmos-cloud-$VERSION.scripts.sig"
             signed=$((signed + 1))
           done
           echo "Signed with $signed key(s)."
@@ -332,6 +351,33 @@ jobs:
             exit 1
           fi
           echo "Verifies under a release key of this build."
+
+          # The scripts: install.sh carries exactly the keys of this commit's
+          # keys.go (it verifies releases with them), and the signed list of
+          # the scripts verifies under them, as a user checking by hand does.
+          want_keys=$(keys_of "$GITHUB_SHA" | sort | tr '\n' ' ')
+          have_keys=$(sed -n "s/^RELEASE_KEYS='\(.*\)'\$/\1/p" release/install.sh | tr ' ' '\n' | sort | tr '\n' ' ')
+          if [ -z "$have_keys" ] || [ "$want_keys" != "$have_keys" ]; then
+            echo "::error::install.sh does not carry the release keys of keys.go: it would refuse this release. Nothing is published."
+            exit 1
+          fi
+          scripts_sig="release/cosmos-cloud-$VERSION.scripts.sig"
+          if ! grep -v '^signature ' "$scripts_sig" | cmp -s - manifest.scripts; then
+            echo "::error::The scripts' signature file does not start with what was signed"; exit 1
+          fi
+          scripts_ok=0
+          for key in $have_keys; do
+            { printf '\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00'; printf '%s' "$key" | base64 -d; } > public.der
+            openssl pkey -pubin -inform DER -in public.der -out public.pem 2>/dev/null || continue
+            while read -r line; do
+              printf '%s' "${line#signature }" | base64 -d > signature.scripts
+              if openssl pkeyutl -verify -pubin -inkey public.pem -rawin -in manifest.scripts -sigfile signature.scripts > /dev/null 2>&1; then scripts_ok=1; fi
+            done < <(grep '^signature ' "$scripts_sig")
+          done
+          if [ "$scripts_ok" != 1 ]; then
+            echo "::error::The scripts' signature does not verify under the keys in install.sh. Nothing is published."; exit 1
+          fi
+          echo "The scripts' signature verifies under the keys install.sh carries."
           if [ -n "$PREVIOUS" ]; then
             code=0; accepted_by "$PREVIOUS" || code=$?
             if [ "$code" -eq 2 ]; then
@@ -354,6 +400,7 @@ jobs:
             "cosmos-cloud-$VERSION-amd64.zip" "cosmos-cloud-$VERSION-amd64.zip.md5" \
             "cosmos-cloud-$VERSION-arm64.zip" "cosmos-cloud-$VERSION-arm64.zip.md5" \
             "cosmos-cloud-$VERSION.sig" dependencies.json \
+            install.sh uninstall.sh SHA256SUMS "cosmos-cloud-$VERSION.scripts.sig" \
             --target "$GITHUB_SHA" \
             --title "$VERSION" \
             --latest \
