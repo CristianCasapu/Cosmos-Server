@@ -23,6 +23,8 @@
 //                no sideways scroll, nothing cut off, icon-only buttons named
 // PHASE=more     once, after the story: Adminer added to olddb signs in to it, Redis with Redis Insight opens
 //                through Cosmos, and the URL check ("Does it open?") does not flag any manager
+// PHASE=repair   once (after `sh … repair-image`): the start-problem repair of a database created with its manager
+//                but without its password, and of an app whose sign-in is guessed when the repair adds a variable
 // PHASE=delete   once, at the end: deleting MariaDB offers its web manager, and removes both
 // PHASE=all      setup is not repeated: story, look, delete
 // FROM=n TO=m    the story runs steps n to m (what earlier steps made is read from the containers)
@@ -861,6 +863,69 @@ if (phase === 'more') {
     for (const r of routes.filter((x) => /-(pgadmin|phpmyadmin|adminer|redisinsight)$/.test(x.Name))) {
       expect(r.AuthEnabled && r.AdminOnly, `more: ${r.Name} is for administrators behind the sign-in`);
     }
+  } catch (e) {
+    failures.push(`${name}: ${e.message.split('\n')[0]}`);
+    await shot(page, name, 'zz-error').catch(() => {});
+  }
+  await browser.close();
+}
+
+// ======================================================================= the start-problem repair (second review R1)
+if (phase === 'repair') {
+  const name = 'repair-chromium-1366-light';
+  const { browser, page } = await open(chromium, name, { width: 1366, height: 900 }, 'light');
+  try {
+    // (a) PostgreSQL with pgAdmin, its password taken out of the definition by hand: it does not start; Apply
+    await toReview(page, 'postgres', 'postgres', 'repairdb');
+    await page.locator('[data-any-image-manager] [data-manager-pick]').first().waitFor({ timeout: 30000 });
+    await page.waitForTimeout(3000);
+    await page.locator('[data-any-image-review] [data-definition-door]').click();
+    const editor = page.locator('[data-any-image-review] textarea').first();
+    await editor.waitFor({ timeout: 10000 });
+    const text = await editor.inputValue();
+    const json = JSON.parse(text);
+    json.services.repairdb.environment = json.services.repairdb.environment.filter((l) => !l.startsWith('POSTGRES_PASSWORD='));
+    await editor.fill(JSON.stringify(json, null, 2));
+    lastCreate = Date.now();
+    await page.locator('[data-any-image-review] button.shinyButton').click();
+    const problem = page.locator('[data-start-problem="repairdb"]');
+    await problem.waitFor({ timeout: 180000 }).catch(() => {});
+    expect(await problem.count() === 1, '(a) the database without its password does not start, and the review says so');
+    expect(await problem.locator('[data-repair-setting="POSTGRES_PASSWORD"]').count() === 1, '(a) the repair proposes POSTGRES_PASSWORD');
+    await shot(page, name, '40-repair-database');
+    lastCreate = Date.now();
+    await problem.locator('[data-start-apply]').click();
+    const ok = await until('repairdb and its manager run after Apply', async () => (await healthy('repairdb')) && (await running('repairdb-pgadmin')), 180);
+    await page.waitForTimeout(16000);
+    const refused = await page.locator('[data-create-failed]').innerText().catch(() => '');
+    expect(ok && !refused, `(a) Apply creates them again, the manager's network accepted (${refused.slice(0, 160)})`);
+    for (const c of ['repairdb', 'repairdb-pgadmin']) {
+      const nets = Object.keys((await inspect(c)).NetworkSettings.Networks);
+      expect(nets.length === 1 && /^repairdb-manager-/.test(nets[0]), `(a) ${c} on its own network only (${nets.join(', ')})`);
+    }
+    await shot(page, name, '41-repair-database-done');
+
+    // (b) an app without a recipe whose sign-in is guessed; its start check names ADMIN_USER; Apply adds it
+    await page.goto(base + '/cosmos-ui/servapps', { waitUntil: 'domcontentloaded' });
+    await toReview(page, 'example/needsuser:1', 'example/needsuser', 'needsuser');
+    await page.waitForTimeout(3000);
+    lastCreate = Date.now();
+    await page.locator('[data-any-image-review] button.shinyButton').click();
+    const p2 = page.locator('[data-start-problem="needsuser"]');
+    await p2.waitFor({ timeout: 180000 }).catch(() => {});
+    expect(await p2.locator('[data-repair-setting="ADMIN_USER"]').count() === 1, '(b) the start check names ADMIN_USER');
+    const before = (await inspect('needsuser')).Config.Labels['cosmos-fork-signin'];
+    // the image's empty ADMIN_EMAIL is its own default, not sent: the guess has the password only
+    expect(before === 'where=web;password=ADMIN_PASSWORD;from=guess', `(b) the guess's label (${before})`);
+    await p2.locator('[data-repair-setting="ADMIN_USER"] input').fill('owner_name').catch(() => {});
+    lastCreate = Date.now();
+    await p2.locator('[data-start-apply]').click();
+    const ok2 = await until('needsuser runs after Apply', () => running('needsuser'), 120);
+    await page.waitForTimeout(16000);
+    const after = ok2 ? (await inspect('needsuser')).Config.Labels['cosmos-fork-signin'] : '';
+    const refused2 = await page.locator('[data-create-failed]').innerText().catch(() => '');
+    expect(ok2 && !refused2 && after === 'where=web;user=ADMIN_USER;password=ADMIN_PASSWORD;from=guess', `(b) Apply creates it again, with the new guess (${after}) ${refused2.slice(0, 120)}`);
+    await shot(page, name, '42-repair-guess-done');
   } catch (e) {
     failures.push(`${name}: ${e.message.split('\n')[0]}`);
     await shot(page, name, 'zz-error').catch(() => {});

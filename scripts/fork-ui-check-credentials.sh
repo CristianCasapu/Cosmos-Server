@@ -10,6 +10,7 @@
 #   sh scripts/fork-ui-check-credentials.sh rebuild   build the server and the panel again from the worktree, restart Cosmos
 #   sh scripts/fork-ui-check-credentials.sh check [VAR=value…]   run the check (PHASE, ENGINES, SIZES, MODES)
 #   sh scripts/fork-ui-check-credentials.sh node <script.mjs> [VAR=value…]   another check script, same browser container
+#   sh scripts/fork-ui-check-credentials.sh repair-image   the image PHASE=repair needs (example/needsuser:1)
 #   sh scripts/fork-ui-check-credentials.sh other     a second, fresh test Cosmos at SUBNET.10 for the checks that use its IP
 #   sh scripts/fork-ui-check-credentials.sh stop      stop the test containers (keeps the scratch folder and the images)
 #   sh scripts/fork-ui-check-credentials.sh clean     remove every container and network it made, and the scratch folder
@@ -276,6 +277,9 @@ case "${1:-}" in
     say "rebuilt and restarted" ;;
   restart) stop_cosmos; start_cosmos ;;
   other) other ;;
+  repair-image)
+    # PHASE=repair's app without a recipe: busybox that stops until ADMIN_USER is set (built in the test Docker, pushed to the test registry)
+    docker exec "$PREFIX-dind" sh -c 'mkdir -p /tmp/needsuser && printf "%s\n" "FROM busybox:1.36" "ENV ADMIN_EMAIL= ADMIN_PASSWORD=" "EXPOSE 8080" "CMD [\"sh\", \"-c\", \"if [ -z \\\"\$ADMIN_USER\\\" ]; then echo ADMIN_USER is required; exit 1; fi; httpd -f -p 8080 -h /etc\"]" > /tmp/needsuser/Dockerfile && docker build -q -t registry-1.docker.io/example/needsuser:1 /tmp/needsuser && docker push -q registry-1.docker.io/example/needsuser:1' ;;
   extra)
     # the loader runs its own copy of the registry: the test network's one steps aside meanwhile
     running=$(docker ps -q -f name="^$PREFIX-registry$")

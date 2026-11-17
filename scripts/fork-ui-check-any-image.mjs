@@ -309,7 +309,9 @@ for (const engine of engines) {
             const app = await inspect('dbapp');
             const env = app.Config.Env.join('\n');
             expect(/DB_HOST=dbapp-postgres/.test(env) && /DB_USER=app/.test(env) && /DB_NAME=app/.test(env), `${name}: the app's settings come from its database`);
-            expect(Object.keys(app.NetworkSettings.Networks).includes('dbapp-db'), `${name}: the app is on the database's network`);
+            // plan 45: the network's name carries a random part, and the database is only on it (never the default bridge)
+            const dbNets = Object.keys((await inspect('dbapp-postgres')).NetworkSettings.Networks);
+            expect(dbNets.length === 1 && /^dbapp-db-[a-z0-9]{6}$/.test(dbNets[0]) && Object.keys(app.NetworkSettings.Networks).includes(dbNets[0]), `${name}: the app is on the database's network (${dbNets.join(', ')})`);
             const ping = await run('dbapp', ['ping', '-c', '1', '-W', '2', 'dbapp-postgres']);
             expect(/1 packets received/.test(ping), `${name}: the app reaches its database by name`);
           }
