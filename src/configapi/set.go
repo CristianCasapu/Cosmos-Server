@@ -352,6 +352,12 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
+		// Fork addition: changed monitoring database settings must have their shapes, see fork_postgres.go
+		if problem := checkPostgresSettings(&request, config); problem != nil {
+			utils.HTTPError(w, problem.Message, http.StatusBadRequest, problem.Code)
+			return
+		}
+
 		// Fork addition: changed HTTP settings must not take the panel away (ports, admin whitelist, hostname), see fork_http_settings.go
 		if problem := checkHTTPSettings(req, &request, config); problem != nil {
 			utils.Error("SettingsUpdate: "+problem.Message, nil)

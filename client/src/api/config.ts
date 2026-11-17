@@ -391,6 +391,37 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }))
   }
 
+  // Fork addition (plan 47): what a folder holds that is worth leaving out of the snapshots (bounded, changes nothing)
+  function snapshotsLook(source: string) {
+    return wrap(apiFetch('/cosmos/api/snapshots/look', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ source }),
+    }), true)
+  }
+
+  // Fork addition (plan 47): the monitoring database: the PostgreSQL containers proposed (no secret), and a test of the form's settings
+  function postgresProposals() {
+    return wrap(apiFetch('/cosmos/api/config/postgres-proposals', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }), true)
+  }
+
+  function postgresTest(settings: { host: string, database: string, username: string, password: string }) {
+    return wrap(apiFetch('/cosmos/api/config/postgres-test', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(settings),
+    }), true)
+  }
+
   function snapshotsCleanup(source: string, name: string) {
     return wrap(apiFetch('/cosmos/api/snapshots/cleanup', {
       method: 'POST',
@@ -565,6 +596,9 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     snapshotsRun,
     snapshotsRestore,
     snapshotsCleanup,
+    snapshotsLook, // Fork addition (plan 47)
+    postgresProposals, // Fork addition (plan 47)
+    postgresTest, // Fork addition (plan 47)
     telegramStatus,
     telegramTest,
     telegramChats,
