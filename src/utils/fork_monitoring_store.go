@@ -34,6 +34,7 @@ import (
 	"context"
 	"database/sql"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -370,6 +371,11 @@ func adviseFallback() {
 			st.Advice = advice
 		}
 	})
+	// no answering address to name yet (the container may still be
+	// starting): asked again at the next look
+	if !strings.Contains(advice, "use ") {
+		adviceKey = ""
+	}
 }
 
 // adviceKey: the outage and reason the advice was made for (the watcher only).

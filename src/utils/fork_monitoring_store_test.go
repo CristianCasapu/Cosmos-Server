@@ -304,14 +304,22 @@ func TestFallbackNamesTheLikelyRightServer(t *testing.T) {
 	asked := 0
 	monitoringAdviceFor = func(host string, reason string) string {
 		asked++
-		if host != "172.17.0.2:5432" || reason != "network" {
-			return ""
+		if host != "172.17.0.2:5432" || reason != "network" || asked == 1 {
+			return "" // the first time the container still starts: nothing answers to be named
 		}
 		return "PostgreSQL runs on this server in the container postgresql: use 192.168.1.10:5432 (the PostgreSQL container postgresql)."
 	}
 	InitMetricsDatabase()
 	w := &monitoringWatch{backoff: monitoringRetryFirst}
 	w.look(true)
+	if s := GetMonitoringStoreState(); s.Advice != "" {
+		t.Fatalf("advice before anything answers: %+v", s)
+	}
+	stub.down = nil
+	storeStateMu.Lock()
+	storeNoticePending = true // told again below with the advice (the test's shortcut)
+	storeStateMu.Unlock()
+	w.look(false)
 	s := GetMonitoringStoreState()
 	if !s.Fallback || !strings.Contains(s.Advice, "use 192.168.1.10:5432") {
 		t.Fatalf("state %+v", s)
@@ -324,7 +332,7 @@ func TestFallbackNamesTheLikelyRightServer(t *testing.T) {
 	}
 	w.look(false)
 	w.look(false)
-	if asked != 1 {
-		t.Errorf("Docker asked %d times for one outage", asked)
+	if asked != 2 {
+		t.Errorf("Docker asked %d times for one outage (twice: until an answering address is named)", asked)
 	}
 }
