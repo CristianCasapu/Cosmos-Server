@@ -10,7 +10,9 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 Merged into `custom` since `0.24.0-fork.37`, to be part of the next release:
 
-- Nothing yet.
+### Added
+- Storage apps (RustFS, MinIO, Garage and other S3-compatible storage) have a "How to use it" guide, on the app's page and on its tile's menu, with this server's real addresses in every example: backups from Linux servers, websites (PHP, WordPress), databases, Docker apps, Windows, macOS, phones, NAS appliances and from code, each from nothing to a restore. A chooser says where you connect from (home, the internet, another app on this server) and rewrites the examples. Every example that can be run here is run against a real RustFS before a release.
+- The guide says what Cosmos itself limits on each address of the storage (shield, throttle, timeout) and leads to the URL's settings; a new URL to a storage API that the proxy keeps to the home network is proposed without those limits.
 
 ## Fork 0.24.0-fork.37 — 2026-11-17
 
