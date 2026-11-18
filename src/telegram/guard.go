@@ -71,10 +71,15 @@ var (
 	// review 4: 40 hexadecimal characters after "token " (a token, or a
 	// hash: cut all the same)
 	hexTokenPattern = regexp.MustCompile(`(?i)(\btoken\s+)[0-9a-f]{40}\b`)
-	plainSetting    = regexp.MustCompile(`^(?i:true|false|yes|no|on|off|none|null|0|1)$`)
-	secretEnvWord   = regexp.MustCompile(`(?:^|_)(?:SECRET|KEY|TOKEN|PASS|PASSWORD|PASSWD|PWD|CREDENTIALS?|SALT)(?:_|$)`)
-	placeSuffix     = regexp.MustCompile(`_(?:URL|URI|FILE|PATH|HOST|NAME|USER|USERNAME|ID|TYPE|LENGTH|SIZE|DIR|ENDPOINT|EXPIRY|EXPIRES|TTL)$`)
-	plainWord       = regexp.MustCompile(`^[a-z]{1,12}[.!]?$`)
+	// review 5: what a cut value leaves of itself ("[hidden]]@host/")
+	cutLeftover = regexp.MustCompile(`\[hidden\]\]\S*`)
+	// review 5, in error texts: the words after a cut secret value on the
+	// same line ("PASSWORD=correct horse battery")
+	cutRestOfLine = regexp.MustCompile(`(?i)((?:password|passwd|pass|pwd|secret|token|api[_-]?key)[A-Za-z0-9_-]*["']?\s*[=:]\s*\[hidden\])(?:[ \t]+[^\s"',;&}\])\[]+)+`)
+	plainSetting  = regexp.MustCompile(`^(?i:true|false|yes|no|on|off|none|null|0|1)$`)
+	secretEnvWord = regexp.MustCompile(`(?:^|_)(?:SECRET|KEY|TOKEN|PASS|PASSWORD|PASSWD|PWD|CREDENTIALS?|SALT)(?:_|$)`)
+	placeSuffix   = regexp.MustCompile(`_(?:URL|URI|FILE|PATH|HOST|NAME|USER|USERNAME|ID|TYPE|LENGTH|SIZE|DIR|ENDPOINT|EXPIRY|EXPIRES|TTL)$`)
+	plainWord     = regexp.MustCompile(`^[a-z]{1,12}[.!]?$`)
 )
 
 // maxGuarded is how much of a text the guard looks at: the values are cut
@@ -173,6 +178,10 @@ func guard(text string, secrets []string, raw bool) string {
 	cut(envSecretPattern, true)
 	cut(secretFlagPattern, false)
 	cut(secretPairPattern, false)
+	text = cutLeftover.ReplaceAllString(text, hiddenSecret)
+	if raw {
+		text = cutRestOfLine.ReplaceAllString(text, "${1}")
+	}
 	return text
 }
 

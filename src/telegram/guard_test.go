@@ -239,3 +239,20 @@ func TestTheGuardFourthRound(t *testing.T) {
 		}
 	}
 }
+
+// review 5: the words after a cut value go with it in error texts; no
+// leftover of a cut address.
+func TestTheGuardFifthRound(t *testing.T) {
+	if got := guardRaw("PASSWORD=correct horse battery\nnext line", nil); got != "PASSWORD=[hidden]\nnext line" {
+		t.Errorf("%q", got)
+	}
+	if got := guardRaw("TOKEN=https://user:pass@host.example.org/", nil); strings.Contains(got, "]]") || strings.Contains(got, "pass@") {
+		t.Errorf("%q", got)
+	}
+	for _, text := range []string{"PASSWORD=correct horse battery", "TOKEN=https://user:pass@host.example.org/x"} {
+		once := guardRaw(text, nil)
+		if guardRaw(once, nil) != once {
+			t.Errorf("not idempotent: %q", once)
+		}
+	}
+}
