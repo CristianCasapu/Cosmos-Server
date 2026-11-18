@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { Button } from '@mui/material';
 import EmptyState from '../../../components/emptyState'; // Fork addition: a container that cannot be shown
+import { useGuideTabs } from '../../../components/appGuideTab'; // Fork addition (plan 50)
 
 const ContainerIndex = () => {
   const { t } = useTranslation();
@@ -32,6 +33,7 @@ const ContainerIndex = () => {
   const [selfName, setSelfName] = React.useState("");
   const [updatesAvailable, setUpdatesAvailable] = React.useState(null);
   const [missing, setMissing] = React.useState(false); // Fork addition
+  const guideTabs = useGuideTabs(containerName); // Fork addition (plan 50): "How to use it" when the app has a guide
   
   const refreshContainer = () => {
     return Promise.all([API.docker.get(containerName).then((res) => {
@@ -105,6 +107,7 @@ const ContainerIndex = () => {
           title: t('menu-items.management.storage'),
           children: <VolumeContainerSetup refresh={refreshContainer} containerInfo={container} config={config}/>
         },
+        ...guideTabs, // Fork addition (plan 50)
       ]} />}
     </Stack>
   </div>;

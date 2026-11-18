@@ -1096,6 +1096,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/sign-in/reveal", appsignin.RevealRoute)   // Fork addition (plan 45): one of its secrets, recorded
 	srapiAdmin.HandleFunc("/api/app-sign-in/defaults", appsignin.DefaultsRoute)                  // Fork addition (plan 45): what an installation proposes
 	srapiAdmin.HandleFunc("/api/config/postgres-proposals", appsignin.PostgresProposalsRoute)    // Fork addition (plan 47): the PostgreSQL containers proposed for the monitoring database, no secret
+	srapi.HandleFunc("/api/host-home-only", proxy.HostHomeOnlyRoute) // Fork addition (plan 50): does the proxy keep a host to the home network (proxy/fork_host_home_only.go)
 	srapiAdmin.HandleFunc("/api/lan-addresses", proxy.LANAddressesRoute) // Fork addition: where a service may be published for the home network (proxy/fork_lan_addresses.go)
 	// Fork addition: does an app accept the address it is reached at (src/behind, plan 44)
 	srapiAdmin.HandleFunc("/api/url-check", behind.CheckRoute)
