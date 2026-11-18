@@ -229,6 +229,9 @@ func openMonitoringStore() error {
 			}
 			markPostgresInUse(db)
 			Log("Monitoring database ready (" + DialectPostgres + ", node " + node + ")")
+			if opened := OnMonitoringStorePostgres; opened != nil {
+				go opened() // a catch-up interrupted by a restart goes on (src/monitorcopy)
+			}
 			return nil
 		}
 		problem = schemaProblem(err, db)
@@ -753,6 +756,10 @@ type CatchUpResult struct {
 // the store in use (paced, idempotent, verified, recorded as automatic, in
 // the background), then calls done once. nil: nothing is caught up.
 var MonitoringCatchUp func(from, to time.Time, done func(CatchUpResult))
+
+// OnMonitoringStorePostgres is set by src/monitorcopy: called (in its own
+// goroutine) each time PostgreSQL becomes the store in use.
+var OnMonitoringStorePostgres func()
 
 func tellMonitoringBack(s MonitoringStoreState, since time.Time, caught CatchUpResult) {
 	now := monitoringClock()
