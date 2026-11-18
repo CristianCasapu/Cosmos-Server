@@ -489,6 +489,13 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }))
   }
 
+  // Fork addition (plan 50): does the proxy keep a URL with this host to the home network
+  function hostHomeOnly(host: string): Promise<ApiResponse> {
+    return wrap(apiFetch('/cosmos/api/host-home-only?host=' + encodeURIComponent(String(host || '').slice(0, 260)), {
+      method: 'GET',
+    }))
+  }
+
   // --- Individual Route CRUD ---
   function listRoutes(): Promise<ApiResponse> {
     return wrap(apiFetch('/cosmos/api/routes', {
@@ -607,6 +614,7 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     fail2banSettings,
     getBackup,
     getDashboard,
+    hostHomeOnly, // Fork addition (plan 50)
     updateDNS,
     listRoutes,
     getRoute,

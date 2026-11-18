@@ -576,6 +576,35 @@ func GetSmartShieldProfile() SmartShieldProfile {
 	}
 }
 
+// Fork addition (plan 50): ShieldEffectiveLimits is what the shield allows one
+// visitor per rolling hour, the policy's numbers times its strictness, as the
+// proxy judges a request (src/proxy/shield.go budgetViolation uses it, and so
+// does the guide's line about an address' limits). Zero time: no limit.
+type ShieldEffectiveLimits struct {
+	Requests         int
+	Packets          int64
+	Bytes            int64
+	TimeMs           float64
+	SimultaneousHTTP int // browsers open many connections: 15 times the policy before a strike
+	SimultaneousTCP  int
+}
+
+// ShieldLimits computes ShieldEffectiveLimits of a policy with its defaults applied.
+func ShieldLimits(policy SmartShieldPolicy) ShieldEffectiveLimits {
+	strictness := policy.PolicyStrictness
+	limits := ShieldEffectiveLimits{
+		Requests:         policy.PerUserRequestLimit * strictness,
+		Packets:          int64(policy.PerUserRequestLimit * 1000 * strictness),
+		Bytes:            policy.PerUserByteLimit * int64(strictness),
+		SimultaneousHTTP: policy.PerUserSimultaneous * strictness * 15,
+		SimultaneousTCP:  policy.PerUserSimultaneous * strictness,
+	}
+	if policy.PerUserTimeBudget > 0 {
+		limits.TimeMs = policy.PerUserTimeBudget * float64(strictness)
+	}
+	return limits
+}
+
 // ApplySmartShieldDefaults fills every zero field of a route policy from the
 // deployment profile. PerUserTimeBudget is in milliseconds of cumulative
 // request time per rolling hour; 0 leaves it unlimited.

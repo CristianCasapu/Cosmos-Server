@@ -29,6 +29,9 @@ import {
 import { proposeAccess } from '../utils/exposure';
 import { useCosmosPorts } from './routerPorts';
 import { ExposeDialog } from './exposure';
+import { Link as RouterLink } from 'react-router';
+import { ReadOutlined } from '@ant-design/icons';
+import { appGuide, guidePath } from '../utils/guides'; // Fork addition (plan 50)
 
 // ---------------------------------------------------------------------------
 // what every opener needs: where the visitor is, the URLs' roles, the ports
@@ -209,6 +212,14 @@ export const AppInterfacesMenu = ({ tile, ctx, anchorEl, open, onClose, onUnreac
       </MenuItem>);
     }
   });
+  // Fork addition (plan 50): the app's how-to guide
+  if (appGuide(tile)) {
+    items.push(<Divider key="guide-div" />);
+    items.push(<MenuItem key="guide" component={RouterLink} to={guidePath(tile)} onClick={onClose} sx={{ ...touchItem, alignItems: 'center' }} data-guide-link={tile.container || tile.name}>
+      <ListItemIcon><ReadOutlined aria-hidden /></ListItemIcon>
+      <ListItemText primary={t('mgmt.guide.menu', 'How to use it')} secondary={t('mgmt.guide.menuHint', 'Examples with this app\'s addresses')} />
+    </MenuItem>);
+  }
   if (ctx && ctx.place && ctx.place.where === 'home' && tile.interfaces.some((i) => i.web && i.kind === 'public') && tile.interfaces.some((i) => i.web && i.kind !== 'public' && i.kind !== 'panel')) {
     items.push(<Divider key="div" />);
     items.push(<MenuItem key="prefer" role="menuitemcheckbox" aria-checked={ctx.prefer === 'internet'} onClick={() => { ctx.setPrefer(ctx.prefer === 'internet' ? 'home' : 'internet'); onClose(); }} sx={{ ...touchItem, alignItems: 'center' }} data-prefer>
