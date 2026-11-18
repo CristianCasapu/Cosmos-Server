@@ -394,7 +394,9 @@ func TestInterruptAndResume(t *testing.T) {
 	}
 }
 
-// The local file is opened read-only: the copy cannot change it, and does not.
+// The local file is opened read-only: the copy cannot change its records, and
+// does not; the main file's content stays byte for byte (SQLite may leave the
+// companion files -wal and -shm next to it).
 func TestLocalFileStaysUntouched(t *testing.T) {
 	folder := t.TempDir()
 	path := filepath.Join(folder, "database.db")
@@ -596,4 +598,43 @@ func TestVerificationSeesAChangedClosedBucket(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A value that is not a finite number (PostgreSQL's DOUBLE PRECISION holds
+// NaN and infinities) is stored as 0 in the local file, which cannot hold it
+// in a NOT NULL column, and said; towards PostgreSQL nothing is replaced.
+func TestNotANumber(t *testing.T) {
+	if len(dialects()) < 2 {
+		t.Skip("no PostgreSQL")
+	}
+	t.Run("pg-to-sqlite", func(t *testing.T) {
+		src, dst := openStore(t, utils.DialectPostgres), openStore(t, utils.DialectSQLite)
+		for i, value := range []string{"NaN", "Infinity", "-Infinity", "1.5"} {
+			exec(t, src, "INSERT INTO metrics(node, key, time_scale, last_update) VALUES('server.local', ?, CAST(? AS DOUBLE PRECISION), 1)", fmt.Sprintf("m%d", i), value)
+		}
+		report := copyOnce(t, src, dst, testOptions("test", false))
+		if report.Mismatch || tableOf(report, "metrics").Replaced != 3 {
+			t.Fatalf("%+v", tableOf(report, "metrics"))
+		}
+		if n := count(t, dst, "SELECT COUNT(*) FROM metrics WHERE time_scale = 0"); n != 3 {
+			t.Errorf("stored as 0: %d", n)
+		}
+		if n := count(t, dst, "SELECT COUNT(*) FROM metrics WHERE time_scale = 1.5"); n != 1 {
+			t.Errorf("a number is kept: %d", n)
+		}
+		if again := copyOnce(t, src, dst, testOptions("test", false)); again.Mismatch || again.Written != 0 {
+			t.Errorf("again: %+v", again)
+		}
+	})
+	t.Run("sqlite-to-pg", func(t *testing.T) {
+		src, dst := openStore(t, utils.DialectSQLite), openStore(t, utils.DialectPostgres)
+		exec(t, src, "INSERT INTO metrics(node, key, time_scale, last_update) VALUES('server.local', 'inf', 9e999, 1)")
+		report := copyOnce(t, src, dst, testOptions("test", true))
+		if report.Mismatch || tableOf(report, "metrics").Replaced != 0 {
+			t.Fatalf("%+v", tableOf(report, "metrics"))
+		}
+		if n := count(t, dst, "SELECT COUNT(*) FROM metrics WHERE time_scale = 'Infinity'"); n != 1 {
+			t.Errorf("an infinity reaches PostgreSQL as it is: %d", n)
+		}
+	})
 }

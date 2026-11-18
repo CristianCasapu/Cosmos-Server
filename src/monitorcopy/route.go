@@ -38,7 +38,7 @@ const maxBody = 1024
 
 // StartRoute godoc
 // @Summary Monitoring history copy: start or resume
-// @Description Starts copying the monitoring history in the background: "to-postgres" copies the local file (opened read-only, never changed) into PostgreSQL, the store in use; "to-local" copies PostgreSQL's records into the local file. A copy that was interrupted continues where it stopped; what is already in the target is not copied again. One copy at a time; recorded in the security record.
+// @Description Starts copying the monitoring history in the background: "to-postgres" copies the local file into PostgreSQL (opened read-only: its records and the main file are not changed; SQLite may leave the companion files database.db-wal and database.db-shm next to it), the store in use; "to-local" copies PostgreSQL's records into the local file. A copy that was interrupted continues where it stopped; what is already in the target is not copied again. One copy at a time; recorded in the security record.
 // @Tags monitoring
 // @Accept json
 // @Produce json

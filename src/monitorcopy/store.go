@@ -161,10 +161,24 @@ type errTooLarge struct{ column string }
 func (e errTooLarge) Error() string { return "monitorcopy: value too large for column " + e.column }
 
 // fitFor makes a source row storable in the target: PostgreSQL's TEXT takes
-// neither NUL nor invalid UTF-8 (SQLite's does), and its INTEGER is 32 bits.
-func fitFor(target Store, r rule, values []interface{}) error {
+// neither NUL nor invalid UTF-8 (SQLite's does), and its INTEGER is 32 bits;
+// SQLite stores a NaN as NULL, which a NOT NULL column refuses, so a value
+// that is not a finite number (NaN, an infinity, which PostgreSQL's DOUBLE
+// PRECISION holds) is stored there as 0. It returns how many values it
+// replaced so.
+func fitFor(target Store, r rule, values []interface{}) (int, error) {
+	replaced := 0
 	if !target.postgres() {
-		return nil
+		for i, c := range r.columns {
+			if c.kind != real {
+				continue
+			}
+			if v := values[i].(float64); math.IsNaN(v) || math.IsInf(v, 0) {
+				values[i] = float64(0)
+				replaced++
+			}
+		}
+		return replaced, nil
 	}
 	for i, c := range r.columns {
 		switch c.kind {
@@ -174,17 +188,17 @@ func fitFor(target Store, r rule, values []interface{}) error {
 				s = strings.ReplaceAll(s, "\x00", "")
 			}
 			if !utf8.ValidString(s) {
-				s = strings.ToValidUTF8(s, "�")
+				s = strings.ToValidUTF8(s, "\uFFFD")
 			}
 			values[i] = s
 		case integer32:
 			v := values[i].(int64)
 			if v > math.MaxInt32 || v < math.MinInt32 {
-				return errTooLarge{column: c.name}
+				return replaced, errTooLarge{column: c.name}
 			}
 		}
 	}
-	return nil
+	return replaced, nil
 }
 
 // identityKey is a fixed-size digest of a row's identity values.

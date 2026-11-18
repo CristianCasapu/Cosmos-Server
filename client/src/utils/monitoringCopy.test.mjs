@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  POLL_IDLE_MS, POLL_RUNNING_MS, TO_LOCAL, TO_POSTGRES, fill, formatCount, formatDuration, formatSize, formatTime,
+  POLL_IDLE_MS, POLL_RUNNING_MS, TO_LOCAL, TO_POSTGRES, countingOf, fill, formatCount, formatDuration, formatSize, formatTime,
   mismatchLine, offerLabel, offerOf, pollDelay, progressOf, resultOf, tableLabel,
 } from './monitoringCopy.js';
 
@@ -118,4 +118,18 @@ test('the texts are in the English translations', () => {
   const keys = Object.keys(en);
   const block = keys.map((k, i) => (k.startsWith('mgmt.config.general.monitoringDb.copy.') ? i : -1)).filter((i) => i >= 0);
   assert.equal(block[block.length - 1] - block[0] + 1, block.length, 'the keys are one contiguous block');
+});
+
+test('values that are not numbers are said; a count in the background is polled', () => {
+  const upTo = Date.UTC(2026, 10, 17, 12);
+  assert.equal(resultOf({ last: { outcome: 'done', written: 5, upTo, replaced: 2 } }).note, '2 values that are not numbers were stored as 0.');
+  assert.equal(resultOf({ last: { outcome: 'done', written: 5, upTo } }).note, undefined);
+  const counting = { inUse: 'postgres', running: false, offers: [{ direction: TO_POSTGRES, available: false, counting: true }] };
+  assert.equal(countingOf(counting), true);
+  assert.equal(pollDelay(counting), POLL_RUNNING_MS);
+  // counted before: the old numbers are offered meanwhile, no need to hurry
+  const recount = { ...idle, offers: idle.offers.map((o) => ({ ...o, counting: true })) };
+  assert.equal(countingOf(recount), false);
+  assert.equal(pollDelay(recount), POLL_IDLE_MS);
+  assert.equal(countingOf({ ...counting, inUse: 'local' }), false);
 });

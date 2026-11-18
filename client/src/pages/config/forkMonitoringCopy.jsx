@@ -9,7 +9,7 @@ import { Alert, Box, Button, LinearProgress, Stack, Typography } from '@mui/mate
 import { useTranslation } from 'react-i18next';
 import * as API from '../../api';
 import {
-  TO_LOCAL, TO_POSTGRES, formatCount, formatDuration, formatTime, mismatchLine, offerLabel, offerOf, pollDelay, progressOf, resultOf, tableLabel,
+  TO_LOCAL, TO_POSTGRES, countingOf, formatCount, formatDuration, formatTime, mismatchLine, offerLabel, offerOf, pollDelay, progressOf, resultOf, tableLabel,
 } from '../../utils/monitoringCopy';
 
 const touch = { minHeight: 44, textAlign: 'left', whiteSpace: 'normal', overflowWrap: 'anywhere' };
@@ -79,7 +79,8 @@ const MonitoringCopy = ({ saves }) => {
   const forward = offerOf(view, TO_POSTGRES);
   const reverse = offerOf(view, TO_LOCAL);
   const result = resultOf(view, t, locale);
-  if (!progress && !forward && !reverse && !result && !problem) return null;
+  const counting = countingOf(view);
+  if (!progress && !forward && !reverse && !result && !problem && !counting) return null;
 
   return <Stack spacing={1.5} data-fork-copy>
     {progress && <Box data-fork-copy-progress={progress.phase}>
@@ -119,10 +120,15 @@ const MonitoringCopy = ({ saves }) => {
 
     {result && !progress && <Alert severity={result.severity} sx={{ overflowWrap: 'anywhere' }} data-fork-copy-result={result.outcome}>
       {result.text}
+      {result.note && <Box sx={{ mt: 0.5 }} data-fork-copy-replaced>{result.note}</Box>}
       {result.tables.length > 0 && <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5 }}>
         {result.tables.map((row) => <li key={row.table} data-fork-copy-mismatch={row.table}>{mismatchLine(row, t)}</li>)}
       </Box>}
     </Alert>}
+
+    {counting && !progress && <Typography variant="caption" sx={{ color: 'text.secondary' }} data-fork-copy-counting>
+      {t('mgmt.config.general.monitoringDb.copy.counting', 'Counting the records of the two stores…')}
+    </Typography>}
 
     {problem && <Alert severity="error" onClose={() => setProblem('')} sx={{ overflowWrap: 'anywhere' }} data-fork-copy-problem>
       {t('mgmt.config.general.monitoringDb.copy.startFailed', 'The copy could not start:')} {problem}
@@ -141,7 +147,7 @@ const MonitoringCopy = ({ saves }) => {
           </Button>
         </Box>
         <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-          {t('mgmt.config.general.monitoringDb.copy.safety', 'The local file is only read: it is neither changed nor deleted, and stays where it is. Monitoring keeps recording during the copy; it can be cancelled and resumed.')}
+          {t('mgmt.config.general.monitoringDb.copy.safety', 'The local file is only read: its records are not changed and it is not deleted (SQLite may leave its two small companion files, database.db-wal and database.db-shm, next to it). Monitoring keeps recording during the copy; it can be cancelled and resumed.')}
         </Typography>
       </Stack>
     </Alert>}

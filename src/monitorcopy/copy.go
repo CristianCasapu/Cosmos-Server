@@ -47,6 +47,9 @@ type TableProgress struct {
 	Total   int64  `json:"total"`   // rows of the source to go through
 	Done    int64  `json:"done"`    // rows of the source gone through
 	Written int64  `json:"written"` // rows written to the target (new or newer)
+	// values that are not finite numbers (NaN, infinities), stored as 0 in a
+	// SQLite target, which cannot hold them in a NOT NULL column
+	Replaced int64 `json:"replaced"`
 	// State: waiting, copying, copied, verifying, verified, mismatch, failed
 	State string `json:"state"`
 	// the verification: rows of the copied range in each store
@@ -150,6 +153,8 @@ type tableMarker struct {
 	W       int64    `json:"w"`             // surrogate: the last time value copied entirely
 	Key     []string `json:"key,omitempty"` // natural: the last key copied
 	Written int64    `json:"written"`
+	// values that are not finite numbers, stored as 0 in a SQLite target
+	Replaced int64 `json:"replaced,omitempty"`
 }
 
 func runKey(sourceID string) string          { return markerPrefix + sourceID }
@@ -401,7 +406,9 @@ func (c *copier) copyTable(ctx context.Context, i int, r rule) error {
 		return c.fail(r, "marker", err)
 	}
 	if m.Done {
-		c.track.set(i, func(p *TableProgress) { p.Done, p.Written, p.State = p.Total, m.Written, "copied" })
+		c.track.set(i, func(p *TableProgress) {
+			p.Done, p.Written, p.Replaced, p.State = p.Total, m.Written, m.Replaced, "copied"
+		})
 		return nil
 	}
 	// rows already gone through by the copy this one resumes
@@ -412,7 +419,7 @@ func (c *copier) copyTable(ctx context.Context, i int, r rule) error {
 		if err != nil {
 			return c.fail(r, "counting", err)
 		}
-		c.track.set(i, func(p *TableProgress) { p.Done, p.Written = done, m.Written })
+		c.track.set(i, func(p *TableProgress) { p.Done, p.Written, p.Replaced = done, m.Written, m.Replaced })
 	}
 	c.track.set(i, func(p *TableProgress) { p.State = "copying" })
 
@@ -432,7 +439,7 @@ func (c *copier) copyTable(ctx context.Context, i int, r rule) error {
 		if err != nil {
 			return c.fail(r, "copying", err)
 		}
-		c.track.set(i, func(p *TableProgress) { p.Done += read; p.Written += written })
+		c.track.set(i, func(p *TableProgress) { p.Done += read; p.Written += written; p.Replaced = m.Replaced })
 		c.track.add(read)
 		if read == 0 {
 			break
@@ -548,10 +555,13 @@ func (c *copier) batchNatural(ctx context.Context, r rule, m *tableMarker) (int6
 	if err != nil || len(batch) == 0 {
 		return 0, 0, err
 	}
+	replaced := int64(0)
 	for _, one := range batch {
-		if err := fitFor(c.dst, r, one.values); err != nil {
+		n, err := fitFor(c.dst, r, one.values)
+		if err != nil {
 			return 0, 0, err
 		}
+		replaced += int64(n)
 	}
 	tx, err := c.dst.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -565,6 +575,7 @@ func (c *copier) batchNatural(ctx context.Context, r rule, m *tableMarker) (int6
 	next := *m
 	next.Key = encodeKey(r, batch[len(batch)-1].values)
 	next.Written += written
+	next.Replaced += replaced
 	encoded, _ := json.Marshal(next)
 	if err := c.dst.setKV(ctx, tx, tableKey(c.opt.SourceID, r.table), string(encoded)); err != nil {
 		return 0, 0, err
@@ -715,10 +726,13 @@ func (c *copier) batchSurrogate(ctx context.Context, r rule, m *tableMarker) (in
 	if err != nil || len(batch) == 0 {
 		return 0, 0, err
 	}
+	replaced := int64(0)
 	for _, one := range batch {
-		if err := fitFor(c.dst, r, one.values); err != nil {
+		n, err := fitFor(c.dst, r, one.values)
+		if err != nil {
 			return 0, 0, err
 		}
+		replaced += int64(n)
 	}
 	tx, err := c.dst.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -759,6 +773,7 @@ func (c *copier) batchSurrogate(ctx context.Context, r rule, m *tableMarker) (in
 	next := *m
 	next.W = batch[len(batch)-1].w
 	next.Written += written
+	next.Replaced += replaced
 	encoded, _ := json.Marshal(next)
 	if err := c.dst.setKV(ctx, tx, tableKey(c.opt.SourceID, r.table), string(encoded)); err != nil {
 		return 0, 0, err

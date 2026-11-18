@@ -135,6 +135,16 @@ export function progressOf(view) {
 // resultOf: how the last copy ended, for an alert, or null.
 // severity is MUI's; text is the sentence; tables lists the disagreements.
 export function resultOf(view, t = identity, locale) {
+  const result = resultSentence(view, t, locale);
+  const last = view && view.last;
+  if (result && last && Number(last.replaced) > 0) {
+    // values that are not numbers (NaN, infinities), which the local file cannot hold
+    result.note = t('mgmt.config.general.monitoringDb.copy.replaced', '{{n}} values that are not numbers were stored as 0.', { n: formatCount(last.replaced) });
+  }
+  return result;
+}
+
+function resultSentence(view, t, locale) {
   const last = view && view.last;
   if (!last || !last.outcome) return null;
   const vars = { n: formatCount(last.written), time: formatTime(last.upTo, locale), message: last.message || '' };
@@ -171,5 +181,12 @@ export function mismatchLine(row, t = identity) {
 
 // pollDelay: when to ask again, by what the last answer said.
 export function pollDelay(view) {
-  return view && view.running ? POLL_RUNNING_MS : POLL_IDLE_MS;
+  return view && (view.running || countingOf(view)) ? POLL_RUNNING_MS : POLL_IDLE_MS;
+}
+
+// countingOf: the server is counting a store's records and has nothing to
+// offer yet (the offer comes with the count).
+export function countingOf(view) {
+  if (!view || view.inUse !== 'postgres' || view.running) return false;
+  return (view.offers || []).some((o) => o && o.counting && !o.available);
 }

@@ -95,7 +95,7 @@ func (c *copier) verifySurrogate(ctx context.Context, r rule, after int64, extra
 		batch, err := c.readSurrogate(bctx, r, after, extra, extraArgs)
 		if err == nil && len(batch) > 0 {
 			for _, one := range batch {
-				if err = fitFor(c.dst, r, one.values); err != nil {
+				if _, err = fitFor(c.dst, r, one.values); err != nil {
 					break
 				}
 			}
@@ -168,7 +168,7 @@ func (c *copier) verifyKeys(ctx context.Context, r rule, extra string, extraArgs
 			args := []interface{}{}
 			holes := []string{}
 			for _, one := range batch[start:end] {
-				if err = fitFor(c.dst, r, one.values); err != nil {
+				if _, err = fitFor(c.dst, r, one.values); err != nil {
 					break
 				}
 				for _, k := range keyIdx {

@@ -45,7 +45,8 @@ type Result struct {
 	Outcome    string          `json:"outcome"` // done, mismatch, cancelled, failed, stopped
 	FinishedAt time.Time       `json:"finishedAt"`
 	Written    int64           `json:"written"`
-	UpTo       int64           `json:"upTo"` // unix ms: both stores hold the history recorded before it
+	Replaced   int64           `json:"replaced"` // values that are not finite numbers, stored as 0 (to the local file)
+	UpTo       int64           `json:"upTo"`     // unix ms: both stores hold the history recorded before it
 	Message    string          `json:"message"`
 	Table      string          `json:"table"`
 	Tables     []TableProgress `json:"tables"`
@@ -82,16 +83,24 @@ var (
 
 func localDSN(path string, readOnly bool) string {
 	if readOnly {
-		// never written: the file is opened read-only, and the connection
-		// refuses writes even if it were not
+		// its records are never written: the file is opened read-only, and
+		// the connection refuses writes even if it were not. SQLite may
+		// still create the companion files database.db-wal and -shm next to
+		// it (a reader of a WAL database needs the shared index) and leave
+		// them: the main file's content and time are unchanged. immutable=1
+		// would avoid them, but is unsafe while the fallback may write the
+		// file; deleting them afterwards is unsafe for the same reason.
 		return "file:" + path + "?mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(5000)"
 	}
 	return "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)&_txlock=immediate"
 }
 
 func openLocal(readOnly bool) (Store, error) {
-	return openLocalAt(utils.LocalMonitoringFile(), readOnly)
+	return openLocalFn(utils.LocalMonitoringFile(), readOnly)
 }
+
+// openLocalFn opens the local file; the tests look at what Start opened.
+var openLocalFn = openLocalAt
 
 func openLocalAt(path string, readOnly bool) (Store, error) {
 	db, err := sql.Open(utils.DialectSQLite, localDSN(path, readOnly))
@@ -212,6 +221,7 @@ func resultOf(direction string, report Report, err error, track *Tracker) Result
 	result := Result{Direction: direction, FinishedAt: time.Now(), Tables: tables}
 	for _, p := range tables {
 		result.Written += p.Written
+		result.Replaced += p.Replaced
 	}
 	var copyErr *CopyError
 	switch {
@@ -315,17 +325,29 @@ type cachedSummary struct {
 	at      time.Time
 	summary *Summary
 	problem string
+	valid   bool // counted at least once
 }
 
 var (
 	summaryMu    sync.Mutex
 	summaries    = map[string]cachedSummary{}
+	counting     = map[string]bool{} // a count of the direction runs in the background
+	summaryGen   int                 // raised by forgetSummaries: a count begun before is dropped
 	summaryCache = 30 * time.Second
+	summaryWG    sync.WaitGroup // the counts in the background, for the tests
+
+	computeSummaryFn = computeSummary
 )
 
+// forgetSummaries makes the next view count again; until that count is
+// done, the numbers counted before are shown.
 func forgetSummaries() {
 	summaryMu.Lock()
-	summaries = map[string]cachedSummary{}
+	for direction, cached := range summaries {
+		cached.at = time.Time{}
+		summaries[direction] = cached
+	}
+	summaryGen++
 	summaryMu.Unlock()
 }
 
@@ -392,16 +414,31 @@ func localBytes() int64 {
 	return total
 }
 
-// summaryOf is the (cached) summary of the source of a direction.
-func summaryOf(direction string) (*Summary, string) {
+// summaryOf answers at once with what was counted last (valid false when
+// nothing was yet). When that is older than 30 s and refresh is set, one count
+// starts in the background (one per direction at a time, bounded by 20 s);
+// counting says one runs. A view never waits for a count.
+func summaryOf(direction string, refresh bool) (summary *Summary, problem string, valid bool, isCounting bool) {
 	summaryMu.Lock()
 	defer summaryMu.Unlock()
-	if cached, ok := summaries[direction]; ok && time.Since(cached.at) < summaryCache {
-		return cached.summary, cached.problem
+	cached := summaries[direction]
+	fresh := cached.valid && time.Since(cached.at) < summaryCache
+	if !fresh && refresh && !counting[direction] {
+		counting[direction] = true
+		generation := summaryGen
+		summaryWG.Add(1)
+		go func() {
+			defer summaryWG.Done()
+			summary, problem := computeSummaryFn(direction)
+			summaryMu.Lock()
+			defer summaryMu.Unlock()
+			counting[direction] = false
+			if generation == summaryGen {
+				summaries[direction] = cachedSummary{at: time.Now(), summary: summary, problem: problem, valid: true}
+			}
+		}()
 	}
-	summary, problem := computeSummary(direction)
-	summaries[direction] = cachedSummary{at: time.Now(), summary: summary, problem: problem}
-	return summary, problem
+	return cached.summary, cached.problem, cached.valid, counting[direction]
 }
 
 func computeSummary(direction string) (*Summary, string) {
@@ -456,6 +493,9 @@ type Offer struct {
 	Available bool     `json:"available"`
 	Problem   string   `json:"problem,omitempty"` // not-postgres, no-local-file, empty, unreadable
 	Source    *Summary `json:"source,omitempty"`
+	// Counting: the source's records are being counted in the background;
+	// Source is then what was counted before, or nil
+	Counting bool `json:"counting,omitempty"`
 }
 
 // View is what GET /api/monitoring-copy answers.
@@ -472,8 +512,9 @@ type View struct {
 	Offers      []Offer         `json:"offers"`
 }
 
-// Status gathers the view. The summaries are counted at most every 30
-// seconds, and never while a copy runs (the last ones are shown).
+// Status gathers the view at once. The summaries are counted in the
+// background at most every 30 seconds, and never while a copy runs (the last
+// ones are shown).
 func Status() View {
 	v := View{InUse: "closed", SecondsLeft: -1, Offers: []Offer{}}
 	if _, err := utils.MonitoringWriteDB(); err == nil {
@@ -511,15 +552,9 @@ func Status() View {
 			v.Offers = append(v.Offers, offer)
 			continue
 		}
-		if running {
-			summaryMu.Lock()
-			cached := summaries[direction]
-			summaryMu.Unlock()
-			offer.Source, offer.Problem = cached.summary, cached.problem
-		} else {
-			offer.Source, offer.Problem = summaryOf(direction)
-		}
-		offer.Available = offer.Problem == "" && !running
+		var valid bool
+		offer.Source, offer.Problem, valid, offer.Counting = summaryOf(direction, !running)
+		offer.Available = valid && offer.Problem == "" && !running
 		v.Offers = append(v.Offers, offer)
 	}
 	return v
