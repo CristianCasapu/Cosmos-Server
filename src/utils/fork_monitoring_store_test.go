@@ -79,7 +79,7 @@ func withMonitoringStore(t *testing.T, db DatabaseConfig, problem *PostgresProbl
 	prevFolder, prevConfig := CONFIGFOLDER, GetBaseMainConfig()
 	prevProbe, prevDown, prevBack, prevResolve := probeMonitoringPostgres, monitoringTellDown, monitoringTellBack, monitoringResolveDown
 	prevClock, prevAdvice, prevOpen, prevSchema, prevPing := monitoringClock, monitoringAdviceFor, openPostgresStore, prepareStoreSchema, pingMonitoringStore
-	prevTiming := storeTiming
+	prevTiming := timing()
 	CloseMetricsDatabase()
 	CONFIGFOLDER = t.TempDir() + "/"
 	config := prevConfig
@@ -104,7 +104,7 @@ func withMonitoringStore(t *testing.T, db DatabaseConfig, problem *PostgresProbl
 	}
 	monitoringResolveDown = func(*sql.DB) { stub.mu.Lock(); stub.resolved++; stub.mu.Unlock() }
 	monitoringAdviceFor = func(string, string) string { return "" }
-	storeTiming.drain = 50 * time.Millisecond
+	setTiming(func(*storeTimes) { storeTiming.drain = 50 * time.Millisecond })
 	resetStoreState()
 	t.Cleanup(func() {
 		CloseMetricsDatabase()
@@ -112,7 +112,7 @@ func withMonitoringStore(t *testing.T, db DatabaseConfig, problem *PostgresProbl
 		LoadBaseMainConfig(prevConfig)
 		probeMonitoringPostgres, monitoringTellDown, monitoringTellBack, monitoringResolveDown = prevProbe, prevDown, prevBack, prevResolve
 		monitoringClock, monitoringAdviceFor, openPostgresStore, prepareStoreSchema, pingMonitoringStore = prevClock, prevAdvice, prevOpen, prevSchema, prevPing
-		storeTiming = prevTiming
+		setTiming(func(t *storeTimes) { *t = prevTiming })
 		resetStoreState()
 		storeWatchPaused.Store(false)
 	})
@@ -397,7 +397,7 @@ func TestStayGrowsWithRepeatedOutages(t *testing.T) {
 func TestSwapLosesNoWriter(t *testing.T) {
 	withMonitoringStore(t, DatabaseConfig{PostgresHost: "192.0.2.10:5432", PostgresUsername: "cosmos", PostgresPassword: "x"}, nil)
 	fakePostgres(t)
-	storeTiming.drain = 300 * time.Millisecond
+	setTiming(func(*storeTimes) { storeTiming.drain = 300 * time.Millisecond })
 	InitMetricsDatabase()
 	var closed, done atomic.Int64
 	stop := make(chan struct{})
@@ -730,8 +730,12 @@ func TestFlappingAndSilentHostLive(t *testing.T) {
 	stub := withMonitoringStore(t, db, nil)
 	monitoringClock = time.Now
 	probeMonitoringPostgres = CheckPostgresStore
-	storeTiming.pingEvery, storeTiming.retryFirst, storeTiming.pingWithin = 200*time.Millisecond, 200*time.Millisecond, time.Second
-	storeTiming.goodSpan, storeTiming.minStay, storeTiming.tellAfter, storeTiming.drain = time.Second, time.Second, time.Minute, 500*time.Millisecond
+	setTiming(func(*storeTimes) {
+		storeTiming.pingEvery, storeTiming.retryFirst, storeTiming.pingWithin = 200*time.Millisecond, 200*time.Millisecond, time.Second
+	})
+	setTiming(func(*storeTimes) {
+		storeTiming.goodSpan, storeTiming.minStay, storeTiming.tellAfter, storeTiming.drain = time.Second, time.Second, time.Minute, 500*time.Millisecond
+	})
 	if err := InitMetricsDatabase(); err != nil || MonitoringDialect() != DialectPostgres {
 		t.Fatalf("PostgreSQL first: %v %s", err, MonitoringDialect())
 	}
@@ -821,4 +825,10 @@ func TestFallbackHealsLive(t *testing.T) {
 	if err := store.QueryRow("SELECT count(*) FROM metric_values").Scan(new(int)); err != nil {
 		t.Fatalf("tables in PostgreSQL: %v", err)
 	}
+}
+
+func setTiming(change func(*storeTimes)) {
+	storeTimingMu.Lock()
+	change(&storeTiming)
+	storeTimingMu.Unlock()
 }

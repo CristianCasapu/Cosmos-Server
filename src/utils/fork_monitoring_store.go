@@ -83,6 +83,15 @@ type storeTimes struct {
 	drain                 time.Duration // old handles stay open this long after a swap
 }
 
+// storeTimingMu guards storeTiming (the tests change it while the watcher runs).
+var storeTimingMu sync.RWMutex
+
+func timing() storeTimes {
+	storeTimingMu.RLock()
+	defer storeTimingMu.RUnlock()
+	return storeTiming
+}
+
 var storeTiming = storeTimes{
 	probeAtStart: 5 * time.Second, probe: 8 * time.Second,
 	retryFirst: 5 * time.Second, retryMax: 5 * time.Minute,
@@ -182,9 +191,9 @@ func openMonitoringStore() error {
 		return openLocalStore(node)
 	}
 
-	timeout := storeTiming.probe
+	timeout := timing().probe
 	if first {
-		timeout = storeTiming.probeAtStart
+		timeout = timing().probeAtStart
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	problem := probeMonitoringPostgres(ctx, db)
@@ -234,7 +243,7 @@ func openMonitoringStore() error {
 func recentOutages(now time.Time) []time.Time {
 	kept := []time.Time{}
 	for _, t := range storeOutages {
-		if now.Sub(t) < storeTiming.flapWindow {
+		if now.Sub(t) < timing().flapWindow {
 			kept = append(kept, t)
 		}
 	}
@@ -307,7 +316,7 @@ func swapMonitoringStore(w, r *sql.DB, dialect string, key string, node string) 
 	if oldW == nil && oldR == nil {
 		return
 	}
-	time.AfterFunc(storeTiming.drain, func() {
+	time.AfterFunc(timing().drain, func() {
 		if oldW != nil {
 			oldW.Close()
 		}
@@ -437,8 +446,8 @@ func startMonitoringWatcher() {
 
 // watchMonitoringStore is the one watcher: it never ends, one look at a time.
 func watchMonitoringStore() {
-	w := &monitoringWatch{backoff: storeTiming.retryFirst}
-	timer := time.NewTimer(storeTiming.retryFirst)
+	w := &monitoringWatch{backoff: timing().retryFirst}
+	timer := time.NewTimer(timing().retryFirst)
 	defer timer.Stop()
 	for {
 		kicked := false
@@ -453,7 +462,7 @@ func watchMonitoringStore() {
 				}
 			}
 		}
-		wait := storeTiming.retryFirst
+		wait := timing().retryFirst
 		if !storeWatchPaused.Load() {
 			wait = w.safeLook(kicked)
 		}
@@ -480,7 +489,7 @@ func (w *monitoringWatch) safeLook(kicked bool) (wait time.Duration) {
 				w.panicked = text
 				Error("Monitoring database: a look of the watcher failed", errors.New(text))
 			}
-			wait = storeTiming.retryFirst
+			wait = timing().retryFirst
 		}
 	}()
 	return w.look(kicked)
@@ -497,8 +506,8 @@ var pingMonitoringStore = func(ctx context.Context) error {
 
 func (w *monitoringWatch) grow() time.Duration {
 	w.backoff *= 2
-	if w.backoff > storeTiming.retryMax {
-		w.backoff = storeTiming.retryMax
+	if w.backoff > timing().retryMax {
+		w.backoff = timing().retryMax
 	}
 	return w.backoff
 }
@@ -506,13 +515,13 @@ func (w *monitoringWatch) grow() time.Duration {
 // look does one look and says when the next one is due.
 func (w *monitoringWatch) look(kicked bool) time.Duration {
 	if kicked {
-		w.backoff, w.failures, w.good = storeTiming.retryFirst, 0, 0
+		w.backoff, w.failures, w.good = timing().retryFirst, 0, 0
 	}
 	adviseFallback()
 
 	db := GetMainConfig().Database
 	if db.PostgresHost == "" {
-		return storeTiming.idle
+		return timing().idle
 	}
 	state := GetMonitoringStoreState()
 	now := monitoringClock()
@@ -523,7 +532,7 @@ func (w *monitoringWatch) look(kicked bool) time.Duration {
 			setStoreState(func(s *MonitoringStoreState) { s.NextTry = now.Add(w.backoff) })
 			return w.backoff
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), storeTiming.probe)
+		ctx, cancel := context.WithTimeout(context.Background(), timing().probe)
 		problem := probeMonitoringPostgres(ctx, db)
 		cancel()
 		if problem != nil {
@@ -544,16 +553,16 @@ func (w *monitoringWatch) look(kicked bool) time.Duration {
 		}
 		w.good++
 		storeStateMu.Lock()
-		stay := storeTiming.minStay << uint(max(0, min(len(recentOutages(now))-1, 6)))
+		stay := timing().minStay << uint(max(0, min(len(recentOutages(now))-1, 6)))
 		onLocal := storeOnLocal
 		storeStateMu.Unlock()
-		if stay > storeTiming.maxStay {
-			stay = storeTiming.maxStay
+		if stay > timing().maxStay {
+			stay = timing().maxStay
 		}
-		ready := w.good >= storeTiming.goodProbes && now.Sub(w.goodSince) >= storeTiming.goodSpan && now.Sub(onLocal) >= stay
+		ready := w.good >= timing().goodProbes && now.Sub(w.goodSince) >= timing().goodSpan && now.Sub(onLocal) >= stay
 		if !ready {
-			step := storeTiming.goodSpan / time.Duration(max(1, storeTiming.goodProbes-1))
-			if left := stay - now.Sub(onLocal); w.good >= storeTiming.goodProbes && left > step {
+			step := timing().goodSpan / time.Duration(max(1, timing().goodProbes-1))
+			if left := stay - now.Sub(onLocal); w.good >= timing().goodProbes && left > step {
 				step = left
 			}
 			setStoreState(func(s *MonitoringStoreState) { s.NextTry = now.Add(step) })
@@ -583,8 +592,8 @@ func (w *monitoringWatch) look(kicked bool) time.Duration {
 			monitoringResolveDown(local)
 			monitoringTellBack(after, state.Since)
 		}
-		w.backoff, w.failures, w.good = storeTiming.retryFirst, 0, 0
-		return storeTiming.pingEvery
+		w.backoff, w.failures, w.good = timing().retryFirst, 0, 0
+		return timing().pingEvery
 
 	case state.InUse == "":
 		// configured, and nothing open (closed for a clean install or a
@@ -592,28 +601,28 @@ func (w *monitoringWatch) look(kicked bool) time.Duration {
 		if err := InitMetricsDatabase(); err != nil {
 			Error("Monitoring database: opening the store failed", err)
 		}
-		return storeTiming.retryFirst
+		return timing().retryFirst
 
 	case state.InUse == DialectPostgres:
-		ctx, cancel := context.WithTimeout(context.Background(), storeTiming.pingWithin)
+		ctx, cancel := context.WithTimeout(context.Background(), timing().pingWithin)
 		err := pingMonitoringStore(ctx)
 		cancel()
 		if err == nil {
 			w.failures = 0
-			return storeTiming.pingEvery
+			return timing().pingEvery
 		}
 		w.failures++
-		if w.failures < storeTiming.pingFailures {
-			return storeTiming.retryFirst
+		if w.failures < timing().pingFailures {
+			return timing().retryFirst
 		}
 		w.failures = 0
 		Warn("Monitoring database: PostgreSQL at " + db.PostgresHost + " stopped answering; the local file takes over")
 		if err := InitMetricsDatabase(); err != nil {
 			Error("Monitoring database: opening the store failed", err)
 		}
-		return storeTiming.retryFirst
+		return timing().retryFirst
 	}
-	return storeTiming.idle
+	return timing().idle
 }
 
 // monitoringAdviceFor is PostgresHostAdvice, bounded; replaced by the tests.
@@ -659,7 +668,7 @@ func adviseFallback() {
 func tellLastingOutage() {
 	storeStateMu.Lock()
 	s := storeState
-	due := s.Fallback && !storeTold && !s.Since.IsZero() && monitoringClock().Sub(s.Since) >= storeTiming.tellAfter
+	due := s.Fallback && !storeTold && !s.Since.IsZero() && monitoringClock().Sub(s.Since) >= timing().tellAfter
 	if due {
 		storeTold = true
 	}
