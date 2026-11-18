@@ -10,7 +10,15 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 Merged into `custom` since `0.24.0-fork.38`, to be part of the next release:
 
-- Nothing yet.
+### Added
+- An app's Network, Storage and Docker tabs propose their values: ports from the image with a free port of the server, the address a port is published on as a choice with who can reach it, folders the image keeps data in that nothing keeps yet, the user, the limits and the server's devices; "Type it myself" stays everywhere.
+
+### Fixed
+- Saving a tab of an app without changing anything no longer changes the app: the published ports of a stopped app, ports that are only exposed, a device's read-only permission, mount options, and the app's network settings (the names other apps find it by, a fixed address, its hostname) are kept. Before, every save and every update lost some of these.
+- Volumes written as `name:/path` can be saved again; the restart policy `on-failure:3` keeps its count.
+
+### Security
+- What needs the "sensitive access" tick is judged on the real path: a folder reached through a link, a volume that hides a folder of the server, a new folder inside one that another app can write, and making a confirmed read-only folder writable all need it, when an app is created and when it is edited.
 
 ## Fork 0.24.0-fork.38 — 2026-11-18
 
