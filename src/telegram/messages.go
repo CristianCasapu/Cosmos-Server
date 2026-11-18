@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -93,9 +94,15 @@ type kindTexts struct {
 	Level bool `json:"level,omitempty"`
 	// Off: not sent unless switched on by itself (like the security
 	// events under the minimum severity).
-	Off     bool              `json:"off,omitempty"`
-	Closing bool              `json:"closing,omitempty"`
-	Pin     bool              `json:"pin,omitempty"`
+	Off     bool `json:"off,omitempty"`
+	Closing bool `json:"closing,omitempty"`
+	Pin     bool `json:"pin,omitempty"`
+	// Closes (review 4, P2): the opening kind this closing kind ends. The
+	// kinds so declared, both sides, are the pairs: only they are threads
+	// (threadorder.go); everything else is a message of its own. Neutral:
+	// a closing whose first line is not "OK" (what ended is not a recovery).
+	Closes  string            `json:"closes,omitempty"`
+	Neutral bool              `json:"neutral,omitempty"`
 	Sample  map[string]string `json:"sample"`
 	// Raw names the values that can carry the text of an error: they go
 	// through the guard of error texts, and are left out with "Include error
@@ -126,7 +133,62 @@ func mustLoadTable(raw []byte) messageTable {
 		kind.severity = sev
 		table.Kinds[name] = kind
 	}
+	for name, kind := range table.Kinds {
+		if kind.Closes == "" {
+			continue
+		}
+		opening, known := table.Kinds[kind.Closes]
+		if !known || !kind.Closing || opening.Closing {
+			panic("telegram: kind " + name + " closes " + kind.Closes + ", which is not an opening of the table")
+		}
+	}
 	return table
+}
+
+// closingsOf lists the closing kinds declared for an opening kind.
+func closingsOf(opening string) []string {
+	out := []string{}
+	for _, name := range KindNames() {
+		if texts.Kinds[name].Closes == opening {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// PairedKinds are the opening kinds that have a declared closing, sorted.
+func PairedKinds() []string {
+	out := []string{}
+	for _, name := range KindNames() {
+		if len(closingsOf(name)) > 0 {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// pairedOpening reports whether a kind opens a declared pair.
+func pairedOpening(kind string) bool {
+	_, ok := pairs()[kind]
+	return ok
+}
+
+var pairsOnce struct {
+	sync.Once
+	m map[string][]string
+}
+
+// pairs maps every paired opening kind to its closing kinds.
+func pairs() map[string][]string {
+	pairsOnce.Do(func() {
+		pairsOnce.m = map[string][]string{}
+		for _, name := range KindNames() {
+			if c := closingsOf(name); len(c) > 0 {
+				pairsOnce.m[name] = c
+			}
+		}
+	})
+	return pairsOnce.m
 }
 
 // word is a fixed text of the table.
@@ -301,8 +363,8 @@ func usesVars(text string) bool {
 }
 
 // headline writes the mark and the word of a severity.
-func headline(c *composer, sev severity, closing bool) {
-	if closing {
+func headline(c *composer, sev severity, closing bool, neutral bool) {
+	if closing && !neutral {
 		c.fixed(closingMark + " " + word("closing") + " · ")
 		return
 	}
@@ -342,7 +404,7 @@ func renderWith(st settings, nt notice, details bool) message {
 		}
 	}
 
-	headline(c, nt.severity, nt.closing)
+	headline(c, nt.severity, nt.closing, kt.Neutral)
 	if details && kt.Preview != "" && hasVars(kt.Preview, vars) {
 		// review N1: in the first line a value holds letters, digits and a
 		// little punctuation only, so that it cannot look like a mark
@@ -581,7 +643,7 @@ func composeDigest(st settings, counts map[string]int, since time.Time, now time
 	}
 
 	c := &composer{secrets: st.secrets}
-	headline(c, top, false)
+	headline(c, top, false, false)
 	span := spanWords(now.Sub(since))
 	if len(kinds) == 1 {
 		writeTemplate(c, word("summaryOne"), map[string]string{"count": strconv.Itoa(total), "many": many(kinds[0]), "span": span}, 80)

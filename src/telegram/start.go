@@ -34,8 +34,14 @@ func Start(version string) {
 		n := newNotifier(newAPIClient(), currentSettings)
 		n.raise = raiseInPanel
 		n.threads = newThreadMemory(threadsPath())
+		n.levels = storeLevels{}
 		n.logf = utils.Warn
 		n.start()
+		// review 4, T4: a warning that was waiting when the server stopped
+		if mark := n.threads.takeFarewell(); mark != nil {
+			lost := lostWarning
+			go lost(mark.What, mark.By)
+		}
 		std.Store(n)
 
 		utils.SetNotificationForwarder(forwardNotification)

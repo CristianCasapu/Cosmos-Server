@@ -296,7 +296,7 @@ func (st settings) forced(kind string) bool {
 // information.
 func (st settings) mode(nt notice) string {
 	sev := nt.severity
-	if nt.closing {
+	if nt.closing && !nt.texts().Neutral {
 		sev = sevInfo
 	}
 	return st.delivery[sev]
@@ -323,4 +323,18 @@ func (st settings) inQuietHours(minuteOfDay int) bool {
 		return minuteOfDay >= st.quietFrom && minuteOfDay < st.quietTo
 	}
 	return minuteOfDay >= st.quietFrom || minuteOfDay < st.quietTo
+}
+
+// wantsFingerprint changes when what is wanted, or where it goes, changes:
+// the threads are then decided again (review 4, B2).
+func (st settings) wantsFingerprint() string {
+	keys := make([]string, 0, len(st.kinds)+len(st.categories))
+	for name, on := range st.kinds {
+		keys = append(keys, "k"+name+"="+strconv.FormatBool(on))
+	}
+	for name, on := range st.categories {
+		keys = append(keys, "c"+name+"="+strconv.FormatBool(on))
+	}
+	sort.Strings(keys)
+	return st.fingerprint + "\x00" + st.minSeverity + "\x00" + strings.Join(st.delivery[:], ",") + "\x00" + strings.Join(keys, ",")
 }

@@ -86,6 +86,7 @@ var (
 	changeChats   = map[string]*chatChange{}
 	changeOrder   []string
 	changeRunning bool
+	changeSending *chatChange // the one being sent
 	// changeRetryFor is how long a warning is tried; changeRetries the
 	// waits between attempts (the last one repeats). Variables for the tests.
 	changeRetryFor = 30 * time.Minute
@@ -123,10 +124,48 @@ func queueChange(was settings, what string, actor string, ip string) {
 			entry.moreBy++
 		}
 	}
+	markFarewellsLocked()
+	utils.Log("Telegram: the chat is told that its notifications " + what)
 	if !changeRunning {
 		changeRunning = true
 		go sendChanges()
 	}
+}
+
+// markFarewellsLocked keeps in the threads file what waits to be told, so
+// that a restart before it is sent records it as lost (review 4, T4).
+func markFarewellsLocked() {
+	n := std.Load()
+	if n == nil || n.threads == nil {
+		return
+	}
+	whats, bys := []string{}, []string{}
+	for _, key := range changeOrder {
+		if entry := changeChats[key]; entry != nil {
+			whats = append(whats, entry.whats...)
+			bys = append(bys, entry.actors...)
+		}
+	}
+	if changeSending != nil {
+		whats = append(whats, changeSending.whats...)
+		bys = append(bys, changeSending.actors...)
+	}
+	if len(whats) == 0 {
+		n.threads.farewell(nil)
+		return
+	}
+	n.threads.farewell(&farewellMark{What: cleanValue(strings.Join(whats, "; "), 300), By: cleanValue(strings.Join(bys, ", "), 200), At: time.Now()})
+}
+
+// leavesChat: the change takes the notifications away from the chat.
+func leavesChat(whats []string) bool {
+	for _, what := range whats {
+		switch what {
+		case "were switched off", "now use another bot", "now go to another chat":
+			return true
+		}
+	}
+	return false
 }
 
 func contains(list []string, value string) bool {
@@ -144,6 +183,8 @@ func sendChanges() {
 		changeMu.Lock()
 		if len(changeOrder) == 0 {
 			changeRunning = false
+			changeSending = nil
+			markFarewellsLocked()
 			changeMu.Unlock()
 			return
 		}
@@ -151,6 +192,7 @@ func sendChanges() {
 		changeOrder = changeOrder[1:]
 		entry := changeChats[key]
 		delete(changeChats, key) // what comes meanwhile for this chat is told after
+		changeSending = entry
 		changeMu.Unlock()
 		if entry != nil {
 			sendChange(entry)
@@ -176,6 +218,31 @@ func sendChange(entry *chatChange) {
 	nt.key = "telegram.moved"
 	if by != "" {
 		nt.extra = func(c *composer) { c.fixed("Changed by ").value(by, maxFreeText).fixed(".") }
+	}
+	// review 4: the chat that loses the notifications keeps no pin of a
+	// problem it will not hear the end of; the pins that cannot be taken
+	// away are said
+	if left := leavesChat(entry.whats); left {
+		if n := std.Load(); n != nil && n.threads != nil {
+			stuck := 0
+			for _, id := range n.threads.leave(entry.was) {
+				ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)
+				if directClient.pin(ctx, entry.was, id, false) != nil {
+					stuck++
+				}
+				cancel()
+			}
+			if stuck > 0 {
+				before := nt.extra
+				nt.extra = func(c *composer) {
+					if before != nil {
+						before(c)
+						c.fixed("\n")
+					}
+					c.fixed(strconv.Itoa(stuck) + " pinned messages of problems still open could not be unpinned: they are no longer followed here.")
+				}
+			}
+		}
 	}
 	m := render(entry.was, nt)
 	changeMu.Lock()

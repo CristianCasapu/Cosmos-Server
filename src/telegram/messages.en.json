@@ -319,13 +319,31 @@
       "sample": {"disk": "/dev/sdb", "model": "WDC WD40EFRX", "serial": "4F2A", "mounts": "/mnt/data", "reason": "12 reallocated sectors (5 more since the last check)"}
     },
     "smart.restored": {
-      "severity": "info", "category": "storage", "closing": true,
+      "severity": "info", "category": "storage", "closing": true, "closes": "smart.failing",
       "label": "Disk healthy again", "many": "disks healthy again",
       "preview": "Disk {{disk}} reads healthy again",
       "whatKey": "notif.smart.restored.what",
       "todo": "nothing.",
       "page": "/cosmos-ui/storage",
       "sample": {"disk": "/dev/sdb", "model": "WDC WD40EFRX", "serial": "4F2A"}
+    },
+    "smart.gone": {
+      "severity": "warn", "category": "storage", "closing": true, "closes": "smart.failing", "neutral": true,
+      "label": "Failing disk no longer present", "many": "failing disks gone",
+      "preview": "Failing disk {{disk}} no longer present",
+      "whatKey": "notif.smart.gone.what",
+      "means": "A disk that is gone is not a healthy disk: if it was not replaced on purpose, it may have died.",
+      "todo": "check that the disk was replaced on purpose, and that what was on it is safe.",
+      "page": "/cosmos-ui/storage",
+      "sample": {"disk": "/dev/sdb", "model": "WDC WD40EFRX", "serial": "4F2A"}
+    },
+    "thread.ended": {
+      "severity": "info", "category": "system", "closing": true, "neutral": true,
+      "label": "No longer followed", "many": "problems no longer followed",
+      "preview": "No longer followed: {{_label}}",
+      "what": "Cosmos stopped following this problem without seeing it end: its cause changed, what it was about is gone, or its watch was switched off. The pin is removed.",
+      "todo": "open the panel to see whether it still holds.",
+      "sample": {"_label": "Cosmos unreachable from the internet"}
     },
     "disk.filling": {
       "severity": "warn", "category": "storage",
@@ -337,7 +355,7 @@
       "sample": {"mount": "/mnt/data", "grown": "180 GB", "hours": "24", "left": "2 days", "free": "350 GB"}
     },
     "disk.filling.over": {
-      "severity": "info", "category": "storage", "closing": true,
+      "severity": "info", "category": "storage", "closing": true, "closes": "disk.filling",
       "label": "Disk no longer filling fast", "many": "disks no longer filling fast",
       "preview": "{{mount}} no longer fills fast",
       "whatKey": "notif.disk.filling.over.what",
@@ -355,7 +373,7 @@
       "sample": {"minutes": "3", "reason": "the connection was refused"}
     },
     "docker.restored": {
-      "severity": "info", "category": "apps", "closing": true,
+      "severity": "info", "category": "apps", "closing": true, "closes": "docker.down",
       "label": "Docker answers again", "many": "Docker recoveries",
       "preview": "Docker answers again",
       "whatKey": "notif.docker.restored.what",
@@ -373,7 +391,7 @@
       "sample": {"folder": "/mnt/data/photos", "age": "2 days", "last": "15 Nov 03:00", "period": "day"}
     },
     "snapshots.ontime": {
-      "severity": "info", "category": "system", "closing": true,
+      "severity": "info", "category": "system", "closing": true, "closes": "snapshots.late",
       "label": "Snapshots made again", "many": "folders snapshotted again",
       "preview": "{{folder}} has a new snapshot",
       "whatKey": "notif.snapshots.ontime.what",
@@ -391,7 +409,7 @@
       "sample": {"version": "0.24.0-fork.36", "duration": "2 minutes", "run": "1"}
     },
     "job.restored": {
-      "severity": "info", "category": "system", "closing": true,
+      "severity": "info", "category": "system", "closing": true, "closes": "error.job",
       "label": "Scheduled job works again", "many": "jobs working again",
       "preview": "Scheduled job {{name}} works again",
       "whatKey": "notif.job.restored.what",
@@ -436,7 +454,7 @@
       "sample": {"what": "disks filling fast", "age": "1 hour"}
     },
     "smart.readable": {
-      "severity": "info", "category": "storage", "closing": true,
+      "severity": "info", "category": "storage", "closing": true, "closes": "smart.unreadable",
       "label": "Disk can be read again", "many": "disks readable again",
       "preview": "Disk {{disk}} can be read again",
       "whatKey": "notif.smart.readable.what",
@@ -445,7 +463,7 @@
       "sample": {"disk": "/dev/sdb", "model": "WDC WD40EFRX"}
     },
     "watch.recovered": {
-      "severity": "info", "category": "system", "closing": true,
+      "severity": "info", "category": "system", "closing": true, "closes": "watch.stuck",
       "label": "A check answers again", "many": "checks answering again",
       "preview": "The check of {{what}} answers again",
       "whatKey": "notif.watch.recovered.what",
@@ -453,7 +471,7 @@
       "sample": {"what": "disks filling fast", "age": "2 hours"}
     },
     "docker.unwatched": {
-      "severity": "info", "category": "apps", "closing": true,
+      "severity": "info", "category": "apps", "closing": true, "closes": "docker.down", "neutral": true,
       "label": "Docker no longer watched", "many": "watches switched off",
       "preview": "Docker no longer watched (switched off)",
       "whatKey": "notif.docker.unwatched.what",
@@ -470,7 +488,7 @@
       "sample": {"port": "443", "app": "Cosmos"}
     },
     "upnp.forward.restored": {
-      "severity": "info", "category": "system", "closing": true,
+      "severity": "info", "category": "system", "closing": true, "closes": "upnp.forward.failed",
       "label": "Port forwarded again", "many": "ports forwarded again",
       "preview": "Port {{port}} is forwarded again",
       "whatKey": "notif.upnp.forward.restored.https",
@@ -486,7 +504,7 @@
       "sample": {}
     },
     "upnp.router.restored": {
-      "severity": "info", "category": "system", "closing": true,
+      "severity": "info", "category": "system", "closing": true, "closes": "upnp.router.unreachable",
       "label": "Router answers again", "many": "router recoveries",
       "preview": "Router answers again",
       "whatKey": "notif.upnp.router.restored.what",
@@ -633,7 +651,7 @@
       "sample": {}
     },
     "fail2ban.restored": {
-      "severity": "info", "category": "system", "closing": true,
+      "severity": "info", "category": "system", "closing": true, "closes": "fail2ban.down",
       "label": "Fail2ban runs again", "many": "Fail2ban recoveries",
       "preview": "Fail2ban runs again",
       "whatKey": "notif.fail2ban.restored.what",
@@ -657,7 +675,7 @@
       "sample": {"failed": "0.24.0-fork.36", "back": "0.24.0-fork.35", "starts": "3", "file": "cosmos-update.failed"}
     },
     "update.attention": {
-      "raw": ["summary"], "severity": "critical", "category": "system", "pin": true,
+      "raw": ["summary"], "severity": "critical", "category": "system",
       "label": "Server update needs attention", "many": "updates needing attention",
       "preview": "Update needs you: {{summary}}",
       "whatKey": "notif.update.attention.what",
@@ -714,7 +732,7 @@
       "sample": {"since": "14:02", "port": "443", "name": "example.org", "code": "522"}
     },
     "reach.restored": {
-      "severity": "info", "category": "system", "closing": true,
+      "severity": "info", "category": "system", "closing": true, "closes": "reach.down",
       "label": "Reachable from the internet again", "many": "recoveries",
       "preview": "Reachable from the internet again",
       "whatKey": "notif.reach.restored.what",

@@ -134,7 +134,7 @@ func TestTheFirstLineOfEveryKindSaysWhatAndToWhat(t *testing.T) {
 	for _, name := range KindNames() {
 		nt := sampleNotice(name)
 		m := render(st, nt)
-		previewSays(t, name, m, nt.texts(), nt.severity, nt.vars, nt.closing)
+		previewSays(t, name, m, nt.texts(), nt.severity, nt.vars, nt.closing && !nt.texts().Neutral)
 		if !strings.HasSuffix(m.text, "home.example · "+word("sample")) {
 			t.Errorf("%s: the sample does not end with the server and the sample mark: %q", name, m.text)
 		}
@@ -518,16 +518,17 @@ func TestPinsAreBounded(t *testing.T) {
 	st := testSettings()
 	unpinned := []int{}
 	for i := 1; i <= 5; i++ {
-		unpinned = append(unpinned, m.open(st, "t"+strconv.Itoa(i), i, true)...)
+		unpinned = append(unpinned, m.open(st, "t"+strconv.Itoa(i), "t"+strconv.Itoa(i), "reach.down", i, true)...)
+		m.pinned(st, "t"+strconv.Itoa(i), i, true)
 	}
 	if len(unpinned) != 2 || unpinned[0] != 1 || unpinned[1] != 2 {
 		t.Errorf("unpinned %v, want the two oldest", unpinned)
 	}
 	for i := 0; i < maxThreads+50; i++ {
-		m.open(st, "n"+strconv.Itoa(i), 1000+i, false)
+		m.open(st, "n"+strconv.Itoa(i), "n", "reach.down", 1000+i, false)
 	}
-	if len(m.data.Threads) > maxThreads {
-		t.Errorf("%d threads kept", len(m.data.Threads))
+	if kept := len(m.data.Chats[chatKey(st)].Threads); kept > maxThreads {
+		t.Errorf("%d threads kept", kept)
 	}
 	// another chat: nothing of the first one is answered
 	other := st
@@ -540,7 +541,7 @@ func TestPinsAreBounded(t *testing.T) {
 func TestTheThreadsAreKeptAcrossARestart(t *testing.T) {
 	path := t.TempDir() + "/" + threadsFileName
 	st := testSettings()
-	newThreadMemory(path).open(st, "fail2ban.down", 42, false)
+	newThreadMemory(path).open(st, "fail2ban.down", "fail2ban.down", "fail2ban.down", 42, false)
 	if open, ok := newThreadMemory(path).get(st, "fail2ban.down"); !ok || open.MessageID != 42 {
 		t.Errorf("after a restart: %+v %v", open, ok)
 	}

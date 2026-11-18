@@ -1,52 +1,73 @@
 package telegram
 
-// Fork addition (plan 48, review T1): the messages of one thread (a problem
-// that starts and ends: an outage, a router that does not answer, a disk
-// that fails) are delivered in order, and what is delivered is decided when
-// it is sent, from the thread's truth, never from what was queued.
+// Fork addition (plan 48, reviews T1 and 4): the messages of a thread are
+// delivered in order, and what is delivered is decided when it is sent,
+// from the thread's truth, never from what was queued.
 //
-// Per thread the notifier keeps one entry: the truth (open or closed, from
-// the events, in the order they happened), the notices that describe it,
-// and whether an item of the thread is queued or in flight. There is at
-// most one item per thread anywhere: nothing of a thread is sent while an
-// earlier one of the same thread waits or is on the wire. Other threads
-// are not held up by it.
+// A thread is a problem of a DECLARED PAIR only (review 4, (a)): an opening
+// kind of the table with its closing kinds ("closes" in messages.en.json;
+// PairedKinds lists them). Every other notification is a message of its
+// own, through the plain queue, with the budgets, the cap and the critical
+// reserve, exactly as before plan 48: nothing can be swallowed as "already
+// told".
+//
+// Per thread the notifier keeps one entry, known by a hash of the thread's
+// name (threadID): the truth (open or closed), the notices that describe
+// it, and whether it is due or in flight. Entries never live in the plain
+// queues, so nothing there can push them out (review 4, B1). At most one
+// send per thread is on the wire; other threads are not held up by it.
 //
 // "told" is whether the chat holds an opening of this thread that was not
-// closed (threads.go keeps its message id; it survives a restart).
+// closed (threads.go; it survives a restart).
 //
-// The state machine, decided at send time (decide):
+// The state machine, decided at send time (decideLocked):
 //
-//	truth   told   pending repeat   → action
-//	open    no     -                → OPEN: send the opening (pin it when its kind pins);
-//	                                   told = yes
-//	open    yes    yes              → REPEAT: send the repeat as a reply
-//	open    yes    no               → nothing (the chat already says it is open;
-//	                                   a close and re-open in between changes nothing)
-//	closed  yes    -                → CLOSE: unpin and forget the opening ALWAYS; send the
-//	                                   closing as a reply only when its kind and severity
-//	                                   are wanted; told = no
-//	closed  no     -  (an opening   → MERGED: one message "it happened and is over (was: …,
-//	               of this episode     12 minutes)", delivered as the opening would have been
-//	               was never sent)     (it rings when the opening would), no reply, no pin
-//	closed  no     -  (nothing)     → nothing
+//	truth   told   other                → action
+//	open    no     an opening is known  → OPEN: send the opening (pinned when its kind pins
+//	                                      and it is critical); told = yes. Not wanted by
+//	                                      the settings now: nothing, decided again when
+//	                                      they change (B2)
+//	open    yes    a fresh opening      → OPEN: the source opened it again after an end
+//	                                      the chat did not see (a quiet end); the old pin
+//	                                      gives way
+//	open    yes    a repeat waits       → REPEAT: the repeat as a reply
+//	open    yes    -                    → nothing
+//	closed  yes    -                    → CLOSE: unpin and forget the opening ALWAYS; send
+//	                                      the closing as a reply (with no closing known:
+//	                                      "no longer followed"), unless its kind was
+//	                                      switched off by itself (A3: otherwise a closing
+//	                                      arrives, at least silently, when its opening did)
+//	closed  no     opening and closing  → MERGED: "it happened and is over (was: …)",
+//	                                      delivered as the opening would have been; no
+//	                                      reply, no pin
+//	closed  no     -                    → nothing; the entry is forgotten
 //
-// Events (threadEvent): an opening sets truth open (a new episode when it
-// was closed); a closing sets truth closed; a repeat is noted when the
-// truth is open. After every send (or failure) the entry is decided again,
-// so the last message of a thread always matches its truth: the chat never
-// ends on "OK" while the problem is open, nor on a pinned problem that is
-// over. A thread is its own flood control: one item at a time, its events
-// folded into its truth, so the budgets per kind and the cap per minute do
-// not hold its messages back (they would leave the chat on a summary while
-// the truth is something else). There are at most maxThreadEntries threads.
+// Events (threadEventLocked): an opening or a repeat makes the truth open
+// (a repeat on a thread the memory thinks closed means it is open: P1); a
+// closing makes it closed. After every send the entry is decided again.
+//
+// The truth is also LEVEL (review 4, (d), levels.go): at start and every
+// reconcileEvery the notifier asks the sources whether each thread it
+// knows of, or that the notifications hold open, is open, and sets the
+// entries right: a lost event, a restart, a lost threads file, a setting
+// switched off and on, an end the source made quietly, all heal within one
+// period.
+//
+// Second line (P3): an opening of the same thread is never sent twice
+// within brakeWindow.
 
 import (
 	"context"
+	"sort"
+	"strconv"
 	"time"
 )
 
-const maxThreadEntries = 256
+const (
+	maxThreadEntries = 256
+	brakeWindow      = time.Minute
+	maxThreadPanics  = 3
+)
 
 type threadAction int
 
@@ -58,204 +79,373 @@ const (
 	actionMerged
 )
 
+func (a threadAction) String() string {
+	return [...]string{"none", "open", "repeat", "close", "merged"}[a]
+}
+
 type threadEntry struct {
-	id       string
+	id, name string
 	open     bool
-	opening  *notice // the opening of the current (or last) episode
-	closing  *notice // the last closing
-	repeat   *notice // a repeat waiting to be sent
-	held     bool    // the opening was counted in a summary instead of being sent
-	queued   bool
-	inFlight bool
+	since    time.Time
+	episode  int
+	// fresh: an opening came while the chat held an older one
+	fresh   bool
+	opening *notice // the opening of the current (or last) episode
+	closing *notice // the closing of the last episode
+	repeat  *notice // a repeat waiting to be sent
+	// queued: to be decided; inFlight: a send is on the wire
+	queued    bool
+	inFlight  bool
+	notBefore time.Time
+	attempts  int
+	noButton  bool
+	plain     bool
+	panics    int
+	seq       uint64 // the last event that changed it
+	touched   time.Time
+	dirty     bool // its state is to be written to the threads file
 }
 
-func threadOf(nt notice) string {
+type brake struct {
+	at        time.Time
+	messageID int
+}
+
+// pairedThread is the name of the thread a notice belongs to, "" when its
+// kind is not of a declared pair (a message of its own).
+func pairedThread(nt notice) string {
 	if nt.resolves != "" {
-		return nt.resolves
+		if nt.texts().Closes != "" {
+			return nt.resolves
+		}
+		return ""
 	}
-	return nt.thread
+	if nt.thread != "" && pairedOpening(nt.kind) {
+		return nt.thread
+	}
+	return ""
 }
 
-// threadEventLocked records an event of a thread and makes sure the thread
-// has its one item queued.
-func (n *notifier) threadEventLocked(_ settings, nt notice, now time.Time) {
-	id := threadOf(nt)
+// threadEventLocked records an event of a thread and makes it due. It
+// reports false when the table is full of open threads: the notice is then
+// a message of its own (counted).
+func (n *notifier) threadEventLocked(nt notice, now time.Time) bool {
+	name := pairedThread(nt)
+	id := threadID(name)
 	e := n.entries[id]
 	if e == nil {
-		if len(n.entries) >= maxThreadEntries {
-			for key, old := range n.entries {
-				if !old.queued && !old.inFlight {
-					delete(n.entries, key)
-					break
-				}
+		if len(n.entries) >= maxThreadEntries && !n.evictLocked() {
+			n.overflowed++
+			if n.overflowed == 1 || n.overflowed%100 == 0 {
+				n.logf("Telegram: more than " + strconv.Itoa(maxThreadEntries) + " problems are open at once; the newest are sent as messages of their own (" + strconv.Itoa(n.overflowed) + " so far)")
 			}
+			return false
 		}
-		e = &threadEntry{id: id}
+		e = &threadEntry{id: id, name: name}
 		n.entries[id] = e
 	}
+	n.seq++
+	e.seq, e.touched = n.seq, now
+	c := nt
 	switch {
 	case nt.resolves != "":
-		c := nt
-		e.open, e.closing = false, &c
-	case nt.repeat:
 		if e.open {
+			e.open, e.since = false, nt.at
+		}
+		e.closing, e.repeat, e.fresh = &c, nil, false
+	case !e.open:
+		// a new episode; a repeat says the problem is open too (P1)
+		c.repeat = false
+		e.open, e.since = true, nt.at
+		e.episode++
+		e.opening, e.closing, e.repeat, e.fresh = &c, nil, nil, false
+		if nt.repeat {
 			r := nt
 			e.repeat = &r
 		}
-	default:
-		if !e.open || e.opening == nil {
+	case nt.repeat:
+		r := nt
+		e.repeat = &r
+		if e.opening == nil {
 			o := nt
-			e.open, e.opening, e.held = true, &o, false
+			o.repeat = false
+			e.opening = &o
 		}
-		e.open = true
+	default:
+		// an opening while open: the source ended it and opened it again
+		// without the chat seeing the end (P2)
+		e.opening, e.repeat, e.fresh = &c, nil, true
 	}
-	n.scheduleLocked(e, now)
+	e.dirty = true
+	n.dueLocked(e)
+	return true
 }
 
-// scheduleLocked queues the thread's item when it has none.
-func (n *notifier) scheduleLocked(e *threadEntry, now time.Time) {
-	if e.queued || e.inFlight {
-		n.signal()
-		return
+// evictLocked makes room: the oldest closed entry that has nothing to do.
+// An open entry is never pushed out.
+func (n *notifier) evictLocked() bool {
+	var victim *threadEntry
+	for _, e := range n.entries {
+		if e.open || e.inFlight || e.queued {
+			continue
+		}
+		if victim == nil || e.touched.Before(victim.touched) {
+			victim = e
+		}
 	}
-	p := priorityLow
-	if e.opening != nil {
-		p = e.opening.priority()
+	if victim == nil {
+		return false
 	}
-	it := &item{priority: p, at: now, since: now, counts: map[string]int{}, thread: e.id}
-	if e.opening != nil {
-		it.counts[e.opening.kind] = 1
-	}
+	delete(n.entries, victim.id)
+	n.removed[victim.id] = true
+	return true
+}
+
+// dueLocked makes an entry to be decided by the sender.
+func (n *notifier) dueLocked(e *threadEntry) {
 	e.queued = true
-	if p == priorityCritical {
-		n.critical = append(n.critical, it)
-	} else {
-		n.normal = append(n.normal, it)
+	n.signal()
+}
+
+// allDueLocked: the settings changed, or the truth was set again.
+func (n *notifier) allDueLocked() {
+	for _, e := range n.entries {
+		e.queued = true
 	}
 	n.signal()
 }
 
-// decideLocked is the state machine above. told: the chat holds the
-// thread's opening.
-func decideLocked(e *threadEntry, told bool) threadAction {
+func (e *threadEntry) priority() priority {
+	if e.open && e.opening != nil {
+		return e.opening.priority()
+	}
+	return priorityLow
+}
+
+// nextThreadLocked is the entry to decide now, and how long until the next
+// one otherwise.
+func (n *notifier) nextThreadLocked(now time.Time) (*threadEntry, time.Duration) {
+	var best *threadEntry
+	wait := time.Hour
+	for _, e := range n.entries {
+		if !e.queued || e.inFlight {
+			continue
+		}
+		if e.notBefore.After(now) {
+			if d := e.notBefore.Sub(now); d < wait {
+				wait = d
+			}
+			continue
+		}
+		if best == nil || e.priority() > best.priority() ||
+			(e.priority() == best.priority() && (e.touched.Before(best.touched) || (e.touched.Equal(best.touched) && e.id < best.id))) {
+			best = e
+		}
+	}
+	return best, wait
+}
+
+// closingWanted: the closing of a told opening is sent unless its kind was
+// switched off by itself (A3). wanted: by the settings as they are (else it
+// arrives silently, inherited from its opening).
+func closingWanted(st settings, closing notice) (send bool, wanted bool) {
+	if on, set := st.kinds[closing.kind]; set && !on {
+		return false, false
+	}
+	return true, st.wants(closing)
+}
+
+// endedNotice is the closing of a thread whose end the source made quietly.
+func endedNotice(kind string, name string, at time.Time) notice {
+	label := texts.Kinds[kind].Label
+	if label == "" {
+		label = "Notification"
+	}
+	nt := newNotice("thread.ended", map[string]string{"_label": label})
+	if kt, ok := texts.Kinds[kind]; ok {
+		nt.category = kt.Category
+	}
+	nt.at, nt.resolves, nt.key = at, name, "n:thread.ended"
+	return nt
+}
+
+// decision is what the sender does for a thread now.
+type decision struct {
+	action  threadAction
+	subject notice
+	silent  bool // the closing arrives silently (inherited)
+	send    bool // a message is sent (CLOSE: else only unpin and forget)
+	replyTo int
+	wait    time.Duration // the brake: decided again after this (<0: at once)
+	episode int
+	repeat  *notice
+	opening *notice
+}
+
+// decideLocked is the state machine above.
+func (n *notifier) decideLocked(st settings, e *threadEntry, told openThread, isTold bool, now time.Time) decision {
+	d := decision{episode: e.episode, repeat: e.repeat, opening: e.opening}
 	switch {
-	case e.open && !told && e.opening != nil && !e.held:
-		return actionOpen
-	case e.open && told && e.repeat != nil:
-		return actionRepeat
-	case !e.open && told:
-		return actionClose
-	case !e.open && !told && e.opening != nil && e.closing != nil:
-		return actionMerged
+	case e.open && e.opening != nil && (!isTold || e.fresh):
+		if !st.wants(*e.opening) {
+			return decision{} // decided again when the settings change
+		}
+		if b, braked := n.brakes[e.id]; braked && now.Sub(b.at) < brakeWindow {
+			if b.messageID > 0 && !e.fresh && !isTold {
+				// sent a moment ago: the chat holds it
+				n.threads.open(st, e.id, e.name, e.opening.kind, b.messageID, false)
+				return decision{wait: -1}
+			}
+			if !isTold || b.messageID != told.MessageID {
+				return decision{wait: brakeWindow - now.Sub(b.at)}
+			}
+			e.fresh = false
+			return decision{wait: -1}
+		}
+		d.action, d.subject, d.send = actionOpen, *e.opening, true
+	case e.open && isTold && e.repeat != nil:
+		if !st.wants(*e.repeat) {
+			e.repeat = nil
+			return decision{}
+		}
+		d.action, d.subject, d.send, d.replyTo = actionRepeat, *e.repeat, true, told.MessageID
+	case !e.open && isTold:
+		closing := endedNotice(told.Kind, e.name, now)
+		if e.closing != nil {
+			closing = *e.closing
+		}
+		send, wanted := closingWanted(st, closing)
+		d.action, d.subject, d.send, d.silent, d.replyTo = actionClose, closing, send, !wanted, told.MessageID
+	case !e.open && !isTold && e.opening != nil && e.closing != nil:
+		subject := *e.closing
+		subject.mergedLabel, subject.mergedSince = e.opening.label(), e.opening.at
+		subject.mergedSeverity = e.opening.severity
+		if !st.wants(*e.opening) {
+			e.opening, e.closing, e.repeat = nil, nil, nil
+			return decision{}
+		}
+		d.action, d.subject, d.send = actionMerged, subject, true
 	}
-	return actionNone
+	return d
 }
 
-func (n *notifier) told(st settings, id string) (openThread, bool) {
-	if n.threads == nil {
-		return openThread{}, false
+// saveDirtyLocked collects the states to write (B3): written before a send
+// is attempted.
+func (n *notifier) saveDirtyLocked() map[string]*savedEntry {
+	out := map[string]*savedEntry{}
+	for id, e := range n.entries {
+		if !e.dirty {
+			continue
+		}
+		e.dirty = false
+		out[id] = &savedEntry{Name: boundName(e.name), Open: e.open, Since: e.since, Fresh: e.fresh,
+			Opening: saveNotice(e.opening), Closing: saveNotice(e.closing)}
 	}
-	return n.threads.get(st, id)
+	for id := range n.removed {
+		if _, back := n.entries[id]; !back {
+			out[id] = nil
+		}
+	}
+	n.removed = map[string]bool{}
+	return out
 }
 
-// deliverThread sends what the thread's truth asks for now.
+// deliverThread does what the thread's truth asks for now.
 func (n *notifier) deliverThread(it *item) bool {
-	for attempt := 0; ; attempt++ {
+	for {
 		st := n.settings()
 		if !st.usable {
 			return true
 		}
-		n.mu.Lock()
-		e := n.entries[it.thread]
-		if e == nil {
-			n.mu.Unlock()
+		now := n.now()
+		var (
+			e     *threadEntry
+			d     decision
+			saves map[string]*savedEntry
+		)
+		func() {
+			n.mu.Lock()
+			defer n.mu.Unlock()
+			e = n.entries[it.thread]
+			if e == nil || e.inFlight {
+				e = nil
+				return
+			}
+			n.current = e.id
+			e.queued = false
+			told, isTold := n.threads.get(st, e.id)
+			d = n.decideLocked(st, e, told, isTold, now)
+			switch {
+			case d.wait < 0:
+				e.queued = true // decided again at once
+			case d.wait > 0:
+				e.queued, e.notBefore = true, now.Add(d.wait)
+			case d.action == actionNone:
+				if !e.open {
+					delete(n.entries, e.id)
+					n.removed[e.id] = true
+				} else {
+					e.dirty = true
+				}
+			default:
+				e.inFlight = true
+			}
+			saves = n.saveDirtyLocked()
+		}()
+		n.threads.saveEntries(saves)
+		if e == nil || d.action == actionNone {
+			if e != nil && d.wait < 0 {
+				it = &item{thread: e.id}
+				continue
+			}
 			return true
 		}
-		e.queued, e.inFlight = false, true
-		opened, told := n.told(st, e.id)
-		action := decideLocked(e, told)
-		var subject notice // what the message says, and how it is delivered
-		var wanted bool
-		switch action {
-		case actionOpen:
-			subject = *e.opening
-			wanted = st.wants(subject)
-			if !wanted {
-				e.held = true // not wanted: nothing to say now, its end is not told either
-			}
-		case actionRepeat:
-			subject = *e.repeat
-			wanted = st.wants(subject)
-		case actionClose:
-			subject = *e.closing
-			wanted = st.wants(subject)
-		case actionMerged:
-			subject = *e.closing
-			subject.mergedLabel, subject.mergedSince = e.opening.label(), e.opening.at
-			subject.mergedSeverity = e.opening.severity
-			// it says what the owner never heard of: as the opening would arrive
-			wanted = st.wants(*e.opening)
-		}
-		n.mu.Unlock()
 
 		messageID := 0
 		var failure *sendError
-		if action != actionNone && wanted {
-			n.mu.Lock()
-			paced := n.lastRequest.Add(n.limits.pace).Sub(n.now())
-			n.mu.Unlock()
-			if !n.sleep(paced) {
+		if d.send {
+			if !n.paceWait() {
+				n.idle(e, 0)
 				return false
 			}
-			m := render(st, subject)
-			if it.triedPlain {
-				m = renderWith(st, subject, false)
+			m := render(st, d.subject)
+			if e.plain {
+				m = renderWith(st, d.subject, false)
 				m.button = nil
 			}
-			if it.noButton {
+			if e.noButton {
 				m.button = nil
 			}
-			out := outgoing{message: m, silent: n.silentFor(st, subject, action)}
-			if action == actionRepeat || action == actionClose {
-				out.replyTo = opened.MessageID
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)
-			go func() {
-				select {
-				case <-n.stop:
-					cancel()
-				case <-ctx.Done():
-				}
-			}()
-			messageID, failure = n.client.sendMessage(ctx, st, out)
-			cancel()
-			n.mu.Lock()
-			n.lastRequest = n.now()
-			n.mu.Unlock()
+			out := outgoing{message: m, silent: d.silent || n.silentFor(st, d.subject, d.action), replyTo: d.replyTo,
+				trace: e.id + " " + d.action.String()}
+			messageID, failure = n.send(st, out)
 		}
 
 		if failure != nil {
-			if failure.Reason == ReasonBadButton && !it.noButton {
-				it.noButton = true
-				n.markIdle(it.thread)
-				attempt--
-				continue
+			if failure.Reason == ReasonBadButton && !e.noButton {
+				e.noButton = true
+				n.idle(e, 0)
+				return true
 			}
-			if failure.Reason == ReasonBadMessage && !it.triedPlain {
-				it.triedPlain = true
-				n.markIdle(it.thread)
-				attempt--
-				continue
+			if failure.Reason == ReasonBadMessage && !e.plain {
+				e.plain = true
+				n.idle(e, 0)
+				return true
+			}
+			if d.action == actionOpen && failure.Reason == ReasonTimeout {
+				// it may have arrived: the same opening waits for the brake
+				n.mu.Lock()
+				n.brakes[e.id] = brake{at: n.now()}
+				n.mu.Unlock()
 			}
 			if failure.Settings || !failure.Retryable {
 				n.failed(failure, st, failure.Settings)
-				// the state of the chat is unknown to change: decided again later
-				n.retryThread(it, n.limits.backoff[len(n.limits.backoff)-1])
+				n.idle(e, n.limits.backoff[len(n.limits.backoff)-1])
 				return true
 			}
 			wait := failure.RetryAfter
 			if wait <= 0 {
-				step := it.attempts
+				step := e.attempts
 				if step >= len(n.limits.backoff) {
 					step = len(n.limits.backoff) - 1
 				}
@@ -267,86 +457,137 @@ func (n *notifier) deliverThread(it *item) bool {
 				}
 				n.mu.Unlock()
 			}
-			it.attempts++
+			e.attempts++
 			n.noteFailure(failure)
-			n.retryThread(it, wait)
+			n.idle(e, wait)
 			return true
 		}
-		if action != actionNone && wanted {
+		if d.send {
 			n.succeeded()
 		}
 
-		// the state changes, message or not
-		unpin := []int{}
-		switch action {
+		// the state of the chat changes, message or not
+		switch d.action {
 		case actionOpen:
-			if wanted && messageID > 0 && n.threads != nil {
-				pin := subject.texts().Pin && subject.severity == sevCritical
-				unpin = n.threads.open(st, e.id, messageID, pin)
-				if pin {
-					n.pinMessage(st, messageID, true)
-				}
+			pin := d.subject.texts().Pin && d.subject.severity == sevCritical
+			if messageID > 0 {
+				n.mu.Lock()
+				n.pruneBrakesLocked()
+				n.brakes[e.id] = brake{at: n.now(), messageID: messageID}
+				n.mu.Unlock()
+				n.threads.open(st, e.id, e.name, d.subject.kind, messageID, pin)
 			}
 		case actionClose:
-			if n.threads != nil {
-				if open, ok := n.threads.close(st, e.id); ok && open.Pinned {
-					unpin = append(unpin, open.MessageID)
+			n.threads.close(st, e.id)
+		}
+		n.tidyPins(st)
+
+		func() {
+			n.mu.Lock()
+			defer n.mu.Unlock()
+			e.inFlight, e.attempts, e.noButton, e.plain = false, 0, false, false
+			switch d.action {
+			case actionOpen:
+				if e.opening == d.opening {
+					e.fresh = false
+				}
+			case actionRepeat:
+				if e.repeat == d.repeat {
+					e.repeat = nil
+				}
+			case actionClose, actionMerged:
+				// A1: only what this decision closed is forgotten; an opening
+				// that came during the send stays, and is decided next
+				if e.episode == d.episode && !e.open {
+					e.opening, e.closing, e.repeat = nil, nil, nil
 				}
 			}
-		}
-		for _, id := range unpin {
-			n.pinMessage(st, id, false)
-		}
-
-		n.mu.Lock()
-		e.inFlight = false
-		switch action {
-		case actionRepeat:
-			e.repeat = nil
-		case actionClose, actionMerged:
-			e.opening, e.closing, e.repeat, e.held = nil, nil, nil, false
-		}
-		_, told = n.told(st, e.id)
-		if decideLocked(e, told) != actionNone {
-			n.scheduleLocked(e, n.now())
-		} else if !e.open && e.opening == nil {
-			delete(n.entries, e.id)
-		}
-		n.mu.Unlock()
+			e.dirty = true
+			if n.entries[e.id] == e {
+				n.dueLocked(e)
+			}
+		}()
 		return true
 	}
 }
 
-// markIdle lets a thread's item be tried again at once (a form refused).
-func (n *notifier) markIdle(id string) {
-	n.mu.Lock()
-	if e := n.entries[id]; e != nil {
-		e.inFlight = false
-	}
-	n.mu.Unlock()
-}
-
-// retryThread puts the thread's item back after wait; what it sends is
-// decided again then.
-func (n *notifier) retryThread(it *item, wait time.Duration) {
-	now := n.now()
+// idle ends a send of a thread: decided again after wait.
+func (n *notifier) idle(e *threadEntry, wait time.Duration) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	e := n.entries[it.thread]
-	if e == nil {
+	e.inFlight = false
+	if n.entries[e.id] != e {
 		return
 	}
-	e.inFlight, e.queued = false, true
-	it.notBefore = now.Add(wait)
-	if hold := now.Add(n.limits.backoff[0]); n.holdUntil.Before(hold) {
-		n.holdUntil = hold
-	}
-	if it.priority == priorityCritical {
-		n.critical = append(n.critical, it)
-	} else {
-		n.normal = append(n.normal, it)
+	e.queued = true
+	e.notBefore = n.now().Add(wait)
+	if wait > 0 {
+		if hold := n.now().Add(n.limits.backoff[0]); n.holdUntil.Before(hold) {
+			n.holdUntil = hold
+		}
 	}
 	n.signal()
+}
+
+func (n *notifier) pruneBrakesLocked() {
+	now := n.now()
+	for id, b := range n.brakes {
+		if now.Sub(b.at) >= brakeWindow {
+			delete(n.brakes, id)
+		}
+	}
+}
+
+// paceWait keeps the pace between two requests.
+func (n *notifier) paceWait() bool {
+	n.mu.Lock()
+	paced := n.lastRequest.Add(n.limits.pace).Sub(n.now())
+	n.mu.Unlock()
+	return n.sleep(paced)
+}
+
+// send sends one message to the chat.
+func (n *notifier) send(st settings, out outgoing) (int, *sendError) {
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)
+	defer cancel()
+	go func() {
+		defer func() { recover() }()
+		select {
+		case <-n.stop:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	id, failure := n.client.sendMessage(ctx, st, out)
+	n.mu.Lock()
+	n.lastRequest = n.now()
+	n.mu.Unlock()
+	return id, failure
+}
+
+// tidyPins takes away the pins to take away and takes the pins still to
+// take, each tried at most maxPinTries times; one given up is said in the
+// server's log.
+func (n *notifier) tidyPins(st settings) {
+	for _, p := range n.threads.unpins(st) {
+		ok := n.pinMessage(st, p.MessageID, false)
+		if n.threads.unpinned(st, p.MessageID, ok) {
+			n.logf("Telegram: message " + strconv.Itoa(p.MessageID) + " could not be unpinned after " + strconv.Itoa(maxPinTries) + " tries; unpin it in the chat")
+		}
+	}
+	pins := n.threads.toPin(st)
+	ids := make([]string, 0, len(pins))
+	for id := range pins {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		t := pins[id]
+		ok := n.pinMessage(st, t.MessageID, true)
+		if n.threads.pinned(st, id, t.MessageID, ok) {
+			n.logf("Telegram: message " + strconv.Itoa(t.MessageID) + " could not be pinned after " + strconv.Itoa(maxPinTries) + " tries")
+		}
+	}
 }
 
 // silentFor: an opening, a repeat and a merged message arrive as the
@@ -360,10 +601,33 @@ func (n *notifier) silentFor(st settings, nt notice, action threadAction) bool {
 	if action == actionClose {
 		mode = st.mode(nt)
 	}
-	if mode == DeliverSilent {
+	if mode == DeliverSilent || mode == DeliverOff {
 		return true
 	}
 	now := n.now()
 	critical := sev == sevCritical && action != actionClose
 	return st.inQuietHours(now.Hour()*60+now.Minute()) && (!critical || st.silenceCrit)
+}
+
+// loadEntries takes back the threads that were not settled at the last
+// stop (B3).
+func (n *notifier) loadEntries() {
+	saved := n.threads.entries()
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	ids := make([]string, 0, len(saved))
+	for id := range saved {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		s := saved[id]
+		if len(n.entries) >= maxThreadEntries || s.Name == "" || threadID(s.Name) != id {
+			n.removed[id] = true
+			continue
+		}
+		n.entries[id] = &threadEntry{id: id, name: s.Name, open: s.Open, since: s.Since, fresh: s.Fresh, episode: 1,
+			opening: s.Opening.notice(), closing: s.Closing.notice(), queued: true, touched: n.now()}
+	}
+	n.signal()
 }

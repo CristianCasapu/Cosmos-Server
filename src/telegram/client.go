@@ -127,6 +127,15 @@ type outgoing struct {
 	message message
 	silent  bool
 	replyTo int // the message it answers, 0 for none
+	// trace names the thread and the action for the tests; never sent
+	trace string
+}
+
+// botClient is what the notifier sends with; apiClient, or a stand-in of
+// the tests.
+type botClient interface {
+	sendMessage(ctx context.Context, st settings, out outgoing) (int, *sendError)
+	pin(ctx context.Context, st settings, messageID int, pin bool) *sendError
 }
 
 // apiClient talks to the Bot API.

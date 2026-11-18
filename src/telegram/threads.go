@@ -1,13 +1,16 @@
 package telegram
 
-// Fork addition (plan 48): the messages that opened something that lasts
-// (an outage, a router that does not answer, a certificate that ends), so
-// that the message saying it is over is sent as a reply to them, and so
-// that a critical one pinned while it lasted is unpinned. Bounded: at most
-// maxThreads, each for threadAge; kept in a small file beside the state
-// file so that a restart in between does not lose them. The file holds
-// message numbers and the thread names Cosmos gives (a kind and the name
-// of a port, a domain, a container), tied to a hash of the chat.
+// Fork addition (plan 48): what the chats hold of the threads (a problem of
+// a declared pair, see threadorder.go): the message that opened each one,
+// whether it is pinned, the unpins Telegram refused (tried again), and the
+// state of the threads not settled yet (review 4, B3), so that a restart
+// loses nothing. Kept in a small file beside the state file, per chat
+// (message numbers are per chat; a few chats are kept, so that after a
+// change of chat the old one can still be unpinned).
+//
+// A thread is known by a short hash of its name (review 4, P3: names of any
+// length and script). The name is kept beside it, bounded, to ask the
+// notifications whether the problem is still open (reconcile).
 
 import (
 	"crypto/sha256"
@@ -19,6 +22,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/azukaar/cosmos-server/src/utils"
 )
@@ -26,21 +30,122 @@ import (
 const (
 	threadsFileName = "telegram.threads.json"
 	maxThreads      = 256
-	threadAge       = 14 * 24 * time.Hour
+	threadAge       = 30 * 24 * time.Hour
 	maxPinned       = 3
-	maxThreadName   = 200
-	maxThreadsBytes = 128 << 10
+	maxThreadName   = 300 // runes
+	maxThreadsBytes = 1 << 20
+	maxThreadChats  = 4
+	maxPinTries     = 3
 )
 
+// threadID is the short hash a thread is known by.
+func threadID(name string) string {
+	sum := sha256.Sum256([]byte(name))
+	return hex.EncodeToString(sum[:12])
+}
+
+func boundName(name string) string {
+	if utf8.RuneCountInString(name) > maxThreadName {
+		return string([]rune(name)[:maxThreadName])
+	}
+	return name
+}
+
+// openThread is an opening the chat holds.
 type openThread struct {
+	Name      string    `json:"name"`
+	Kind      string    `json:"kind"`
 	MessageID int       `json:"id"`
 	Pinned    bool      `json:"pinned,omitempty"`
+	WantPin   bool      `json:"wantPin,omitempty"`
+	PinTries  int       `json:"pinTries,omitempty"`
 	At        time.Time `json:"at"`
 }
 
-type threadFile struct {
-	Chat    string                `json:"chat"`
+// pendingUnpin is a pin Telegram did not take away yet.
+type pendingUnpin struct {
+	MessageID int `json:"id"`
+	Tries     int `json:"tries"`
+}
+
+type chatThreads struct {
 	Threads map[string]openThread `json:"threads"`
+	Unpin   []pendingUnpin        `json:"unpin,omitempty"`
+	Used    time.Time             `json:"used"`
+}
+
+// savedNotice is what a notice of a thread needs to be told after a
+// restart (no error text: the panel has it).
+type savedNotice struct {
+	Kind     string            `json:"kind"`
+	Category string            `json:"category"`
+	Severity int               `json:"severity"`
+	Closing  bool              `json:"closing,omitempty"`
+	At       time.Time         `json:"at"`
+	Vars     map[string]string `json:"vars,omitempty"`
+	What     string            `json:"what,omitempty"`
+	Means    string            `json:"means,omitempty"`
+	Ref      string            `json:"ref,omitempty"`
+	Thread   string            `json:"thread,omitempty"`
+	Resolves string            `json:"resolves,omitempty"`
+	Count    int               `json:"count,omitempty"`
+	First    time.Time         `json:"first,omitempty"`
+}
+
+func saveNotice(nt *notice) *savedNotice {
+	if nt == nil {
+		return nil
+	}
+	vars := map[string]string{}
+	for k, v := range nt.vars {
+		if len(vars) < 24 {
+			vars[k] = cleanValue(v, 600)
+		}
+	}
+	return &savedNotice{Kind: nt.kind, Category: nt.category, Severity: int(nt.severity), Closing: nt.closing, At: nt.at,
+		Vars: vars, What: nt.what, Means: nt.means, Ref: nt.ref, Thread: boundName(nt.thread), Resolves: boundName(nt.resolves),
+		Count: nt.count, First: nt.first}
+}
+
+func (s *savedNotice) notice() *notice {
+	if s == nil || !knownKind(s.Kind) {
+		return nil
+	}
+	sev := severity(s.Severity)
+	if sev < sevInfo || sev > sevCritical {
+		sev = texts.Kinds[s.Kind].severity
+	}
+	vars := s.Vars
+	if vars == nil {
+		vars = map[string]string{}
+	}
+	return &notice{kind: s.Kind, category: s.Category, severity: sev, closing: s.Closing, at: s.At, vars: vars,
+		what: s.What, means: s.Means, ref: s.Ref, thread: s.Thread, resolves: s.Resolves, count: s.Count, first: s.First,
+		key: "n:" + s.Kind}
+}
+
+// savedEntry is a thread's state that is not settled yet.
+type savedEntry struct {
+	Name    string       `json:"name"`
+	Open    bool         `json:"open"`
+	Since   time.Time    `json:"since"`
+	Fresh   bool         `json:"fresh,omitempty"`
+	Opening *savedNotice `json:"opening,omitempty"`
+	Closing *savedNotice `json:"closing,omitempty"`
+}
+
+type threadFile struct {
+	Chats   map[string]*chatThreads `json:"chats"`
+	Entries map[string]savedEntry   `json:"entries,omitempty"`
+	// Farewell: a warning to a chat losing the notifications was waiting
+	// when the server stopped (review 4, T4).
+	Farewell *farewellMark `json:"farewell,omitempty"`
+}
+
+type farewellMark struct {
+	What string    `json:"what"`
+	By   string    `json:"by"`
+	At   time.Time `json:"at"`
 }
 
 // threadMemory is safe for use by several goroutines.
@@ -50,6 +155,8 @@ type threadMemory struct {
 	now  func() time.Time
 	data threadFile
 	read bool
+	// found: the file was there when it was read
+	found bool
 }
 
 func newThreadMemory(path string) *threadMemory {
@@ -62,27 +169,57 @@ func chatKey(st settings) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// loadLocked reads the file once, and starts over for another chat.
-func (m *threadMemory) loadLocked(chat string) {
-	if !m.read {
-		m.read = true
-		if m.path != "" {
-			if info, err := os.Stat(m.path); err == nil && info.Size() <= maxThreadsBytes {
-				if raw, err := os.ReadFile(m.path); err == nil {
-					json.Unmarshal(raw, &m.data)
+func (m *threadMemory) readLocked() {
+	if m.read {
+		return
+	}
+	m.read = true
+	if m.path != "" {
+		if info, err := os.Stat(m.path); err == nil && info.Size() <= maxThreadsBytes {
+			if raw, err := os.ReadFile(m.path); err == nil {
+				var data threadFile
+				if json.Unmarshal(raw, &data) == nil {
+					m.data, m.found = data, true
 				}
 			}
 		}
 	}
-	if m.data.Threads == nil || m.data.Chat != chat {
-		m.data = threadFile{Chat: chat, Threads: map[string]openThread{}}
+	if m.data.Chats == nil {
+		m.data.Chats = map[string]*chatThreads{}
+	}
+	if m.data.Entries == nil {
+		m.data.Entries = map[string]savedEntry{}
+	}
+}
+
+// chatLocked gives the memory of a chat.
+func (m *threadMemory) chatLocked(key string) *chatThreads {
+	m.readLocked()
+	c := m.data.Chats[key]
+	if c == nil {
+		for len(m.data.Chats) >= maxThreadChats {
+			oldest := ""
+			for k, other := range m.data.Chats {
+				if oldest == "" || other.Used.Before(m.data.Chats[oldest].Used) {
+					oldest = k
+				}
+			}
+			delete(m.data.Chats, oldest)
+		}
+		c = &chatThreads{}
+		m.data.Chats[key] = c
+	}
+	if c.Threads == nil {
+		c.Threads = map[string]openThread{}
 	}
 	now := m.now()
-	for name, t := range m.data.Threads {
-		if now.Sub(t.At) > threadAge || len(name) > maxThreadName {
-			delete(m.data.Threads, name)
+	c.Used = now
+	for id, t := range c.Threads {
+		if now.Sub(t.At) > threadAge {
+			delete(c.Threads, id)
 		}
 	}
+	return c
 }
 
 func (m *threadMemory) saveLocked() {
@@ -90,99 +227,300 @@ func (m *threadMemory) saveLocked() {
 		return
 	}
 	raw, err := json.Marshal(m.data)
-	if err != nil {
+	if err != nil || len(raw) > maxThreadsBytes {
 		return
 	}
 	tmp := m.path + ".tmp"
-	if os.WriteFile(tmp, raw, 0600) != nil {
-		os.Remove(tmp)
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
 		return
 	}
-	if os.Rename(tmp, m.path) != nil {
+	_, err = f.Write(raw)
+	if err == nil {
+		err = f.Sync()
+	}
+	if f.Close() != nil || err != nil || os.Rename(tmp, m.path) != nil {
 		os.Remove(tmp)
 	}
 }
 
-// get returns the message that opened a thread.
-func (m *threadMemory) get(st settings, thread string) (openThread, bool) {
-	if thread == "" {
-		return openThread{}, false
-	}
+// existed reports whether the file was there (and readable) at start.
+func (m *threadMemory) existed() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.loadLocked(chatKey(st))
-	t, ok := m.data.Threads[thread]
+	m.readLocked()
+	return m.found
+}
+
+// get returns what the chat holds of a thread.
+func (m *threadMemory) get(st settings, id string) (openThread, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.chatLocked(chatKey(st)).Threads[id]
 	return t, ok
 }
 
+// all returns the threads the chat holds.
+func (m *threadMemory) all(st settings) map[string]openThread {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]openThread{}
+	for id, t := range m.chatLocked(chatKey(st)).Threads {
+		out[id] = t
+	}
+	return out
+}
+
 // open remembers the message that opened a thread. It returns the pinned
-// messages that are to be unpinned to stay within maxPinned.
-func (m *threadMemory) open(st settings, thread string, messageID int, pinned bool) []int {
-	if thread == "" || messageID <= 0 || len(thread) > maxThreadName {
+// messages to unpin: an older opening of the same thread, and the oldest
+// pins beyond maxPinned.
+func (m *threadMemory) open(st settings, id string, name string, kind string, messageID int, wantPin bool) []int {
+	if messageID <= 0 {
 		return nil
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.loadLocked(chatKey(st))
+	c := m.chatLocked(chatKey(st))
 	unpin := []int{}
-	if previous, had := m.data.Threads[thread]; had && previous.Pinned && previous.MessageID != messageID {
-		// the thread was opened again: its new message is the one to answer
-		// and to keep pinned
+	if previous, had := c.Threads[id]; had && previous.Pinned && previous.MessageID != messageID {
 		unpin = append(unpin, previous.MessageID)
 	}
-	m.data.Threads[thread] = openThread{MessageID: messageID, Pinned: pinned, At: m.now()}
-
-	if len(m.data.Threads) > maxThreads || pinned {
-		names := make([]string, 0, len(m.data.Threads))
-		for name := range m.data.Threads {
-			names = append(names, name)
+	c.Threads[id] = openThread{Name: boundName(name), Kind: kind, MessageID: messageID, WantPin: wantPin, At: m.now()}
+	ids := make([]string, 0, len(c.Threads))
+	for key := range c.Threads {
+		ids = append(ids, key)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		a, b := c.Threads[ids[i]], c.Threads[ids[j]]
+		if !a.At.Equal(b.At) {
+			return a.At.Before(b.At)
 		}
-		sort.Slice(names, func(i, j int) bool { return m.data.Threads[names[i]].At.Before(m.data.Threads[names[j]].At) })
-		count := 0
-		for _, name := range names {
-			if m.data.Threads[name].Pinned {
-				count++
-			}
+		return ids[i] < ids[j]
+	})
+	pins := 0
+	for _, key := range ids {
+		if c.Threads[key].WantPin {
+			pins++
 		}
-		for _, name := range names {
-			t := m.data.Threads[name]
-			if count > maxPinned && t.Pinned && name != thread {
-				t.Pinned = false
-				m.data.Threads[name] = t
-				unpin = append(unpin, t.MessageID)
-				count--
-			}
+	}
+	for _, key := range ids {
+		if pins <= maxPinned {
+			break
 		}
-		for len(m.data.Threads) > maxThreads {
-			oldest := names[0]
-			names = names[1:]
-			if oldest == thread {
-				continue
-			}
-			if t := m.data.Threads[oldest]; t.Pinned {
+		t := c.Threads[key]
+		if t.WantPin && key != id {
+			if t.Pinned {
 				unpin = append(unpin, t.MessageID)
 			}
-			delete(m.data.Threads, oldest)
+			t.WantPin, t.Pinned = false, false
+			c.Threads[key] = t
+			pins--
 		}
+	}
+	for len(c.Threads) > maxThreads && len(ids) > 0 {
+		oldest := ids[0]
+		ids = ids[1:]
+		if oldest == id {
+			continue
+		}
+		if t := c.Threads[oldest]; t.Pinned {
+			unpin = append(unpin, t.MessageID)
+		}
+		delete(c.Threads, oldest)
+	}
+	for _, messageID := range unpin {
+		m.unpinLaterLocked(c, messageID)
 	}
 	m.saveLocked()
 	return unpin
 }
 
-// close forgets a thread and returns what it was.
-func (m *threadMemory) close(st settings, thread string) (openThread, bool) {
-	if thread == "" {
-		return openThread{}, false
-	}
+// pinned records whether a thread's pin was taken; a refused one is
+// counted, and given up after maxPinTries (gaveUp).
+func (m *threadMemory) pinned(st settings, id string, messageID int, ok bool) (gaveUp bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.loadLocked(chatKey(st))
-	t, ok := m.data.Threads[thread]
+	c := m.chatLocked(chatKey(st))
+	t, had := c.Threads[id]
+	if !had || t.MessageID != messageID {
+		return false
+	}
 	if ok {
-		delete(m.data.Threads, thread)
+		t.Pinned = true
+	} else {
+		t.PinTries++
+		if t.PinTries >= maxPinTries {
+			t.WantPin, gaveUp = false, true
+		}
+	}
+	c.Threads[id] = t
+	m.saveLocked()
+	return gaveUp
+}
+
+// toPin lists the openings whose pin is still to be taken.
+func (m *threadMemory) toPin(st settings) map[string]openThread {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]openThread{}
+	for id, t := range m.chatLocked(chatKey(st)).Threads {
+		if t.WantPin && !t.Pinned {
+			out[id] = t
+		}
+	}
+	return out
+}
+
+// close forgets a thread and returns what it was; its pin is to be taken
+// away (it is kept among the unpins until that is done).
+func (m *threadMemory) close(st settings, id string) (openThread, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c := m.chatLocked(chatKey(st))
+	t, ok := c.Threads[id]
+	if ok {
+		delete(c.Threads, id)
+		if t.Pinned || t.WantPin {
+			m.unpinLaterLocked(c, t.MessageID)
+		}
 		m.saveLocked()
 	}
 	return t, ok
+}
+
+func (m *threadMemory) unpinLaterLocked(c *chatThreads, messageID int) {
+	for _, p := range c.Unpin {
+		if p.MessageID == messageID {
+			return
+		}
+	}
+	if len(c.Unpin) < maxThreads {
+		c.Unpin = append(c.Unpin, pendingUnpin{MessageID: messageID})
+	}
+}
+
+// unpinned records an unpin: done, or refused (counted, given up after
+// maxPinTries: gaveUp).
+func (m *threadMemory) unpinned(st settings, messageID int, ok bool) (gaveUp bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.unpinnedLocked(m.chatLocked(chatKey(st)), messageID, ok)
+}
+
+func (m *threadMemory) unpinnedLocked(c *chatThreads, messageID int, ok bool) (gaveUp bool) {
+	kept := c.Unpin[:0]
+	for _, p := range c.Unpin {
+		if p.MessageID == messageID {
+			if !ok {
+				p.Tries++
+				if p.Tries < maxPinTries {
+					kept = append(kept, p)
+				} else {
+					gaveUp = true
+				}
+			}
+			continue
+		}
+		kept = append(kept, p)
+	}
+	c.Unpin = kept
+	m.saveLocked()
+	return gaveUp
+}
+
+// unpins lists the pins to take away.
+func (m *threadMemory) unpins(st settings) []pendingUnpin {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]pendingUnpin(nil), m.chatLocked(chatKey(st)).Unpin...)
+}
+
+// pinnedIn lists the messages pinned in a chat, and drops them from it
+// (the chat is left: review 4, a change of chat).
+func (m *threadMemory) leave(st settings) []int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.readLocked()
+	c := m.data.Chats[chatKey(st)]
+	if c == nil {
+		return nil
+	}
+	out := []int{}
+	for _, t := range c.Threads {
+		if t.Pinned || t.WantPin {
+			out = append(out, t.MessageID)
+		}
+	}
+	for _, p := range c.Unpin {
+		out = append(out, p.MessageID)
+	}
+	sort.Ints(out)
+	delete(m.data.Chats, chatKey(st))
+	m.saveLocked()
+	return out
+}
+
+// saveEntries keeps the threads that are not settled; nil entries are
+// forgotten.
+func (m *threadMemory) saveEntries(entries map[string]*savedEntry) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.readLocked()
+	changed := false
+	for id, e := range entries {
+		if e == nil {
+			if _, had := m.data.Entries[id]; had {
+				delete(m.data.Entries, id)
+				changed = true
+			}
+			continue
+		}
+		if len(m.data.Entries) >= maxThreads {
+			if _, had := m.data.Entries[id]; !had {
+				continue
+			}
+		}
+		m.data.Entries[id] = *e
+		changed = true
+	}
+	if changed {
+		m.saveLocked()
+	}
+}
+
+// entries returns the threads that were not settled.
+func (m *threadMemory) entries() map[string]savedEntry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.readLocked()
+	out := map[string]savedEntry{}
+	for id, e := range m.data.Entries {
+		out[id] = e
+	}
+	return out
+}
+
+// farewell records (mark non-nil) or forgets a warning waiting to be sent.
+func (m *threadMemory) farewell(mark *farewellMark) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.readLocked()
+	m.data.Farewell = mark
+	m.saveLocked()
+}
+
+// takeFarewell returns the warning that was waiting when the server
+// stopped, and forgets it.
+func (m *threadMemory) takeFarewell() *farewellMark {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.readLocked()
+	mark := m.data.Farewell
+	if mark != nil {
+		m.data.Farewell = nil
+		m.saveLocked()
+	}
+	return mark
 }
 
 func threadsPath() string {
