@@ -18,6 +18,21 @@ import * as API from '../api';
 import { CopyButton, StartProblemButton } from './startProblem';
 import { classifyService as classifyServiceOf0, connectionTemplate, lanPlan, linkNetworkName, probeWords, serviceAddress, withPublishedPort } from '../utils/services';
 import { containerPorts } from '../utils/routeGuide';
+import { Link as RouterLink } from 'react-router';
+import { useDashboardRoutes } from './appOpen'; // Fork addition (plan 50)
+import { appGuide, findGuideApp, guidePath } from '../utils/guides'; // Fork addition (plan 50)
+import { groupApps } from '../utils/appInterfaces';
+
+// Fork addition (plan 50): a link to the app's how-to guide, when it has one.
+const GuideLink = ({ name }) => {
+  const { t } = useTranslation();
+  const dashboard = useDashboardRoutes();
+  const app = dashboard ? findGuideApp(groupApps(dashboard), name) : null;
+  if (!app || app.container !== String(name).toLowerCase() || !appGuide(app)) return null;
+  return <Button component={RouterLink} to={guidePath(app)} variant="outlined" sx={{ alignSelf: 'flex-start', minHeight: 44 }} data-service-guide>
+    {t('mgmt.guide.menu', 'How to use it')}
+  </Button>;
+};
 
 const classifyServiceOf = (container) => classifyServiceOf0({ image: container.Image, ports: containerPorts(container) });
 import { randomString } from '../utils/indexs';
@@ -148,6 +163,7 @@ export const ServiceInfo = ({ containerName, classification, onInsist, insistLab
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
         {t('mgmt.services.addressHint', 'This name works for the apps that share a network with it. The user and password are the ones set when it was created: Cosmos does not show a password again.')}
       </Typography>
+      <GuideLink name={name} />
     </Stack>
 
     {!compact && <>

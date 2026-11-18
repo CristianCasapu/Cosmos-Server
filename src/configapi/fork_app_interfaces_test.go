@@ -184,7 +184,7 @@ func dashboardOf(config utils.Config, isAdmin bool) []DashboardRoute {
 }
 
 var (
-	adminCaller = dashboardCaller{admin: true, resources: true, tileWords: true, editsURLs: true}
+	adminCaller = dashboardCaller{admin: true, resources: true, tileWords: true, editsURLs: true, configRead: true}
 	plainCaller = dashboardCaller{tileWords: true}
 )
 
