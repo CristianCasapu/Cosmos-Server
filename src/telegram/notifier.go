@@ -160,6 +160,9 @@ type notifier struct {
 	entries         map[string]*threadEntry                              // the threads, see threadorder.go
 	removed         map[string]bool                                      // entries forgotten, to drop from the threads file
 	brakes          map[string]brake                                     // the openings sent lately, per thread
+	overflow        map[string]bool                                      // threads sent as messages of their own (the table was full)
+	plainSent       map[string]bool                                      // threads whose opening this process sent as a message of its own
+	plainEver       map[string]bool                                      // the threads that went as messages of their own in this run (bounded)
 	overflowed      int                                                  // thread events sent as messages of their own: the table was full
 	seq             uint64                                               // events counted, for the reconcile
 	current         string                                               // the thread being sent, for the recovery
@@ -167,6 +170,8 @@ type notifier struct {
 	panics          int                                                  // the sender's restarts after a panic
 	traceDecision   func(id string, action string, told bool, open bool) // the tests follow the decisions
 	levelWait       time.Time                                            // the threads wait for a look at their level until then
+	recordDropped   func(kind string)                                    // the security record of a dropped thread
+	reconcileHook   func()                                               // the tests: called between the reconcile's reads and its apply
 	pinsDue         bool                                                 // pins and unpins refused earlier are to be tried again
 
 	pausedUntil time.Time
@@ -196,6 +201,7 @@ func newNotifierWith(client botClient, getSettings func() settings) *notifier {
 		settings:        getSettings,
 		now:             time.Now,
 		raise:           func(string) {},
+		recordDropped:   func(string) {},
 		logf:            func(string) {},
 		buckets:         map[string]*bucket{},
 		criticalBuckets: map[string]*bucket{},
@@ -203,6 +209,8 @@ func newNotifierWith(client botClient, getSettings func() settings) *notifier {
 		entries:         map[string]*threadEntry{},
 		removed:         map[string]bool{},
 		brakes:          map[string]brake{},
+		plainSent:       map[string]bool{},
+		plainEver:       map[string]bool{},
 		threads:         newThreadMemory(""),
 		reconcileNow:    make(chan struct{}, 1),
 		wake:            make(chan struct{}, 1),
@@ -248,7 +256,7 @@ func (n *notifier) Notify(nt notice) {
 		// a thread's events change its state whether or not their message
 		// is wanted: decided when sent (threadorder.go)
 		n.mu.Lock()
-		taken := n.threadEventLocked(nt, now)
+		taken := n.threadEventLocked(st, nt, now)
 		n.mu.Unlock()
 		if taken {
 			return
@@ -661,7 +669,7 @@ func (n *notifier) recovered(r interface{}) {
 	n.mu.Lock()
 	n.panics++
 	count := n.panics
-	dropped := false
+	dropped, kind := false, ""
 	if e := n.entries[n.current]; e != nil && n.current != "" {
 		e.inFlight = false
 		e.panics++
@@ -669,6 +677,11 @@ func (n *notifier) recovered(r interface{}) {
 			delete(n.entries, e.id)
 			n.removed[e.id] = true
 			dropped = true
+			if e.opening != nil {
+				kind = e.opening.kind
+			} else if e.closing != nil {
+				kind = e.closing.kind
+			}
 		} else {
 			e.queued, e.notBefore = true, n.now().Add(n.limits.backoff[len(n.limits.backoff)-1])
 		}
@@ -677,7 +690,12 @@ func (n *notifier) recovered(r interface{}) {
 	n.mu.Unlock()
 	line := "Telegram: the sender stopped on an error and starts again (" + strconv.Itoa(count) + " so far): " + panicText(r)
 	if dropped {
-		line += "; the problem it was sending is dropped"
+		line += "; the problem it was sending (" + kind + ") is dropped, and looked at again within 10 minutes"
+		record := n.recordDropped
+		go func() {
+			defer func() { recover() }()
+			record(kind)
+		}()
 	}
 	n.logf(line)
 }
@@ -725,7 +743,12 @@ func (n *notifier) deliver(it *item) bool {
 		return true
 	}
 	if it.thread != "" {
-		return n.deliverThread(it)
+		ok := n.deliverThread(it)
+		n.mu.Lock()
+		n.current = "" // a later panic elsewhere is not this thread's
+		n.mu.Unlock()
+		n.persist() // what a failure changed (a closing that timed out) too
+		return ok
 	}
 	for attempt := 0; ; attempt++ {
 		st := n.settings()
@@ -864,7 +887,10 @@ func (n *notifier) succeeded() {
 	n.mu.Unlock()
 	if wasFailing {
 		n.logf("Telegram: messages are delivered again")
-		go resolveInPanel()
+		go func() {
+			defer func() { recover() }()
+			resolveInPanel()
+		}()
 	}
 }
 

@@ -30,7 +30,6 @@ import (
 const (
 	threadsFileName = "telegram.threads.json"
 	maxThreads      = 256
-	threadAge       = 30 * 24 * time.Hour
 	maxPinned       = 3
 	maxThreadName   = 300 // runes
 	maxThreadsBytes = 1 << 20
@@ -60,6 +59,9 @@ type openThread struct {
 	WantPin   bool      `json:"wantPin,omitempty"`
 	PinTries  int       `json:"pinTries,omitempty"`
 	At        time.Time `json:"at"`
+	// Uncertain: a closing of it timed out in flight in this chat (review
+	// 5, S2): the chat may show it over
+	Uncertain bool `json:"uncertain,omitempty"`
 }
 
 // pendingUnpin is a pin Telegram did not take away yet.
@@ -98,8 +100,8 @@ func saveNotice(nt *notice) *savedNotice {
 	}
 	vars := map[string]string{}
 	for k, v := range nt.vars {
-		if len(vars) < 24 {
-			vars[k] = cleanValue(v, 600)
+		if len(vars) < 12 {
+			vars[k] = cleanValue(v, 300)
 		}
 	}
 	return &savedNotice{Kind: nt.kind, Category: nt.category, Severity: int(nt.severity), Closing: nt.closing, At: nt.at,
@@ -127,6 +129,7 @@ func (s *savedNotice) notice() *notice {
 // savedEntry is a thread's state that is not settled yet.
 type savedEntry struct {
 	Name    string       `json:"name"`
+	Kind    string       `json:"kind,omitempty"`
 	Open    bool         `json:"open"`
 	Since   time.Time    `json:"since"`
 	Fresh   bool         `json:"fresh,omitempty"`
@@ -137,6 +140,9 @@ type savedEntry struct {
 type threadFile struct {
 	Chats   map[string]*chatThreads `json:"chats"`
 	Entries map[string]savedEntry   `json:"entries,omitempty"`
+	// Plain: the threads sent as messages of their own (the table was
+	// full): their other events, their end included, go the same way
+	Plain map[string]time.Time `json:"plain,omitempty"`
 	// Farewell: a warning to a chat losing the notifications was waiting
 	// when the server stopped (review 4, T4).
 	Farewell *farewellMark `json:"farewell,omitempty"`
@@ -157,6 +163,9 @@ type threadMemory struct {
 	read bool
 	// found: the file was there when it was read
 	found bool
+	// logf says once that the file cannot be written for its size
+	logf   func(string)
+	tooBig bool
 }
 
 func newThreadMemory(path string) *threadMemory {
@@ -212,13 +221,10 @@ func (m *threadMemory) chatLocked(key string) *chatThreads {
 	if c.Threads == nil {
 		c.Threads = map[string]openThread{}
 	}
-	now := m.now()
-	c.Used = now
-	for id, t := range c.Threads {
-		if now.Sub(t.At) > threadAge {
-			delete(c.Threads, id)
-		}
-	}
+	// review 5, S4: an opening the chat holds is never forgotten by age:
+	// only its end (close) or the bound of the table (open, which unpins
+	// first) take it away
+	c.Used = m.now()
 	return c
 }
 
@@ -227,9 +233,25 @@ func (m *threadMemory) saveLocked() {
 		return
 	}
 	raw, err := json.Marshal(m.data)
+	if err == nil && len(raw) > maxThreadsBytes {
+		// review 5: bounded by its content, never left unwritten: the
+		// notices of the entries go first (the level gives them back)
+		for id, e := range m.data.Entries {
+			e.Opening, e.Closing = nil, nil
+			m.data.Entries[id] = e
+		}
+		raw, err = json.Marshal(m.data)
+	}
 	if err != nil || len(raw) > maxThreadsBytes {
+		if !m.tooBig {
+			m.tooBig = true
+			if m.logf != nil {
+				m.logf("Telegram: the threads file would be over " + strconv.Itoa(maxThreadsBytes>>10) + " KB and is not written")
+			}
+		}
 		return
 	}
+	m.tooBig = false
 	tmp := m.path + ".tmp"
 	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
@@ -480,6 +502,13 @@ func (m *threadMemory) saveEntries(entries map[string]*savedEntry) {
 				continue
 			}
 		}
+		if old, had := m.data.Entries[id]; had {
+			a, _ := json.Marshal(old)
+			b, _ := json.Marshal(*e)
+			if string(a) == string(b) {
+				continue // written only on a change (review 5)
+			}
+		}
 		m.data.Entries[id] = *e
 		changed = true
 	}
@@ -525,4 +554,53 @@ func (m *threadMemory) takeFarewell() *farewellMark {
 
 func threadsPath() string {
 	return filepath.Join(utils.CONFIGFOLDER, threadsFileName)
+}
+
+// isPlain reports whether a thread is sent as messages of its own.
+func (m *threadMemory) isPlain(id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.readLocked()
+	_, plain := m.data.Plain[id]
+	return plain
+}
+
+// markPlain records (on) or forgets that a thread goes as messages of its
+// own; bounded.
+func (m *threadMemory) markPlain(id string, on bool) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.readLocked()
+	if m.data.Plain == nil {
+		m.data.Plain = map[string]time.Time{}
+	}
+	if !on {
+		if _, had := m.data.Plain[id]; had {
+			delete(m.data.Plain, id)
+			m.saveLocked()
+		}
+		return true
+	}
+	if _, had := m.data.Plain[id]; had {
+		return true
+	}
+	if len(m.data.Plain) >= 4*maxThreads {
+		return false
+	}
+	m.data.Plain[id] = m.now()
+	m.saveLocked()
+	return true
+}
+
+// uncertain records that a closing of a thread timed out in flight in
+// this chat.
+func (m *threadMemory) uncertain(st settings, id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c := m.chatLocked(chatKey(st))
+	if t, ok := c.Threads[id]; ok && !t.Uncertain {
+		t.Uncertain = true
+		c.Threads[id] = t
+		m.saveLocked()
+	}
 }

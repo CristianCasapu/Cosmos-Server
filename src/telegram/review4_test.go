@@ -5,17 +5,26 @@ package telegram
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
-// scripted is a model with the threads named, Telegram answering, and
-// nothing random.
+// scripted is a model with the threads named, Telegram answering, the
+// notifications as the only level, and nothing random.
 func scripted(t *testing.T, threads ...*modelThread) *model {
 	t.Helper()
 	m := newModel(t, 1)
-	m.threads = threads
+	m.threads = nil
+	m.errP, m.unknownP, m.pruneP = 0, 0, 0
+	m.final = true
+	m.n.reconcileHook = nil
+	for _, th := range threads {
+		m.adopt(th)
+	}
 	m.bot.failing = false
 	return m
 }
@@ -24,44 +33,47 @@ func reachThread(name string) *modelThread {
 	return &modelThread{name: name, opening: "reach.down", closing: "reach.restored"}
 }
 
-func (m *model) open(th *modelThread) {
-	nt := m.notice(th, th.opening)
-	th.open, th.storeRow, th.lastClosing = true, &nt, nil
-	m.n.Notify(nt)
+// adopt gives a thread its marker and reference.
+func (m *model) adopt(th *modelThread) *modelThread {
+	for _, known := range m.threads {
+		if known == th {
+			return th
+		}
+	}
+	th.marker, th.ref = "T"+strconv.Itoa(len(m.threads)), fmt.Sprintf("%016x", 0xdef000+len(m.threads))
+	m.threads = append(m.threads, th)
+	return th
 }
 
-func (m *model) repeatOf(th *modelThread) {
-	nt := m.notice(th, th.opening)
-	nt.repeat, nt.count = true, 2
-	m.n.Notify(nt)
-}
+func (m *model) open(th *modelThread)      { m.openThread(m.adopt(th)) }
+func (m *model) repeatOf(th *modelThread)  { m.repeatThread(m.adopt(th)) }
+func (m *model) closeWith(th *modelThread) { m.closeThread(m.adopt(th)) }
 
-func (m *model) closeWith(th *modelThread) {
-	nt := m.notice(th, th.closing)
-	th.open, th.storeRow, th.lastClosing = false, nil, &nt
-	m.n.Notify(nt)
-}
-
-func (m *model) quietEnd(th *modelThread) {
-	th.open, th.storeRow, th.lastClosing = false, nil, nil
+func (m *model) messages() []modelMessage {
+	out := []modelMessage{}
+	for _, msg := range m.bot.chat {
+		m.classify(&msg)
+		out = append(out, msg)
+	}
+	return out
 }
 
 func (m *model) actions(th *modelThread) []string {
-	m.bot.mu.Lock()
-	defer m.bot.mu.Unlock()
 	out := []string{}
-	for _, msg := range m.bot.chat {
-		if msg.thread == threadID(th.name) {
+	for _, msg := range m.messages() {
+		if msg.thread == th.marker && th.marker != "" {
 			out = append(out, msg.action)
 		}
 	}
 	return out
 }
 
-func (m *model) messages() []modelMessage {
-	m.bot.mu.Lock()
-	defer m.bot.mu.Unlock()
-	return append([]modelMessage(nil), m.bot.chat...)
+// pinnedNow is what is pinned in the chat in use.
+func (m *model) pinnedNow() map[int]bool {
+	if p := m.bot.pinned[m.config.Telegram.ChatID]; p != nil {
+		return p
+	}
+	return map[int]bool{}
 }
 
 // The paired kinds, listed: a kind is a thread if and only if it is here.
@@ -160,7 +172,7 @@ func TestT4SecondOccurrenceOfOneOff(t *testing.T) {
 			t.Errorf("silent %v, thread %q: %q", msg.silent, msg.thread, PreviewLine(msg.text))
 		}
 	}
-	if len(m.bot.pinned) != 0 {
+	if len(m.pinnedNow()) != 0 {
 		t.Error("a message without a declared end is pinned")
 	}
 }
@@ -209,7 +221,7 @@ func TestALaterOutageAfterAQuietEndIsTold(t *testing.T) {
 		}
 		msgs := m.messages()
 		last := msgs[len(msgs)-1]
-		if !m.bot.pinned[last.id] || len(m.bot.pinned) != 1 {
+		if !m.pinnedNow()[last.id] || len(m.pinnedNow()) != 1 {
 			t.Errorf("look %v: pinned %v, the open outage is %d", look, m.bot.pinned, last.id)
 		}
 		if look && !strings.Contains(msgs[1].text, "No longer followed") {
@@ -241,7 +253,7 @@ func TestT4LongThreadLoops(t *testing.T) {
 	// the memory loses an opening just sent (a bug of tomorrow): the brake
 	// holds
 	th := reachThread("reach:" + strings.Repeat("ß", 300))
-	m.threads = append(m.threads, th)
+	m.adopt(th)
 	m.open(th)
 	for len(m.messages()) == len(names) {
 		m.step()
@@ -348,8 +360,8 @@ func TestUnsentStateSurvivesARestart(t *testing.T) {
 	if got := strings.Join(m.actions(th), ","); got != "open,close" {
 		t.Errorf("the closing after a restart: %q", got)
 	}
-	if len(m.bot.pinned) != 0 {
-		t.Errorf("still pinned: %v", m.bot.pinned)
+	if len(m.pinnedNow()) != 0 {
+		t.Errorf("still pinned: %v", m.pinnedNow())
 	}
 }
 
@@ -375,7 +387,7 @@ func TestAClosingArrivesWhenInfoIsOff(t *testing.T) {
 		} else if len(msgs) != 2 || msgs[1].action != "close" || !msgs[1].silent {
 			t.Errorf("info off: %d messages %+v", len(msgs), msgs)
 		}
-		if len(m.bot.pinned) != 0 {
+		if len(m.pinnedNow()) != 0 {
 			t.Errorf("closing off %v: still pinned", closingOff)
 		}
 	}
@@ -436,7 +448,7 @@ func TestARefusedUnpinIsTriedAgainThenSaid(t *testing.T) {
 	}
 	// refused once, then taken
 	th2 := reachThread("reach:dns")
-	m.threads = append(m.threads, th2)
+	m.adopt(th2)
 	m.bot.refuseAll = false
 	m.bot.refuseOnce = true
 	m.open(th2)
@@ -445,7 +457,7 @@ func TestARefusedUnpinIsTriedAgainThenSaid(t *testing.T) {
 	m.settle(5 * time.Minute)
 	m.n.reconcile()
 	m.settle(5 * time.Minute)
-	for id := range m.bot.pinned {
+	for id := range m.pinnedNow() {
 		if id != m.messages()[0].id {
 			t.Errorf("message %d still pinned", id)
 		}
@@ -455,10 +467,10 @@ func TestARefusedUnpinIsTriedAgainThenSaid(t *testing.T) {
 // (b) A panic in the code of a message does not end the process: the
 // sender logs it, starts again, and sends the next message.
 func TestAPanicDoesNotStopTheSender(t *testing.T) {
-	th := reachThread("reach:connect")
-	m := scripted(t, th)
+	bot := &countingBot{}
+	config := testConfig()
 	logs := make(chan string, 16)
-	n := newNotifierWith(m.bot, m.settings)
+	n := newNotifierWith(bot, func() settings { return settingsOf(config) })
 	n.threads = newThreadMemory("")
 	n.logf = func(line string) { logs <- line }
 	n.limits.pace = 0
@@ -471,10 +483,11 @@ func TestAPanicDoesNotStopTheSender(t *testing.T) {
 			_ = nothing.kind // a nil dereference, as P1 was
 		}
 	}
-	m.n = n
 	n.start()
 	defer n.close()
-	m.open(th)
+	nt := newNotice("reach.down", map[string]string{"port": "443"})
+	nt.thread = "reach:connect"
+	n.Notify(nt)
 	select {
 	case line := <-logs:
 		if !strings.Contains(line, "starts again (1 so far)") {
@@ -484,12 +497,35 @@ func TestAPanicDoesNotStopTheSender(t *testing.T) {
 		t.Fatal("no recovery")
 	}
 	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) && len(m.messages()) == 0 {
+	for time.Now().Before(deadline) && bot.count() == 0 {
 		time.Sleep(20 * time.Millisecond)
 	}
-	if len(m.messages()) != 1 {
-		t.Errorf("nothing sent after the recovery")
+	if bot.count() != 1 {
+		t.Errorf("%d sent after the recovery", bot.count())
 	}
+}
+
+// countingBot takes every message, safely from several goroutines.
+type countingBot struct {
+	mu   sync.Mutex
+	sent int
+}
+
+func (b *countingBot) sendMessage(ctx context.Context, st settings, out outgoing) (int, *sendError) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.sent++
+	return 100 + b.sent, nil
+}
+
+func (b *countingBot) pin(ctx context.Context, st settings, messageID int, pin bool) *sendError {
+	return nil
+}
+
+func (b *countingBot) count() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.sent
 }
 
 // T4: a farewell waiting when the server stops is recorded as lost at the
@@ -531,5 +567,3 @@ func TestEndsThatAreNotRecoveriesDoNotReadOK(t *testing.T) {
 		}
 	}
 }
-
-var _ = context.Background

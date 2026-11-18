@@ -178,7 +178,22 @@ func contains(list []string, value string) bool {
 }
 
 func sendChanges() {
-	defer func() { recover() }()
+	defer func() {
+		if recover() != nil {
+			// review 5: a panic never leaves the queue stopped until a restart
+			changeMu.Lock()
+			changeRunning, changeSending = false, nil
+			markFarewellsLocked()
+			again := len(changeOrder) > 0
+			if again {
+				changeRunning = true
+			}
+			changeMu.Unlock()
+			if again {
+				go sendChanges()
+			}
+		}
+	}()
 	for {
 		changeMu.Lock()
 		if len(changeOrder) == 0 {
@@ -204,7 +219,16 @@ func sendChanges() {
 // trying for changeRetryFor and honouring Telegram's waits; when it cannot,
 // the server's log, the security record and the panel say so.
 func sendChange(entry *chatChange) {
-	defer func() { recover() }()
+	defer func() {
+		if recover() != nil {
+			// review 5: an entry that failed this way is recorded as lost
+			what, by := strings.Join(entry.whats, "; "), strings.Join(entry.actors, ", ")
+			changeMu.Lock()
+			lost := lostWarning
+			changeMu.Unlock()
+			go lost(what, by)
+		}
+	}()
 	what := strings.Join(entry.whats, "; ")
 	if entry.moreWhats > 0 {
 		what += " and " + strconv.Itoa(entry.moreWhats) + " more changes"

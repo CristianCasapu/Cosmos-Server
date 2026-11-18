@@ -11,6 +11,7 @@ package telegram
 // earlier are tried again at the same time.
 
 import (
+	"sort"
 	"time"
 
 	"github.com/azukaar/cosmos-server/src/utils"
@@ -20,55 +21,110 @@ import (
 // heard of is not told at a start (a stale row).
 const reconcileHorizon = 7 * 24 * time.Hour
 
+// threadLevel is what is known of a thread now (review 5): open, over, or
+// unknown. Unknown changes nothing in the chat; "over" needs positive
+// evidence.
+type threadLevel int
+
+const (
+	levelUnknown threadLevel = iota
+	levelOpen
+	levelOver
+)
+
+func (l threadLevel) String() string { return [...]string{"unknown", "open", "over"}[l] }
+
 // levelSource says whether threads are open.
 type levelSource interface {
 	// openThreads: the newest opening of every open thread of these kinds
 	openThreads(kinds []string) ([]notice, error)
-	// state: whether a thread of an opening kind is open, and when it is
-	// over the follow-up that says so (nil: it ended quietly)
-	state(name string, kind string, since time.Time) (open bool, closing *notice, err error)
+	// state: the level of a thread of an opening kind, and when it is over
+	// the follow-up that says so (nil: it ended quietly). An error is
+	// unknown.
+	state(name string, kind string, since time.Time) (threadLevel, *notice, error)
 }
 
 // storeLevels reads the notifications.
 type storeLevels struct{}
 
 func (storeLevels) openThreads(kinds []string) ([]notice, error) {
-	rows, err := utils.ForkOpenThreads(kinds, reconcileHorizon, maxThreadEntries)
-	if err != nil {
-		return nil, err
-	}
-	config := utils.GetMainConfig()
 	out := []notice{}
-	for _, row := range rows {
-		if open, ok := utils.SourceThreadLevel(row.Fork.Kind, row.Fork.Thread); ok && !open {
-			continue // the source knows better: over
+	seen := map[string]bool{}
+	rows, err := utils.ForkOpenThreads(kinds, reconcileHorizon, maxThreadEntries)
+	if err == nil {
+		config := utils.GetMainConfig()
+		for _, row := range rows {
+			if open, ok := utils.SourceThreadLevel(row.Fork.Kind, row.Fork.Thread); ok && !open {
+				continue // the source knows better: over
+			}
+			nt := noticeFromInfo(row, config)
+			nt.at = row.Date
+			out = append(out, nt)
+			seen[row.Fork.Thread] = true
 		}
-		nt := noticeFromInfo(row, config)
-		nt.at = row.Date
-		out = append(out, nt)
+	}
+	// review 5: what the sources hold open, its notification deleted or not
+	for kind, threads := range utils.SourceOpenThreads() {
+		if !pairedOpening(kind) {
+			continue
+		}
+		for _, name := range threads {
+			if !seen[name] && len(out) < maxThreadEntries {
+				seen[name] = true
+				out = append(out, genericOpening(kind, name, time.Now()))
+			}
+		}
+	}
+	if len(out) == 0 && err != nil {
+		return nil, err
 	}
 	return out, nil
 }
 
-func (storeLevels) state(name string, kind string, since time.Time) (bool, *notice, error) {
-	if open, ok := utils.SourceThreadLevel(kind, name); ok {
-		if !open {
-			// the source keeps it in memory: the panel is set right too
-			utils.ResolveThread(name)
-		} else {
-			return true, nil, nil
+// genericOpening is the opening of a problem a source holds open whose
+// notification is gone: the kind's own words, without its values.
+func genericOpening(kind string, name string, at time.Time) notice {
+	nt := newNotice(kind, map[string]string{})
+	nt.thread, nt.at, nt.key = name, at, "n:"+kind
+	return nt
+}
+
+// state: what the source says (its own state: utils.RegisterThreadLevel),
+// else what the notifications prove; a store error is unknown.
+func (storeLevels) state(name string, kind string, since time.Time) (threadLevel, *notice, error) {
+	sourceOver := false
+	if open, known := utils.SourceThreadLevel(kind, name); known {
+		if open {
+			return levelOpen, nil, nil
+		}
+		sourceOver = true
+	}
+	open, over, closing, err := utils.ForkThreadState(name, closingsOf(kind), since)
+	if err != nil {
+		if sourceOver {
+			return levelOver, nil, nil
+		}
+		return levelUnknown, nil, err
+	}
+	if sourceOver && open {
+		// the source knows it is over: the panel is set right too
+		utils.ResolveThread(name)
+	}
+	var follow *notice
+	if closing != nil {
+		nt := noticeFromInfo(*closing, utils.GetMainConfig())
+		nt.at = closing.Date
+		if pairedThread(nt) != "" {
+			follow = &nt
 		}
 	}
-	open, closing, err := utils.ForkThreadState(name, closingsOf(kind), since)
-	if err != nil || open || closing == nil {
-		return open, nil, err
+	switch {
+	case sourceOver || (over && !open):
+		return levelOver, follow, nil
+	case open:
+		return levelOpen, nil, nil
 	}
-	nt := noticeFromInfo(*closing, utils.GetMainConfig())
-	nt.at = closing.Date
-	if pairedThread(nt) == "" {
-		return false, nil, nil
-	}
-	return false, &nt, nil
+	return levelUnknown, nil, nil
 }
 
 // reconcileLoop looks at the level of the threads now and then. A panic is
@@ -109,12 +165,13 @@ func (n *notifier) reconcile() {
 	start := n.seq
 	known := map[string]threadLook{}
 	for id, e := range n.entries {
-		look := threadLook{name: e.name, since: e.since}
-		if e.opening != nil {
+		look := threadLook{name: e.name, since: e.since, kind: e.kind}
+		if look.kind == "" && e.opening != nil {
 			look.kind = e.opening.kind
-		} else if e.closing != nil {
+		} else if look.kind == "" && e.closing != nil {
 			look.kind = e.closing.texts().Closes
 		}
+		look.inMemory = true
 		known[id] = look
 	}
 	n.mu.Unlock()
@@ -140,8 +197,15 @@ func (n *notifier) reconcile() {
 		open    bool
 		closing *notice
 	}
+
 	truths := map[string]truth{}
-	for id, look := range known {
+	ids := make([]string, 0, len(known))
+	for id := range known {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids) // the same order every time (the model replays seeds)
+	for _, id := range ids {
+		look := known[id]
 		if look.name == "" || !pairedOpening(look.kind) {
 			continue
 		}
@@ -149,18 +213,41 @@ func (n *notifier) reconcile() {
 		if since.IsZero() {
 			since = n.now().Add(-reconcileHorizon)
 		}
-		open, closing, err := n.levels.state(look.name, look.kind, since.Add(-time.Second))
-		if err != nil {
+		lvl, closing, err := n.levels.state(look.name, look.kind, since.Add(-time.Second))
+		if err != nil || lvl == levelUnknown {
 			continue // not known now: nothing is changed
 		}
-		truths[id] = truth{open, closing}
+		truths[id] = truth{lvl == levelOpen, closing}
 	}
 
+	if n.reconcileHook != nil {
+		n.reconcileHook() // the tests: events between the reads and the apply
+	}
+	plain := []notice{}
+	defer func() {
+		for _, nt := range plain {
+			n.Notify(nt) // the thread is marked: it goes as a message of its own
+		}
+	}()
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	now := n.now()
-	for id, tr := range truths {
+	for _, id := range ids {
+		tr, has := truths[id]
+		if !has {
+			continue
+		}
 		look := known[id]
+		if n.threads.isPlain(id) {
+			// its messages go as messages of their own (the table was full):
+			// its opening once per run of the server, if it is still open
+			if o, has := opens[id]; has && tr.open && !n.plainSent[brakeKey(st, id)] {
+				n.plainSent[brakeKey(st, id)] = true
+				n.notePlainLocked(id)
+				plain = append(plain, o)
+			}
+			continue
+		}
 		e := n.entries[id]
 		if e != nil && e.seq > start {
 			continue // an event came meanwhile: it is newer
@@ -170,13 +257,24 @@ func (n *notifier) reconcile() {
 			if !tr.open && !told {
 				continue
 			}
+			if look.inMemory {
+				continue // forgotten since it was read: the read is stale
+			}
 			if len(n.entries) >= maxThreadEntries && !n.evictLocked() {
-				n.overflowed++
+				// the table is full of open problems: an open one the chat
+				// was not told goes as a message of its own, once
+				if o, has := opens[id]; has && tr.open && !told && !n.plainSent[brakeKey(st, id)] && n.threads.markPlain(id, true) {
+					n.plainSent[brakeKey(st, id)] = true
+					n.notePlainLocked(id)
+					n.overflowed++
+					plain = append(plain, o)
+				}
 				continue
 			}
-			e = &threadEntry{id: id, name: look.name, touched: now}
+			e = &threadEntry{id: id, name: look.name, kind: look.kind, touched: now}
 			n.entries[id] = e
 		}
+		changed := true
 		switch {
 		case tr.open && !e.open:
 			e.open, e.since = true, look.since
@@ -188,14 +286,20 @@ func (n *notifier) reconcile() {
 		case tr.open && e.opening == nil:
 			if o, has := opens[id]; has {
 				e.opening = &o
+			} else {
+				changed = false
 			}
 		case !tr.open && e.open:
 			e.open, e.since = false, now
 			e.closing, e.repeat, e.fresh = tr.closing, nil, false
 		case !tr.open && e.closing == nil && tr.closing != nil:
 			e.closing = tr.closing
+		default:
+			changed = false
 		}
-		e.dirty = true
+		if changed {
+			e.dirty = true
+		}
 		e.queued = true
 	}
 	n.allDueLocked()
@@ -206,4 +310,5 @@ func (n *notifier) reconcile() {
 type threadLook struct {
 	name, kind string
 	since      time.Time
+	inMemory   bool
 }

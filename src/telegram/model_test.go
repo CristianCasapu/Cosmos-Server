@@ -1,94 +1,127 @@
 package telegram
 
-// Review 4: the permanent model test of the threads. A randomised explorer
-// drives the real notifier, step by step on a frozen clock, against a
-// stand-in of Telegram that answers ok, 502, 429, a timeout after it took
-// the message, a refused button, or refuses a pin; with restarts with and
-// without the threads file, settings switched, Telegram switched off and
-// on, other messages pressing on the queue, and long and non-Latin thread
-// names. After the run Telegram answers, the notifier settles, looks at the
-// level once (reconcile) and settles again; then:
+// Reviews 4 and 5: the permanent model test of the threads. A randomised
+// explorer drives the real notifier, step by step on a frozen clock,
+// against a stand-in of Telegram, and checks what the stand-in RECORDED
+// (texts, replies, pin calls, per chat), never the notifier's own labels.
 //
-//	I1 the chat's last word for each thread matches its truth
-//	I2 pinned ⇔ open (the pins that succeed eventually)
+// The stand-in answers ok, 502, 429, a timeout after it took the message, a
+// timeout before it took it, a refused button, or refuses a pin.
+//
+// The level is a separate, fallible thing (as in production): per thread
+// either a source that registered its level (unknown for a while after each
+// start, and late: it sees the truth as of its last look) or the
+// notifications' rows (an open row, resolved rows, closing rows), which the
+// generator deletes while the problem lasts (the owner's "delete read",
+// the 30-day retention); any read can fail (an error) or be unknown. The
+// reconcile runs between steps, DURING them (events between its reads and
+// its apply), and on the switch-on path as the loop serves it.
+//
+// The generator also changes the chat (inside the brake window too), makes
+// closings time out, fills the table beyond its bound, and lets 31 days
+// pass. After the run Telegram answers, the level answers, the notifier
+// settles and looks at the level a few times; then:
+//
+//	I1 the chat's last word for each thread matches its truth (when the
+//	   level can know it)
+//	I2 pinned ⇔ open, and a pin is only ever of a message sent to that chat
 //	I3 the order within a thread (a reply answers the opening it follows)
-//	I4 no opening twice (save after a timeout in flight, a lost file, or
-//	   an end the source made quietly)
+//	I4 no opening twice (save for the one message whose fate is unknown,
+//	   a lost file, or an end the notifier could not hear)
 //	I5 nothing the settings forbid is sent
 //	I6 an open critical problem is told within a bounded time once
 //	   Telegram answers
 //	I7 nothing panics (the sender is driven without its recovery)
-//	I8 every message of its own is delivered
+//	I8 every message of its own is delivered, once
+//	I9 the chat is never told a problem ended while it never ended since
+//	   it was told
 //
 // A fixed list of seeds runs every time; MODEL_SECONDS=n adds a random
-// pass of n seconds. A seed that fails becomes a named test below.
+// pass of n seconds, MODEL_SEED=n replays one seed with its trace. Every
+// failing seed becomes a named test (review4_test.go, review5_test.go).
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
+const modelChatA, modelChatB = "-1001234567890", "-1009876543210"
+
+// modelMessage is a message as the stand-in recorded it.
+type modelMessage struct {
+	id       int
+	chat     string
+	replyTo  int
+	silent   bool
+	text     string
+	at       time.Time
+	timedOut bool // taken, but the notifier was told it timed out
+	// read from the text by the checker
+	thread string // the model thread's marker, "" for none
+	action string // open, repeat, close, merged, plain
+}
+
+type modelPin struct {
+	chat string
+	id   int
+	pin  bool
+	ok   bool
+	at   time.Time
+}
+
 // modelBot is the stand-in of Telegram.
 type modelBot struct {
-	mu      sync.Mutex
 	m       *model
 	nextID  int
 	chat    []modelMessage
-	pinned  map[int]bool
-	pinAt   map[int]time.Time
-	refused map[int]int // pin refusals per message
-	failing bool        // the run's phase: answers may fail
-	// for the named tests: every send refused; every pin refused; the
-	// next pin refused; called during a send that is taken
-	down       bool
-	refuseAll  bool
-	refuseOnce bool
-	during     func(msg modelMessage)
+	pins    []modelPin
+	pinned  map[string]map[int]bool // per chat
+	refused map[int]int             // pin refusals per message
+	failing bool                    // the run's phase: answers may fail
+	// for the named tests: every send refused; every pin refused; the next
+	// pin refused; the next send times out (taken: lost answer; not taken);
+	// called during a send that is taken
+	down          bool
+	refuseAll     bool
+	refuseOnce    bool
+	timeoutTaken  bool
+	timeoutLost   bool
+	during        func(msg modelMessage)
+	sentTo        map[string]map[int]bool
+	timedOutCount int
 }
 
-type modelMessage struct {
-	id      int
-	thread  string // the thread's id, "" for a message of its own
-	action  string
-	kind    string
-	replyTo int
-	silent  bool
-	text    string
-	at      time.Time
-	// timedOut: taken, but the notifier was told it timed out
-	timedOut bool
-}
+var markerPattern = regexp.MustCompile(`model thread (T[0-9]+)`)
 
 func (b *modelBot) sendMessage(ctx context.Context, st settings, out outgoing) (int, *sendError) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
 	m := b.m
-	parts := strings.Fields(out.trace)
-	msg := modelMessage{replyTo: out.replyTo, silent: out.silent, text: out.message.text, at: m.now()}
-	if len(parts) >= 2 {
-		msg.thread, msg.action = parts[0], parts[1]
-	}
-	// I5: what the settings allow, as they are now
 	if !st.usable {
 		m.violate("I5", "sent while switched off: %q", PreviewLine(out.message.text))
 	}
 	outcome := "ok"
-	if b.down {
+	switch {
+	case b.down:
 		return 0, &sendError{Reason: ReasonTelegramError, Message: "bad gateway", Retryable: true}
-	}
-	if b.failing {
-		outcome = m.pick([]string{"ok", "ok", "ok", "502", "429", "timeout", "button"})
+	case b.timeoutTaken:
+		b.timeoutTaken, outcome = false, "timeout"
+	case b.timeoutLost:
+		b.timeoutLost = false
+		m.lostSend(out)
+		return 0, &sendError{Reason: ReasonTimeout, Message: "timeout", Retryable: true}
+	case b.failing:
+		outcome = m.pick([]string{"ok", "ok", "ok", "ok", "502", "429", "timeout", "lost", "button"})
 	}
 	if outcome == "button" && out.message.button == nil {
 		outcome = "ok"
@@ -100,82 +133,185 @@ func (b *modelBot) sendMessage(ctx context.Context, st settings, out outgoing) (
 		return 0, &sendError{Reason: ReasonRateLimited, Message: "flood", Retryable: true, RetryAfter: 3 * time.Second}
 	case "button":
 		return 0, &sendError{Reason: ReasonBadButton, Message: "button"}
+	case "lost":
+		// not taken, but the notifier cannot know: its fate is unknown
+		m.lostSend(out)
+		return 0, &sendError{Reason: ReasonTimeout, Message: "timeout", Retryable: true}
 	}
 	b.nextID++
-	msg.id = b.nextID
-	msg.timedOut = outcome == "timeout"
-	b.chat = append(b.chat, msg)
-	if b.during != nil {
-		during := b.during
-		b.mu.Unlock()
-		during(msg)
-		b.mu.Lock()
+	msg := modelMessage{id: b.nextID, chat: st.chatID, replyTo: out.replyTo, silent: out.silent, text: out.message.text,
+		at: m.clock, timedOut: outcome == "timeout"}
+	if b.sentTo[msg.chat] == nil {
+		b.sentTo[msg.chat] = map[int]bool{}
 	}
-	m.sentAt(msg)
+	b.sentTo[msg.chat][msg.id] = true
+	m.classify(&msg)
+	b.chat = append(b.chat, msg)
+	m.sentAt(msg, st)
+	if b.during != nil {
+		b.during(msg)
+	}
 	if outcome == "timeout" {
-		m.timeouts[msg.thread]++
-		m.anyTimeout = true
+		b.timedOutCount++
+		m.feature("timeout taken")
+		if msg.action == "close" {
+			m.feature("closing timed out")
+		}
 		return 0, &sendError{Reason: ReasonTimeout, Message: "timeout", Retryable: true}
 	}
 	return msg.id, nil
 }
 
 func (b *modelBot) pin(ctx context.Context, st settings, messageID int, pin bool) *sendError {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	// I2: a pin or unpin is only ever of a message sent to that chat
+	if !b.sentTo[st.chatID][messageID] {
+		b.m.violate("I2", "message %d pinned or unpinned in chat %s, where it was never sent", messageID, st.chatID)
+	}
 	if b.refuseAll || b.refuseOnce || (b.failing && b.refused[messageID] < maxPinTries-1 && b.m.rng.Intn(4) == 0) {
 		b.refuseOnce = false
 		b.refused[messageID]++
+		b.pins = append(b.pins, modelPin{st.chatID, messageID, pin, false, b.m.clock})
 		b.m.log("pin %d %v refused", messageID, pin)
 		return &sendError{Reason: ReasonNoRights, Message: "not enough rights"}
 	}
 	b.m.log("pin %d %v", messageID, pin)
+	b.pins = append(b.pins, modelPin{st.chatID, messageID, pin, true, b.m.clock})
+	if b.pinned[st.chatID] == nil {
+		b.pinned[st.chatID] = map[int]bool{}
+	}
 	if pin {
-		b.pinned[messageID] = true
-		b.pinAt[messageID] = b.m.clock
+		b.pinned[st.chatID][messageID] = true
 	} else {
-		delete(b.pinned, messageID)
+		delete(b.pinned[st.chatID], messageID)
 	}
 	return nil
 }
 
-// modelLevels is the truth as the sources would say it.
+// lostSend records a send that timed out before Telegram took it.
+func (m *model) lostSend(out outgoing) {
+	msg := modelMessage{text: out.message.text, replyTo: out.replyTo}
+	m.classify(&msg)
+	if m.unknownFateAt == nil {
+		m.unknownFateAt = map[string][]time.Time{}
+	}
+	m.unknownFateAt[msg.thread] = append(m.unknownFateAt[msg.thread], m.clock)
+}
+
+// modelThread is one problem: its truth, what the notifications hold of
+// it, and what its source says.
+type modelThread struct {
+	marker, name, opening, closing string
+	ref                            string
+	open                           bool
+	history                        []modelChange // the truth over time
+	// the notifications: an open row, resolved rows, the closing rows
+	rowOpen     bool
+	openRow     *notice
+	resolvedAt  []time.Time
+	lastClosing *notice
+	closingAt   time.Time
+	// a source that registered its level; unknown until readyAt
+	registered bool
+	readyAt    time.Time
+	closedAt   []time.Time // every end
+	quietAt    []time.Time // the ends without an event
+	openedAt   []time.Time // every opening event
+}
+
+type modelChange struct {
+	at   time.Time
+	open bool
+}
+
+func (th *modelThread) openAt(t time.Time) bool {
+	open := false
+	for _, c := range th.history {
+		if !c.at.After(t) {
+			open = c.open
+		}
+	}
+	return open
+}
+
+// modelLevels is the level as the sources and the notifications say it.
 type modelLevels struct{ m *model }
 
 func (l modelLevels) openThreads(kinds []string) ([]notice, error) {
+	m := l.m
+	if !m.final && m.rng.Float64() < m.errP {
+		m.feature("store error")
+		return nil, errors.New("database is locked")
+	}
 	out := []notice{}
-	for _, th := range l.m.threads {
-		if th.open && th.storeRow != nil {
-			out = append(out, *th.storeRow)
+	for _, th := range m.threads {
+		switch {
+		case th.rowOpen && th.openRow != nil:
+			out = append(out, *th.openRow)
+		case th.registered && th.open && !m.clock.Before(th.readyAt):
+			// the source holds it open, its notification deleted
+			nt := genericOpening(th.opening, th.name, m.clock)
+			nt.what = "Opening of model thread " + th.marker + "."
+			out = append(out, nt)
 		}
 	}
 	return out, nil
 }
 
-func (l modelLevels) state(name string, kind string, since time.Time) (bool, *notice, error) {
-	for _, th := range l.m.threads {
-		if th.name == name {
-			if th.open {
-				return true, nil, nil
-			}
-			if th.lastClosing != nil {
-				c := *th.lastClosing
-				return false, &c, nil
-			}
-			return false, nil, nil
+func (l modelLevels) state(name string, kind string, since time.Time) (threadLevel, *notice, error) {
+	m := l.m
+	th := m.byName(name)
+	if th == nil {
+		return levelUnknown, nil, nil
+	}
+	if !m.final {
+		if m.rng.Float64() < m.errP {
+			m.feature("store error")
+			return levelUnknown, nil, errors.New("database is locked")
+		}
+		if m.rng.Float64() < m.unknownP {
+			m.feature("unknown level")
+			return levelUnknown, nil, nil
 		}
 	}
-	return false, nil, nil
-}
-
-type modelThread struct {
-	name, opening, closing string
-	open                   bool
-	storeRow               *notice     // the open row the notifications hold
-	lastClosing            *notice     // the follow-up of the last end, nil when it ended quietly
-	quietAt                []time.Time // the ends without an event
-	closedAt               []time.Time // every end
-	openedAt               []time.Time // every opening event
+	if th.registered && !m.clock.Before(th.readyAt) {
+		// the source's own state, as of its last look
+		if th.open {
+			return levelOpen, nil, nil
+		}
+		if th.rowOpen {
+			th.rowOpen = false // storeLevels resolves the panel's row
+			th.resolvedAt = append(th.resolvedAt, m.clock)
+		}
+		var follow *notice
+		if th.lastClosing != nil && !th.closingAt.Before(since) {
+			c := *th.lastClosing
+			follow = &c
+		}
+		return levelOver, follow, nil
+	}
+	if th.registered {
+		m.feature("source starting")
+	}
+	// the notifications: open on an open row; over on a row resolved, or a
+	// closing row, since; no row is unknown
+	if th.rowOpen {
+		return levelOpen, nil, nil
+	}
+	over := false
+	for _, at := range th.resolvedAt {
+		if !at.Before(since) {
+			over = true
+		}
+	}
+	var follow *notice
+	if th.lastClosing != nil && !th.closingAt.Before(since) {
+		c := *th.lastClosing
+		follow, over = &c, true
+	}
+	if over {
+		return levelOver, follow, nil
+	}
+	return levelUnknown, nil, nil
 }
 
 type model struct {
@@ -189,35 +325,80 @@ type model struct {
 	path       string
 	threads    []*modelThread
 	violations []string
-	timeouts   map[string]int
-	anyTimeout bool
 	lostAt     []time.Time // the restarts without the threads file
 	restartAt  []time.Time
 	offAt      []time.Time // Telegram switched off: what happens is not heard
-	restarts   int
-	toggledOff bool
-	unpaired   map[string]int // marker → times delivered
-	trace      []string
+	chatAt     []time.Time // the chat changed
+	settingAt  []time.Time // a kind or the information was switched
+	plainIDs   map[string]bool
+	// a send that timed out before Telegram took it: the notifier cannot
+	// tell it from one taken, and sends again what may already be there
+	unknownFateAt map[string][]time.Time // per model thread
+	toggledOff    bool
+	restarted     bool
+	unpaired      map[string]int       // marker → times delivered
+	unpairedAt    map[string]time.Time // marker → when it happened
+	monthAt       []time.Time          // a month passed (a message older than its age goes into a summary)
+	trace         []string
+	features      map[string]bool
+	// the level's faults, per run
+	errP, unknownP, pruneP float64
+	final                  bool
+	lastOpenSent           time.Time
 }
 
 func (m *model) now() time.Time { return m.clock }
 
 func (m *model) pick(choices []string) string { return choices[m.rng.Intn(len(choices))] }
 
+func (m *model) feature(name string) { m.features[name] = true }
+
 func (m *model) violate(inv string, format string, args ...interface{}) {
 	m.violations = append(m.violations, inv+": "+fmt.Sprintf(format, args...))
 }
 
 func (m *model) log(format string, args ...interface{}) {
-	m.trace = append(m.trace, m.clock.Format("15:04:05")+" "+fmt.Sprintf(format, args...))
+	m.trace = append(m.trace, m.clock.Format("01-02 15:04:05")+" "+fmt.Sprintf(format, args...))
 }
 
 func (m *model) settings() settings { return settingsOf(m.config) }
 
+// classify reads a recorded message: which thread, what it says.
+func (m *model) classify(msg *modelMessage) {
+	if found := markerPattern.FindStringSubmatch(msg.text); found != nil {
+		msg.thread = found[1]
+	}
+	switch {
+	case strings.Contains(msg.text, "End of model thread") && strings.Contains(msg.text, "(was: "):
+		msg.action = "merged"
+	case strings.Contains(msg.text, "End of model thread"):
+		msg.action = "close"
+	case strings.Contains(msg.text, word("closing")) && strings.Contains(msg.text, "No longer followed"),
+		strings.Contains(msg.text, "No longer followed"):
+		msg.action = "close"
+	case strings.Contains(msg.text, "Opening of model thread") && (msg.replyTo != 0 || strings.Contains(msg.text, word("again"))):
+		msg.action = "repeat"
+	case strings.Contains(msg.text, "Opening of model thread"):
+		msg.action = "open"
+	default:
+		msg.action = "plain"
+	}
+	if msg.thread == "" && msg.replyTo != 0 {
+		// "No longer followed" names no thread: the opening it answers does
+		for _, other := range m.bot.chat {
+			if other.id == msg.replyTo && other.chat == msg.chat {
+				if found := markerPattern.FindStringSubmatch(other.text); found != nil {
+					msg.thread = found[1]
+				}
+			}
+		}
+	}
+}
+
 // sentAt checks I5 for what was accepted.
-func (m *model) sentAt(msg modelMessage) {
-	st := m.settings()
-	m.log("sent %s %s reply=%d %q", msg.action, short(msg.thread), msg.replyTo, PreviewLine(msg.text))
+func (m *model) sentAt(msg modelMessage, st settings) {
+	m.classify(&msg)
+	m.log("sent #%d %s %s reply=%d %q", msg.id, msg.action, msg.thread, msg.replyTo, PreviewLine(msg.text))
 	if msg.thread == "" {
 		for marker := range m.unpaired {
 			if strings.Contains(msg.text, marker) {
@@ -226,16 +407,21 @@ func (m *model) sentAt(msg modelMessage) {
 		}
 		return
 	}
-	th := m.byID(msg.thread)
+	th := m.byMarker(msg.thread)
 	if th == nil {
 		m.violate("I5", "a message of an unknown thread %s", msg.thread)
 		return
 	}
-	opening := newNotice(th.opening, nil)
 	switch msg.action {
-	case "open", "repeat", "merged":
-		if !st.wants(opening) {
-			m.violate("I5", "%s of %s sent while %s is not wanted", msg.action, short(msg.thread), th.opening)
+	case "open":
+		m.lastOpenSent = m.clock
+		fallthrough
+	case "repeat", "merged":
+		// a message of its own (the table full) is decided when it is
+		// queued, as before plan 48
+		queuedBefore := m.features["full table"] && between(m.settingAt, latestBefore(th.openedAt, m.clock), m.clock)
+		if !st.wants(newNotice(th.opening, nil)) && !queuedBefore {
+			m.violate("I5", "%s of %s sent while %s is not wanted", msg.action, msg.thread, th.opening)
 		}
 	case "close":
 		if on, set := st.kinds[th.closing]; set && !on {
@@ -244,16 +430,18 @@ func (m *model) sentAt(msg modelMessage) {
 	}
 }
 
-func short(id string) string {
-	if len(id) > 6 {
-		return id[:6]
+func (m *model) byName(name string) *modelThread {
+	for _, th := range m.threads {
+		if th.name == name {
+			return th
+		}
 	}
-	return id
+	return nil
 }
 
-func (m *model) byID(id string) *modelThread {
+func (m *model) byMarker(marker string) *modelThread {
 	for _, th := range m.threads {
-		if threadID(th.name) == id {
+		if th.marker == marker {
 			return th
 		}
 	}
@@ -281,16 +469,35 @@ var modelPairs = [][2]string{
 func newModel(t *testing.T, seed int64) *model {
 	m := &model{t: t, seed: seed, rng: rand.New(rand.NewSource(seed)),
 		clock: time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC), config: testConfig(),
-		timeouts: map[string]int{}, unpaired: map[string]int{}}
+		unpaired: map[string]int{}, unpairedAt: map[string]time.Time{}, features: map[string]bool{}}
 	m.config.Telegram.MaxPerMinute = maxMaxPerMinute
+	m.config.Telegram.ChatID = modelChatA
 	m.path = filepath.Join(t.TempDir(), threadsFileName)
-	m.bot = &modelBot{m: m, pinned: map[int]bool{}, pinAt: map[int]time.Time{}, refused: map[int]int{}, failing: true}
+	m.bot = &modelBot{m: m, pinned: map[string]map[int]bool{}, refused: map[int]int{}, failing: true, sentTo: map[string]map[int]bool{}}
 	count := 1 + m.rng.Intn(len(modelNames))
 	for i := 0; i < count; i++ {
-		m.threads = append(m.threads, &modelThread{name: modelNames[i], opening: modelPairs[i][0], closing: modelPairs[i][1]})
+		m.addThread(modelNames[i], modelPairs[i][0], modelPairs[i][1], m.rng.Intn(2) == 0)
+	}
+	// the level's faults for this run
+	if m.rng.Intn(2) == 0 {
+		m.errP = 0.08
+	}
+	if m.rng.Intn(2) == 0 {
+		m.unknownP = 0.15
+	}
+	if m.rng.Intn(2) == 0 {
+		m.pruneP = 0.1
 	}
 	m.boot()
 	return m
+}
+
+func (m *model) addThread(name, opening, closing string, registered bool) *modelThread {
+	i := len(m.threads)
+	th := &modelThread{marker: "T" + strconv.Itoa(i), name: name, opening: opening, closing: closing,
+		ref: fmt.Sprintf("%016x", 0xabc000+i), registered: registered}
+	m.threads = append(m.threads, th)
+	return th
 }
 
 // boot starts a notifier (the first, or after a restart).
@@ -303,7 +510,18 @@ func (m *model) boot() {
 	n.logf = func(line string) { m.log("log %s", line) }
 	n.raise = func(string) {}
 	n.traceDecision = func(id string, action string, told bool, open bool) {
-		m.log("decide %s %s told=%v open=%v", short(id), action, told, open)
+		flags := ""
+		if e := n.entries[id]; e != nil {
+			flags = fmt.Sprintf(" fresh=%v opening=%v", e.fresh, e.opening != nil)
+		}
+		m.log("decide %s %s told=%v open=%v%s", short(id), action, told, open, flags)
+	}
+	n.reconcileHook = func() {
+		// an event between the reconcile's reads and its apply
+		if !m.final && m.rng.Intn(4) == 0 {
+			m.feature("event during the reconcile")
+			m.event()
+		}
 	}
 	n.limits.pace = 0
 	n.limits.reconcileDelay = 5 * time.Second
@@ -312,61 +530,120 @@ func (m *model) boot() {
 	n.limits.backoff = []time.Duration{5 * time.Second, 15 * time.Second, time.Minute}
 	n.loadEntries()
 	m.n = n
+	for _, th := range m.threads {
+		// a source with its state in memory knows it only after a while
+		th.readyAt = m.clock.Add(time.Duration(m.rng.Intn(90)) * time.Second)
+	}
+}
+
+func short(id string) string {
+	if len(id) > 6 {
+		return id[:6]
+	}
+	return id
 }
 
 func (m *model) notice(th *modelThread, kind string) notice {
 	nt := newNotice(kind, map[string]string{"port": "443", "disk": "/dev/sdb", "mount": "/mnt/data", "left": "2 days", "name": "x"})
 	nt.at = m.clock
 	nt.thread = th.name
+	nt.ref = th.ref
 	if texts.Kinds[kind].Closes != "" {
 		nt.resolves = th.name
+		nt.what = "End of model thread " + th.marker + "."
+	} else {
+		nt.what = "Opening of model thread " + th.marker + "."
 	}
 	nt.key = "n:" + kind
 	return nt
 }
 
+func (m *model) truth(th *modelThread, open bool) {
+	th.open = open
+	th.history = append(th.history, modelChange{m.clock, open})
+	if open {
+		th.openedAt = append(th.openedAt, m.clock)
+	} else {
+		th.closedAt = append(th.closedAt, m.clock)
+	}
+}
+
+// the events of a thread
+func (m *model) openThread(th *modelThread) {
+	nt := m.notice(th, th.opening)
+	m.truth(th, true)
+	th.rowOpen, th.openRow = true, &nt
+	m.log("event open %s", th.marker)
+	m.n.Notify(nt)
+}
+
+func (m *model) repeatThread(th *modelThread) {
+	nt := m.notice(th, th.opening)
+	nt.repeat, nt.count = true, 2
+	m.log("event repeat %s", th.marker)
+	m.n.Notify(nt)
+}
+
+func (m *model) closeThread(th *modelThread) {
+	nt := m.notice(th, th.closing)
+	m.truth(th, false)
+	th.rowOpen, th.openRow = false, nil
+	th.resolvedAt = append(th.resolvedAt, m.clock)
+	th.lastClosing, th.closingAt = &nt, m.clock
+	m.log("event close %s", th.marker)
+	m.n.Notify(nt)
+}
+
+func (m *model) quietEnd(th *modelThread) {
+	m.truth(th, false)
+	th.quietAt = append(th.quietAt, m.clock)
+	th.rowOpen, th.openRow = false, nil
+	th.resolvedAt = append(th.resolvedAt, m.clock)
+	th.lastClosing = nil
+	m.log("event quiet close %s", th.marker)
+}
+
 // event makes one thing happen.
 func (m *model) event() {
 	th := m.threads[m.rng.Intn(len(m.threads))]
-	switch r := m.rng.Intn(10); {
+	switch r := m.rng.Intn(12); {
 	case r < 4 && !th.open:
-		nt := m.notice(th, th.opening)
-		th.open, th.storeRow, th.lastClosing = true, &nt, nil
-		th.openedAt = append(th.openedAt, m.clock)
-		m.log("event open %s", short(threadID(th.name)))
-		m.n.Notify(nt)
+		if !m.lastOpenSent.IsZero() && m.clock.Sub(m.lastOpenSent) < brakeWindow {
+			m.feature("flap inside the brake window")
+		}
+		m.openThread(th)
 	case r < 6 && th.open:
-		nt := m.notice(th, th.opening)
-		nt.repeat, nt.count = true, 2
-		m.log("event repeat %s", short(threadID(th.name)))
-		m.n.Notify(nt)
+		m.repeatThread(th)
 	case r < 8 && th.open:
-		nt := m.notice(th, th.closing)
-		th.open, th.storeRow, th.lastClosing = false, nil, &nt
-		th.closedAt = append(th.closedAt, m.clock)
-		m.log("event close %s", short(threadID(th.name)))
-		m.n.Notify(nt)
+		m.closeThread(th)
 	case r < 9 && th.open:
 		// the source ends it quietly (its cause changed, its mount is gone)
-		th.open, th.storeRow, th.lastClosing = false, nil, nil
-		th.quietAt = append(th.quietAt, m.clock)
-		th.closedAt = append(th.closedAt, m.clock)
-		m.log("event quiet close %s", short(threadID(th.name)))
+		m.quietEnd(th)
+	case r < 10 && m.rng.Float64() < m.pruneP*5:
+		// the owner deletes the read notifications, or the retention runs
+		m.feature("rows deleted")
+		if th.rowOpen {
+			m.feature("row deleted while open")
+		}
+		th.rowOpen, th.resolvedAt, th.lastClosing = false, nil, nil
+		m.log("event rows of %s deleted", th.marker)
 	default:
 		marker := "m" + strconv.Itoa(m.rng.Intn(1e9))
 		if len(m.unpaired) < 8 {
 			nt := newNotice("container.dying", map[string]string{"name": marker, "code": "1"})
 			nt.at = m.clock
 			m.unpaired[marker] = 0
+			m.unpairedAt[marker] = m.clock
 			m.log("event message of its own %s", marker)
 			m.n.Notify(nt)
 		}
 	}
 }
 
-// change switches a setting.
+// change switches a setting, restarts, changes the chat, or lets a month
+// pass.
 func (m *model) change() {
-	switch m.rng.Intn(5) {
+	switch m.rng.Intn(8) {
 	case 0:
 		kind := m.threads[m.rng.Intn(len(m.threads))].opening
 		if m.config.Telegram.Kinds == nil {
@@ -377,6 +654,8 @@ func (m *model) change() {
 		} else {
 			m.config.Telegram.Kinds[kind] = false
 		}
+		m.feature("kind toggled")
+		m.settingAt = append(m.settingAt, m.clock)
 		m.log("setting kind %s %v", kind, m.config.Telegram.Kinds)
 	case 1:
 		if m.config.Telegram.Delivery == nil {
@@ -387,6 +666,8 @@ func (m *model) change() {
 		} else {
 			m.config.Telegram.Delivery["info"] = DeliverOff
 		}
+		m.feature("information toggled")
+		m.settingAt = append(m.settingAt, m.clock)
 		m.log("setting info %q", m.config.Telegram.Delivery["info"])
 	case 2:
 		m.config.Telegram.Enabled = !m.config.Telegram.Enabled
@@ -394,10 +675,32 @@ func (m *model) change() {
 		if !m.config.Telegram.Enabled {
 			m.offAt = append(m.offAt, m.clock)
 		}
+		m.feature("Telegram toggled")
 		m.log("setting enabled %v", m.config.Telegram.Enabled)
+	case 3:
+		m.changeChat()
+	case 4:
+		m.clock = m.clock.Add(31 * 24 * time.Hour)
+		m.monthAt = append(m.monthAt, m.clock)
+		m.feature("31 days pass")
+		m.log("31 days pass")
 	default:
 		m.restart()
 	}
+}
+
+func (m *model) changeChat() {
+	if m.config.Telegram.ChatID == modelChatA {
+		m.config.Telegram.ChatID = modelChatB
+	} else {
+		m.config.Telegram.ChatID = modelChatA
+	}
+	m.chatAt = append(m.chatAt, m.clock)
+	m.feature("chat changed")
+	if !m.lastOpenSent.IsZero() && m.clock.Sub(m.lastOpenSent) < brakeWindow {
+		m.feature("chat changed inside the brake window")
+	}
+	m.log("setting chat %s", m.config.Telegram.ChatID)
 }
 
 func (m *model) restart() {
@@ -405,22 +708,43 @@ func (m *model) restart() {
 }
 
 func (m *model) restartKeeping(keep bool) {
-	m.restarts++
 	if !keep {
 		os.Remove(m.path)
 		m.lostAt = append(m.lostAt, m.clock)
+		m.feature("restart without the file")
+	} else {
+		m.feature("restart with the file")
 	}
 	m.log("restart (file kept: %v)", keep)
 	m.restartAt = append(m.restartAt, m.clock)
+	m.restarted = true
+	m.notePlain()
 	m.n = nil
 	m.boot()
 	m.unpaired = map[string]int{} // what waited in memory is dropped by design
 }
 
-// step lets the sender do one thing, or the time pass.
+// fillTable opens more problems than the table holds.
+func (m *model) fillTable() {
+	m.feature("full table")
+	for i := 0; i < maxThreadEntries+6; i++ {
+		th := m.addThread("fill:/bulk/"+strconv.Itoa(i), "disk.filling", "disk.filling.over", true)
+		th.readyAt = m.clock
+		m.openThread(th)
+	}
+}
+
+// step lets the sender do one thing, or the time pass; a reconcile asked
+// for (the switch-on path) is served as the loop serves it.
 func (m *model) step() bool {
 	m.n.persist()
 	it, wait := m.n.next()
+	select {
+	case <-m.n.reconcileNow:
+		m.log("reconcile (asked for)")
+		m.n.reconcile()
+	default:
+	}
 	if it == nil {
 		if wait > time.Minute {
 			wait = time.Minute
@@ -451,6 +775,9 @@ func (m *model) settle(limit time.Duration) {
 }
 
 func (m *model) run(steps int) {
+	if m.rng.Intn(25) == 0 {
+		m.fillTable()
+	}
 	for i := 0; i < steps; i++ {
 		switch r := m.rng.Intn(10); {
 		case r < 4:
@@ -464,101 +791,158 @@ func (m *model) run(steps int) {
 			m.step()
 		}
 	}
-	// Telegram answers now; settings back on; one look at the level
-	m.bot.mu.Lock()
+	// Telegram answers now, the level answers, Telegram is on; a few looks
+	// at the level
 	m.bot.failing = false
-	m.bot.mu.Unlock()
-	if !m.config.Telegram.Enabled {
-		m.config.Telegram.Enabled = true
-	}
+	m.final = true
+	m.config.Telegram.Enabled = true
 	start := m.clock
-	m.settle(30 * time.Minute)
-	m.log("final reconcile")
-	m.n.reconcile()
+	for i := 0; i < 3; i++ {
+		m.settle(20 * time.Minute)
+		m.log("final reconcile")
+		m.n.reconcile()
+	}
 	m.settle(30 * time.Minute)
 	m.check(start)
 }
 
-// check asserts the invariants.
+// knownAtEnd: whether the level can tell this thread's truth at the end.
+func (m *model) knownAtEnd(th *modelThread) bool {
+	if th.registered {
+		return true
+	}
+	if th.open {
+		return th.rowOpen
+	}
+	return len(th.resolvedAt) > 0 || th.lastClosing != nil
+}
+
+// notePlain keeps which threads the notifier sent as messages of their
+// own (the table full): they are under the cap and the summaries.
+func (m *model) notePlain() {
+	if m.plainIDs == nil {
+		m.plainIDs = map[string]bool{}
+	}
+	m.n.mu.Lock()
+	for id := range m.n.plainEver {
+		m.plainIDs[id] = true
+	}
+	m.n.mu.Unlock()
+}
+
+// check asserts the invariants on what the stand-in recorded.
 func (m *model) check(start time.Time) {
+	m.notePlain()
 	st := m.settings()
-	m.bot.mu.Lock()
-	defer m.bot.mu.Unlock()
+	chat := st.chatID
 	byThread := map[string][]modelMessage{}
 	for _, msg := range m.bot.chat {
-		if msg.thread != "" {
+		m.classify(&msg)
+		if msg.thread != "" && msg.chat == chat {
 			byThread[msg.thread] = append(byThread[msg.thread], msg)
+		}
+		// I9 in every chat
+		if msg.thread != "" && msg.action == "close" {
+			th := m.byMarker(msg.thread)
+			var opening *modelMessage
+			for i := range m.bot.chat {
+				if m.bot.chat[i].id == msg.replyTo {
+					o := m.bot.chat[i]
+					opening = &o
+				}
+			}
+			if th != nil && opening != nil {
+				from := latestBefore(th.openedAt, opening.at)
+				if !between(th.closedAt, from, msg.at) {
+					m.violate("I9", "%s: told over at #%d while it never ended since #%d", msg.thread, msg.id, opening.id)
+				}
+			}
 		}
 	}
 	pinWanted := []int{}
+	mayPin := map[int]bool{}
 	for _, th := range m.threads {
-		id := threadID(th.name)
-		msgs := byThread[id]
-		last := ""
+		msgs := byThread[th.marker]
+		last := modelMessage{}
 		if len(msgs) > 0 {
-			last = msgs[len(msgs)-1].action
+			last = msgs[len(msgs)-1]
 		}
 		wanted := st.wants(newNotice(th.opening, nil))
-		lastAt, lastTimedOut := time.Time{}, false
-		if len(msgs) > 0 {
-			lastAt, lastTimedOut = msgs[len(msgs)-1].at, msgs[len(msgs)-1].timedOut
+		// a thread sent as messages of its own (the table full) is under the
+		// cap and the summaries, as before plan 48: not asserted here
+		known := m.knownAtEnd(th) && !m.plainIDs[threadID(th.name)]
+		lostSince := between(m.lostAt, last.at, m.clock)
+		// I1
+		if th.open && wanted && known && last.action != "open" && last.action != "repeat" {
+			m.violate("I1", "%s is open, the chat's last word is %q", th.marker, last.action)
 		}
-		// I1 (a message the notifier was told did not go, or a file lost
-		// since, cannot be answered: the exceptions)
-		if th.open && wanted && last != "open" && last != "repeat" && !lastTimedOut {
-			m.violate("I1", "%s is open, the chat's last word is %q", short(id), last)
-		}
-		if !th.open && (last == "open" || last == "repeat") && !lastTimedOut && !between(m.lostAt, lastAt, m.clock) {
-			m.violate("I1", "%s is over, the chat's last word is %q", short(id), last)
+		if !th.open && known && (last.action == "open" || last.action == "repeat") && !last.timedOut && !lostSince {
+			m.violate("I1", "%s is over, the chat's last word is %q (#%d)", th.marker, last.action, last.id)
 		}
 		// I3, I4
-		outstanding, outstandingAt := 0, time.Time{}
+		outstanding, closed := modelMessage{}, modelMessage{}
 		for _, msg := range msgs {
 			switch msg.action {
 			case "open":
-				// allowed: the truth ended after the opening that was told, and
-				// the end was quiet or lost with a restart (the chat could not
-				// hear it); a timeout in flight; a lost file
-				from := latestBefore(th.openedAt, outstandingAt)
-				if outstanding != 0 && m.timeouts[id] == 0 && !between(m.lostAt, outstandingAt, msg.at) &&
-					!(between(th.closedAt, from, msg.at) && (between(th.quietAt, from, msg.at) || between(m.restartAt, from, msg.at) || between(m.offAt, from, msg.at))) {
-					m.violate("I4", "%s opened twice (%d then %d)", short(id), outstanding, msg.id)
+				from := latestBefore(th.openedAt, outstanding.at)
+				unheard := between(th.closedAt, from, msg.at) && (between(th.quietAt, from, msg.at) || between(m.restartAt, from, msg.at) ||
+					between(m.offAt, from, msg.at) || between(m.chatAt, from, msg.at))
+				// a message of its own (the table full) is sent again after a
+				// restart: whether it went before is not known
+				plainAgain := m.plainIDs[threadID(th.name)] || between(m.unknownFateAt[th.marker], outstanding.at, msg.at)
+				if outstanding.id != 0 && !outstanding.timedOut && !between(m.lostAt, outstanding.at, msg.at) && !unheard && !plainAgain {
+					m.violate("I4", "%s opened twice (#%d then #%d)", th.marker, outstanding.id, msg.id)
 				}
-				outstanding, outstandingAt = msg.id, msg.at
+				outstanding = msg
 			case "repeat":
-				if m.timeouts[id] == 0 && (outstanding == 0 || msg.replyTo != outstanding) {
-					m.violate("I3", "%s: a repeat answers %d, the opening is %d", short(id), msg.replyTo, outstanding)
+				plain := m.features["full table"] && msg.replyTo == 0
+				if !plain && (outstanding.id == 0 || msg.replyTo != outstanding.id) {
+					m.violate("I3", "%s: a repeat #%d answers %d, the opening is %d", th.marker, msg.id, msg.replyTo, outstanding.id)
 				}
 			case "close":
-				if m.timeouts[id] == 0 && (outstanding == 0 || msg.replyTo != outstanding) {
-					m.violate("I3", "%s: a closing answers %d, the opening is %d", short(id), msg.replyTo, outstanding)
+				plain := m.features["full table"] && msg.replyTo == 0
+				// the closing whose answer was lost is sent again: the one
+				// message whose fate was unknown
+				again := outstanding.id == 0 && closed.timedOut && msg.replyTo == closed.replyTo
+				if !plain && !again && (outstanding.id == 0 || msg.replyTo != outstanding.id) && !outstanding.timedOut {
+					m.violate("I3", "%s: a closing #%d answers %d, the opening is %d", th.marker, msg.id, msg.replyTo, outstanding.id)
 				}
-				outstanding = 0
+				outstanding, closed = modelMessage{}, msg
 			case "merged":
 				if msg.replyTo != 0 {
-					m.violate("I3", "%s: the merged message answers %d", short(id), msg.replyTo)
+					m.violate("I3", "%s: the merged message answers %d", th.marker, msg.replyTo)
 				}
 			}
 		}
 		// I6: told within the bound once Telegram answers
-		if th.open && wanted && newNotice(th.opening, nil).severity == sevCritical {
-			told := false
-			for _, msg := range msgs {
-				if (msg.action == "open" || msg.action == "repeat") && msg.at.Sub(start) <= 15*time.Minute {
-					told = true
+		if th.open && wanted && known && newNotice(th.opening, nil).severity == sevCritical {
+			if last.id != 0 && (last.action == "open" || last.action == "repeat") && last.at.Sub(start) > 15*time.Minute {
+				told := false
+				for _, msg := range msgs {
+					if msg.action == "open" && !msg.at.After(start.Add(15*time.Minute)) {
+						told = true
+					}
+				}
+				if !told {
+					m.violate("I6", "%s told only after %s", th.marker, last.at.Sub(start))
 				}
 			}
-			if !told && len(msgs) > 0 && msgs[len(msgs)-1].at.After(start.Add(15*time.Minute)) {
-				m.violate("I6", "%s told only after %s", short(id), msgs[len(msgs)-1].at.Sub(start))
+		}
+		// any opening of the open episode may stay pinned (one whose answer
+		// was lost is not the notifier's to know)
+		if th.open {
+			for i := len(msgs) - 1; i >= 0 && ((msgs[i].action != "close" || msgs[i].timedOut) && msgs[i].action != "merged"); i-- {
+				if msgs[i].action == "open" {
+					mayPin[msgs[i].id] = true
+				}
 			}
 		}
-		// the opening the chat shows for an open problem is to be pinned,
-		// unless the notifier lost it with its file (it then sends a new one
-		// when the kind is wanted)
-		if th.open && (last == "open" || last == "repeat") && texts.Kinds[th.opening].Pin && newNotice(th.opening, nil).severity == sevCritical {
+		// the opening the chat shows for an open problem is to be pinned
+		if th.open && (last.action == "open" || last.action == "repeat") && texts.Kinds[th.opening].Pin && newNotice(th.opening, nil).severity == sevCritical {
 			for i := len(msgs) - 1; i >= 0; i-- {
 				if msgs[i].action == "open" {
-					if !between(m.lostAt, msgs[i].at, m.clock) {
+					// a message of its own (the table full) is not pinned
+					if !between(m.lostAt, msgs[i].at, m.clock) && !msgs[i].timedOut && !m.plainIDs[threadID(th.name)] {
 						pinWanted = append(pinWanted, msgs[i].id)
 					}
 					break
@@ -566,16 +950,32 @@ func (m *model) check(start time.Time) {
 			}
 		}
 	}
-	// I2: what is pinned is an open problem's opening, within maxPinned
-	allowed := map[int]bool{}
+	// I2 in the chat in use: what is pinned is an open problem's opening,
+	// within maxPinned
+	allowed := mayPin
 	for _, id := range pinWanted {
 		allowed[id] = true
 	}
 	pinned := []int{}
-	for id := range m.bot.pinned {
+	pinAt := map[int]time.Time{}
+	for _, p := range m.bot.pins {
+		if p.ok && p.pin && p.chat == chat {
+			pinAt[p.id] = p.at
+		}
+	}
+	for id := range m.bot.pinned[chat] {
 		pinned = append(pinned, id)
-		// a pin the notifier lost with its file cannot be taken away
-		if !allowed[id] && !m.anyTimeout && !between(m.lostAt, m.bot.pinAt[id], m.clock) {
+		var at time.Time
+		knowable := true
+		for _, msg := range m.bot.chat {
+			if msg.id == id {
+				at = msg.at
+				if th := m.byMarker(msg.thread); th != nil && !m.knownAtEnd(th) {
+					knowable = false // the level cannot tell it is over
+				}
+			}
+		}
+		if !allowed[id] && knowable && !between(m.lostAt, at, m.clock) {
 			m.violate("I2", "message %d is pinned, its problem is over", id)
 		}
 	}
@@ -584,16 +984,16 @@ func (m *model) check(start time.Time) {
 	if want > maxPinned {
 		want = maxPinned
 	}
-	if len(pinned) < want && !m.anyTimeout {
+	if len(pinned) < want {
 		m.violate("I2", "%d pinned of %d open critical problems (%v of %v)", len(pinned), len(pinWanted), pinned, pinWanted)
 	}
 	// I8
-	if !m.toggledOff {
+	if !m.toggledOff && len(m.chatAt) == 0 {
 		for marker, times := range m.unpaired {
-			if times == 0 {
+			if times == 0 && !between(m.monthAt, m.unpairedAt[marker], m.clock) {
 				m.violate("I8", "message of its own %s never delivered", marker)
 			}
-			if times > 1 && !m.anyTimeout {
+			if times > 1 && m.bot.timedOutCount == 0 {
 				m.violate("I8", "message of its own %s delivered %d times", marker, times)
 			}
 		}
@@ -601,24 +1001,32 @@ func (m *model) check(start time.Time) {
 }
 
 func (m *model) report() string {
-	return fmt.Sprintf("seed %d: %s\n%s", m.seed, strings.Join(m.violations, "\n"), strings.Join(m.trace, "\n"))
+	tail := m.trace
+	if len(tail) > 400 {
+		tail = tail[len(tail)-400:]
+	}
+	return fmt.Sprintf("seed %d: %s\n%s", m.seed, strings.Join(m.violations, "\n"), strings.Join(tail, "\n"))
 }
+
+// modelStats counts the generator's features over the runs.
+var modelStats = map[string]int{}
 
 func runModel(t *testing.T, seed int64) bool {
 	t.Helper()
 	m := newModel(t, seed)
 	m.run(40 + m.rng.Intn(120))
+	for name := range m.features {
+		modelStats[name]++
+	}
+	if len(m.threads) >= 5 {
+		modelStats["5 or more threads"]++
+	}
+	modelStats["runs"]++
 	if len(m.violations) > 0 {
 		t.Errorf("%s", m.report())
 		return false
 	}
 	return true
-}
-
-// modelRuns counts what the explorer did, for the report.
-var modelRuns struct {
-	sync.Mutex
-	runs, sends int
 }
 
 func TestModelOfTheThreads(t *testing.T) {
@@ -649,6 +1057,14 @@ func TestModelOfTheThreads(t *testing.T) {
 			}
 		}
 		t.Logf("random pass: %d runs", count)
+	}
+	names := []string{}
+	for name := range modelStats {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		t.Logf("generator: %-40s %d", name, modelStats[name])
 	}
 }
 
@@ -682,5 +1098,18 @@ func TestModelSeed(t *testing.T) {
 	}
 	m := newModel(t, seed)
 	m.run(40 + m.rng.Intn(120))
-	t.Logf("%s", m.report())
+	t.Logf("seed %d: %s\n%s", m.seed, strings.Join(m.violations, "\n"), strings.Join(m.trace, "\n"))
+}
+
+// The seeds of the random passes that failed once, kept (the fixed list
+// 1..3000 covers the others).
+func TestModelSeedsThatFailedOnce(t *testing.T) {
+	for _, seed := range []int64{
+		1794975629699488876, 1794975695255890122, 1794975913016431987, 1794975931023152618, // review 4
+		1794986394991302526, // review 5: an entry that forgot its kind could not be looked at
+		1794986845873144210, // review 5: a closing lost in flight is sent again after a re-opening
+		1794991808159429524, // review 5: a closing that timed out is uncertain in its chat, across a change of chat
+	} {
+		runModel(t, seed)
+	}
 }

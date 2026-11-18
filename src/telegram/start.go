@@ -34,7 +34,11 @@ func Start(version string) {
 		n := newNotifier(newAPIClient(), currentSettings)
 		n.raise = raiseInPanel
 		n.threads = newThreadMemory(threadsPath())
+		n.threads.logf = utils.Warn
 		n.levels = storeLevels{}
+		n.recordDropped = func(kind string) {
+			utils.RecordSecurityEvent(utils.SecurityEvent{Kind: utils.SecTelegramThreadDropped, Details: map[string]string{"kind": cleanValue(kind, 64)}})
+		}
 		n.logf = utils.Warn
 		n.start()
 		// review 4, T4: a warning that was waiting when the server stopped

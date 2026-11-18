@@ -85,6 +85,7 @@ func (a threadAction) String() string {
 
 type threadEntry struct {
 	id, name string
+	kind     string // the opening kind of the pair
 	open     bool
 	since    time.Time
 	episode  int
@@ -111,6 +112,10 @@ type brake struct {
 	messageID int
 }
 
+// brakeKey: a brake is of a thread IN A CHAT (review 5, S3): a message
+// number is never given to another chat.
+func brakeKey(st settings, id string) string { return chatKey(st) + ":" + id }
+
 // pairedThread is the name of the thread a notice belongs to, "" when its
 // kind is not of a declared pair (a message of its own).
 func pairedThread(nt notice) string {
@@ -129,12 +134,25 @@ func pairedThread(nt notice) string {
 // threadEventLocked records an event of a thread and makes it due. It
 // reports false when the table is full of open threads: the notice is then
 // a message of its own (counted).
-func (n *notifier) threadEventLocked(nt notice, now time.Time) bool {
+func (n *notifier) threadEventLocked(st settings, nt notice, now time.Time) bool {
 	name := pairedThread(nt)
 	id := threadID(name)
+	if n.threads.isPlain(id) {
+		// its opening went as a message of its own: so do its other events,
+		// its end included (review 5)
+		n.notePlainLocked(id)
+		if nt.resolves != "" {
+			n.threads.markPlain(id, false)
+		}
+		return false
+	}
 	e := n.entries[id]
 	if e == nil {
 		if len(n.entries) >= maxThreadEntries && !n.evictLocked() {
+			if nt.resolves == "" && n.threads.markPlain(id, true) {
+				n.plainSent[brakeKey(st, id)] = true
+			}
+			n.notePlainLocked(id)
 			n.overflowed++
 			if n.overflowed == 1 || n.overflowed%100 == 0 {
 				n.logf("Telegram: more than " + strconv.Itoa(maxThreadEntries) + " problems are open at once; the newest are sent as messages of their own (" + strconv.Itoa(n.overflowed) + " so far)")
@@ -146,6 +164,11 @@ func (n *notifier) threadEventLocked(nt notice, now time.Time) bool {
 	}
 	n.seq++
 	e.seq, e.touched = n.seq, now
+	if kind := nt.texts().Closes; kind != "" {
+		e.kind = kind
+	} else {
+		e.kind = nt.kind
+	}
 	c := nt
 	switch {
 	case nt.resolves != "":
@@ -181,6 +204,13 @@ func (n *notifier) threadEventLocked(nt notice, now time.Time) bool {
 	return true
 }
 
+// notePlainLocked remembers that a thread went as messages of its own.
+func (n *notifier) notePlainLocked(id string) {
+	if len(n.plainEver) < 4*maxThreadEntries {
+		n.plainEver[id] = true
+	}
+}
+
 // evictLocked makes room: the oldest closed entry that has nothing to do.
 // An open entry is never pushed out.
 func (n *notifier) evictLocked() bool {
@@ -189,7 +219,7 @@ func (n *notifier) evictLocked() bool {
 		if e.open || e.inFlight || e.queued {
 			continue
 		}
-		if victim == nil || e.touched.Before(victim.touched) {
+		if victim == nil || e.touched.Before(victim.touched) || (e.touched.Equal(victim.touched) && e.id < victim.id) {
 			victim = e
 		}
 	}
@@ -289,17 +319,17 @@ type decision struct {
 func (n *notifier) decideLocked(st settings, e *threadEntry, told openThread, isTold bool, now time.Time) decision {
 	d := decision{episode: e.episode, repeat: e.repeat, opening: e.opening}
 	switch {
-	case e.open && e.opening != nil && (!isTold || e.fresh):
+	case e.open && e.opening != nil && (!isTold || e.fresh || told.Uncertain):
 		if !st.wants(*e.opening) {
 			return decision{} // decided again when the settings change
 		}
-		if b, braked := n.brakes[e.id]; braked && now.Sub(b.at) < brakeWindow {
+		if b, braked := n.brakes[brakeKey(st, e.id)]; braked && now.Sub(b.at) < brakeWindow {
 			if b.messageID > 0 && !e.fresh && !isTold {
 				// sent a moment ago: the chat holds it
 				n.threads.open(st, e.id, e.name, e.opening.kind, b.messageID, e.opening.texts().Pin && e.opening.severity == sevCritical)
 				return decision{wait: -1}
 			}
-			if !isTold || b.messageID != told.MessageID {
+			if !isTold || b.messageID != told.MessageID || told.Uncertain {
 				return decision{wait: brakeWindow - now.Sub(b.at)}
 			}
 			e.fresh = false
@@ -341,7 +371,7 @@ func (n *notifier) saveDirtyLocked() map[string]*savedEntry {
 			continue
 		}
 		e.dirty = false
-		out[id] = &savedEntry{Name: boundName(e.name), Open: e.open, Since: e.since, Fresh: e.fresh,
+		out[id] = &savedEntry{Name: boundName(e.name), Kind: e.kind, Open: e.open, Since: e.since, Fresh: e.fresh,
 			Opening: saveNotice(e.opening), Closing: saveNotice(e.closing)}
 	}
 	for id := range n.removed {
@@ -449,11 +479,20 @@ func (n *notifier) deliverThread(it *item) bool {
 				n.idle(e, 0)
 				return true
 			}
-			if d.action == actionOpen && failure.Reason == ReasonTimeout {
-				// it may have arrived: the same opening waits for the brake
+			if failure.Reason == ReasonTimeout {
 				n.mu.Lock()
-				n.brakes[e.id] = brake{at: n.now()}
+				switch d.action {
+				case actionOpen:
+					// it may have arrived: the same opening waits for the brake
+					n.brakes[brakeKey(st, e.id)] = brake{at: n.now()}
+				case actionClose:
+				}
 				n.mu.Unlock()
+				if d.action == actionClose {
+					// review 5, S2: this chat may show it over: a re-opening
+					// before the retry is sent as a new opening
+					n.threads.uncertain(st, e.id)
+				}
 			}
 			if failure.Settings || !failure.Retryable {
 				n.failed(failure, st, failure.Settings)
@@ -490,7 +529,7 @@ func (n *notifier) deliverThread(it *item) bool {
 			if messageID > 0 {
 				n.mu.Lock()
 				n.pruneBrakesLocked()
-				n.brakes[e.id] = brake{at: n.now(), messageID: messageID}
+				n.brakes[brakeKey(st, e.id)] = brake{at: n.now(), messageID: messageID}
 				n.mu.Unlock()
 				n.threads.open(st, e.id, e.name, d.subject.kind, messageID, pin)
 			}
@@ -498,7 +537,7 @@ func (n *notifier) deliverThread(it *item) bool {
 			n.threads.close(st, e.id)
 			// the opening it closed is no longer the one a new opening repeats
 			n.mu.Lock()
-			delete(n.brakes, e.id)
+			delete(n.brakes, brakeKey(st, e.id))
 			n.mu.Unlock()
 		}
 		n.tidyPins(st)
@@ -506,7 +545,7 @@ func (n *notifier) deliverThread(it *item) bool {
 		func() {
 			n.mu.Lock()
 			defer n.mu.Unlock()
-			e.inFlight, e.attempts, e.noButton, e.plain = false, 0, false, false
+			e.inFlight, e.attempts, e.noButton, e.plain, e.panics = false, 0, false, false, 0
 			switch d.action {
 			case actionOpen:
 				if e.opening == d.opening {
@@ -649,7 +688,7 @@ func (n *notifier) loadEntries() {
 			n.removed[id] = true
 			continue
 		}
-		n.entries[id] = &threadEntry{id: id, name: s.Name, open: s.Open, since: s.Since, fresh: s.Fresh, episode: 1,
+		n.entries[id] = &threadEntry{id: id, name: s.Name, kind: s.Kind, open: s.Open, since: s.Since, fresh: s.Fresh, episode: 1,
 			opening: s.Opening.notice(), closing: s.Closing.notice(), queued: true, touched: n.now()}
 	}
 	n.signal()
