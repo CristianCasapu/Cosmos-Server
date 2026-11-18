@@ -264,7 +264,7 @@ func RunDatabaseRetention() {
 		{"DELETE FROM events WHERE node = ? AND date < ?", []interface{}{node, monthAgo}},
 		{"DELETE FROM notifications WHERE node = ? AND date < ?", []interface{}{node, monthAgo}},
 	} {
-		res, err := db.Exec(MonitoringRebind(q.sql), q.args...)
+		res, err := db.Exec(MonitoringRebindFor(db, q.sql), q.args...) // Fork addition (plan 51): the dialect of this handle
 		if err != nil {
 			MajorError("Database Retention", err)
 			return

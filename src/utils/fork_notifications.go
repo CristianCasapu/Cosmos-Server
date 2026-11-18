@@ -414,7 +414,7 @@ func writeRows(db *sql.DB, n Notification, info NotificationInfo, explicit bool,
 			count                int
 			first                int64
 		)
-		err := tx.QueryRow(MonitoringRebind(
+		err := tx.QueryRow(MonitoringRebindFor(db,
 			"SELECT id, level, fork_ref, fork_count, fork_first, fork_info FROM notifications"+
 				" WHERE recipient = ? AND fork_thread = ? AND fork_kind = ? AND fork_resolved = 0 AND date >= ?"+
 				" ORDER BY date DESC, id DESC LIMIT 1"),
@@ -434,7 +434,7 @@ func writeRows(db *sql.DB, n Notification, info NotificationInfo, explicit bool,
 			if info.Resolves != "" {
 				resolved = nowMs
 			}
-			if _, err := tx.Exec(MonitoringRebind(
+			if _, err := tx.Exec(MonitoringRebindFor(db,
 				"INSERT INTO notifications(node, recipient, title, message, vars, icon, link, date, level, read, actions,"+
 					" fork_kind, fork_source, fork_thread, fork_ref, fork_audience, fork_count, fork_first, fork_resolved, fork_search, fork_info)"+
 					" VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)"),
@@ -479,7 +479,7 @@ func writeRows(db *sql.DB, n Notification, info NotificationInfo, explicit bool,
 		if levelRank(n.Level) > levelRank(level) {
 			newLevel = n.Level
 		}
-		if _, err := tx.Exec(MonitoringRebind(
+		if _, err := tx.Exec(MonitoringRebindFor(db,
 			"UPDATE notifications SET title = ?, message = ?, vars = ?, link = ?, date = ?, level = ?, fork_count = ?, fork_search = ?, fork_info = ?"+readClause+
 				" WHERE id = ?"),
 			n.Title, n.Message, n.Vars, n.Link, nowMs, newLevel, count, search, stored, id); err != nil {
@@ -533,7 +533,7 @@ func ResolveThread(thread string) (time.Time, bool) {
 	if err != nil || thread == "" {
 		return time.Time{}, false
 	}
-	return resolveThreadIn(db, MonitoringDialect(), thread)
+	return resolveThreadIn(db, MonitoringDialectOf(db), thread)
 }
 
 // resolveThreadIn is ResolveThread in a given store (plan 51: the local file
@@ -568,7 +568,7 @@ func ThreadOpen(thread string) bool {
 		return false
 	}
 	var n int
-	db.QueryRow(MonitoringRebind("SELECT COUNT(*) FROM notifications WHERE fork_thread = ? AND fork_resolved = 0 AND fork_info <> ''"), thread).Scan(&n)
+	db.QueryRow(MonitoringRebindFor(db, "SELECT COUNT(*) FROM notifications WHERE fork_thread = ? AND fork_resolved = 0 AND fork_info <> ''"), thread).Scan(&n)
 	return n > 0
 }
 

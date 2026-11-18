@@ -323,6 +323,7 @@ func setMonitorNode(node string) {
 // swapMonitoringStore puts new handles in place; the old ones are closed
 // after a drain (sql.DB.Close then waits for the statements running).
 func swapMonitoringStore(w, r *sql.DB, dialect string, key string, node string) {
+	registerHandles(dialect, w, r)
 	monitorMu.Lock()
 	oldW, oldR := monitorWriteDB, monitorReadDB
 	monitorWriteDB, monitorReadDB = w, r
@@ -339,6 +340,7 @@ func swapMonitoringStore(w, r *sql.DB, dialect string, key string, node string) 
 		if oldR != nil {
 			oldR.Close()
 		}
+		forgetHandles(oldW, oldR)
 	})
 }
 
@@ -889,4 +891,39 @@ func monitoringStoreHandle() *sql.DB {
 	monitorMu.RLock()
 	defer monitorMu.RUnlock()
 	return monitorWriteDB
+}
+
+// Every handle of the store knows its dialect (review round 2, S2): a writer
+// that took a handle just before a swap keeps it for the drain, and must
+// rebind for that handle, not for the store open now.
+var handleDialects sync.Map // *sql.DB -> string
+
+func registerHandles(dialect string, handles ...*sql.DB) {
+	for _, h := range handles {
+		if h != nil {
+			handleDialects.Store(h, dialect)
+		}
+	}
+}
+
+func forgetHandles(handles ...*sql.DB) {
+	for _, h := range handles {
+		if h != nil {
+			handleDialects.Delete(h)
+		}
+	}
+}
+
+// MonitoringDialectOf is the dialect of a handle of the store (the store's
+// dialect now for a handle it does not know).
+func MonitoringDialectOf(db *sql.DB) string {
+	if d, ok := handleDialects.Load(db); ok {
+		return d.(string)
+	}
+	return MonitoringDialect()
+}
+
+// MonitoringRebindFor is MonitoringRebind for the dialect of that handle.
+func MonitoringRebindFor(db *sql.DB, query string) string {
+	return rebindFor(MonitoringDialectOf(db), query)
 }

@@ -44,7 +44,7 @@ func InsertEvent(e Event) error {
 		return err
 	}
 
-	_, err = db.Exec(MonitoringRebind(
+	_, err = db.Exec(MonitoringRebindFor(db,
 		"INSERT INTO events(node, event_id, label, application, level, date, data, object, search)"+
 			" VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)"),
 		MonitoringNode(), e.EventId, e.Label, e.Application, e.Level,
@@ -61,7 +61,7 @@ func QueryEvents(q EventQuery) ([]Event, int64, error) {
 		return nil, 0, err
 	}
 
-	dialect := MonitoringDialect()
+	dialect := MonitoringDialectOf(db)
 	where := []string{"date >= ?", "date <= ?"}
 	args := []interface{}{TimeToMillis(q.From), TimeToMillis(q.To)}
 
@@ -137,6 +137,6 @@ func DeleteLocalEvents() error {
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec(MonitoringRebind("DELETE FROM events WHERE node = ?"), MonitoringNode())
+	_, err = db.Exec(MonitoringRebindFor(db, "DELETE FROM events WHERE node = ?"), MonitoringNode())
 	return err
 }

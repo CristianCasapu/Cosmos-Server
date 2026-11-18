@@ -76,7 +76,7 @@ func SearchIncidents(filter Filter, group string, text string, cursor int64, lim
 	if err != nil {
 		return page, err
 	}
-	rows, err := db.Query(utils.MonitoringRebind(
+	rows, err := db.Query(utils.MonitoringRebindFor(db,
 		"SELECT "+eventColumns+" FROM "+tableName+" WHERE "+where+" ORDER BY id DESC LIMIT "+strconv.Itoa(limit+1)), args...)
 	if err != nil {
 		return page, err

@@ -84,7 +84,7 @@ func writeDB() (*sql.DB, error) {
 	if schemaReady == db {
 		return db, nil
 	}
-	if err := createSchema(db, utils.MonitoringDialect()); err != nil {
+	if err := createSchema(db, utils.MonitoringDialectOf(db)); err != nil {
 		return nil, err
 	}
 	schemaReady = db
@@ -153,7 +153,7 @@ func insert(events []Event) error {
 	}
 	defer tx.Rollback()
 
-	statement, err := tx.Prepare(utils.MonitoringRebind(insertSQL))
+	statement, err := tx.Prepare(utils.MonitoringRebindFor(db, insertSQL))
 	if err != nil {
 		return err
 	}
@@ -198,14 +198,14 @@ func prune(now time.Time) (int64, error) {
 	}
 	node := utils.MonitoringNode()
 
-	result, err := db.Exec(utils.MonitoringRebind("DELETE FROM "+tableName+" WHERE node = ? AND ts < ?"),
+	result, err := db.Exec(utils.MonitoringRebindFor(db, "DELETE FROM "+tableName+" WHERE node = ? AND ts < ?"),
 		node, utils.TimeToMillis(now.Add(-retention)))
 	if err != nil {
 		return 0, err
 	}
 	deleted, _ := result.RowsAffected()
 
-	rows, err := db.Query(utils.MonitoringRebind("SELECT kind, COUNT(*) FROM "+tableName+" WHERE node = ? GROUP BY kind"), node)
+	rows, err := db.Query(utils.MonitoringRebindFor(db, "SELECT kind, COUNT(*) FROM "+tableName+" WHERE node = ? GROUP BY kind"), node)
 	if err != nil {
 		return deleted, err
 	}
@@ -228,7 +228,7 @@ func prune(now time.Time) (int64, error) {
 
 	for _, kind := range over {
 		// the row just past the cap, counted from the newest, and all before it
-		result, err := db.Exec(utils.MonitoringRebind(
+		result, err := db.Exec(utils.MonitoringRebindFor(db,
 			"DELETE FROM "+tableName+" WHERE node = ? AND kind = ? AND id <= ("+
 				"SELECT id FROM "+tableName+" WHERE node = ? AND kind = ? ORDER BY id DESC LIMIT 1 OFFSET ?)"),
 			node, kind, node, kind, capOf(kind))

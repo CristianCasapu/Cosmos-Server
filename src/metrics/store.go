@@ -76,7 +76,7 @@ func writeBuckets(buckets []DataPush) error {
 		return err
 	}
 
-	dialect := utils.MonitoringDialect()
+	dialect := utils.MonitoringDialectOf(db)
 	node := utils.MonitoringNode()
 
 	tx, err := db.Begin()
@@ -100,14 +100,14 @@ func writeBucket(tx *sql.Tx, dialect string, node string, dp DataPush) error {
 		scale = dp.Scale
 	}
 
-	_, err := tx.Exec(utils.MonitoringRebind(catalogUpsert),
+	_, err := tx.Exec(utils.RebindFor(dialect, catalogUpsert),
 		node, dp.Key, dp.Label, dp.Unit, int64(dp.Max), dp.AggloType, scale, dp.Object,
 		float64(dp.Period/(time.Second*30)), utils.TimeToMillis(dp.Date))
 	if err != nil {
 		return err
 	}
 
-	_, err = tx.Exec(utils.MonitoringRebind(rawUpsert),
+	_, err = tx.Exec(utils.RebindFor(dialect, rawUpsert),
 		node, dp.Key, utils.TimeToMillis(dp.Date), dp.Value, dp.AvgIndex,
 		utils.TimeToMillis(dp.Date.Add(rawRetention)))
 	if err != nil {
@@ -132,7 +132,7 @@ func writeBucket(tx *sql.Tx, dialect string, node string, dp DataPush) error {
 		expire := poolDate.Add(pool.period).Add(pool.retention)
 
 		query := aggregateInsert + aggregateMerge(dp.AggloType, dialect)
-		_, err = tx.Exec(utils.MonitoringRebind(query),
+		_, err = tx.Exec(utils.RebindFor(dialect, query),
 			node, dp.Key, pool.granularity, utils.TimeToMillis(poolDate),
 			dp.Value, 1, utils.TimeToMillis(expire),
 			aggregateArg(dp.AggloType, dp), countInc)
@@ -177,7 +177,7 @@ func loadMetrics(metricsList []string) ([]DataDefDB, error) {
 	predicate, predicateArgs := keyPredicate(metricsList)
 
 	catalogArgs := append([]interface{}{node}, predicateArgs...)
-	rows, err := db.Query(utils.MonitoringRebind(
+	rows, err := db.Query(utils.MonitoringRebindFor(db,
 		"SELECT key, label, unit, max, agglo_type, scale, object, time_scale, last_update"+
 			" FROM metrics WHERE node = ?"+predicate+" ORDER BY key"), catalogArgs...)
 	if err != nil {
@@ -214,7 +214,7 @@ func loadMetrics(metricsList []string) ([]DataDefDB, error) {
 
 	valueArgs := append([]interface{}{node}, predicateArgs...)
 	valueArgs = append(valueArgs, rawFrom, now)
-	vrows, err := db.Query(utils.MonitoringRebind(
+	vrows, err := db.Query(utils.MonitoringRebindFor(db,
 		"SELECT key, granularity, date, value, avg_index, expire FROM metric_values"+
 			" WHERE node = ?"+predicate+
 			" AND ((granularity = '"+granularityRaw+"' AND date >= ?)"+
@@ -285,7 +285,7 @@ func poolValues(granularity string, poolDate time.Time) (map[string]poolAlertRow
 		return nil, err
 	}
 
-	rows, err := db.Query(utils.MonitoringRebind(
+	rows, err := db.Query(utils.MonitoringRebindFor(db,
 		"SELECT m.key, m.object, m.max, m.agglo_type, v.value, v.avg_index"+
 			" FROM metric_values v JOIN metrics m ON m.node = v.node AND m.key = v.key"+
 			" WHERE v.node = ? AND v.granularity = ? AND v.date = ?"),
@@ -326,7 +326,7 @@ func listMetricNames() (map[string]string, error) {
 		return nil, err
 	}
 
-	rows, err := db.Query(utils.MonitoringRebind(
+	rows, err := db.Query(utils.MonitoringRebindFor(db,
 		"SELECT key, label FROM metrics WHERE node = ?"), utils.MonitoringNode())
 	if err != nil {
 		return nil, err
@@ -353,7 +353,7 @@ func resetLocalMetrics() error {
 
 	node := utils.MonitoringNode()
 	for _, table := range []string{"metric_values", "metrics"} {
-		if _, err := db.Exec(utils.MonitoringRebind("DELETE FROM "+table+" WHERE node = ?"), node); err != nil {
+		if _, err := db.Exec(utils.MonitoringRebindFor(db, "DELETE FROM "+table+" WHERE node = ?"), node); err != nil {
 			return err
 		}
 	}

@@ -23,7 +23,7 @@ func InsertNotification(n Notification) error {
 		read = 1
 	}
 
-	_, err = db.Exec(MonitoringRebind(
+	_, err = db.Exec(MonitoringRebindFor(db,
 		"INSERT INTO notifications(node, recipient, title, message, vars, icon, link, date, level, read, actions)"+
 			" VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
 		MonitoringNode(), n.Recipient, n.Title, n.Message, n.Vars, n.Icon, n.Link,
@@ -49,7 +49,7 @@ func ListNotifications(recipient string, cursor int64, limit int) ([]Notificatio
 		limit = 20
 	}
 
-	rows, err := db.Query(MonitoringRebind(
+	rows, err := db.Query(MonitoringRebindFor(db,
 		"SELECT id, title, message, vars, icon, link, date, level, read, recipient, actions"+
 			" FROM notifications WHERE "+where+" ORDER BY id DESC LIMIT "+strconv.Itoa(limit)), args...)
 	if err != nil {
@@ -95,7 +95,7 @@ func MarkNotificationsRead(recipient string, ids []int64) (int64, error) {
 	}
 	args = append(args, recipient)
 
-	res, err := db.Exec(MonitoringRebind(
+	res, err := db.Exec(MonitoringRebindFor(db,
 		"UPDATE notifications SET read = 1 WHERE id IN ("+holes+") AND recipient = ?"), args...)
 	if err != nil {
 		return 0, err
