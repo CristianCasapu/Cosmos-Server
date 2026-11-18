@@ -273,6 +273,7 @@ answer() { printf '%s' "${ANSWER[$1]:-}"; }
 [ -n "$(answer outside-lookup)" ] || ANSWER[outside-lookup]=yes
 [ -n "$(answer keep-ssh-open)" ] || ANSWER[keep-ssh-open]=no
 [ -n "$(answer wizard-on-lan)" ] || ANSWER[wizard-on-lan]=no
+[ -n "$(answer placement)" ] || ANSWER[placement]=unknown
 if [ -z "$(answer protection)" ]; then
 	if [ "$(answer reachable)" = internet ]; then ANSWER[protection]=yes; else ANSWER[protection]=no; fi
 fi
