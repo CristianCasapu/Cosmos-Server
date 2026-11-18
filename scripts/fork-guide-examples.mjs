@@ -77,6 +77,11 @@ const setUp = async () => {
   const config = (await call('GET', 'config')).body.data;
   const wanted = ['s3', 's3-internet', 'rustfs-console', 's3-shield', 's3-timeout'];
   const have = (config.HTTPConfig.ProxyConfig.Routes || []).map((r) => r.Name);
+  // the test's images and networks are not "unused" to be cleared away by the test Cosmos
+  if (!(config.DockerConfig && config.DockerConfig.SkipPruneImages && config.DockerConfig.SkipPruneNetwork)) {
+    config.DockerConfig = { ...(config.DockerConfig || {}), SkipPruneImages: true, SkipPruneNetwork: true };
+    have.length = 0;
+  }
   if (!wanted.every((n) => have.includes(n))) {
     config.HTTPConfig.ProxyConfig.Routes = [
       // the home address as the guide proposes it for backups: no shield, no throttle, no timeout
