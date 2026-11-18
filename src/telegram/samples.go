@@ -37,6 +37,10 @@ type KindSample struct {
 	Category string `json:"category"`
 	Label    string `json:"label"`
 	Closing  bool   `json:"closing,omitempty"`
+	// Closes: the opening kind a closing ends (a pair); Neutral: a closing
+	// whose own severity is its delivery (review 5)
+	Closes  string `json:"closes,omitempty"`
+	Neutral bool   `json:"neutral,omitempty"`
 	// Record is the severity the security record gives the kind (high,
 	// medium, low): the minimum severity of the settings applies to it.
 	Record string `json:"record,omitempty"`
@@ -71,7 +75,7 @@ func samples(st settings) []KindSample {
 		}
 		sample := KindSample{
 			Kind: kind, Severity: nt.severity.String(), Category: nt.category, Label: nt.label(),
-			Closing: nt.closing, Own: ownKinds[kind], Off: nt.texts().Off,
+			Closing: nt.closing, Own: ownKinds[kind], Off: nt.texts().Off, Closes: nt.texts().Closes, Neutral: nt.texts().Neutral,
 			Text: m.text, Entities: entities, Button: m.button, Preview: PreviewLine(m.text),
 		}
 		if known, ok := security.KindOf(kind); ok {

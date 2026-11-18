@@ -120,7 +120,17 @@ export const kindConfig = (values) => {
 
 // Why a kind is not sent, as [key, English text] for t(), or null when it is.
 export const whyNotSent = (kind, values) => {
-  if (deliveryOf(kind.closing ? 'info' : kind.severity, values) === 'off') {
+  if (kind.closing && kind.closes) {
+    // review 5: the end of a problem the chat was told is always sent
+    if ((values.Telegram_Kinds || {})[kind.kind] === false) {
+      return ['mgmt.config.telegram.kinds.whyClosingOff', 'Not sent: switched off here. The chat then keeps the problem\'s first message as its last word; its pin is still taken away.'];
+    }
+    if (deliveryOf(kind.neutral ? kind.severity : 'info', values) === 'off') {
+      return ['mgmt.config.telegram.kinds.whyClosingSilent', 'Sent silently when the chat was told the problem began, even though this severity is switched off above: the chat never ends on a problem that is over.'];
+    }
+    return null;
+  }
+  if (deliveryOf(kind.closing && !kind.neutral ? 'info' : kind.severity, values) === 'off') {
     return ['mgmt.config.telegram.kinds.whySeverityOff', 'Not sent: this severity is switched off above.'];
   }
   if (kindOn(kind, values)) return null;

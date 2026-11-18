@@ -94,6 +94,19 @@ test('the list is grouped by severity and says why a kind is not sent', () => {
   assert.match(whyNotSent({ ...dying, closing: true, severity: 'info' }, { ...form, Telegram_Delivery_info: 'off' })[1], /severity/);
 });
 
+// review 5: the end of a problem of a pair is sent, silently when its
+// severity is off; switched off by itself, the card says what it leaves
+test('the end of a problem says how it arrives', () => {
+  const form = { ...base, ...kindValues({}) };
+  const restored = { kind: 'reach.restored', closes: 'reach.down', closing: true, severity: 'info', category: 'system' };
+  assert.equal(whyNotSent(restored, form), null);
+  assert.match(whyNotSent(restored, { ...form, Telegram_Delivery_info: 'off' })[1], /silently/);
+  assert.match(whyNotSent(restored, { ...form, Telegram_Kinds: { 'reach.restored': false } })[1], /last word/);
+  const gone = { kind: 'smart.gone', closes: 'smart.failing', closing: true, neutral: true, severity: 'warn', category: 'storage' };
+  assert.equal(whyNotSent(gone, { ...form, Telegram_Delivery_info: 'off' }), null);
+  assert.match(whyNotSent(gone, { ...form, Telegram_Delivery_warn: 'off' })[1], /silently/);
+});
+
 test('a kind that is off by default stays off until switched on', () => {
   const country = { kind: 'login.newcountry', severity: 'warn', category: 'security', off: true };
   assert.equal(kindDefault(country, base), false);
