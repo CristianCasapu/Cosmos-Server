@@ -104,7 +104,11 @@ func (c *copier) verifySurrogate(ctx context.Context, r rule, after int64, extra
 		var absent []row
 		var pairs [][2]row
 		if err == nil && len(batch) > 0 {
-			absent, pairs, err = c.match(bctx, c.dst.DB, r, batch)
+			err = c.dst.within(bctx, func(q dbtx) error {
+				var err error
+				absent, pairs, err = c.match(bctx, q, r, batch)
+				return err
+			})
 		}
 		cancel()
 		if err != nil {
@@ -185,14 +189,9 @@ func (c *copier) verifyKeys(ctx context.Context, r rule, extra string, extraArgs
 			if err != nil {
 				break
 			}
-			var rows *sql.Rows
-			rows, err = c.dst.DB.QueryContext(bctx, c.dst.bind("SELECT "+strings.Join(r.columnNames(), ", ")+" FROM "+r.table+
-				" WHERE ("+strings.Join(r.key, ", ")+") IN (VALUES "+strings.Join(holes, ", ")+")"), args...)
-			if err != nil {
-				break
-			}
 			var have []row
-			have, err = scanRows(rows, r, false, false)
+			have, err = c.dst.rowsOf(bctx, r, false, false, "SELECT "+strings.Join(r.columnNames(), ", ")+" FROM "+r.table+
+				" WHERE ("+strings.Join(r.key, ", ")+") IN (VALUES "+strings.Join(holes, ", ")+")", args...)
 			for _, one := range have {
 				found[strings.Join(encodeKey(r, one.values), "\x00")] = one
 			}

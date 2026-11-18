@@ -8,6 +8,7 @@ export const POLL_IDLE_MS = 30000; // otherwise: the store in use can change (a 
 
 export const TO_POSTGRES = 'to-postgres';
 export const TO_LOCAL = 'to-local';
+export const CATCH_UP = 'catch-up'; // the automatic catch-up after a fallback
 
 const identity = (key, fallback, vars) => fill(fallback, vars);
 
@@ -82,7 +83,39 @@ export function offerOf(view, direction) {
     first: Number(source.first) || 0,
     last: Number(source.last) || 0,
     lastCopy: Number(source.lastCopy) || 0,
+    countedAt: Number(offer.countedAt) || 0,
+    now: Number(view.now) || 0,
   };
+}
+
+// countedAgo: how old the numbers of an offer are, by the server's clocks
+// (countedAt and now both come from the server, so the browser's clock does
+// not matter); '' when not known.
+export function countedAgo(offer, t = identity) {
+  if (!offer || !(offer.countedAt > 0) || !(offer.now > 0)) return '';
+  const minutes = Math.floor(Math.max(0, offer.now - offer.countedAt) / 60000);
+  if (minutes < 1) return t('mgmt.config.general.monitoringDb.copy.countedNow', 'Counted just now.');
+  if (minutes < 120) return t('mgmt.config.general.monitoringDb.copy.countedMinutes', 'Counted {{n}} minutes ago.', { n: minutes });
+  return t('mgmt.config.general.monitoringDb.copy.countedHours', 'Counted {{n}} hours ago.', { n: Math.floor(minutes / 60) });
+}
+
+// catchUpOf: how the last automatic catch-up after a fallback ended, for a
+// line of the card, or null.
+export function catchUpOf(view, t = identity, locale) {
+  const c = view && view.catchUp;
+  if (!c || !c.outcome) return null;
+  const vars = {
+    n: formatCount(c.written), missing: formatCount(c.missing),
+    from: formatTime(c.from, locale), to: formatTime(c.to, locale), message: c.message || '',
+  };
+  switch (c.outcome) {
+    case 'done':
+      return { outcome: 'done', severity: 'success', text: t('mgmt.config.general.monitoringDb.copy.caughtUp', 'Caught up {{n}} records written while the database was away (from {{from}} to {{to}}).', vars) };
+    case 'skipped':
+      return { outcome: 'skipped', severity: 'info', text: t('mgmt.config.general.monitoringDb.copy.catchUpSkipped', 'The records written while the database was away (from {{from}} to {{to}}) were not caught up: {{message}}', vars) };
+    default:
+      return { outcome: c.outcome, severity: 'warning', text: t('mgmt.config.general.monitoringDb.copy.catchUpPartly', 'Caught up {{n}} records written while the database was away (from {{from}} to {{to}}); {{missing}} were not: {{message}}', vars) };
+  }
 }
 
 // offerLabel is the button of an offer, with its numbers.
@@ -120,8 +153,11 @@ export function progressOf(view) {
   }));
   const total = tables.reduce((n, p) => n + p.total, 0);
   const done = tables.reduce((n, p) => n + Math.min(p.done, p.total), 0);
+  const window = view.window || {};
   return {
     direction: view.direction,
+    from: Number(window.from) || 0,
+    to: Number(window.to) || 0,
     phase: view.phase || 'preparing',
     cancelling: !!view.cancelling,
     tables,
@@ -139,7 +175,7 @@ export function resultOf(view, t = identity, locale) {
   const last = view && view.last;
   if (result && last && Number(last.replaced) > 0) {
     // values that are not numbers (NaN, infinities), which the local file cannot hold
-    result.note = t('mgmt.config.general.monitoringDb.copy.replaced', '{{n}} values that are not numbers were stored as 0.', { n: formatCount(last.replaced) });
+    result.note = t('mgmt.config.general.monitoringDb.copy.replaced', '{{n}} scale values that are not numbers were stored as 1, the neutral scale.', { n: formatCount(last.replaced) });
   }
   return result;
 }

@@ -616,8 +616,8 @@ func TestNotANumber(t *testing.T) {
 		if report.Mismatch || tableOf(report, "metrics").Replaced != 3 {
 			t.Fatalf("%+v", tableOf(report, "metrics"))
 		}
-		if n := count(t, dst, "SELECT COUNT(*) FROM metrics WHERE time_scale = 0"); n != 3 {
-			t.Errorf("stored as 0: %d", n)
+		if n := count(t, dst, "SELECT COUNT(*) FROM metrics WHERE time_scale = 1"); n != 3 {
+			t.Errorf("stored as 1, the neutral scale: %d", n)
 		}
 		if n := count(t, dst, "SELECT COUNT(*) FROM metrics WHERE time_scale = 1.5"); n != 1 {
 			t.Errorf("a number is kept: %d", n)
@@ -637,4 +637,43 @@ func TestNotANumber(t *testing.T) {
 			t.Errorf("an infinity reaches PostgreSQL as it is: %d", n)
 		}
 	})
+}
+
+// The copy waits between its batches, for as long as the pace asks, after
+// every batch of the copy and of the check (no sleep here: the waits are
+// counted by a fake).
+func TestPauseBetweenBatches(t *testing.T) {
+	src, dst := openStore(t, utils.DialectSQLite), openStore(t, utils.DialectSQLite)
+	fill(t, src, contents{node: "server.local", events: 100, end: time.Now().UnixMilli() - 3600000})
+	var asked []time.Duration
+	var slept []time.Duration
+	opt := testOptions("pace", true)
+	opt.Batch = 10
+	opt.Pause = func(took time.Duration) time.Duration {
+		asked = append(asked, took)
+		return 7 * time.Millisecond
+	}
+	opt.Sleep = func(ctx context.Context, d time.Duration) error {
+		slept = append(slept, d)
+		return nil
+	}
+	report := copyOnce(t, src, dst, opt)
+	if report.Mismatch || tableOf(report, "events").Written != 100 {
+		t.Fatalf("%+v", report.Tables)
+	}
+	// 100 events in batches of 10: 10 batches copied, 10 checked
+	if len(slept) < 20 || len(slept) != len(asked) {
+		t.Fatalf("%d waits for %d batches asked", len(slept), len(asked))
+	}
+	for _, d := range slept {
+		if d != 7*time.Millisecond {
+			t.Fatalf("waited %s, the pace asked 7 ms", d)
+		}
+	}
+	// the production pace: as long as the batch took, from 5 ms to 0.5 s
+	for took, want := range map[time.Duration]time.Duration{0: 5 * time.Millisecond, 40 * time.Millisecond: 40 * time.Millisecond, 3 * time.Second: 500 * time.Millisecond} {
+		if got := pauseFor(took); got != want {
+			t.Errorf("pauseFor(%s) = %s, want %s", took, got, want)
+		}
+	}
 }

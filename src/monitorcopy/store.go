@@ -25,6 +25,73 @@ func (s Store) postgres() bool { return s.Dialect == utils.DialectPostgres }
 
 func (s Store) bind(query string) string { return utils.RebindFor(s.Dialect, query) }
 
+// dbtx is a *sql.DB or a *sql.Tx.
+type dbtx interface {
+	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+}
+
+// statementTimeout bounds one statement of the copy on PostgreSQL. The
+// store's sessions carry a 30 s statement_timeout, which a count or a check
+// of a large table can need more than; the copy's own statements set their
+// bound inside their transaction (SET LOCAL), so the sessions keep theirs.
+const statementTimeout = "600s"
+
+// begin opens a transaction; on PostgreSQL with the copy's statement bound.
+func (s Store) begin(ctx context.Context) (*sql.Tx, error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	if s.postgres() {
+		if _, err := tx.ExecContext(ctx, "SET LOCAL statement_timeout = '"+statementTimeout+"'"); err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+	}
+	return tx, nil
+}
+
+// within runs fn with the copy's statement bound: on PostgreSQL in a
+// transaction of its own (fn reads everything it queries before it returns),
+// on SQLite on the handle.
+func (s Store) within(ctx context.Context, fn func(q dbtx) error) error {
+	if !s.postgres() {
+		return fn(s.DB)
+	}
+	tx, err := s.begin(ctx)
+	if err != nil {
+		return err
+	}
+	if err := fn(tx); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+// rowsOf runs a query within the bound and scans its rows by the rule.
+func (s Store) rowsOf(ctx context.Context, r rule, withID, withW bool, query string, args ...interface{}) ([]row, error) {
+	var out []row
+	err := s.within(ctx, func(q dbtx) error {
+		rows, err := q.QueryContext(ctx, s.bind(query), args...)
+		if err != nil {
+			return err
+		}
+		out, err = scanRows(rows, r, withID, withW)
+		return err
+	})
+	return out, err
+}
+
+// scalars runs a query of one row within the bound.
+func (s Store) scalars(ctx context.Context, query string, args []interface{}, dest ...interface{}) error {
+	return s.within(ctx, func(q dbtx) error {
+		return q.QueryRowContext(ctx, s.bind(query), args...).Scan(dest...)
+	})
+}
+
 // tables lists the base tables of the store (lower case), without SQLite's own.
 func (s Store) tables(ctx context.Context) (map[string]bool, error) {
 	query := "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'"
@@ -164,7 +231,7 @@ func (e errTooLarge) Error() string { return "monitorcopy: value too large for c
 // neither NUL nor invalid UTF-8 (SQLite's does), and its INTEGER is 32 bits;
 // SQLite stores a NaN as NULL, which a NOT NULL column refuses, so a value
 // that is not a finite number (NaN, an infinity, which PostgreSQL's DOUBLE
-// PRECISION holds) is stored there as 0. It returns how many values it
+// PRECISION holds) is stored there as the column's nanAs (1 for a scale). It returns how many values it
 // replaced so.
 func fitFor(target Store, r rule, values []interface{}) (int, error) {
 	replaced := 0
@@ -174,7 +241,7 @@ func fitFor(target Store, r rule, values []interface{}) (int, error) {
 				continue
 			}
 			if v := values[i].(float64); math.IsNaN(v) || math.IsInf(v, 0) {
-				values[i] = float64(0)
+				values[i] = c.nanAs
 				replaced++
 			}
 		}

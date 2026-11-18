@@ -37,6 +37,14 @@ type Options struct {
 	// in use changed).
 	Guard func() error
 	Now   func() time.Time
+	// From, when set (unix ms), copies only the rows written from then on:
+	// each table by its rule's touched column (a table without one, the
+	// monitoring settings, is left out). The catch-up after a fallback.
+	From int64
+	// End, when set (unix ms), is the copy's end instead of the time it starts.
+	End int64
+	// Sleep waits between batches (nil: a timer); the tests count the waits.
+	Sleep func(ctx context.Context, d time.Duration) error
 }
 
 func (o Options) now() time.Time {
@@ -52,7 +60,7 @@ type TableProgress struct {
 	Total   int64  `json:"total"`   // rows of the source to go through
 	Done    int64  `json:"done"`    // rows of the source gone through
 	Written int64  `json:"written"` // rows written to the target (new or newer)
-	// values that are not finite numbers (NaN, infinities), stored as 0 in a
+	// values that are not finite numbers (NaN, infinities), stored as the column's nanAs (1 for a scale) in a
 	// SQLite target, which cannot hold them in a NOT NULL column
 	Replaced int64 `json:"replaced"`
 	// State: waiting, copying, copied, verifying, verified, mismatch, failed
@@ -117,6 +125,14 @@ func (t *Tracker) Rate() float64 {
 	return float64(t.read) / elapsed
 }
 
+// rate is Rate, 0 for no tracker.
+func (t *Tracker) rate() float64 {
+	if t == nil {
+		return 0
+	}
+	return t.Rate()
+}
+
 // Snapshot returns the phase and a copy of the tables' progress.
 func (t *Tracker) Snapshot() (string, []TableProgress) {
 	t.mu.Lock()
@@ -158,7 +174,7 @@ type tableMarker struct {
 	W       int64    `json:"w"`             // surrogate: the last time value copied entirely
 	Key     []string `json:"key,omitempty"` // natural: the last key copied
 	Written int64    `json:"written"`
-	// values that are not finite numbers, stored as 0 in a SQLite target
+	// values that are not finite numbers, stored as the column's nanAs in a SQLite target
 	Replaced int64 `json:"replaced,omitempty"`
 }
 
@@ -316,7 +332,7 @@ func (c *copier) prepare() error {
 		}
 		where, args := c.copyFilter(r, c.marker.End)
 		var total int64
-		if err := c.src.DB.QueryRowContext(bctx, c.src.bind("SELECT COUNT(*) FROM "+r.table+" WHERE 1 = 1"+where), args...).Scan(&total); err != nil {
+		if err := c.src.scalars(bctx, "SELECT COUNT(*) FROM "+r.table+" WHERE 1 = 1"+where, args, &total); err != nil {
 			return c.fail(r, "counting", err)
 		}
 		track.set(i, func(p *TableProgress) { p.Total = total })
@@ -376,6 +392,9 @@ func (c *copier) loadRun(ctx context.Context) error {
 		c.marker = previous
 	} else {
 		c.marker = runMarker{Run: newRunID(), Started: utils.TimeToMillis(c.opt.now()), End: utils.TimeToMillis(c.opt.now())}
+		if c.opt.End > 0 {
+			c.marker.End = c.opt.End
+		}
 	}
 	return c.saveRun(ctx)
 }
@@ -385,7 +404,17 @@ func (c *copier) saveRun(ctx context.Context) error {
 	return c.dst.setKV(ctx, c.dst.DB, runKey(c.opt.SourceID), string(encoded))
 }
 
-func (c *copier) copyFilter(r rule, end int64) (string, []interface{}) { return copyFilter(r, end) }
+func (c *copier) copyFilter(r rule, end int64) (string, []interface{}) {
+	where, args := copyFilter(r, end)
+	if c.opt.From > 0 {
+		if r.touched == "" {
+			return where + " AND 1 = 0", args
+		}
+		where += " AND " + r.touched + " >= ? AND " + r.touched + " < ?"
+		args = append(args, c.opt.From-r.touchedSlack.Milliseconds(), end)
+	}
+	return where, args
+}
 
 // copyFilter is the condition on the source's rows that are copied: before
 // the copy's end, not expired, not older than the target's retention.
@@ -434,6 +463,12 @@ func (c *copier) pause(ctx context.Context, took time.Duration) error {
 		default:
 			return nil
 		}
+	}
+	if c.opt.Sleep != nil {
+		if err := c.opt.Sleep(ctx, wait); err != nil {
+			return errStopped
+		}
+		return nil
 	}
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
@@ -529,7 +564,7 @@ func (c *copier) countUpTo(ctx context.Context, r rule, m tableMarker) (int64, e
 		args = append(args, keyArgs...)
 	}
 	var n int64
-	err := c.src.DB.QueryRowContext(ctx, c.src.bind("SELECT COUNT(*) FROM "+r.table+" WHERE 1 = 1"+where), args...).Scan(&n)
+	err := c.src.scalars(ctx, "SELECT COUNT(*) FROM "+r.table+" WHERE 1 = 1"+where, args, &n)
 	return n, err
 }
 
@@ -592,11 +627,7 @@ func (c *copier) readNatural(ctx context.Context, r rule, after []string, extra 
 	}
 	query := "SELECT " + c.layouts[r.table].list + " FROM " + r.table + " WHERE 1 = 1" + where +
 		" ORDER BY " + strings.Join(r.key, ", ") + " LIMIT " + strconv.Itoa(c.limit())
-	rows, err := c.src.DB.QueryContext(ctx, c.src.bind(query), args...)
-	if err != nil {
-		return nil, err
-	}
-	return scanRows(rows, r, false, false)
+	return c.src.rowsOf(ctx, r, false, false, query, args...)
 }
 
 func (c *copier) batchNatural(ctx context.Context, r rule, m *tableMarker) (int64, int64, error) {
@@ -612,7 +643,7 @@ func (c *copier) batchNatural(ctx context.Context, r rule, m *tableMarker) (int6
 		}
 		replaced += int64(n)
 	}
-	tx, err := c.dst.DB.BeginTx(ctx, nil)
+	tx, err := c.dst.begin(ctx)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -695,11 +726,7 @@ func (c *copier) readSurrogate(ctx context.Context, r rule, after int64, extra s
 	list := c.layouts[r.table].list
 	query := "SELECT id, (" + r.window + ") AS w, " + list + " FROM " + r.table + " WHERE (" + r.window + ") > ?" + where +
 		" ORDER BY w, id LIMIT " + strconv.Itoa(c.limit())
-	rows, err := c.src.DB.QueryContext(ctx, c.src.bind(query), append([]interface{}{after}, args...)...)
-	if err != nil {
-		return nil, err
-	}
-	batch, err := scanRows(rows, r, true, true)
+	batch, err := c.src.rowsOf(ctx, r, true, true, query, append([]interface{}{after}, args...)...)
 	limit := c.limit()
 	if err != nil || len(batch) < limit {
 		return batch, err
@@ -709,11 +736,7 @@ func (c *copier) readSurrogate(ctx context.Context, r rule, after int64, extra s
 	for {
 		query := "SELECT id, (" + r.window + ") AS w, " + list + " FROM " + r.table + " WHERE (" + r.window + ") = ? AND id > ?" + where +
 			" ORDER BY id LIMIT " + strconv.Itoa(limit)
-		rows, err := c.src.DB.QueryContext(ctx, c.src.bind(query), append([]interface{}{last.w, last.id}, args...)...)
-		if err != nil {
-			return nil, err
-		}
-		more, err := scanRows(rows, r, true, true)
+		more, err := c.src.rowsOf(ctx, r, true, true, query, append([]interface{}{last.w, last.id}, args...)...)
 		if err != nil {
 			return nil, err
 		}
@@ -784,7 +807,7 @@ func (c *copier) batchSurrogate(ctx context.Context, r rule, m *tableMarker) (in
 		}
 		replaced += int64(n)
 	}
-	tx, err := c.dst.DB.BeginTx(ctx, nil)
+	tx, err := c.dst.begin(ctx)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -845,10 +868,16 @@ func (c *copier) checkSequences(ctx context.Context) error {
 		}
 		var err error
 		if c.dst.postgres() {
-			_, err = c.dst.DB.ExecContext(ctx, "SELECT setval(pg_get_serial_sequence('"+r.table+"', 'id'), m) FROM (SELECT MAX(id) AS m FROM "+r.table+") x"+
-				" WHERE m IS NOT NULL AND m > COALESCE((SELECT last_value FROM pg_sequences WHERE format('%I.%I', schemaname, sequencename) = pg_get_serial_sequence('"+r.table+"', 'id')), 0)")
+			err = c.dst.within(ctx, func(q dbtx) error {
+				_, err := q.ExecContext(ctx, "SELECT setval(pg_get_serial_sequence('"+r.table+"', 'id'), m) FROM (SELECT MAX(id) AS m FROM "+r.table+") x"+
+					" WHERE m IS NOT NULL AND m > COALESCE((SELECT last_value FROM pg_sequences WHERE format('%I.%I', schemaname, sequencename) = pg_get_serial_sequence('"+r.table+"', 'id')), 0)")
+				return err
+			})
 		} else {
-			_, err = c.dst.DB.ExecContext(ctx, "UPDATE sqlite_sequence SET seq = (SELECT MAX(id) FROM "+r.table+") WHERE name = '"+r.table+"' AND seq < (SELECT MAX(id) FROM "+r.table+")")
+			err = c.dst.within(ctx, func(q dbtx) error {
+				_, err := q.ExecContext(ctx, "UPDATE sqlite_sequence SET seq = (SELECT MAX(id) FROM "+r.table+") WHERE name = '"+r.table+"' AND seq < (SELECT MAX(id) FROM "+r.table+")")
+				return err
+			})
 		}
 		if err != nil {
 			return c.fail(r, "sequence", err)

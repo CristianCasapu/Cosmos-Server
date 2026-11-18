@@ -41,15 +41,20 @@ var (
 
 // Result is how the last copy ended.
 type Result struct {
-	Direction  string          `json:"direction"`
-	Outcome    string          `json:"outcome"` // done, mismatch, cancelled, failed, stopped
-	FinishedAt time.Time       `json:"finishedAt"`
-	Written    int64           `json:"written"`
-	Replaced   int64           `json:"replaced"` // values that are not finite numbers, stored as 0 (to the local file)
-	UpTo       int64           `json:"upTo"`     // unix ms: both stores hold the history recorded before it
-	Message    string          `json:"message"`
-	Table      string          `json:"table"`
-	Tables     []TableProgress `json:"tables"`
+	Direction  string    `json:"direction"`
+	Outcome    string    `json:"outcome"` // done, mismatch, cancelled, failed, stopped
+	FinishedAt time.Time `json:"finishedAt"`
+	Written    int64     `json:"written"`
+	Replaced   int64     `json:"replaced"` // values that are not finite numbers, stored as the neutral value (to the local file)
+	UpTo       int64     `json:"upTo"`     // unix ms: both stores hold the history recorded before it
+	// the window of a catch-up (unix ms)
+	From int64 `json:"from,omitempty"`
+	To   int64 `json:"to,omitempty"`
+	// Missing: rows of a catch-up's window not brought over
+	Missing int64           `json:"missing,omitempty"`
+	Message string          `json:"message"`
+	Table   string          `json:"table"`
+	Tables  []TableProgress `json:"tables"`
 }
 
 type runState struct {
@@ -62,6 +67,8 @@ type runState struct {
 	track      *Tracker
 	last       *Result
 	done       chan struct{}
+	window     *Window // the running catch-up's window
+	catchUp    *Result // how the last catch-up ended
 }
 
 var state = &runState{}
@@ -124,11 +131,9 @@ func sourceID(direction string) string {
 	return direction + ":" + hex.EncodeToString(sum[:8])
 }
 
-// inUse is the store Cosmos writes, when it is PostgreSQL.
+// inUse is the store Cosmos writes, when it is PostgreSQL: its writing and
+// reading handles, each with the dialect of that handle.
 func inUse() (Store, Store, error) {
-	if utils.MonitoringDialect() != utils.DialectPostgres {
-		return Store{}, Store{}, ErrNotPostgres
-	}
 	w, err := utils.MonitoringWriteDB()
 	if err != nil {
 		return Store{}, Store{}, ErrStoreClosed
@@ -137,7 +142,24 @@ func inUse() (Store, Store, error) {
 	if err != nil {
 		return Store{}, Store{}, ErrStoreClosed
 	}
+	if utils.MonitoringDialectOf(w) != utils.DialectPostgres || utils.MonitoringDialectOf(r) != utils.DialectPostgres {
+		return Store{}, Store{}, ErrNotPostgres
+	}
 	return Store{DB: w, Dialect: utils.DialectPostgres}, Store{DB: r, Dialect: utils.DialectPostgres}, nil
+}
+
+// storeInUse is inUse; the tests put a store of their own in its place.
+var storeInUse = inUse
+
+// guardFor stops a copy when the store in use is no longer the one it began with.
+func guardFor(write, read Store) func() error {
+	return func() error {
+		w, r, err := storeInUse()
+		if err != nil || w.DB != write.DB || r.DB != read.DB {
+			return ErrStoreChanged
+		}
+		return nil
+	}
 }
 
 func localExists() bool {
@@ -156,7 +178,7 @@ func Start(direction string) error {
 	if state.running {
 		return ErrRunning
 	}
-	write, read, err := inUse()
+	write, read, err := storeInUse()
 	if err != nil {
 		return err
 	}
@@ -181,43 +203,48 @@ func Start(direction string) error {
 		src, dst, own = read, local, local
 	}
 
-	guard := func() error {
-		w, errW := utils.MonitoringWriteDB()
-		r, errR := utils.MonitoringReadDB()
-		if errW != nil || errR != nil || w != write.DB || r != read.DB || utils.MonitoringDialect() != utils.DialectPostgres {
-			return ErrStoreChanged
-		}
-		return nil
-	}
 	opt := Options{
 		SourceID:    sourceID(direction),
 		TargetInUse: direction == ToPostgres,
 		Batch:       batchSize,
 		BatchTime:   batchTime,
 		Pause:       pauseFor,
-		Guard:       guard,
+		Guard:       guardFor(write, read),
 	}
+	utils.Log("Monitoring history copy: started (" + direction + ")")
+	launchLocked(direction, src, dst, own, opt, nil, func(result Result) {
+		state.last = &result
+	})
+	return nil
+}
 
+// launchLocked runs a copy in the background in the one slot there is
+// (state.mu held). keep files the result (state.mu held again).
+func launchLocked(direction string, src, dst, own Store, opt Options, window *Window, keep func(Result)) chan struct{} {
 	ctx, cancel := context.WithCancel(context.Background())
 	track := &Tracker{}
 	track.reset() // shown at once, before the copy's goroutine runs
 	done := make(chan struct{})
-	state.running, state.direction, state.started = true, direction, time.Now()
+	state.running, state.direction, state.started, state.window = true, direction, time.Now(), window
 	state.cancel, state.cancelling, state.track, state.done = cancel, false, track, done
-
-	utils.Log("Monitoring history copy: started (" + direction + ")")
 	go func() {
 		defer close(done)
 		defer cancel()
 		report, err := Copy(ctx, src, dst, opt, track)
-		own.DB.Close()
+		if own.DB != nil {
+			own.DB.Close()
+		}
 		result := resultOf(direction, report, err, track)
+		if window != nil {
+			result.From, result.To = window.From, window.To
+		}
 		state.mu.Lock()
-		state.running, state.cancel, state.last = false, nil, &result
+		state.running, state.cancel, state.window = false, nil, nil
+		keep(result)
 		state.mu.Unlock()
 		forgetSummaries()
 	}()
-	return nil
+	return done
 }
 
 func resultOf(direction string, report Report, err error, track *Tracker) Result {
@@ -329,7 +356,8 @@ type cachedSummary struct {
 	at      time.Time
 	summary *Summary
 	problem string
-	valid   bool // counted at least once
+	valid   bool      // counted at least once
+	counted time.Time // when (at is cleared by forgetSummaries, this stays)
 }
 
 var (
@@ -377,7 +405,7 @@ func summarize(ctx context.Context, s Store, end int64) (*Summary, error) {
 		if strings.Contains(query, "MIN(") {
 			dest = append(dest, &first, &last)
 		}
-		if err := s.DB.QueryRowContext(ctx, s.bind(query), args...).Scan(dest...); err != nil {
+		if err := s.scalars(ctx, query, args, dest...); err != nil {
 			return nil, err
 		}
 		out.Tables = append(out.Tables, TableCount{Table: r.table, Rows: n})
@@ -422,7 +450,7 @@ func localBytes() int64 {
 // nothing was yet). When that is older than 30 s and refresh is set, one count
 // starts in the background (one per direction at a time, bounded by 20 s);
 // counting says one runs. A view never waits for a count.
-func summaryOf(direction string, refresh bool) (summary *Summary, problem string, valid bool, isCounting bool) {
+func summaryOf(direction string, refresh bool) (summary *Summary, problem string, valid bool, isCounting bool, countedAt int64) {
 	summaryMu.Lock()
 	defer summaryMu.Unlock()
 	cached := summaries[direction]
@@ -438,17 +466,21 @@ func summaryOf(direction string, refresh bool) (summary *Summary, problem string
 			defer summaryMu.Unlock()
 			counting[direction] = false
 			if generation == summaryGen {
-				summaries[direction] = cachedSummary{at: time.Now(), summary: summary, problem: problem, valid: true}
+				now := time.Now()
+				summaries[direction] = cachedSummary{at: now, counted: now, summary: summary, problem: problem, valid: true}
 			}
 		}()
 	}
-	return cached.summary, cached.problem, cached.valid, counting[direction]
+	if cached.valid {
+		countedAt = cached.counted.UnixMilli()
+	}
+	return cached.summary, cached.problem, cached.valid, counting[direction], countedAt
 }
 
 func computeSummary(direction string) (*Summary, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	write, read, err := inUse()
+	write, read, err := storeInUse()
 	if err != nil {
 		return nil, "not-postgres"
 	}
@@ -500,6 +532,8 @@ type Offer struct {
 	// Counting: the source's records are being counted in the background;
 	// Source is then what was counted before, or nil
 	Counting bool `json:"counting,omitempty"`
+	// CountedAt: when the numbers of Source were counted (unix ms, server time)
+	CountedAt int64 `json:"countedAt,omitempty"`
 }
 
 // View is what GET /api/monitoring-copy answers.
@@ -513,27 +547,33 @@ type View struct {
 	Tables      []TableProgress `json:"tables,omitempty"`
 	SecondsLeft int64           `json:"secondsLeft"` // -1 when not known
 	Last        *Result         `json:"last,omitempty"`
-	Offers      []Offer         `json:"offers"`
+	// Window: the running copy is the catch-up of this window (unix ms)
+	Window *Window `json:"window,omitempty"`
+	// CatchUp: how the last automatic catch-up after a fallback ended
+	CatchUp *Result `json:"catchUp,omitempty"`
+	Offers  []Offer `json:"offers"`
+	Now     int64   `json:"now"` // the server's time (unix ms), for the age of the counts
 }
 
 // Status gathers the view at once. The summaries are counted in the
 // background at most every 30 seconds, and never while a copy runs (the last
 // ones are shown).
 func Status() View {
-	v := View{InUse: "closed", SecondsLeft: -1, Offers: []Offer{}}
-	if _, err := utils.MonitoringWriteDB(); err == nil {
+	v := View{InUse: "closed", SecondsLeft: -1, Offers: []Offer{}, Now: time.Now().UnixMilli()}
+	if _, _, err := storeInUse(); err == nil {
+		v.InUse = "postgres"
+	} else if _, err := utils.MonitoringWriteDB(); err == nil {
 		v.InUse = "local"
-		if utils.MonitoringDialect() == utils.DialectPostgres {
-			v.InUse = "postgres"
-		}
 	}
 	state.mu.Lock()
 	running := state.running
 	if running {
 		started := state.started
 		v.Running, v.Direction, v.StartedAt, v.Cancelling = true, state.direction, &started, state.cancelling
-		v.Phase, v.Tables = state.track.Snapshot()
-		if rate := state.track.Rate(); rate > 0 && v.Phase == "copying" {
+		if state.track != nil {
+			v.Phase, v.Tables = state.track.Snapshot()
+		}
+		if rate := state.track.rate(); rate > 0 && v.Phase == "copying" {
 			left := int64(0)
 			for _, p := range v.Tables {
 				if p.Total > p.Done {
@@ -547,6 +587,14 @@ func Status() View {
 		last := *state.last
 		v.Last = &last
 	}
+	if running && state.window != nil {
+		w := *state.window
+		v.Window = &w
+	}
+	if state.catchUp != nil {
+		c := *state.catchUp
+		v.CatchUp = &c
+	}
 	state.mu.Unlock()
 
 	for _, direction := range []string{ToPostgres, ToLocal} {
@@ -557,7 +605,7 @@ func Status() View {
 			continue
 		}
 		var valid bool
-		offer.Source, offer.Problem, valid, offer.Counting = summaryOf(direction, !running)
+		offer.Source, offer.Problem, valid, offer.Counting, offer.CountedAt = summaryOf(direction, !running)
 		offer.Available = valid && offer.Problem == "" && !running
 		v.Offers = append(v.Offers, offer)
 	}

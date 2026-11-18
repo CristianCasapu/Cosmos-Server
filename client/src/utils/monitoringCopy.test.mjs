@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  POLL_IDLE_MS, POLL_RUNNING_MS, TO_LOCAL, TO_POSTGRES, countingOf, fill, formatCount, formatDuration, formatSize, formatTime,
+  CATCH_UP, POLL_IDLE_MS, POLL_RUNNING_MS, TO_LOCAL, TO_POSTGRES, catchUpOf, countedAgo, countingOf, fill, formatCount, formatDuration, formatSize, formatTime,
   mismatchLine, offerLabel, offerOf, pollDelay, progressOf, resultOf, tableLabel,
 } from './monitoringCopy.js';
 
@@ -122,7 +122,7 @@ test('the texts are in the English translations', () => {
 
 test('values that are not numbers are said; a count in the background is polled', () => {
   const upTo = Date.UTC(2026, 10, 17, 12);
-  assert.equal(resultOf({ last: { outcome: 'done', written: 5, upTo, replaced: 2 } }).note, '2 values that are not numbers were stored as 0.');
+  assert.equal(resultOf({ last: { outcome: 'done', written: 5, upTo, replaced: 2 } }).note, '2 scale values that are not numbers were stored as 1, the neutral scale.');
   assert.equal(resultOf({ last: { outcome: 'done', written: 5, upTo } }).note, undefined);
   const counting = { inUse: 'postgres', running: false, offers: [{ direction: TO_POSTGRES, available: false, counting: true }] };
   assert.equal(countingOf(counting), true);
@@ -132,4 +132,32 @@ test('values that are not numbers are said; a count in the background is polled'
   assert.equal(countingOf(recount), false);
   assert.equal(pollDelay(recount), POLL_IDLE_MS);
   assert.equal(countingOf({ ...counting, inUse: 'local' }), false);
+});
+
+test('the age of a count, by the server\'s clocks', () => {
+  const at = Date.UTC(2026, 10, 18, 12);
+  const view = { ...idle, now: at, offers: idle.offers.map((o) => ({ ...o, countedAt: at - 3 * 60000 - 5000 })) };
+  assert.equal(countedAgo(offerOf(view, TO_POSTGRES)), 'Counted 3 minutes ago.');
+  assert.equal(countedAgo({ countedAt: at - 20000, now: at }), 'Counted just now.');
+  assert.equal(countedAgo({ countedAt: at - 3 * 3600000, now: at }), 'Counted 3 hours ago.');
+  assert.equal(countedAgo({ countedAt: at + 60000, now: at }), 'Counted just now.'); // a count stamped later than now: never negative
+  assert.equal(countedAgo({ countedAt: 0, now: at }), '');
+  assert.equal(countedAgo(offerOf(idle, TO_POSTGRES)), '');
+});
+
+test('the catch-up after a fallback: its line and its progress', () => {
+  const from = Date.UTC(2026, 10, 18, 9);
+  const to = Date.UTC(2026, 10, 18, 10);
+  assert.equal(catchUpOf(idle), null);
+  const done = catchUpOf({ catchUp: { outcome: 'done', written: 1234, from, to } }, undefined, 'en-GB');
+  assert.equal(done.severity, 'success');
+  assert.match(done.text, /^Caught up 1\u00a0234 records written while the database was away \(from .*2026.* to .*2026.*\)\.$/);
+  const partly = catchUpOf({ catchUp: { outcome: 'stopped', written: 10, missing: 5, from, to, message: 'It stopped.' } });
+  assert.equal(partly.severity, 'warning');
+  assert.match(partly.text, /; 5 were not: It stopped\.$/);
+  assert.equal(catchUpOf({ catchUp: { outcome: 'skipped', from, to, message: 'A copy ran.' } }).severity, 'info');
+  const p = progressOf({ running: true, direction: CATCH_UP, phase: 'copying', window: { from, to }, tables: [] });
+  assert.equal(p.direction, CATCH_UP);
+  assert.equal(p.from, from);
+  assert.equal(p.to, to);
 });
