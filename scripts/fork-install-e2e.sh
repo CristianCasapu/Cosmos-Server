@@ -527,9 +527,9 @@ case_aptdaily() { # the system's own apt-daily and unattended-upgrades hold apt 
 		# the container image turns the daily runs off (a server does not): on again
 		rm -f /etc/apt/apt.conf.d/docker-disable-periodic-update
 		# the real units, made to hold apt longer, through their own configuration only:
-		# apt-daily (apt-get update) holds the lists for 75 s, then apt-daily-upgrade
+		# apt-daily (apt-get update) holds the lists for 4 minutes, then apt-daily-upgrade
 		# (unattended-upgrade) holds dpkg 60 s longer whenever it has an upgrade to install
-		printf "APT::Periodic::RandomSleep \"0\";\nAPT::Update::Pre-Invoke { \"sleep 75\"; };\nDPkg::Pre-Invoke { \"sleep 60\"; };\n" >/etc/apt/e2e-daily.conf
+		printf "APT::Periodic::RandomSleep \"0\";\nAPT::Update::Pre-Invoke { \"sleep 240\"; };\nDPkg::Pre-Invoke { \"sleep 60\"; };\n" >/etc/apt/e2e-daily.conf
 		for u in apt-daily apt-daily-upgrade; do
 			mkdir -p /etc/systemd/system/$u.service.d
 			printf "[Service]\nEnvironment=APT_CONFIG=/etc/apt/e2e-daily.conf\n" >/etc/systemd/system/$u.service.d/e2e.conf
@@ -540,6 +540,7 @@ case_aptdaily() { # the system's own apt-daily and unattended-upgrades hold apt 
 		for _ in $(seq 1 60); do locks=$(lslocks -n -r -o PATH); case $locks in */var/lib/apt/lists/lock*) break ;; esac; sleep 1; done
 		check "apt-daily.service holds apt'\''s lists lock" sh -c "lslocks -n -r -o COMMAND,PID,PATH | grep /var/lib/apt/lists/lock"
 		rc=0; '"$INSTALL_A"' --yes </dev/null >/e2e/out/install.txt 2>&1 || rc=$?; tail -n 8 /e2e/out/install.txt
+		grep -E "Another program|Waiting for cache lock" /e2e/out/install.txt || true
 		check "it said what it waited for" grep -q "Another program is using apt: .*apt-daily.service" /e2e/out/install.txt
 		if grep -q "unattended-upgr" /e2e/out/install.txt; then echo "(it also met unattended-upgrade holding dpkg)"; else echo "(unattended-upgrade had nothing to install: it did not hold dpkg for long)"; fi
 		check "then installed" test $rc = 0
@@ -681,7 +682,6 @@ case_aptfail() { # apt fails after the simulation passed: the lists held too lon
 		printf "#!/bin/sh\nwhile read -r f; do case \$f in */snapraid_*.deb) d=\$(mktemp -d); dpkg-deb -R \"\$f\" \$d; printf \"#!/bin/sh\\\\nexit 1\\\\n\" >\$d/DEBIAN/postinst; chmod 755 \$d/DEBIAN/postinst; dpkg-deb -b \$d \"\$f\" >/dev/null; rm -rf \$d;; esac; done\n" >/root/break-snapraid
 		chmod 755 /root/break-snapraid
 		printf "DPkg::Pre-Install-Pkgs { \"/root/break-snapraid\"; };\n" >/etc/apt/apt.conf.d/99e2e-break-snapraid
-		rm -rf /var/lib/cosmos-installer
 		rc=0; '"$INSTALL_A"' --yes </dev/null >/e2e/out/half.txt 2>&1 || rc=$?; tail -n 12 /e2e/out/half.txt
 		check "the failed transaction ends with 1" test $rc = 1
 		check "snapraid is half-installed (dpkg)" sh -c "dpkg-query -W -f=\"\\\${db:Status-Abbrev}\" snapraid | grep -q \"^iF\""
@@ -769,7 +769,14 @@ case_pieces() { # the real protection pieces of the repository (not the stubs), 
 	m=$(start_machine "$sys" pieces docker)
 	M "$m" 'rc=0; '"$INSTALL_A"' --yes --version '"$VR"' --reachable internet --http-port 8080 --https-port 8443 </dev/null >/e2e/out/pieces.txt 2>&1 || rc=$?
 		grep -E "Protection|PIECE|piece|done\\.|not installed" /e2e/out/pieces.txt || true
-		check "the install ends well whatever the pieces are" test $rc = 0
+		# Cosmos is installed whatever the pieces are; protection that was asked
+		# for (reachable from the internet) and is missing ends with 16 and says so
+		if grep -qE "not installed:|failed:" /e2e/out/pieces.txt; then
+			check "protection asked for but missing: exit 16" test $rc = 16
+			check "and the last line says so" sh -c "tail -n 1 /e2e/out/pieces.txt | grep -q \"installed WITHOUT the protection you asked for:\""
+		else
+			check "every piece ran: exit 0" test $rc = 0
+		fi
 		installed_ok 8080
 		for p in unattended-upgrades fail2ban nftables; do
 			if grep -q "PIECE NOT RUN: $p" /e2e/out/pieces.txt || grep -q "protection piece $p is not in this release" /e2e/out/pieces.txt; then

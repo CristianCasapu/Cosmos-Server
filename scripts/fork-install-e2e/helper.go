@@ -106,7 +106,7 @@ func addBad(w *zip.Writer, top, kind string) error {
 		body = "#!/bin/sh\necho planted\n"
 	case "setuid":
 		header = &zip.FileHeader{Name: top + "/planted-setuid", Method: zip.Deflate}
-		header.SetMode(0o4755)
+		header.SetMode(os.ModeSetuid | 0o755) // (Go's own bit: 0o4755 is not setuid to os.FileMode)
 	case "worldwritable":
 		header = &zip.FileHeader{Name: top + "/planted-writable", Method: zip.Deflate}
 		header.SetMode(0o666)

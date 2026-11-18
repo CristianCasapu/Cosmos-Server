@@ -709,7 +709,9 @@ APT_ENV=(env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a NEEDRESTART_SUSPE
 # mirror, a package script that waits for ever): generous, said when it
 # happens, and the run can be started again where it stopped.
 APT_TIMEOUT=$((5400 + APT_WAIT))
-APT_RUN=(timeout --kill-after=120 "$APT_TIMEOUT")
+# --foreground: apt stays in this script's process group, so that whatever
+# stops the script (Ctrl-C, a lost SSH session) stops apt with it, as before.
+APT_RUN=(timeout --foreground --kill-after=120 "$APT_TIMEOUT")
 apt_timed_out() { # what
 	warn "$1 did not finish within $((APT_TIMEOUT / 60)) minutes and was stopped. What it did so far is kept: run install.sh again with the same options to continue."
 }
@@ -723,7 +725,8 @@ apt_holders() {
 	while read -r cmd pid path; do
 		case $path in /var/lib/dpkg/lock | /var/lib/dpkg/lock-frontend | /var/lib/apt/lists/lock | /var/cache/apt/archives/lock) ;; *) continue ;; esac
 		[[ $pid =~ ^[0-9]+$ ]] || continue
-		unit=$(ps -o unit= -p "$pid" 2>/dev/null | tr -cd '[:alnum:]@._-' || true)
+		# its systemd unit, from its cgroup (0::/system.slice/apt-daily.service)
+		unit=$(sed -n 's#^0::.*/\([^/]*\.\(service\|scope\)\)$#\1#p' "/proc/$pid/cgroup" 2>/dev/null | head -n 1 | tr -cd '[:alnum:]@._-' || true)
 		line="$(printf '%s' "$cmd" | tr -cd '[:alnum:]._-') (process $pid${unit:+, $unit})"
 		case " $out " in *" $line;"*) ;; *) out="$out $line;" ;; esac
 	done <<<"$locks"
@@ -755,7 +758,8 @@ apt_get() {
 			if [ $((waited % 60)) = 0 ]; then
 				local who
 				who=$(apt_holders)
-				say "Another program is using apt${who:+: $who}; waiting for it (${waited} of at most $APT_WAIT seconds; on a new server the system's own daily apt run often takes a few minutes)..."
+				# to stderr: the callers often discard apt's own output
+				say "Another program is using apt${who:+: $who}; waiting for it (${waited} of at most $APT_WAIT seconds; on a new server the system's own daily apt run often takes a few minutes)..." >&2
 			fi
 			sleep 5
 			waited=$((waited + 5))
@@ -812,7 +816,7 @@ simulate() { # packages
 	local try
 	for try in 1 2 3; do
 		rc=0
-		out=$(timeout --kill-after=60 1800 "${SIM_ENV[@]}" "${APT_ENV[@]}" apt-get -q -o Acquire::Retries=3 "${SIM_OPTS[@]}" update </dev/null 2>&1) || rc=$?
+		out=$(timeout --foreground --kill-after=60 1800 "${SIM_ENV[@]}" "${APT_ENV[@]}" apt-get -q -o Acquire::Retries=3 "${SIM_OPTS[@]}" update </dev/null 2>&1) || rc=$?
 		if [ "$rc" = 0 ] && ! has_line '^(W|E): (Failed to fetch|Some index files failed)' "$out"; then break; fi
 		[ "$try" = 3 ] || sleep 10
 	done
@@ -824,7 +828,7 @@ simulate() { # packages
 		printf '%s\n' "$out" | grep -E '^(W|E):' | head -n 5 >&2
 		die $EXIT_PREREQ "apt could not fetch every package list (network or source problem). Nothing was changed."
 	fi
-	out=$(timeout --kill-after=60 1800 "${SIM_ENV[@]}" "${APT_ENV[@]}" apt-get -q -s "${SIM_OPTS[@]}" install --no-install-recommends "$@" </dev/null 2>&1) || rc=$?
+	out=$(timeout --foreground --kill-after=60 1800 "${SIM_ENV[@]}" "${APT_ENV[@]}" apt-get -q -s "${SIM_OPTS[@]}" install --no-install-recommends "$@" </dev/null 2>&1) || rc=$?
 	if [ "$rc" -ne 0 ]; then
 		printf '%s\n' "$out" | grep -E '^(E:|  |Package|The following packages have unmet)' | head -n 12 >&2
 		die $EXIT_PREREQ "apt cannot install what Cosmos needs ($*). Nothing was changed."
@@ -1016,7 +1020,7 @@ on_failure() {
 		warn "the failed apt transaction left these packages half-installed (dpkg): ${half[*]}. Repair dpkg first (sudo dpkg --configure -a)."
 	fi
 	case $PHASE in
-	check) ;;
+	check | done) ;; # done: installed (exit 16 says what protection is missing)
 	tools | release)
 		if [ "$(state_get reached)" != packages ]; then undo_early || true; return 0; fi
 		printf '\nThe installation stopped (exit %s) before the release was unpacked. Already installed by an earlier run:\n' "$rc" >&2
