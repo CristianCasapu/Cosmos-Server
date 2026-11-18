@@ -49,8 +49,18 @@ func captureSecurity(t *testing.T) func() []utils.SecurityEvent {
 	}
 }
 
+// clearSummaries drops every count, for a test that starts afresh.
+func clearSummaries() {
+	summaryWG.Wait()
+	summaryMu.Lock()
+	summaries = map[string]cachedSummary{}
+	summaryGen++
+	summaryMu.Unlock()
+}
+
 func useLocalStore(t *testing.T) string {
 	t.Helper()
+	clearSummaries()
 	folder := t.TempDir() + string(os.PathSeparator)
 	previous := utils.CONFIGFOLDER
 	utils.CONFIGFOLDER = folder
@@ -63,13 +73,14 @@ func useLocalStore(t *testing.T) string {
 	}
 	t.Cleanup(func() {
 		wait()
+		summaryWG.Wait()
 		utils.CloseMetricsDatabase()
 		utils.LoadBaseMainConfig(previousConfig)
 		utils.CONFIGFOLDER = previous
 		state.mu.Lock()
 		state.last = nil
 		state.mu.Unlock()
-		forgetSummaries()
+		clearSummaries()
 	})
 	return folder
 }
@@ -169,7 +180,13 @@ func TestStartStatusCancelAndStoreChange(t *testing.T) {
 	goroutines := runtime.NumGoroutine()
 
 	var view struct{ Data View }
-	json.Unmarshal(request(t, StatusRoute, "GET", "", admin).Body.Bytes(), &view)
+	counted := func() {
+		// the first view starts the counts and answers at once; the next one has them
+		request(t, StatusRoute, "GET", "", admin)
+		summaryWG.Wait()
+		json.Unmarshal(request(t, StatusRoute, "GET", "", admin).Body.Bytes(), &view)
+	}
+	counted()
 	toPostgres, toLocal := view.Data.Offers[0], view.Data.Offers[1]
 	if view.Data.InUse != "postgres" || !toPostgres.Available || toPostgres.Source == nil || toPostgres.Source.Records != 4+4*50+300+20+40 ||
 		toPostgres.Source.Bytes <= 0 || toPostgres.Source.First <= 0 || toPostgres.Source.Last <= toPostgres.Source.First || toPostgres.Source.LastCopy != 0 {
@@ -192,7 +209,7 @@ func TestStartStatusCancelAndStoreChange(t *testing.T) {
 		t.Fatalf("while running: %+v", view.Data)
 	}
 	wait()
-	json.Unmarshal(request(t, StatusRoute, "GET", "", admin).Body.Bytes(), &view)
+	counted()
 	if view.Data.Running || view.Data.Last == nil || view.Data.Last.Outcome != "done" || view.Data.Last.Written < 500 || view.Data.Last.UpTo == 0 {
 		t.Fatalf("after the copy: %+v %+v", view.Data, view.Data.Last)
 	}
@@ -267,6 +284,7 @@ func TestStartStatusCancelAndStoreChange(t *testing.T) {
 	}
 
 	// no goroutine left behind (the store's handles were opened anew twice: as many as before)
+	summaryWG.Wait()
 	deadline := time.Now().Add(3 * time.Second)
 	for runtime.NumGoroutine() > goroutines && time.Now().Before(deadline) {
 		time.Sleep(50 * time.Millisecond)
@@ -293,3 +311,127 @@ func TestLogSafeMasksThePassword(t *testing.T) {
 type errTest string
 
 func (e errTest) Error() string { return string(e) }
+
+// A view never waits for a count: concurrent views answer at once, one count
+// runs per direction, and its numbers come with a later view.
+func TestViewsDoNotWaitForTheCount(t *testing.T) {
+	usePostgres(t)
+	previous := computeSummaryFn
+	t.Cleanup(func() { computeSummaryFn = previous })
+	var mu sync.Mutex
+	counts := map[string]int{}
+	release := make(chan struct{})
+	computeSummaryFn = func(direction string) (*Summary, string) {
+		mu.Lock()
+		counts[direction]++
+		mu.Unlock()
+		<-release // a count that takes as long as the test wants
+		return &Summary{Records: 7, Tables: []TableCount{}}, ""
+	}
+
+	var wg sync.WaitGroup
+	slowest := make(chan time.Duration, 20)
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			begin := time.Now()
+			w := request(t, StatusRoute, "GET", "", admin)
+			slowest <- time.Since(begin)
+			var view struct{ Data View }
+			json.Unmarshal(w.Body.Bytes(), &view)
+			if w.Code != http.StatusOK || len(view.Data.Offers) != 2 || !view.Data.Offers[0].Counting || view.Data.Offers[0].Available {
+				t.Errorf("a view while counting: %d %+v", w.Code, view.Data)
+			}
+		}()
+	}
+	wg.Wait()
+	close(slowest)
+	for d := range slowest {
+		if d > time.Second {
+			t.Errorf("a view waited %s for the count", d)
+		}
+	}
+	close(release)
+	summaryWG.Wait()
+	mu.Lock()
+	if counts[ToPostgres] != 1 || counts[ToLocal] != 1 {
+		t.Errorf("counts run: %v, want one per direction", counts)
+	}
+	mu.Unlock()
+	view := Status()
+	if view.Offers[0].Counting || !view.Offers[0].Available || view.Offers[0].Source.Records != 7 {
+		t.Errorf("after the count: %+v", view.Offers[0])
+	}
+	// forgotten (after a copy): the numbers counted before are shown while counting again
+	release = make(chan struct{})
+	forgetSummaries()
+	view = Status()
+	if !view.Offers[0].Counting || view.Offers[0].Source == nil || view.Offers[0].Source.Records != 7 {
+		t.Errorf("counting again: %+v", view.Offers[0])
+	}
+	close(release)
+	summaryWG.Wait()
+}
+
+// Start, the entry the route takes, opens the local file read-only when it
+// is the source: a write through that handle fails, and the main file is
+// left as it was.
+func TestStartOpensTheLocalFileReadOnly(t *testing.T) {
+	usePostgres(t)
+	path := utils.LocalMonitoringFile()
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, _ := os.Stat(path)
+	previous := openLocalFn
+	t.Cleanup(func() { openLocalFn = previous })
+	type opening struct {
+		readOnly, writable bool
+	}
+	var mu sync.Mutex
+	openings := []opening{}
+	openLocalFn = func(p string, readOnly bool) (Store, error) {
+		s, err := previous(p, readOnly)
+		if err == nil && p == path {
+			// a write that would change nothing if it went through
+			tx, txErr := s.DB.Begin()
+			writable := false
+			if txErr == nil {
+				_, writeErr := tx.Exec("INSERT INTO monitoring_kv(key, value) VALUES('fork_monitoring_copy_probe', '1')")
+				writable = writeErr == nil
+				tx.Rollback()
+			}
+			mu.Lock()
+			openings = append(openings, opening{readOnly: readOnly, writable: writable})
+			mu.Unlock()
+		}
+		return s, err
+	}
+	if err := Start(ToPostgres); err != nil {
+		t.Fatal(err)
+	}
+	wait()
+	if last := Status().Last; last == nil || last.Outcome != "done" {
+		t.Fatalf("the copy: %+v", last)
+	}
+	summaryWG.Wait()
+	mu.Lock()
+	if len(openings) == 0 {
+		t.Fatal("Start did not open the local file")
+	}
+	for _, o := range openings {
+		if o.writable {
+			t.Errorf("Start opened the local file so that it takes writes: %+v", o)
+		}
+	}
+	mu.Unlock()
+	after, _ := os.ReadFile(path)
+	if string(after) != string(before) {
+		t.Error("the local file's content changed")
+	}
+	if now, _ := os.Stat(path); !now.ModTime().Equal(info.ModTime()) {
+		t.Errorf("the local file's time changed: %s -> %s", info.ModTime(), now.ModTime())
+	}
+}

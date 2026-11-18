@@ -91,11 +91,12 @@ func (c *copier) verifySurrogate(ctx context.Context, r rule, after int64, extra
 			return 0, 0, 0, errStopped
 		default:
 		}
+		started := time.Now()
 		bctx, cancel := batchContext()
 		batch, err := c.readSurrogate(bctx, r, after, extra, extraArgs)
 		if err == nil && len(batch) > 0 {
 			for _, one := range batch {
-				if err = fitFor(c.dst, r, one.values); err != nil {
+				if _, err = fitFor(c.dst, r, one.values); err != nil {
 					break
 				}
 			}
@@ -116,6 +117,10 @@ func (c *copier) verifySurrogate(ctx context.Context, r rule, after int64, extra
 		targetRows += int64(len(pairs))
 		missing += int64(len(absent))
 		after = batch[len(batch)-1].w
+		// the check yields to the store's writers as the copy does
+		if err := c.pause(ctx, time.Since(started)); err != nil {
+			return 0, 0, 0, err
+		}
 	}
 }
 
@@ -157,6 +162,7 @@ func (c *copier) verifyKeys(ctx context.Context, r rule, extra string, extraArgs
 			return 0, 0, 0, errStopped
 		default:
 		}
+		started := time.Now()
 		bctx, cancel := batchContext()
 		batch, err := c.readNatural(bctx, r, after, extra, extraArgs)
 		found := map[string]row{}
@@ -168,7 +174,7 @@ func (c *copier) verifyKeys(ctx context.Context, r rule, extra string, extraArgs
 			args := []interface{}{}
 			holes := []string{}
 			for _, one := range batch[start:end] {
-				if err = fitFor(c.dst, r, one.values); err != nil {
+				if _, err = fitFor(c.dst, r, one.values); err != nil {
 					break
 				}
 				for _, k := range keyIdx {
@@ -230,6 +236,9 @@ func (c *copier) verifyKeys(ctx context.Context, r rule, extra string, extraArgs
 			targetRows++
 		}
 		after = encodeKey(r, batch[len(batch)-1].values)
+		if err := c.pause(ctx, time.Since(started)); err != nil {
+			return 0, 0, 0, err
+		}
 	}
 }
 

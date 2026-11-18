@@ -24,8 +24,13 @@ type Options struct {
 	// TargetInUse: the target is the store Cosmos writes (to PostgreSQL);
 	// false when the source is (to the local file).
 	TargetInUse bool
-	// Batch is the number of rows read and written per transaction.
+	// Batch is the number of rows read and written per transaction, at most.
 	Batch int
+	// BatchTime, when set, adapts the rows per transaction so that one
+	// transaction of the target takes about that long (between 20 rows and
+	// Batch): a writer of the store in use waits at most about that long
+	// behind it. Zero keeps Batch rows per transaction.
+	BatchTime time.Duration
 	// Pause is how long to wait after a batch that took took (rate limit).
 	Pause func(took time.Duration) time.Duration
 	// Guard is asked before each batch: an error stops the copy (the store
@@ -47,6 +52,9 @@ type TableProgress struct {
 	Total   int64  `json:"total"`   // rows of the source to go through
 	Done    int64  `json:"done"`    // rows of the source gone through
 	Written int64  `json:"written"` // rows written to the target (new or newer)
+	// values that are not finite numbers (NaN, infinities), stored as 0 in a
+	// SQLite target, which cannot hold them in a NOT NULL column
+	Replaced int64 `json:"replaced"`
 	// State: waiting, copying, copied, verifying, verified, mismatch, failed
 	State string `json:"state"`
 	// the verification: rows of the copied range in each store
@@ -150,6 +158,8 @@ type tableMarker struct {
 	W       int64    `json:"w"`             // surrogate: the last time value copied entirely
 	Key     []string `json:"key,omitempty"` // natural: the last key copied
 	Written int64    `json:"written"`
+	// values that are not finite numbers, stored as 0 in a SQLite target
+	Replaced int64 `json:"replaced,omitempty"`
 }
 
 func runKey(sourceID string) string          { return markerPrefix + sourceID }
@@ -163,6 +173,12 @@ func Copy(ctx context.Context, src, dst Store, opt Options, track *Tracker) (Rep
 		opt.Batch = 1000
 	}
 	c := &copier{src: src, dst: dst, opt: opt, track: track}
+	if opt.BatchTime > 0 {
+		c.size = opt.Batch
+		if c.size > 200 {
+			c.size = 200
+		}
+	}
 	report, err := c.run(ctx)
 	// a handle closed under the copy by a switch of the store fails the
 	// statement: that is the switch, not a failure of the table
@@ -178,6 +194,37 @@ type copier struct {
 	track    *Tracker
 	marker   runMarker
 	layouts  map[string]layout
+	size     int // rows per transaction now (see Options.BatchTime)
+}
+
+const minBatch = 20
+
+// limit is the rows a batch reads now.
+func (c *copier) limit() int {
+	if c.size > 0 {
+		return c.size
+	}
+	return c.opt.Batch
+}
+
+// adapt sizes the next batch by how long this one took.
+func (c *copier) adapt(took time.Duration) {
+	target := c.opt.BatchTime
+	if target <= 0 {
+		return
+	}
+	switch {
+	case took > 2*target && c.size > minBatch:
+		c.size /= 2
+		if c.size < minBatch {
+			c.size = minBatch
+		}
+	case took < target/2 && c.size < c.opt.Batch:
+		c.size *= 2
+		if c.size > c.opt.Batch {
+			c.size = c.opt.Batch
+		}
+	}
 }
 
 // background is the context of one batch's statements: a cancel waits for
@@ -208,6 +255,11 @@ func (c *copier) run(ctx context.Context) (Report, error) {
 	}
 	if err := c.checkSequences(bctx); err != nil {
 		return Report{}, err
+	}
+	if !c.dst.postgres() {
+		// fold the copy's journal into the file now, without waiting for
+		// anyone (PASSIVE), so that a writer's next commit does not do it
+		c.dst.DB.ExecContext(bctx, "PRAGMA wal_checkpoint(PASSIVE)")
 	}
 	return c.verifyAll(ctx)
 }
@@ -401,7 +453,9 @@ func (c *copier) copyTable(ctx context.Context, i int, r rule) error {
 		return c.fail(r, "marker", err)
 	}
 	if m.Done {
-		c.track.set(i, func(p *TableProgress) { p.Done, p.Written, p.State = p.Total, m.Written, "copied" })
+		c.track.set(i, func(p *TableProgress) {
+			p.Done, p.Written, p.Replaced, p.State = p.Total, m.Written, m.Replaced, "copied"
+		})
 		return nil
 	}
 	// rows already gone through by the copy this one resumes
@@ -412,7 +466,7 @@ func (c *copier) copyTable(ctx context.Context, i int, r rule) error {
 		if err != nil {
 			return c.fail(r, "counting", err)
 		}
-		c.track.set(i, func(p *TableProgress) { p.Done, p.Written = done, m.Written })
+		c.track.set(i, func(p *TableProgress) { p.Done, p.Written, p.Replaced = done, m.Written, m.Replaced })
 	}
 	c.track.set(i, func(p *TableProgress) { p.State = "copying" })
 
@@ -432,12 +486,14 @@ func (c *copier) copyTable(ctx context.Context, i int, r rule) error {
 		if err != nil {
 			return c.fail(r, "copying", err)
 		}
-		c.track.set(i, func(p *TableProgress) { p.Done += read; p.Written += written })
+		c.track.set(i, func(p *TableProgress) { p.Done += read; p.Written += written; p.Replaced = m.Replaced })
 		c.track.add(read)
 		if read == 0 {
 			break
 		}
-		if err := c.pause(ctx, time.Since(started)); err != nil {
+		took := time.Since(started)
+		c.adapt(took)
+		if err := c.pause(ctx, took); err != nil {
 			return err
 		}
 	}
@@ -535,7 +591,7 @@ func (c *copier) readNatural(ctx context.Context, r rule, after []string, extra 
 		args = append(args, keyArgs...)
 	}
 	query := "SELECT " + c.layouts[r.table].list + " FROM " + r.table + " WHERE 1 = 1" + where +
-		" ORDER BY " + strings.Join(r.key, ", ") + " LIMIT " + strconv.Itoa(c.opt.Batch)
+		" ORDER BY " + strings.Join(r.key, ", ") + " LIMIT " + strconv.Itoa(c.limit())
 	rows, err := c.src.DB.QueryContext(ctx, c.src.bind(query), args...)
 	if err != nil {
 		return nil, err
@@ -548,10 +604,13 @@ func (c *copier) batchNatural(ctx context.Context, r rule, m *tableMarker) (int6
 	if err != nil || len(batch) == 0 {
 		return 0, 0, err
 	}
+	replaced := int64(0)
 	for _, one := range batch {
-		if err := fitFor(c.dst, r, one.values); err != nil {
+		n, err := fitFor(c.dst, r, one.values)
+		if err != nil {
 			return 0, 0, err
 		}
+		replaced += int64(n)
 	}
 	tx, err := c.dst.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -565,6 +624,7 @@ func (c *copier) batchNatural(ctx context.Context, r rule, m *tableMarker) (int6
 	next := *m
 	next.Key = encodeKey(r, batch[len(batch)-1].values)
 	next.Written += written
+	next.Replaced += replaced
 	encoded, _ := json.Marshal(next)
 	if err := c.dst.setKV(ctx, tx, tableKey(c.opt.SourceID, r.table), string(encoded)); err != nil {
 		return 0, 0, err
@@ -634,20 +694,21 @@ func (c *copier) readSurrogate(ctx context.Context, r rule, after int64, extra s
 	args = append(args, extraArgs...)
 	list := c.layouts[r.table].list
 	query := "SELECT id, (" + r.window + ") AS w, " + list + " FROM " + r.table + " WHERE (" + r.window + ") > ?" + where +
-		" ORDER BY w, id LIMIT " + strconv.Itoa(c.opt.Batch)
+		" ORDER BY w, id LIMIT " + strconv.Itoa(c.limit())
 	rows, err := c.src.DB.QueryContext(ctx, c.src.bind(query), append([]interface{}{after}, args...)...)
 	if err != nil {
 		return nil, err
 	}
 	batch, err := scanRows(rows, r, true, true)
-	if err != nil || len(batch) < c.opt.Batch {
+	limit := c.limit()
+	if err != nil || len(batch) < limit {
 		return batch, err
 	}
 	// the rest of the last time value, so that a time value is never split
 	last := batch[len(batch)-1]
 	for {
 		query := "SELECT id, (" + r.window + ") AS w, " + list + " FROM " + r.table + " WHERE (" + r.window + ") = ? AND id > ?" + where +
-			" ORDER BY id LIMIT " + strconv.Itoa(c.opt.Batch)
+			" ORDER BY id LIMIT " + strconv.Itoa(limit)
 		rows, err := c.src.DB.QueryContext(ctx, c.src.bind(query), append([]interface{}{last.w, last.id}, args...)...)
 		if err != nil {
 			return nil, err
@@ -657,7 +718,7 @@ func (c *copier) readSurrogate(ctx context.Context, r rule, after int64, extra s
 			return nil, err
 		}
 		batch = append(batch, more...)
-		if len(more) < c.opt.Batch {
+		if len(more) < limit {
 			return batch, nil
 		}
 		last = more[len(more)-1]
@@ -715,10 +776,13 @@ func (c *copier) batchSurrogate(ctx context.Context, r rule, m *tableMarker) (in
 	if err != nil || len(batch) == 0 {
 		return 0, 0, err
 	}
+	replaced := int64(0)
 	for _, one := range batch {
-		if err := fitFor(c.dst, r, one.values); err != nil {
+		n, err := fitFor(c.dst, r, one.values)
+		if err != nil {
 			return 0, 0, err
 		}
+		replaced += int64(n)
 	}
 	tx, err := c.dst.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -759,6 +823,7 @@ func (c *copier) batchSurrogate(ctx context.Context, r rule, m *tableMarker) (in
 	next := *m
 	next.W = batch[len(batch)-1].w
 	next.Written += written
+	next.Replaced += replaced
 	encoded, _ := json.Marshal(next)
 	if err := c.dst.setKV(ctx, tx, tableKey(c.opt.SourceID, r.table), string(encoded)); err != nil {
 		return 0, 0, err
