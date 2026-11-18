@@ -316,6 +316,15 @@ cool-down, the 72 hours the previous files are kept, the 15-minute window.
   Cloudflare, e-mail, Telegram, Fail2ban and UPnP checks, were each run on
   their own branch only (each needs a set-up of its own).
 
+## The app's edit tabs: left for later (2026-11-18)
+
+- Docker resolves a bind again at every start: a folder the administrator ticked as "nested inside a folder another app can write" can still be redirected later by that app. The tick says so; nothing watches it afterwards.
+- Only the MAC address of the main network is kept across a recreate (Docker picks the one of a network connected after creation).
+- Propose a DNS app of the server (Pi-hole, AdGuard Home) as a DNS choice; bring the same proposals into the new-container form's steps.
+- The free-port proposal reads the socket tables: a port forwarded only by another program's firewall rule, or used in another network namespace, is not seen.
+- A legacy bridge `--link` to a container that is gone fails the recreate (upstream's behaviour, unchanged).
+- `fork-ui-check-credentials.sh clean` has the dind entry-point bug (its `rm -rf` becomes `docker rm`): the scratch folder is not removed.
+
 ## Guides: left for later (2026-11-18)
 
 - A button that makes a bucket and a limited key for a site from inside Cosmos (an administrator-only, password-confirmed POST that talks to the storage's admin API with its root key, the secret shown once and never stored, recorded; quota and retention asked in the forms standard; tests against a RustFS in a Docker in Docker).
