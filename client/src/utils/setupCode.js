@@ -35,12 +35,44 @@ export const setupCodeProblem = (input) => {
 export const formatSetupCode = (code) => (normalizeSetupCode(code).match(/.{1,4}/g) || []).join('-');
 
 // The answer of the server to a check of the code, as [key, English, values].
-export const setupCodeAnswer = (status, code, retryAfter) => {
+// message: the server's own words, shown as text, for a refusal of another kind.
+export const setupCodeAnswer = (status, code, retryAfter, message) => {
+  if (code === 'SC001') return ['newInstall.setupCode.asked', 'The server asks for the setup code again: enter it.', {}];
   if (code === 'SC002') return ['newInstall.setupCode.wrong', 'This is not the setup code of this server.', {}];
   if (code === 'SC003' || status === 429) return ['newInstall.setupCode.wait', 'Too many tries: wait {{seconds}} seconds and try again.', { seconds: String(Math.max(1, parseInt(retryAfter, 10) || 60)) }];
   if (code === 'SC004') return ['newInstall.setupCode.noFile', 'The server cannot read its setup code file. Restart Cosmos on the server (sudo systemctl restart CosmosCloud) to make a new one.', {}];
-  if (code === 'NI001' || status === 403) return ['newInstall.setupCode.done', 'This server is already set up. Sign in instead.', {}];
+  if (code === 'NI001') return ['newInstall.setupCode.done', 'This server is already set up. Sign in instead.', {}];
+  if (status === 403 || status >= 400) {
+    const said = String(message || '').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 300);
+    return ['newInstall.setupCode.refused', 'The server refused the request ({{status}}): {{message}}', { status: String(status), message: said || '-' }];
+  }
   return ['newInstall.setupCode.noAnswer', 'The server did not answer. Check that Cosmos runs, then try again.', {}];
+};
+
+// The setup routes' own refusals: the code held is no longer good (a wrong
+// one, or the server made a new one). Any of them makes the wizard forget
+// the code and ask for it again.
+export const SETUP_REFUSALS = ['SC001', 'SC002', 'SC004'];
+export const SETUP_REFUSED_EVENT = 'cosmos-setup-code-refused';
+
+// watchSetupAnswers passes a request's answer on unchanged, and when a code
+// is held and the answer is one of those refusals, forgets the code and
+// tells the wizard (an event with {status, code}).
+export const watchSetupAnswers = (answer) => {
+  if (!heldSetupCode()) return answer;
+  return answer.then((response) => {
+    if (response && (response.status === 403 || response.status === 503) && typeof response.clone === 'function') {
+      response.clone().json().then((body) => {
+        if (body && SETUP_REFUSALS.includes(body.code)) {
+          forgetSetupCode();
+          if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+            window.dispatchEvent(new CustomEvent(SETUP_REFUSED_EVENT, { detail: { status: response.status, code: body.code } }));
+          }
+        }
+      }).catch(() => {});
+    }
+    return response;
+  });
 };
 
 // The keeper: the code lives in this tab only (sessionStorage), and only

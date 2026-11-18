@@ -54,6 +54,8 @@ func InitMetricsDatabase() error {
 	if config.Database.PostgresHost != "" {
 		dialect = DialectPostgres
 		dsn = postgresDSN(config.Database)
+	} else {
+		privateDatabaseFile(CONFIGFOLDER + "database.db") // Fork addition: 0600, see fork_private_db.go
 	}
 
 	w, err := sql.Open(dialect, dsn)

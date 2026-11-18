@@ -100,7 +100,7 @@ phases.setup = async () => {
   const browser = await chromium.launch();
   const ctx = await browser.newContext();
   const step = (data) => ctx.request.post(base + '/cosmos/api/newInstall', { data, headers: { 'X-Cosmos-Setup-Code': process.env.SETUP_CODE || '' } }).then((r) => r.status()).catch(() => 'exit');
-  note('wizard:', await step({ step: '2', mongodbMode: 'Create' }),
+  note('wizard:', await step({ step: '-1' }), await step({ step: '2', mongodbMode: 'Create' }),
     await step({ step: '3', httpsCertificateMode: 'DISABLED', hostname: 'forms-d.example.org' }),
     await step({ step: '4', nickname: 'admin', password: PASSWORD }), await step({ step: '5' }));
   await browser.close();

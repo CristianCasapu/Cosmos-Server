@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -111,7 +113,7 @@ func setupCall(g *setupGuard, reached *int, method, target, code, from string) *
 		w.Write([]byte(`{"status":"OK"}`))
 	}))
 	r := httptest.NewRequest(method, target, strings.NewReader(`{"step":"4","nickname":"x","password":"y"}`))
-	r.RemoteAddr = from + ":40000"
+	r.RemoteAddr = net.JoinHostPort(from, "40000")
 	if code != "" {
 		r.Header.Set(setupCodeHeader, code)
 	}
@@ -190,53 +192,168 @@ func TestSetupCodeGuessingIsBounded(t *testing.T) {
 	g, _, code, clock, reached := testGuard(t, true)
 	wrong := "AAAA-AAAA-AAAA-AAAA-AAAA"
 	for i := 0; i < setupFreeTries; i++ {
-		if w := setupCall(g, reached, "POST", "/cosmos/api/setup", wrong, "203.0.113.9"); w.Code != 403 {
+		if w := setupCall(g, reached, "POST", "/cosmos/api/setup", wrong, "203.0.113.9"); w.Code != 403 || errorCode(t, w) != "SC002" {
 			t.Fatalf("try %d: %d", i+1, w.Code)
 		}
 	}
 	// the sixth wrong try earns a pause, which then doubles
 	setupCall(g, reached, "POST", "/cosmos/api/setup", wrong, "203.0.113.9")
-	w := setupCall(g, reached, "POST", "/cosmos/api/setup", code, "203.0.113.9")
-	if w.Code != 429 || errorCode(t, w) != "SC003" || w.Header().Get("Retry-After") == "" || *reached != 0 {
-		t.Fatalf("during the pause even the right code waits: %d %s", w.Code, w.Body)
-	}
-	// another address is not held up by this one
-	if w := setupCall(g, reached, "POST", "/cosmos/api/setup", code, "198.51.100.7"); w.Code != 200 {
-		t.Fatalf("another address: %d", w.Code)
+	w := setupCall(g, reached, "POST", "/cosmos/api/setup", wrong, "203.0.113.9")
+	if w.Code != 429 || errorCode(t, w) != "SC003" || w.Header().Get("Retry-After") == "" {
+		t.Fatalf("a wrong code during the pause: %d %s", w.Code, w.Body)
 	}
 	clock.t = clock.t.Add(2 * time.Second)
 	setupCall(g, reached, "POST", "/cosmos/api/setup", wrong, "203.0.113.9") // the 7th: a pause of 2 s
 	clock.t = clock.t.Add(1500 * time.Millisecond)
-	if w := setupCall(g, reached, "POST", "/cosmos/api/setup", code, "203.0.113.9"); w.Code != 429 {
+	if w := setupCall(g, reached, "POST", "/cosmos/api/setup", wrong, "203.0.113.9"); w.Code != 429 {
 		t.Fatalf("the pause did not grow: %d", w.Code)
 	}
-	// never for good: at most 15 minutes, then the owner gets through
+	// the right code is never answered "too many tries", even from the paused address
+	if w := setupCall(g, reached, "POST", "/cosmos/api/setup", code, "203.0.113.9"); w.Code != 200 || *reached != 1 {
+		t.Fatalf("the right code during a pause: %d %s", w.Code, w.Body)
+	}
+	// and it wipes the address's slate
+	if w := setupCall(g, reached, "POST", "/cosmos/api/setup", wrong, "203.0.113.9"); w.Code != 403 {
+		t.Fatalf("after the right code, a wrong one: %d", w.Code)
+	}
+	// the longest pause is 15 minutes
 	for i := 0; i < 40; i++ {
-		clock.t = clock.t.Add(setupMaxPause)
+		clock.t = clock.t.Add(setupMaxPause + time.Second)
 		setupCall(g, reached, "POST", "/cosmos/api/setup", wrong, "203.0.113.9")
 	}
-	clock.t = clock.t.Add(setupMaxPause + time.Second)
-	if w := setupCall(g, reached, "POST", "/cosmos/api/setup", code, "203.0.113.9"); w.Code != 200 {
-		t.Fatalf("after the longest pause the right code is refused: %d %s", w.Code, w.Body)
+	if paused, wait := g.limiter.paused("203.0.113.9"); !paused || wait > setupMaxPause {
+		t.Fatalf("paused %v for %v", paused, wait)
 	}
 }
 
-func TestSetupCodeChecksAreBoundedOverall(t *testing.T) {
+// A flood of wrong guesses from many addresses (IPv4 and IPv6 alike) never
+// keeps the owner out: the right code is accepted every time, and the table
+// of addresses stays bounded.
+func TestAFloodOfGuessesNeverKeepsTheOwnerOut(t *testing.T) {
 	g, _, code, clock, reached := testGuard(t, true)
-	refused := 0
-	for i := 0; i < setupBucketSize+10; i++ {
-		w := setupCall(g, reached, "POST", "/cosmos/api/setup", "AAAA-AAAA-AAAA-AAAA-AAAA", "198.51.100."+string(rune('0'+i%10))+string(rune('0'+i/10)))
-		if w.Code == 429 {
-			refused++
+	accepted := 0
+	for second := 0; second < 60; second++ {
+		for i := 0; i < 200; i++ {
+			var from string
+			if i%2 == 0 {
+				from = fmt.Sprintf("2001:db8:%x:%x::%x", second, i, i)
+			} else {
+				from = fmt.Sprintf("198.51.%d.%d", second%250, i%250)
+			}
+			setupCall(g, reached, "POST", "/cosmos/api/setup", "AAAA-AAAA-AAAA-AAAA-AAAA", from)
+			clock.t = clock.t.Add(5 * time.Millisecond)
+		}
+		for _, owner := range []string{"127.0.0.1", "192.168.1.20", "2001:db8:ffff::1"} {
+			if w := setupCall(g, reached, "POST", "/cosmos/api/setup", code, owner); w.Code == 200 {
+				accepted++
+			}
 		}
 	}
-	if refused != 10 {
-		t.Fatalf("%d checks refused over the bucket, want 10", refused)
+	if accepted != 180 {
+		t.Fatalf("the owner's right code was accepted %d times of 180 under the flood", accepted)
 	}
-	// it refills: a moment later the owner's check goes through
-	clock.t = clock.t.Add(time.Second)
-	if w := setupCall(g, reached, "POST", "/cosmos/api/setup", code, "192.0.2.50"); w.Code != 200 {
-		t.Fatalf("after a second: %d", w.Code)
+	if n := g.limiter.size(); n > setupMaxAddresses {
+		t.Fatalf("the table holds %d addresses", n)
+	}
+}
+
+// An IPv6 network counts as one address (one machine holds a whole /64);
+// headers never choose the address a guess counts against.
+func TestSetupGuessesCountByConnection(t *testing.T) {
+	g, _, _, _, reached := testGuard(t, true)
+	wrong := "AAAA-AAAA-AAAA-AAAA-AAAA"
+	for i := 0; i < setupFreeTries+1; i++ {
+		setupCall(g, reached, "POST", "/cosmos/api/setup", wrong, fmt.Sprintf("2001:db8:1:2::%x", i+1))
+	}
+	if w := setupCall(g, reached, "POST", "/cosmos/api/setup", wrong, "2001:db8:1:2:aaaa::1"); w.Code != 429 {
+		t.Fatalf("fresh addresses of one /64 escaped the pause: %d", w.Code)
+	}
+	if w := setupCall(g, reached, "POST", "/cosmos/api/setup", wrong, "2001:db8:1:3::1"); w.Code != 403 {
+		t.Fatalf("another /64 was held up: %d", w.Code)
+	}
+	// X-Forwarded-For and X-Real-IP are not read: a paused address stays paused
+	for i := 0; i < setupFreeTries+1; i++ {
+		setupCall(g, reached, "POST", "/cosmos/api/setup", wrong, "203.0.113.50")
+	}
+	h := g.wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	r := httptest.NewRequest("POST", "/cosmos/api/setup", nil)
+	r.RemoteAddr = "203.0.113.50:4000"
+	r.Header.Set(setupCodeHeader, wrong)
+	r.Header.Set("X-Forwarded-For", "198.51.100.200")
+	r.Header.Set("X-Real-IP", "198.51.100.201")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 429 {
+		t.Fatalf("a forwarded-for header escaped the pause: %d", w.Code)
+	}
+	if got := setupClient(r); got != "203.0.113.50" {
+		t.Fatalf("client %q", got)
+	}
+}
+
+// A setup-code file this server did not make (a link, another mode, another
+// owner, a hard link) is never trusted: it is replaced, or setup stays closed.
+func TestAPlantedSetupCodeIsNotTrusted(t *testing.T) {
+	setupCodeOut = &bytes.Buffer{}
+	defer func() { setupCodeOut = os.Stderr }()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "setup-code")
+	target := filepath.Join(dir, "elsewhere")
+	os.WriteFile(target, []byte("ABCD-EFGH-JKMN-PQRS-TVWX\n"), 0o600)
+
+	os.Symlink(target, file)
+	if _, err := readSetupCode(file); err == nil {
+		t.Fatal("a code read through a link")
+	}
+	ensureSetupCode(true, file, rand.Reader)
+	if info, err := os.Lstat(file); err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("the link was not replaced by a file: %v", err)
+	}
+	if code, err := readSetupCode(file); err != nil || code == "ABCDEFGHJKMNPQRSTVWX" {
+		t.Fatalf("the planted code was kept: %q %v", code, err)
+	}
+	if data, _ := os.ReadFile(target); string(data) != "ABCD-EFGH-JKMN-PQRS-TVWX\n" {
+		t.Fatal("the link's target was touched")
+	}
+
+	os.Remove(file)
+	os.WriteFile(file, []byte("ABCD-EFGH-JKMN-PQRS-TVWX\n"), 0o644)
+	if _, err := readSetupCode(file); err == nil {
+		t.Fatal("a 0644 file was trusted")
+	}
+	ensureSetupCode(true, file, rand.Reader)
+	if code, err := readSetupCode(file); err != nil || code == "ABCDEFGHJKMNPQRSTVWX" {
+		t.Fatalf("a 0644 planted code was kept: %q %v", code, err)
+	}
+
+	os.Remove(file)
+	os.WriteFile(target, []byte("ABCD-EFGH-JKMN-PQRS-TVWX\n"), 0o600)
+	os.Link(target, file)
+	if _, err := readSetupCode(file); err == nil {
+		t.Fatal("a hard link was trusted")
+	}
+}
+
+func TestTheWizardListensOnLoopbackWhenAsked(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "setup-loopback")
+	if got := setupListenAddrFor("0.0.0.0:80", true, marker); got != "0.0.0.0:80" {
+		t.Errorf("without the marker: %s", got)
+	}
+	os.WriteFile(marker, nil, 0o600)
+	if got := setupListenAddrFor("0.0.0.0:80", true, marker); got != "127.0.0.1:80" {
+		t.Errorf("with the marker: %s", got)
+	}
+	if got := setupListenAddrFor("0.0.0.0:8443", false, marker); got != "0.0.0.0:8443" {
+		t.Errorf("set up: %s", got)
+	}
+	os.Chmod(marker, 0o644)
+	if got := setupListenAddrFor("0.0.0.0:80", true, marker); got != "0.0.0.0:80" {
+		t.Errorf("a marker anyone could have left counted: %s", got)
+	}
+	lifecycle, _ := os.ReadFile("fork_server_lifecycle.go")
+	if !strings.Contains(string(lifecycle), `net.Listen("tcp", setupListenAddr(addr))`) {
+		t.Error("the listeners do not go through setupListenAddr")
 	}
 }
 

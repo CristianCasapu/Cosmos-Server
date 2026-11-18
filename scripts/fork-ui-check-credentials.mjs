@@ -287,7 +287,7 @@ if (phase === 'setup') {
   }
   if (fresh) {
     const step = (data) => api.post(plain + '/cosmos/api/newInstall', { data, headers: { 'X-Cosmos-Setup-Code': process.env.SETUP_CODE || '' } }).then((r) => r.status()).catch(() => 'exit');
-    note('wizard:', await step({ step: '2', mongodbMode: 'Create' }),
+    note('wizard:', await step({ step: '-1' }), await step({ step: '2', mongodbMode: 'Create' }),
       await step({ step: '3', httpsCertificateMode: 'SELFSIGNED', hostname: host, allowHTTPLocalIPAccess: true }),
       await step({ step: '4', nickname: 'admin', password, email: OWNER_EMAIL }), await step({ step: '5' }));
     await sleep(5000);

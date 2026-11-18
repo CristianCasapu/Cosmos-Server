@@ -63,7 +63,7 @@ const until = async (what, check, seconds = 90) => {
   } catch (e) { /* set up already */ }
   if (fresh) {
     const step = (data) => api.post(base + '/cosmos/api/newInstall', { data, headers: { 'X-Cosmos-Setup-Code': process.env.SETUP_CODE || '' } }).then((r) => r.status()).catch(() => 'exit');
-    note('wizard:', await step({ step: '2', mongodbMode: 'Create' }),
+    note('wizard:', await step({ step: '-1' }), await step({ step: '2', mongodbMode: 'Create' }),
       await step({ step: '3', httpsCertificateMode: 'DISABLED', hostname: new URL(base).hostname }),
       await step({ step: '4', nickname: 'admin', password, email: 'admin@example.org' }), await step({ step: '5' }));
     await sleep(4000);

@@ -259,7 +259,7 @@ if [ "$REMOVE_PACKAGES" = 1 ] && [ "${#OURS[@]}" -gt 0 ]; then
 		if [ "$KEEP_DOCKER" = 1 ] && [[ $DOCKER_SET == *" $p "* ]]; then continue; fi
 		# a package the system marks essential or protected (e2fsprogs on
 		# Debian 13) is never removed: apt refuses, and the system needs it
-		if dpkg-query -W -f='${Essential} ${Protected}' "$p" 2>/dev/null | grep -q yes; then protected+=("$p"); continue; fi
+		if [[ $(dpkg-query -W -f='${Essential} ${Protected}' "$p" 2>/dev/null || true) == *yes* ]]; then protected+=("$p"); continue; fi
 		candidates+=("$p")
 	done
 	# apt counts more packages as essential than dpkg marks (e2fsprogs on
@@ -323,7 +323,7 @@ fi
 
 # 6. the files install.sh wrote: Docker's source and key go with Docker
 docker_left=0
-if dpkg-query -W -f='${db:Status-Abbrev}' docker-ce 2>/dev/null | grep -q '^ii'; then docker_left=1; fi
+if [[ $(dpkg-query -W -f='${db:Status-Abbrev}' docker-ce 2>/dev/null || true) == ii* ]]; then docker_left=1; fi
 for f in $(lines_of file); do
 	case $f in
 	/etc/apt/keyrings/docker.asc | /etc/apt/sources.list.d/docker.sources)
@@ -359,4 +359,7 @@ fi
 exit 0
 }
 
-main "$@"
+# On one line with main: bash reads a script as it runs it, so nothing after
+# this line is ever read, even if the file is changed or replaced meanwhile.
+# shellcheck disable=SC2317 # reached when main returns
+{ main "$@"; exit; }

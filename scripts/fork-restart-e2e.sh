@@ -55,6 +55,7 @@ for _ in $(seq 1 60); do c http://127.0.0.1:2052/cosmos-ui/ 2>/dev/null && break
 docker exec -e PASSWORD="$PASSWORD" "$D" sh -c '
   code=$(cat /cosmos/config/setup-code)
   s() { wget -q -O /dev/null -T 20 --header "Content-Type: application/json" --header "X-Cosmos-Setup-Code: $code" --post-data "$1" http://127.0.0.1:2052/cosmos/api/newInstall; }
+  s "{\"step\":\"-1\"}" # the default of the wizard: clean install first
   s "{\"step\":\"2\",\"mongodbMode\":\"Create\"}"
   s "{\"step\":\"3\",\"httpsCertificateMode\":\"SELFSIGNED\",\"hostname\":\"server.example.org\",\"allowHTTPLocalIPAccess\":true}"
   s "{\"step\":\"4\",\"nickname\":\"admin\",\"password\":\"$PASSWORD\",\"email\":\"admin@example.org\"}"

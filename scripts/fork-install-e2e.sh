@@ -1,5 +1,5 @@
 #!/bin/bash
-# shellcheck disable=SC2016,SC2012 # the snippets in single quotes run inside the test machines
+# shellcheck disable=SC2016,SC2012,SC2317 # the snippets in single quotes run inside the test machines; SC2317: the functions are reached through main (see the last line)
 # Fork addition: the test bed of the install scripts (fork/install/).
 #
 #   bash scripts/fork-install-e2e.sh fast     shellcheck + one machine (Debian 13):
@@ -43,7 +43,7 @@ if [ -n "${RUNNER_TEMP:-}" ]; then SCRATCH=${SCRATCH:-$RUNNER_TEMP/fork-install-
 SCRATCH=${SCRATCH:-/storage/dev/.cache/$PREFIX/e2e}
 RESULTS=${RESULTS:-$SCRATCH-results}
 SYSTEMS=${SYSTEMS:-debian12 debian13 ubuntu2404 ubuntu2604}
-ALL_CASES="fresh refusals tampered dryrun unavailable locked aptfail netcut interrupt docker-there hop trust env pieces"
+ALL_CASES="fresh refusals tampered dryrun unavailable locked aptdaily aptfail netcut interrupt docker-there hop trust env pieces"
 CASES=${CASES:-$ALL_CASES}
 JOBS=${JOBS:-4}
 REPO=example-owner/cosmos-fork
@@ -239,7 +239,7 @@ build_releases() {
 		scripts_sig hop/v0.24.0-fork.910 0.24.0-fork.910 test; printf "\n# changed after signing\n" >>hop/v0.24.0-fork.910/install.sh
 		scripts_sig hop/v0.24.0-fork.911 0.24.0-fork.911 other
 		scripts_sig hop/v0.24.0-fork.912 0.24.0-fork.912 test 0.24.0-fork.913
-		for kind in dotdot absolute symlink duplicate setuid worldwritable device ctrlchar bomb; do
+		for kind in dotdot absolute symlink duplicate setuid worldwritable device ctrlchar bomb longlist-dotdot longlist-setuid longlist-symlink; do
 			mkdir $kind
 			"$SCR/bin/helper" bad-zip "$a/$zip" $kind/$zip $kind
 			(cd $kind && md5sum $zip >$zip.md5)
@@ -362,6 +362,11 @@ case_fresh() { # fresh install, refusals over it, C0, update, rollback, offline 
 			check "POST /cosmos/api/$route by a local user with a wrong code is refused" sh -c "test $code = 403 && grep -q SC002 /e2e/out/r.json"
 		done
 		check "the status stays open for the first page" test "$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1/cosmos/api/status)" = 200
+		# placement not given (unknown): the wizard answers on 127.0.0.1 only, through a tunnel
+		check "the loopback marker is root'\''s, 0600" test "$(stat -c %a:%U /var/lib/cosmos/setup-loopback)" = 600:root
+		check "the wizard does not answer on the network" test "$(curl -s -o /dev/null -m 5 -w "%{http_code}" "http://$(hostname -I | cut -d" " -f1)/cosmos-ui/" || true)" = 000
+		check "install.sh printed the tunnel" grep -q "ssh -L 8080:127.0.0.1:80 " /e2e/out/install.txt
+		check "and why" grep -q "placement is unknown, not home" /e2e/out/install.txt
 		echo "$printed" >/e2e/out/printed-code
 		check "nobody else can read the data folder (it is $(stat -c %a /var/lib/cosmos): 700 when made, 711 once Cosmos ran)" sh -c "stat -c %a /var/lib/cosmos | grep -qE \"^7[01][01]\$\""
 		mkdir -p /root/up && cp /opt/cosmos/cosmos /root/up/ && printf "#!/bin/sh\n" >/root/up/start.sh && chmod 755 /root/up/start.sh
@@ -406,6 +411,8 @@ case_fresh() { # fresh install, refusals over it, C0, update, rollback, offline 
 	cp -r "$SCRATCH/rel/v$VB" "$SCRATCH/world/$sys/releases/"
 	M "$m" 'wizard_and_login "$(cat /e2e/out/printed-code)" && update_to '"$VB"'
 		check "the setup code file is gone once set up" test ! -e /var/lib/cosmos/setup-code
+		check "so is the loopback marker" test ! -e /var/lib/cosmos/setup-loopback
+		check "set up, the server answers on the network" sh -c "test \"\$(curl -s -o /dev/null -m 5 -w %{http_code} http://\$(hostname -I | cut -d\" \" -f1)/cosmos-ui/)\" != 000"
 		code=$(curl -s -o /e2e/out/r.json -w "%{http_code}" --resolve srv-e2e.local:80:127.0.0.1 -X POST -H "Content-Type: application/json" -H "X-Cosmos-Setup-Code: $(cat /e2e/out/printed-code)" --data "{\"step\":\"4\"}" http://srv-e2e.local/cosmos/api/newInstall)
 		check "the wizard is closed once set up, code or not" test "$code" = 403'
 	cp -r "$SCRATCH/rel/v$VC" "$SCRATCH/world/$sys/releases/"
@@ -461,7 +468,10 @@ case_tampered() { # each refused before anything is unpacked, nothing left (the 
 	local sys=$1 m v
 	m=$(start_machine "$sys" tampered)
 	M "$m" 'snap before'
-	for v in tampered-zip tampered-sig other-key no-sig dotdot absolute symlink; do
+	# longlist-*: the bad entry first in a listing far over 64 KiB (a check
+	# written as "listing | grep -q" under pipefail would let it through)
+	for v in tampered-zip tampered-sig other-key no-sig dotdot absolute symlink duplicate setuid worldwritable device ctrlchar bomb \
+		longlist-dotdot longlist-setuid longlist-symlink; do
 		M "$m" 'echo "== '"$v"'"; expect_exit 4 '"$INSTALL_A"' --yes --from /e2e/variants/'"$v"' </dev/null; snap after-'"$v"'; same before after-'"$v"'
 			check "nothing planted" test ! -e /etc/cosmos-e2e-planted
 			check "nothing unpacked" sh -c "! ls -d /opt/cosmos /opt/.cosmos-install.* 2>/dev/null"'
@@ -480,7 +490,12 @@ case_tampered() { # each refused before anything is unpacked, nothing left (the 
 case_dryrun() {
 	local sys=$1 m
 	m=$(start_machine "$sys" dryrun)
-	M "$m" 'snap before; expect_exit 0 '"$INSTALL_A"' --dry-run </dev/null; snap after; same before after'
+	# hooks of the system'\''s apt configuration (as Ubuntu'\''s command-not-found
+	# has): the simulation must not run them
+	M "$m" 'printf "APT::Update::Post-Invoke { \"touch /e2e-hook-ran\"; };\nAPT::Update::Pre-Invoke { \"touch /e2e-hook-ran\"; };\nAPT::Update::Post-Invoke-Success { \"touch /e2e-hook-ran\"; };\nDPkg::Pre-Invoke { \"touch /e2e-hook-ran\"; };\n" >/etc/apt/apt.conf.d/50e2e-probe
+		snap before; expect_exit 0 '"$INSTALL_A"' --dry-run </dev/null; snap after; same before after
+		check "the simulation ran none of the apt hooks" test ! -e /e2e-hook-ran
+		rm /etc/apt/apt.conf.d/50e2e-probe'
 	m=$(start_machine "$sys" dryrun2 docker)
 	M "$m" 'snap before; expect_exit 0 '"$INSTALL_A"' --dry-run --from /e2e/variants/good </dev/null; snap after; same before after
 		expect_exit 0 '"$INSTALL_A"' --dry-run </dev/null; snap after2; same before after2'
@@ -497,9 +512,39 @@ case_locked() { # apt is held by another program: the script waits, then install
 	local sys=$1 m
 	m=$(start_machine "$sys" locked)
 	M "$m" '(setsid /e2e/bin/helper lock-dpkg 45 >/e2e/out/lock.txt 2>&1 &); sleep 2; cat /e2e/out/lock.txt
-		rc=0; '"$INSTALL_A"' --yes </dev/null >/e2e/out/install.txt 2>&1 || rc=$?; tail -n 5 /e2e/out/install.txt
+		rc=0; '"$INSTALL_A"' --yes --wizard-on-lan </dev/null >/e2e/out/install.txt 2>&1 || rc=$?; tail -n 5 /e2e/out/install.txt
 		check "it waited for the lock" grep -qE "waiting for it|Waiting for cache lock" /e2e/out/install.txt
 		check "then installed" test $rc = 0
+		installed_ok 80
+		check "--wizard-on-lan: the wizard answers on the network" test "$(curl -s -o /dev/null -m 5 -w "%{http_code}" "http://$(hostname -I | cut -d" " -f1)/cosmos-ui/")" = 200'
+}
+
+case_aptdaily() { # the system's own apt-daily and unattended-upgrades hold apt when the installer starts (as on every new Ubuntu server)
+	local sys=$1 m
+	m=$(start_machine "$sys" aptdaily)
+	M "$m" 'DEBIAN_FRONTEND=noninteractive apt-get -q update >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends unattended-upgrades </dev/null >/dev/null
+		check "the system has apt-daily and unattended-upgrades" sh -c "systemctl cat apt-daily.service apt-daily-upgrade.service >/dev/null && command -v unattended-upgrade"
+		# the container image turns the daily runs off (a server does not): on again
+		rm -f /etc/apt/apt.conf.d/docker-disable-periodic-update
+		# the real units, made to hold apt longer, through their own configuration only:
+		# apt-daily (apt-get update) holds the lists for 75 s, then apt-daily-upgrade
+		# (unattended-upgrade) holds dpkg 60 s longer whenever it has an upgrade to install
+		printf "APT::Periodic::RandomSleep \"0\";\nAPT::Update::Pre-Invoke { \"sleep 75\"; };\nDPkg::Pre-Invoke { \"sleep 60\"; };\n" >/etc/apt/e2e-daily.conf
+		for u in apt-daily apt-daily-upgrade; do
+			mkdir -p /etc/systemd/system/$u.service.d
+			printf "[Service]\nEnvironment=APT_CONFIG=/etc/apt/e2e-daily.conf\n" >/etc/systemd/system/$u.service.d/e2e.conf
+		done
+		systemctl daemon-reload
+		snap before
+		systemctl start --no-block apt-daily.service apt-daily-upgrade.service
+		for _ in $(seq 1 60); do locks=$(lslocks -n -r -o PATH); case $locks in */var/lib/apt/lists/lock*) break ;; esac; sleep 1; done
+		check "apt-daily.service holds apt'\''s lists lock" sh -c "lslocks -n -r -o COMMAND,PID,PATH | grep /var/lib/apt/lists/lock"
+		rc=0; '"$INSTALL_A"' --yes </dev/null >/e2e/out/install.txt 2>&1 || rc=$?; tail -n 8 /e2e/out/install.txt
+		check "it said what it waited for" grep -q "Another program is using apt: .*apt-daily.service" /e2e/out/install.txt
+		if grep -q "unattended-upgr" /e2e/out/install.txt; then echo "(it also met unattended-upgrade holding dpkg)"; else echo "(unattended-upgrade had nothing to install: it did not hold dpkg for long)"; fi
+		check "then installed" test $rc = 0
+		check "apt-daily.service ran to its end" sh -c "! systemctl is-failed --quiet apt-daily.service"
+		for _ in $(seq 1 300); do [ "$(systemctl is-active apt-daily-upgrade.service)" = inactive ] && break; sleep 1; done
 		installed_ok 80'
 }
 
@@ -510,7 +555,11 @@ case_netcut() { # the download breaks off: refused, nothing left
 	github "$sys" "/cut?asset=amd64.zip&after=3000000"
 	M "$m" 'expect_exit 1 '"$INSTALL_A"' --yes </dev/null; snap after; same before after'
 	github "$sys" "/cut?asset="
-	M "$m" 'expect_exit 0 '"$INSTALL_A"' --yes </dev/null; installed_ok 80'
+	M "$m" 'expect_exit 0 '"$INSTALL_A"' --yes --placement home </dev/null >/e2e/out/home.txt; installed_ok 80
+		check "at home the wizard answers on the home network" test "$(curl -s -o /dev/null -m 5 -w "%{http_code}" "http://$(hostname -I | cut -d" " -f1)/cosmos-ui/")" = 200
+		check "no loopback marker at home" test ! -e /var/lib/cosmos/setup-loopback
+		check "it says the wizard is in clear on that network" grep -q "anyone on that network could read" /e2e/out/home.txt
+		check "and offers the tunnel" grep -q "ssh -L 8080:127.0.0.1:80 " /e2e/out/home.txt'
 }
 
 case_interrupt() { # kill -9 at three points, each followed by another run; packages of the admin's; uninstall with Docker stopped
@@ -579,6 +628,9 @@ case_docker_there() { # Docker of the distribution is used and left alone; prote
 		printf "placement=cloud\nssh=from:192.0.2.0/24,2001:db8::/32\n" >/root/answers
 		expect_exit 0 '"$INSTALL_A"' --yes --reachable internet --http-port 8080 --https-port 8443 --answers /root/answers </dev/null; installed_ok 8080; record_matches before
 		rm /root/answers
+		check "a cloud server: the wizard on 127.0.0.1 only" test -f /var/lib/cosmos/setup-loopback
+		check "the wizard does not answer on the network" test "$(curl -s -o /dev/null -m 5 -w "%{http_code}" "http://$(hostname -I | cut -d" " -f1):8080/cosmos-ui/" || true)" = 000
+		check "but on 127.0.0.1" test "$(curl -s -o /dev/null -m 5 -w "%{http_code}" http://127.0.0.1:8080/cosmos-ui/)" = 200
 		check "the guard got where the server stands and how SSH answers" grep -q -- "--exposed --ssh from:192.0.2.0/24,2001:db8::/32" /run/cosmos-e2e-stub-nftables.install.args
 		check "no Docker package in the record" sh -c "! grep -q \"^package docker\" /var/lib/cosmos-installer/record"
 		check "Docker'\''s repository was not added" test ! -e /etc/apt/sources.list.d/docker.sources
@@ -624,6 +676,20 @@ case_aptfail() { # apt fails after the simulation passed: the lists held too lon
 		check "the run is not completed" sh -c "! grep -q ^completed=yes /var/lib/cosmos-installer/state"
 		check "snapraid is not recorded" sh -c "! grep -q \"^package snapraid\$\" /var/lib/cosmos-installer/record"
 		rm /etc/apt/apt.conf.d/99e2e-refuse-snapraid
+		# a package left half-installed by the failed transaction: its
+		# configuration script fails (the hook rewrites the downloaded .deb)
+		printf "#!/bin/sh\nwhile read -r f; do case \$f in */snapraid_*.deb) d=\$(mktemp -d); dpkg-deb -R \"\$f\" \$d; printf \"#!/bin/sh\\\\nexit 1\\\\n\" >\$d/DEBIAN/postinst; chmod 755 \$d/DEBIAN/postinst; dpkg-deb -b \$d \"\$f\" >/dev/null; rm -rf \$d;; esac; done\n" >/root/break-snapraid
+		chmod 755 /root/break-snapraid
+		printf "DPkg::Pre-Install-Pkgs { \"/root/break-snapraid\"; };\n" >/etc/apt/apt.conf.d/99e2e-break-snapraid
+		rm -rf /var/lib/cosmos-installer
+		rc=0; '"$INSTALL_A"' --yes </dev/null >/e2e/out/half.txt 2>&1 || rc=$?; tail -n 12 /e2e/out/half.txt
+		check "the failed transaction ends with 1" test $rc = 1
+		check "snapraid is half-installed (dpkg)" sh -c "dpkg-query -W -f=\"\\\${db:Status-Abbrev}\" snapraid | grep -q \"^iF\""
+		check "it is named half-installed" grep -q "half-installed (dpkg): .*snapraid" /e2e/out/half.txt
+		check "never \"Nothing is left\"" sh -c "! grep -q \"Nothing is left\" /e2e/out/half.txt"
+		check "snapraid stays recorded" grep -qx "package snapraid" /var/lib/cosmos-installer/record
+		rm /etc/apt/apt.conf.d/99e2e-break-snapraid /root/break-snapraid
+		printf "#!/bin/sh\nexit 0\n" >/var/lib/dpkg/info/snapraid.postinst
 		expect_exit 0 '"$INSTALL_A"' --yes </dev/null; installed_ok 80; record_matches before2
 		bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null >/dev/null
 		snap removed; packages_back before2 removed'
@@ -823,4 +889,7 @@ case_fresh_fast() { # the checks of every push: install, refusal over it, a tamp
 		expect_exit 4 '"$INSTALL_A"' --yes --from /e2e/variants/tampered-zip </dev/null; snap after-tampered; same removed after-tampered'
 }
 
-main "$@"
+# On one line with main: bash reads a script as it runs it, so nothing after
+# this line is ever read, even if the file is changed or replaced meanwhile.
+# shellcheck disable=SC2317 # reached when main returns
+{ main "$@"; exit; }

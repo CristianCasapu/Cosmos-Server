@@ -10,11 +10,13 @@ OUT=/e2e/out
 mkdir -p "$OUT"
 
 # What the comparisons leave out: kernel and run-time folders, logs, apt's
-# caches and lists (the scripts run apt-get update), dpkg's own database
+# caches and lists (the scripts run apt-get update), /var/backups (the
+# system's own daily dpkg-db-backup timer writes there at any time), dpkg's
+# own database
 # (the package list is compared on its own), systemd's and Docker's state,
 # and /etc/ssl, where the test CA's links (made for the test bed, owned by
 # no package) keep the folder after ca-certificates is purged.
-SKIP='^/(proc|sys|dev|run|tmp|e2e|var/log|var/cache|var/lib/apt/lists|var/lib/dpkg|var/lib/systemd|var/lib/docker|var/lib/containerd|usr/local/share/ca-certificates|etc/ssl|root/\.cache)(/|$)'
+SKIP='^/(proc|sys|dev|run|tmp|e2e|var/log|var/cache|var/lib/apt/lists|var/backups|var/lib/dpkg|var/lib/systemd|var/lib/docker|var/lib/containerd|usr/local/share/ca-certificates|etc/ssl|root/\.cache)(/|$)'
 
 snap() { # name
 	local n=$1
@@ -105,6 +107,7 @@ api() { # method path json (with the setup code when one is set)
 wizard_and_login() {
 	local code
 	SETUP_CODE=${1:-$(cat /var/lib/cosmos/setup-code)}
+	code=$(api POST newInstall '{"step":"-1"}'); echo "wizard -1 (clean install, the default): $code"
 	code=$(api POST newInstall '{"step":"2"}'); echo "wizard 2: $code"
 	code=$(api POST newInstall '{"step":"3","httpsCertificateMode":"DISABLED","hostname":"srv-e2e.local"}'); echo "wizard 3: $code"
 	code=$(api POST newInstall '{"step":"4","nickname":"admin","password":"E2e-Test-Passw0rd!x","email":"admin@example.org"}'); echo "wizard 4: $code"

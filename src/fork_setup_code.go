@@ -7,22 +7,33 @@ package main
 // session: whoever reached the port first became the administrator, and an
 // administrator of Cosmos is root on the host. Now, at the first start of a
 // new installation, the server makes a code, writes it to <config
-// folder>/setup-code (0600, created exclusively) and prints it once to the
-// journal; install.sh prints it in the terminal. During the new-install
-// state every route that works without a session (newInstall, setup,
-// setup-join, dns: see setupRoutes) must carry the code in the header
-// X-Cosmos-Setup-Code. /cosmos/api/status, which the panel's first page
-// reads, is left as it was. Without the file, or with a file that cannot be
-// read, setup is refused: never open.
+// folder>/setup-code (0600, created exclusively, never through a link) and
+// prints it once to the journal (the owner's choice); install.sh prints it in
+// the terminal. During the new-install state every route that works without
+// a session (newInstall, setup, setup-join, dns: see setupRoutes) must carry
+// the code in the header X-Cosmos-Setup-Code. /cosmos/api/status, which the
+// panel's first page reads, is left as it was. Without the file, or with a
+// file that is not a plain 0600 file of this user, setup is refused: never
+// open. The clean-install step of the wizard keeps the file (newInstall.go).
 //
 // The code: 20 symbols of a 30-symbol alphabet without look-alikes (no 0, 1,
-// I, L, O, U), shown as five groups of four; 98 bits. Guessing is bounded per
-// address (five free tries, then a pause that doubles with each wrong try,
-// at most 15 minutes) and overall (a bucket of 30 checks refilled at 2 a
-// second, for every check right or wrong). At 2 guesses a second for a year
-// an attacker has about one chance in 10^21. The bounds only slow down:
-// nobody is locked out for good, and the code can always be read again on
-// the server by root (sudo cat <config folder>/setup-code).
+// I, L, O, U), shown as five groups of four; 98 bits. That alone makes
+// guessing hopeless: a million guesses a second for 10^16 years. So nothing
+// is shared between addresses (a flood from many addresses cannot keep the
+// owner out), the right code is always accepted, and a wrong one from an
+// address that already made five earns a pause that doubles with each try,
+// at most 15 minutes, which only keeps the logs readable. An address is the
+// connection's own (X-Forwarded-For is never read here); IPv6 counts by /64,
+// since one machine holds a whole /64.
+//
+// Where it answers: when install.sh decides the wizard must not be reached
+// over the network in clear (a cloud server, the router's exposed host, a
+// public address; see install.sh, --wizard-on-lan), it writes the marker
+// <config folder>/setup-loopback before the first start. While the
+// installation is new and the marker is there (a plain 0600 file of this
+// user), the server listens on 127.0.0.1 only; the owner reaches the wizard
+// through an SSH tunnel. Once set up, the marker goes and the server listens
+// as configured.
 //
 // The code is never written to cosmos.log, never in a URL (so never in the
 // request log), never returned by a route; the file is removed when the
@@ -42,6 +53,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/azukaar/cosmos-server/src/utils"
@@ -50,20 +62,18 @@ import (
 const (
 	setupCodeHeader   = "X-Cosmos-Setup-Code"
 	setupCodeFile     = "setup-code"
+	setupLoopbackFile = "setup-loopback"
 	setupCodeAlphabet = "ABCDEFGHJKMNPQRSTVWXYZ23456789"
 	setupCodeLength   = 20
 
 	setupFreeTries     = 5
 	setupMaxPause      = 15 * time.Minute
-	setupBucketSize    = 30
-	setupBucketRefill  = 2 // checks a second
 	setupMaxAddresses  = 4096
 	setupForgetAddress = time.Hour
 )
 
-func setupCodePath() string {
-	return path.Join(utils.CONFIGFOLDER, setupCodeFile)
-}
+func setupCodePath() string     { return path.Join(utils.CONFIGFOLDER, setupCodeFile) }
+func setupLoopbackPath() string { return path.Join(utils.CONFIGFOLDER, setupLoopbackFile) }
 
 // newSetupCode returns a fresh code in its display form (XXXX-XXXX-...).
 func newSetupCode(random io.Reader) (string, error) {
@@ -106,12 +116,41 @@ func normalizeSetupCode(s string) string {
 	return b.String()
 }
 
+// privateFile tells whether file is a plain file (not a link), of this
+// process's user, readable and writable by it only, with one name: the only
+// kind of setup-code or setup-loopback file that is trusted.
+func privateFile(file string) error {
+	info, err := os.Lstat(file)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New(file + " is not a plain file (a link or something else)")
+	}
+	if info.Mode().Perm() != 0o600 {
+		return fmt.Errorf("%s has the mode %o, not 600", file, info.Mode().Perm())
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok {
+		if int(st.Uid) != os.Geteuid() {
+			return fmt.Errorf("%s belongs to another user (%d)", file, st.Uid)
+		}
+		if st.Nlink != 1 {
+			return errors.New(file + " has more than one name (a hard link)")
+		}
+	}
+	return nil
+}
+
 // The start: a new installation gets its code (once); one that is set up
-// loses the file.
+// loses the file and the loopback marker.
 var setupCodeOut io.Writer = os.Stderr
 
 func forkSetupCodeAtStart() {
-	ensureSetupCode(utils.GetMainConfig().NewInstall, setupCodePath(), rand.Reader)
+	newInstall := utils.GetMainConfig().NewInstall
+	ensureSetupCode(newInstall, setupCodePath(), rand.Reader)
+	if !newInstall {
+		os.Remove(setupLoopbackPath())
+	}
 }
 
 func ensureSetupCode(newInstall bool, file string, random io.Reader) {
@@ -121,15 +160,27 @@ func ensureSetupCode(newInstall bool, file string, random io.Reader) {
 		}
 		return
 	}
+	if _, err := os.Lstat(file); err == nil {
+		if err := privateFile(file); err == nil {
+			if _, err := readSetupCode(file); err == nil {
+				return // made at an earlier start: kept, not printed again
+			}
+		} else {
+			utils.Warn("Setup: " + err.Error() + ": it is not trusted, a new code is made")
+		}
+		// not one this server made: never trusted. Removing a link removes the
+		// link, not what it points to.
+		if err := os.Remove(file); err != nil {
+			utils.MajorError("Setup: cannot remove "+file+", which is not a setup code this server made; the first-run wizard stays closed", err)
+			return
+		}
+	}
 	code, err := newSetupCode(random)
 	if err != nil {
 		utils.MajorError("Setup: cannot make a setup code; the first-run wizard stays closed", err)
 		return
 	}
-	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, os.ErrExist) {
-		return // made at an earlier start: kept, not printed again
-	}
+	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		utils.MajorError("Setup: cannot write the setup code to "+file+"; the first-run wizard stays closed", err)
 		return
@@ -148,10 +199,13 @@ func ensureSetupCode(newInstall bool, file string, random io.Reader) {
 		"=====================================================================\n\n", code, file)
 }
 
-// readSetupCode is the expected code, or an error: a missing or unreadable
-// file refuses setup.
+// readSetupCode is the expected code, or an error: a missing file, or one
+// that is not a private plain file, refuses setup.
 func readSetupCode(file string) (string, error) {
-	f, err := os.Open(file)
+	if err := privateFile(file); err != nil {
+		return "", err
+	}
+	f, err := os.OpenFile(file, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return "", err
 	}
@@ -167,7 +221,25 @@ func readSetupCode(file string) (string, error) {
 	return code, nil
 }
 
-// The limiter.
+// setupListenAddr is the address a listener takes: while the installation is
+// new and install.sh asked for it, 127.0.0.1 instead of every address.
+// Hooked in fork_server_lifecycle.go.
+func setupListenAddr(addr string) string {
+	return setupListenAddrFor(addr, utils.GetMainConfig().NewInstall, setupLoopbackPath())
+}
+
+func setupListenAddrFor(addr string, newInstall bool, marker string) string {
+	if !newInstall || privateFile(marker) != nil {
+		return addr
+	}
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	return net.JoinHostPort("127.0.0.1", port)
+}
+
+// The limiter: per address only.
 type setupTries struct {
 	fails int
 	until time.Time
@@ -175,36 +247,25 @@ type setupTries struct {
 }
 
 type setupLimiter struct {
-	mu      sync.Mutex
-	now     func() time.Time
-	tries   map[string]*setupTries
-	tokens  float64
-	refills time.Time
+	mu    sync.Mutex
+	now   func() time.Time
+	tries map[string]*setupTries
 }
 
 func newSetupLimiter(now func() time.Time) *setupLimiter {
-	return &setupLimiter{now: now, tries: map[string]*setupTries{}, tokens: setupBucketSize, refills: now()}
+	return &setupLimiter{now: now, tries: map[string]*setupTries{}}
 }
 
-// allow says whether a check from address may be made now, and if not for
-// how long to wait.
-func (l *setupLimiter) allow(address string) (bool, time.Duration) {
+// paused says whether address must wait before its next wrong guess is
+// even counted, and for how long.
+func (l *setupLimiter) paused(address string) (bool, time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
-	l.tokens += now.Sub(l.refills).Seconds() * setupBucketRefill
-	if l.tokens > setupBucketSize {
-		l.tokens = setupBucketSize
-	}
-	l.refills = now
 	if t := l.tries[address]; t != nil && now.Before(t.until) {
-		return false, t.until.Sub(now)
+		return true, t.until.Sub(now)
 	}
-	if l.tokens < 1 {
-		return false, time.Duration((1-l.tokens)/setupBucketRefill*float64(time.Second)) + time.Millisecond
-	}
-	l.tokens--
-	return true, 0
+	return false, 0
 }
 
 // failed counts a wrong code from address.
@@ -212,17 +273,10 @@ func (l *setupLimiter) failed(address string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
-	if len(l.tries) >= setupMaxAddresses {
-		for a, t := range l.tries {
-			if now.Sub(t.last) > setupForgetAddress || now.After(t.until) {
-				delete(l.tries, a)
-			}
-		}
-	}
 	t := l.tries[address]
 	if t == nil {
 		if len(l.tries) >= setupMaxAddresses {
-			return // the overall bucket still bounds this address
+			l.forgetOldest(now)
 		}
 		t = &setupTries{}
 		l.tries[address] = t
@@ -238,6 +292,39 @@ func (l *setupLimiter) failed(address string) {
 			pause = setupMaxPause
 		}
 		t.until = now.Add(pause)
+	}
+}
+
+// succeeded forgets address's wrong tries.
+func (l *setupLimiter) succeeded(address string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.tries, address)
+}
+
+// size is the number of addresses held (for the tests).
+func (l *setupLimiter) size() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.tries)
+}
+
+// forgetOldest makes room: first the addresses no longer paused, else the
+// one seen longest ago. The table never holds more than setupMaxAddresses.
+func (l *setupLimiter) forgetOldest(now time.Time) {
+	for a, t := range l.tries {
+		if !now.Before(t.until) {
+			delete(l.tries, a)
+		}
+	}
+	for len(l.tries) >= setupMaxAddresses {
+		oldest, when := "", now
+		for a, t := range l.tries {
+			if oldest == "" || t.last.Before(when) {
+				oldest, when = a, t.last
+			}
+		}
+		delete(l.tries, oldest)
 	}
 }
 
@@ -277,15 +364,21 @@ func forkSetupCodeGuard(next http.Handler) http.Handler {
 	return setupCodeGuard.wrap(next)
 }
 
+// setupClient is the address a guess is counted against: the connection's
+// own, never a header (no proxy is trusted before setup); IPv6 by /64.
 func setupClient(r *http.Request) string {
-	if ip, ok := r.Context().Value("ClientID").(string); ok && ip != "" {
-		return ip
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
 	}
-	return host
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return host
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return v4.String()
+	}
+	return (&net.IPNet{IP: ip.Mask(net.CIDRMask(64, 128)), Mask: net.CIDRMask(64, 128)}).String()
 }
 
 func (g *setupGuard) wrap(next http.Handler) http.Handler {
@@ -310,24 +403,25 @@ func (g *setupGuard) wrap(next http.Handler) http.Handler {
 		}
 		expected, err := readSetupCode(g.file())
 		if err != nil {
-			utils.Error("Setup: the setup code file cannot be read, setup is refused", err)
+			utils.Error("Setup: the setup code file cannot be used, setup is refused", err)
 			utils.HTTPError(w, "Setup is closed: the setup code file cannot be read on the server. Restart Cosmos to make a new one.", http.StatusServiceUnavailable, "SC004")
 			return
 		}
 		client := setupClient(r)
-		if ok, wait := g.limiter.allow(client); !ok {
+		// the right code is always accepted, whatever came before
+		if subtle.ConstantTimeCompare([]byte(normalizeSetupCode(given)), []byte(expected)) == 1 {
+			g.limiter.succeeded(client)
+			next.ServeHTTP(w, r)
+			return
+		}
+		if paused, wait := g.limiter.paused(client); paused {
 			seconds := int(wait/time.Second) + 1
 			w.Header().Set("Retry-After", strconv.Itoa(seconds))
-			utils.HTTPError(w, "Too many setup code attempts: try again in "+strconv.Itoa(seconds)+" seconds.", http.StatusTooManyRequests, "SC003")
+			utils.HTTPError(w, "Too many wrong setup codes from here: try again in "+strconv.Itoa(seconds)+" seconds.", http.StatusTooManyRequests, "SC003")
 			return
 		}
-		got := normalizeSetupCode(given)
-		if subtle.ConstantTimeCompare([]byte(got), []byte(expected)) != 1 {
-			g.limiter.failed(client)
-			utils.Warn("Setup: a wrong setup code was given from " + client)
-			utils.HTTPError(w, "This is not the setup code.", http.StatusForbidden, "SC002")
-			return
-		}
-		next.ServeHTTP(w, r)
+		g.limiter.failed(client)
+		utils.Warn("Setup: a wrong setup code was given from " + client)
+		utils.HTTPError(w, "This is not the setup code.", http.StatusForbidden, "SC002")
 	})
 }

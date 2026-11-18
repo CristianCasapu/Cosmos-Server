@@ -255,6 +255,7 @@ const wizardPhase = async () => {
   await page.goto(base + '/cosmos-ui/newInstall', { waitUntil: 'domcontentloaded' });
   const host = new URL(base).hostname;
   const say = async (body) => (await api(page, 'POST', 'newInstall', body)).status;
+  check('wizard', 'step -1 (clean install, the default)', (await say({ step: '-1' })) === 200);
   check('wizard', 'step 2', (await say({ step: '2' })) === 200);
   check('wizard', 'step 3 (Cosmos\' own certificate)', (await say({ step: '3', httpsCertificateMode: 'SELFSIGNED', hostname: host })) === 200);
   await sleep(1500);

@@ -2,7 +2,7 @@ import type { ApiFetch } from './wrap';
 import { trackFetch } from '../utils/activity';
 import { watchAnswers } from '../utils/sessionCheck'; // Fork addition
 import { turnstileRequest } from '../utils/turnstile'; // Fork addition
-import { setupCodeHeaders } from '../utils/setupCode'; // Fork addition
+import { setupCodeHeaders, watchSetupAnswers } from '../utils/setupCode'; // Fork addition
 
 export function createApiClient(baseUrl: string = '', token: string | null = null): {
   apiFetch: ApiFetch;
@@ -15,7 +15,7 @@ export function createApiClient(baseUrl: string = '', token: string | null = nul
     const turnstile = turnstileRequest(path, options, headers); // Fork addition: a public form carries its Cloudflare check, see utils/turnstile.js
     // Fork addition: report the request, so the UI can say what is running and how it ended.
     // Fork addition (watchAnswers): a 401/403 drops the kept "who am I" answer, a 429 is remembered for the notice.
-    return trackFetch(baseUrl + path, options, turnstile(watchAnswers(fetch(baseUrl + path, { ...options, headers }))));
+    return trackFetch(baseUrl + path, options, turnstile(watchAnswers(watchSetupAnswers(fetch(baseUrl + path, { ...options, headers }))))); // Fork addition (watchSetupAnswers): a refused setup code is asked again, see utils/setupCode.js
   }
 
   function createWs(path: string): WebSocket {

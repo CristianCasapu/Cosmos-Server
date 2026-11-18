@@ -39,6 +39,7 @@ func InitStore() error {
 
 	closeStoreLocked()
 
+	privateDatabaseFile(CONFIGFOLDER + "auth.db") // Fork addition: 0600, see fork_private_db.go
 	dsn := "file:" + CONFIGFOLDER + "auth.db" +
 		"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)"
 

@@ -12,10 +12,10 @@ import AnimateButton from '../../components/@extended/AnimateButton';
 import { LanguagesSelect } from '../../layout/MainLayout/Drawer/languages';
 import { SETUP_CODE_HEADER, keepSetupCode, normalizeSetupCode, setupCodeAnswer, setupCodeProblem } from '../../utils/setupCode';
 
-const SetupCodeGate = ({ configFolder, onAccepted }) => {
+const SetupCodeGate = ({ configFolder, onAccepted, reason }) => {
   const { t } = useTranslation();
   const [typed, setTyped] = useState('');
-  const [problem, setProblem] = useState(null);
+  const [problem, setProblem] = useState(reason || null); // reason: why the wizard asks again
   const [checking, setChecking] = useState(false);
   const file = (configFolder ? String(configFolder).replace(/\/+$/, '') : '/var/lib/cosmos') + '/setup-code';
 
@@ -43,7 +43,7 @@ const SetupCodeGate = ({ configFolder, onAccepted }) => {
       onAccepted();
       return;
     }
-    setProblem(setupCodeAnswer(status, answer.code, retryAfter));
+    setProblem(setupCodeAnswer(status, answer.code, retryAfter, answer.message));
   };
 
   return <Grid container spacing={3}>

@@ -10,7 +10,7 @@
 #      a container, a unit, a folder, data) and stops if it finds one: this
 #      script never runs over an installation (updates are made from the
 #      panel; an upstream Cosmos is moved over with migrate.sh);
-#   2. checks the system: root, Debian 12/13 or Ubuntu 22.04/24.04/26.04,
+#   2. checks the system: root, Debian 12/13 or Ubuntu 24.04/26.04,
 #      amd64 or arm64, systemd, free space, free ports;
 #   3. works out which packages are missing and SIMULATES their installation
 #      with apt (on a copy of the package lists), so that an unavailable
@@ -69,10 +69,19 @@
 #   --ssh open|from:<addresses>|closed-i-have-a-console [ssh] how SSH answers from
 #                            outside, for the guard of a server with no home network
 #                            and no VPN (asked by a later version; given, it is passed on)
+#   --wizard-on-lan          [wizard-on-lan=yes] the first-run wizard answers on the
+#                            network, in clear HTTP, until it is done. Without it, the
+#                            wizard of a server that is not at home (placement other
+#                            than home, reachable from the internet, or a public IPv4
+#                            address on an interface) answers on 127.0.0.1 only, through
+#                            an SSH tunnel (the line is printed); at home it answers on
+#                            the home network and the tunnel is offered
 #   --reuse-data             install over the data folder the fork left (upstream's
 #                            data is migrate.sh's job)
 #   --allow-older            install a release older than this script (refused
 #                            otherwise: the installer goes forward only)
+#   --proxy http://<host>:<port>  the proxy for the downloads from GitHub (the
+#                            proxy variables of the shell are not read)
 #   --print-setup-code       print the one-time setup code even with --yes or
 #                            without a terminal (otherwise its file is named)
 #   --force                  go on on a system that is not supported (your risk)
@@ -85,12 +94,15 @@
 # installed; 11 upstream's Cosmos is installed (use migrate.sh); 12 another
 # Cosmos or a half-removed one is there; 13 data of an earlier Cosmos is
 # there (--reuse-data); 14 an interrupted run used other options; 15 the
-# release asked for is older than this script (--allow-older).
+# release asked for is older than this script (--allow-older); 16 Cosmos
+# is installed WITHOUT protection that was asked for (a piece skipped or
+# failed: the last line names it).
 #
 # The environment is not read, but for COSMOS_INSTALL_APT_WAIT (seconds apt
 # waits for another program that holds it, 10 to 3600, default 600). curl
 # and openssl run with an empty environment (no proxy, no ~/.curlrc, no
-# OPENSSL_CONF).
+# OPENSSL_CONF) and the PATH /usr/sbin:/usr/bin:/sbin:/bin; a proxy is given
+# with --proxy.
 
 # A script read from a pipe (curl ... | sudo sh) is refused: under a pipe $0
 # is "sh" or "bash", and running "$0" again would run whatever file of that
@@ -155,7 +167,7 @@ MAX_ZIP=$((1024 * 1024 * 1024))
 MAX_UNPACKED=$((3 * 1024 * 1024 * 1024))
 
 EXIT_FAILED=1 EXIT_USAGE=2 EXIT_SYSTEM=3 EXIT_UNVERIFIED=4 EXIT_ROOT=5 EXIT_PREREQ=6 EXIT_BUSY=7
-EXIT_FORK=10 EXIT_UPSTREAM=11 EXIT_OTHER=12 EXIT_DATA=13 EXIT_RESUME=14 EXIT_OLDER=15
+EXIT_FORK=10 EXIT_UPSTREAM=11 EXIT_OTHER=12 EXIT_DATA=13 EXIT_RESUME=14 EXIT_OLDER=15 EXIT_UNPROTECTED=16
 
 say() { printf '%s\n' "$*"; }
 step() { printf '\n==> %s\n' "$*"; }
@@ -168,18 +180,18 @@ die() { # code, message
 }
 
 usage() {
-	sed -n '2,/^# OPENSSL_CONF)/p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,/^# with --proxy\./p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # ---- The answers: flags, an answers file, defaults -------------------------
 # One variable per key. Flags win over the file; the file over the defaults.
 declare -gA ANSWER=() ANSWER_FROM=()
-ANSWER_KEYS="http-port https-port storage-tools reachable protection unattended-upgrades address upnp router outside-lookup keep-ssh-open placement ssh"
+ANSWER_KEYS="http-port https-port storage-tools reachable protection unattended-upgrades address upnp router outside-lookup keep-ssh-open placement ssh wizard-on-lan"
 
 valid_answer() { # key, value
 	case $1 in
 	http-port | https-port) [[ $2 =~ ^[1-9][0-9]{0,4}$ ]] && [ "$2" -le 65535 ] ;;
-	storage-tools | protection | unattended-upgrades | outside-lookup | keep-ssh-open) [[ $2 =~ ^(yes|no)$ ]] ;;
+	storage-tools | protection | unattended-upgrades | outside-lookup | keep-ssh-open | wizard-on-lan) [[ $2 =~ ^(yes|no)$ ]] ;;
 	reachable) [[ $2 =~ ^(internet|home)$ ]] ;;
 	address) [[ $2 =~ ^(fixed|changing|unknown)$ ]] ;;
 	upnp) [[ $2 =~ ^(yes|no|unknown)$ ]] ;;
@@ -217,7 +229,7 @@ read_answers_file() { # file
 	done <"$file"
 }
 
-ALLOW_OLDER=0 PRINT_CODE=0
+ALLOW_OLDER=0 PRINT_CODE=0 PROXY=""
 YES=0 DRY_RUN=0 FORCE=0 REUSE_DATA=0 WANT_VERSION="" FROM="" ANSWERS_FILE=""
 ORIGINAL_ARGS=("$@")
 while [ $# -gt 0 ]; do
@@ -230,7 +242,8 @@ while [ $# -gt 0 ]; do
 	--print-setup-code) PRINT_CODE=1 ;;
 	--no-outside) set_answer outside-lookup no flag ;;
 	--keep-ssh-open) set_answer keep-ssh-open yes flag ;;
-	--version | --from | --answers | --http-port | --https-port | --storage-tools | --reachable | --protection | \
+	--wizard-on-lan) set_answer wizard-on-lan yes flag ;;
+	--version | --from | --answers | --proxy | --http-port | --https-port | --storage-tools | --reachable | --protection | \
 		--unattended-upgrades | --address | --upnp | --router | --placement | --ssh)
 		[ $# -ge 2 ] || die $EXIT_USAGE "$1 needs a value"
 		case $1 in
@@ -238,6 +251,9 @@ while [ $# -gt 0 ]; do
 			WANT_VERSION=${2#v} ;;
 		--from) FROM=$2 ;;
 		--answers) ANSWERS_FILE=$2 ;;
+		--proxy) [[ $2 =~ ^https?://[A-Za-z0-9]([A-Za-z0-9.-]{0,252}[A-Za-z0-9])?(:[1-9][0-9]{0,4})?/?$ ]] ||
+			die $EXIT_USAGE "--proxy takes http://<host>:<port> or https://<host>:<port> (without a user or password)"
+			PROXY=$2 ;;
 		*) set_answer "${1#--}" "$2" flag ;;
 		esac
 		shift
@@ -256,6 +272,7 @@ answer() { printf '%s' "${ANSWER[$1]:-}"; }
 [ -n "$(answer storage-tools)" ] || ANSWER[storage-tools]=yes
 [ -n "$(answer outside-lookup)" ] || ANSWER[outside-lookup]=yes
 [ -n "$(answer keep-ssh-open)" ] || ANSWER[keep-ssh-open]=no
+[ -n "$(answer wizard-on-lan)" ] || ANSWER[wizard-on-lan]=no
 if [ -z "$(answer protection)" ]; then
 	if [ "$(answer reachable)" = internet ]; then ANSWER[protection]=yes; else ANSWER[protection]=no; fi
 fi
@@ -505,7 +522,7 @@ OS_LIKE=$(sed -n 's/^ID_LIKE=//p' /etc/os-release | tr -d '"' | head -n 1)
 OS_NAME=$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release | tr -d '"' | head -n 1 | tr -cd 'A-Za-z0-9 ._()/-')
 supported=0
 case "$OS_ID $OS_VERSION" in
-"debian 12" | "debian 13" | "ubuntu 22.04" | "ubuntu 24.04" | "ubuntu 26.04") supported=1 ;;
+"debian 12" | "debian 13" | "ubuntu 24.04" | "ubuntu 26.04") supported=1 ;;
 esac
 if [ "$supported" = 0 ]; then
 	case " $OS_ID $OS_LIKE " in
@@ -513,9 +530,9 @@ if [ "$supported" = 0 ]; then
 	*) die $EXIT_SYSTEM "$OS_NAME is not Debian or Ubuntu: this script only knows apt systems." ;;
 	esac
 	if [ "$FORCE" = 1 ]; then
-		warn "$OS_NAME is not a supported system (Debian 12 or 13, Ubuntu 22.04, 24.04 or 26.04): going on because of --force, at your own risk."
+		warn "$OS_NAME is not a supported system (Debian 12 or 13, Ubuntu 24.04 or 26.04): going on because of --force, at your own risk."
 	else
-		die $EXIT_SYSTEM "$OS_NAME is not supported (Debian 12 or 13, Ubuntu 22.04, 24.04 or 26.04). Add --force to try anyway, at your own risk."
+		die $EXIT_SYSTEM "$OS_NAME is not supported (Debian 12 or 13, Ubuntu 24.04 or 26.04). Add --force to try anyway, at your own risk."
 	fi
 fi
 # Docker's repository: by the system's own name and code name; on a
@@ -588,7 +605,12 @@ choose_ports
 say "Ports: HTTP $HTTP_PORT, HTTPS $HTTPS_PORT."
 
 # ---- Docker that is already there -------------------------------------------
-installed() { dpkg-query -W -f='${db:Status-Abbrev}' "$1" 2>/dev/null | grep -q '^ii'; }
+# Never "producer | grep -q" for a decision: under pipefail, grep -q stopping
+# at the first match makes the producer die of SIGPIPE on a long listing, and
+# the pipeline then reads as "no match". Text is captured first and matched
+# with has_line (a here-string: no pipe).
+has_line() { grep -qE -- "$1" <<<"$2"; } # regex, text
+installed() { local st; st=$(dpkg-query -W -f='${db:Status-Abbrev}' "$1" 2>/dev/null) || return 1; [[ $st == ii* ]]; }
 version_at_least() { # have, want (x.y)
 	local hm hn wm wn
 	hm=$(printf '%s' "$1" | sed -n 's/^\([0-9]\{1,4\}\)\.\([0-9]\{1,4\}\).*/\1/p')
@@ -682,7 +704,32 @@ APT_WAIT=600
 if [[ ${COSMOS_INSTALL_APT_WAIT:-} =~ ^[1-9][0-9]{1,3}$ ]] && [ "$COSMOS_INSTALL_APT_WAIT" -le 3600 ]; then APT_WAIT=$COSMOS_INSTALL_APT_WAIT; fi
 # shellcheck disable=SC2034 # read by apt_get through the array
 APT_ENV=(env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a NEEDRESTART_SUSPEND=1 APT_LISTCHANGES_FRONTEND=none)
+# apt and dpkg are stopped when one call takes longer than this (a hung
+# mirror, a package script that waits for ever): generous, said when it
+# happens, and the run can be started again where it stopped.
+APT_TIMEOUT=$((5400 + APT_WAIT))
+APT_RUN=(timeout --kill-after=120 "$APT_TIMEOUT")
+apt_timed_out() { # what
+	warn "$1 did not finish within $((APT_TIMEOUT / 60)) minutes and was stopped. What it did so far is kept: run install.sh again with the same options to continue."
+}
 APT_OPTS=(-y -q -o Acquire::Retries=3 -o "DPkg::Lock::Timeout=$APT_WAIT" -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
+# apt_holders: who holds apt's or dpkg's locks right now, in words (the
+# program, its process and its systemd unit: apt-daily.service,
+# unattended-upgrades.service...), or nothing.
+apt_holders() {
+	local locks line cmd pid path unit out=""
+	locks=$(lslocks -n -r -o COMMAND,PID,PATH 2>/dev/null || true)
+	while read -r cmd pid path; do
+		case $path in /var/lib/dpkg/lock | /var/lib/dpkg/lock-frontend | /var/lib/apt/lists/lock | /var/cache/apt/archives/lock) ;; *) continue ;; esac
+		[[ $pid =~ ^[0-9]+$ ]] || continue
+		unit=$(ps -o unit= -p "$pid" 2>/dev/null | tr -cd '[:alnum:]@._-' || true)
+		line="$(printf '%s' "$cmd" | tr -cd '[:alnum:]._-') (process $pid${unit:+, $unit})"
+		case " $out " in *" $line;"*) ;; *) out="$out $line;" ;; esac
+	done <<<"$locks"
+	out=${out%;}
+	printf '%s' "${out# }"
+}
+
 # apt_get <args>: apt itself waits (APT_WAIT) while another program holds
 # the package database, and says so as it waits; a lock it does not wait
 # for (the lists) is tried again here for as long. Its output is shown as it
@@ -692,18 +739,23 @@ apt_get() {
 	log=$(mktemp "$WORK/apt.XXXXXX")
 	while :; do
 		set +e +o pipefail
-		"${APT_ENV[@]}" apt-get "${APT_OPTS[@]}" "$@" </dev/null 2>&1 | tee "$log" |
+		"${APT_RUN[@]}" "${APT_ENV[@]}" apt-get "${APT_OPTS[@]}" "$@" </dev/null 2>&1 | tee "$log" |
 			grep --line-buffered -vE '^(Get|Hit|Ign|Reading|Building|Preparing|Unpacking|Selecting|\(Reading|Setting up|Processing|Created symlink|Fetched|Need to get|After this|The following|Suggested|Recommended|  [a-z0-9])'
 		statuses=("${PIPESTATUS[@]}")
 		set -e -o pipefail
 		rc=${statuses[0]}
+		if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then apt_timed_out "apt-get $1"; rm -f "$log"; return "$rc"; fi
 		if [ "$rc" -ne 0 ] && grep -qE 'Could not get lock|Unable to acquire the dpkg frontend lock|is another process using it' "$log"; then
 			if [ "$waited" -ge "$APT_WAIT" ]; then
 				warn "another program held apt for longer than $APT_WAIT seconds"
 				rm -f "$log"
 				return "$rc"
 			fi
-			[ "$waited" -gt 0 ] || say "Another program is using apt; waiting for it (up to $APT_WAIT seconds)..."
+			if [ $((waited % 60)) = 0 ]; then
+				local who
+				who=$(apt_holders)
+				say "Another program is using apt${who:+: $who}; waiting for it (${waited} of at most $APT_WAIT seconds; on a new server the system's own daily apt run often takes a few minutes)..."
+			fi
 			sleep 5
 			waited=$((waited + 5))
 			continue
@@ -739,14 +791,19 @@ sim_setup() {
 	for f in /etc/apt/apt.conf.d/*; do [ -f "$f" ] && cp -p "$f" "$SIM/conf/"; done
 	printf '%s\n' '#clear APT::Update::Pre-Invoke;' '#clear APT::Update::Post-Invoke;' '#clear APT::Update::Post-Invoke-Success;' \
 		'#clear APT::Update::Post-Invoke-Stats;' '#clear DPkg::Pre-Invoke;' '#clear DPkg::Post-Invoke;' '#clear DPkg::Pre-Install-Pkgs;' >"$SIM/conf/zzzz-cosmos-simulation"
+	# apt reads the file named by APT_CONFIG BEFORE its configuration folder:
+	# only there does pointing it at the copy take effect (an -o option on
+	# the command line comes after the hooks are read).
+	printf 'Dir::Etc::Parts "%s/conf";\nDir::State::Lists "%s/lists";\nDir::Cache "%s/cache";\nDir::Etc::SourceParts "%s/parts";\nDebug::NoLocking "1";\n' \
+		"$SIM" "$SIM" "$SIM" "$SIM" >"$SIM/apt.conf"
 	chmod -R a+rX "$SIM"
 	if id -u _apt >/dev/null 2>&1; then chown -R _apt "$SIM/lists" "$SIM/cache"; fi
 }
 SIM_OPTS=()
 sim_opts() {
-	SIM_OPTS=(-o "Dir::State::Lists=$SIM/lists" -o "Dir::Cache=$SIM/cache" -o "Dir::Etc::SourceParts=$SIM/parts"
-		-o "Dir::Etc::Parts=$SIM/conf" -o Debug::NoLocking=1)
+	SIM_OPTS=(-o "Dir::State::Lists=$SIM/lists" -o "Dir::Cache=$SIM/cache" -o "Dir::Etc::SourceParts=$SIM/parts" -o Debug::NoLocking=1)
 }
+SIM_ENV=(env "APT_CONFIG=$SIM/apt.conf")
 simulate() { # packages
 	local out rc=0
 	[ $# -gt 0 ] || return 0
@@ -754,24 +811,24 @@ simulate() { # packages
 	local try
 	for try in 1 2 3; do
 		rc=0
-		out=$("${APT_ENV[@]}" apt-get -q -o Acquire::Retries=3 "${SIM_OPTS[@]}" update </dev/null 2>&1) || rc=$?
-		if [ "$rc" = 0 ] && ! printf '%s' "$out" | grep -qE '^(W|E): (Failed to fetch|Some index files failed)'; then break; fi
+		out=$(timeout --kill-after=60 1800 "${SIM_ENV[@]}" "${APT_ENV[@]}" apt-get -q -o Acquire::Retries=3 "${SIM_OPTS[@]}" update </dev/null 2>&1) || rc=$?
+		if [ "$rc" = 0 ] && ! has_line '^(W|E): (Failed to fetch|Some index files failed)' "$out"; then break; fi
 		[ "$try" = 3 ] || sleep 10
 	done
 	if [ "$rc" != 0 ]; then
 		printf '%s\n' "$out" | tail -n 5 >&2
 		die $EXIT_PREREQ "apt could not read the package lists (is the network up, are the sources in /etc/apt reachable?). Nothing was changed."
 	fi
-	if printf '%s' "$out" | grep -qE '^(W|E): (Failed to fetch|Some index files failed)'; then
+	if has_line '^(W|E): (Failed to fetch|Some index files failed)' "$out"; then
 		printf '%s\n' "$out" | grep -E '^(W|E):' | head -n 5 >&2
 		die $EXIT_PREREQ "apt could not fetch every package list (network or source problem). Nothing was changed."
 	fi
-	out=$("${APT_ENV[@]}" apt-get -q -s "${SIM_OPTS[@]}" install --no-install-recommends "$@" </dev/null 2>&1) || rc=$?
+	out=$(timeout --kill-after=60 1800 "${SIM_ENV[@]}" "${APT_ENV[@]}" apt-get -q -s "${SIM_OPTS[@]}" install --no-install-recommends "$@" </dev/null 2>&1) || rc=$?
 	if [ "$rc" -ne 0 ]; then
 		printf '%s\n' "$out" | grep -E '^(E:|  |Package|The following packages have unmet)' | head -n 12 >&2
 		die $EXIT_PREREQ "apt cannot install what Cosmos needs ($*). Nothing was changed."
 	fi
-	if printf '%s' "$out" | grep -q '^Remv '; then
+	if has_line '^Remv ' "$out"; then
 		printf '%s\n' "$out" | grep '^Remv ' | head -n 10 >&2
 		die $EXIT_PREREQ "installing what Cosmos needs would REMOVE the packages above. Nothing was changed."
 	fi
@@ -868,7 +925,7 @@ other_docker_source() {
 	local f
 	for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
 		[ "$f" != "$DOCKER_SOURCE" ] || continue
-		if [ -f "$f" ] && grep -v '^[[:space:]]*#' "$f" | grep -q 'download\.docker\.com'; then return 0; fi
+		if [ -f "$f" ] && has_line '^[^#]*download\.docker\.com' "$(cat -- "$f")"; then return 0; fi
 	done
 	return 1
 }
@@ -889,9 +946,18 @@ simulate_docker() {
 # (the four download tools); after that, it says what is there and how
 # uninstall.sh removes it.
 PHASE=check
-packages_now() { dpkg-query -W -f='${db:Status-Abbrev} ${binary:Package}\n' 2>/dev/null | awk '$1=="ii"{print $2}' | sed 's/:'"$ARCH"'$//' | sort -u; }
+# present_now: every package dpkg has on the system in any state but "not
+# installed" and "only its configuration left": half-installed, unpacked,
+# half-configured, waiting for triggers included.
+present_now() { dpkg-query -W -f='${db:Status-Abbrev} ${binary:Package}\n' 2>/dev/null | awk 'substr($1,2,1)!="n" && substr($1,2,1)!="c"{print $NF}' | sed 's/:'"$ARCH"'$//' | sort -u; }
+# pkg_state <package>: dpkg's second status letter (i installed, n not
+# installed, c config files, U unpacked, F half-configured, H half-installed,
+# W/t triggers)
+pkg_state() { local st; st=$(dpkg-query -W -f='${db:Status-Abbrev}' "$1" 2>/dev/null) || st=un; printf '%s' "${st:1:1}"; }
 # The packages this run's own apt transactions installed, for the early undo.
 RUN_PACKAGES=()
+# Those a failed transaction of this run left half-done (dpkg's own word).
+HALF_PACKAGES=()
 unrecord() { # drop one record line
 	[ -f "$RECORD" ] || return 0
 	grep -vxF -- "$*" "$RECORD" >"$RECORD.new" || true
@@ -899,11 +965,17 @@ unrecord() { # drop one record line
 }
 # shellcheck disable=SC2317,SC2329 # called from the EXIT trap
 undo_early() {
-	local added=() p dirs
+	local added=() p dirs half=()
 	for p in "${RUN_PACKAGES[@]}"; do installed "$p" && added+=("$p"); done
+	for p in "${HALF_PACKAGES[@]}"; do
+		case $(pkg_state "$p") in n | c) unrecord "package $p" ;; *) half+=("$p") ;; esac
+	done
 	if [ "${#added[@]}" -gt 0 ]; then
 		say "Removing what this run installed: ${added[*]}"
-		if "${APT_ENV[@]}" apt-get -s remove --purge "${added[@]}" </dev/null 2>/dev/null | grep '^Remv ' | awk '{print $2}' | sed 's/:'"$ARCH"'$//' | sort -u | comm -23 - <(printf '%s\n' "${added[@]}" | sort -u) | grep -q .; then
+		local sim others
+		sim=$("${APT_ENV[@]}" apt-get -s remove --purge "${added[@]}" </dev/null 2>/dev/null) || sim="Remv ? (apt could not simulate the removal)"
+		others=$(printf '%s\n' "$sim" | sed -n 's/^Remv \([^ ]*\).*/\1/p' | sed 's/:'"$ARCH"'$//' | sort -u | comm -23 - <(printf '%s\n' "${added[@]}" | sort -u))
+		if [ -n "$others" ]; then
 			warn "removing them would also remove other packages: they are left installed (${added[*]}); uninstall.sh --remove-packages lists them"
 			return 1
 		fi
@@ -919,7 +991,10 @@ undo_early() {
 			done
 		fi
 	fi
-	if [ -s "$RECORD" ]; then
+	if [ "${#half[@]}" -gt 0 ]; then
+		warn "the failed apt transaction left these packages half-installed (dpkg): ${half[*]}. They are NOT removed and stay in $RECORD: repair dpkg (sudo dpkg --configure -a), then uninstall.sh --remove-packages removes them, or run install.sh again."
+		rm -f -- "$STATE"
+	elif [ -s "$RECORD" ]; then
 		warn "an earlier, interrupted run installed what $RECORD lists: it is kept (uninstall.sh --remove-packages removes it)"
 		rm -f -- "$STATE"
 	else
@@ -933,6 +1008,12 @@ on_failure() {
 	trap - ERR
 	[ "$rc" -ne 0 ] || return 0
 	if [ "$DRY_RUN" = 1 ]; then return 0; fi
+	local p half=()
+	for p in "${HALF_PACKAGES[@]}"; do case $(pkg_state "$p") in n | c | i) ;; *) half+=("$p") ;; esac; done
+	# (the early undo names them itself)
+	if [ "${#half[@]}" -gt 0 ] && ! { { [ "$PHASE" = tools ] || [ "$PHASE" = release ]; } && [ "$(state_get reached)" != packages ]; }; then
+		warn "the failed apt transaction left these packages half-installed (dpkg): ${half[*]}. Repair dpkg first (sudo dpkg --configure -a)."
+	fi
 	case $PHASE in
 	check) ;;
 	tools | release)
@@ -976,16 +1057,23 @@ repair_dpkg() {
 		pending=$(dpkg --audit 2>/dev/null || true)
 		[ -n "$pending" ] || return 0
 		# dpkg's own locks, as the kernel lists them (lslocks, util-linux)
-		if ! lslocks -n -o PATH 2>/dev/null | grep -qE '^/var/lib/dpkg/lock(-frontend)?$'; then break; fi
+		if ! has_line '^/var/lib/dpkg/lock(-frontend)?$' "$(lslocks -n -o PATH 2>/dev/null || true)"; then break; fi
 		[ "$waited" -lt "$APT_WAIT" ] || die $EXIT_FAILED "another program holds dpkg for longer than $APT_WAIT seconds"
-		[ "$waited" -gt 0 ] || say "Another program is using dpkg; waiting for it before looking for unfinished packages..."
+		if [ $((waited % 60)) = 0 ]; then
+			local who
+			who=$(apt_holders)
+			say "Another program is using dpkg${who:+: $who}; waiting for it before looking for unfinished packages (${waited} of at most $APT_WAIT seconds)..."
+		fi
 		sleep 5
 		waited=$((waited + 5))
 	done
 	say "The package database has unfinished packages (dpkg --audit):"
 	printf '%s\n' "$pending" | head -n 20 | sed 's/^/  /'
 	say "Finishing ALL of them, not only those of the interrupted run (dpkg --configure -a; apt-get -f install):"
-	"${APT_ENV[@]}" dpkg --force-confdef --force-confold --configure -a </dev/null || die $EXIT_FAILED "dpkg --configure -a failed: finish the packages above by hand, then run install.sh again"
+	local rc=0
+	"${APT_RUN[@]}" "${APT_ENV[@]}" dpkg --force-confdef --force-confold --configure -a </dev/null || rc=$?
+	if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then apt_timed_out "dpkg --configure -a"; die $EXIT_FAILED "the package database is still unfinished"; fi
+	[ "$rc" = 0 ] || die $EXIT_FAILED "dpkg --configure -a failed: finish the packages above by hand, then run install.sh again"
 	apt_get -f install >/dev/null || die $EXIT_FAILED "apt-get -f install failed: repair the package database by hand, then run install.sh again"
 }
 
@@ -1003,13 +1091,22 @@ install_packages() {
 	planned=$("${APT_ENV[@]}" apt-get -s -q install --no-install-recommends "${missing[@]}" </dev/null 2>/dev/null |
 		awk '$1=="Inst" && $3 !~ /^\[/ {print $2}' | sed 's/:'"$ARCH"'$//' | sort -u) ||
 		die $EXIT_FAILED "apt cannot install ${missing[*]} (it could a moment ago): nothing more was changed"
-	packages_now >"$WORK/before-transaction"
+	present_now >"$WORK/before-transaction"
 	for p in $planned; do record "package $p"; done
 	say "Installing: ${missing[*]}"
 	apt_get install --no-install-recommends "${missing[@]}" || rc=$?
-	packages_now | comm -13 "$WORK/before-transaction" - >"$WORK/new-in-transaction"
+	# the truth for exactly the packages apt planned: dpkg's status of each,
+	# installed or left half-done; one that was there before is not ours
+	local state
 	for p in $planned; do
-		if grep -qxF -- "$p" "$WORK/new-in-transaction"; then RUN_PACKAGES+=("$p"); else unrecord "package $p"; fi
+		state=$(pkg_state "$p")
+		if grep -qxF -- "$p" "$WORK/before-transaction" || [ "$state" = n ] || [ "$state" = c ]; then
+			unrecord "package $p"
+		elif [ "$state" = i ]; then
+			RUN_PACKAGES+=("$p")
+		else
+			HALF_PACKAGES+=("$p") # stays recorded
+		fi
 	done
 	[ "$rc" = 0 ] || die $EXIT_FAILED "apt could not install ${missing[*]} (apt-get ended with $rc)"
 }
@@ -1040,17 +1137,32 @@ allowed_url() {
 }
 # curl and openssl run with a fixed, minimal environment: no ~/.curlrc
 # (curl -q), no proxy or OPENSSL_CONF from the caller's shell (sudo -E, su).
-# A server that needs a proxy for GitHub downloads the release by hand and
-# uses --from.
-CURL=(env -i PATH="$PATH" HOME=/nonexistent LC_ALL=C curl -q)
-OSSL=(env -i PATH="$PATH" HOME=/nonexistent LC_ALL=C openssl)
+# A server that needs a proxy for GitHub gives it with --proxy (or
+# downloads the release by hand and uses --from).
+SAFE_PATH=/usr/sbin:/usr/bin:/sbin:/bin
+CURL=(env -i PATH="$SAFE_PATH" HOME=/nonexistent LC_ALL=C curl -q)
+if [ -n "$PROXY" ]; then CURL+=(--proxy "$PROXY" --noproxy ''); fi
+OSSL=(env -i PATH="$SAFE_PATH" HOME=/nonexistent LC_ALL=C openssl)
+# said once, when a download fails: the shell's proxy is not what is used
+PROXY_TOLD=0
+proxy_hint() {
+	[ "$PROXY_TOLD" = 0 ] || return 0
+	PROXY_TOLD=1
+	if [ -n "$PROXY" ]; then
+		warn "the downloads went through the proxy $PROXY (--proxy): check that it lets HTTPS to github.com through"
+	elif [ -n "${https_proxy:-}${HTTPS_PROXY:-}${http_proxy:-}${HTTP_PROXY:-}${all_proxy:-}${ALL_PROXY:-}" ]; then
+		warn "your shell sets a proxy, which install.sh does NOT read (sudo and a hostile environment are not trusted): if GitHub is reached through it, run install.sh again with --proxy http://<host>:<port>"
+	else
+		warn "if this server reaches GitHub through a proxy, give it with --proxy http://<host>:<port>"
+	fi
+}
 fetch() {
 	local url=$1 out=$2 max=$3 hops=0 result code location
 	while :; do
 		allowed_url "$url" || { warn "refusing to download from $(printf '%s' "$url" | cut -c1-120 | tr -cd '[:print:]')"; return 1; }
 		result=$("${CURL[@]}" -sS --proto '=https' --tlsv1.2 --max-redirs 0 --connect-timeout 20 --max-time 3600 \
 			--speed-limit 1024 --speed-time 60 --max-filesize "$max" --retry 2 --retry-connrefused \
-			-o "$out" -w '%{http_code} %{redirect_url}' -- "$url") || return 1
+			-o "$out" -w '%{http_code} %{redirect_url}' -- "$url") || { proxy_hint; return 1; }
 		code=${result%% *}
 		location=${result#* }
 		case $code in
@@ -1069,7 +1181,7 @@ fetch() {
 latest_version() {
 	local result location
 	result=$("${CURL[@]}" -sS --proto '=https' --tlsv1.2 --max-redirs 0 --connect-timeout 20 --max-time 60 -o /dev/null \
-		-w '%{http_code} %{redirect_url}' -- "https://github.com/$RELEASE_REPOSITORY/releases/latest/download/install.sh") || return 1
+		-w '%{http_code} %{redirect_url}' -- "https://github.com/$RELEASE_REPOSITORY/releases/latest/download/install.sh") || { proxy_hint; return 1; }
 	location=${result#* }
 	[[ $location =~ ^https://github\.com/${RELEASE_REPOSITORY//./\\.}/releases/download/v((0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})-fork\.[1-9][0-9]{0,8})/install\.sh$ ]] || return 1
 	printf '%s\n' "${BASH_REMATCH[1]}"
@@ -1158,20 +1270,22 @@ check_zip_entries() { # zip, top folder
 	local zip=$1 top=$2 names types total
 	names=$(unzip -Z1 -- "$zip" 2>/dev/null) || return 1
 	[ -n "$names" ] || return 1
-	if printf '%s\n' "$names" | grep -vE "^${top//./\\.}/([A-Za-z0-9._+@(),~-]+/)*[A-Za-z0-9._+@(),~-]*$" | grep -q .; then
+	local odd
+	odd=$(grep -vE "^${top//./\\.}/([A-Za-z0-9._+@(),~-]+/)*[A-Za-z0-9._+@(),~-]*$" <<<"$names" || true)
+	if [ -n "$odd" ]; then
 		warn "the zip holds an entry outside $top/ or with an unusual name:"
-		printf '%s\n' "$names" | grep -vE "^${top//./\\.}/([A-Za-z0-9._+@(),~-]+/)*[A-Za-z0-9._+@(),~-]*$" | head -n 3 | tr -cd '[:print:]\n' >&2
+		head -n 3 <<<"$odd" | tr -cd '[:print:]\n' >&2
 		return 1
 	fi
-	if printf '%s\n' "$names" | grep -qE '(^|/)\.\.?(/|$)'; then warn "the zip holds a '..' or '.' entry"; return 1; fi
+	if has_line '(^|/)\.\.?(/|$)' "$names"; then warn "the zip holds a '..' or '.' entry"; return 1; fi
 	# a name twice: unzip would ask what to do (or overwrite)
 	if [ -n "$(printf '%s\n' "$names" | sort | uniq -d)" ]; then warn "the zip holds an entry twice"; return 1; fi
 	# zipinfo's long listing: the first column is the type and mode (unix
 	# entries); anything but a plain file "-" or a folder "d" is refused, and
 	# so are setuid, setgid and sticky bits and entries anyone may write.
 	types=$(unzip -Z -- "$zip" 2>/dev/null | sed -n '3,$p' | sed '$d' | cut -c1-10) || return 1
-	if printf '%s\n' "$types" | cut -c1 | grep -qv '^[-d]$'; then warn "the zip holds a link or a special file"; return 1; fi
-	if printf '%s\n' "$types" | grep -qE '^.{1,9}[sStT]|^.{8}w'; then warn "the zip holds an entry with setuid, setgid or sticky bits, or one anyone may write"; return 1; fi
+	if [ -n "$(cut -c1 <<<"$types" | grep -v '^[-d]$' || true)" ]; then warn "the zip holds a link or a special file"; return 1; fi
+	if has_line '^.{1,9}[sStT]|^.{8}w' "$types"; then warn "the zip holds an entry with setuid, setgid or sticky bits, or one anyone may write"; return 1; fi
 	[ "$(printf '%s\n' "$types" | wc -l)" = "$(printf '%s\n' "$names" | wc -l)" ] || return 1
 	total=$(unzip -Zt -- "$zip" 2>/dev/null | sed -n 's/.* \([0-9]\{1,15\}\) bytes uncompressed.*/\1/p')
 	if ! { [ -n "$total" ] && [ "$total" -le "$MAX_UNPACKED" ]; }; then warn "the zip unpacks to more than allowed"; return 1; fi
@@ -1319,7 +1433,7 @@ DETECT="$WORK/detect.json"
 detect_args=(--timeout 10)
 # a dry run tells no one: never an outside service
 if [ "$(answer outside-lookup)" != yes ] || [ "$DRY_RUN" = 1 ]; then detect_args+=(--no-outside); fi
-if timeout 30 env -i PATH="$PATH" HOME="$WORK" RCLONE_CONFIG="$WORK/none.conf" "$NEW/cosmos" fork-detect "${detect_args[@]}" >"$DETECT" 2>/dev/null; then :; else : >"$DETECT"; fi
+if timeout 30 env -i PATH="$SAFE_PATH" HOME="$WORK" RCLONE_CONFIG="$WORK/none.conf" "$NEW/cosmos" fork-detect "${detect_args[@]}" >"$DETECT" 2>/dev/null; then :; else : >"$DETECT"; fi
 json_string() { # key in the network part (plain values only)
 	sed -n "/\"network\"/,/}/s/.*\"$1\": \"\\([0-9a-zA-Z.:/_-]*\\)\".*/\\1/p" "$DETECT" | head -n 1
 }
@@ -1336,7 +1450,7 @@ PIECE_PACKAGES=()
 for p in $(chosen_pieces); do
 	# a piece that does not answer --print-packages will not be run (see
 	# run_piece): nothing is installed for it
-	if [ -f "$NEW/fork/$p/install.sh" ] && list=$(env -i PATH="$PATH" sh "$NEW/fork/$p/install.sh" --print-packages </dev/null 2>/dev/null); then
+	if [ -f "$NEW/fork/$p/install.sh" ] && list=$(env -i PATH="$SAFE_PATH" sh "$NEW/fork/$p/install.sh" --print-packages </dev/null 2>/dev/null); then
 		for q in $list; do if [[ $q =~ ^[a-z0-9][a-z0-9.+-]{0,60}$ ]]; then PIECE_PACKAGES+=("$q"); fi; done
 	fi
 done
@@ -1476,6 +1590,29 @@ if [ ! -e "$UNIT_FILE" ] || recorded "unit $UNIT.service"; then
 fi
 systemctl daemon-reload
 systemctl enable "$UNIT.service" >/dev/null 2>&1
+# Where the first-run wizard answers (src/fork_setup_code.go): the setup
+# code and the administrator's password cross the network in clear HTTP
+# until the wizard has set HTTPS up. Only at home, on the home network, is
+# that the owner's own wire; anywhere else the wizard answers on 127.0.0.1
+# only, reached through an SSH tunnel, unless --wizard-on-lan.
+public_ipv4() { # a public IPv4 address on an interface (not Docker's), or nothing
+	command -v ip >/dev/null || return 0
+	ip -4 -o addr show scope global 2>/dev/null | awk '$2 !~ /^(docker|br-|veth|virbr|nebula)/ {sub(/\/.*/, "", $4); print $4}' |
+		awk -F. '!($1==10 || ($1==172 && $2>=16 && $2<=31) || ($1==192 && $2==168) || ($1==100 && $2>=64 && $2<=127) || ($1==169 && $2==254)) {print; exit}'
+}
+WIZARD=lan WIZARD_WHY=""
+PUBLIC4=$(public_ipv4)
+if [ "$(answer wizard-on-lan)" != yes ]; then
+	if [ "$(answer placement)" != home ]; then WIZARD=loopback WIZARD_WHY="the server's placement is $(answer placement), not home (--placement)"
+	elif [ "$(answer reachable)" = internet ]; then WIZARD=loopback WIZARD_WHY="the server is to be reachable from the internet"
+	elif [ -n "$PUBLIC4" ]; then WIZARD=loopback WIZARD_WHY="the server has a public address ($PUBLIC4) on an interface"
+	fi
+fi
+if [ "$WIZARD" = loopback ] && [ "$REUSE_DATA" != 1 ] && [ ! -f "$DATA_DIR/cosmos.config.json" ]; then
+	rm -f -- "$DATA_DIR/setup-loopback"
+	(umask 077 && : >"$DATA_DIR/setup-loopback")
+	chmod 600 "$DATA_DIR/setup-loopback"
+fi
 state_set step "starting"
 systemctl start "$UNIT.service"
 
@@ -1569,13 +1706,40 @@ fi
 suffix=":$HTTP_PORT"
 [ "$HTTP_PORT" != 80 ] || suffix=""
 step "Cosmos $VERSION is installed and running"
-say "Open the panel from a computer at home:"
 [ -n "$LAN_ADDRESS" ] || LAN_ADDRESS="<this server's address>"
-say "    http://$LAN_ADDRESS$suffix/"
 CODE_FILE=$DATA_DIR/setup-code
+# the tunnel: the same port on the owner's computer, or 8080 for a port only root may open
+TUNNEL_PORT=$HTTP_PORT
+[ "$HTTP_PORT" -ge 1024 ] || TUNNEL_PORT=8080
+TUNNEL_USER=${SUDO_USER:-}
+if ! [[ $TUNNEL_USER =~ ^[a-z_][a-z0-9_.-]{0,31}$ ]] || [ "$TUNNEL_USER" = root ]; then TUNNEL_USER="<your user>"; fi
+TUNNEL_HOST=${PUBLIC4:-$LAN_ADDRESS}
+tunnel_lines() {
+	say "    ssh -L $TUNNEL_PORT:127.0.0.1:$HTTP_PORT $TUNNEL_USER@$TUNNEL_HOST"
+	say "  and, while it is open, on that computer:"
+	say "    http://127.0.0.1:$TUNNEL_PORT/"
+	say "  (In the wizard's HTTPS step, give the server's real name or address, not 127.0.0.1.)"
+}
+if [ -s "$CODE_FILE" ] && [ -f "$DATA_DIR/setup-loopback" ]; then
+	say "The first-run wizard answers on this server only (127.0.0.1) until it is done,"
+	say "because $WIZARD_WHY: the setup code and your password never"
+	say "cross the network in clear. From your computer, open an SSH tunnel:"
+	tunnel_lines
+	say "(--wizard-on-lan opens the wizard on the network instead, in clear HTTP.)"
+elif [ -s "$CODE_FILE" ]; then
+	say "Open the panel from a computer at home:"
+	say "    http://$LAN_ADDRESS$suffix/"
+	say "The wizard answers on the home network in clear HTTP until it has set HTTPS up:"
+	say "anyone on that network could read the setup code and your password. To keep"
+	say "them off the network, open an SSH tunnel from your computer instead:"
+	tunnel_lines
+else
+	say "Open the panel from a computer at home:"
+	say "    http://$LAN_ADDRESS$suffix/"
+fi
 for _ in $(seq 1 20); do [ -s "$CODE_FILE" ] && break; sleep 0.5; done
 if [ -s "$CODE_FILE" ]; then
-	say "and finish the first-run wizard there now. Its first screen asks once for this"
+	say "Finish the first-run wizard there now. Its first screen asks once for this"
 	say "server's one-time setup code: nobody without it can set the server up."
 	if [ "$PRINT_CODE" = 1 ] || { [ "$YES" = 0 ] && [ -t 1 ]; }; then
 		say ""
@@ -1598,12 +1762,17 @@ say "Installed in $INSTALL_DIR, data in $DATA_DIR, service $UNIT (enabled)."
 say "What was installed is listed in $RECORD."
 say "Updates come from the panel (or by themselves at night), not from this script."
 say "To remove it: sudo bash $INSTALL_DIR/fork/install/uninstall.sh"
-if [ -n "$PIECES_SKIPPED" ]; then warn "not installed:$PIECES_SKIPPED"; fi
-if [ -n "$PIECES_FAILED" ]; then
-	warn "failed:$PIECES_FAILED (Cosmos itself is installed)"
-	exit $EXIT_FAILED
+if [ -n "$PIECES_SKIPPED$PIECES_FAILED" ]; then
+	[ -z "$PIECES_SKIPPED" ] || warn "not installed:$PIECES_SKIPPED"
+	[ -z "$PIECES_FAILED" ] || warn "failed:$PIECES_FAILED"
+	say ""
+	say "Cosmos $VERSION is installed WITHOUT the protection you asked for:$PIECES_SKIPPED$PIECES_FAILED"
+	exit $EXIT_UNPROTECTED
 fi
 exit 0
 }
 
-main "$@"
+# On one line with main: bash reads a script as it runs it, so nothing after
+# this line is ever read, even if the file is changed or replaced meanwhile.
+# shellcheck disable=SC2317 # reached when main returns
+{ main "$@"; exit; }

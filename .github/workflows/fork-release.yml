@@ -45,6 +45,9 @@ jobs:
       upstream: ${{ steps.version.outputs.upstream }}
       build: ${{ steps.version.outputs.build }}
       previous: ${{ steps.version.outputs.previous }}
+      # what publish signs is checked against these (scripts/fork-release-handover.sh)
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      sums: ${{ steps.sums.outputs.sums }}
     steps:
       # The build runs third-party code (npm and Go dependencies). This job's
       # token can only read, and checkout does not leave it on disk. Actions
@@ -126,7 +129,20 @@ jobs:
             --keys src/forkrelease/keys.go --out release \
             --upstream "$UPSTREAM" --build-number "$BUILD" --previous "$PREVIOUS"
 
+      # The SHA-256 of every file handed over, as a job output: publish
+      # downloads the artifact by its ID and signs only when every file is
+      # still the one made here.
+      - name: Note what is handed over
+        id: sums
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          sums=$(cd release && find . -mindepth 1 -maxdepth 1 -type f -printf '%P\n' | LC_ALL=C sort | xargs -d '\n' sha256sum --)
+          printf '%s\n' "$sums"
+          { echo 'sums<<END_OF_SUMS'; printf '%s\n' "$sums"; echo 'END_OF_SUMS'; } >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: upload
         if: steps.version.outputs.skip != 'true'
         with:
           name: release
@@ -163,7 +179,8 @@ jobs:
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: release
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/release
 
       - name: Take the panel from the release
@@ -203,12 +220,32 @@ jobs:
       VERSION: ${{ needs.build.outputs.version }}
       PREVIOUS: ${{ needs.build.outputs.previous }}
     steps:
-      # No checkout: nothing of the repository is on this machine, only the
-      # files the build handed over. They are treated as data.
+      # No checkout of the code: only the check below, from this very commit,
+      # and the files the build handed over, which are treated as data. They
+      # are taken by the artifact's ID (a name could be uploaded again by a
+      # later job of the run) and must be, file for file, those the build
+      # made: the SHA-256s it gave as its output.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: check
+          sparse-checkout: scripts/fork-release-handover.sh
+          sparse-checkout-cone-mode: false
+
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: release
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+          merge-multiple: true
           path: release
+
+      - name: The files are those the build made
+        env:
+          SUMS: ${{ needs.build.outputs.sums }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$SUMS" > "$RUNNER_TEMP/build-sums"
+          bash check/scripts/fork-release-handover.sh release "$RUNNER_TEMP/build-sums"
+          rm -rf check
 
       - name: Check what the build handed over
         run: |

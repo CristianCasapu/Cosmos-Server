@@ -52,14 +52,43 @@ func badZip(in, out, kind string) error {
 	defer f.Close()
 	w := zip.NewWriter(f)
 	top := ""
-	for _, e := range r.File {
-		if top == "" {
-			top = strings.SplitN(e.Name, "/", 2)[0]
+	if len(r.File) > 0 {
+		top = strings.SplitN(r.File[0].Name, "/", 2)[0]
+	}
+	// longlist-<kind>: the bad entry FIRST, then the release, then thousands
+	// of plain entries: a listing far over a pipe's 64 KiB, so that a check
+	// written as "listing | grep -q" would stop reading at the bad entry and
+	// the listing's writer die of SIGPIPE (under pipefail: "no match").
+	if rest, ok := strings.CutPrefix(kind, "longlist-"); ok {
+		if err := addBad(w, top, rest); err != nil {
+			return err
 		}
+		for _, e := range r.File {
+			if err := w.Copy(e); err != nil {
+				return err
+			}
+		}
+		for i := 0; i < 4000; i++ {
+			h := &zip.FileHeader{Name: fmt.Sprintf("%s/padding/%s-%05d", top, strings.Repeat("p", 60), i), Method: zip.Store}
+			h.SetMode(0o644)
+			if _, err := w.CreateHeader(h); err != nil {
+				return err
+			}
+		}
+		return w.Close()
+	}
+	for _, e := range r.File {
 		if err := w.Copy(e); err != nil {
 			return err
 		}
 	}
+	if err := addBad(w, top, kind); err != nil {
+		return err
+	}
+	return w.Close()
+}
+
+func addBad(w *zip.Writer, top, kind string) error {
 	var header *zip.FileHeader
 	body := "planted by the test bed\n"
 	switch kind {
@@ -99,7 +128,7 @@ func badZip(in, out, kind string) error {
 				return err
 			}
 		}
-		return w.Close()
+		return nil
 	default:
 		return fmt.Errorf("unknown kind %q", kind)
 	}
@@ -110,10 +139,8 @@ func badZip(in, out, kind string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.WriteString(ew, body); err != nil {
-		return err
-	}
-	return w.Close()
+	_, err = io.WriteString(ew, body)
+	return err
 }
 
 func main() {

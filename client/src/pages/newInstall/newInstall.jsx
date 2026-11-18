@@ -25,7 +25,7 @@ import { LanguagesSelect } from '../../layout/MainLayout/Drawer/languages';
 import UploadButtons from '../../components/fileUpload';
 import { usePaidVisibility } from '../../components/paidVisibility'; // Fork addition: joining a cluster needs a licence (Constellation)
 import SetupCodeGate from './setupCodeGate'; // Fork addition: the one-time setup code comes first
-import { forgetSetupCode, heldSetupCode } from '../../utils/setupCode'; // Fork addition
+import { forgetSetupCode, heldSetupCode, setupCodeAnswer, SETUP_REFUSED_EVENT } from '../../utils/setupCode'; // Fork addition
 // ================================|| LOGIN ||================================ //
 
 const debounce = (func, wait) => {
@@ -60,6 +60,17 @@ const NewInstall = () => {
     const { t } = useTranslation();
     const [activeStep, setActiveStep] = useState(0);
     const [codeAccepted, setCodeAccepted] = useState(() => Boolean(heldSetupCode())); // Fork addition: see setupCodeGate.jsx
+    // Fork addition: a refused code (wrong, or the server made a new one) brings the code screen back, saying why
+    const [codeRefusal, setCodeRefusal] = useState(null);
+    useEffect(() => {
+        const refused = (event) => {
+            const detail = (event && event.detail) || {};
+            setCodeRefusal(setupCodeAnswer(detail.status, detail.code));
+            setCodeAccepted(false);
+        };
+        window.addEventListener(SETUP_REFUSED_EVENT, refused);
+        return () => window.removeEventListener(SETUP_REFUSED_EVENT, refused);
+    }, []);
     const [status, setStatus] = useState(null);
     const [counter, setCounter] = useState(0);
     let [hostname, setHostname] = useState('');
@@ -522,7 +533,7 @@ const NewInstall = () => {
         }
     ];
 
-    if (!codeAccepted) return <AuthWrapper><SetupCodeGate configFolder={status && status.ConfigFolder} onAccepted={() => setCodeAccepted(true)} /></AuthWrapper>; // Fork addition
+    if (!codeAccepted) return <AuthWrapper><SetupCodeGate key={codeRefusal ? codeRefusal[0] + codeRefusal[1] : 'first'} reason={codeRefusal} configFolder={status && status.ConfigFolder} onAccepted={() => { setCodeRefusal(null); setCodeAccepted(true); }} /></AuthWrapper>; // Fork addition
 
     return <AuthWrapper>
         <Grid container spacing={3}>

@@ -46,6 +46,7 @@ const waitUp = async () => {
 
 // --- the setup wizard (the server answers 403 to it once it is done)
 await waitUp();
+await call('POST', 'newInstall', { step: '-1' }); // the wizard's default: clean install first
 const first = await call('POST', 'newInstall', { step: '2' });
 if (first.status === 200) {
   note('wizard: 2', first.status);

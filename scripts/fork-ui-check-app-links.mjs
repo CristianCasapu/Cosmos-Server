@@ -56,6 +56,7 @@ if (phase === 'seed') {
     throw new Error('the instance did not come back');
   };
   await waitUp();
+  await call('POST', 'newInstall', { step: '-1' }); // the wizard's default: clean install first
   if ((await call('POST', 'newInstall', { step: '2' })).status === 200) {
     await call('POST', 'newInstall', { step: '3', httpsCertificateMode: 'DISABLED', hostname: 'example.org' });
     await sleep(1500);

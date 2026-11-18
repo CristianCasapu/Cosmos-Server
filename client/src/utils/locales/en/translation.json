@@ -2854,6 +2854,8 @@
 	"newInstall.previousButton": "Previous",
 	"newInstall.privCertInput.privCertLabel": "Private Certificate",
 	"newInstall.pubCertInput.pubCertLabel": "PublicCertificate",
+	"newInstall.setupCode.asked": "The server asks for the setup code again: enter it.",
+	"newInstall.setupCode.refused": "The server refused the request ({{status}}): {{message}}",
 	"newInstall.setupCode.action": "Continue",
 	"newInstall.setupCode.badSign": "The code holds letters and digits only.",
 	"newInstall.setupCode.checking": "Checking...",

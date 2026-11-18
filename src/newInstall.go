@@ -44,6 +44,8 @@ var cleanInstallKeep = map[string]bool{
 	"rclone.conf":                true,
 	"database.backup":            true,
 	"registries":                 true, // content of the local-backend registries
+	"setup-code":                 true, // Fork addition: the one-time setup code the wizard keeps asking for, see fork_setup_code.go
+	"setup-loopback":             true, // Fork addition: the wizard answers on 127.0.0.1 only, see fork_setup_code.go
 }
 
 // backups, what reading them takes, and logs (still open for writing)
