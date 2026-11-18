@@ -112,9 +112,12 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM HUP
 
+# Without install.sh's record nothing is removed, whatever the options
+# (--purge, --remove-packages, --yes-delete-data included): a Cosmos
+# installed by hand, or upstream's, is not this script's to touch.
 if [ ! -f "$RECORD" ] && [ ! -f "$STATE" ]; then
 	if [ -e "$INSTALL_DIR" ] || [ -e /etc/systemd/system/$UNIT.service ]; then
-		die 3 "the Cosmos in $INSTALL_DIR was not installed by install.sh (there is no $RECORD): this script removes only what install.sh installed. Nothing was changed."
+		die 3 "this Cosmos was not installed by install.sh: nothing to remove (there is no $RECORD; this script removes only what install.sh installed). Nothing was changed."
 	fi
 	say "Nothing to remove: install.sh installed nothing here (or it was removed already)."
 	[ ! -d "$DATA_DIR" ] || say "The data folder $DATA_DIR is there; it is never removed without --delete-data, and only while install.sh's record names it."
@@ -162,6 +165,14 @@ fi
 
 data_named=0
 if recorded "data $DATA_DIR" || [ -d "$DATA_DIR" ]; then data_named=1; fi
+# The data is deleted only when the record describes this installation:
+# install.sh made the data folder, or installed Cosmos over it (--reuse-data).
+if [ "$DELETE_DATA" = 1 ] || [ "$DELETE_DATA_YES" = 1 ]; then
+	if ! recorded "data $DATA_DIR" && ! recorded "dir $INSTALL_DIR"; then
+		warn "the data folder $DATA_DIR is not part of an installation install.sh's record describes: it is kept (--delete-data ignored)"
+		DELETE_DATA=0 DELETE_DATA_YES=0
+	fi
+fi
 
 step "What will be removed"
 if recorded "unit $UNIT.service"; then say "- the service $UNIT (stopped, disabled, /etc/systemd/system/$UNIT.service)"; fi

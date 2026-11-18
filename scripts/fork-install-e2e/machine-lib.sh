@@ -3,8 +3,24 @@
 # Fork addition: what the install scripts' test bed runs INSIDE a test
 # machine (sourced by the steps of scripts/fork-install-e2e.sh). Never run
 # on a real server: it changes the machine freely.
+#
+# Its first act: check that this is a test machine of the running test bed.
+# Every machine is made with /.cosmos-e2e-machine (mounted read-only, holding
+# the run's random id) and every step is given E2E_RUN_ID; anywhere else (the
+# host, a container of anything else) this stops before anything runs.
+if ! { [ -f /.cosmos-e2e-machine ] && [ -n "${E2E_RUN_ID:-}" ] && [ "$(cat /.cosmos-e2e-machine 2>/dev/null)" = "$E2E_RUN_ID" ]; }; then
+	echo "REFUSED: this is not a test machine of this run (no /.cosmos-e2e-machine with the run's id): nothing is run" >&2
+	exit 99
+fi
 set -euo pipefail
 export LC_ALL=C
+
+# release A's install.sh (the steps call it by this name)
+install_a() { bash "/e2e/releases/v$VA/install.sh" "$@"; }
+
+# the machine's start, for start_machine on the host
+machine_state() { systemctl is-system-running 2>/dev/null || true; }
+trust_test_ca() { if command -v update-ca-certificates >/dev/null; then update-ca-certificates >/dev/null 2>&1 || true; fi; }
 
 OUT=/e2e/out
 mkdir -p "$OUT"

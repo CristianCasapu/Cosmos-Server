@@ -1,0 +1,484 @@
+# shellcheck shell=bash
+# shellcheck disable=SC2154,SC2016,SC2086,SC2046,SC2034,SC2164,SC2024 # VO VA VB VC VR and the loops' values come from the host (M passes them by name); the steps were written as strings for bash -c and are kept as they ran
+# Fork addition: what the test bed (scripts/fork-install-e2e.sh) runs INSIDE
+# its test machines, one function per step of a case (m_<case>_<n>). The
+# host-side script holds no command that installs, removes or changes a
+# system: it only names these functions (M <machine> <function> <variables>).
+# This file and machine-lib.sh run nothing before the check that the machine
+# is one of this run's test machines (see machine-lib.sh): sourced anywhere
+# else, they stop.
+if ! { [ -f /.cosmos-e2e-machine ] && [ -n "${E2E_RUN_ID:-}" ] && [ "$(cat /.cosmos-e2e-machine 2>/dev/null)" = "$E2E_RUN_ID" ]; }; then
+	echo "REFUSED: this is not a test machine of this run (no /.cosmos-e2e-machine with the run's id): nothing is run" >&2
+	exit 99
+fi
+
+m_fresh_1() {
+	snap before; install_a --yes --print-setup-code </dev/null | tee /e2e/out/install.txt; installed_ok 80; record_matches before
+		check "the state says completed" grep -q "^completed=yes" /var/lib/cosmos-installer/state
+		# the one-time setup code: printed, in a root-only file, asked by every setup route
+		printed=$(sed -n "s/^ *Setup code: //p" /e2e/out/install.txt)
+		check "install.sh printed the setup code" test -n "$printed"
+		check "it is the code of the file" test "$printed" = "$(cat /var/lib/cosmos/setup-code)"
+		check "the file is root's, 0600" test "$(stat -c %a:%U /var/lib/cosmos/setup-code)" = 600:root
+		check "a local user cannot read it" sh -c "! setpriv --reuid=65534 --regid=65534 --clear-groups cat /var/lib/cosmos/setup-code 2>/dev/null"
+		check "the journal has it" sh -c "journalctl -u CosmosCloud --no-pager | grep -A1 \"SETUP CODE\" | grep -qF \"$printed\""
+		check "cosmos.log does not" sh -c "! grep -qF \"$printed\" /var/lib/cosmos/cosmos.log"
+		for route in setup setup-join newInstall; do
+			code=$(curl -s -o /e2e/out/r.json -w "%{http_code}" -X POST -H "Content-Type: application/json" --data "{\"step\":\"4\",\"nickname\":\"x\",\"password\":\"Passw0rd-x!yz\"}" http://127.0.0.1/cosmos/api/$route)
+			check "POST /cosmos/api/$route without the code is refused" sh -c "test $code = 403 && grep -q SC001 /e2e/out/r.json"
+			code=$(setpriv --reuid=65534 --regid=65534 --clear-groups curl -s -o /e2e/out/r.json -w "%{http_code}" -X POST -H "Content-Type: application/json" -H "X-Cosmos-Setup-Code: AAAA-AAAA-AAAA-AAAA-AAAA" --data "{}" http://127.0.0.1/cosmos/api/$route)
+			check "POST /cosmos/api/$route by a local user with a wrong code is refused" sh -c "test $code = 403 && grep -q SC002 /e2e/out/r.json"
+		done
+		check "the status stays open for the first page" test "$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1/cosmos/api/status)" = 200
+		# placement not given (unknown): the wizard answers on 127.0.0.1 only, through a tunnel
+		check "the loopback marker is root's, 0600" test "$(stat -c %a:%U /var/lib/cosmos/setup-loopback)" = 600:root
+		check "the wizard does not answer on the network" test "$(curl -s -o /dev/null -m 5 -w "%{http_code}" "http://$(hostname -I | cut -d" " -f1)/cosmos-ui/" || true)" = 000
+		check "install.sh printed the tunnel" grep -q "ssh -L 8080:127.0.0.1:80 " /e2e/out/install.txt
+		check "and why" grep -q "placement is unknown, not home" /e2e/out/install.txt
+		echo "$printed" >/e2e/out/printed-code
+		check "nobody else can read the data folder (it is $(stat -c %a /var/lib/cosmos): 700 when made, 711 once Cosmos ran)" sh -c "stat -c %a /var/lib/cosmos | grep -qE \"^7[01][01]\$\""
+		mkdir -p /root/up && cp /opt/cosmos/cosmos /root/up/ && printf "#!/bin/sh\n" >/root/up/start.sh && chmod 755 /root/up/start.sh
+		cp /etc/systemd/system/CosmosCloud.service /e2e/out/ours.service
+		(env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin COSMOS_HTTP_PORT=80 COSMOS_HTTPS_PORT=443 /root/up/cosmos service install >/dev/null 2>&1 || true)
+		sed "s|/root/up|/opt/cosmos|g" /etc/systemd/system/CosmosCloud.service >/e2e/out/upstream.service
+		cp /e2e/out/ours.service /etc/systemd/system/CosmosCloud.service; rm -rf /root/up; systemctl daemon-reload
+		check "the unit is byte for byte what cosmos service install writes" cmp /e2e/out/ours.service /e2e/out/upstream.service
+		snap installed
+		expect_exit 10 install_a --yes </dev/null; same installed after-second
+		out=$(install_a --yes </dev/null 2>&1 || true); echo "$out" | grep -q "from the" || fail "the refusal does not say updates come from the panel"
+		systemctl stop CosmosCloud; snap stopped
+		expect_exit 10 install_a --yes </dev/null; same stopped after-stopped
+		systemctl disable CosmosCloud 2>/dev/null; snap disabled
+		expect_exit 10 install_a --yes </dev/null; same disabled after-disabled
+		systemctl enable --now CosmosCloud 2>/dev/null; wait_panel 80
+		mv /var/lib/cosmos-installer /root/ci-aside; snap byhand
+		expect_exit 10 install_a --yes </dev/null; same byhand after-byhand
+		mv /etc/systemd/system/CosmosCloud.service /root/unit-aside; snap nounit
+		expect_exit 10 install_a --yes </dev/null; same nounit after-nounit
+		mv /root/unit-aside /etc/systemd/system/CosmosCloud.service; mv /opt/cosmos /root/opt-aside; snap nofolder
+		expect_exit 12 install_a --yes </dev/null; same nofolder after-nofolder
+		mv /root/opt-aside /opt/cosmos; mv /root/ci-aside /var/lib/cosmos-installer; systemctl daemon-reload; wait_panel 80
+		RCLONE_CONFIG=/nonexistent /opt/cosmos/cosmos fork-detect --no-outside --timeout 5 >/e2e/out/detect.json 2>/dev/null
+		check "fork-detect printed its JSON" grep -q "\"schema\": 1" /e2e/out/detect.json
+		check "fork-detect asked no one outside" grep -q "\"asked\": false" /e2e/out/detect.json
+}
+
+m_fresh_2() { # igd from the host
+	old=$(ip -4 route show default | head -n1); ip route replace default via $igd
+		RCLONE_CONFIG=/nonexistent timeout 15 /opt/cosmos/cosmos fork-detect --timeout 10 >/e2e/out/detect-igd.json 2>/dev/null || true
+		ip route replace $old
+		cat /e2e/out/detect-igd.json
+		check "fork-detect: the router answers" grep -q "\"answers\": true" /e2e/out/detect-igd.json
+		check "fork-detect: its address" grep -q "\"externalIP\": \"203.0.113.7\"" /e2e/out/detect-igd.json
+		check "fork-detect: from the router" grep -q "\"publicIPSource\": \"router\"" /e2e/out/detect-igd.json
+		check "fork-detect: not a shared address" grep -q "\"sharedAddress\": false" /e2e/out/detect-igd.json
+		check "fork-detect: no outside service asked" grep -q "\"asked\": false" /e2e/out/detect-igd.json
+}
+
+m_fresh_3() { # VB from the host
+	wizard_and_login "$(cat /e2e/out/printed-code)" && update_to $VB
+		check "the setup code file is gone once set up" test ! -e /var/lib/cosmos/setup-code
+		check "so is the loopback marker" test ! -e /var/lib/cosmos/setup-loopback
+		check "set up, the server answers on the network" sh -c "test \"\$(curl -s -o /dev/null -m 5 -w %{http_code} http://\$(hostname -I | cut -d\" \" -f1)/cosmos-ui/)\" != 000"
+		code=$(curl -s -o /e2e/out/r.json -w "%{http_code}" --resolve srv-e2e.local:80:127.0.0.1 -X POST -H "Content-Type: application/json" -H "X-Cosmos-Setup-Code: $(cat /e2e/out/printed-code)" --data "{\"step\":\"4\"}" http://srv-e2e.local/cosmos/api/newInstall)
+		check "the wizard is closed once set up, code or not" test "$code" = 403
+}
+
+m_fresh_4() { # VB VC from the host
+	PANEL_HOST=srv-e2e.local; api POST login "{\"nickname\":\"admin\",\"password\":\"E2e-Test-Passw0rd!x\"}" >/dev/null; api POST sudo "{\"password\":\"E2e-Test-Passw0rd!x\"}" >/dev/null; rolls_back_from $VC $VB
+}
+
+m_fresh_5() {
+	bash /opt/cosmos/fork/install/uninstall.sh --yes </dev/null
+		check "the folder is gone" test ! -e /opt/cosmos
+		check "the data is kept" test -d /var/lib/cosmos
+		check "the unit is gone" test ! -e /etc/systemd/system/CosmosCloud.service
+		expect_exit 13 install_a --yes </dev/null
+}
+
+m_fresh_6() { # VA from the host
+	PANEL_HOST=srv-e2e.local; check "no network" sh -c "! getent hosts github.com"
+		expect_exit 0 install_a --yes --reuse-data --from /e2e/releases/v$VA/cosmos-cloud-$VA-amd64.zip </dev/null; installed_ok 80
+}
+
+m_fresh_7() {
+	bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null
+		check "everything removed" test ! -e /var/lib/cosmos-installer -a ! -e /var/lib/cosmos -a ! -e /opt/cosmos
+		snap removed; differ before removed > /e2e/out/left.txt || true
+		packages_back before removed
+		echo "what is left:"; grep "^[<>]" /e2e/out/left.txt | head -n 80 || true
+}
+
+m_refusals_1() { # VA from the host
+	snap before
+		mkdir -p /opt/cosmos && printf "{\n  \"version\": \"0.24.0\"\n}\n" >/opt/cosmos/meta.json && printf "#!/bin/sh\n" >/opt/cosmos/cosmos && chmod 755 /opt/cosmos/cosmos
+		printf "[Service]\nWorkingDirectory=/opt/cosmos\nExecStart=/opt/cosmos/start.sh\n" >/etc/systemd/system/CosmosCloud.service
+		snap upstream; expect_exit 11 install_a --yes </dev/null; same upstream after-upstream
+		out=$(install_a --yes </dev/null 2>&1 || true); echo "$out" | grep -q migrate.sh || fail "upstream: no word of migrate.sh"
+		rm -rf /opt/cosmos; mkdir -p /opt/cosmos && printf "{\n  \"version\": \"0.24.0-fork.900\"\n}\n" >/opt/cosmos/meta.json && : >/opt/cosmos/FORK-LICENCE.md
+		snap byhand; expect_exit 10 install_a --yes </dev/null; same byhand after-byhand
+		rm -f /opt/cosmos/meta.json /opt/cosmos/FORK-LICENCE.md /etc/systemd/system/CosmosCloud.service; printf "x cosmos-fork-release-v1 x" >/opt/cosmos/cosmos
+		snap binonly; expect_exit 10 install_a --yes </dev/null; same binonly after-binonly
+		rm -rf /opt/cosmos; printf "[Service]\nWorkingDirectory=/opt/cosmos\n" >/etc/systemd/system/CosmosCloud.service
+		snap unitonly; expect_exit 12 install_a --yes </dev/null; same unitonly after-unitonly
+		rm -f /etc/systemd/system/CosmosCloud.service
+		mkdir -p /var/lib/cosmos && echo "{}" >/var/lib/cosmos/cosmos.config.json
+		snap data; expect_exit 13 install_a --yes </dev/null; same data after-data
+		rm -rf /var/lib/cosmos
+		snap end; same before end
+		expect_exit 2 install_a --nonsense </dev/null
+		expect_exit 2 install_a --http-port 99999 </dev/null
+		printf "nonsense=1\n" >/root/bad-answers
+		expect_exit 2 install_a --answers /root/bad-answers </dev/null
+		expect_exit 5 setpriv --reuid=65534 --regid=65534 --clear-groups bash /e2e/releases/v$VA/install.sh </dev/null
+		real=$(readlink -f /etc/os-release); cp -a "$real" /root/os-release; sed -i "s/^VERSION_ID=.*/VERSION_ID=\"99\"/" "$real"
+		expect_exit 3 install_a --yes </dev/null; cp -a /root/os-release "$real"
+		rm -f /root/bad-answers /root/os-release
+		snap end2; same before end2
+}
+
+m_tampered_1() {
+	snap before
+}
+
+m_tampered_2() { # v from the host
+	echo "== $v"; expect_exit 4 install_a --yes --from /e2e/variants/$v </dev/null; snap after-$v; same before after-$v
+			check "nothing planted" test ! -e /etc/cosmos-e2e-planted
+			check "nothing unpacked" sh -c "! ls -d /opt/cosmos /opt/.cosmos-install.* 2>/dev/null"
+}
+
+m_tampered_3() {
+	echo "== no signature on the download path"; expect_exit 4 install_a --yes </dev/null; same before after-nosigdl
+}
+
+m_tampered_4() {
+	echo "== another release without its scripts signature"; expect_exit 4 install_a --yes --version 0.24.0-fork.950 </dev/null; same before after-noscriptsig
+}
+
+m_dryrun_1() {
+	printf "APT::Update::Post-Invoke { \"touch /e2e-hook-ran\"; };\nAPT::Update::Pre-Invoke { \"touch /e2e-hook-ran\"; };\nAPT::Update::Post-Invoke-Success { \"touch /e2e-hook-ran\"; };\nDPkg::Pre-Invoke { \"touch /e2e-hook-ran\"; };\n" >/etc/apt/apt.conf.d/50e2e-probe
+		snap before; expect_exit 0 install_a --dry-run </dev/null; snap after; same before after
+		check "the simulation ran none of the apt hooks" test ! -e /e2e-hook-ran
+		rm /etc/apt/apt.conf.d/50e2e-probe
+}
+
+m_dryrun_2() {
+	snap before; expect_exit 0 install_a --dry-run --from /e2e/variants/good </dev/null; snap after; same before after
+		expect_exit 0 install_a --dry-run </dev/null; snap after2; same before after2
+}
+
+m_unavailable_1() {
+	printf "Package: snapraid\nPin: release *\nPin-Priority: -1\n" >/etc/apt/preferences.d/e2e-no-snapraid; snap before
+		expect_exit 6 install_a --yes </dev/null; snap after; same before after
+}
+
+m_locked_1() {
+	(setsid /e2e/bin/helper lock-dpkg 45 >/e2e/out/lock.txt 2>&1 &); sleep 2; cat /e2e/out/lock.txt
+		rc=0; install_a --yes --wizard-on-lan </dev/null >/e2e/out/install.txt 2>&1 || rc=$?; tail -n 5 /e2e/out/install.txt
+		check "it waited for the lock" grep -qE "waiting for it|Waiting for cache lock" /e2e/out/install.txt
+		check "then installed" test $rc = 0
+		installed_ok 80
+		check "--wizard-on-lan: the wizard answers on the network" test "$(curl -s -o /dev/null -m 5 -w "%{http_code}" "http://$(hostname -I | cut -d" " -f1)/cosmos-ui/")" = 200
+}
+
+m_aptdaily_1() {
+	DEBIAN_FRONTEND=noninteractive apt-get -q update >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends unattended-upgrades </dev/null >/dev/null
+		check "the system has apt-daily and unattended-upgrades" sh -c "systemctl cat apt-daily.service apt-daily-upgrade.service >/dev/null && command -v unattended-upgrade"
+		# the container image turns the daily runs off (a server does not): on again
+		rm -f /etc/apt/apt.conf.d/docker-disable-periodic-update
+		# the real units, made to hold apt longer, through their own configuration only:
+		# apt-daily (apt-get update) holds the lists for 4 minutes, then apt-daily-upgrade
+		# (unattended-upgrade) holds dpkg 60 s longer whenever it has an upgrade to install
+		printf "APT::Periodic::RandomSleep \"0\";\nAPT::Update::Pre-Invoke { \"sleep 240\"; };\nDPkg::Pre-Invoke { \"sleep 60\"; };\n" >/etc/apt/e2e-daily.conf
+		for u in apt-daily apt-daily-upgrade; do
+			mkdir -p /etc/systemd/system/$u.service.d
+			printf "[Service]\nEnvironment=APT_CONFIG=/etc/apt/e2e-daily.conf\n" >/etc/systemd/system/$u.service.d/e2e.conf
+		done
+		systemctl daemon-reload
+		snap before
+		systemctl start --no-block apt-daily.service apt-daily-upgrade.service
+		for _ in $(seq 1 60); do locks=$(lslocks -n -r -o PATH); case $locks in */var/lib/apt/lists/lock*) break ;; esac; sleep 1; done
+		check "apt-daily.service holds apt's lists lock" sh -c "lslocks -n -r -o COMMAND,PID,PATH | grep /var/lib/apt/lists/lock"
+		rc=0; install_a --yes </dev/null >/e2e/out/install.txt 2>&1 || rc=$?; tail -n 8 /e2e/out/install.txt
+		grep -E "Another program|Waiting for cache lock" /e2e/out/install.txt || true
+		check "it said what it waited for" grep -q "Another program is using apt: .*apt-daily.service" /e2e/out/install.txt
+		if grep -q "unattended-upgr" /e2e/out/install.txt; then echo "(it also met unattended-upgrade holding dpkg)"; else echo "(unattended-upgrade had nothing to install: it did not hold dpkg for long)"; fi
+		check "then installed" test $rc = 0
+		check "apt-daily.service ran to its end" sh -c "! systemctl is-failed --quiet apt-daily.service"
+		for _ in $(seq 1 300); do [ "$(systemctl is-active apt-daily-upgrade.service)" = inactive ] && break; sleep 1; done
+		installed_ok 80
+}
+
+m_netcut_1() {
+	snap before
+}
+
+m_netcut_2() {
+	expect_exit 1 install_a --yes </dev/null; snap after; same before after
+}
+
+m_netcut_3() {
+	expect_exit 0 install_a --yes --placement home </dev/null >/e2e/out/home.txt; installed_ok 80
+		check "at home the wizard answers on the home network" test "$(curl -s -o /dev/null -m 5 -w "%{http_code}" "http://$(hostname -I | cut -d" " -f1)/cosmos-ui/")" = 200
+		check "no loopback marker at home" test ! -e /var/lib/cosmos/setup-loopback
+		check "it says the wizard is in clear on that network" grep -q "anyone on that network could read" /e2e/out/home.txt
+		check "and offers the tunnel" grep -q "ssh -L 8080:127.0.0.1:80 " /e2e/out/home.txt
+}
+
+m_interrupt_1() {
+	snap before
+}
+
+m_interrupt_2() { # point from the host
+	(setsid bash -c "echo \$\$ >/e2e/out/pgid; exec install_a --yes </dev/null >/e2e/out/run-$point.txt 2>&1" &)
+			killed=0
+			for i in $(seq 1 3000); do
+				s=$(sed -n "s/^step=//p" /var/lib/cosmos-installer/state 2>/dev/null | tail -n1 || true)
+				if [ "$s" = $point ]; then
+					if [ $point = packages ]; then grep -qsx dpkg /proc/[0-9]*/comm || { sleep 0.2; continue; }; sleep 2; fi
+					kill -9 -- -$(cat /e2e/out/pgid); echo "killed at $point"; killed=1; break
+				fi
+				sleep 0.2
+			done
+			check "the run reached $point" test $killed = 1
+}
+
+m_interrupt_3() {
+	DEBIAN_FRONTEND=noninteractive apt-get install -y -q -o DPkg::Lock::Timeout=600 less </dev/null >/dev/null && echo "the admin installed less"
+}
+
+m_interrupt_4() { # VA from the host
+	(DEBIAN_FRONTEND=noninteractive setsid apt-get install -y -q -o DPkg::Lock::Timeout=600 hello </dev/null >/e2e/out/admin.txt 2>&1 &)
+		expect_exit 0 install_a --yes </dev/null >/e2e/out/run-final.txt; installed_ok 80
+		for _ in $(seq 1 120); do pkg_installed hello && break; sleep 1; done
+		check "the admin's packages are installed" sh -c "dpkg-query -W less hello >/dev/null"
+		check "the record names neither of the admin's packages" sh -c "! grep -qE \"^package (less|hello)\$\" /var/lib/cosmos-installer/record"
+		check "with --yes the code is not printed, its file is named" sh -c "! grep -q \"Setup code:\" /e2e/out/run-final.txt && grep -q \"sudo cat /var/lib/cosmos/setup-code\" /e2e/out/run-final.txt"
+		expect_exit 10 install_a --yes </dev/null
+		# lines in the record that are not install.sh's own are left alone
+		printf "file /\npackage -rf\npiece ../x\ndir /etc\nunit ../../etc/passwd\n" >>/var/lib/cosmos-installer/record
+		# a container exists and the Docker daemon is stopped: Docker stays
+		tar -cf - --files-from /dev/null | docker import - e2e-empty:1 >/dev/null
+		docker create --name e2e-app e2e-empty:1 /none >/dev/null
+		systemctl stop docker.socket docker.service
+		bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages </dev/null | tee /e2e/out/uninstall-1.txt
+		check "Docker is kept while its daemon cannot be asked" pkg_installed docker-ce
+		check "and the uninstaller says why" grep -q "does not answer" /e2e/out/uninstall-1.txt
+		check "the hostile lines did nothing" sh -c "test -d /etc && test -f /etc/passwd"
+		check "the admin's packages stayed" sh -c "dpkg-query -W less hello >/dev/null"
+		systemctl start docker.service; docker rm e2e-app >/dev/null; docker image rm e2e-empty:1 >/dev/null
+		bash /e2e/releases/v$VA/uninstall.sh --yes --remove-packages --yes-delete-data </dev/null | tee /e2e/out/uninstall-2.txt
+		check "the hostile lines are all that is left" sh -c "test \"\$(sort /var/lib/cosmos-installer/record | tr \"\\n\" \" \")\" = \"dir /etc file / package -rf piece ../x unit ../../etc/passwd \""
+		rm -rf /var/lib/cosmos-installer
+		expect_exit 0 bash /e2e/releases/v$VA/uninstall.sh --yes </dev/null
+		bash /e2e/releases/v$VA/uninstall.sh --yes </dev/null | grep -q "Nothing to remove" && echo "ok: a second uninstall has nothing to remove"
+		DEBIAN_FRONTEND=noninteractive apt-get purge -y -q less hello </dev/null >/dev/null
+		snap removed; packages_back before removed
+}
+
+m_docker_there_1() {
+	check "Docker runs" systemctl is-active --quiet docker
+		dpkg-query -W docker.io >/e2e/out/docker-before
+		dpkg -L docker.io | while read -r f; do if [ -f "$f" ]; then md5sum "$f"; fi; done >/e2e/out/docker-files-before
+		# upstream's Cosmos as a container (stopped): refused, pointed to migrate.sh, nothing changed
+		tar -cf - --files-from /dev/null | docker import - azukaar/cosmos-server:e2e >/dev/null
+		docker create --name cosmos-server azukaar/cosmos-server:e2e /none >/dev/null
+		snap container; expect_exit 11 install_a --yes </dev/null; same container after-container
+		docker rm cosmos-server >/dev/null; docker image rm azukaar/cosmos-server:e2e >/dev/null
+		snap before
+		printf "placement=cloud\nssh=from:192.0.2.0/24,2001:db8::/32\n" >/root/answers
+		expect_exit 0 install_a --yes --reachable internet --http-port 8080 --https-port 8443 --answers /root/answers </dev/null; installed_ok 8080; record_matches before
+		rm /root/answers
+		check "a cloud server: the wizard on 127.0.0.1 only" test -f /var/lib/cosmos/setup-loopback
+		check "the wizard does not answer on the network" test "$(curl -s -o /dev/null -m 5 -w "%{http_code}" "http://$(hostname -I | cut -d" " -f1):8080/cosmos-ui/" || true)" = 000
+		check "but on 127.0.0.1" test "$(curl -s -o /dev/null -m 5 -w "%{http_code}" http://127.0.0.1:8080/cosmos-ui/)" = 200
+		check "the guard got where the server stands and how SSH answers" grep -q -- "--exposed --ssh from:192.0.2.0/24,2001:db8::/32" /run/cosmos-e2e-stub-nftables.install.args
+		check "no Docker package in the record" sh -c "! grep -q \"^package docker\" /var/lib/cosmos-installer/record"
+		check "Docker's repository was not added" test ! -e /etc/apt/sources.list.d/docker.sources
+		check "docker.io unchanged" sh -c "dpkg-query -W docker.io | cmp - /e2e/out/docker-before"
+		for p in unattended-upgrades fail2ban nftables; do
+			check "piece $p called with flags it accepts" grep -q "args ok" /run/cosmos-e2e-stub-$p.install
+		done
+		check "the pieces' record lines are in the record" grep -qP "^piece nftables\tfile\t/etc/cosmos-e2e-stub-nftables$" /var/lib/cosmos-installer/record
+		bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null
+		for p in unattended-upgrades fail2ban nftables; do check "piece $p removed" test ! -e /etc/cosmos-e2e-stub-$p; done
+		check "Docker still runs" systemctl is-active --quiet docker
+		check "docker.io still installed, unchanged" sh -c "dpkg-query -W docker.io | cmp - /e2e/out/docker-before"
+		check "none of Docker's files changed" md5sum -c --quiet /e2e/out/docker-files-before
+		snap removed; packages_back before removed
+}
+
+m_hop_1() { # VB from the host
+	expect_exit 0 install_a --yes </dev/null; installed_ok 80
+		check "B installed by its own script" test "$(version_installed)" = $VB
+		check "no temporary folder left" sh -c "! ls -d /var/tmp/cosmos-install* 2>/dev/null"
+}
+
+m_aptfail_1() {
+	snap before
+		(setsid /e2e/bin/helper lock-file /var/lib/apt/lists/lock 120 >/e2e/out/lock.txt 2>&1 &); sleep 2; cat /e2e/out/lock.txt
+		rc=0; COSMOS_INSTALL_APT_WAIT=20 install_a --yes </dev/null >/e2e/out/locked.txt 2>&1 || rc=$?; tail -n 4 /e2e/out/locked.txt
+		check "the lists held too long end the run with 6" test $rc = 6
+		check "it said so" grep -q "held apt for longer than 20 seconds" /e2e/out/locked.txt
+		pkill -x helper || true
+		same before after-locked
+		# a package that apt simulates well but cannot install (its unpacking is refused)
+		printf "DPkg::Pre-Install-Pkgs { \"grep -q snapraid && exit 1 || exit 0\"; };\n" >/etc/apt/apt.conf.d/99e2e-refuse-snapraid
+		snap before2
+		rc=0; install_a --yes </dev/null >/e2e/out/failed.txt 2>&1 || rc=$?; tail -n 12 /e2e/out/failed.txt
+		check "a failed install ends with 1" test $rc = 1
+		check "and says what it changed" grep -q "after these changes" /e2e/out/failed.txt
+		check "the run is not completed" sh -c "! grep -q ^completed=yes /var/lib/cosmos-installer/state"
+		check "snapraid is not recorded" sh -c "! grep -q \"^package snapraid\$\" /var/lib/cosmos-installer/record"
+		rm /etc/apt/apt.conf.d/99e2e-refuse-snapraid
+		# a package left half-installed by the failed transaction: its
+		# configuration script fails (the hook rewrites the downloaded .deb)
+		printf "#!/bin/sh\nwhile read -r f; do case \$f in */snapraid_*.deb) d=\$(mktemp -d); dpkg-deb -R \"\$f\" \$d; printf \"#!/bin/sh\\\\nexit 1\\\\n\" >\$d/DEBIAN/postinst; chmod 755 \$d/DEBIAN/postinst; dpkg-deb -b \$d \"\$f\" >/dev/null; rm -rf \$d;; esac; done\n" >/root/break-snapraid
+		chmod 755 /root/break-snapraid
+		printf "DPkg::Pre-Install-Pkgs { \"/root/break-snapraid\"; };\n" >/etc/apt/apt.conf.d/99e2e-break-snapraid
+		rc=0; install_a --yes </dev/null >/e2e/out/half.txt 2>&1 || rc=$?; tail -n 12 /e2e/out/half.txt
+		check "the failed transaction ends with 1" test $rc = 1
+		check "snapraid is half-installed (dpkg)" sh -c "dpkg-query -W -f=\"\\\${db:Status-Abbrev}\" snapraid | grep -q \"^iF\""
+		check "it is named half-installed" grep -q "half-installed (dpkg): .*snapraid" /e2e/out/half.txt
+		check "never \"Nothing is left\"" sh -c "! grep -q \"Nothing is left\" /e2e/out/half.txt"
+		check "snapraid stays recorded" grep -qx "package snapraid" /var/lib/cosmos-installer/record
+		rm /etc/apt/apt.conf.d/99e2e-break-snapraid /root/break-snapraid
+		printf "#!/bin/sh\nexit 0\n" >/var/lib/dpkg/info/snapraid.postinst
+		expect_exit 0 install_a --yes </dev/null; installed_ok 80; record_matches before2
+		bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null >/dev/null
+		snap removed; packages_back before2 removed
+}
+
+m_trust_1() {
+	snap before
+}
+
+m_trust_2() { # to from the host
+	echo "== a download sent to $to"; rc=0; install_a --yes --http-port 8080 --https-port 8443 </dev/null >/e2e/out/r.txt 2>&1 || rc=$?
+			check "refused (exit $rc)" test $rc = 1
+			check "it says why" grep -q "refusing to download from" /e2e/out/r.txt
+			same before after-redirect
+}
+
+m_trust_3() { # n from the host
+	echo "== the next install.sh of $n"; expect_exit 4 install_a --yes --version 0.24.0-fork.$n --http-port 8080 --https-port 8443 </dev/null; same before after-hop
+}
+
+m_trust_4() {
+	echo "== latest is a release whose next install.sh was changed"; expect_exit 4 install_a --yes --http-port 8080 --https-port 8443 </dev/null; same before after-hoplatest
+}
+
+m_trust_5() { # VO from the host
+	echo "== forward only"
+		expect_exit 15 install_a --yes --http-port 8080 --https-port 8443 </dev/null
+		expect_exit 15 install_a --yes --version $VO --http-port 8080 --https-port 8443 </dev/null
+		expect_exit 15 install_a --yes --from /e2e/releases/v$VO/cosmos-cloud-$VO-amd64.zip --http-port 8080 --https-port 8443 </dev/null
+		expect_exit 0 install_a --dry-run --allow-older --from /e2e/releases/v$VO/cosmos-cloud-$VO-amd64.zip --http-port 8080 --https-port 8443 </dev/null
+		echo "== a signature file whose version line is another release"
+		expect_exit 4 install_a --yes --from /e2e/variants/otherversion --http-port 8080 --https-port 8443 </dev/null
+		same before after-trust
+}
+
+m_env_1() { # VA from the host
+	mkdir -p /root/evil && printf "#!/bin/sh\ntouch /root/pwned\n" >/root/evil/sh && chmod 755 /root/evil/sh && cp /root/evil/sh /root/evil/bash
+		snap before
+		cd /root/evil
+		rc=0; cat /e2e/releases/v$VA/install.sh | sh >/e2e/out/pipe.txt 2>&1 || rc=$?
+		check "curl | sh is refused (exit $rc)" sh -c "test $rc = 2 && grep -q \"not from a pipe\" /e2e/out/pipe.txt"
+		rc=0; cat /e2e/releases/v$VA/install.sh | sudo sh >/dev/null 2>&1 || rc=$?
+		check "curl | sudo sh is refused" test $rc = 2
+		rc=0; cat /e2e/releases/v$VA/install.sh | bash >/dev/null 2>&1 || rc=$?
+		check "curl | bash is refused" test $rc = 2
+		rc=0; cat /e2e/releases/v$VA/uninstall.sh | sh >/dev/null 2>&1 || rc=$?
+		check "uninstall.sh from a pipe is refused" test $rc = 2
+		check "the sh of the current folder never ran" test ! -e /root/pwned
+		cd /
+		same before after-pipes
+		# sudo -E with a hostile environment: a proxy that does not exist, a curlrc and an OPENSSL_CONF that would break both
+		printf "proxy = \"http://127.0.0.1:9\"\ninsecure\n" >/root/.curlrc
+		printf "this is not an openssl configuration\n[[[\n" >/root/bad-openssl.cnf
+		rc=0; https_proxy=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 OPENSSL_CONF=/root/bad-openssl.cnf CURL_HOME=/root \
+			sudo -E bash /e2e/releases/v$VA/install.sh --yes --http-port 8080 --https-port 8443 </dev/null >/e2e/out/sudo-e.txt 2>&1 || rc=$?
+		tail -n 3 /e2e/out/sudo-e.txt
+		check "sudo -E with a hostile environment installs all the same" test $rc = 0
+		rm -f /root/.curlrc /root/bad-openssl.cnf # (the checks below use curl too)
+		installed_ok 8080
+		mkdir -p /root/x && cp /e2e/releases/v$VA/install.sh /root/x/install.sh && cd /root/x
+		expect_exit 10 sh install.sh --yes </dev/null
+		expect_exit 10 su -c "sh /root/x/install.sh --yes" root </dev/null
+		cd /
+		rm -f /root/.curlrc /root/bad-openssl.cnf; rm -rf /root/x /root/evil
+		bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null >/dev/null
+		expect_exit 0 bash /e2e/releases/v$VA/uninstall.sh --yes </dev/null
+}
+
+m_pieces_1() { # VR from the host
+	rc=0; install_a --yes --version $VR --reachable internet --http-port 8080 --https-port 8443 </dev/null >/e2e/out/pieces.txt 2>&1 || rc=$?
+		grep -E "Protection|PIECE|piece|done\\.|not installed" /e2e/out/pieces.txt || true
+		# Cosmos is installed whatever the pieces are; protection that was asked
+		# for (reachable from the internet) and is missing ends with 16 and says so
+		if grep -qE "not installed:|failed:" /e2e/out/pieces.txt; then
+			check "protection asked for but missing: exit 16" test $rc = 16
+			check "and the last line says so" sh -c "tail -n 1 /e2e/out/pieces.txt | grep -q \"installed WITHOUT the protection you asked for:\""
+		else
+			check "every piece ran: exit 0" test $rc = 0
+		fi
+		installed_ok 8080
+		for p in unattended-upgrades fail2ban nftables; do
+			if grep -q "PIECE NOT RUN: $p" /e2e/out/pieces.txt || grep -q "protection piece $p is not in this release" /e2e/out/pieces.txt; then
+				echo "SKIPPED: the real piece $p does not speak the installer's interface yet (work/guard not merged): it was not run"
+				check "and nothing of $p is recorded" sh -c "! grep -qE \"^piece(-ran)? $p\" /var/lib/cosmos-installer/record"
+			else
+				check "the real piece $p ran and is recorded" grep -qx "piece-ran $p" /var/lib/cosmos-installer/record
+			fi
+		done
+		bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null >/e2e/out/pieces-uninstall.txt 2>&1
+		check "uninstall ends well" sh -c "test ! -e /opt/cosmos"
+}
+
+m_fresh_fast_1() {
+	snap before; install_a --yes </dev/null; installed_ok 80; record_matches before
+		code=$(curl -s -o /e2e/out/r.json -w "%{http_code}" -X POST -H "Content-Type: application/json" --data "{}" http://127.0.0.1/cosmos/api/setup)
+		check "POST /cosmos/api/setup without the setup code is refused" sh -c "test $code = 403 && grep -q SC001 /e2e/out/r.json"
+		snap installed; expect_exit 10 install_a --yes </dev/null; same installed after-second
+		bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null; snap removed
+		packages_back before removed
+		expect_exit 4 install_a --yes --from /e2e/variants/tampered-zip </dev/null; snap after-tampered; same removed after-tampered
+}
+
+m_byhand_1() {
+	# a fork installed by hand, the README's manual way, as the owner's server
+	# is: the release unpacked to /opt/cosmos, the unit "cosmos service
+	# install" writes, the data folder; no install.sh, so no record
+	arch=$(dpkg --print-architecture)
+	mkdir /root/unpack && unzip -q "/e2e/releases/v$VA/cosmos-cloud-$VA-$arch.zip" -d /root/unpack
+	mv "/root/unpack/cosmos-cloud-$VA" /opt/cosmos && rmdir /root/unpack
+	mkdir -p /var/lib/cosmos
+	(cd /opt/cosmos; env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin COSMOS_HTTP_PORT=80 COSMOS_HTTPS_PORT=443 ./cosmos service install >/dev/null 2>&1) || true # (it ends with 1 on success)
+	systemctl daemon-reload
+	systemctl enable --now CosmosCloud >/dev/null 2>&1
+	wait_panel 80
+	check "the hand-installed fork runs" systemctl is-active --quiet CosmosCloud
+	check "there is no installer record" test ! -e /var/lib/cosmos-installer
+	check "its uninstall.sh is there (as it will be on the owner's server)" test -f /opt/cosmos/fork/install/uninstall.sh
+	# 1. running: every flag that removes something, and nothing is touched
+	find /var/lib/cosmos /opt/cosmos -xdev | sort >/e2e/out/running-before
+	rc=0; bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null >/e2e/out/un-running.txt 2>&1 || rc=$?
+	cat /e2e/out/un-running.txt
+	check "uninstall.sh refuses with 3" test $rc = 3
+	check "saying this Cosmos was not installed by install.sh: nothing to remove" grep -q "this Cosmos was not installed by install.sh: nothing to remove" /e2e/out/un-running.txt
+	check "the service still runs and is enabled" sh -c "systemctl is-active --quiet CosmosCloud && systemctl is-enabled --quiet CosmosCloud"
+	find /var/lib/cosmos /opt/cosmos -xdev | sort >/e2e/out/running-after
+	check "no file of the installation or its data went" sh -c "comm -23 /e2e/out/running-before /e2e/out/running-after | grep -c . | grep -qx 0"
+	# 2. stopped, for a still picture: files, contents, unit and packages compared
+	systemctl stop CosmosCloud
+	snap before
+	rc=0; bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null >/e2e/out/un-stopped.txt 2>&1 || rc=$?
+	check "stopped too: uninstall.sh refuses with 3" test $rc = 3
+	same before after-uninstall
+	# 3. install.sh refuses over it before anything (10)
+	expect_exit 10 install_a --yes </dev/null
+	same before after-install
+	systemctl start CosmosCloud
+	wait_panel 80
+}

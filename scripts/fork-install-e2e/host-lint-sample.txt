@@ -1,0 +1,16 @@
+# Lines host-lint.awk must flag (bad:) and must let through (good:); the test
+# bed's guard_checks counts them before it trusts the lint.
+bad: 	bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null
+bad: 	M "$m" 'x'; sh /opt/cosmos/fork/install/install.sh --yes
+bad: 	"$INSTALL_DIR"/fork/install/install.sh --yes
+bad: 	D exec "$name" systemctl is-system-running
+bad: 	apt-get -q install -y less
+bad: 	DEBIAN_FRONTEND=noninteractive apt install -y less
+bad: 	dpkg --purge snapraid
+bad: 	rm -rf /var/lib/cosmos
+bad: 	rm -fr -- /opt/cosmos
+good: 	cp "$a/install.sh" "$a/uninstall.sh" "$d/"
+good: 	local files=(fork/install/install.sh fork/install/uninstall.sh)
+good: 	rm -rf "$SCRATCH/world/$sys/releases"
+good: 	M "$m" m_fresh_1 VB
+good: 	log "apt's lists" # apt-get in a comment
