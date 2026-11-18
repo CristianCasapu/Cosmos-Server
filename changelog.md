@@ -8,7 +8,11 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Merged into `custom` since `0.24.0-fork.37`, to be part of the next release:
+Merged into `custom` since `0.24.0-fork.38`, to be part of the next release:
+
+- Nothing yet.
+
+## Fork 0.24.0-fork.38 — 2026-11-18
 
 ### Added
 - Storage apps (RustFS, MinIO, Garage and other S3-compatible storage) have a "How to use it" guide, on the app's page and on its tile's menu, with this server's real addresses in every example: backups from Linux servers, websites (PHP, WordPress), databases, Docker apps, Windows, macOS, phones, NAS appliances and from code, each from nothing to a restore. A chooser says where you connect from (home, the internet, another app on this server) and rewrites the examples. Every example that can be run here is run against a real RustFS before a release.
