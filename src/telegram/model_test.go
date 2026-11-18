@@ -552,13 +552,15 @@ func (m *model) check(start time.Time) {
 				m.violate("I6", "%s told only after %s", short(id), msgs[len(msgs)-1].at.Sub(start))
 			}
 		}
-		if th.open && last == "open" && texts.Kinds[th.opening].Pin && newNotice(th.opening, nil).severity == sevCritical {
-			pinWanted = append(pinWanted, msgs[len(msgs)-1].id)
-		}
-		if th.open && last == "repeat" && texts.Kinds[th.opening].Pin {
+		// the opening the chat shows for an open problem is to be pinned,
+		// unless the notifier lost it with its file (it then sends a new one
+		// when the kind is wanted)
+		if th.open && (last == "open" || last == "repeat") && texts.Kinds[th.opening].Pin && newNotice(th.opening, nil).severity == sevCritical {
 			for i := len(msgs) - 1; i >= 0; i-- {
 				if msgs[i].action == "open" {
-					pinWanted = append(pinWanted, msgs[i].id)
+					if !between(m.lostAt, msgs[i].at, m.clock) {
+						pinWanted = append(pinWanted, msgs[i].id)
+					}
 					break
 				}
 			}

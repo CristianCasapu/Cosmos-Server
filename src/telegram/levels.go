@@ -105,9 +105,6 @@ func (n *notifier) reconcile() {
 	if !st.usable || n.levels == nil {
 		return
 	}
-	if n.reconcileGate != nil {
-		n.reconcileGate()
-	}
 	n.mu.Lock()
 	start := n.seq
 	known := map[string]threadLook{}

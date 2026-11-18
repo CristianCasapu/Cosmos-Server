@@ -167,7 +167,6 @@ type notifier struct {
 	panics          int                                                  // the sender's restarts after a panic
 	traceDecision   func(id string, action string, told bool, open bool) // the tests follow the decisions
 	levelWait       time.Time                                            // the threads wait for a look at their level until then
-	reconcileGate   func()                                               // the tests hold a look at the level here
 	pinsDue         bool                                                 // pins and unpins refused earlier are to be tried again
 
 	pausedUntil time.Time
