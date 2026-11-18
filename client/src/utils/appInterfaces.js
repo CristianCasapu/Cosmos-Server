@@ -415,7 +415,8 @@ export const appTile = (app, ctx) => {
     chosen,
     link: chosen ? chosen.url : '',
     state: tileState(interfaces, chosen),
-    menu: interfaces.length > 1 || (interfaces.length === 1 && !chosen),
+    // plan 50: an app with a how-to guide always has the menu (it holds "How to use it")
+    menu: interfaces.length > 1 || (interfaces.length === 1 && !chosen) || app.routes.some((r) => r && r.ForkGuide),
     keptHome: app.routes.some((r) => r.ForkHomeOnly === true),
   };
 };
@@ -430,7 +431,9 @@ export const appTiles = (routes, ctx, skip) => groupApps(routes, skip).map((app)
 // route's opaque key (ForkKey, which the server gives the same route in both
 // answers), never by name: two URLs may share a name. A route without a key
 // (an older server) gets nothing added.
-const DASHBOARD_FIELDS = ['ForkRole', 'ForkRoleSource', 'ForkLabel', 'ForkHomeOnly', 'ForkAdminPath', 'ForkHomeHosts', 'ForkContainer', 'ForkImage', 'ForkPorts'];
+const DASHBOARD_FIELDS = ['ForkRole', 'ForkRoleSource', 'ForkLabel', 'ForkHomeOnly', 'ForkAdminPath', 'ForkHomeHosts', 'ForkContainer', 'ForkImage', 'ForkPorts',
+  // plan 50: the guide's facts
+  'ForkGuide', 'ForkGuideSource', 'ForkGuideProposed', 'ForkGuideRegion', 'ForkShielded', 'ForkOwnCAHosts', 'ForkNetworks', 'ForkLimits', 'ForkServicePort'];
 export const dashboardEntryFor = (dashboard, key) => {
   if (!key || typeof key !== 'string') return null;
   return (Array.isArray(dashboard) ? dashboard : []).find((d) => d && d.ForkKey === key) || null;

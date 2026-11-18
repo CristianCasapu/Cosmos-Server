@@ -29,6 +29,8 @@
 // pictures the dialog). Screenshots go to ./shots.
 //
 // SETUP_CODE: the fresh test instance's one-time setup code, which its wizard asks for: cat <its config folder>/setup-code (src/fork_setup_code.go).
+// It also runs against the setup of scripts/fork-ui-check-edit-tabs.sh (Cosmos inside its Docker in
+// Docker, nginx:1 there a stand-in built from busybox): SERVER_IP=198.51.100.5 DIND=http://198.51.100.5:2375.
 import { chromium, firefox, webkit, request } from 'playwright';
 
 const ip = process.env.SERVER_IP || '198.51.100.10';
@@ -138,10 +140,25 @@ const open = async (type, name, viewport, mode, withSudo = true) => {
   });
   await ctx.request.post(base + '/cosmos/api/login', { data: { nickname: 'admin', password } });
   if (withSudo) await ctx.request.post(base + '/cosmos/api/sudo', { data: { password } });
+  // the panel's requests still under way: a save answers once the container runs again, and
+  // leaving the page before (go) would cancel it and the refresh that follows
+  page.pending = new Set();
+  page.on('request', (r) => { if (r.url().includes('/cosmos/api/') && r.resourceType() !== 'eventsource') page.pending.add(r); });
+  page.on('requestfinished', (r) => page.pending.delete(r));
+  page.on('requestfailed', (r) => page.pending.delete(r));
   return { browser, ctx, page };
 };
 const shot = (page, name, what) => page.screenshot({ path: `shots/${name}-${what}.png` });
+// waits until the page has no request under way for half a second (at most 60 s)
+const settle = async (page) => {
+  let quiet = 0;
+  for (let i = 0; i < 600 && quiet < 5; i++) {
+    quiet = page.pending && page.pending.size > 0 ? 0 : quiet + 1;
+    await page.waitForTimeout(100);
+  }
+};
 const go = async (page, container, tab) => {
+  await settle(page);
   await page.goto(`${base}/cosmos-ui/servapps/containers/${container}`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2500);
   if (tab) {
@@ -204,7 +221,9 @@ for (const engine of engines) {
           await until(`${container} has the label`, async () => ((await inspect(container)).Config.Labels || {})['test-note'] === name);
           await serverUp();
           await go(page, container, 'Network');
-          await page.getByLabel('DNS servers').fill('192.0.2.53');
+          // the DNS is a choice since plan 47 (I2c): typed through its door
+          await page.locator('#fork-dns [role=radio]').filter({ hasText: 'Type it myself' }).click();
+          await page.locator('#fork-dns-other').fill('192.0.2.53');
           await page.getByRole('button', { name: 'Update Ports' }).click();
           expect(await noDialog(page), `${name}: ${container}, Network tab, DNS: no dialog`);
           await until(`${container} has the DNS`, async () => ((await inspect(container)).HostConfig.Dns || []).includes('192.0.2.53'));
@@ -327,7 +346,7 @@ for (const engine of engines) {
 
         // the Network tab: the host's network
         await go(page, 'quiet', 'Network');
-        await page.getByLabel('Network Mode').fill('host');
+        await page.locator('#fork-network-mode [role=radio]').filter({ hasText: "server's own network" }).click(); // a choice since plan 47 (I2c)
         await page.getByRole('button', { name: 'Update Ports' }).click();
         await dialog(page).waitFor({ timeout: 20000 });
         expect(/server's own network/.test(await dialog(page).innerText()), `${name}: Network tab: the dialog names the host's network`);

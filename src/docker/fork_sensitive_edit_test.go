@@ -75,7 +75,7 @@ func TestTheUpdateRouteChecksSensitiveAccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(source)
-	check := strings.Index(text, "forkRefuseUnconfirmedEdit(w, req, before, container)")
+	check := strings.Index(text, "forkRefuseUnconfirmedEdit(w, req, before, container, where...)")
 	edit := strings.Index(text, "_, err = EditContainer(container.ID, container, false)")
 	if check < 0 || edit < 0 || check > edit {
 		t.Fatal("the update route must refuse unconfirmed sensitive access before EditContainer")

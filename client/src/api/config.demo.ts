@@ -248,6 +248,10 @@ function updateDNS(values) {
   return Promise.resolve({ status: "OK" });
 }
 
+function hostHomeOnly(host: string) { // Fork addition (plan 50)
+  return new Promise((resolve) => resolve({ status: 'OK', data: { homeOnly: /\.local$/.test(String(host || '')) } }));
+}
+
 function getDashboard() {
   return new Promise((resolve, reject) => {
     const routes = configDemo.data.HTTPConfig.ProxyConfig.Routes;
@@ -339,5 +343,6 @@ export {
   telegramTest,
   telegramChats,
   getDashboard,
+  hostHomeOnly, // Fork addition (plan 50)
   getBackup,
 };
