@@ -24,7 +24,7 @@ var groups = []Group{
 	{"ban", []string{utils.SecShieldBanTemp, utils.SecShieldBanPerm, utils.SecFail2banBan, utils.SecEdgeBlocked}},
 	{"scan", []string{utils.SecScanProbe, utils.SecShieldHostname, utils.SecShieldBot, utils.SecShieldGeo}},
 	{"access", []string{utils.SecAccessDenied, utils.SecAccessGrantDenied, utils.SecAccessIPDenied, utils.SecAccessLocalDenied, utils.SecAccessOriginDenied, utils.SecAccessForeignDenied, utils.SecTokenIPDenied}},
-	{GroupOther, []string{utils.SecShieldBlocked, utils.SecSessionRejected, utils.SecResetRequested, utils.SecResetRejected, utils.SecTokenExpired, utils.SecRecorderDropped, utils.SecTelegramWarningLost, utils.SecServerUpdateRejected, utils.SecTurnstileUnavailable}},
+	{GroupOther, []string{utils.SecShieldBlocked, utils.SecSessionRejected, utils.SecResetRequested, utils.SecResetRejected, utils.SecTokenExpired, utils.SecRecorderDropped, utils.SecTelegramWarningLost, utils.SecTelegramThreadDropped, utils.SecServerUpdateRejected, utils.SecTurnstileUnavailable}},
 }
 
 var groupOfKind = func() map[string]string {
