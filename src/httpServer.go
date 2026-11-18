@@ -1101,6 +1101,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/monitoring-copy", monitorcopy.StatusRoute)        // Fork addition (plan 51): the copy of the monitoring history between the local file and PostgreSQL, see monitorcopy/
 	srapiAdmin.HandleFunc("/api/monitoring-copy/start", monitorcopy.StartRoute)   // Fork addition (plan 51)
 	srapiAdmin.HandleFunc("/api/monitoring-copy/cancel", monitorcopy.CancelRoute) // Fork addition (plan 51)
+	srapi.HandleFunc("/api/host-home-only", proxy.HostHomeOnlyRoute) // Fork addition (plan 50): does the proxy keep a host to the home network (proxy/fork_host_home_only.go)
 	srapiAdmin.HandleFunc("/api/lan-addresses", proxy.LANAddressesRoute) // Fork addition: where a service may be published for the home network (proxy/fork_lan_addresses.go)
 	// Fork addition: does an app accept the address it is reached at (src/behind, plan 44)
 	srapiAdmin.HandleFunc("/api/url-check", behind.CheckRoute)
@@ -1109,6 +1110,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/known-apps", behind.KnownAppsRoute)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/terminal/{action}", docker.TerminalRoute)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/update", docker.UpdateContainerRoute)
+	srapiAdmin.HandleFunc("/api/servapps/{containerId}/edit-hints", EditHintsRoute) // Fork addition (plan 47, I2c): what the edit tabs propose from (fork_edit_hints.go)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/export", docker.ExportContainerRoute)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/", docker.GetContainerRoute)
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/network/{networkId}", docker.NetworkContainerRoutes)
@@ -1118,6 +1120,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/servapps", docker.ContainersRoute)
 	srapiAdmin.HandleFunc("/api/docker-service", docker.CreateServiceRoute)
 	srapiAdmin.HandleFunc("/api/install/plan", InstallPlanRoute) // Fork addition: the server's platform, the images' platforms and the places for data, see fork_install_plan.go
+	srapiAdmin.HandleFunc("/api/install/sensitive", docker.SensitiveRoute) // Fork addition (plan 47, I2c): the ticks only the server can see, for the creation review (docker/fork_edit_links.go)
 	srapiAdmin.HandleFunc("/api/images/search", anyimage.SearchRoute)     // Fork addition: Docker Hub search, see anyimage/
 	srapiAdmin.HandleFunc("/api/images/describe", anyimage.DescribeRoute) // Fork addition: what an image declares, read without a pull
 	

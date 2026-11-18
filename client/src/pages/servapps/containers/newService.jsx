@@ -22,8 +22,8 @@ import LogLine from '../../../components/logLine';
 import Highlighter from '../../../components/third-party/Highlighter';
 import { useTranslation } from 'react-i18next';
 import { InstallExposure } from '../../../components/exposure'; // Fork addition: the internet, proposed and optional
-import CreationReview, { reviewHolds, useCreation } from '../../../components/creationReview'; // Fork addition
-import { sensitiveAccess } from '../../../utils/sensitiveAccess'; // Fork addition
+import CreationReview, { reviewHolds, useCreation, useServerSensitive } from '../../../components/creationReview'; // Fork addition
+import { sensitiveAccess, withServerItems } from '../../../utils/sensitiveAccess'; // Fork addition
 import { StartProblem } from '../../../components/startProblem'; // Fork addition (plan 43): a new app that does not start
 import { START_MARKER, parseStartCheck, repairDefinition, withoutStartCheck } from '../../../utils/services'; // Fork addition (plan 43)
 import ForkPullProgress, { usePullProgress } from '../../../components/forkPullProgress'; // Fork addition: the image pull as a step
@@ -98,8 +98,9 @@ const NewDockerService = ({service, refresh, edit, notes, holdReason}) => {
   const setDockerCompose = setEdited;
   let current = creation.final;
   try { current = JSON.parse(dockerCompose); } catch (e) { /* said on Create */ }
-  const sensitive = sensitiveAccess(current, creation.plan && creation.plan.protected);
-  const hold = holdReason || reviewHolds(t, { notes, sensitive, confirmed, plan: creation.plan, anyArch, edit });
+  const serverSensitive = useServerSensitive(current, !!edit); // Fork addition (plan 47, I2c): the ticks only the server can see
+  const sensitive = withServerItems(sensitiveAccess(current, creation.plan && creation.plan.protected), serverSensitive.items);
+  const hold = holdReason || serverSensitive.refused || (serverSensitive.failed ? t('mgmt.servapps.creation.checkFailedHold', 'Waiting for the server\'s check of this definition.') : '') || reviewHolds(t, { notes, sensitive, confirmed, plan: creation.plan, anyArch, edit });
 
   const create = (repaired) => {
     // Fork addition: a definition that is not JSON or YAML is said, not thrown; a failure ends the wait
@@ -135,7 +136,7 @@ const NewDockerService = ({service, refresh, edit, notes, holdReason}) => {
         const reason = newlog.replace(/^.*\[OPERATION FAILED\][.\s]*/, '').trim();
         setFailed(reason && !/rolled ?back/i.test(reason) ? reason : t('mgmt.servapps.create.failed', 'The creation failed and what was made has been removed again: the reason is in the log below.'));
       }
-    }, !!edit || !!repaired /* Fork addition (plan 43): the repair replaces what the creation made */, sensitiveAccess(definition, creation.plan && creation.plan.protected).map((item) => item.id).filter((id) => confirmed.includes(id)), anyArch)
+    }, !!edit || !!repaired /* Fork addition (plan 43): the repair replaces what the creation made */, withServerItems(sensitiveAccess(definition, creation.plan && creation.plan.protected), serverSensitive.items).map((item) => item.id).filter((id) => confirmed.includes(id)), anyArch)
       .catch((e) => setFailed(e.message || String(e)))
       .finally(() => setWatching(false)); // Fork addition (plan 43)
   }
@@ -168,6 +169,11 @@ const NewDockerService = ({service, refresh, edit, notes, holdReason}) => {
       {!edit && <InstallExposure service={current} definition={dockerCompose} done={isDone} />}
       {failed && <Alert severity="error" sx={{ overflowWrap: 'anywhere' }} data-create-failed>{failed}</Alert>}
       {!!log.length && <ForkPullProgress pulls={pull.pulls} onRetry={failed ? () => create() : null} />/* Fork addition: the image pull, its reason and "Try again" */}
+      {/* Fork addition (plan 47, I2c, third review m-6): the server's check did not answer */}
+      {serverSensitive.failed && !isDone && !log.length && <Alert severity="warning" sx={{ overflowWrap: 'anywhere' }} data-create-check-failed
+        action={<Button color="inherit" size="small" onClick={serverSensitive.retry}>{t('mgmt.servapps.creation.checkAgain', 'Check again')}</Button>}>
+        {t('mgmt.servapps.creation.checkFailed', 'Cosmos could not ask the server which access this definition needs (links, existing volumes, folders other apps write): Create waits until it can.')}
+      </Alert>}
       {hold && !isDone && !log.length && <Alert severity="info" sx={{ overflowWrap: 'anywhere' }} data-create-hold>{hold}</Alert>}
       {!isDone && <LoadingButton 
         disabled={!!hold}

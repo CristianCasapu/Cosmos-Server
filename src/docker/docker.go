@@ -246,7 +246,7 @@ func EditContainer(oldContainerID string, newConfig types.ContainerJSON, noLock 
 	
 	// only force hostname if network is bridge or default, otherwise it will fail
 	if newConfig.HostConfig.NetworkMode == "bridge" || newConfig.HostConfig.NetworkMode == "default" {
-		newConfig.Config.Hostname = newName[1:]
+		newConfig.Config.Hostname = forkHostname(newConfig.Config.Hostname, newName, oldContainer) // Fork addition (plan 47, I2c): a hostname of its own is kept (fork_edit_network.go)
 	// if starts with service: or container: or if host, remove hostname because they can't have it
 	}	else if (strings.HasPrefix(string(newConfig.HostConfig.NetworkMode), "service:") || strings.HasPrefix(string(newConfig.HostConfig.NetworkMode), "container:") || newConfig.HostConfig.NetworkMode == "host") {
 		// don't allow for hostnames!
@@ -261,7 +261,7 @@ func EditContainer(oldContainerID string, newConfig types.ContainerJSON, noLock 
 		DockerContext,
 		newConfig.Config,
 		newConfig.HostConfig,
-		nil,
+		forkNetworkingConfig(oldContainer, newConfig.Config, newConfig.HostConfig.NetworkMode), // Fork addition (plan 47, I2c): the main network's endpoint as it was (fork_edit_network.go)
 		nil,
 		newName,
 	)
@@ -281,7 +281,7 @@ func EditContainer(oldContainerID string, newConfig types.ContainerJSON, noLock 
 			continue
 		}
 		utils.Log("EditContainer - Connecting to network " + networkName)
-		errNet := ConnectToNetworkSync(networkName, createResponse.ID)
+		errNet := forkReconnect(networkName, createResponse.ID, oldContainer, newConfig.HostConfig.NetworkMode) // Fork addition (plan 47, I2c): with the endpoint it had (fork_edit_network.go)
 		if errNet != nil {
 			utils.Error("EditContainer - Failed to connect to network " + networkName, errNet)
 		} else {
