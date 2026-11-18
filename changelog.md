@@ -8,7 +8,11 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Merged into `custom` since `0.24.0-fork.38`, to be part of the next release:
+Merged into `custom` since `0.24.0-fork.39`, to be part of the next release:
+
+- Nothing yet.
+
+## Fork 0.24.0-fork.39 — 2026-11-18
 
 ### Added
 - An app's Network, Storage and Docker tabs propose their values: ports from the image with a free port of the server, the address a port is published on as a choice with who can reach it, folders the image keeps data in that nothing keeps yet, the user, the limits and the server's devices; "Type it myself" stays everywhere.
