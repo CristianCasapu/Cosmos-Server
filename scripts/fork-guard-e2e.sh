@@ -105,9 +105,17 @@ else
 	status=1
 fi
 for m in $MACHINES; do
+	# the machines of a run stopped at its first failure stay as they are
+	if [ "${STOP_ON_FAIL:-}" = 1 ] && [ "$status" != 0 ]; then echo "STOP_ON_FAIL: $m not run, the failing machine is kept"; continue; fi
 	# shellcheck disable=SC2086
 	docker exec -e PREFIX="$PREFIX-t" -e BREAK="${BREAK:-}" -e STOP_ON_FAIL="${STOP_ON_FAIL:-}" "$D" sh /work/e2e/inner.sh "$m" $TEST_GROUPS || status=1
 done
 echo "took $(( $(date +%s) - start )) s"
-[ "${KEEP:-}" = 1 ] || clean
+# STOP_ON_FAIL=1 keeps everything as it was at the first failure
+[ "${STOP_ON_FAIL:-}" != 1 ] || KEEP=1
+if [ "${KEEP:-}" = 1 ]; then
+	echo "kept: the Docker in Docker $D; inside it: $(docker exec "$D" docker ps --format '{{.Names}}' 2>/dev/null | tr '\n' ' ')"
+else
+	clean
+fi
 exit $status

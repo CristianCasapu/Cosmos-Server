@@ -644,6 +644,20 @@ from_sshd() {
 	done
 	return 1
 }
+# from_server <pid> <name>: the process is root's, or an ancestor is root's
+# process of that name (the listening server it was forked from)
+from_server() {
+	p=$1
+	depth=0
+	while [ "$p" -gt 1 ] 2>/dev/null && [ "$depth" -lt 64 ]; do
+		if [ "$(cat "/proc/$p/comm" 2>/dev/null)" = "$2" ] && [ "$(awk '/^Uid:/ {print $2}' "/proc/$p/status" 2>/dev/null)" = 0 ]; then
+			return 0
+		fi
+		p=$(awk '/^PPid:/ {print $2}' "/proc/$p/status" 2>/dev/null || echo 0)
+		depth=$((depth + 1))
+	done
+	return 1
+}
 live_peers() { # "<address> <local port>" per session
 	ss -Htnp state established 2>/dev/null | while read -r _ _ local peer procs; do
 		lport=${local##*:}
@@ -652,8 +666,10 @@ live_peers() { # "<address> <local port>" per session
 			comm=$(cat "/proc/$pid/comm" 2>/dev/null || true)
 			case "$comm" in
 				dropbear|tinysshd)
-					# another SSH server: every connection it holds counts (signed in or not)
-					[ "$(awk '/^Uid:/ {print $2}' "/proc/$pid/status" 2>/dev/null)" = 0 ] && session=1 ;;
+					# another SSH server: every connection it holds counts (signed in or
+					# not), when the process is root's or descends from root's server (once
+					# signed in, the connection's process runs as the user)
+					from_server "$pid" "$comm" && session=1 ;;
 				sshd|sshd-session)
 					# OpenSSH, however it was started (its own listener, or systemd's
 					# ssh.socket): signed in, and descended from the root-owned daemon

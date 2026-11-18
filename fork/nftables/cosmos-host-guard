@@ -545,12 +545,26 @@ case "${1:-}" in
 				*"$TNAME"*|*"flush ruleset"*) ( locked do_refresh ) || note "reload failed" ;;
 			esac
 		done; kill $$ 2>/dev/null ) &
-		sleep 0.2
+		# One line per change of a link, an address or a route. Docker's ends and
+		# bridges change all the time and never carry a default route: left out.
+		# Listening before the first refresh, so that nothing falls between.
+		( ip -o monitor link address route | while read -r line; do
+			case "$line" in
+				*veth*|*docker0*|*" br-"[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) continue ;;
+			esac
+			[ -e "$RUN/dirty.first" ] || : > "$RUN/dirty.first"
+			: > "$RUN/dirty"
+		done; kill $$ 2>/dev/null ) &
+		sleep 0.3
+		# a change while the first refresh runs is caught by the one after it
+		: > "$RUN/dirty.first"
+		: > "$RUN/dirty"
 		( locked do_refresh force )
 		# One refresh per burst of changes: after 2 s without a change (or 10 s
-		# into a burst that does not end), and at most one every 10 s. It also
-		# marks the watcher alive for the panel.
-		( last=0
+		# into a burst that does not end), and at most one every 10 s; a route or
+		# address change is followed within about 4 s, within 12 s in a burst. It
+		# also marks the watcher alive for the panel.
+		last=0
 		while :; do
 			sleep 2
 			: > "$RUN/alive"
@@ -564,15 +578,6 @@ case "${1:-}" in
 			rm -f "$RUN/dirty" "$RUN/dirty.first"
 			last=$t
 			( locked do_refresh ) || note "refresh failed"
-		done; kill $$ 2>/dev/null ) &
-		# One line per change of a link, an address or a route. Docker's ends and
-		# bridges change all the time and never carry a default route: left out.
-		ip -o monitor link address route | while read -r line; do
-			case "$line" in
-				*veth*|*docker0*|*" br-"[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) continue ;;
-			esac
-			[ -e "$RUN/dirty.first" ] || : > "$RUN/dirty.first"
-			: > "$RUN/dirty"
 		done
 		exit 1 # a monitor ended: systemd starts the watcher again
 		;;
