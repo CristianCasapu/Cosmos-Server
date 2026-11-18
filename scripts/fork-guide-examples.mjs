@@ -369,19 +369,22 @@ for (const key of PLACES) {
     });
     if (chain === 'recover-clean' && key === 'home' && place.quotaAtAttack) {
       const env = codeBlocks(place.guide).find((b) => b.id === 'linux-env');
-      const backup = (label) => docker('run', '--rm', ...PLACE_NET[place.key], '--entrypoint', 'bash', 'gx-linux', '-c', ['set -e',
+      // restic retries a refused upload for many minutes: the second probe sends the same kind of
+      // upload with rclone, which gives up at once, so that a refusal is seen as one
+      const backup = (label, quick) => docker('run', '--rm', ...PLACE_NET[place.key], '--entrypoint', 'bash', 'gx-linux', '-c', ['set -e',
         "install -m 600 /dev/null /root/.s3-backup.env && cat > /root/.s3-backup.env <<'SETTINGS_END'\n" + unmark(renderCode(env, facts).text, place) + '\nSETTINGS_END',
         "install -m 600 /dev/null /root/.restic-password && printf '%s\\n' '" + place.repoPassword + "' > /root/.restic-password",
         facts.flags.ca ? "cat > /etc/ssl/cosmos-ca.pem <<'COSMOS_CA_END'\n" + facts.values.ca_pem + '\nCOSMOS_CA_END' : 'true',
         'set -a; . /root/.s3-backup.env; set +a', 'export RESTIC_REPOSITORY="$RESTIC_REPOSITORY-restored"',
         'mkdir -p /tmp/new && head -c 40000000 /dev/urandom > /tmp/new/' + label + '.bin',
-        'restic backup --host ' + place.name + ' --tag after-repair /tmp/new'].join('\n'));
+        quick ? 'rclone copy --retries 1 --low-level-retries 1 /tmp/new store:' + facts.values.bucket + '/restic-restored/data/zz 2>&1 | tail -2; exit ${PIPESTATUS[0]}'
+          : 'restic backup --host ' + place.name + ' --tag after-repair /tmp/new'].join('\n'));
       const setQuota = (bytes) => docker('exec', 'rustfs', 'sh', '-c', 'umask 077; printf \'{"schema_version":1,"aliases":[{"name":"t","endpoint":"http://127.0.0.1:9000","region":"us-east-1","signature":"v4","bucket_lookup":"auto","credentials":{"access_key":"%s","secret_key":"%s"}}]}\' "$RUSTFS_ACCESS_KEY" "$RUSTFS_SECRET_KEY" > /tmp/t.json && rc alias import /tmp/t.json >/dev/null && rm -f /tmp/t.json && rc bucket quota set t/' + facts.values.bucket + ' ' + bytes + ' >/dev/null && rc alias remove t >/dev/null');
       const raised = backup('raised');
       results.push({ place: key, id: 'check: with the quota kept raised, the next backup to the repaired copy passes', ok: raised.status === 0 });
       log((raised.status === 0 ? 'ok   ' : 'FAIL ') + key + ': with the quota kept raised, the next backup to the repaired copy passes');
       setQuota(place.quotaAtAttack);
-      const early = backup('early');
+      const early = backup('early', true);
       const refused = early.status !== 0;
       results.push({ place: key, id: 'check: the quota put back right after the purge would refuse it', ok: refused });
       log((refused ? 'ok   ' : 'FAIL ') + key + ': the quota put back right after the purge would refuse the next backup');
