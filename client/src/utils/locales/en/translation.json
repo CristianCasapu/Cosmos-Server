@@ -6591,5 +6591,11 @@
 	"mgmt.servapps.sensitive.nested": "{{service}} gets the folder {{value}}, which lies inside a folder {{detail}} can write: that app could turn it into a link to any folder of the server before the next start.",
 	"mgmt.servapps.sensitive.linkinto": "{{service}} gets the folder {{value}}, reached through a link, inside the folder of {{detail}}.",
 	"mgmt.servapps.editTabs.port.hostFreeSockets": "the same number, free on the server (no program listens on it; a port another program forwards with a firewall rule alone is not seen)",
-	"mgmt.servapps.editTabs.folder.newRemap": "On {{disk}}, {{free}} free. A folder that does not exist is made when you save, owned by root: Docker runs apps with users of their own on this server (userns-remap), so it cannot be given to the app's user."
+	"mgmt.servapps.editTabs.folder.newRemap": "On {{disk}}, {{free}} free. A folder that does not exist is made when you save, owned by root: Docker runs apps with users of their own on this server (userns-remap), so it cannot be given to the app's user.",
+	"mgmt.servapps.editTabs.folder.newUnknown": "On {{disk}}, {{free}} free. A folder that does not exist is made when you save, owned by root: Docker did not say whether it runs apps with users of their own, so it is not given to the app's user.",
+	"mgmt.servapps.editTabs.notes": "Saved. Cosmos had to change this by itself:",
+	"mgmt.servapps.creation.checkFailedHold": "Waiting for the server's check of this definition.",
+	"mgmt.servapps.creation.checkAgain": "Check again",
+	"mgmt.servapps.creation.checkFailed": "Cosmos could not ask the server which access this definition needs (links, existing volumes, folders other apps write): Create waits until it can.",
+	"mgmt.servapps.sensitive.unchecked": "{{service}} gets the folder {{value}}: Cosmos could not check whether another app can write in it (Docker did not list the containers)."
 }

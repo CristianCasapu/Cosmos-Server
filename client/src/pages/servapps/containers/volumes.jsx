@@ -26,7 +26,7 @@ import PermissionGuard from '../../../components/permissionGuard';
 import { PERM_RESOURCES } from '../../../utils/permissions';
 import { bindIsReadOnly, mountHostPath } from './forkContainerFixes'; // Fork addition: read-only mounts, real volume folders
 import { PaidOnly } from '../../../components/paidVisibility'; // Fork addition
-import { useEditHints, ForkDeclaredVolumes, ForkFolderNote, ForkSourcePlaces, ForkVolumeSource, ForkReadOnly } from './forkEditTabs'; // Fork addition (plan 47, I2c): the edit tab's proposals
+import { useEditHints, ForkDeclaredVolumes, ForkFolderNote, ForkSourcePlaces, ForkVolumeSource, ForkReadOnly, ForkEditNotes } from './forkEditTabs'; // Fork addition (plan 47, I2c): the edit tab's proposals
 
 const VolumeContainerSetup = ({
   noCard,
@@ -134,7 +134,7 @@ const VolumeContainerSetup = ({
       return API.docker
         .updateContainer(containerInfo.Name.replace("/", ""), realvalues)
         .then((res) => {
-          setStatus({ success: true });
+          setStatus({ success: true, notes: res && res.notes }); // Fork addition (plan 47, I2c): what the edit changed by itself
           setSubmitting(false);
           refresh && refresh();
         })
@@ -399,7 +399,8 @@ const VolumeContainerSetup = ({
                     </Grid>
                     <Grid size={{ xs: 12 }}>
                       <Stack direction="column" spacing={2}>
-                        {formik.errors.submit && (
+                        {formik.status && <ForkEditNotes notes={formik.status.notes} />/* Fork addition (plan 47, I2c) */}
+                      {formik.errors.submit && (
                           <Grid size={{ xs: 12 }}>
                             <FormHelperText error>
                               {formik.errors.submit}

@@ -20,6 +20,7 @@ package docker
 // user (forkPrepareBindFolders), so that the app can write in it.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -29,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/azukaar/cosmos-server/src/edithints"
 	"github.com/azukaar/cosmos-server/src/utils"
@@ -317,9 +319,11 @@ func checkEdit(before, after types.ContainerJSON) error {
 // edit holds a value the server refuses; otherwise it gives the ticks the new
 // mounts need for where they lie (fork_edit_links.go).
 func forkRefuseBadEdit(w http.ResponseWriter, before types.ContainerJSON, after *types.ContainerJSON) ([]SensitiveItem, bool) {
-	items, err := editAccess(before, after)
+	// shapes and bounds first, before any look at the disks or at Docker (third review m-3)
+	var items []SensitiveItem
+	err := checkEdit(before, *after)
 	if err == nil {
-		err = checkEdit(before, *after)
+		items, err = editAccess(before, after)
 	}
 	if err == nil {
 		return items, false
@@ -387,26 +391,43 @@ func keepRestartRetries(before, after *types.ContainerJSON) {
 // (fork_edit_hints.go), which knows them.
 var EditDataPlaces = func() []string { return nil }
 
-// UsernsRemapped says whether the Docker daemon runs containers in a user
-// namespace of its own (userns-remap); asked once. Replaced by the tests.
-var UsernsRemapped = func() bool {
-	usernsOnce.Do(func() {
-		if DockerClient == nil {
-			return
+// UsernsState says whether the Docker daemon runs containers in a user
+// namespace of its own (userns-remap), and whether that is known: Docker's
+// answer is remembered once it answered, and asked again until then (third
+// review m-5). Replaced by the tests.
+var UsernsState = func() (remapped bool, known bool) {
+	usernsMu.Lock()
+	defer usernsMu.Unlock()
+	if usernsKnown {
+		return usernsRemapped, true
+	}
+	if DockerClient == nil {
+		return false, false
+	}
+	ctx, cancel := context.WithTimeout(DockerContext, 5*time.Second)
+	defer cancel()
+	info, err := DockerClient.Info(ctx)
+	if err != nil {
+		return false, false
+	}
+	for _, option := range info.SecurityOptions {
+		if strings.Contains(option, "name=userns") {
+			usernsRemapped = true
 		}
-		if info, err := DockerClient.Info(DockerContext); err == nil {
-			for _, option := range info.SecurityOptions {
-				if strings.Contains(option, "name=userns") {
-					usernsRemapped = true
-				}
-			}
-		}
-	})
-	return usernsRemapped
+	}
+	usernsKnown = true
+	return usernsRemapped, true
+}
+
+// UsernsRemapped: a new folder must not be given to an app's uid (remapped, or not known).
+func UsernsRemapped() bool {
+	remapped, known := UsernsState()
+	return remapped || !known
 }
 
 var (
-	usernsOnce     sync.Once
+	usernsMu       sync.Mutex
+	usernsKnown    bool
 	usernsRemapped bool
 )
 
@@ -492,8 +513,13 @@ func forkPrepareBindFolders(before, after types.ContainerJSON, root string) {
 	uid, gid := 0, 0 // a user given by name, or root: the folder stays root's, as EditContainer would make it
 	// under Docker's user namespace remapping an app's uid is not the server's: the folder is
 	// left root's instead of given to a uid that means someone else on the server (second review M8)
-	if user.Known && user.UID != 0 && UsernsRemapped() {
-		utils.Log("Edit: Docker remaps users (userns-remap): a new data folder is left owned by root")
+	remapped, knownRemap := UsernsState()
+	if user.Known && user.UID != 0 && (remapped || !knownRemap) {
+		if remapped {
+			utils.Log("Edit: Docker remaps users (userns-remap): a new data folder is left owned by root")
+		} else {
+			utils.Log("Edit: Docker did not say whether it remaps users: a new data folder is left owned by root")
+		}
 	} else if user.Known && user.UID != 0 {
 		uid, gid = user.UID, user.GID
 		if gid < 0 {

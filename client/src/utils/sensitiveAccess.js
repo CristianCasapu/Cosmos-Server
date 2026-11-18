@@ -146,6 +146,7 @@ export const TEXT = {
   'network-container': '{{service}} uses the network of the app {{value}}: it sees what that app sees, the server\'s own network when that app uses it.',
   nested: '{{service}} gets the folder {{value}}, which lies inside a folder {{detail}} can write: that app could turn it into a link to any folder of the server before the next start.',
   linkinto: '{{service}} gets the folder {{value}}, reached through a link, inside the folder of {{detail}}.',
+  unchecked: '{{service}} gets the folder {{value}}: Cosmos could not check whether another app can write in it (Docker did not list the containers).',
 };
 
 export const sentence = (item) => ({ key: 'mgmt.servapps.sensitive.' + item.kind, text: TEXT[item.kind] || '{{service}}: {{value}}', params: { service: item.service, value: item.value, detail: item.detail || '' } });

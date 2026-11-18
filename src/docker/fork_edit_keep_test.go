@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -67,6 +68,7 @@ func shapeContainer(t *testing.T, running bool) types.ContainerJSON {
 		Config: &containerType.Config{
 			Image: "example/plainapp@sha256:" + strings.Repeat("ab", 32), User: "65534:65534", Env: []string{"SHAPE=1"},
 			Hostname: "myhost", Domainname: "home.local", OpenStdin: true, AttachStdin: true, Tty: false,
+			MacAddress:  "02:42:ac:1e:00:32", // set by its owner (API ≤1.45 reports it only then)
 			Healthcheck: &containerType.HealthConfig{Test: []string{"CMD", "true"}, Interval: 30e9},
 			WorkingDir:  "/srv", Entrypoint: []string{"/bin/sh"}, Cmd: []string{"-c", "sleep 1d"}, StopSignal: "SIGINT",
 			Labels:       map[string]string{"shape.note": "kept"},
@@ -90,7 +92,8 @@ func tabPayloads(c types.ContainerJSON) map[string]map[string]interface{} {
 	}
 	docker := map[string]interface{}{
 		"image": c.Config.Image, "user": c.Config.User, "restartPolicy": string(c.HostConfig.RestartPolicy.Name),
-		"envVars": env, "labels": c.Config.Labels, "devices": devices, "interactive": map[bool]int{true: 2, false: 1}[c.Config.Tty && c.Config.OpenStdin], "memLimit": "256m", "cpus": 0.5,
+		"envVars": env, "labels": c.Config.Labels, "devices": devices, "interactive": map[bool]int{true: 2, false: 1}[c.Config.Tty && c.Config.OpenStdin],
+		"memLimit": memoryText(c.HostConfig.Memory), "cpus": float64(c.HostConfig.NanoCPUs) / 1e9,
 	}
 	// network.jsx: configuredPortRows → portsToSend
 	bindings := map[string][]map[string]string{}
@@ -328,4 +331,17 @@ func TestMountCasesAgreeWithThePanel(t *testing.T) {
 			t.Errorf("%+v: got %v, want %v", c.Mount, got, c.Items)
 		}
 	}
+}
+
+// memoryText is the panel's size text of a memory limit (utils/newContainer.js memoryText), "" for none.
+func memoryText(bytes int64) string {
+	switch {
+	case bytes <= 0:
+		return ""
+	case bytes%(1<<30) == 0:
+		return strconv.FormatInt(bytes>>30, 10) + "g"
+	case bytes%(1<<20) == 0:
+		return strconv.FormatInt(bytes>>20, 10) + "m"
+	}
+	return strconv.FormatInt(bytes, 10)
 }

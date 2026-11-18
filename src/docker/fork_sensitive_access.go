@@ -302,6 +302,8 @@ func sensitiveSentence(items []SensitiveItem) string {
 			parts = append(parts, item.Service+": the network of the app "+item.Value+" (and the server's own when that app uses it)")
 		case "nested":
 			parts = append(parts, item.Service+": the folder "+item.Value+", inside a folder "+item.Detail+" can write: that app could turn it into a link to any folder of the server")
+		case "unchecked":
+			parts = append(parts, item.Service+": the folder "+item.Value+" (Cosmos could not check whether another app can write here: Docker did not list the containers)")
 		case "linkinto":
 			parts = append(parts, item.Service+": the folder "+item.Value+", reached through a link, in the folder of "+item.Detail)
 		case "propagation":

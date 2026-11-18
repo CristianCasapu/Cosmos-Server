@@ -234,9 +234,10 @@ func TestPrepareBindFolders(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "srv"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	oldPlaces := EditDataPlaces
-	defer func() { EditDataPlaces = oldPlaces }()
+	oldPlaces, oldRemap := EditDataPlaces, UsernsState
+	defer func() { EditDataPlaces, UsernsState = oldPlaces, oldRemap }()
 	EditDataPlaces = func() []string { return []string{"/mnt/data"} }
+	UsernsState = func() (bool, bool) { return false, true }
 	owned := recordChowns(t, root)
 	before := ownersApp()
 	before.Config.User = ""

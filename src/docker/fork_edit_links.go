@@ -23,6 +23,7 @@ package docker
 //     too, kind "linkinto", naming that app.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -45,7 +46,9 @@ var lookupVolume = func(name string) (driver string, options map[string]string, 
 	if DockerClient == nil {
 		return "", nil, false
 	}
-	v, err := DockerClient.VolumeInspect(DockerContext, name)
+	ctx, cancel := context.WithTimeout(DockerContext, 5*time.Second)
+	defer cancel()
+	v, err := DockerClient.VolumeInspect(ctx, name)
 	if err != nil {
 		return "", nil, false
 	}
@@ -65,7 +68,8 @@ var (
 // existingVolumeDevice is the host path an existing named volume binds, ""
 // for none; asked of Docker at most every 5 seconds per volume, at most 256 kept.
 func existingVolumeDevice(name string) string {
-	if name == "" || strings.HasPrefix(name, "/") {
+	// Docker's rule for a name first: nothing else reaches the API (third review m-3)
+	if name == "" || len(name) > 255 || !volumeNamePattern.MatchString(name) {
 		return ""
 	}
 	volumeFactsMu.Lock()
@@ -81,7 +85,14 @@ func existingVolumeDevice(name string) string {
 	}
 	volumeFactsMu.Lock()
 	if len(volumeFacts) >= 256 {
-		volumeFacts = map[string]volumeFact{}
+		// the oldest goes (third review m-4)
+		oldest, at := "", time.Now()
+		for k, f := range volumeFacts {
+			if f.at.Before(at) {
+				oldest, at = k, f.at
+			}
+		}
+		delete(volumeFacts, oldest)
 	}
 	volumeFacts[name] = volumeFact{device: device, at: time.Now()}
 	volumeFactsMu.Unlock()
@@ -194,15 +205,18 @@ type writer struct {
 }
 
 // listServerMounts lists what the containers of this server mount from the
-// host (binds, and volumes binding a host path); replaced by the tests.
-var listServerMounts = func() []writer {
+// host (binds, and volumes binding a host path); ok is false when Docker
+// could not tell. Replaced by the tests.
+var listServerMounts = func() ([]writer, bool) {
 	out := []writer{}
 	if DockerClient == nil {
-		return out
+		return out, false
 	}
-	containers, err := DockerClient.ContainerList(DockerContext, containerType.ListOptions{All: true})
+	ctx, cancel := context.WithTimeout(DockerContext, 5*time.Second)
+	defer cancel()
+	containers, err := DockerClient.ContainerList(ctx, containerType.ListOptions{All: true})
 	if err != nil {
-		return out
+		return out, false
 	}
 	for i, c := range containers {
 		if i >= 500 {
@@ -226,7 +240,7 @@ var listServerMounts = func() []writer {
 			}
 		}
 	}
-	return out
+	return out, true
 }
 
 var (
@@ -235,19 +249,41 @@ var (
 	serverMounts   []writer
 )
 
-// serverWriters is listServerMounts with real paths, kept 5 seconds.
-func serverWriters() []writer {
+// serverWriters is listServerMounts with real paths, kept 5 seconds; the
+// lock is not held while Docker is asked (third review m-4), and a failure is
+// not kept: ok false makes the callers ask the generic tick.
+func serverWriters() ([]writer, bool) {
 	serverMountsMu.Lock()
-	defer serverMountsMu.Unlock()
 	if serverMounts != nil && time.Since(serverMountsAt) < 5*time.Second {
-		return serverMounts
+		list := serverMounts
+		serverMountsMu.Unlock()
+		return list, true
 	}
-	list := listServerMounts()
+	serverMountsMu.Unlock()
+	list, ok := listServerMounts()
+	if !ok {
+		return nil, false
+	}
 	for i := range list {
 		list[i].source = realPath(list[i].source)
 	}
+	serverMountsMu.Lock()
 	serverMounts, serverMountsAt = list, time.Now()
-	return serverMounts
+	serverMountsMu.Unlock()
+	return list, true
+}
+
+// uncheckedItems: when the containers' mounts could not be listed, every new
+// host path on a data place asks the tick that says so (fail closed, third review m-4).
+func uncheckedItems(service string, fresh []string) []SensitiveItem {
+	items := []SensitiveItem{}
+	places := EditDataPlaces()
+	for _, p := range fresh {
+		if inDataPlace(p, places) {
+			items = append(items, SensitiveItem{Service: service, Kind: "unchecked", Value: p})
+		}
+	}
+	return items
 }
 
 func strictlyWithin(p, dir string) bool {
@@ -321,7 +357,8 @@ func editAccess(before types.ContainerJSON, after *types.ContainerJSON) ([]Sensi
 		return nil, err
 	}
 	service := strings.TrimPrefix(before.Name, "/")
-	writers := append([]writer{}, serverWriters()...)
+	server, listed := serverWriters()
+	writers := append([]writer{}, server...)
 	// its own writable folders, those it had and those it gets
 	for _, list := range [][]mount.Mount{mountsOf(before), after.HostConfig.Mounts} {
 		for _, m := range list {
@@ -336,7 +373,12 @@ func editAccess(before types.ContainerJSON, after *types.ContainerJSON) ([]Sensi
 			}
 		}
 	}
-	return accessItems(service, newHostPaths(after.HostConfig.Mounts, had), linked, writers), nil
+	fresh := newHostPaths(after.HostConfig.Mounts, had)
+	items := accessItems(service, fresh, linked, writers)
+	if !listed {
+		items = append(items, uncheckedItems(service, fresh)...)
+	}
+	return items, nil
 }
 
 // ---- the creation ----
@@ -374,7 +416,7 @@ func serviceAccess(request DockerServiceCreateRequest, replacing bool) ([]Sensit
 		}
 		resolved = append(resolved, resolvedService{key: key, had: had, linked: linked})
 	}
-	server := serverWriters()
+	server, listed := serverWriters()
 	items := []SensitiveItem{}
 	for _, r := range resolved {
 		writers := append([]writer{}, server...)
@@ -392,7 +434,11 @@ func serviceAccess(request DockerServiceCreateRequest, replacing bool) ([]Sensit
 				}
 			}
 		}
-		items = append(items, accessItems(r.key, newHostPaths(request.Services[r.key].Volumes, r.had), r.linked, writers)...)
+		fresh := newHostPaths(request.Services[r.key].Volumes, r.had)
+		items = append(items, accessItems(r.key, fresh, r.linked, writers)...)
+		if !listed {
+			items = append(items, uncheckedItems(r.key, fresh)...)
+		}
 	}
 	return items, nil
 }
@@ -451,6 +497,13 @@ func SensitiveRoute(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	answer := map[string]interface{}{"sensitive": []SensitiveItem{}}
+	// the shapes and bounds of the creation first, before any look (third review m-3)
+	if err := CheckServiceRequest(body.Definition); err != nil {
+		answer["refused"] = err.Error()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"status": "OK", "data": answer})
+		return
+	}
 	where, err := serviceAccess(body.Definition, body.Replace)
 	if err != nil {
 		answer["refused"] = err.Error()

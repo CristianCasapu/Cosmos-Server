@@ -350,7 +350,9 @@ export const ForkFolderNote = ({ row, hints }) => {
     .find((p) => row.Source === p.path || row.Source.startsWith(p.path.replace(/\/$/, '') + '/'));
   if (!place) return null;
   return <FormHelperText data-fork-folder="new" sx={{ ...wrapText, whiteSpace: 'normal' }}>
-    {hints.usernsRemap
+    {hints.usernsUnknown
+      ? t(K + 'folder.newUnknown', 'On {{disk}}, {{free}} free. A folder that does not exist is made when you save, owned by root: Docker did not say whether it runs apps with users of their own, so it is not given to the app\'s user.', { disk: place.disk || place.path, free: sizeText(place.free) })
+      : hints.usernsRemap
       ? t(K + 'folder.newRemap', 'On {{disk}}, {{free}} free. A folder that does not exist is made when you save, owned by root: Docker runs apps with users of their own on this server (userns-remap), so it cannot be given to the app\'s user.', { disk: place.disk || place.path, free: sizeText(place.free) })
       : t(K + 'folder.new', 'On {{disk}}, {{free}} free. A folder that does not exist is made when you save, owned by the app\'s user ({{user}}).', { disk: place.disk || place.path, free: sizeText(place.free), user: (hints.runsAs && hints.runsAs.text) || 'root' })}
   </FormHelperText>;
@@ -565,3 +567,13 @@ export const ForkEnvAdd = ({ formik, hints, image }) => {
   </Stack>;
 };
 
+
+// Fork addition (plan 47, I2c, third review m-2): what an edit had to change by itself (a fixed
+// address that no longer fits its network), said under the tab's button after a save.
+export const ForkEditNotes = ({ notes }) => {
+  const { t } = useTranslation();
+  if (!notes || !notes.length) return null;
+  return <Alert severity="info" sx={wrapText} data-fork-edit-notes>
+    {t(K + 'notes', 'Saved. Cosmos had to change this by itself:')} {notes.join('; ')}.
+  </Alert>;
+};

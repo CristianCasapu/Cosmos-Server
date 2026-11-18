@@ -259,3 +259,98 @@ func TestDisguisedVolumeLive(t *testing.T) {
 		t.Fatalf("an existing disguised volume: %d %s", w.Code, w.Body.String())
 	}
 }
+
+// A plain container (no settings of its own) is made again as upstream makes
+// it: no MAC address of its own afterwards, no alias, no fixed address
+// (third review m-1).
+func TestPlainRecreateLive(t *testing.T) {
+	liveSetup(t)
+	DockerClient.NetworkRemove(DockerContext, livePrefix+"plainnet")
+	t.Cleanup(func() { liveCleanup(t); DockerClient.NetworkRemove(DockerContext, livePrefix+"plainnet") })
+	if _, err := DockerClient.NetworkCreate(DockerContext, livePrefix+"plainnet", types.NetworkCreate{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"bridge", livePrefix + "plainnet"} {
+		name := "plain-" + map[bool]string{true: "bridge", false: "user"}[mode == "bridge"]
+		created, err := DockerClient.ContainerCreate(DockerContext, &conttype.Config{Image: liveImage, Cmd: []string{"sleep", "3600"}, StopSignal: "SIGKILL"},
+			&conttype.HostConfig{NetworkMode: conttype.NetworkMode(mode)}, nil, nil, livePrefix+name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := DockerClient.ContainerStart(DockerContext, created.ID, conttype.StartOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		for _, tab := range []string{"Docker", "Network", "Storage"} {
+			before := liveInspect(t, name)
+			body, _ := json.Marshal(tabPayloads(before)[tab])
+			if w := liveUpdate(t, livePrefix+name, string(body)); w.Code != http.StatusOK {
+				t.Fatalf("%s, %s: %d %s", name, tab, w.Code, w.Body.String())
+			}
+			after := liveInspect(t, name)
+			beforeConfig := *before.Config
+			if mode == "bridge" && beforeConfig.Hostname == shortID(before.ID) {
+				// upstream gives a container on the bridge its name as hostname when it had Docker's default
+				beforeConfig.Hostname = name
+				beforeConfig.Hostname = strings.TrimPrefix(after.Name, "/")
+			}
+			a, _ := json.Marshal(beforeConfig)
+			b, _ := json.Marshal(after.Config)
+			if d := liveDiff("Config.", a, b); d != "" {
+				t.Errorf("%s, %s: Config changed: %s", name, tab, d)
+			}
+			a, _ = json.Marshal(before.HostConfig)
+			b, _ = json.Marshal(after.HostConfig)
+			if d := liveDiff("HostConfig.", a, b); d != "" {
+				t.Errorf("%s, %s: HostConfig changed: %s", name, tab, d)
+			}
+			ep := after.NetworkSettings.Networks[map[bool]string{true: "bridge", false: mode}[mode == "bridge"]]
+			if after.Config.MacAddress != "" || ep == nil || ep.IPAMConfig != nil && (ep.IPAMConfig.IPv4Address != "" || ep.IPAMConfig.IPv6Address != "") { //nolint:staticcheck
+				t.Errorf("%s, %s: settings it never had: mac %q %+v", name, tab, after.Config.MacAddress, ep) //nolint:staticcheck
+			}
+			for _, alias := range ep.Aliases {
+				if alias != shortID(after.ID) && alias != name {
+					t.Errorf("%s, %s: an alias it never had: %s", name, tab, alias)
+				}
+			}
+		}
+	}
+}
+
+// A stopped container whose network was made again with another range: the
+// update succeeds, the fixed address that no longer fits is dropped and said
+// (third review m-2).
+func TestSubnetChangedLive(t *testing.T) {
+	liveSetup(t)
+	net := livePrefix + "subnet"
+	DockerClient.NetworkRemove(DockerContext, net)
+	t.Cleanup(func() { liveCleanup(t); DockerClient.NetworkRemove(DockerContext, net) })
+	if _, err := DockerClient.NetworkCreate(DockerContext, net, types.NetworkCreate{IPAM: &network.IPAM{Config: []network.IPAMConfig{{Subnet: "172.31.5.0/24"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DockerClient.ContainerCreate(DockerContext, &conttype.Config{Image: liveImage, Cmd: []string{"sleep", "3600"}, StopSignal: "SIGKILL"},
+		&conttype.HostConfig{NetworkMode: conttype.NetworkMode(net)},
+		&network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{net: {Aliases: []string{"db"}, IPAMConfig: &network.EndpointIPAMConfig{IPv4Address: "172.31.5.9"}}}},
+		nil, livePrefix+"moved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := DockerClient.NetworkRemove(DockerContext, net); err != nil {
+		t.Fatalf("the network of a stopped container could not be removed: %v", err)
+	}
+	if _, err := DockerClient.NetworkCreate(DockerContext, net, types.NetworkCreate{IPAM: &network.IPAM{Config: []network.IPAMConfig{{Subnet: "172.31.6.0/24"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	before := liveInspect(t, "moved")
+	body, _ := json.Marshal(tabPayloads(before)["Docker"])
+	w := liveUpdate(t, livePrefix+"moved", string(body))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "172.31.5.9 no longer fits the network") {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	after := liveInspect(t, "moved")
+	ep := after.NetworkSettings.Networks[net]
+	if ep == nil || (ep.IPAMConfig != nil && ep.IPAMConfig.IPv4Address != "") || strings.Join(ep.Aliases, ",") != "db" {
+		t.Fatalf("after: %+v", ep)
+	}
+	if err := DockerClient.ContainerStart(DockerContext, after.ID, conttype.StartOptions{}); err != nil {
+		t.Fatalf("it does not start: %v", err)
+	}
+}

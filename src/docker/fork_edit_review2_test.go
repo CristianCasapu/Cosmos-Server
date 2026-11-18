@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -53,7 +54,7 @@ func review2Server(t *testing.T, writers []writer, volumes map[string]map[string
 	resetEditCaches()
 	resolveSource = func(p string) (string, bool, error) { return edithints.ResolvePath(root, p) }
 	EditDataPlaces = func() []string { return []string{"/mnt/data"} }
-	listServerMounts = func() []writer { return append([]writer{}, writers...) }
+	listServerMounts = func() ([]writer, bool) { return append([]writer{}, writers...), true }
 	lookupVolume = func(name string) (string, map[string]string, bool) {
 		options, ok := volumes[name]
 		return "local", options, ok
@@ -331,10 +332,10 @@ func TestEditBounds(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "mnt/data"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	oldPlaces, oldRemap := EditDataPlaces, UsernsRemapped
-	defer func() { EditDataPlaces, UsernsRemapped = oldPlaces, oldRemap }()
+	oldPlaces, oldRemap := EditDataPlaces, UsernsState
+	defer func() { EditDataPlaces, UsernsState = oldPlaces, oldRemap }()
 	EditDataPlaces = func() []string { return []string{"/mnt/data"} }
-	UsernsRemapped = func() bool { return true }
+	UsernsState = func() (bool, bool) { return true, true }
 	owned := recordChowns(t, root)
 	b := ownersApp()
 	b.Config.User = ""
@@ -391,5 +392,124 @@ func TestTheSensitiveRouteAnswersWhatTheCreationAsks(t *testing.T) {
 	}
 	if code, _ := serve(admin, "not json"); code != http.StatusBadRequest {
 		t.Errorf("bad body: %d", code)
+	}
+}
+
+// S-1 (third review): the creation route itself requires the ticks only the server sees.
+func TestTheCreationRouteRequiresTheNestedTick(t *testing.T) {
+	review2Server(t, []writer{{app: "radarr", source: "/mnt/data/media", writable: true}}, nil)
+	request := func() DockerServiceCreateRequest {
+		return DockerServiceCreateRequest{Services: map[string]ContainerCreateRequestContainer{
+			"jellyfin": {Image: "x", Volumes: []mount.Mount{{Type: mount.TypeBind, Source: "/mnt/data/media/movies", Target: "/movies", ReadOnly: true}}},
+		}}
+	}
+	recorder := httptest.NewRecorder()
+	if forkRefuseService(recorder, httptest.NewRequest("POST", "/cosmos/api/docker-service", nil), request(), func() {}) {
+		t.Fatal("created without the tick")
+	}
+	if body := recorder.Body.String(); !strings.Contains(body, "/mnt/data/media/movies") || !strings.Contains(body, "radarr") {
+		t.Fatalf("answer: %s", body)
+	}
+	oldExists := containerExists
+	defer func() { containerExists = oldExists }()
+	containerExists = func(string) bool { return false }
+	confirmed := httptest.NewRequest("POST", "/cosmos/api/docker-service?"+url.Values{"confirm": {"jellyfin|nested|/mnt/data/media/movies"}, "anyArch": {"1"}}.Encode(), nil)
+	recorder = httptest.NewRecorder()
+	if !forkRefuseService(recorder, confirmed, request(), func() {}) {
+		t.Fatalf("refused although ticked: %s", recorder.Body.String())
+	}
+}
+
+// m-4 (third review): when Docker cannot list the containers, a new folder on a
+// data place asks the tick that says it could not be checked (fail closed).
+func TestUncheckedWhenTheContainersCannotBeListed(t *testing.T) {
+	review2Server(t, nil, nil)
+	listServerMounts = func() ([]writer, bool) { return nil, false }
+	before := ownersApp()
+	got, err := editAsked(t, before, func(c *types.ContainerJSON) {
+		c.HostConfig.Mounts = append(c.HostConfig.Mounts, mount.Mount{Type: mount.TypeBind, Source: "/mnt/data/new", Target: "/n"})
+	})
+	if err != nil || got != "radarr|unchecked|/mnt/data/new" {
+		t.Fatalf("edit: %q %v", got, err)
+	}
+	if got, _ := createAsked(t, DockerServiceCreateRequest{Services: map[string]ContainerCreateRequestContainer{"a": {Volumes: []mount.Mount{{Type: mount.TypeBind, Source: "/mnt/data/new", Target: "/n"}}}}}); got != "a|unchecked|/mnt/data/new" {
+		t.Fatalf("creation: %q", got)
+	}
+	// a failure is not kept: once Docker answers, nothing more is asked
+	listServerMounts = func() ([]writer, bool) { return nil, true }
+	if got, _ := editAsked(t, before, func(c *types.ContainerJSON) {
+		c.HostConfig.Mounts = append(c.HostConfig.Mounts, mount.Mount{Type: mount.TypeBind, Source: "/mnt/data/new", Target: "/n"})
+	}); got != "" {
+		t.Fatalf("after Docker answered: %q", got)
+	}
+}
+
+// m-4: the cache of volumes drops its oldest entry, not all of them; m-3: a name Docker refuses is never asked.
+func TestVolumeLookupsAreBoundedAndCheckedFirst(t *testing.T) {
+	review2Server(t, nil, nil)
+	asked := 0
+	lookupVolume = func(name string) (string, map[string]string, bool) { asked++; return "local", nil, true }
+	for i := 0; i < 300; i++ {
+		existingVolumeDevice("v" + strconv.Itoa(i))
+	}
+	volumeFactsMu.Lock()
+	size := len(volumeFacts)
+	_, newest := volumeFacts["v299"]
+	volumeFactsMu.Unlock()
+	if size != 256 || !newest {
+		t.Fatalf("cache: %d entries, newest kept %v", size, newest)
+	}
+	asked = 0
+	for _, bad := range []string{"../../containers/json", "a/b", "", ".x", strings.Repeat("a", 300)} {
+		existingVolumeDevice(bad)
+	}
+	if asked != 0 {
+		t.Fatalf("Docker was asked for %d names it refuses", asked)
+	}
+	// the creation's shapes come before any look: a bad volume name is refused, nothing asked
+	if err := CheckServiceRequest(DockerServiceCreateRequest{Services: map[string]ContainerCreateRequestContainer{"a": {Volumes: []mount.Mount{{Type: mount.TypeVolume, Source: "../x", Target: "/x"}}}}}); err == nil {
+		t.Fatal("a bad volume name accepted")
+	}
+	many := []mount.Mount{}
+	for i := 0; i < 300; i++ {
+		many = append(many, mount.Mount{Type: mount.TypeTmpfs, Target: "/t" + strconv.Itoa(i)})
+	}
+	if err := CheckServiceRequest(DockerServiceCreateRequest{Services: map[string]ContainerCreateRequestContainer{"a": {Volumes: many}}}); err == nil {
+		t.Fatal("300 mounts accepted")
+	}
+}
+
+// m-3: the edit's shapes and bounds are checked before any lookup.
+func TestTheEditChecksShapesBeforeLooking(t *testing.T) {
+	review2Server(t, nil, nil)
+	looked := 0
+	resolveSource = func(p string) (string, bool, error) { looked++; return p, false, nil }
+	before := ownersApp()
+	after := edited(before, func(c *types.ContainerJSON) {
+		for i := 0; i < 300; i++ {
+			c.HostConfig.Mounts = append(c.HostConfig.Mounts, mount.Mount{Type: mount.TypeBind, Source: "/mnt/data/x" + strconv.Itoa(i), Target: "/x" + strconv.Itoa(i)})
+		}
+	})
+	if _, refused := forkRefuseBadEdit(httptest.NewRecorder(), before, &after); !refused || looked != 0 {
+		t.Fatalf("refused %v after %d lookups", refused, looked)
+	}
+}
+
+// m-5: a failed answer about userns-remap is not remembered: unknown means no chown.
+func TestUsernsUnknownIsNotRemembered(t *testing.T) {
+	usernsMu.Lock()
+	usernsKnown, usernsRemapped = false, false
+	usernsMu.Unlock()
+	old := DockerClient
+	DockerClient = nil
+	if remapped, known := UsernsState(); remapped || known || !UsernsRemapped() {
+		t.Fatalf("no Docker: %v %v", remapped, known)
+	}
+	DockerClient = old
+	usernsMu.Lock()
+	known := usernsKnown
+	usernsMu.Unlock()
+	if known {
+		t.Fatal("a failure was remembered")
 	}
 }

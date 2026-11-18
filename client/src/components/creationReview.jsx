@@ -190,19 +190,21 @@ export const reviewHolds = (t, { notes, sensitive, confirmed, plan, anyArch, edi
 // definition (links followed, existing volumes, folders other apps can
 // write), asked again when the definition changes, and its refusal in words.
 export const useServerSensitive = (definition, replace) => {
-  const [answer, setAnswer] = React.useState({ items: [], refused: '' });
+  const [answer, setAnswer] = React.useState({ items: [], refused: '', failed: false });
+  const [attempt, setAttempt] = React.useState(0);
   const key = React.useMemo(() => { try { return JSON.stringify(definition || {}); } catch (e) { return ''; } }, [definition]);
   React.useEffect(() => {
     if (!key || !API.docker.installSensitive || !definition || !definition.services) return undefined;
     let live = true;
     const timer = setTimeout(() => {
       API.docker.installSensitive(definition, !!replace)
-        .then((res) => { if (live && res && res.data) setAnswer({ items: res.data.sensitive || [], refused: res.data.refused || '' }); })
-        .catch(() => {});
+        .then((res) => { if (live && res && res.data) setAnswer({ items: res.data.sensitive || [], refused: res.data.refused || '', failed: false }); })
+        // third review m-6: said, with a way to ask again, instead of a Create that is refused with no box to tick
+        .catch(() => { if (live) setAnswer((old) => ({ ...old, failed: true })); });
     }, 500);
     return () => { live = false; clearTimeout(timer); };
-  }, [key, replace]);
-  return answer;
+  }, [key, replace, attempt]);
+  return { ...answer, retry: () => setAttempt((n) => n + 1) };
 };
 
 // The state of a review: the server's plan (asked once per set of images),

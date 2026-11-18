@@ -98,7 +98,7 @@ const NewDockerService = ({service, refresh, edit, notes, holdReason}) => {
   try { current = JSON.parse(dockerCompose); } catch (e) { /* said on Create */ }
   const serverSensitive = useServerSensitive(current, !!edit); // Fork addition (plan 47, I2c): the ticks only the server can see
   const sensitive = withServerItems(sensitiveAccess(current, creation.plan && creation.plan.protected), serverSensitive.items);
-  const hold = holdReason || serverSensitive.refused || reviewHolds(t, { notes, sensitive, confirmed, plan: creation.plan, anyArch, edit });
+  const hold = holdReason || serverSensitive.refused || (serverSensitive.failed ? t('mgmt.servapps.creation.checkFailedHold', 'Waiting for the server\'s check of this definition.') : '') || reviewHolds(t, { notes, sensitive, confirmed, plan: creation.plan, anyArch, edit });
 
   const create = (repaired) => {
     // Fork addition: a definition that is not JSON or YAML is said, not thrown; a failure ends the wait
@@ -165,6 +165,11 @@ const NewDockerService = ({service, refresh, edit, notes, holdReason}) => {
         signIn={creation.signIn} signInMail={creation.signInMail} onSignInReplace={creation.replaceSignIn} /* Fork addition (plan 45): who signs in with what */ />
       {!edit && <InstallExposure service={current} definition={dockerCompose} done={isDone} />}
       {failed && <Alert severity="error" sx={{ overflowWrap: 'anywhere' }} data-create-failed>{failed}</Alert>}
+      {/* Fork addition (plan 47, I2c, third review m-6): the server's check did not answer */}
+      {serverSensitive.failed && !isDone && !log.length && <Alert severity="warning" sx={{ overflowWrap: 'anywhere' }} data-create-check-failed
+        action={<Button color="inherit" size="small" onClick={serverSensitive.retry}>{t('mgmt.servapps.creation.checkAgain', 'Check again')}</Button>}>
+        {t('mgmt.servapps.creation.checkFailed', 'Cosmos could not ask the server which access this definition needs (links, existing volumes, folders other apps write): Create waits until it can.')}
+      </Alert>}
       {hold && !isDone && !log.length && <Alert severity="info" sx={{ overflowWrap: 'anywhere' }} data-create-hold>{hold}</Alert>}
       {!isDone && <LoadingButton 
         disabled={!!hold}

@@ -204,6 +204,7 @@ func UpdateContainerRoute(w http.ResponseWriter, req *http.Request) {
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status": "OK",
+			"notes":  takeEditNotes(container.Name), // Fork addition (plan 47, I2c): what the edit had to change by itself (fork_edit_network.go)
 		})
 	} else {
 		utils.Error("UpdateContainer: Method not allowed " + req.Method, nil)

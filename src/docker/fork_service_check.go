@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/go-units"
 )
 
@@ -100,10 +101,17 @@ func CheckServiceRequest(request DockerServiceCreateRequest) error {
 				return fmt.Errorf("service %s, device %q: write it as /dev/on-the-server:/dev/in-the-container", key, device)
 			}
 		}
-		// Fork addition (plan 47, I2c review): a volume's driver options (fork_volume_options.go)
+		// Fork addition (plan 47, I2c review): a volume's driver options (fork_volume_options.go), the
+		// number of mounts and Docker's rule for a volume's name, before any look at Docker (third review m-3)
+		if len(service.Volumes) > maxEditMounts {
+			return fmt.Errorf("service %s: more than %d volumes and folders", key, maxEditMounts)
+		}
 		for _, volume := range service.Volumes {
 			if err := checkVolumeOptions(volume); err != nil {
 				return fmt.Errorf("service %s, %s", key, err.Error())
+			}
+			if volume.Type == mount.TypeVolume && volume.Source != "" && (len(volume.Source) > 255 || !volumeNamePattern.MatchString(volume.Source)) {
+				return fmt.Errorf("service %s, the volume name %q may hold letters, digits and _ . - only, starting with a letter or a digit", key, volume.Source)
 			}
 		}
 		if err := checkServiceFields(service); err != nil {
