@@ -41,6 +41,7 @@ package utils
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -79,6 +80,7 @@ type storeTimes struct {
 	maxStay               time.Duration
 	flapWindow            time.Duration // outages closer than this are "repeated"
 	tellAfter             time.Duration // an outage is told once it lasted this long
+	bootGrace             time.Duration // after the start, back on the first good probe
 	idle                  time.Duration
 	drain                 time.Duration // old handles stay open this long after a swap
 }
@@ -97,7 +99,7 @@ var storeTiming = storeTimes{
 	retryFirst: 5 * time.Second, retryMax: 5 * time.Minute,
 	pingEvery: 15 * time.Second, pingWithin: 5 * time.Second, pingFailures: 2,
 	goodProbes: 3, goodSpan: time.Minute, minStay: time.Minute, maxStay: 16 * time.Minute,
-	flapWindow: time.Hour, tellAfter: 2 * time.Minute, idle: time.Minute, drain: 2 * time.Second,
+	flapWindow: time.Hour, tellAfter: 2 * time.Minute, idle: time.Minute, drain: 2 * time.Second, bootGrace: 5 * time.Minute,
 }
 
 // MonitoringStoreState is what the panel shows about the store. No secret.
@@ -138,10 +140,19 @@ var (
 	storeOnLocal time.Time
 	// storeOutages: the start of the outages within flapWindow
 	storeOutages []time.Time
+	// storeBootUntil: a fallback at the start of the process (PostgreSQL
+	// starting after Cosmos at a reboot) switches back on the first good
+	// probe until then, and is not an outage (review round 2, S4a)
+	storeBootUntil time.Time
+	// storeLocalProblem: why the local file cannot be the store either
+	storeLocalProblem string
 
-	// monitorKey: what the open store is (dialect and address, never the
-	// password); under monitorMu
+	// monitorKey: what the open store is (dialect and address; internal only);
+	// monitorID: its random name for clients, drawn at each swap (review
+	// round 2, B1: nothing derived from a secret leaves the server); under
+	// monitorMu
 	monitorKey string
+	monitorID  string
 
 	storeWatchOnce sync.Once
 	storeKick      = make(chan struct{}, 1)
@@ -161,7 +172,7 @@ var (
 	// openPostgresStore opens the store's handles on PostgreSQL and
 	// prepareStoreSchema makes upstream's schema; replaced by the tests.
 	openPostgresStore  = openPostgresHandles
-	prepareStoreSchema = initMetricsSchema
+	prepareStoreSchema = preparePostgresSchema
 )
 
 // forkOpensMonitoringStore: InitMetricsDatabase hands its work to
@@ -207,28 +218,40 @@ func openMonitoringStore() error {
 		}
 		w, r, err := openPostgresStore(db)
 		if err == nil {
-			if err = prepareStoreSchema(w, DialectPostgres); err != nil {
-				w.Close()
-				r.Close()
-			}
+			err = prepareStoreSchema(w, db)
+		}
+		if err != nil && w != nil {
+			w.Close()
+			r.Close()
 		}
 		if err == nil {
+			swapped := false
+			defer func() { // a panic between the opening and the swap does not leak the pools
+				if !swapped {
+					w.Close()
+					r.Close()
+				}
+			}()
 			// an outage told for another server (the settings changed while
 			// it lasted) is closed in the store it was written to
 			prev := GetMonitoringStoreState()
 			local, _ := MonitoringWriteDB()
 			swapMonitoringStore(w, r, DialectPostgres, key, node)
+			swapped = true
 			if prev.Fallback && prev.Host != db.PostgresHost {
 				storeStateMu.Lock()
 				told := storeTold
 				storeTold = false
 				storeStateMu.Unlock()
 				if told && local != nil {
-					monitoringResolveDown(local)
+					monitoringResolveDown()
 				}
 			}
 			markPostgresInUse(db)
 			Log("Monitoring database ready (" + DialectPostgres + ", node " + node + ")")
+			if first {
+				go closeOutageOfLastRun(db) // an outage told before a restart ends now
+			}
 			if opened := OnMonitoringStorePostgres; opened != nil {
 				go opened() // a catch-up interrupted by a restart goes on (src/monitorcopy)
 			}
@@ -239,12 +262,18 @@ func openMonitoringStore() error {
 
 	Warn("Monitoring database: PostgreSQL at " + db.PostgresHost + " cannot be the store (" + problem.Reason + "): the local file is used meanwhile")
 	now := monitoringClock()
+	fresh := false
 	setStoreState(func(s *MonitoringStoreState) {
 		same := s.Fallback && s.Host == db.PostgresHost && s.Database == postgresDatabaseName(db)
 		if !same {
+			fresh = true
 			*s = MonitoringStoreState{Since: now}
 			storeTold, storeOnLocal = false, now
-			storeOutages = append(recentOutages(now), now)
+			if first {
+				storeBootUntil = now.Add(timing().bootGrace) // a reboot, not an outage
+			} else {
+				storeOutages = append(recentOutages(now), now)
+			}
 		}
 		s.Configured, s.Fallback = "postgres", true
 		s.Host, s.Database = db.PostgresHost, postgresDatabaseName(db)
@@ -252,7 +281,106 @@ func openMonitoringStore() error {
 		s.Attempts++
 	})
 	kickMonitoringWatcher()
-	return openLocalStore(node)
+	if err := openLocalStore(node); err != nil {
+		localUnusable(err)
+		return err
+	}
+	if fresh {
+		takeOutageOfLastRun() // a restart during a told outage: the same outage
+	}
+	return nil
+}
+
+// localUnusable says, loudly and once per cause, that the local file cannot
+// be the store either; the watcher tries it again.
+func localUnusable(err error) {
+	text := err.Error()
+	storeStateMu.Lock()
+	again := storeLocalProblem == text
+	storeLocalProblem = text
+	storeStateMu.Unlock()
+	if !again {
+		Error("Monitoring database: neither PostgreSQL nor the local file (database.db) can be the store; monitoring records nothing until one of them works. Cosmos tries both again", err)
+	}
+}
+
+// localFileDSN is the local file's address.
+func localFileDSN() string {
+	return "file:" + CONFIGFOLDER + "database.db" +
+		"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)"
+}
+
+// unresolvedOutage: the start of an outage notice left open in the local
+// file (told before a restart), zero when none.
+func unresolvedOutage(local *sql.DB) time.Time {
+	var first sql.NullInt64
+	if local == nil || local.QueryRow("SELECT MIN(CASE WHEN fork_first > 0 THEN fork_first ELSE date END) FROM notifications WHERE fork_thread = ? AND fork_resolved = 0 AND fork_info <> ''",
+		monitoringStoreThread).Scan(&first) != nil || !first.Valid || first.Int64 <= 0 {
+		return time.Time{}
+	}
+	return MillisToTime(first.Int64)
+}
+
+// takeOutageOfLastRun: a fallback that starts while the local file holds an
+// open outage notice (told before a restart) continues that outage (review
+// round 2, S3): told, and since its start.
+func takeOutageOfLastRun() {
+	local, err := MonitoringWriteDB()
+	if err != nil || MonitoringDialectOf(local) != DialectSQLite {
+		return
+	}
+	since := unresolvedOutage(local)
+	if since.IsZero() {
+		return
+	}
+	storeStateMu.Lock()
+	storeTold = true
+	if since.Before(storeState.Since) {
+		storeState.Since = since
+	}
+	storeStateMu.Unlock()
+}
+
+// closeOutageOfLastRun: PostgreSQL answers at the start while the local
+// file holds an open outage notice of the last run: the outage ended during
+// the restart; it is closed there, its rows caught up, and "answers again"
+// told. A variable for the tests.
+var closeOutageOfLastRun = func(db DatabaseConfig) {
+	local, err := sql.Open(DialectSQLite, localFileDSN())
+	if err != nil {
+		return
+	}
+	since := unresolvedOutage(local)
+	local.Close()
+	if since.IsZero() {
+		return
+	}
+	monitoringResolveDown()
+	after := GetMonitoringStoreState()
+	finish := func(caught CatchUpResult) { monitoringTellBack(after, since, caught) }
+	if catchUp := MonitoringCatchUp; catchUp != nil {
+		catchUp(since, monitoringClock(), finish)
+	} else {
+		finish(CatchUpResult{})
+	}
+}
+
+// ensureLocalStore makes the local file the store when no store answers.
+func ensureLocalStore() bool {
+	forkInitMu.Lock()
+	defer forkInitMu.Unlock()
+	if monitoringInUse() == DialectSQLite {
+		return true
+	}
+	if err := openLocalStore(resolveNodeName(GetMainConfig())); err != nil {
+		localUnusable(err)
+		return false
+	}
+	storeStateMu.Lock()
+	storeLocalProblem = ""
+	storeStateMu.Unlock()
+	takeOutageOfLastRun()
+	return true
 }
 
 // recentOutages are the outages within flapWindow; storeStateMu held.
@@ -280,8 +408,7 @@ func markPostgresInUse(db DatabaseConfig) {
 
 // openLocalStore makes the local file the store, unless it already is.
 func openLocalStore(node string) error {
-	dsn := "file:" + CONFIGFOLDER + "database.db" +
-		"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)"
+	dsn := localFileDSN()
 	key := "sqlite|" + CONFIGFOLDER + "database.db"
 	if storeOpenAs(key) {
 		setMonitorNode(node)
@@ -292,7 +419,15 @@ func openLocalStore(node string) error {
 		return err
 	}
 	w.SetMaxOpenConns(1) // SQLite takes a single writer
-	if err := initMetricsSchema(w, DialectSQLite); err != nil {
+	// busy: an old handle in its drain, or a copy, writing the file (517, 5)
+	for try := 1; ; try++ {
+		err = initMetricsSchema(w, DialectSQLite)
+		if err == nil || try >= 6 || !sqliteBusy(err) {
+			break
+		}
+		time.Sleep(time.Duration(try) * 150 * time.Millisecond)
+	}
+	if err != nil {
 		w.Close()
 		return err
 	}
@@ -305,6 +440,12 @@ func openLocalStore(node string) error {
 	swapMonitoringStore(w, r, DialectSQLite, key, node)
 	Log("Monitoring database ready (" + DialectSQLite + ", node " + node + ")")
 	return nil
+}
+
+// sqliteBusy: SQLite says another connection holds the file for now.
+func sqliteBusy(err error) bool {
+	text := err.Error()
+	return strings.Contains(text, "SQLITE_BUSY") || strings.Contains(text, "database is locked") || strings.Contains(text, "(517)")
 }
 
 // storeOpenAs: the store open now is this one.
@@ -328,6 +469,7 @@ func swapMonitoringStore(w, r *sql.DB, dialect string, key string, node string) 
 	oldW, oldR := monitorWriteDB, monitorReadDB
 	monitorWriteDB, monitorReadDB = w, r
 	monitorDialect, monitorKey, monitorNode = dialect, key, node
+	monitorID = randomStoreID()
 	DBStatus = true
 	monitorMu.Unlock()
 	if oldW == nil && oldR == nil {
@@ -344,18 +486,24 @@ func swapMonitoringStore(w, r *sql.DB, dialect string, key string, node string) 
 	})
 }
 
-// MonitoringStoreID names the store in use (a digest of its kind and
-// address, never the password): ids of notifications and the like are only
-// meaningful within one store.
+// MonitoringStoreID names the store in use for clients: a random value
+// drawn at each opening of a store, related to nothing (review round 2,
+// B1). Ids of notifications and the like are only meaningful within it.
 func MonitoringStoreID() string {
 	monitorMu.RLock()
-	key := monitorKey
-	monitorMu.RUnlock()
-	if key == "" {
+	defer monitorMu.RUnlock()
+	if monitorWriteDB == nil {
 		return ""
 	}
-	sum := sha256.Sum256([]byte(key))
-	return hex.EncodeToString(sum[:6])
+	return monitorID
+}
+
+func randomStoreID() string {
+	b := make([]byte, 6)
+	if _, err := rand.Read(b); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 16)
+	}
+	return hex.EncodeToString(b)
 }
 
 // postgresStoreKey: the PostgreSQL store's identity, without the password.
@@ -383,6 +531,25 @@ func boundPostgresConfig(cfg *pgx.ConnConfig) {
 	cfg.DialFunc = dialer.DialContext
 	cfg.RuntimeParams["statement_timeout"] = strconv.Itoa(storeStatementTimeoutMs)
 	cfg.RuntimeParams["idle_in_transaction_session_timeout"] = strconv.Itoa(storeIdleInTxTimeoutMs)
+}
+
+// schemaStatementTimeoutMs bounds a statement of the schema (a future
+// migration of a large table must not die at the store's 30 s).
+const schemaStatementTimeoutMs = 10 * 60 * 1000
+
+// preparePostgresSchema makes upstream's schema through a connection of its
+// own with a generous statement timeout (review round 2, M1); a race with
+// another maker of the same table is tried again.
+func preparePostgresSchema(_ *sql.DB, db DatabaseConfig) error {
+	cfg, err := postgresStoreConfig(db)
+	if err != nil {
+		return err
+	}
+	cfg.RuntimeParams["statement_timeout"] = strconv.Itoa(schemaStatementTimeoutMs)
+	long := stdlib.OpenDB(*cfg)
+	defer long.Close()
+	long.SetMaxOpenConns(1)
+	return retrySchemaRace(func() error { return initMetricsSchema(long, DialectPostgres) })
 }
 
 func openPostgresHandles(db DatabaseConfig) (*sql.DB, *sql.DB, error) {
@@ -546,6 +713,10 @@ func (w *monitoringWatch) look(kicked bool) time.Duration {
 
 	switch {
 	case state.Fallback:
+		if state.InUse != DialectSQLite && !ensureLocalStore() {
+			// neither answers: said (once per cause), tried again
+			return w.grow()
+		}
 		if kicked { // just fell back: the first try after the first delay
 			setStoreState(func(s *MonitoringStoreState) { s.NextTry = now.Add(w.backoff) })
 			return w.backoff
@@ -577,7 +748,10 @@ func (w *monitoringWatch) look(kicked bool) time.Duration {
 		if stay > timing().maxStay {
 			stay = timing().maxStay
 		}
-		ready := w.good >= timing().goodProbes && now.Sub(w.goodSince) >= timing().goodSpan && now.Sub(onLocal) >= stay
+		storeStateMu.Lock()
+		boot := now.Before(storeBootUntil)
+		storeStateMu.Unlock()
+		ready := boot || w.good >= timing().goodProbes && now.Sub(w.goodSince) >= timing().goodSpan && now.Sub(onLocal) >= stay
 		if !ready {
 			step := timing().goodSpan / time.Duration(max(1, timing().goodProbes-1))
 			if left := stay - now.Sub(onLocal); w.good >= timing().goodProbes && left > step {
@@ -586,7 +760,6 @@ func (w *monitoringWatch) look(kicked bool) time.Duration {
 			setStoreState(func(s *MonitoringStoreState) { s.NextTry = now.Add(step) })
 			return step
 		}
-		local, _ := MonitoringWriteDB() // the local file, open until the drain after a switch
 		if err := InitMetricsDatabase(); err != nil {
 			Error("Monitoring database: switching to PostgreSQL failed", err)
 		}
@@ -607,7 +780,7 @@ func (w *monitoringWatch) look(kicked bool) time.Duration {
 		Log("Monitoring database: PostgreSQL at " + db.PostgresHost + " answers again; the store is PostgreSQL")
 		if told {
 			// the notice of the outage is closed where it was written
-			monitoringResolveDown(local)
+			monitoringResolveDown()
 		}
 		// the rows the local file got meanwhile are brought over (src/monitorcopy),
 		// then "answers again" says so, for an outage that was told
@@ -626,10 +799,10 @@ func (w *monitoringWatch) look(kicked bool) time.Duration {
 		return timing().pingEvery
 
 	case state.InUse == "":
-		// configured, and nothing open (closed for a clean install or a
-		// test): open again
+		// configured, and nothing open (closed for a clean install, or the
+		// local file failed too): open again
 		if err := InitMetricsDatabase(); err != nil {
-			Error("Monitoring database: opening the store failed", err)
+			return w.grow()
 		}
 		return timing().retryFirst
 
@@ -714,7 +887,23 @@ func tellLastingOutage() {
 	}
 }
 
-var monitoringResolveDown = func(local *sql.DB) { resolveThreadIn(local, DialectSQLite, monitoringStoreThread) }
+// monitoringResolveDown closes the outage's notice in the local file,
+// through a handle of its own (the store's old one may be draining), again
+// while the file is busy (review round 2, M8).
+var monitoringResolveDown = func() {
+	local, err := sql.Open(DialectSQLite, localFileDSN())
+	if err != nil {
+		return
+	}
+	defer local.Close()
+	for try := 1; try <= 5; try++ {
+		resolveThreadIn(local, DialectSQLite, monitoringStoreThread)
+		if unresolvedOutage(local).IsZero() {
+			return
+		}
+		time.Sleep(time.Duration(try) * 200 * time.Millisecond)
+	}
+}
 
 // MonitoringStoreSentence is the plain line of the panel and the notice, in
 // English (the panel has its own translation of it).
@@ -791,17 +980,17 @@ var monitoringNotificationKinds = map[string]notificationKind{
 }
 
 var monitoringNotificationTexts = map[string]string{
-	"notif.monitoring.store.down.title":     "The monitoring database does not answer",
-	"notif.monitoring.store.down.what":      "The monitoring database at {{host}} does not answer since {{at}}: {{reason}}",
-	"notif.monitoring.store.down.means":     "Monitoring keeps recording into the local file (database.db) meanwhile: the charts, events and notifications of this period are there, not in PostgreSQL.",
-	"notif.monitoring.store.down.doing":     "Cosmos tries the database again by itself, more and more seldom (at most every 5 minutes), and switches over once it has answered steadily for a minute.",
-	"notif.monitoring.store.restored.title": "The monitoring database answers again",
-	"notif.monitoring.store.restored.what":  "The monitoring database at {{host}} answers again since {{at}}: monitoring records into it again.",
-	"notif.monitoring.store.restored.means": "It did not answer for {{duration}}. The records from {{from}} to {{to}} are in the local file (database.db).",
+	"notif.monitoring.store.down.title":      "The monitoring database does not answer",
+	"notif.monitoring.store.down.what":       "The monitoring database at {{host}} does not answer since {{at}}: {{reason}}",
+	"notif.monitoring.store.down.means":      "Monitoring keeps recording into the local file (database.db) meanwhile: the charts, events and notifications of this period are there, not in PostgreSQL.",
+	"notif.monitoring.store.down.doing":      "Cosmos tries the database again by itself, more and more seldom (at most every 5 minutes), and switches over once it has answered steadily for a minute.",
+	"notif.monitoring.store.restored.title":  "The monitoring database answers again",
+	"notif.monitoring.store.restored.what":   "The monitoring database at {{host}} answers again since {{at}}: monitoring records into it again.",
+	"notif.monitoring.store.restored.means":  "It did not answer for {{duration}}. The records from {{from}} to {{to}} are in the local file (database.db).",
 	"notif.monitoring.store.restored.caught": "It did not answer for {{duration}}. The {{count}} records written meanwhile into the local file were brought over: the history in the database has no gap.",
 	"notif.monitoring.store.restored.partly": "It did not answer for {{duration}}. {{count}} records written meanwhile into the local file were brought over; {{missing}} were not: {{problem}}",
-	"notif.step.monitoringdb.open":          "Open Configuration > External (the monitoring database) and check the server, the port and that the database runs",
-	"notif.step.monitoringdb.copy":          "Open Configuration > External to copy the records of the local file into the database",
+	"notif.step.monitoringdb.open":           "Open Configuration > External (the monitoring database) and check the server, the port and that the database runs",
+	"notif.step.monitoringdb.copy":           "Open Configuration > External to copy the records of the local file into the database",
 }
 
 func init() {
@@ -863,8 +1052,7 @@ func CheckPostgresStore(ctx context.Context, db DatabaseConfig) *PostgresProblem
 		}
 		return postgresProblemOf(err, db)
 	}
-	rows, err := tx.Query(ctx, "SELECT tablename, tableowner FROM pg_tables WHERE schemaname = current_schema() AND tablename = ANY($1) AND NOT pg_has_role(current_user, tableowner, 'USAGE') ORDER BY tablename",
-		monitoringTables)
+	rows, err := tx.Query(ctx, ownershipQuery, monitoringTables)
 	if err != nil {
 		return postgresProblemOf(err, db)
 	}
@@ -878,13 +1066,35 @@ func CheckPostgresStore(ctx context.Context, db DatabaseConfig) *PostgresProblem
 	}
 	rows.Close()
 	if len(foreign) > 0 {
-		return &PostgresProblem{"owner", "The tables of Cosmos in database " + name + " (" + strings.Join(foreign, ", ") + ") belong to " +
-			owner + ", not to user " + db.PostgresUsername + ": use " + owner + "'s account, or make " + db.PostgresUsername +
-			" their owner (in that database, as " + owner + " or a superuser: REASSIGN OWNED BY " + quoteIdent(owner) + " TO " + user +
-			", or ALTER TABLE … OWNER TO " + user + " for each)."}
+		var super bool
+		tx.QueryRow(ctx, "SELECT rolsuper FROM pg_roles WHERE rolname = $1", owner).Scan(&super)
+		return &PostgresProblem{"owner", ownerAdvice(name, foreign, owner, super, db.PostgresUsername)}
 	}
 	return nil
 }
+
+// ownerAdvice says how to give the store's tables to the account. A
+// superuser's tables (the bootstrap account's, commonly) are given one by one:
+// REASSIGN OWNED BY is refused for that role, and a superuser's account is no
+// account for a store (review round 2, M3).
+func ownerAdvice(database string, tables []string, owner string, super bool, user string) string {
+	who := quoteIdent(user)
+	if super {
+		alters := []string{}
+		for _, t := range tables {
+			alters = append(alters, "ALTER TABLE "+quoteIdent(t)+" OWNER TO "+who+";")
+		}
+		return "The tables of Cosmos in database " + database + " (" + strings.Join(tables, ", ") + ") belong to " + owner +
+			", a superuser, not to user " + user + ": as " + owner + ", in that database, run " + strings.Join(alters, " ") +
+			" (the sequences of events, notifications and fork_security_events follow their tables)."
+	}
+	return "The tables of Cosmos in database " + database + " (" + strings.Join(tables, ", ") + ") belong to " + owner +
+		", not to user " + user + ": use " + owner + "'s account, or make " + user + " their owner (in that database, as " + owner +
+		" or a superuser: REASSIGN OWNED BY " + quoteIdent(owner) + " TO " + who + ", or ALTER TABLE … OWNER TO " + who + " for each)."
+}
+
+// ownershipQuery finds the store's tables the account does not own.
+const ownershipQuery = "SELECT tablename, tableowner FROM pg_tables WHERE schemaname = current_schema() AND tablename = ANY($1) AND NOT pg_has_role(current_user, tableowner, 'USAGE') ORDER BY tablename"
 
 // monitoringStoreHandle is for the tests: the handle open now.
 func monitoringStoreHandle() *sql.DB {

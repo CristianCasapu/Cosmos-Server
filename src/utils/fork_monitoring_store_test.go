@@ -102,7 +102,7 @@ func withMonitoringStore(t *testing.T, db DatabaseConfig, problem *PostgresProbl
 		stub.back = append(stub.back, s)
 		stub.mu.Unlock()
 	}
-	monitoringResolveDown = func(*sql.DB) { stub.mu.Lock(); stub.resolved++; stub.mu.Unlock() }
+	monitoringResolveDown = func() { stub.mu.Lock(); stub.resolved++; stub.mu.Unlock() }
 	monitoringAdviceFor = func(string, string) string { return "" }
 	setTiming(func(*storeTimes) { storeTiming.drain = 50 * time.Millisecond })
 	resetStoreState()
@@ -137,7 +137,7 @@ func fakePostgres(t *testing.T) {
 		}
 		return w, r, nil
 	}
-	prepareStoreSchema = func(*sql.DB, string) error { return nil }
+	prepareStoreSchema = func(*sql.DB, DatabaseConfig) error { return nil }
 }
 
 var refusedProblem = &PostgresProblem{"closed", "Nothing answers at localhost:5432: check the address and the port, and that the database runs."}
@@ -234,7 +234,7 @@ func TestFailedSwitchKeepsTheLocalFileAndBacksOff(t *testing.T) {
 	stub := withMonitoringStore(t, DatabaseConfig{PostgresHost: "192.0.2.10:5432", PostgresUsername: "cosmos", PostgresPassword: "x"}, refusedProblem)
 	fakePostgres(t)
 	attempts := 0
-	prepareStoreSchema = func(*sql.DB, string) error {
+	prepareStoreSchema = func(*sql.DB, DatabaseConfig) error {
 		attempts++
 		return &pgconn.PgError{Code: "42501", Message: "must be owner of table notifications"}
 	}
@@ -859,5 +859,151 @@ func TestOutageOfAnOldServerClosedOnAChange(t *testing.T) {
 	w.look(false)
 	if down, _, _ := stub.counts(); down != 1 {
 		t.Errorf("told into the new store")
+	}
+}
+
+// Review round 2, B1: the store's id given to clients is random, drawn at
+// each opening of a store (another process: another id), and unrelated to
+// the password (the same settings give different ids; it is not derived
+// from anything).
+func TestStoreIDIsRandom(t *testing.T) {
+	withMonitoringStore(t, DatabaseConfig{PostgresHost: "192.0.2.10:5432", PostgresUsername: "cosmos", PostgresPassword: "pw-one"}, nil)
+	fakePostgres(t)
+	InitMetricsDatabase()
+	first := MonitoringStoreID()
+	InitMetricsDatabase() // the same store: the same id
+	if MonitoringStoreID() != first || len(first) != 12 {
+		t.Fatalf("%q %q", first, MonitoringStoreID())
+	}
+	CloseMetricsDatabase() // as a new process would
+	InitMetricsDatabase()
+	if second := MonitoringStoreID(); second == first {
+		t.Errorf("the same id after opening the same store again: %q", second)
+	}
+	if strings.Contains(MonitoringStoreID(), "pw") {
+		t.Error("the id carries the password")
+	}
+}
+
+// Mutation (c) of the second review: an outage is not told before it lasted,
+// also on a look that is not the first.
+func TestOutageNotToldBeforeItLasted(t *testing.T) {
+	stub := withMonitoringStore(t, DatabaseConfig{PostgresHost: "192.0.2.10:5432", PostgresUsername: "cosmos"}, refusedProblem)
+	InitMetricsDatabase()
+	w := &monitoringWatch{backoff: storeTiming.retryFirst}
+	w.look(true)
+	for i := 0; i < 5; i++ {
+		stub.advance(20 * time.Second)
+		w.look(false)
+	}
+	if down, _, _ := stub.counts(); down != 0 {
+		t.Fatalf("told after 100 s")
+	}
+	stub.advance(storeTiming.tellAfter)
+	w.look(false)
+	if down, _, _ := stub.counts(); down != 1 {
+		t.Errorf("not told after it lasted")
+	}
+}
+
+// Review round 2, S1: the local file cannot be opened when the fallback
+// starts (busy, a full disk): the watcher tries it again, and a store is in
+// use as soon as it can be opened.
+func TestLocalFileRetriedUntilThereIsAStore(t *testing.T) {
+	stub := withMonitoringStore(t, DatabaseConfig{PostgresHost: "192.0.2.10:5432", PostgresUsername: "cosmos", PostgresPassword: "x"}, nil)
+	fakePostgres(t)
+	InitMetricsDatabase()
+	// the file cannot be made: a folder in its place
+	if err := os.Mkdir(CONFIGFOLDER+"database.db", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	pingMonitoringStore = func(context.Context) error { return errors.New("lost") }
+	stub.setProblem(refusedProblem)
+	w := &monitoringWatch{backoff: storeTiming.retryFirst}
+	w.look(false)
+	w.look(false)
+	if s := GetMonitoringStoreState(); !s.Fallback || s.InUse == DialectSQLite {
+		t.Fatalf("expected no local file yet: %+v", s)
+	}
+	w.look(false)
+	os.Remove(CONFIGFOLDER + "database.db")
+	w.look(false)
+	if s := GetMonitoringStoreState(); s.InUse != DialectSQLite || !s.Fallback {
+		t.Fatalf("the local file was not tried again: %+v", s)
+	}
+	if db, err := MonitoringWriteDB(); err != nil || func() error { _, e := db.Exec("INSERT INTO monitoring_kv(key, value) VALUES('a', 'b')"); return e }() != nil {
+		t.Error("the store does not take writes")
+	}
+}
+
+// Review round 2, S3: a restart during a told outage continues it: told,
+// since its start; "answers again" follows.
+func TestRestartDuringAToldOutage(t *testing.T) {
+	stub := withMonitoringStore(t, DatabaseConfig{PostgresHost: "192.0.2.10:5432", PostgresUsername: "cosmos", PostgresPassword: "x"}, refusedProblem)
+	fakePostgres(t)
+	InitMetricsDatabase()
+	local, _ := MonitoringWriteDB()
+	started := stub.clock().Add(-10 * time.Minute)
+	if _, err := local.Exec("INSERT INTO notifications(node, recipient, title, date, fork_kind, fork_thread, fork_first, fork_info) VALUES('n', 'admin', 't', ?, 'monitoring.store.down', ?, ?, '{}')",
+		TimeToMillis(started), monitoringStoreThread, TimeToMillis(started)); err != nil {
+		t.Fatal(err)
+	}
+	// "the restart": the in-memory state of the outage is gone
+	resetStoreState()
+	CloseMetricsDatabase()
+	InitMetricsDatabase()
+	storeStateMu.Lock()
+	told, since := storeTold, storeState.Since
+	storeStateMu.Unlock()
+	if !told || !since.Equal(MillisToTime(TimeToMillis(started))) {
+		t.Fatalf("told %v since %v (want %v)", told, since, started)
+	}
+	w := &monitoringWatch{backoff: storeTiming.retryFirst}
+	stub.setProblem(nil)
+	for i := 0; i < 50 && MonitoringDialect() != DialectPostgres; i++ {
+		stub.advance(w.look(false))
+	}
+	if down, back, resolved := stub.counts(); MonitoringDialect() != DialectPostgres || back != 1 || resolved != 1 || down != 0 {
+		t.Errorf("%s: down %d back %d resolved %d", MonitoringDialect(), down, back, resolved)
+	}
+}
+
+// Review round 2, S4a: a fallback at the start of the process (PostgreSQL
+// starting after Cosmos) switches back on the first good probe, is not an
+// outage and is not told.
+func TestBootFallbackSwitchesBackAtOnce(t *testing.T) {
+	stub := withMonitoringStore(t, DatabaseConfig{PostgresHost: "192.0.2.10:5432", PostgresUsername: "cosmos", PostgresPassword: "x"}, refusedProblem)
+	fakePostgres(t)
+	storeStateMu.Lock()
+	storeStarted = false // the start of the process
+	storeStateMu.Unlock()
+	InitMetricsDatabase()
+	if MonitoringDialect() != DialectSQLite {
+		t.Fatal("not on the local file at the start")
+	}
+	w := &monitoringWatch{backoff: storeTiming.retryFirst}
+	w.look(true)
+	stub.advance(30 * time.Second)
+	stub.setProblem(nil)
+	w.look(false)
+	if MonitoringDialect() != DialectPostgres {
+		t.Fatal("not back on the first good probe after the start")
+	}
+	storeStateMu.Lock()
+	outages := len(storeOutages)
+	storeStateMu.Unlock()
+	if down, back, _ := stub.counts(); outages != 0 || down != 0 || back != 0 {
+		t.Errorf("a boot counted or told: outages %d down %d back %d", outages, down, back)
+	}
+}
+
+// Review round 2, M3: a superuser's tables are given one by one.
+func TestOwnerAdvice(t *testing.T) {
+	a := ownerAdvice("cosmos", []string{"events", "metrics"}, "postgres", true, "my-user")
+	if strings.Contains(a, "REASSIGN") || !strings.Contains(a, `ALTER TABLE "events" OWNER TO "my-user"; ALTER TABLE "metrics" OWNER TO "my-user";`) {
+		t.Error(a)
+	}
+	if b := ownerAdvice("cosmos", []string{"events"}, "keeper", false, "u"); !strings.Contains(b, `REASSIGN OWNED BY "keeper" TO "u"`) {
+		t.Error(b)
 	}
 }
