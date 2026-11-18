@@ -9,7 +9,7 @@ import { Alert, Box, Button, LinearProgress, Stack, Typography } from '@mui/mate
 import { useTranslation } from 'react-i18next';
 import * as API from '../../api';
 import {
-  TO_LOCAL, TO_POSTGRES, countingOf, formatCount, formatDuration, formatTime, mismatchLine, offerLabel, offerOf, pollDelay, progressOf, resultOf, tableLabel,
+  CATCH_UP, TO_LOCAL, TO_POSTGRES, catchUpOf, countedAgo, countingOf, formatCount, formatDuration, formatTime, mismatchLine, offerLabel, offerOf, pollDelay, progressOf, resultOf, tableLabel,
 } from '../../utils/monitoringCopy';
 
 const touch = { minHeight: 44, textAlign: 'left', whiteSpace: 'normal', overflowWrap: 'anywhere' };
@@ -80,7 +80,8 @@ const MonitoringCopy = ({ saves }) => {
   const reverse = offerOf(view, TO_LOCAL);
   const result = resultOf(view, t, locale);
   const counting = countingOf(view);
-  if (!progress && !forward && !reverse && !result && !problem && !counting) return null;
+  const caught = catchUpOf(view, t, locale);
+  if (!progress && !forward && !reverse && !result && !problem && !counting && !caught) return null;
 
   return <Stack spacing={1.5} data-fork-copy>
     {progress && <Box data-fork-copy-progress={progress.phase}>
@@ -88,6 +89,8 @@ const MonitoringCopy = ({ saves }) => {
         <Typography variant="body2">
           {progress.phase === 'verifying'
             ? t('mgmt.config.general.monitoringDb.copy.verifying', 'Comparing the two stores…')
+            : progress.direction === CATCH_UP
+              ? t('mgmt.config.general.monitoringDb.copy.runningCatchUp', 'Catching up the records written into the local file while the database was away (from {{from}} to {{to}})… Monitoring keeps recording meanwhile.', { from: formatTime(progress.from, locale), to: formatTime(progress.to, locale) })
             : progress.direction === TO_LOCAL
               ? t('mgmt.config.general.monitoringDb.copy.runningToLocal', 'Copying the records of PostgreSQL into the local file… Monitoring keeps recording meanwhile.')
               : t('mgmt.config.general.monitoringDb.copy.runningToPostgres', 'Copying the history from the local file into PostgreSQL… Monitoring keeps recording meanwhile; the local file is only read.')}
@@ -130,6 +133,10 @@ const MonitoringCopy = ({ saves }) => {
       {t('mgmt.config.general.monitoringDb.copy.counting', 'Counting the records of the two stores…')}
     </Typography>}
 
+    {caught && <Alert severity={caught.severity} sx={{ overflowWrap: 'anywhere' }} data-fork-copy-catchup={caught.outcome}>
+      {caught.text}
+    </Alert>}
+
     {problem && <Alert severity="error" onClose={() => setProblem('')} sx={{ overflowWrap: 'anywhere' }} data-fork-copy-problem>
       {t('mgmt.config.general.monitoringDb.copy.startFailed', 'The copy could not start:')} {problem}
     </Alert>}
@@ -146,6 +153,7 @@ const MonitoringCopy = ({ saves }) => {
             {offerLabel(forward, t, locale)}
           </Button>
         </Box>
+        {countedAgo(forward, t) && <Typography variant="caption" sx={{ color: 'text.secondary' }} data-fork-copy-counted>{countedAgo(forward, t)}</Typography>}
         <Typography variant="caption" sx={{ color: 'text.secondary' }}>
           {t('mgmt.config.general.monitoringDb.copy.safety', 'The local file is only read: its records are not changed and it is not deleted (SQLite may leave its two small companion files, database.db-wal and database.db-shm, next to it). Monitoring keeps recording during the copy; it can be cancelled and resumed.')}
         </Typography>

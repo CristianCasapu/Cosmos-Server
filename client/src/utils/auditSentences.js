@@ -203,8 +203,10 @@ const SENTENCES = {
   // Fork addition (plan 51): the copy of the monitoring history (src/monitorcopy)
   'config.monitoring.copy': {
     text: '{{actor}} started copying the monitoring history from the local file into PostgreSQL', ip: true,
-    pick: (e) => (detail(e, 'action') === 'cancel' ? 'cancel' : '') + (detail(e, 'direction') === 'to-local' ? 'local' : ''),
+    pick: (e) => (detail(e, 'action') === 'catchup' ? 'catchup' : (detail(e, 'action') === 'cancel' ? 'cancel' : '') + (detail(e, 'direction') === 'to-local' ? 'local' : '')),
     variants: {
+      // Fork addition (plan 51, S4b): no user, Cosmos did it after a fallback
+      catchup: 'Cosmos caught up {{copied}} monitoring records written into the local file while the database was away',
       local: '{{actor}} started copying the monitoring records of PostgreSQL into the local file',
       cancel: '{{actor}} cancelled the copy of the monitoring history',
       cancellocal: '{{actor}} cancelled the copy of the monitoring history',

@@ -30,9 +30,16 @@ type column struct {
 	// def is the column's default as an SQL literal: what a source of an
 	// older layout without this column gives
 	def string
+	// nanAs is what a REAL column stores in the local file for a value that is
+	// not a finite number (SQLite would make NaN a NULL, which NOT NULL refuses)
+	nanAs float64
 }
 
 func col(name string, k kind, def string) column { return column{name: name, kind: k, def: def} }
+
+// scale is a REAL column the panel divides by: a value that is not a finite
+// number is stored as 1, the neutral scale, never 0.
+func scale(name string) column { return column{name: name, kind: real, def: "0", nanAs: 1} }
 
 // rule says how one table is copied. Two shapes:
 //
@@ -60,6 +67,12 @@ type rule struct {
 	retention    time.Duration
 	// expireCol: rows whose expiry passed are not copied (metric_values)
 	expireCol string
+	// touched is the column that says when a row was last written, for the
+	// catch-up of a window (Options.From); touchedSlack widens the window back
+	// (a bucket written in the window carries the time its period began).
+	// "" leaves the table out of a catch-up.
+	touched      string
+	touchedSlack time.Duration
 	// where is a fixed condition on the rows copied (monitoring_kv's
 	// bookkeeping keys are left out by it)
 	where string
@@ -137,11 +150,12 @@ var rules = func() []rule {
 	metricCols := []column{
 		col("node", text, "''"), col("key", text, "''"), col("label", text, "''"), col("unit", text, "''"),
 		col("max", integer, "0"), col("agglo_type", text, "''"), col("scale", integer32, "1"), col("object", text, "''"),
-		col("time_scale", real, "0"), col("last_update", integer, "0"),
+		scale("time_scale"), col("last_update", integer, "0"),
 	}
 	metrics := rule{
 		table:   "metrics",
 		columns: metricCols,
+		touched: "last_update",
 		key:     []string{"node", "key"},
 		// Key: (node, key), the table's primary key. A metric in both
 		// stores: the row whose last_update is newer wins (the catalogue
@@ -162,6 +176,9 @@ var rules = func() []rule {
 		key:       []string{"node", "key", "granularity", "date"},
 		window:    "date",
 		expireCol: "expire",
+		// a day bucket begins at midnight: the window goes back a day
+		touched:      "date",
+		touchedSlack: 24 * time.Hour,
 		// Key: (node, key, granularity, date), the primary key: one bucket.
 		// A bucket in both stores (the buckets that were open when the store
 		// was switched): the store in use wins, without merging. Merging
@@ -188,6 +205,7 @@ var rules = func() []rule {
 		window:       "date",
 		retentionCol: "date",
 		retention:    monthRetention,
+		touched:      "date",
 		// Identity: every column but the id. An event is never changed once
 		// written, so two rows with the same values are the same record (or
 		// two identical records, which stay two: the match is a multiset).
@@ -210,6 +228,7 @@ var rules = func() []rule {
 		// date itself moves when a repeated notice is grouped.
 		window:       "CASE WHEN fork_first > 0 THEN fork_first ELSE date END",
 		retentionCol: "date",
+		touched:      "date", // written or grouped again
 		retention:    monthRetention,
 		verifySums:   []string{},
 	}
@@ -237,6 +256,7 @@ var rules = func() []rule {
 		},
 		window:       "ts",
 		retentionCol: "ts",
+		touched:      "ts",
 		retention:    securityRetention,
 		// Identity: every column but the id (entries are never changed).
 		identity:   func(r row) []interface{} { return r.values },
