@@ -316,6 +316,7 @@ func forkWriteNotification(n Notification) bool {
 	if err != nil {
 		return false
 	}
+	original := n // kept as it came when its rows cannot be written (plan 51)
 	explicit := n.Fork != nil
 	var info NotificationInfo
 	if explicit {
@@ -352,6 +353,7 @@ func forkWriteNotification(n Notification) bool {
 	outcome, err := writeRows(db, n, info, explicit, recipients, audience)
 	if err != nil {
 		Error("Notifications: Error while writing notification", err)
+		keepNotification(original) // written again a few seconds later, see fork_write_retry.go
 		return true
 	}
 	if outcome.alert {

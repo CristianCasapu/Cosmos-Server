@@ -82,7 +82,7 @@ func noticeFromEvent(event security.Event, st settings) (notice, bool) {
 		if !st.categories[CategoryLogins] || !isNewAddress(event) {
 			return notice{}, false
 		}
-		return newAddressNotice(event), true
+		return newAddressNotice(event, storePartial()), true // Fork addition (plan 51): hedged while the history is partial
 	}
 	if !st.categories[CategorySecurity] {
 		return notice{}, false
@@ -183,7 +183,9 @@ func eventDetails(c *composer, event security.Event, kind security.Kind) {
 	}
 }
 
-// storePartial is utils.MonitoringStorePartial; replaced by the tests.
+// storePartial is utils.MonitoringStorePartial (plan 51): the history is the
+// local file's while it stands in for the monitoring database; replaced by
+// the tests.
 var storePartial = utils.MonitoringStorePartial
 
 // isNewAddress reports whether the account of a login was not seen at this
@@ -192,12 +194,6 @@ var storePartial = utils.MonitoringStorePartial
 // database yet), the answer is no.
 func isNewAddress(event security.Event) bool {
 	if event.Actor == "" || event.IP == "" || event.ID == 0 {
-		return false
-	}
-	// Fork addition (plan 51): while the monitoring store is the local file
-	// standing in for PostgreSQL, the logins recorded in PostgreSQL are not
-	// here: "never seen" cannot be told from "seen there"
-	if storePartial() {
 		return false
 	}
 	earlier, err := loginHistory(event.Actor)
@@ -232,14 +228,18 @@ func sameSource(a string, b string) bool {
 	return prefixA == prefixB
 }
 
-func newAddressNotice(event security.Event) notice {
+func newAddressNotice(event security.Event, partial bool) notice {
+	title := "Login from a new address: a password was accepted from an address not seen before for this account."
+	if partial { // Fork addition (plan 51): the local file stands in for the monitoring database
+		title = "Login from a new address: a password was accepted from an address not in the history available now (the monitoring database is away: earlier logins may be missing)."
+	}
 	return notice{
 		category: CategoryLogins,
 		key:      "login.new",
 		label:    "Login from a new address",
 		priority: priorityNormal,
 		at:       event.Time,
-		title:    "Login from a new address: a password was accepted from an address not seen before for this account.",
+		title:    title,
 		details: func(c *composer) {
 			c.fixed("Account ").value(event.Actor, maxValue).fixed(" from ").value(event.IP, maxValue)
 			if event.Details["mfa"] == "pending" {

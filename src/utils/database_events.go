@@ -50,7 +50,7 @@ func InsertEvent(e Event) error {
 		MonitoringNode(), e.EventId, e.Label, e.Application, e.Level,
 		TimeToMillis(e.Date), string(payload), e.Object,
 		e.EventId+" "+string(payload))
-	return err
+	return forkKeepEvent(e, err) // Fork addition (plan 51): kept and written again when the store did not take it, see fork_write_retry.go
 }
 
 // QueryEvents returns one page of events plus the total matching count. Reads are

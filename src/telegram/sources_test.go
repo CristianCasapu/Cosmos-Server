@@ -243,11 +243,13 @@ func TestALoginFromANewAddress(t *testing.T) {
 	if _, tell := noticeFromEvent(unstored, st); tell {
 		t.Error("told for an event that is not stored")
 	}
-	// plan 51: while the monitoring store is the local file standing in for
-	// PostgreSQL, the history is partial: not told
+	// plan 51: while the history is partial, a new address is told, hedged; a known one is not
 	storePartial = func() bool { return true }
-	if _, tell := noticeFromEvent(login("192.0.2.98"), st); tell {
-		t.Error("told from a partial history")
+	if nt, tell := noticeFromEvent(login("192.0.2.98"), st); !tell || !strings.Contains(nt.title, "not in the history available now") {
+		t.Errorf("not told, or not hedged, from a partial history: %v %q", tell, nt.title)
+	}
+	if _, tell := noticeFromEvent(login("192.0.2.7"), st); tell {
+		t.Error("a known address told while the history is partial")
 	}
 	storePartial = utils.MonitoringStorePartial
 	// an earlier login is earlier by time, not by id (ids are per store)

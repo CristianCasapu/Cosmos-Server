@@ -137,7 +137,16 @@ const insertSQL = "INSERT INTO " + tableName +
 
 // insert stores the events in one transaction, in their order, and sets
 // their IDs. Either all of them are stored or none.
-func insert(events []Event) error {
+func insert(events []Event) error { return insertRetrying(events, 0) }
+
+// sameEventSQL finds a stored event equal to one about to be stored.
+const sameEventSQL = "SELECT id FROM " + tableName + " WHERE node = ? AND ts = ? AND kind = ? AND actor = ? AND ip = ? AND target = ? AND n = ? AND details = ? LIMIT 1"
+
+// insertRetrying is insert where the first retried events were in a batch
+// that failed: a commit the server made but whose answer was lost looks
+// like a failure (review round 2, M4), so each of them is looked up first
+// and not stored twice.
+func insertRetrying(events []Event, retried int) error {
 	if len(events) == 0 {
 		return nil
 	}
@@ -172,6 +181,14 @@ func insert(events []Event) error {
 		severity, _ := ParseSeverity(event.Severity)
 		if severity == 0 {
 			severity = SeverityInfo
+		}
+		if i < retried {
+			var id int64
+			if tx.QueryRow(utils.MonitoringRebindFor(db, sameEventSQL), node, utils.TimeToMillis(event.Time), event.Kind,
+				event.Actor, event.IP, event.Target, event.Count, details).Scan(&id) == nil {
+				ids[i] = id
+				continue
+			}
 		}
 		err := statement.QueryRow(node, utils.TimeToMillis(event.Time), event.Kind, event.Class, int(severity),
 			event.Actor, event.IP, event.Target, event.Host, event.Path, event.Method, event.Outcome,

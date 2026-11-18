@@ -146,7 +146,7 @@ const NotificationsPage = () => {
     API.notifications.remove(body).then(() => {
       if (what === 'read') load('');
       else setItems((shown) => (shown || []).filter((n) => n.id !== what.id));
-    }).catch(() => {});
+    }).catch((e) => { if (e && e.code === 'NOTIF009') load(''); }); // Fork addition (plan 51): the store changed: the list again
   };
 
   return (

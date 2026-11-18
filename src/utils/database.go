@@ -264,12 +264,11 @@ func RunDatabaseRetention() {
 		{"DELETE FROM events WHERE node = ? AND date < ?", []interface{}{node, monthAgo}},
 		{"DELETE FROM notifications WHERE node = ? AND date < ?", []interface{}{node, monthAgo}},
 	} {
-		res, err := db.Exec(MonitoringRebindFor(db, q.sql), q.args...) // Fork addition (plan 51): the dialect of this handle
+		n, err := retentionDelete(db, q.sql, q.args...) // Fork addition (plan 51): in chunks, each with a generous bound, see fork_retention.go
 		if err != nil {
 			MajorError("Database Retention", err)
 			return
 		}
-		n, _ := res.RowsAffected()
 		deleted += n
 	}
 
