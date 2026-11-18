@@ -306,8 +306,12 @@ func localUnusable(err error) {
 
 // localFileDSN is the local file's address.
 func localFileDSN() string {
+	// _txlock=immediate: a transaction takes the write lock when it begins and
+	// waits for it (busy_timeout); a deferred one that reads first fails at
+	// once with 517 when another connection wrote meanwhile (two handles of
+	// the file during a drain, a copy, the fallback)
 	return "file:" + CONFIGFOLDER + "database.db" +
-		"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)"
+		"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)&_txlock=immediate"
 }
 
 // unresolvedOutage: the start of an outage notice left open in the local
