@@ -18,9 +18,12 @@ import (
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
+// monitoringStoreState is utils.GetMonitoringStoreState; replaced by the tests.
+var monitoringStoreState = utils.GetMonitoringStoreState
+
 // MonitoringStoreRoute godoc
 // @Summary Monitoring database: the store in use
-// @Description Says whether monitoring records into the local file or PostgreSQL, and while a configured PostgreSQL does not answer since when, why and when Cosmos tries again. The server and database names only for readers of the configuration; never a password.
+// @Description Says whether monitoring records into the local file or PostgreSQL, and while a configured PostgreSQL does not answer since when, why and when Cosmos tries again. The server, the database, the sentences and the advice only for readers of the configuration (they name the server, the user and the containers); never a password.
 // @Tags config
 // @Produce json
 // @Security BearerAuth
@@ -37,9 +40,11 @@ func MonitoringStoreRoute(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "Method not allowed", http.StatusMethodNotAllowed, "HTTP001")
 		return
 	}
-	state := utils.GetMonitoringStoreState()
+	state := monitoringStoreState()
 	if !utils.HasPermission(req, utils.PERM_CONFIGURATION_READ) {
-		state.Host, state.Database = "", ""
+		// the sentences name the server, the user, the database and the
+		// containers (review S3): the reason only
+		state.Host, state.Database, state.Message, state.Advice = "", "", "", ""
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "OK", "data": state})

@@ -269,12 +269,24 @@ func TestTheMaskedPostgresPasswordStaysWithItsServer(t *testing.T) {
 			return as(req)
 		}
 	}
+	resetSaveGate()
 	if w := save(unchecked(asConfigurationToken), settings); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "UC048") {
 		t.Fatalf("Save anyway by a token without the admin permission: %d %s", w.Code, w.Body.String())
 	}
 	settings.Database.PostgresPassword = "typed-for-the-new-server"
+	recorded := captureSecurity(t)
 	if w := save(unchecked(asAdmin), settings); w.Code != http.StatusOK {
 		t.Fatalf("Save anyway by an administrator: %d %s", w.Code, w.Body.String())
+	}
+	kinds := []string{}
+	for _, e := range recorded() {
+		kinds = append(kinds, e.Kind)
+		if e.Kind == utils.SecDatabaseUnchecked && (e.Target != "127.0.0.1:1" || strings.Contains(fmtEvent(e), "typed-for-the-new-server")) {
+			t.Errorf("record %+v", e)
+		}
+	}
+	if !containsString(kinds, utils.SecDatabaseUnchecked) {
+		t.Errorf("Save anyway not recorded: %v", kinds)
 	}
 	if stored := utils.ReadConfigFromFile().Database; stored.PostgresPassword != "typed-for-the-new-server" || stored.PostgresHost != "127.0.0.1:1" {
 		t.Errorf("stored %+v", stored)
@@ -284,7 +296,9 @@ func TestTheMaskedPostgresPasswordStaysWithItsServer(t *testing.T) {
 func stubPostgresStore(t *testing.T, problem *utils.PostgresProblem) *[]utils.DatabaseConfig {
 	t.Helper()
 	tried := &[]utils.DatabaseConfig{}
-	old, oldAdvice := checkPostgresStore, postgresAdvice
+	old, oldAdvice, oldGap := checkPostgresStore, postgresAdvice, saveCheckGap
+	saveCheckGap = 0 // the gate has a test of its own
+	resetSaveGate()
 	checkPostgresStore = func(ctx context.Context, d utils.DatabaseConfig) *utils.PostgresProblem {
 		*tried = append(*tried, d)
 		return problem
@@ -292,7 +306,7 @@ func stubPostgresStore(t *testing.T, problem *utils.PostgresProblem) *[]utils.Da
 	postgresAdvice = func(ctx context.Context, typed string, reason string) string {
 		return "On this server PostgreSQL's port is published on 192.168.1.10 only, not on localhost: use 192.168.1.10:5432."
 	}
-	t.Cleanup(func() { checkPostgresStore, postgresAdvice = old, oldAdvice })
+	t.Cleanup(func() { checkPostgresStore, postgresAdvice, saveCheckGap = old, oldAdvice, oldGap; resetSaveGate() })
 	return tried
 }
 
@@ -343,29 +357,110 @@ func TestPostgresSaveConnectsOnlyWhenTheSettingsChange(t *testing.T) {
 	}
 }
 
-// One save check at a time: a second one is refused, not queued.
-func TestPostgresSaveCheckOneAtATime(t *testing.T) {
+func resetSaveGate() {
+	postgresSaveMu.Lock()
+	postgresSaveBusy, postgresSaveLast, postgresSaveCount = map[string]bool{}, map[string]time.Time{}, 0
+	postgresSaveMu.Unlock()
+}
+
+func asSaveToken(name string) func(*http.Request) *http.Request {
+	return func(req *http.Request) *http.Request {
+		return req.WithContext(context.WithValue(req.Context(), utils.AuthCtxKey, &utils.AuthContext{
+			Nickname: "admin",
+			APIToken: &utils.APITokenContext{Name: name, Owner: "admin", Permissions: []utils.Permission{utils.PERM_CONFIGURATION_READ, utils.PERM_CONFIGURATION}},
+		}))
+	}
+}
+
+// Review M3/M4: a caller has one check at a time and a gap; another caller
+// is not blocked by it; a bound on how many at once.
+func TestPostgresSaveCheckGate(t *testing.T) {
 	stubPostgresStore(t, nil)
-	release, entered := make(chan struct{}), make(chan struct{})
+	saveCheckGap = 3 * time.Second
+	resetSaveGate()
+	t.Cleanup(resetSaveGate)
+	release, entered := make(chan struct{}), make(chan struct{}, 8)
 	checkPostgresStore = func(context.Context, utils.DatabaseConfig) *utils.PostgresProblem {
-		close(entered)
+		entered <- struct{}{}
 		<-release
 		return nil
 	}
 	stored := utils.Config{}
-	done := make(chan *httpSettingsProblem)
-	go func() {
-		request := utils.Config{Database: utils.DatabaseConfig{PostgresHost: "192.168.1.10:5432", PostgresUsername: "cosmos"}}
-		done <- checkPostgresSettings(nil, &request, stored)
-	}()
+	save := func(as func(*http.Request) *http.Request, host string) *httpSettingsProblem {
+		req := as(httptest.NewRequest("PUT", "https://cosmos.example.org/cosmos/api/config", nil))
+		request := utils.Config{Database: utils.DatabaseConfig{PostgresHost: host, PostgresUsername: "cosmos"}}
+		return checkPostgresSettings(req, &request, stored)
+	}
+	done := make(chan *httpSettingsProblem, 8)
+	go func() { done <- save(asSaveToken("looping"), "192.0.2.10:5432") }()
 	<-entered
-	request := utils.Config{Database: utils.DatabaseConfig{PostgresHost: "192.168.1.11:5432", PostgresUsername: "cosmos"}}
-	if p := checkPostgresSettings(nil, &request, stored); p == nil || p.Code != "UC049" {
-		t.Errorf("a second check at once: %+v", p)
+	if p := save(asSaveToken("looping"), "192.0.2.11:5432"); p == nil || p.Code != "UC049" {
+		t.Errorf("the same caller twice at once: %+v", p)
+	}
+	go func() { done <- save(asAdmin, "192.0.2.12:5432") }()
+	<-entered // another caller is not blocked
+	close(release)
+	for i := 0; i < 2; i++ {
+		if p := <-done; p != nil {
+			t.Errorf("%+v", p)
+		}
+	}
+	if p := save(asSaveToken("looping"), "192.0.2.13:5432"); p == nil || p.Code != "UC049" {
+		t.Errorf("the same caller again at once: %+v", p)
+	}
+	// at most saveChecksAtOnce callers at once
+	resetSaveGate()
+	release = make(chan struct{})
+	for i := 0; i < saveChecksAtOnce; i++ {
+		go func(i int) { done <- save(asSaveToken("t"+string(rune('a'+i))), "192.0.2.20:5432") }(i)
+		<-entered
+	}
+	if p := save(asSaveToken("one-more"), "192.0.2.20:5432"); p == nil || p.Code != "UC049" {
+		t.Errorf("one more than the bound: %+v", p)
 	}
 	close(release)
-	if p := <-done; p != nil {
-		t.Errorf("first: %+v", p)
+	for i := 0; i < saveChecksAtOnce; i++ {
+		<-done
+	}
+}
+
+// Review S3: readers without the configuration permission get neither the
+// server nor the sentences that name it, the user or the containers.
+func TestMonitoringStoreRouteMasksForOtherReaders(t *testing.T) {
+	settingsTestServer(t)
+	old := monitoringStoreState
+	t.Cleanup(func() { monitoringStoreState = old })
+	monitoringStoreState = func() utils.MonitoringStoreState {
+		return utils.MonitoringStoreState{Configured: "postgres", InUse: "sqlite", Fallback: true, Host: "192.0.2.5:5432", Database: "cosmos_monitoring",
+			Reason: "password", Message: "The database refused the password of user cosmos.", Advice: "use 192.0.2.5:5432 (the PostgreSQL container postgresql)"}
+	}
+	resourcesReader := func(req *http.Request) *http.Request {
+		return req.WithContext(context.WithValue(req.Context(), utils.AuthCtxKey, &utils.AuthContext{
+			Nickname: "admin",
+			APIToken: &utils.APITokenContext{Name: "charts", Owner: "admin", Permissions: []utils.Permission{utils.PERM_RESOURCES_READ}},
+		}))
+	}
+	for name, c := range map[string]struct {
+		as   func(*http.Request) *http.Request
+		full bool
+	}{"administrator": {asAdmin, true}, "configuration token": {asConfigurationToken, false}, "resources reader": {resourcesReader, false}} {
+		w := httptest.NewRecorder()
+		MonitoringStoreRoute(w, c.as(httptest.NewRequest("GET", "https://cosmos.example.org/cosmos/api/monitoring-store", nil)))
+		body := w.Body.String()
+		if name == "configuration token" {
+			// it reads the configuration, but not the resources: refused
+			if w.Code == http.StatusOK && strings.Contains(body, "192.0.2.5") {
+				t.Errorf("%s: %s", name, body)
+			}
+			continue
+		}
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", name, w.Code, body)
+		}
+		names := strings.Contains(body, "192.0.2.5") || strings.Contains(body, "user cosmos") || strings.Contains(body, "postgresql") || strings.Contains(body, "cosmos_monitoring")
+		if names != c.full || !strings.Contains(body, `"reason":"password"`) {
+			t.Errorf("%s: %s", name, body)
+		}
 	}
 }
 
@@ -404,5 +499,46 @@ func TestPostgresTestIsForAdministratorsOnly(t *testing.T) {
 	}
 	if len(*tried) != 0 {
 		t.Errorf("a connection was tried: %+v", *tried)
+	}
+}
+
+func fmtEvent(e utils.SecurityEvent) string {
+	out := e.Kind + " " + e.Target
+	for k, v := range e.Details {
+		out += " " + k + "=" + v
+	}
+	return out
+}
+
+func containsString(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+// Review M1: "Save anyway" for a save another check refuses is not recorded.
+func TestUncheckedSaveRecordedOnlyWhenSaved(t *testing.T) {
+	recorded := captureSecurity(t)
+	req := asAdmin(httptest.NewRequest("PUT", "https://cosmos.example.org/cosmos/api/config?database=unchecked", nil))
+	before := utils.Config{}
+	after := utils.Config{Database: utils.DatabaseConfig{PostgresHost: "192.0.2.10:5432"}}
+	request := after
+	if p := checkPostgresSettings(req, &request, before); p != nil {
+		t.Fatalf("%+v", p)
+	}
+	if len(recorded()) != 0 {
+		t.Errorf("recorded before the save went through: %+v", recorded())
+	}
+	recordUncheckedDatabase(req, before, before)                                                                                     // nothing changed in the end
+	recordUncheckedDatabase(asAdmin(httptest.NewRequest("PUT", "https://cosmos.example.org/cosmos/api/config", nil)), before, after) // no flag
+	if len(recorded()) != 0 {
+		t.Errorf("recorded without a change or without the flag: %+v", recorded())
+	}
+	recordUncheckedDatabase(req, before, after)
+	if events := recorded(); len(events) != 1 || events[0].Kind != utils.SecDatabaseUnchecked {
+		t.Errorf("%+v", events)
 	}
 }

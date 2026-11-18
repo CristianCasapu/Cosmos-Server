@@ -59,6 +59,13 @@ func answerNotifications(w http.ResponseWriter, data interface{}) {
 	json.NewEncoder(w).Encode(utils.APIResponse{Status: "OK", Data: data})
 }
 
+// answerNotificationsOfStore also names the monitoring store the ids belong
+// to (plan 51: ids are per store; a change sent with another store's ids
+// after a switch is refused instead of marking other rows).
+func answerNotificationsOfStore(w http.ResponseWriter, data interface{}) {
+	json.NewEncoder(w).Encode(map[string]interface{}{"status": "OK", "data": data, "store": utils.MonitoringStoreID()})
+}
+
 // notificationsListRoute godoc
 // @Summary The caller's notifications, newest first
 // @Tags Notifications
@@ -106,7 +113,7 @@ func notificationsListRoute(w http.ResponseWriter, req *http.Request) {
 	}
 	unread, _ := utils.CountUnreadNotifications(nickname, admin)
 	sources, _ := utils.NotificationSourcesOf(nickname, admin)
-	answerNotifications(w, map[string]interface{}{"items": items, "next": next, "unread": unread, "sources": sources})
+	answerNotificationsOfStore(w, map[string]interface{}{"items": items, "next": next, "unread": unread, "sources": sources})
 }
 
 // notificationsItemRoute godoc
@@ -137,7 +144,7 @@ func notificationsItemRoute(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "There is no such notification of yours", http.StatusNotFound, "NOTIF004")
 		return
 	}
-	answerNotifications(w, details)
+	answerNotificationsOfStore(w, details)
 }
 
 func notificationTarget(req *http.Request) (int64, string, bool) {
@@ -182,6 +189,8 @@ type notificationChange struct {
 	IDs  []int64 `json:"ids"`
 	Read *bool   `json:"read"`
 	All  bool    `json:"all"`
+	// Store: the monitoring store the ids were read from (plan 51), optional
+	Store string `json:"store,omitempty"`
 }
 
 func readNotificationChange(w http.ResponseWriter, req *http.Request) (notificationChange, bool) {
@@ -201,6 +210,10 @@ func readNotificationChange(w http.ResponseWriter, req *http.Request) (notificat
 			utils.HTTPError(w, "Not a notification id", http.StatusBadRequest, "NOTIF002")
 			return change, false
 		}
+	}
+	if len(change.IDs) > 0 && change.Store != "" && change.Store != utils.MonitoringStoreID() {
+		utils.HTTPError(w, "The notifications moved to another store since this page was loaded: load the page again", http.StatusConflict, "NOTIF009")
+		return change, false
 	}
 	return change, true
 }

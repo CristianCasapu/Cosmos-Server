@@ -20,7 +20,10 @@
 #                     "postgresql"  bitnami/postgresql, the owner's shape: POSTGRESQL_USERNAME=cosmos,
 #                                   POSTGRESQL_PASSWORD=Cosmos-test-pw-51, POSTGRESQL_DATABASE=cosmos_monitoring,
 #                                   port 5432 published on SUBNET.5 ONLY (not on 127.0.0.1); a role
-#                                   "reader" (reader-test-pw) that may sign in but not create tables
+#                                   "reader" (reader-test-pw) that may sign in but not create tables, and
+#                                   "other" (other-test-pw) that may create tables but owns none of Cosmos'
+#                                   (the roles the live tests of src/utils need, with COSMOS_FORK_PG_TEST=SUBNET.5:5432,
+#                                   _DB=cosmos_monitoring, _PASSWORD=Cosmos-test-pw-51)
 #                     "pgofficial"  postgres:18 with the official names (POSTGRES_USER=app,
 #                                   POSTGRES_PASSWORD=App-test-pw-51, POSTGRES_DB=appdb), port 5432 not published
 #   .9  PREFIX-browser the Playwright image, run per check
@@ -130,6 +133,8 @@ databases() { # the two PostgreSQL containers as at `up`
   done
   # a role that may sign in but not create tables (the live test of the check)
   in_dind docker exec postgresql sh -c "PGPASSWORD=Root-test-pw-51 psql -h 127.0.0.1 -U postgres -d cosmos_monitoring -c \"CREATE ROLE reader LOGIN PASSWORD 'reader-test-pw'\"" >/dev/null 2>&1 || true
+  # a role that may create tables but owns none of Cosmos' (the live test of the ownership check)
+  in_dind docker exec postgresql sh -c "PGPASSWORD=Root-test-pw-51 psql -h 127.0.0.1 -U postgres -d cosmos_monitoring -c \"CREATE ROLE other LOGIN PASSWORD 'other-test-pw'\" -c \"GRANT CREATE ON SCHEMA public TO other\"" >/dev/null 2>&1 || true
 }
 
 start_all() {

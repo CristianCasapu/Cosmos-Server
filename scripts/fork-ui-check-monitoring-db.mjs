@@ -301,15 +301,19 @@ phases.down = async (page, id, size, ctx) => {
   expect(id + ': the monitoring page says it', /does not answer since/.test(await line.innerText().catch(() => '')), await line.innerText().catch(() => ''));
   await layout(page, id, null, size);
   await shot(page, id, 'down-monitoring');
-  // records continue: the notice of the fallback is written into the local file, and read from it
-  await sleep(3000);
-  const notes = await (await ctx.request.get(base + '/cosmos/api/notifications')).text();
-  expect(id + ': records go on in the local file (the notice is there)', /monitoring\.store\.down|monitoring database does not answer/i.test(notes), notes.slice(0, 300));
+  // records continue: the notice of the outage (told once it lasted two minutes) is written into
+  // the local file, and read from it
+  let notes = '';
+  for (let i = 0; i < 40 && !/monitoring\.store\.down/.test(notes); i += 1) {
+    await sleep(5000);
+    notes = await (await ctx.request.get(base + '/cosmos/api/notifications/list?source=monitoring')).text();
+  }
+  expect(id + ': records go on in the local file (the notice of the lasting outage is there)', /monitoring\.store\.down/.test(notes), notes.slice(0, 300));
   await openExternal(page);
   await page.locator('[data-fork-monitoring-fallback]').first().waitFor({ timeout: 20000 });
   await shot(page, id, 'down-external');
   await docker('/containers/postgresql/start');
-  s = await waitState(ctx, (st) => st.inUse === 'pgx' && !st.fallback, 120);
+  s = await waitState(ctx, (st) => st.inUse === 'pgx' && !st.fallback, 420);
   expect(id + ': started again: healed without a restart', s.inUse === 'pgx' && !s.fallback, JSON.stringify(s));
   expect(id + ': the period in the local file is known', !!s.localFrom && !!s.localTo, JSON.stringify(s));
   await sleep(2000);
@@ -330,7 +334,7 @@ phases.start = async (page, id, size, ctx) => {
   await page.locator('[data-fork-monitoring-fallback]').first().waitFor({ timeout: 20000 }).catch(() => {});
   expect(id + ': the monitoring page says it', await page.locator('[data-fork-monitoring-fallback]').count() > 0);
   await docker('/containers/postgresql/start');
-  s = await waitState(ctx, (st) => st.inUse === 'pgx' && !st.fallback, 120);
+  s = await waitState(ctx, (st) => st.inUse === 'pgx' && !st.fallback, 420);
   expect(id + ': healed by itself', s.inUse === 'pgx' && !s.fallback, JSON.stringify(s));
 };
 

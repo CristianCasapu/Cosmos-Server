@@ -266,9 +266,12 @@ export function apiParams(filters, cursor, limit = PAGE_SIZE) {
 // ---- bodies of the commands ----
 
 const ids = (list) => (Array.isArray(list) ? list : [list]).filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, 200);
-export const markBody = (list, read) => ({ ids: ids(list), read: !!read });
+// `store`: the monitoring store the ids were listed from (plan 51: ids are
+// per store; the server refuses another store's ids after a switch)
+const withStore = (body, store) => (typeof store === 'string' && /^[0-9a-f]{1,32}$/.test(store) ? { ...body, store } : body);
+export const markBody = (list, read, store) => withStore({ ids: ids(list), read: !!read }, store);
 export const markAllBody = () => ({ all: true });
-export const deleteBody = (list) => ({ ids: ids(list) });
+export const deleteBody = (list, store) => withStore({ ids: ids(list) }, store);
 export const deleteReadBody = () => ({ read: true });
 
 // ---- items as the server sends them: checked and completed ----

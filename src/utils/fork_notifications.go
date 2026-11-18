@@ -533,13 +533,22 @@ func ResolveThread(thread string) (time.Time, bool) {
 	if err != nil || thread == "" {
 		return time.Time{}, false
 	}
+	return resolveThreadIn(db, MonitoringDialect(), thread)
+}
+
+// resolveThreadIn is ResolveThread in a given store (plan 51: the local file
+// left behind by a switch of the monitoring store).
+func resolveThreadIn(db *sql.DB, dialect string, thread string) (time.Time, bool) {
+	if db == nil || thread == "" {
+		return time.Time{}, false
+	}
 	var first sql.NullInt64
-	if err := db.QueryRow(MonitoringRebind(
+	if err := db.QueryRow(rebindFor(dialect,
 		"SELECT MIN(CASE WHEN fork_first > 0 THEN fork_first ELSE date END) FROM notifications WHERE fork_thread = ? AND fork_resolved = 0 AND fork_info <> ''"),
 		thread).Scan(&first); err != nil || !first.Valid {
 		return time.Time{}, false
 	}
-	res, err := db.Exec(MonitoringRebind(
+	res, err := db.Exec(rebindFor(dialect,
 		"UPDATE notifications SET fork_resolved = ? WHERE fork_thread = ? AND fork_resolved = 0 AND fork_info <> ''"),
 		TimeToMillis(notificationClock()), thread)
 	if err != nil {

@@ -119,6 +119,7 @@ func postgresCheckConfig(db DatabaseConfig) (*pgx.ConnConfig, error) {
 		return nil, err
 	}
 	explicitPostgresConfig(cfg, db)
+	boundPostgresConfig(cfg) // plan 51: the same bounds as the store's own connections
 	return cfg, nil
 }
 

@@ -194,7 +194,7 @@ const NotificationDetails = () => {
       const item = cleanItem(res.data);
       if (!item) { setMissing(true); return; }
       setDetails({ ...res.data, ...item });
-      if (!item.read) API.notifications.mark(markBody([item.id], true)).catch(() => {});
+      if (!item.read) API.notifications.mark(markBody([item.id], true, res.store)).catch(() => {}); // Fork addition (plan 51): res.store
       if (isAdmin) {
         API.notifications.context(item.id).then((c) => { if (!gone) setContext(c.data || {}); })
           .catch((e) => { if (!gone) { setContext({}); if (e && !e.refused) setContextError(e.message || String(e)); } });

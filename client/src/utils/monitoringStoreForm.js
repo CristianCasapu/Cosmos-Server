@@ -111,7 +111,7 @@ export const storeStateLine = (state, formatDate = (d) => d) => {
   const since = state.since ? formatDate(state.since) : '';
   if (state.host) {
     return ['mgmt.config.general.monitoringDb.fork.state.fallback',
-      'The monitoring database at {{host}} does not answer since {{since}}: {{reason}} Records are kept in the local file (database.db) meanwhile; Cosmos tries again by itself and switches back as soon as it answers.',
+      'The monitoring database at {{host}} does not answer since {{since}}: {{reason}} Records are kept in the local file (database.db) meanwhile; Cosmos tries again by itself and switches back once it has answered steadily for a minute.',
       { host: state.host, since, reason: [state.message, state.advice].filter(Boolean).join(' ') }];
   }
   return ['mgmt.config.general.monitoringDb.fork.state.fallbackNoHost',

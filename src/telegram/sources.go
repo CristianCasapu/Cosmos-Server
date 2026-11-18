@@ -183,6 +183,9 @@ func eventDetails(c *composer, event security.Event, kind security.Kind) {
 	}
 }
 
+// storePartial is utils.MonitoringStorePartial; replaced by the tests.
+var storePartial = utils.MonitoringStorePartial
+
 // isNewAddress reports whether the account of a login was not seen at this
 // address before: the same IPv4 address, or the same /64 for IPv6, among
 // its last 200 logins in the record. When that cannot be known (no
@@ -191,12 +194,19 @@ func isNewAddress(event security.Event) bool {
 	if event.Actor == "" || event.IP == "" || event.ID == 0 {
 		return false
 	}
+	// Fork addition (plan 51): while the monitoring store is the local file
+	// standing in for PostgreSQL, the logins recorded in PostgreSQL are not
+	// here: "never seen" cannot be told from "seen there"
+	if storePartial() {
+		return false
+	}
 	earlier, err := loginHistory(event.Actor)
 	if err != nil {
 		return false
 	}
 	for _, login := range earlier {
-		if login.ID >= event.ID {
+		// earlier by time, not by id (plan 51: ids are per store)
+		if login.ID == event.ID || !login.Time.Before(event.Time) {
 			continue
 		}
 		if sameSource(login.IP, event.IP) {

@@ -418,6 +418,7 @@ func ConfigApiSet(w http.ResponseWriter, req *http.Request) {
 		utils.SetBaseMainConfig(request)
 		utils.ConfigLock.Unlock()
 		auditSettings(req, config, request) // Fork addition: security record, the names of the sections that changed
+		recordUncheckedDatabase(req, checkedConfig, request) // Fork addition (plan 51): "Save anyway" recorded once the save went through, see fork_postgres.go
 		announceTelegramChange(req, config, request) // Fork addition: the chat that is losing the notifications is told, see fork_telegram.go
 
 		// Storage shares carry their own route; derive the ProxyConfig.Routes copies server-side.

@@ -179,21 +179,50 @@ func checkPostgresSettings(req *http.Request, request *utils.Config, stored util
 	if r.PostgresHost == "" {
 		return nil // back to the local file: nothing to connect to
 	}
-	if req != nil && req.URL.Query().Get("database") == "unchecked" {
+	if saveAnyway(req) {
 		if !utils.HasPermission(req, utils.PERM_ADMIN) {
 			utils.RecordSecurity(req, utils.SecAccessGrantDenied, "", "what", "database.unchecked")
 			return &httpSettingsProblem{"UC048", "Monitoring database: only an administrator may save settings the database has not confirmed"}
 		}
-		utils.RecordSecurity(req, utils.SecDatabaseUnchecked, r.PostgresHost)
-		return nil
+		return nil // recorded once the save went through (recordUncheckedDatabase)
 	}
 	return checkPostgresConnection(req, check)
 }
 
-// postgresSaveCheckBusy: one save check at a time (each may take seconds).
+func saveAnyway(req *http.Request) bool {
+	return req != nil && req.URL.Query().Get("database") == "unchecked"
+}
+
+// recordUncheckedDatabase is the hook of PUT /api/config after the write:
+// "Save anyway" is recorded when it saved changed database settings (review
+// M1: not when a later check refused the save).
+func recordUncheckedDatabase(req *http.Request, before utils.Config, after utils.Config) {
+	a, b := after.Database, before.Database
+	if !saveAnyway(req) || a.PostgresHost == "" || !utils.HasPermission(req, utils.PERM_ADMIN) {
+		return
+	}
+	if a.PostgresHost == b.PostgresHost && a.PostgresDatabase == b.PostgresDatabase && a.PostgresUsername == b.PostgresUsername && a.PostgresPassword == b.PostgresPassword {
+		return
+	}
+	utils.RecordSecurity(req, utils.SecDatabaseUnchecked, a.PostgresHost)
+}
+
+// The save check (review M3/M4): each caller one check at a time and a few
+// seconds apart, at most saveChecksAtOnce callers at once, the slot held only
+// for the bounded probe (the advice is made after it is given back).
+const (
+	saveChecksAtOnce = 4
+	saveCheckBound   = 10 * time.Second
+)
+
+// saveCheckGap: a variable for the tests.
+var saveCheckGap = 3 * time.Second
+
 var (
-	postgresSaveMu   sync.Mutex
-	postgresSaveBusy bool
+	postgresSaveMu    sync.Mutex
+	postgresSaveBusy  = map[string]bool{}
+	postgresSaveLast  = map[string]time.Time{}
+	postgresSaveCount int
 	// checkPostgresStore is utils.CheckPostgresStore; replaced by the tests.
 	checkPostgresStore = utils.CheckPostgresStore
 	// postgresAdvice is utils.PostgresHostAdvice; replaced by the tests.
@@ -202,29 +231,64 @@ var (
 	}
 )
 
+// saveCaller names who saves: the API token, else the user.
+func saveCaller(req *http.Request) string {
+	if req == nil {
+		return ""
+	}
+	auth := utils.GetAuthContext(req)
+	if auth == nil {
+		return ""
+	}
+	if auth.APIToken != nil {
+		return "token:" + auth.APIToken.Name
+	}
+	return "user:" + auth.Nickname
+}
+
+func takeSaveSlot(caller string) *httpSettingsProblem {
+	postgresSaveMu.Lock()
+	defer postgresSaveMu.Unlock()
+	now := time.Now()
+	for c, at := range postgresSaveLast { // bounded: forgotten after the gap
+		if now.Sub(at) > saveCheckGap {
+			delete(postgresSaveLast, c)
+		}
+	}
+	if postgresSaveBusy[caller] || now.Sub(postgresSaveLast[caller]) < saveCheckGap {
+		return &httpSettingsProblem{"UC049", "Monitoring database: your last check of the database is a few seconds old: try again in a few seconds"}
+	}
+	if postgresSaveCount >= saveChecksAtOnce {
+		return &httpSettingsProblem{"UC049", "Monitoring database: other saves are checking the database: try again in a few seconds"}
+	}
+	postgresSaveBusy[caller] = true
+	postgresSaveCount++
+	return nil
+}
+
+func giveSaveSlot(caller string) {
+	postgresSaveMu.Lock()
+	defer postgresSaveMu.Unlock()
+	delete(postgresSaveBusy, caller)
+	postgresSaveLast[caller] = time.Now()
+	postgresSaveCount--
+}
+
 // checkPostgresConnection is the save's connection check: UC047 with what
 // failed and what to try.
 func checkPostgresConnection(req *http.Request, db utils.DatabaseConfig) *httpSettingsProblem {
-	postgresSaveMu.Lock()
-	if postgresSaveBusy {
-		postgresSaveMu.Unlock()
-		return &httpSettingsProblem{"UC049", "Monitoring database: another save is checking the database: try again in a few seconds"}
+	caller := saveCaller(req)
+	if problem := takeSaveSlot(caller); problem != nil {
+		return problem
 	}
-	postgresSaveBusy = true
-	postgresSaveMu.Unlock()
-	defer func() {
-		postgresSaveMu.Lock()
-		postgresSaveBusy = false
-		postgresSaveMu.Unlock()
-	}()
-
 	parent := context.Background()
 	if req != nil {
 		parent = req.Context()
 	}
-	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
-	defer cancel()
+	ctx, cancel := context.WithTimeout(parent, saveCheckBound)
 	problem := checkPostgresStore(ctx, db)
+	cancel()
+	giveSaveSlot(caller)
 	if problem == nil {
 		return nil
 	}

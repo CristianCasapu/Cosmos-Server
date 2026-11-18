@@ -87,6 +87,9 @@ test('command bodies: numbers only, bounded', () => {
   assert.deepEqual(markBody(7, false), { ids: [7], read: false });
   assert.equal(markBody(Array.from({ length: 500 }, (_, i) => i + 1), true).ids.length, 200);
   assert.deepEqual(deleteBody([9]), { ids: [9] });
+  assert.deepEqual(markBody([3], true, 'a1b2c3d4e5f6'), { ids: [3], read: true, store: 'a1b2c3d4e5f6' }, 'plan 51: the store the ids came from');
+  assert.deepEqual(deleteBody([9], 'a1b2c3d4e5f6'), { ids: [9], store: 'a1b2c3d4e5f6' });
+  assert.deepEqual(markBody([3], true, 'not a store!'), { ids: [3], read: true });
   assert.deepEqual(markAllBody(), { all: true });
   assert.deepEqual(deleteReadBody(), { read: true });
 });

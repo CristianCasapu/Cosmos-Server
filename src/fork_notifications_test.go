@@ -133,7 +133,16 @@ func TestNotificationRoutesFollowThePermissions(t *testing.T) {
 			t.Errorf("mark %.40q: %d", bad, w.Code)
 		}
 	}
-	if w := call(router, adminReader, "POST", "/cosmos/api/notifications/mark", `{"ids":[`+id+`],"read":true}`); !strings.Contains(w.Body.String(), `"changed":1`) {
+	// plan 51: ids of another store (read before a switch) are refused; this store's taken
+	listed := call(router, adminReader, "GET", "/cosmos/api/notifications/list", "")
+	store := utils.MonitoringStoreID()
+	if store == "" || !strings.Contains(listed.Body.String(), `"store":"`+store+`"`) {
+		t.Errorf("the list does not name its store: %s", listed.Body.String())
+	}
+	if w := call(router, adminReader, "POST", "/cosmos/api/notifications/mark", `{"ids":[`+id+`],"read":true,"store":"0123456789ab"}`); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "NOTIF009") {
+		t.Errorf("another store's ids: %d %s", w.Code, w.Body.String())
+	}
+	if w := call(router, adminReader, "POST", "/cosmos/api/notifications/mark", `{"ids":[`+id+`],"read":true,"store":"`+store+`"}`); !strings.Contains(w.Body.String(), `"changed":1`) {
 		t.Errorf("mark: %s", w.Body.String())
 	}
 	if w := call(router, adminReader, "POST", "/cosmos/api/notifications/delete", `{"all":true}`); w.Code != http.StatusBadRequest {
