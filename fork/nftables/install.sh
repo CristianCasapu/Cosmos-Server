@@ -616,44 +616,64 @@ OTHER_PORTS=$({
 SSH_PORTS=$(printf '%s\n' $OPENSSH_PORTS $OTHER_PORTS | sort -un | tr '\n' ' ')
 SSH_MAIN=$(systemctl show -p MainPID --value ssh.service sshd.service 2>/dev/null | grep -E '^[1-9][0-9]*$' | tr '\n' ' ')
 
-descends_from() { # pid ancestors...: one of the ancestors is above pid
-	p=$1; shift
-	depth=0
-	while [ "$p" -gt 1 ] 2>/dev/null && [ "$depth" -lt 64 ]; do
-		p=$(awk '/^PPid:/ {print $2}' "/proc/$p/status" 2>/dev/null || echo 0)
-		case " $* " in *" $p "*) return 0 ;; esac
-		depth=$((depth + 1))
-	done
-	return 1
-}
 
 # The SSH sessions open now, from the sockets: a connection to an SSH port.
 # OpenSSH's count when a process holding it is signed in ("sshd...: user@pts/N" or
 # "...@notty") and descends from the root-owned listening server; a stranger
 # still signing in does not count. Another SSH server's (dropbear, tinysshd)
 # all count: they cannot be told apart.
-live_peers() {
+# from_sshd <pid>: an ancestor is OpenSSH's root daemon: the listener, ssh.service's
+# main process, or a root sshd that systemd started per connection (ssh@.service)
+from_sshd() {
+	p=$1
+	depth=0
+	while [ "$p" -gt 1 ] 2>/dev/null && [ "$depth" -lt 64 ]; do
+		pp=$(awk '/^PPid:/ {print $2}' "/proc/$p/status" 2>/dev/null || echo 0)
+		if [ "$p" != "$1" ]; then
+			c=$(cat "/proc/$p/comm" 2>/dev/null || true)
+			u=$(awk '/^Uid:/ {print $2}' "/proc/$p/status" 2>/dev/null || true)
+			case "$c" in sshd|sshd-session)
+				if [ "$u" = 0 ]; then
+					case " $OPENSSH_PIDS $SSH_MAIN " in *" $p "*) return 0 ;; esac
+					[ "$pp" = 1 ] && return 0
+				fi ;;
+			esac
+		fi
+		p=$pp
+		depth=$((depth + 1))
+	done
+	return 1
+}
+live_peers() { # "<address> <local port>" per session
 	ss -Htnp state established 2>/dev/null | while read -r _ _ local peer procs; do
 		lport=${local##*:}
-		other=0
-		case " $OTHER_PORTS " in *" $lport "*) other=1 ;; esac
-		if [ "$other" = 0 ]; then
-			case " $OPENSSH_PORTS " in *" $lport "*) ;; *) continue ;; esac
-			signed=0
-			for pid in $(printf '%s' "$procs" | grep -oE 'pid=[0-9]+' | cut -d= -f2); do
-				tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -qE '^sshd[^ ]*: [^ ]+@(pts/[0-9]+|notty)' || continue
-				# shellcheck disable=SC2086
-				descends_from "$pid" $OPENSSH_PIDS $SSH_MAIN && signed=1
-			done
-			[ "$signed" = 1 ] || continue
-		fi
+		session=0
+		for pid in $(printf '%s' "$procs" | grep -oE 'pid=[0-9]+' | cut -d= -f2); do
+			comm=$(cat "/proc/$pid/comm" 2>/dev/null || true)
+			case "$comm" in
+				dropbear|tinysshd)
+					# another SSH server: every connection it holds counts (signed in or not)
+					[ "$(awk '/^Uid:/ {print $2}' "/proc/$pid/status" 2>/dev/null)" = 0 ] && session=1 ;;
+				sshd|sshd-session)
+					# OpenSSH, however it was started (its own listener, or systemd's
+					# ssh.socket): signed in, and descended from the root-owned daemon
+					tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -qE '^sshd[^ ]*: [^ ]+@(pts/[0-9]+|notty)' || continue
+					from_sshd "$pid" && session=1 ;;
+			esac
+		done
+		[ "$session" = 1 ] || continue
 		addr=${peer%:*}
 		addr=${addr#[}; addr=${addr%]}
 		case "$addr" in ::ffff:*.*) addr=${addr#::ffff:} ;; esac
-		printf '%s\n' "$addr"
+		printf '%s %s\n' "$addr" "$lport"
 	done | sort -u
 }
-PEERS=$(live_peers)
+SESSIONS=$(live_peers)
+PEERS=$(printf '%s\n' "$SESSIONS" | awk 'NF {print $1}' | sort -u)
+# the ports the sessions came in on are SSH ports too, whatever the configuration says
+# shellcheck disable=SC2086,SC2046
+SSH_PORTS=$(printf '%s\n' $SSH_PORTS $(printf '%s\n' "$SESSIONS" | awk 'NF {print $2}') | grep -E '^[0-9]{1,5}$' | sort -un | tr '\n' ' ')
+
 
 # the environment's session is only a hint: under sudo it is in a parent's
 # environment, in tmux or screen it may be stale

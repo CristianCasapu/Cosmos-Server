@@ -534,13 +534,19 @@ case "${1:-}" in
 	confirm) locked do_confirm ;;
 	watch)
 		mkdir -p "$RUN"
-		( locked do_refresh force )
-		# a deleted table (nftables.service, flush ruleset) is loaded again at once
+		# A deleted table (nftables.service's flush ruleset, a hand-typed command)
+		# is loaded again at once, never held back by the debounce below: nft
+		# monitor reports it (listening before the first refresh, so nothing falls
+		# between), and the ticker below looks for the table every 2 s besides. The
+		# server is without the table at most for the time of a refresh already
+		# running plus 2 s; with the watcher dead, the one-minute timer does it.
 		( nft monitor tables 2>/dev/null | while read -r line; do
 			case "$line" in
 				*"$TNAME"*|*"flush ruleset"*) ( locked do_refresh ) || note "reload failed" ;;
 			esac
 		done; kill $$ 2>/dev/null ) &
+		sleep 0.2
+		( locked do_refresh force )
 		# One refresh per burst of changes: after 2 s without a change (or 10 s
 		# into a burst that does not end), and at most one every 10 s. It also
 		# marks the watcher alive for the panel.
@@ -548,6 +554,7 @@ case "${1:-}" in
 		while :; do
 			sleep 2
 			: > "$RUN/alive"
+			if ! have_table; then ( locked do_refresh ) || note "reload failed"; continue; fi
 			[ -e "$RUN/dirty" ] || continue
 			t=$(date +%s)
 			changed=$(stat -c %Y "$RUN/dirty" 2>/dev/null || echo "$t")

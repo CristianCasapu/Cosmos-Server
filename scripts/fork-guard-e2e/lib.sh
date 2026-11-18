@@ -121,6 +121,8 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 mkdir -p /srv && echo stub > /srv/index.html
+printf '%s\\n' '#!/bin/sh' '# test helper: apply a change of sshd configuration, socket-activated (Ubuntu) or not' 'systemctl daemon-reload' 'if systemctl is-enabled --quiet ssh.socket 2>/dev/null; then systemctl stop ssh.service 2>/dev/null; systemctl restart ssh.socket; else systemctl restart ssh.service; fi' > /usr/local/bin/ssh_restart
+chmod 755 /usr/local/bin/ssh_restart
 mkdir -p /var/lib/cosmos /etc/docker
 cat > /var/lib/cosmos/cosmos.config.json <<'EOF'
 {

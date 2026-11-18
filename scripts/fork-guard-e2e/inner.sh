@@ -631,27 +631,42 @@ g_routes() {
 	guard_uninstall
 }
 
+# back_within <seconds>: how long until the guard's table is loaded again ("never")
+back_within() {
+	start=$(date +%s)
+	end=$((start + $1))
+	while [ "$(date +%s)" -le "$end" ]; do
+		if guard_loaded; then echo "$(( $(date +%s) - start ))"; return 0; fi
+		sleep 0.3
+	done
+	echo never
+}
+
 g_nftsvc() {
 	log "== nftsvc: nftables.service empties the ruleset; the guard comes back ($TAG)"
 	fresh nat || return 1
 	guard_install "$HC" --yes --port 2053
 	expect_rc 0 "install"
+	# right after the install the watcher has just started: the moment it could miss it
 	m systemctl start nftables.service
-	back=0
-	for _ in $(seq 1 15); do guard_loaded && { back=1; break; }; sleep 1; done
-	check "after nftables.service started (flush ruleset) the guard is loaded again within 15 s" test "$back" = 1
+	t=$(back_within 10)
+	check "after nftables.service started (flush ruleset) the guard is loaded again within 5 s (took $t)" test "$t" != never -a "${t%.*}" -le 5
 	check "the journal says so" sh -c "docker exec $M journalctl -u cosmos-host-guard-watch --no-pager | grep -q 'loading it again'"
 	check_not "outside does not reach 9999 after it" tcp "$OC" "$TM6" 9999
 	m systemctl restart nftables.service
-	back=0
-	for _ in $(seq 1 15); do guard_loaded && { back=1; break; }; sleep 1; done
-	check "after a restart of nftables.service the guard is loaded again" test "$back" = 1
+	t=$(back_within 10)
+	check "after a restart of nftables.service the guard is loaded again within 5 s (took $t)" test "$t" != never -a "${t%.*}" -le 5
+	# the watcher restarting at that very moment
+	m systemctl restart cosmos-host-guard-watch.service
+	m nft flush ruleset
+	t=$(back_within 10)
+	check "a flush while the watcher starts: loaded again within 5 s (took $t)" test "$t" != never -a "${t%.*}" -le 5
+	m systemctl restart docker
 	# the package upgraded while the service is enabled (its postinst restarts it)
 	m systemctl enable nftables.service >/dev/null 2>&1
 	m sh -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y --reinstall --no-install-recommends nftables >/dev/null 2>&1'
-	back=0
-	for _ in $(seq 1 15); do guard_loaded && { back=1; break; }; sleep 1; done
-	check "after the nftables package was reinstalled with the service enabled the guard is back" test "$back" = 1
+	t=$(back_within 10)
+	check "after the nftables package was reinstalled with the service enabled the guard is back within 5 s (took $t)" test "$t" != never -a "${t%.*}" -le 5
 	# the watcher stopped too: the timer puts it back within its minute
 	m systemctl stop cosmos-host-guard-watch.service
 	m nft delete table inet cosmos_host_guard
@@ -880,13 +895,27 @@ g_sshservers() {
 	log "== sshservers: SSH on other ports and other servers, terminals no session explains ($TAG)"
 	fresh nat || return 1
 	# OpenSSH also on 2222 through ListenAddress
-	msh 'printf "ListenAddress 0.0.0.0:22\nListenAddress [::]:22\nListenAddress 0.0.0.0:2222\nListenAddress [::]:2222\n" > /etc/ssh/sshd_config.d/listen.conf; systemctl restart ssh.service 2>/dev/null || systemctl restart ssh.socket'
-	sleep 2
+	# (Ubuntu 24.04 starts sshd through ssh.socket, whose ports its generator takes
+	# from the configuration: a daemon-reload and a restart of the socket apply them)
+	msh 'printf "ListenAddress 0.0.0.0:22\nListenAddress [::]:22\nListenAddress 0.0.0.0:2222\nListenAddress [::]:2222\n" > /etc/ssh/sshd_config.d/listen.conf; /usr/local/bin/ssh_restart'
+	for _ in $(seq 1 20); do m sh -c 'ss -Htln | grep -q ":2222 "' && break; sleep 1; done
+	check "sshd listens on 2222 (the test's own setup)" m sh -c 'ss -Htln | grep -q ":2222 "'
 	OUT=$(docker exec "$OC" sh -c "ssh -p 2222 $SSHO tester@$TM6 'sudo sh $G/install.sh $GV --yes --port 2053; echo RC=\$?'" 2>&1)
 	RC=$(printf '%s\n' "$OUT" | sed -n 's/^RC=//p' | tail -n 1)
 	expect_rc 4 "an outside session on port 2222 (ListenAddress) is seen: refused"
 	m rm -f /etc/ssh/sshd_config.d/listen.conf
-	m sh -c 'systemctl restart ssh.service 2>/dev/null || systemctl restart ssh.socket'
+	m /usr/local/bin/ssh_restart
+	# socket-activated sshd (Ubuntu): a port only the socket unit knows (systemd holds
+	# the listener) is still seen, from the session's own process
+	if m systemctl is-enabled --quiet ssh.socket 2>/dev/null; then
+		msh 'mkdir -p /etc/systemd/system/ssh.socket.d && printf "[Socket]\nListenStream=2223\n" > /etc/systemd/system/ssh.socket.d/extra.conf && /usr/local/bin/ssh_restart'
+		for _ in $(seq 1 20); do m sh -c 'ss -Htln | grep -q ":2223 "' && break; sleep 1; done
+		OUT=$(docker exec "$OC" sh -c "ssh -p 2223 $SSHO tester@$TM6 'sudo sh $G/install.sh $GV --yes --port 2053; echo RC=\$?'" 2>&1)
+		RC=$(printf '%s\n' "$OUT" | sed -n 's/^RC=//p' | tail -n 1)
+		expect_rc 4 "an outside session on a port only ssh.socket knows (systemd holds the listener) is seen: refused"
+		m rm -rf /etc/systemd/system/ssh.socket.d
+		m /usr/local/bin/ssh_restart
+	fi
 	# dropbear on 2022
 	m sh -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends dropbear-bin >/dev/null 2>&1; mkdir -p /etc/dropbear; dropbearkey -t ed25519 -f /etc/dropbear/k >/dev/null 2>&1; dropbear -r /etc/dropbear/k -p 2022 -E 2>/dev/null'
 	sleep 1
