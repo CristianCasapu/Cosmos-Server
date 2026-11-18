@@ -122,6 +122,18 @@ func loop(st *store, r Readers, started time.Time) {
 		"docker": {what: "Docker"}, "smart": {what: "failing disks"}, "fill": {what: "disks filling fast"},
 		"snapshots": {what: "late snapshots"}, "accounts": {what: "accounts"},
 	}
+	// review 4 (d): whether a watch is stuck is known in memory only; the
+	// Telegram notifier asks it
+	utils.RegisterThreadLevel("watch.stuck", func(thread string) (bool, bool) {
+		for _, s := range slots {
+			if thread == "watch.stuck:"+s.what {
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				return s.busy && s.told, true
+			}
+		}
+		return false, true
+	})
 	next := map[string]time.Time{
 		"smart":     time.Now().Add(5 * time.Minute),
 		"fill":      time.Now().Add(time.Minute),

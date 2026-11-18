@@ -177,9 +177,13 @@ func checkSMART(st *store, disks []Disk, now time.Time) {
 			}
 			memo.Missing++
 			if memo.Open && memo.Missing >= goneAfter {
+				// review 4, A2: a failing disk that is gone is not healthy:
+				// "no longer present", and its history is kept (it is
+				// judged on it again should it come back)
+				memo.Open = false
 				resolveThread(smartThread(key))
-				notify("success", smartInfo("smart.restored", Disk{Device: memo.Device, Model: memo.Model, Serial: memo.Serial}, ""))
-				delete(data.SMART, key)
+				notify("warning", smartInfo("smart.gone", Disk{Device: memo.Device, Model: memo.Model, Serial: memo.Serial}, ""))
+				data.SMART[key] = memo
 				continue
 			}
 			if !memo.Open && now.Sub(memo.Seen) > 30*24*time.Hour {

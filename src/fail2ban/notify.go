@@ -18,7 +18,23 @@ var (
 	downLooks int
 	downSince time.Time
 	downTold  bool
+	// looked: a look was made since the start (review 4: what is known of
+	// Fail2ban is in memory only)
+	looked bool
 )
+
+// Fork addition (plan 48, review 4 (d)): the Telegram notifier asks
+// whether Fail2ban is down now, once it was looked at.
+func init() {
+	utils.RegisterThreadLevel("fail2ban.down", func(thread string) (bool, bool) {
+		downMu.Lock()
+		defer downMu.Unlock()
+		if thread != downThread || !looked {
+			return false, false
+		}
+		return downTold, true
+	})
+}
 
 // notifyDown and notifyBack are what tells. Variables for the tests.
 var (
@@ -52,9 +68,17 @@ var (
 func noteAnswer(answered bool, setUp bool, now time.Time) {
 	downMu.Lock()
 	defer downMu.Unlock()
+	first := !looked
+	looked = true
 	if answered || !setUp {
-		if downTold && answered {
-			notifyBack(downSince, now)
+		if answered && (downTold || first) {
+			// after a restart the outage told before is ended too (notifyBack
+			// says nothing when no notification of it is open)
+			since := downSince
+			if since.IsZero() {
+				since = now
+			}
+			notifyBack(since, now)
 		}
 		downLooks, downTold = 0, false
 		return

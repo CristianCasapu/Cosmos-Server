@@ -14,6 +14,7 @@ import (
 var watchNotificationKinds = map[string]notificationKind{
 	"smart.failing":     {"storage", "notif.smart.failing.title"},
 	"smart.restored":    {"storage", "notif.smart.restored.title"},
+	"smart.gone":        {"storage", "notif.smart.gone.title"},
 	"disk.filling":      {"storage", "notif.disk.filling.title"},
 	"disk.filling.over": {"storage", "notif.disk.filling.over.title"},
 	"docker.down":       {"containers", "notif.docker.down.title"},
@@ -36,7 +37,9 @@ var watchNotificationTexts = map[string]string{
 	"notif.smart.failing.what":      "The disk {{disk}} ({{model}}, serial ending {{serial}}, mounted at {{mounts}}) reports a problem: {{reason}}.",
 	"notif.smart.failing.means":     "A disk that reports this often fails completely soon, and what is on it can be lost.",
 	"notif.smart.restored.title":    "Disk {{disk}} reads healthy again",
-	"notif.smart.restored.what":     "The disk {{disk}} ({{model}}, serial ending {{serial}}) reads healthy again, or was replaced.",
+	"notif.smart.restored.what":     "The disk {{disk}} ({{model}}, serial ending {{serial}}) reads healthy again.",
+	"notif.smart.gone.title":        "Failing disk {{disk}} no longer present",
+	"notif.smart.gone.what":         "The disk {{disk}} ({{model}}, serial ending {{serial}}), which was failing, has not been seen for three checks: it was removed, replaced, or it died. Its failing history is kept.",
 	"notif.disk.filling.title":      "{{mount}} is filling fast",
 	"notif.disk.filling.what":       "{{mount}} grew by {{grown}} in the last {{hours}} hours: at that rate it is full in about {{left}} ({{free}} free).",
 	"notif.disk.filling.means":      "When it is full, apps and Cosmos fail to write to it: databases can be damaged, downloads and backups stop.",

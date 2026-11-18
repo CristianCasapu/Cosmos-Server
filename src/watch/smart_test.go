@@ -53,8 +53,27 @@ func TestADiskThatStartsFailingAndIsReplaced(t *testing.T) {
 	for i := 0; i < goneAfter; i++ {
 		checkSMART(st, []Disk{fresh}, now.Add(time.Duration(4+i)*time.Hour))
 	}
-	if r.kinds() != "smart.failing,smart.restored" || r.written[1].Fork.Resolves != r.written[0].Fork.Thread {
+	// review 4, A2: gone is not healthy
+	if r.kinds() != "smart.failing,smart.gone" || r.written[1].Fork.Resolves != r.written[0].Fork.Thread || r.written[1].Level != "warning" {
 		t.Errorf("replacement: %s %+v", r.kinds(), r.written[len(r.written)-1].Fork)
+	}
+	// its failing history is kept: it comes back still failing, told again
+	var memo smartMemo
+	kept := false
+	st.with(func(d *stateData) bool { memo, kept = d.SMART[worse.key()]; return false })
+	if !kept || memo.Open || len(memo.History) == 0 {
+		t.Errorf("the history of the gone disk: %+v %v", memo, kept)
+	}
+	for i := 0; i < goneAfter; i++ {
+		checkSMART(st, []Disk{fresh}, now.Add(time.Duration(8+i)*time.Hour))
+	}
+	if r.kinds() != "smart.failing,smart.gone" {
+		t.Errorf("gone told again: %s", r.kinds())
+	}
+	worse.Reallocated++
+	checkSMART(st, []Disk{fresh, worse}, now.Add(12*time.Hour))
+	if r.kinds() != "smart.failing,smart.gone,smart.failing" {
+		t.Errorf("back and still failing: %s", r.kinds())
 	}
 }
 
