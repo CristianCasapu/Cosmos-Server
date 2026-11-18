@@ -5517,6 +5517,8 @@
 	"notif.monitoring.store.restored.title": "The monitoring database answers again",
 	"notif.monitoring.store.restored.what": "The monitoring database at {{host}} answers again since {{at}}: monitoring records into it again.",
 	"notif.monitoring.store.restored.means": "It did not answer for {{duration}}. The records from {{from}} to {{to}} are in the local file (database.db).",
+	"notif.monitoring.store.restored.caught": "It did not answer for {{duration}}. The {{count}} records written meanwhile into the local file were brought over: the history in the database has no gap.",
+	"notif.monitoring.store.restored.partly": "It did not answer for {{duration}}. {{count}} records written meanwhile into the local file were brought over; {{missing}} were not: {{problem}}",
 	"notif.log.nothing": "The log has no line of this source around that time (the log keeps the last lines only).",
 	"notif.log.unreadable": "The server's log could not be read.",
 	"notif.snapshots.failed.doing": "The next scheduled run tries again.",

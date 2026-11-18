@@ -603,7 +603,19 @@ func (w *monitoringWatch) look(kicked bool) time.Duration {
 		if told {
 			// the notice of the outage is closed where it was written
 			monitoringResolveDown(local)
-			monitoringTellBack(after, state.Since)
+		}
+		// the rows the local file got meanwhile are brought over (src/monitorcopy),
+		// then "answers again" says so, for an outage that was told
+		from, to := state.Since, now
+		finish := func(caught CatchUpResult) {
+			if told {
+				monitoringTellBack(after, from, caught)
+			}
+		}
+		if catchUp := MonitoringCatchUp; catchUp != nil && !from.IsZero() {
+			catchUp(from, to, finish)
+		} else {
+			finish(CatchUpResult{})
 		}
 		w.backoff, w.failures, w.good = timing().retryFirst, 0, 0
 		return timing().pingEvery
@@ -728,15 +740,39 @@ func tellMonitoringDown(s MonitoringStoreState) {
 	}})
 }
 
-func tellMonitoringBack(s MonitoringStoreState, since time.Time) {
+// CatchUpResult is what the catch-up after a fallback did.
+type CatchUpResult struct {
+	Ran     bool   // it ran (a manual copy running, or no copy machinery: false)
+	Copied  int64  // rows brought over
+	Missing int64  // rows of the window not brought over
+	Problem string // why not, a fixed sentence ("" when nothing is missing)
+}
+
+// MonitoringCatchUp is set by src/monitorcopy: after a switch back to
+// PostgreSQL it brings the rows the local file got between from and to into
+// the store in use (paced, idempotent, verified, recorded as automatic, in
+// the background), then calls done once. nil: nothing is caught up.
+var MonitoringCatchUp func(from, to time.Time, done func(CatchUpResult))
+
+func tellMonitoringBack(s MonitoringStoreState, since time.Time, caught CatchUpResult) {
 	now := monitoringClock()
+	means := NText("notif.monitoring.store.restored.means", "duration", NotificationDuration(now.Sub(since)),
+		"from", since.Local().Format("2006-01-02 15:04"), "to", now.Local().Format("2006-01-02 15:04"))
+	steps := []NotificationStep{{NotificationText: *NText("notif.step.monitoringdb.copy"), Link: "/cosmos-ui/config-general?tab=external"}}
+	switch {
+	case caught.Ran && caught.Missing == 0:
+		means = NText("notif.monitoring.store.restored.caught", "duration", NotificationDuration(now.Sub(since)), "count", strconv.FormatInt(caught.Copied, 10))
+		steps = nil
+	case caught.Ran:
+		means = NText("notif.monitoring.store.restored.partly", "duration", NotificationDuration(now.Sub(since)),
+			"count", strconv.FormatInt(caught.Copied, 10), "missing", strconv.FormatInt(caught.Missing, 10), "problem", caught.Problem)
+	}
 	WriteNotification(Notification{Recipient: "admin", Level: "success", Fork: &NotificationInfo{
 		Kind: "monitoring.store.restored", Thread: monitoringStoreThread, Resolves: monitoringStoreThread,
 		Subject: &NotificationSubject{Type: "setting", Name: "Monitoring database", Link: "/cosmos-ui/config-general?tab=external"},
 		What:    NText("notif.monitoring.store.restored.what", "host", s.Host, "at", now.Local().Format("15:04")),
-		Means: NText("notif.monitoring.store.restored.means", "duration", NotificationDuration(now.Sub(since)),
-			"from", since.Local().Format("2006-01-02 15:04"), "to", now.Local().Format("2006-01-02 15:04")),
-		Steps: []NotificationStep{{NotificationText: *NText("notif.step.monitoringdb.copy"), Link: "/cosmos-ui/config-general?tab=external"}},
+		Means:   means,
+		Steps:   steps,
 	}})
 }
 
@@ -753,6 +789,8 @@ var monitoringNotificationTexts = map[string]string{
 	"notif.monitoring.store.restored.title": "The monitoring database answers again",
 	"notif.monitoring.store.restored.what":  "The monitoring database at {{host}} answers again since {{at}}: monitoring records into it again.",
 	"notif.monitoring.store.restored.means": "It did not answer for {{duration}}. The records from {{from}} to {{to}} are in the local file (database.db).",
+	"notif.monitoring.store.restored.caught": "It did not answer for {{duration}}. The {{count}} records written meanwhile into the local file were brought over: the history in the database has no gap.",
+	"notif.monitoring.store.restored.partly": "It did not answer for {{duration}}. {{count}} records written meanwhile into the local file were brought over; {{missing}} were not: {{problem}}",
 	"notif.step.monitoringdb.open":          "Open Configuration > External (the monitoring database) and check the server, the port and that the database runs",
 	"notif.step.monitoringdb.copy":          "Open Configuration > External to copy the records of the local file into the database",
 }

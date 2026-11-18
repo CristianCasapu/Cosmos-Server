@@ -97,7 +97,7 @@ func withMonitoringStore(t *testing.T, db DatabaseConfig, problem *PostgresProbl
 		return &p
 	}
 	monitoringTellDown = func(s MonitoringStoreState) { stub.mu.Lock(); stub.down = append(stub.down, s); stub.mu.Unlock() }
-	monitoringTellBack = func(s MonitoringStoreState, since time.Time) {
+	monitoringTellBack = func(s MonitoringStoreState, since time.Time, _ CatchUpResult) {
 		stub.mu.Lock()
 		stub.back = append(stub.back, s)
 		stub.mu.Unlock()
