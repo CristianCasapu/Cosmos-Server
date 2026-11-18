@@ -65,9 +65,16 @@ var (
 	keyPattern = regexp.MustCompile(`(?:^|[\s"'=:])([A-Za-z0-9+][A-Za-z0-9+/]{35,63})(?:$|[\s"',;])`)
 	// in error texts: an address's password up to its last "@" on the line
 	urlPasswordLinePattern = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://[^\s:/@]*:)[^\n]*@([A-Za-z0-9.-]+)`)
-	secretEnvWord          = regexp.MustCompile(`(?:^|_)(?:SECRET|KEY|TOKEN|PASS|PASSWORD|PASSWD|PWD|CREDENTIALS?|SALT)(?:_|$)`)
-	placeSuffix            = regexp.MustCompile(`_(?:URL|URI|FILE|PATH|HOST|NAME|USER|USERNAME|ID|TYPE|LENGTH|SIZE|DIR|ENDPOINT|EXPIRY|EXPIRES|TTL)$`)
-	plainWord              = regexp.MustCompile(`^[a-z]{1,12}[.!]?$`)
+	// review 4, C1: an assignment to any name holding PASSWORD, PASSWD,
+	// SECRET or TOKEN (PGPASSWORD=…, DBPASSWORD=…, MyToken=…)
+	assignSecretPattern = regexp.MustCompile(`((?:^|[^A-Za-z0-9_])[A-Za-z0-9_]*(?i:password|passwd|secret|token)[A-Za-z0-9_]*\s*=\s*)` + secretValue)
+	// review 4: 40 hexadecimal characters after "token " (a token, or a
+	// hash: cut all the same)
+	hexTokenPattern = regexp.MustCompile(`(?i)(\btoken\s+)[0-9a-f]{40}\b`)
+	plainSetting    = regexp.MustCompile(`^(?i:true|false|yes|no|on|off|none|null|0|1)$`)
+	secretEnvWord   = regexp.MustCompile(`(?:^|_)(?:SECRET|KEY|TOKEN|PASS|PASSWORD|PASSWD|PWD|CREDENTIALS?|SALT)(?:_|$)`)
+	placeSuffix     = regexp.MustCompile(`_(?:URL|URI|FILE|PATH|HOST|NAME|USER|USERNAME|ID|TYPE|LENGTH|SIZE|DIR|ENDPOINT|EXPIRY|EXPIRES|TTL)$`)
+	plainWord       = regexp.MustCompile(`^[a-z]{1,12}[.!]?$`)
 )
 
 // maxGuarded is how much of a text the guard looks at: the values are cut
@@ -149,6 +156,20 @@ func guard(text string, secrets []string, raw bool) string {
 			return name + hiddenSecret
 		})
 	}
+	text = hexTokenPattern.ReplaceAllString(text, "${1}"+hiddenSecret)
+	text = assignSecretPattern.ReplaceAllStringFunc(text, func(m string) string {
+		parts := assignSecretPattern.FindStringSubmatch(m)
+		name, value := parts[1], parts[2]
+		bare := strings.Trim(value, `"'`)
+		if placeSuffix.MatchString(strings.ToUpper(strings.TrimRight(strings.TrimLeft(strings.TrimSpace(name), "-([{,;"), "= "))) {
+			return m
+		}
+		if value == hiddenSecret || value == hiddenToken || bare == "" || plainSetting.MatchString(bare) ||
+			strings.HasPrefix(bare, "/") || strings.HasPrefix(bare, "./") || strings.HasPrefix(bare, "~/") || strings.Contains(bare, "://") {
+			return m // a path, an address, a setting: not a secret
+		}
+		return name + hiddenSecret
+	})
 	cut(envSecretPattern, true)
 	cut(secretFlagPattern, false)
 	cut(secretPairPattern, false)

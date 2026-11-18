@@ -201,3 +201,41 @@ func TestTheGuardThirdRound(t *testing.T) {
 		}
 	}
 }
+
+// review 4, C1: an assignment to any name holding PASSWORD, PASSWD, SECRET
+// or TOKEN, in error texts and in values; 40 hexadecimal characters after
+// "token ". A path, an address or a setting stays.
+func TestTheGuardFourthRound(t *testing.T) {
+	hex40 := "0123456789abcdef0123456789abcdef01234567"
+	for _, text := range []string{
+		"PGPASSWORD=hunter2xyz pg_dump -h db app",
+		"DBPASSWORD=hunter2xyz",
+		"ADMINPASSWORD='two words'",
+		"export MYAPPSECRET=abc123",
+		"env GitlabToken=abc123def",
+		"DB_PASSWD = hunter2xyz",
+		"login with token " + hex40,
+	} {
+		for name, pass := range map[string]func(string, []string) string{"raw": guardRaw, "value": guardValue} {
+			got := pass(text, nil)
+			for _, secret := range []string{"hunter2xyz", "two words", "abc123", hex40} {
+				if strings.Contains(got, secret) {
+					t.Errorf("%s: %q gives %q", name, text, got)
+				}
+			}
+			if again := pass(got, nil); again != got {
+				t.Errorf("%s: not idempotent: %q then %q", name, got, again)
+			}
+		}
+	}
+	for _, text := range []string{
+		"TOKEN_URL=https://example.org/token",
+		"PASSWORD_FILE=/run/secrets/db",
+		"SECRET_ENABLED=true",
+		"token_path=./keys/bot",
+	} {
+		if got := guardValue(text, nil); got != text {
+			t.Errorf("%q cut to %q", text, got)
+		}
+	}
+}
