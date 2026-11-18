@@ -35,7 +35,9 @@ FAILS=""
 log() { printf '%s %s\n' "$(date +%H:%M:%S)" "$*"; }
 ok() { PASS=$((PASS + 1)); log "  ok    $*"; }
 bad() { FAILED=$((FAILED + 1)); FAILS="$FAILS
-  [$MACHINE] $*"; log "  FAIL  $*"; }
+  [$MACHINE] $*"; log "  FAIL  $*"
+	# STOP_ON_FAIL=1: keep the machines as they are at the first failure, to look at them
+	if [ "${STOP_ON_FAIL:-}" = 1 ]; then log "stopped at the first failure (STOP_ON_FAIL=1): the machines are kept"; exit 99; fi; }
 check() { # description command...
 	d=$1; shift
 	if "$@" >/dev/null 2>&1; then ok "$d"; else bad "$d"; fi
@@ -59,6 +61,12 @@ topo_up() { # nat|pub
 	RT4H=$NET4.254
 	docker network create --ipv6 --subnet 2001:db8:1::/64 --subnet "$NET4.0/24" "$P-home" >/dev/null
 	docker network create --ipv6 --subnet 2001:db8:2::/64 --subnet 198.51.100.0/24 "$P-out" >/dev/null
+	# The router container routes between the two networks. When br_netfilter is
+	# loaded in the kernel (by anything on the host), bridged frames pass this
+	# Docker in Docker's own ip(6)tables, whose raw rules drop packets for a
+	# container address that arrive on another bridge: the routed traffic. Bridged
+	# frames are not filtered here (this Docker in Docker's own network namespace).
+	sysctl -q -w net.bridge.bridge-nf-call-iptables=0 net.bridge.bridge-nf-call-ip6tables=0 2>/dev/null || true
 	docker run -d --name "$RT" --cap-add NET_ADMIN --network "$P-home" --ip "$RT4H" --ip6 "$RT6H" \
 		--sysctl net.ipv4.ip_forward=1 --sysctl net.ipv6.conf.all.forwarding=1 \
 		--sysctl net.ipv4.conf.all.rp_filter=0 --sysctl net.ipv4.conf.default.rp_filter=0 "$IMG_C" sleep infinity >/dev/null

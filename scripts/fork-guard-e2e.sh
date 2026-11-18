@@ -106,7 +106,7 @@ else
 fi
 for m in $MACHINES; do
 	# shellcheck disable=SC2086
-	docker exec -e PREFIX="$PREFIX-t" -e BREAK="${BREAK:-}" "$D" sh /work/e2e/inner.sh "$m" $TEST_GROUPS || status=1
+	docker exec -e PREFIX="$PREFIX-t" -e BREAK="${BREAK:-}" -e STOP_ON_FAIL="${STOP_ON_FAIL:-}" "$D" sh /work/e2e/inner.sh "$m" $TEST_GROUPS || status=1
 done
 echo "took $(( $(date +%s) - start )) s"
 [ "${KEEP:-}" = 1 ] || clean
