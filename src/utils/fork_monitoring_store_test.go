@@ -832,3 +832,32 @@ func setTiming(change func(*storeTimes)) {
 	change(&storeTiming)
 	storeTimingMu.Unlock()
 }
+
+// Settings changed to another server while a told outage lasted: the old
+// outage's notice is closed in the local file, and nothing is told into the
+// new store.
+func TestOutageOfAnOldServerClosedOnAChange(t *testing.T) {
+	stub := withMonitoringStore(t, DatabaseConfig{PostgresHost: "172.17.0.2:5432", PostgresUsername: "cosmos", PostgresPassword: "x"}, refusedProblem)
+	fakePostgres(t)
+	InitMetricsDatabase()
+	w := &monitoringWatch{backoff: storeTiming.retryFirst}
+	w.look(true)
+	stub.advance(storeTiming.tellAfter)
+	w.look(false)
+	if down, _, _ := stub.counts(); down != 1 {
+		t.Fatalf("not told")
+	}
+	config := GetBaseMainConfig()
+	config.Database.PostgresHost = "192.168.1.10:5432"
+	LoadBaseMainConfig(config)
+	stub.setProblem(nil)
+	InitMetricsDatabase() // the save of the new server
+	if down, back, resolved := stub.counts(); MonitoringDialect() != DialectPostgres || resolved != 1 || back != 0 || down != 1 {
+		t.Errorf("%s: down %d, back %d, resolved %d", MonitoringDialect(), down, back, resolved)
+	}
+	stub.advance(time.Hour)
+	w.look(false)
+	if down, _, _ := stub.counts(); down != 1 {
+		t.Errorf("told into the new store")
+	}
+}

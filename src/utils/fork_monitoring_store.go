@@ -213,7 +213,20 @@ func openMonitoringStore() error {
 			}
 		}
 		if err == nil {
+			// an outage told for another server (the settings changed while
+			// it lasted) is closed in the store it was written to
+			prev := GetMonitoringStoreState()
+			local, _ := MonitoringWriteDB()
 			swapMonitoringStore(w, r, DialectPostgres, key, node)
+			if prev.Fallback && prev.Host != db.PostgresHost {
+				storeStateMu.Lock()
+				told := storeTold
+				storeTold = false
+				storeStateMu.Unlock()
+				if told && local != nil {
+					monitoringResolveDown(local)
+				}
+			}
 			markPostgresInUse(db)
 			Log("Monitoring database ready (" + DialectPostgres + ", node " + node + ")")
 			return nil
@@ -666,6 +679,12 @@ func adviseFallback() {
 // still cannot be the store (the stay on the local file after it answers
 // again is not an outage).
 func tellLastingOutage() {
+	// no switch while it is written: the notice goes into the local file
+	forkInitMu.Lock()
+	defer forkInitMu.Unlock()
+	if monitoringInUse() != DialectSQLite {
+		return
+	}
 	storeStateMu.Lock()
 	s := storeState
 	due := s.Fallback && !storeTold && !s.Since.IsZero() && monitoringClock().Sub(s.Since) >= timing().tellAfter

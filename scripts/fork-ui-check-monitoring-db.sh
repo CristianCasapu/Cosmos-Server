@@ -8,7 +8,9 @@
 #   sh scripts/fork-ui-check-monitoring-db.sh up        build, load the images (once), start, finish the wizard
 #   sh scripts/fork-ui-check-monitoring-db.sh check [VAR=value…]   run the check (PHASE, ENGINES, SIZES)
 #   sh scripts/fork-ui-check-monitoring-db.sh rebuild   build the server and the panel again, restart Cosmos
-#   sh scripts/fork-ui-check-monitoring-db.sh restart   restart Cosmos only (the loop starts it again)
+#   sh scripts/fork-ui-check-monitoring-db.sh restart   restart Cosmos only (the loop starts it again); between engines
+#                                                       and sizes: Cosmos keeps the outages of the last hour and stays
+#                                                       longer on the local file after each (up to 16 minutes)
 #   sh scripts/fork-ui-check-monitoring-db.sh reset     back to the local file and the databases as at `up`
 #   sh scripts/fork-ui-check-monitoring-db.sh shell <cmd…>   run a command in the test Docker (the "server")
 #   sh scripts/fork-ui-check-monitoring-db.sh clean     remove every container and network it made, and the scratch folder

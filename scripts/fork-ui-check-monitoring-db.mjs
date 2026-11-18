@@ -292,6 +292,7 @@ phases.move = async (page, id, size, ctx) => {
 phases.down = async (page, id, size, ctx) => {
   let s = await storeState(ctx);
   expect(id + ': PostgreSQL is the store before', s.inUse === 'pgx', JSON.stringify(s));
+  const stoppedAt = Date.now();
   await docker('/containers/postgresql/stop?t=2');
   s = await waitState(ctx, (st) => st.fallback && st.inUse === 'sqlite', 90);
   expect(id + ': the database stopped: the local file, said', s.fallback && s.inUse === 'sqlite', JSON.stringify(s));
@@ -303,12 +304,15 @@ phases.down = async (page, id, size, ctx) => {
   await shot(page, id, 'down-monitoring');
   // records continue: the notice of the outage (told once it lasted two minutes) is written into
   // the local file, and read from it
-  let notes = '';
-  for (let i = 0; i < 40 && !/monitoring\.store\.down/.test(notes); i += 1) {
+  // (this outage's notice: written after the stop)
+  const thisOutage = (items) => (items || []).filter((n) => JSON.stringify(n).includes('monitoring.store.down') && new Date(n.date).getTime() >= stoppedAt - 5000);
+  let found = [];
+  for (let i = 0; i < 40 && !found.length; i += 1) {
     await sleep(5000);
-    notes = await (await ctx.request.get(base + '/cosmos/api/notifications/list?source=monitoring')).text();
+    const listed = await (await ctx.request.get(base + '/cosmos/api/notifications/list?source=monitoring')).json().catch(() => ({}));
+    found = thisOutage(listed.data && listed.data.items);
   }
-  expect(id + ': records go on in the local file (the notice of the lasting outage is there)', /monitoring\.store\.down/.test(notes), notes.slice(0, 300));
+  expect(id + ': records go on in the local file (the notice of this outage, told once it lasted)', found.length === 1, found.length);
   await openExternal(page);
   await page.locator('[data-fork-monitoring-fallback]').first().waitFor({ timeout: 20000 });
   await shot(page, id, 'down-external');
