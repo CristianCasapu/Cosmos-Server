@@ -448,6 +448,7 @@ func run(p plan, manual bool) Status {
 		statusMu.Lock()
 		status = st
 		statusMu.Unlock()
+		passed.Store(true) // Fork addition (plan 48, review 5): the level is known, see fork_level.go
 		return st
 	}
 

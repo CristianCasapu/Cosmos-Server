@@ -63,3 +63,27 @@ func TestAfterARestartTheFirstAnswerEndsAnOutageToldBefore(t *testing.T) {
 		t.Errorf("a second answer: %d follow-ups", backs)
 	}
 }
+
+// review 5, S1: a single failed look after a start is not "over".
+func TestFail2banLevelIsUnknownUntilItKnows(t *testing.T) {
+	prevDown, prevBack := notifyDown, notifyBack
+	notifyDown, notifyBack = func(time.Time) {}, func(time.Time, time.Time) {}
+	defer func() { notifyDown, notifyBack = prevDown, prevBack; downLooks, downTold, looked = 0, false, false }()
+	downLooks, downTold, looked = 0, false, false
+	now := time.Now()
+	noteAnswer(false, true, now)
+	if _, known := utils.SourceThreadLevel("fail2ban.down", downThread); known {
+		t.Fatal("one failed look is known")
+	}
+	noteAnswer(false, true, now.Add(time.Minute))
+	if open, known := utils.SourceThreadLevel("fail2ban.down", downThread); !known || !open {
+		t.Fatalf("two failed looks: %v %v", open, known)
+	}
+	if list := utils.SourceOpenThreads()["fail2ban.down"]; len(list) != 1 || list[0] != downThread {
+		t.Errorf("open list %v", list)
+	}
+	noteAnswer(true, true, now.Add(2*time.Minute))
+	if open, known := utils.SourceThreadLevel("fail2ban.down", downThread); !known || open {
+		t.Errorf("after an answer: %v %v", open, known)
+	}
+}

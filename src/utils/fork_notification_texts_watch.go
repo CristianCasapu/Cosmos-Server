@@ -92,7 +92,7 @@ func init() {
 // one indexed question to the database, and only then a write.
 func ForkJobSucceeded(name string) {
 	defer func() { recover() }()
-	thread := "error.job:" + cleanVar(name, 160)
+	thread := JobThread(name)
 	if !ThreadOpen(thread) {
 		return
 	}

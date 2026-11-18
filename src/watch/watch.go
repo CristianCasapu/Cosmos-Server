@@ -133,6 +133,9 @@ type store struct {
 	path string
 	data stateData
 	read bool
+	// loaded: the state was read from the file (review 5: it is then the
+	// level of the watches' problems)
+	loaded bool
 }
 
 func newStore(path string) *store { return &store{path: path} }
@@ -146,7 +149,7 @@ func (s *store) with(change func(d *stateData) bool) {
 		if s.path != "" {
 			if info, err := os.Stat(s.path); err == nil && info.Size() <= maxStateBytes {
 				if raw, err := os.ReadFile(s.path); err == nil {
-					json.Unmarshal(raw, &s.data)
+					s.loaded = json.Unmarshal(raw, &s.data) == nil
 				}
 			}
 		}

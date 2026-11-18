@@ -37,7 +37,10 @@ func settingsNow() Settings { return SettingsOf(utils.GetMainConfig().Watch) }
 // server to give the security record.
 func Start(r Readers) func(user string, ip string) {
 	st := newStore(statePath())
-	startOnce.Do(func() { go loop(st, r, time.Now()) })
+	startOnce.Do(func() {
+		registerLevels(st)
+		go loop(st, r, time.Now())
+	})
 	return func(user string, ip string) {
 		if r.Country == nil || !ready() || !settingsNow().Country {
 			return
@@ -122,18 +125,7 @@ func loop(st *store, r Readers, started time.Time) {
 		"docker": {what: "Docker"}, "smart": {what: "failing disks"}, "fill": {what: "disks filling fast"},
 		"snapshots": {what: "late snapshots"}, "accounts": {what: "accounts"},
 	}
-	// review 4 (d): whether a watch is stuck is known in memory only; the
-	// Telegram notifier asks it
-	utils.RegisterThreadLevel("watch.stuck", func(thread string) (bool, bool) {
-		for _, s := range slots {
-			if thread == "watch.stuck:"+s.what {
-				s.mu.Lock()
-				defer s.mu.Unlock()
-				return s.busy && s.told, true
-			}
-		}
-		return false, true
-	})
+	registerStuck(slots)
 	next := map[string]time.Time{
 		"smart":     time.Now().Add(5 * time.Minute),
 		"fill":      time.Now().Add(time.Minute),
@@ -164,24 +156,27 @@ func round(st *store, r Readers, docker *dockerWatch, slots map[string]*slot, du
 		sl.checkStuck(now)
 	}
 	if s.Docker && r.DockerPing != nil {
-		slots["docker"].start(now, func() { docker.check(r.DockerPing, time.Now) })
+		slots["docker"].start(now, func() { docker.check(r.DockerPing, time.Now); markLooked("docker") })
 	} else {
 		docker.unwatched()
+		markLooked("docker")
 	}
 	if due("smart", smartEvery) && s.SMART && r.Disks != nil {
 		slots["smart"].start(now, func() {
 			if disks, err := r.Disks(); err == nil {
 				checkSMART(st, disks, time.Now())
+				markLooked("smart")
 			}
 		})
 	}
 	if due("fill", fillEvery) && s.Fill && r.Usages != nil {
-		slots["fill"].start(now, func() { checkFill(st, r.Usages(), s.FillDays, time.Now()) })
+		slots["fill"].start(now, func() { checkFill(st, r.Usages(), s.FillDays, time.Now()); markLooked("fill") })
 	}
 	if due("snapshots", snapshotsEvery) && s.Snapshots && r.Snapshots != nil {
 		slots["snapshots"].start(now, func() {
 			cfg, last := r.Snapshots()
 			checkSnapshots(st, cfg, last, r.SnapshotOnDisk, s.SnapshotLate, time.Now())
+			markLooked("snapshots")
 		})
 	}
 	if due("accounts", time.Hour) && r.Users != nil {

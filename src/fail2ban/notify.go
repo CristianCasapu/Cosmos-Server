@@ -26,13 +26,32 @@ var (
 // Fork addition (plan 48, review 4 (d)): the Telegram notifier asks
 // whether Fail2ban is down now, once it was looked at.
 func init() {
+	// review 5, S1: three answers. Unknown before the first look and while
+	// it failed once only (a reload, or the start of an outage); open once
+	// told; over after an answer.
 	utils.RegisterThreadLevel("fail2ban.down", func(thread string) (bool, bool) {
 		downMu.Lock()
 		defer downMu.Unlock()
-		if thread != downThread || !looked {
+		switch {
+		case thread != downThread || !looked:
+			return false, false
+		case downTold:
+			return true, true
+		case downLooks > 0:
 			return false, false
 		}
-		return downTold, true
+		return false, true
+	})
+	utils.RegisterOpenThreads("fail2ban.down", func() ([]string, bool) {
+		downMu.Lock()
+		defer downMu.Unlock()
+		if !looked {
+			return nil, false
+		}
+		if downTold {
+			return []string{downThread}, true
+		}
+		return nil, true
 	})
 }
 

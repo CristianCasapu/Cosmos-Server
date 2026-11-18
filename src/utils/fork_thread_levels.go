@@ -27,7 +27,43 @@ type ThreadLevel func(thread string) (open bool, ok bool)
 var (
 	threadLevelsMu sync.Mutex
 	threadLevels   = map[string]ThreadLevel{}
+	threadOpens    = map[string]func() []string{}
 )
+
+// RegisterOpenThreads says which threads of a kind a source holds open now
+// (review 5): an open problem is found even when its notification was
+// deleted. ok is false while the source does not know yet.
+func RegisterOpenThreads(kind string, open func() (threads []string, ok bool)) {
+	threadLevelsMu.Lock()
+	defer threadLevelsMu.Unlock()
+	threadOpens[kind] = func() []string {
+		threads, ok := open()
+		if !ok {
+			return nil
+		}
+		return threads
+	}
+}
+
+// SourceOpenThreads lists, per kind, the threads the sources hold open.
+func SourceOpenThreads() map[string][]string {
+	threadLevelsMu.Lock()
+	opens := map[string]func() []string{}
+	for kind, f := range threadOpens {
+		opens[kind] = f
+	}
+	threadLevelsMu.Unlock()
+	out := map[string][]string{}
+	for kind, f := range opens {
+		func() {
+			defer func() { recover() }()
+			if list := f(); len(list) > 0 {
+				out[kind] = list
+			}
+		}()
+	}
+	return out
+}
 
 // RegisterThreadLevel says what a source knows of its threads of a kind.
 func RegisterThreadLevel(kind string, level ThreadLevel) {
@@ -97,38 +133,64 @@ func ForkOpenThreads(kinds []string, within time.Duration, limit int) ([]Notific
 	return out, rows.Err()
 }
 
-// ForkThreadState reports whether a thread has an open row, and its newest
-// row of one of the closing kinds since `since` (the follow-up that says
-// it is over), when there is one.
-func ForkThreadState(thread string, closings []string, since time.Time) (open bool, closing *Notification, err error) {
+// ForkThreadState says what the notifications know of a thread: open (a
+// row of it is not resolved), over (none is open, and since `since` one
+// was resolved or a closing row came: POSITIVE evidence, review 5 L1), or
+// neither: no row at all (deleted by the owner, pruned after 30 days) is
+// unknown, never "over". closing is the newest closing row since `since`.
+// Any error of the store is an error: the caller treats it as unknown.
+func ForkThreadState(thread string, closings []string, since time.Time) (open bool, over bool, closing *Notification, err error) {
 	if thread == "" {
-		return false, nil, errors.New("no thread")
+		return false, false, nil, errors.New("no thread")
 	}
 	db, err := MonitoringReadDB()
 	if err != nil {
-		return false, nil, err
+		return false, false, nil, err
 	}
 	var count int
 	if err := db.QueryRow(MonitoringRebind("SELECT COUNT(*) FROM notifications WHERE fork_thread = ? AND fork_resolved = 0 AND fork_info <> ''"),
 		thread).Scan(&count); err != nil {
-		return false, nil, err
+		return false, false, nil, err
 	}
-	if count > 0 || len(closings) == 0 {
-		return count > 0, nil, nil
+	if count > 0 {
+		return true, false, nil, nil
 	}
-	in, args := kindList(closings)
-	args = append([]interface{}{thread}, args...)
-	args = append(args, TimeToMillis(since))
-	row := db.QueryRow(MonitoringRebind("SELECT "+notificationColumnsSQL+" FROM notifications"+
-		" WHERE fork_thread = ? AND fork_info <> '' AND fork_kind IN "+in+" AND date >= ?"+
-		" ORDER BY date DESC, id DESC LIMIT 1"), args...)
-	v, scanErr := scanNotification(row)
-	if scanErr == nil && v.Info != nil {
-		n := viewNotification(v)
-		return false, &n, nil
+	sinceMs := TimeToMillis(since)
+	var resolved int
+	if err := db.QueryRow(MonitoringRebind("SELECT COUNT(*) FROM notifications WHERE fork_thread = ? AND fork_resolved >= ? AND fork_resolved > 0 AND fork_info <> ''"),
+		thread, sinceMs).Scan(&resolved); err != nil {
+		return false, false, nil, err
 	}
-	return false, nil, nil
+	if len(closings) > 0 {
+		in, args := kindList(closings)
+		args = append([]interface{}{thread}, args...)
+		args = append(args, sinceMs)
+		rows, err := db.Query(MonitoringRebind("SELECT "+notificationColumnsSQL+" FROM notifications"+
+			" WHERE fork_thread = ? AND fork_info <> '' AND fork_kind IN "+in+" AND date >= ?"+
+			" ORDER BY date DESC, id DESC LIMIT 1"), args...)
+		if err != nil {
+			return false, false, nil, err
+		}
+		defer rows.Close()
+		if rows.Next() {
+			v, err := scanNotification(rows)
+			if err != nil {
+				return false, false, nil, err
+			}
+			if v.Info != nil {
+				n := viewNotification(v)
+				closing = &n
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return false, false, nil, err
+		}
+	}
+	return false, resolved > 0 || closing != nil, closing, nil
 }
+
+// JobThread is the thread of a scheduled job's failure.
+func JobThread(name string) string { return "error.job:" + cleanVar(name, 160) }
 
 // viewNotification is a stored row as the notification that raised it.
 func viewNotification(v NotificationView) Notification {
