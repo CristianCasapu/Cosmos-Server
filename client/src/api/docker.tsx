@@ -240,6 +240,12 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
   }
 
   // Fork addition (plan 43): the server's addresses on the home network (src/proxy/fork_lan_addresses.go)
+  // Fork addition (plan 47, I2c): what a container's edit tabs propose from (src/fork_edit_hints.go); nothing is changed
+  function editHints(containerId: string, folders?: string[]): Promise<ApiResponse> {
+    const query = folders && folders.length ? '?' + folders.map((f) => 'folder=' + encodeURIComponent(f)).join('&') : '';
+    return wrap(apiFetch('/cosmos/api/servapps/' + encodeURIComponent(containerId) + '/edit-hints' + query, { method: 'GET' }), true)
+  }
+
   function lanAddresses(): Promise<ApiResponse> {
     return wrap(apiFetch('/cosmos/api/lan-addresses', { method: 'GET' }))
   }
@@ -452,6 +458,15 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
     }));
   }
 
+  // Fork addition (plan 47, I2c): every tick the creation route will ask for a definition (src/docker/fork_edit_links.go); nothing is made
+  function installSensitive(definition: any, replace: boolean): Promise<ApiResponse> {
+    return wrap(apiFetch('/cosmos/api/install/sensitive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ definition, replace }),
+    }), true);
+  }
+
   // Fork addition (plan 40): Docker Hub search and what an image declares, read without a pull (src/anyimage)
   function imageSearch(query: string): Promise<ApiResponse> {
     return wrap(apiFetch('/cosmos/api/images/search', {
@@ -508,6 +523,8 @@ export default function createDockerAPI(apiFetch: ApiFetch, createWs: (path: str
     startReport, // Fork addition (plan 43)
     probePort, // Fork addition (plan 43)
     lanAddresses, // Fork addition (plan 43)
+    editHints, // Fork addition (plan 47, I2c)
+    installSensitive, // Fork addition (plan 47, I2c)
     createVolume,
     attachTerminal,
     createTerminal,

@@ -1,6 +1,9 @@
 {
   "_comment": "Bind sources and whether they need a confirmation. Read by fork_sensitive_access_test.go and client/src/utils/sensitiveAccess.test.mjs: both rule sets must agree. extra stands for Cosmos' configuration folder and Docker's data root.",
-  "extra": ["/var/lib/cosmos-config", "/storage/docker"],
+  "extra": [
+    "/var/lib/cosmos-config",
+    "/storage/docker"
+  ],
   "binds": {
     "/": "bind",
     "/etc": "bind",
@@ -30,5 +33,136 @@
     "/mnt/disk1/backup": "",
     "/etcetera": "",
     "relative/path": ""
-  }
+  },
+  "_comment_mounts": "Mounts of a service and the items they need (plan 47 review): a volume whose local driver binds a host path is that path; shared propagation is an item of its own. Read by fork_edit_keep_test.go and client/src/utils/editHints.test.mjs.",
+  "mounts": [
+    {
+      "mount": {
+        "Type": "volume",
+        "Source": "v1",
+        "Target": "/h",
+        "VolumeOptions": {
+          "DriverConfig": {
+            "Name": "local",
+            "Options": {
+              "type": "none",
+              "o": "bind",
+              "device": "/"
+            }
+          }
+        }
+      },
+      "items": [
+        "bind|/"
+      ]
+    },
+    {
+      "mount": {
+        "Type": "volume",
+        "Source": "v2",
+        "Target": "/h",
+        "VolumeOptions": {
+          "DriverConfig": {
+            "Options": {
+              "o": "bind",
+              "device": "/var/run/docker.sock"
+            }
+          }
+        }
+      },
+      "items": [
+        "socket|/var/run/docker.sock"
+      ]
+    },
+    {
+      "mount": {
+        "Type": "volume",
+        "Source": "v3",
+        "Target": "/h",
+        "VolumeOptions": {
+          "DriverConfig": {
+            "Name": "local",
+            "Options": {
+              "type": "none",
+              "o": "bind",
+              "device": "/mnt/data/app"
+            }
+          }
+        }
+      },
+      "items": []
+    },
+    {
+      "mount": {
+        "Type": "volume",
+        "Source": "v4",
+        "Target": "/h",
+        "VolumeOptions": {
+          "DriverConfig": {
+            "Name": "local",
+            "Options": {
+              "type": "nfs",
+              "o": "addr=192.0.2.5",
+              "device": ":/export"
+            }
+          }
+        }
+      },
+      "items": []
+    },
+    {
+      "mount": {
+        "Type": "volume",
+        "Source": "v5",
+        "Target": "/h",
+        "VolumeOptions": {
+          "DriverConfig": {
+            "Name": "someplugin",
+            "Options": {
+              "device": "/"
+            }
+          }
+        }
+      },
+      "items": []
+    },
+    {
+      "mount": {
+        "Type": "bind",
+        "Source": "/mnt/data/s",
+        "Target": "/s",
+        "BindOptions": {
+          "Propagation": "rshared"
+        }
+      },
+      "items": [
+        "propagation|/mnt/data/s"
+      ]
+    },
+    {
+      "mount": {
+        "Type": "bind",
+        "Source": "/etc",
+        "Target": "/s",
+        "BindOptions": {
+          "Propagation": "shared"
+        }
+      },
+      "items": [
+        "propagation|/etc",
+        "bind|/etc"
+      ]
+    },
+    {
+      "mount": {
+        "Type": "bind",
+        "Source": "/mnt/data/s",
+        "Target": "/s",
+        "BindOptions": {
+          "Propagation": "rslave"
+        }
+      },
+      "items": []
+    }
+  ]
 }
