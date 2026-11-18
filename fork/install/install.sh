@@ -98,7 +98,8 @@
 # is installed WITHOUT protection that was asked for (a piece skipped or
 # failed: the last line names it).
 #
-# The environment is not read, but for COSMOS_INSTALL_APT_WAIT (seconds apt
+# The environment is not read, but for COSMOS_INSTALL_APT_TIMEOUT (seconds one
+# apt or dpkg call may take, 60 to 86400) and COSMOS_INSTALL_APT_WAIT (seconds apt
 # waits for another program that holds it, 10 to 3600, default 600). curl
 # and openssl run with an empty environment (no proxy, no ~/.curlrc, no
 # OPENSSL_CONF) and the PATH /usr/sbin:/usr/bin:/sbin:/bin; a proxy is given
@@ -708,12 +709,31 @@ APT_ENV=(env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a NEEDRESTART_SUSPE
 # apt and dpkg are stopped when one call takes longer than this (a hung
 # mirror, a package script that waits for ever): generous, said when it
 # happens, and the run can be started again where it stopped.
+# COSMOS_INSTALL_APT_TIMEOUT seconds (60 to 86400) replaces it (the test bed
+# shortens it).
 APT_TIMEOUT=$((5400 + APT_WAIT))
-# --foreground: apt stays in this script's process group, so that whatever
-# stops the script (Ctrl-C, a lost SSH session) stops apt with it, as before.
-APT_RUN=(timeout --foreground --kill-after=120 "$APT_TIMEOUT")
-apt_timed_out() { # what
-	warn "$1 did not finish within $((APT_TIMEOUT / 60)) minutes and was stopped. What it did so far is kept: run install.sh again with the same options to continue."
+if [[ ${COSMOS_INSTALL_APT_TIMEOUT:-} =~ ^[1-9][0-9]{1,4}$ ]] && [ "$COSMOS_INSTALL_APT_TIMEOUT" -ge 60 ] && [ "$COSMOS_INSTALL_APT_TIMEOUT" -le 86400 ]; then
+	APT_TIMEOUT=$COSMOS_INSTALL_APT_TIMEOUT
+fi
+# apt_run <seconds> <command...>: the command in a systemd scope of its own
+# (systemd-run --scope runs it in place: still this script's child, in its
+# process group, so Ctrl-C and a lost session stop it as before). At the
+# bound systemd stops the WHOLE scope: apt, dpkg and every package script
+# they started, not only apt. APT_RAN_FOR says how long it ran.
+APT_SCOPES=0 APT_RAN_FOR=0
+apt_run() {
+	local bound=$1 started=$SECONDS rc=0
+	shift
+	APT_SCOPES=$((APT_SCOPES + 1))
+	systemd-run --scope --quiet --collect --unit="cosmos-install-apt-$$-$APT_SCOPES" \
+		-p RuntimeMaxSec="$bound" -p TimeoutStopSec=20 -- "$@" || rc=$?
+	APT_RAN_FOR=$((SECONDS - started))
+	return "$rc"
+}
+# apt_timed_out <what> <status>: true (and said) when the call was stopped at the bound
+apt_timed_out() {
+	[ "$2" != 0 ] && [ "$APT_RAN_FOR" -ge "$APT_TIMEOUT" ] || return 1
+	warn "$1 did not finish within $((APT_TIMEOUT / 60)) minutes: it was stopped, with everything it had started (dpkg, package scripts). The package database may be unfinished: run install.sh again with the same options; it finishes it first (dpkg --configure -a)."
 }
 APT_OPTS=(-y -q -o Acquire::Retries=3 -o "DPkg::Lock::Timeout=$APT_WAIT" -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
 # apt_holders: who holds apt's or dpkg's locks right now, in words (the
@@ -742,13 +762,15 @@ apt_get() {
 	local rc waited=0 log statuses
 	log=$(mktemp "$WORK/apt.XXXXXX")
 	while :; do
+		local t0=$SECONDS # (the pipeline runs apt_run in a subshell: timed here)
 		set +e +o pipefail
-		"${APT_RUN[@]}" "${APT_ENV[@]}" apt-get "${APT_OPTS[@]}" "$@" </dev/null 2>&1 | tee "$log" |
+		apt_run "$APT_TIMEOUT" "${APT_ENV[@]}" apt-get "${APT_OPTS[@]}" "$@" </dev/null 2>&1 | tee "$log" |
 			grep --line-buffered -vE '^(Get|Hit|Ign|Reading|Building|Preparing|Unpacking|Selecting|\(Reading|Setting up|Processing|Created symlink|Fetched|Need to get|After this|The following|Suggested|Recommended|  [a-z0-9])'
 		statuses=("${PIPESTATUS[@]}")
 		set -e -o pipefail
 		rc=${statuses[0]}
-		if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then apt_timed_out "apt-get $1"; rm -f "$log"; return "$rc"; fi
+		APT_RAN_FOR=$((SECONDS - t0))
+		if apt_timed_out "apt-get $1" "$rc"; then rm -f "$log"; return "$rc"; fi
 		if [ "$rc" -ne 0 ] && grep -qE 'Could not get lock|Unable to acquire the dpkg frontend lock|is another process using it' "$log"; then
 			if [ "$waited" -ge "$APT_WAIT" ]; then
 				warn "another program held apt for longer than $APT_WAIT seconds"
@@ -799,7 +821,11 @@ sim_setup() {
 	# apt reads the file named by APT_CONFIG BEFORE its configuration folder:
 	# only there does pointing it at the copy take effect (an -o option on
 	# the command line comes after the hooks are read).
-	printf 'Dir::Etc::Parts "%s/conf";\nDir::State::Lists "%s/lists";\nDir::Cache "%s/cache";\nDir::Etc::SourceParts "%s/parts";\nDebug::NoLocking "1";\n' \
+	# the main file too (/etc/apt/apt.conf, read after the folder): copied in
+	# first place among the parts, so that the clearing applies to it; apt
+	# itself then reads no main file
+	if [ -f /etc/apt/apt.conf ]; then cp -p /etc/apt/apt.conf "$SIM/conf/00-cosmos-main-apt.conf"; fi
+	printf 'Dir::Etc::Main "/dev/null";\nDir::Etc::Parts "%s/conf";\nDir::State::Lists "%s/lists";\nDir::Cache "%s/cache";\nDir::Etc::SourceParts "%s/parts";\nDebug::NoLocking "1";\n' \
 		"$SIM" "$SIM" "$SIM" "$SIM" >"$SIM/apt.conf"
 	chmod -R a+rX "$SIM"
 	if id -u _apt >/dev/null 2>&1; then chown -R _apt "$SIM/lists" "$SIM/cache"; fi
@@ -816,7 +842,7 @@ simulate() { # packages
 	local try
 	for try in 1 2 3; do
 		rc=0
-		out=$(timeout --foreground --kill-after=60 1800 "${SIM_ENV[@]}" "${APT_ENV[@]}" apt-get -q -o Acquire::Retries=3 "${SIM_OPTS[@]}" update </dev/null 2>&1) || rc=$?
+		out=$(apt_run 1800 "${SIM_ENV[@]}" "${APT_ENV[@]}" apt-get -q -o Acquire::Retries=3 "${SIM_OPTS[@]}" update </dev/null 2>&1) || rc=$?
 		if [ "$rc" = 0 ] && ! has_line '^(W|E): (Failed to fetch|Some index files failed)' "$out"; then break; fi
 		[ "$try" = 3 ] || sleep 10
 	done
@@ -828,7 +854,7 @@ simulate() { # packages
 		printf '%s\n' "$out" | grep -E '^(W|E):' | head -n 5 >&2
 		die $EXIT_PREREQ "apt could not fetch every package list (network or source problem). Nothing was changed."
 	fi
-	out=$(timeout --foreground --kill-after=60 1800 "${SIM_ENV[@]}" "${APT_ENV[@]}" apt-get -q -s "${SIM_OPTS[@]}" install --no-install-recommends "$@" </dev/null 2>&1) || rc=$?
+	out=$(apt_run 1800 "${SIM_ENV[@]}" "${APT_ENV[@]}" apt-get -q -s "${SIM_OPTS[@]}" install --no-install-recommends "$@" </dev/null 2>&1) || rc=$?
 	if [ "$rc" -ne 0 ]; then
 		printf '%s\n' "$out" | grep -E '^(E:|  |Package|The following packages have unmet)' | head -n 12 >&2
 		die $EXIT_PREREQ "apt cannot install what Cosmos needs ($*). Nothing was changed."
@@ -966,6 +992,7 @@ HALF_PACKAGES=()
 unrecord() { # drop one record line
 	[ -f "$RECORD" ] || return 0
 	grep -vxF -- "$*" "$RECORD" >"$RECORD.new" || true
+	chmod 600 "$RECORD.new"
 	mv -f -- "$RECORD.new" "$RECORD"
 }
 # shellcheck disable=SC2317,SC2329 # called from the EXIT trap
@@ -1076,8 +1103,8 @@ repair_dpkg() {
 	printf '%s\n' "$pending" | head -n 20 | sed 's/^/  /'
 	say "Finishing ALL of them, not only those of the interrupted run (dpkg --configure -a; apt-get -f install):"
 	local rc=0
-	"${APT_RUN[@]}" "${APT_ENV[@]}" dpkg --force-confdef --force-confold --configure -a </dev/null || rc=$?
-	if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then apt_timed_out "dpkg --configure -a"; die $EXIT_FAILED "the package database is still unfinished"; fi
+	apt_run "$APT_TIMEOUT" "${APT_ENV[@]}" dpkg --force-confdef --force-confold --configure -a </dev/null || rc=$?
+	if apt_timed_out "dpkg --configure -a" "$rc"; then die $EXIT_FAILED "the package database is still unfinished"; fi
 	[ "$rc" = 0 ] || die $EXIT_FAILED "dpkg --configure -a failed: finish the packages above by hand, then run install.sh again"
 	apt_get -f install >/dev/null || die $EXIT_FAILED "apt-get -f install failed: repair the package database by hand, then run install.sh again"
 }
@@ -1098,14 +1125,35 @@ install_packages() {
 		die $EXIT_FAILED "apt cannot install ${missing[*]} (it could a moment ago): nothing more was changed"
 	present_now >"$WORK/before-transaction"
 	for p in $planned; do record "package $p"; done
+	local hist=/var/log/apt/history.log hist_at=0
+	[ ! -f "$hist" ] || hist_at=$(stat -c %s -- "$hist")
 	say "Installing: ${missing[*]}"
 	apt_get install --no-install-recommends "${missing[@]}" || rc=$?
-	# the truth for exactly the packages apt planned: dpkg's status of each,
-	# installed or left half-done; one that was there before is not ours
-	local state
+	# The truth for exactly the packages apt planned. Another apt may have
+	# installed some of them while ours waited for the lock: apt's own
+	# history names what OUR transaction installed (its entry: our command
+	# line), and only those are ours. Then dpkg's status of each: installed,
+	# or left half-done. Without that entry (no history, or apt stopped before
+	# it began), a package that was there before is not ours.
+	local state ours="" entry
+	if [ -f "$hist" ] && [ "$(stat -c %s -- "$hist")" -ge "$hist_at" ]; then
+		entry=$(tail -c +"$((hist_at + 1))" -- "$hist" | awk -v want=" install --no-install-recommends ${missing[*]}" '
+			/^Start-Date:/ { cmd = ""; inst = "" }
+			/^Commandline:/ { cmd = $0 }
+			/^Install:/ { inst = $0 }
+			/^End-Date:/ || /^$/ { if (cmd != "" && substr(cmd, length(cmd) - length(want) + 1) == want) found = "E:" inst }
+			END { if (cmd != "" && substr(cmd, length(cmd) - length(want) + 1) == want) found = "E:" inst; print found }')
+		if [ -n "$entry" ]; then
+			entry=${entry#E:}
+			ours=$(printf '%s\n' "${entry#Install: }" | sed 's/), /)\n/g' | sed 's/[ :(].*//' | grep . | sort -u || true)
+			[ -n "$ours" ] || ours="-" # our transaction installed nothing new
+		fi
+	fi
 	for p in $planned; do
 		state=$(pkg_state "$p")
-		if grep -qxF -- "$p" "$WORK/before-transaction" || [ "$state" = n ] || [ "$state" = c ]; then
+		if [ -n "$ours" ] && ! grep -qxF -- "$p" <<<"$ours"; then
+			unrecord "package $p" # installed by another program while ours waited, or not at all
+		elif grep -qxF -- "$p" "$WORK/before-transaction" || [ "$state" = n ] || [ "$state" = c ]; then
 			unrecord "package $p"
 		elif [ "$state" = i ]; then
 			RUN_PACKAGES+=("$p")
@@ -1605,12 +1653,24 @@ public_ipv4() { # a public IPv4 address on an interface (not Docker's), or nothi
 	ip -4 -o addr show scope global 2>/dev/null | awk '$2 !~ /^(docker|br-|veth|virbr|nebula)/ {sub(/\/.*/, "", $4); print $4}' |
 		awk -F. '!($1==10 || ($1==172 && $2>=16 && $2<=31) || ($1==192 && $2==168) || ($1==100 && $2>=64 && $2<=127) || ($1==169 && $2==254)) {print; exit}'
 }
+# A global IPv6 address (not a private fd00::/8 one): whether the router lets
+# it be reached from outside cannot be told from here, and the wizard would
+# answer on it too (the server listens on every address). So at home with
+# one, the wizard answers on 127.0.0.1 as well: the tunnel always works, and
+# --wizard-on-lan is there for a network the owner trusts.
+global_ipv6() {
+	command -v ip >/dev/null || return 0
+	ip -6 -o addr show scope global 2>/dev/null | awk '$2 !~ /^(docker|br-|veth|virbr|nebula)/ {sub(/\/.*/, "", $4); print $4}' |
+		awk 'tolower($0) !~ /^f[cd]/ {print; exit}'
+}
 WIZARD=lan WIZARD_WHY=""
 PUBLIC4=$(public_ipv4)
+GLOBAL6=$(global_ipv6)
 if [ "$(answer wizard-on-lan)" != yes ]; then
 	if [ "$(answer placement)" != home ]; then WIZARD=loopback WIZARD_WHY="the server's placement is $(answer placement), not home (--placement)"
 	elif [ "$(answer reachable)" = internet ]; then WIZARD=loopback WIZARD_WHY="the server is to be reachable from the internet"
 	elif [ -n "$PUBLIC4" ]; then WIZARD=loopback WIZARD_WHY="the server has a public address ($PUBLIC4) on an interface"
+	elif [ -n "$GLOBAL6" ]; then WIZARD=loopback WIZARD_WHY="the server has a global IPv6 address ($GLOBAL6), which the internet may reach"
 	fi
 fi
 if [ "$WIZARD" = loopback ] && [ "$REUSE_DATA" != 1 ] && [ ! -f "$DATA_DIR/cosmos.config.json" ]; then
@@ -1725,7 +1785,24 @@ tunnel_lines() {
 	say "    http://127.0.0.1:$TUNNEL_PORT/"
 	say "  (In the wizard's HTTPS step, give the server's real name or address, not 127.0.0.1.)"
 }
-if [ -s "$CODE_FILE" ] && [ -f "$DATA_DIR/setup-loopback" ]; then
+for _ in $(seq 1 20); do [ -s "$CODE_FILE" ] && break; sleep 0.5; done
+# Where the wizard ACTUALLY answers: the listening sockets of its port
+# (/proc/net/tcp and tcp6), not the marker's presence.
+listeners_of() { # port: the addresses listening on it, one per line (127.0.0.1, 0.0.0.0, ::, ...)
+	local hex
+	hex=$(printf '%04X' "$1")
+	awk -v port="$hex" 'FNR > 1 && $4 == "0A" { split($2, a, ":"); if (a[2] == port) print a[1] }' /proc/net/tcp /proc/net/tcp6 2>/dev/null |
+		sed -e 's/^0100007F$/127.0.0.1/' -e 's/^00000000$/0.0.0.0/' -e 's/^0\{32\}$/::/' -e 's/^0\{24\}01000000$/::1/' | sort -u
+}
+WIZARD_AT=$(listeners_of "$HTTP_PORT")
+WIZARD_LOOPBACK=0
+if [ -n "$WIZARD_AT" ] && [ -z "$(grep -vxF '127.0.0.1' <<<"$WIZARD_AT" || true)" ]; then WIZARD_LOOPBACK=1; fi
+if [ -s "$CODE_FILE" ] && [ "$WIZARD" = loopback ] && [ "$WIZARD_LOOPBACK" = 0 ] && [ "$REUSE_DATA" != 1 ]; then
+	warn "!!! THE FIRST-RUN WIZARD ANSWERS ON THE NETWORK, NOT ON 127.0.0.1 ONLY AS ASKED !!!"
+	warn "Port $HTTP_PORT listens on: $(tr '\n' ' ' <<<"${WIZARD_AT:-nothing}")(see: journalctl -u $UNIT | grep 'Setup:')."
+	warn "The setup code and your password would cross the network in clear: stop Cosmos (sudo systemctl stop $UNIT) until this is understood."
+fi
+if [ -s "$CODE_FILE" ] && [ "$WIZARD_LOOPBACK" = 1 ]; then
 	say "The first-run wizard answers on this server only (127.0.0.1) until it is done,"
 	say "because $WIZARD_WHY: the setup code and your password never"
 	say "cross the network in clear. From your computer, open an SSH tunnel:"
@@ -1734,7 +1811,7 @@ if [ -s "$CODE_FILE" ] && [ -f "$DATA_DIR/setup-loopback" ]; then
 elif [ -s "$CODE_FILE" ]; then
 	say "Open the panel from a computer at home:"
 	say "    http://$LAN_ADDRESS$suffix/"
-	say "The wizard answers on the home network in clear HTTP until it has set HTTPS up:"
+	say "The wizard answers on the network in clear HTTP until it has set HTTPS up:"
 	say "anyone on that network could read the setup code and your password. To keep"
 	say "them off the network, open an SSH tunnel from your computer instead:"
 	tunnel_lines
@@ -1742,7 +1819,6 @@ else
 	say "Open the panel from a computer at home:"
 	say "    http://$LAN_ADDRESS$suffix/"
 fi
-for _ in $(seq 1 20); do [ -s "$CODE_FILE" ] && break; sleep 0.5; done
 if [ -s "$CODE_FILE" ]; then
 	say "Finish the first-run wizard there now. Its first screen asks once for this"
 	say "server's one-time setup code: nobody without it can set the server up."

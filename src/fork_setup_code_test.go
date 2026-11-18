@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/azukaar/cosmos-server/src/utils"
 )
 
 func TestSetupCodeShape(t *testing.T) {
@@ -350,6 +352,34 @@ func TestTheWizardListensOnLoopbackWhenAsked(t *testing.T) {
 	os.Chmod(marker, 0o644)
 	if got := setupListenAddrFor("0.0.0.0:80", true, marker); got != "0.0.0.0:80" {
 		t.Errorf("a marker anyone could have left counted: %s", got)
+	}
+	// the real flag: the configuration's NewInstall
+	prevFolder, prevConfig := utils.CONFIGFOLDER, utils.GetBaseMainConfig()
+	defer func() { utils.CONFIGFOLDER = prevFolder; utils.LoadBaseMainConfig(prevConfig) }()
+	utils.CONFIGFOLDER = dir + "/"
+	os.Chmod(marker, 0o600)
+	config := utils.DefaultConfig
+	config.NewInstall = true
+	utils.LoadBaseMainConfig(config)
+	if got := setupListenAddr("0.0.0.0:80"); got != "127.0.0.1:80" {
+		t.Errorf("new installation, marker: %s", got)
+	}
+	config.NewInstall = false
+	utils.LoadBaseMainConfig(config)
+	if got := setupListenAddr("0.0.0.0:80"); got != "0.0.0.0:80" {
+		t.Errorf("set up, marker still there: %s", got)
+	}
+	// and the start says where it listens, also when the marker is not trusted
+	if s := setupWhereSaid(marker); !strings.Contains(s, "127.0.0.1 only") {
+		t.Errorf("said %q", s)
+	}
+	os.Chmod(marker, 0o644)
+	if s := setupWhereSaid(marker); !strings.Contains(s, "WARNING") || !strings.Contains(s, "EVERY address") {
+		t.Errorf("an untrusted marker said %q", s)
+	}
+	os.Remove(marker)
+	if s := setupWhereSaid(marker); !strings.Contains(s, "every address") {
+		t.Errorf("no marker said %q", s)
 	}
 	lifecycle, _ := os.ReadFile("fork_server_lifecycle.go")
 	if !strings.Contains(string(lifecycle), `net.Listen("tcp", setupListenAddr(addr))`) {

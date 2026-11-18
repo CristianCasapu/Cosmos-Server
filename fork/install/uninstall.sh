@@ -115,17 +115,27 @@ trap 'exit 130' INT TERM HUP
 # Without install.sh's record nothing is removed, whatever the options
 # (--purge, --remove-packages, --yes-delete-data included): a Cosmos
 # installed by hand, or upstream's, is not this script's to touch.
-if [ ! -f "$RECORD" ] && [ ! -f "$STATE" ]; then
+# The record is trusted only as install.sh writes it: a plain file of root,
+# 0600, one name, naming this installation (its folder, its unit, a package
+# or Docker's apt source). An empty, stray, linked or foreign record (or a
+# state file alone) is not: then nothing is touched either.
+record_trusted() {
+	[ -f "$RECORD" ] && [ ! -L "$RECORD" ] || return 1
+	[ "$(stat -c '%u %a %h' -- "$RECORD")" = "0 600 1" ] || return 1
+	grep -qxE "dir ${INSTALL_DIR//./\\.}|unit ${UNIT//./\\.}\\.service|package [a-z0-9][a-z0-9.+-]*|file /etc/apt/(keyrings/docker\\.asc|sources\\.list\\.d/docker\\.sources)" -- "$RECORD"
+}
+if ! record_trusted; then
 	if [ -e "$INSTALL_DIR" ] || [ -e /etc/systemd/system/$UNIT.service ]; then
-		die 3 "this Cosmos was not installed by install.sh: nothing to remove (there is no $RECORD; this script removes only what install.sh installed). Nothing was changed."
+		why="there is no $RECORD"
+		[ ! -e "$RECORD" ] || why="$RECORD is not a record install.sh wrote (a plain root file, 0600, naming this installation)"
+		die 3 "this Cosmos was not installed by install.sh: nothing to remove ($why; this script removes only what install.sh installed). Nothing was changed."
 	fi
 	say "Nothing to remove: install.sh installed nothing here (or it was removed already)."
+	if [ -e "$STATE_DIR" ]; then say "$STATE_DIR is left as it is: it names nothing install.sh installed."; fi
 	[ ! -d "$DATA_DIR" ] || say "The data folder $DATA_DIR is there; it is never removed without --delete-data, and only while install.sh's record names it."
 	exit 0
 fi
-[ -f "$RECORD" ] || : >"$WORK/empty"
 RECORD_IN=$RECORD
-[ -f "$RECORD" ] || RECORD_IN=$WORK/empty
 
 recorded() { grep -qxF -- "$*" "$RECORD_IN"; }
 lines_of() { sed -n "s/^$1 //p" "$RECORD_IN"; }
@@ -216,6 +226,7 @@ FAILED=""
 remove_line() { # drop a line from the record as soon as its item is gone
 	[ -f "$RECORD" ] || return 0
 	grep -vxF -- "$*" "$RECORD" >"$RECORD.new" || true
+	chmod 600 "$RECORD.new"
 	mv -f "$RECORD.new" "$RECORD"
 }
 

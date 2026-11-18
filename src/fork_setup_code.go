@@ -17,14 +17,16 @@ package main
 // open. The clean-install step of the wizard keeps the file (newInstall.go).
 //
 // The code: 20 symbols of a 30-symbol alphabet without look-alikes (no 0, 1,
-// I, L, O, U), shown as five groups of four; 98 bits. That alone makes
-// guessing hopeless: a million guesses a second for 10^16 years. So nothing
-// is shared between addresses (a flood from many addresses cannot keep the
-// owner out), the right code is always accepted, and a wrong one from an
-// address that already made five earns a pause that doubles with each try,
-// at most 15 minutes, which only keeps the logs readable. An address is the
-// connection's own (X-Forwarded-For is never read here); IPv6 counts by /64,
-// since one machine holds a whole /64.
+// I, L, O, U), shown as five groups of four; 98 bits. Its length is the
+// protection: a million guesses a second for a century find it with a
+// chance of about 1 in 10^14. There is no rate limit, by design: the right
+// code is always accepted (a flood cannot keep the owner out), and nothing
+// is shared between addresses. What there is, is a courtesy pause: after
+// five wrong codes from one address, a wrong code from it is answered "wait"
+// (the pause doubles, at most 15 minutes) instead of being checked and
+// logged, which keeps the log readable; it does not slow a guesser down. An
+// address is the connection's own (X-Forwarded-For is never read here); IPv6
+// counts by /64.
 //
 // Where it answers: when install.sh decides the wizard must not be reached
 // over the network in clear (a cloud server, the router's exposed host, a
@@ -150,6 +152,22 @@ func forkSetupCodeAtStart() {
 	ensureSetupCode(newInstall, setupCodePath(), rand.Reader)
 	if !newInstall {
 		os.Remove(setupLoopbackPath())
+		return
+	}
+	utils.Log(setupWhereSaid(setupLoopbackPath()))
+}
+
+// setupWhereSaid is the one line the start logs about where the first-run
+// wizard answers, and why.
+func setupWhereSaid(marker string) string {
+	err := privateFile(marker)
+	switch {
+	case err == nil:
+		return "Setup: the first-run wizard answers on 127.0.0.1 only (" + marker + "): reach it through an SSH tunnel"
+	case errors.Is(err, os.ErrNotExist):
+		return "Setup: the first-run wizard answers on every address, in clear HTTP until it sets HTTPS up (no " + marker + ")"
+	default:
+		return "Setup: WARNING: " + err.Error() + ": the marker is not trusted, so the first-run wizard answers on EVERY address, in clear HTTP"
 	}
 }
 
@@ -417,7 +435,7 @@ func (g *setupGuard) wrap(next http.Handler) http.Handler {
 		if paused, wait := g.limiter.paused(client); paused {
 			seconds := int(wait/time.Second) + 1
 			w.Header().Set("Retry-After", strconv.Itoa(seconds))
-			utils.HTTPError(w, "Too many wrong setup codes from here: try again in "+strconv.Itoa(seconds)+" seconds.", http.StatusTooManyRequests, "SC003")
+			utils.HTTPError(w, "Several wrong setup codes came from here: wait "+strconv.Itoa(seconds)+" seconds, then enter the code again (the right code is accepted at any time).", http.StatusTooManyRequests, "SC003")
 			return
 		}
 		g.limiter.failed(client)

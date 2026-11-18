@@ -2868,7 +2868,7 @@
 	"newInstall.setupCode.noFile": "The server cannot read its setup code file. Restart Cosmos on the server (sudo systemctl restart CosmosCloud) to make a new one.",
 	"newInstall.setupCode.text": "To make sure that you, and nobody else on the network, set this server up, enter its setup code. install.sh printed it when it finished. On the server, it is shown by:",
 	"newInstall.setupCode.title": "Setup code",
-	"newInstall.setupCode.wait": "Too many tries: wait {{seconds}} seconds and try again.",
+	"newInstall.setupCode.wait": "Several wrong codes came from here: wait {{seconds}} seconds, then enter the code again.",
 	"newInstall.setupCode.wrong": "This is not the setup code of this server.",
 	"newInstall.setupUser.nicknameRootAdminNotAllowedValidation": "Benutzername darf nicht \\'admin\\' oder \\'root\\' sein",
 	"newInstall.setupUser.passwordMustMatchValidation": "Passwörter müssen übereinstimmen",

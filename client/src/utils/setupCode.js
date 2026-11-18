@@ -39,7 +39,7 @@ export const formatSetupCode = (code) => (normalizeSetupCode(code).match(/.{1,4}
 export const setupCodeAnswer = (status, code, retryAfter, message) => {
   if (code === 'SC001') return ['newInstall.setupCode.asked', 'The server asks for the setup code again: enter it.', {}];
   if (code === 'SC002') return ['newInstall.setupCode.wrong', 'This is not the setup code of this server.', {}];
-  if (code === 'SC003' || status === 429) return ['newInstall.setupCode.wait', 'Too many tries: wait {{seconds}} seconds and try again.', { seconds: String(Math.max(1, parseInt(retryAfter, 10) || 60)) }];
+  if (code === 'SC003' || status === 429) return ['newInstall.setupCode.wait', 'Several wrong codes came from here: wait {{seconds}} seconds, then enter the code again.', { seconds: String(Math.max(1, parseInt(retryAfter, 10) || 60)) }];
   if (code === 'SC004') return ['newInstall.setupCode.noFile', 'The server cannot read its setup code file. Restart Cosmos on the server (sudo systemctl restart CosmosCloud) to make a new one.', {}];
   if (code === 'NI001') return ['newInstall.setupCode.done', 'This server is already set up. Sign in instead.', {}];
   if (status === 403 || status >= 400) {

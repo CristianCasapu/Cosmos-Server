@@ -122,7 +122,7 @@ runs:
         FORK_REQUIRE_RELEASE_KEY: ${{ inputs.release == 'true' && '1' || '' }}
       run: |
         node --test "client/src/utils/*.test.mjs"
-        node --test scripts/fork-deps-lib.test.mjs scripts/fork-deps-update.test.mjs scripts/fork-deps-ci.test.mjs scripts/fork-release-handover.test.mjs
+        node --test scripts/fork-deps-lib.test.mjs scripts/fork-deps-update.test.mjs scripts/fork-deps-ci.test.mjs scripts/fork-release-handover.test.mjs scripts/fork-release-workflow.test.mjs
         go test ./src/forkrelease/ -count=1
         cp src/update.go src/launcher/update.go && go test ./src/launcher/ -count=1 && rm src/launcher/update.go
         go test ./src/utils/ ./src/authorizationserver/ -count=1
