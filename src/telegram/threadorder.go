@@ -227,6 +227,9 @@ func (e *threadEntry) priority() priority {
 func (n *notifier) nextThreadLocked(now time.Time) (*threadEntry, time.Duration) {
 	var best *threadEntry
 	wait := time.Hour
+	if now.Before(n.levelWait) {
+		return nil, n.levelWait.Sub(now)
+	}
 	for _, e := range n.entries {
 		if !e.queued || e.inFlight {
 			continue
@@ -293,7 +296,7 @@ func (n *notifier) decideLocked(st settings, e *threadEntry, told openThread, is
 		if b, braked := n.brakes[e.id]; braked && now.Sub(b.at) < brakeWindow {
 			if b.messageID > 0 && !e.fresh && !isTold {
 				// sent a moment ago: the chat holds it
-				n.threads.open(st, e.id, e.name, e.opening.kind, b.messageID, false)
+				n.threads.open(st, e.id, e.name, e.opening.kind, b.messageID, e.opening.texts().Pin && e.opening.severity == sevCritical)
 				return decision{wait: -1}
 			}
 			if !isTold || b.messageID != told.MessageID {
@@ -350,6 +353,17 @@ func (n *notifier) saveDirtyLocked() map[string]*savedEntry {
 	return out
 }
 
+// persist writes the states of the threads that changed (B3); the sender
+// does it as soon as it wakes, before anything else.
+func (n *notifier) persist() {
+	n.mu.Lock()
+	saves := n.saveDirtyLocked()
+	n.mu.Unlock()
+	if len(saves) > 0 {
+		n.threads.saveEntries(saves)
+	}
+}
+
 // deliverThread does what the thread's truth asks for now.
 func (n *notifier) deliverThread(it *item) bool {
 	for {
@@ -375,6 +389,9 @@ func (n *notifier) deliverThread(it *item) bool {
 			e.queued = false
 			told, isTold := n.threads.get(st, e.id)
 			d = n.decideLocked(st, e, told, isTold, now)
+			if n.traceDecision != nil {
+				n.traceDecision(e.id, d.action.String(), isTold, e.open)
+			}
 			switch {
 			case d.wait < 0:
 				e.queued = true // decided again at once
@@ -479,6 +496,10 @@ func (n *notifier) deliverThread(it *item) bool {
 			}
 		case actionClose:
 			n.threads.close(st, e.id)
+			// the opening it closed is no longer the one a new opening repeats
+			n.mu.Lock()
+			delete(n.brakes, e.id)
+			n.mu.Unlock()
 		}
 		n.tidyPins(st)
 
@@ -507,6 +528,8 @@ func (n *notifier) deliverThread(it *item) bool {
 				n.dueLocked(e)
 			}
 		}()
+		// what was sent is written at once: a restart does not send it again
+		n.persist()
 		return true
 	}
 }

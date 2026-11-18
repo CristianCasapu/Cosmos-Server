@@ -105,6 +105,9 @@ func (n *notifier) reconcile() {
 	if !st.usable || n.levels == nil {
 		return
 	}
+	if n.reconcileGate != nil {
+		n.reconcileGate()
+	}
 	n.mu.Lock()
 	start := n.seq
 	known := map[string]threadLook{}
@@ -200,6 +203,7 @@ func (n *notifier) reconcile() {
 	}
 	n.allDueLocked()
 	n.pinsDue = true
+	n.levelWait = time.Time{}
 }
 
 type threadLook struct {

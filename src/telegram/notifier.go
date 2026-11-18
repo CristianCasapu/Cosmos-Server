@@ -156,16 +156,19 @@ type notifier struct {
 	digestLast      time.Time
 	lastDigest      time.Time
 	lastRequest     time.Time
-	holdUntil       time.Time               // no message before then (flood control, back-off)
-	entries         map[string]*threadEntry // the threads, see threadorder.go
-	removed         map[string]bool         // entries forgotten, to drop from the threads file
-	brakes          map[string]brake        // the openings sent lately, per thread
-	overflowed      int                     // thread events sent as messages of their own: the table was full
-	seq             uint64                  // events counted, for the reconcile
-	current         string                  // the thread being sent, for the recovery
-	wantsKey        string                  // the settings that decide what is wanted, as last seen
-	panics          int                     // the sender's restarts after a panic
-	pinsDue         bool                    // pins and unpins refused earlier are to be tried again
+	holdUntil       time.Time                                            // no message before then (flood control, back-off)
+	entries         map[string]*threadEntry                              // the threads, see threadorder.go
+	removed         map[string]bool                                      // entries forgotten, to drop from the threads file
+	brakes          map[string]brake                                     // the openings sent lately, per thread
+	overflowed      int                                                  // thread events sent as messages of their own: the table was full
+	seq             uint64                                               // events counted, for the reconcile
+	current         string                                               // the thread being sent, for the recovery
+	wantsKey        string                                               // the settings that decide what is wanted, as last seen
+	panics          int                                                  // the sender's restarts after a panic
+	traceDecision   func(id string, action string, told bool, open bool) // the tests follow the decisions
+	levelWait       time.Time                                            // the threads wait for a look at their level until then
+	reconcileGate   func()                                               // the tests hold a look at the level here
+	pinsDue         bool                                                 // pins and unpins refused earlier are to be tried again
 
 	pausedUntil time.Time
 	pausedFor   string // the fingerprint of the settings that were refused
@@ -475,6 +478,11 @@ func (n *notifier) next() (*item, time.Duration) {
 		// again, and the truth is looked at (B2)
 		n.allDueLocked()
 		if n.wantsKey == "" {
+			// switched on (or started): what happened meanwhile was not
+			// heard; the threads wait for one look at their level
+			if n.levels != nil {
+				n.levelWait = now.Add(2*n.limits.reconcileDelay + time.Minute)
+			}
 			select {
 			case n.reconcileNow <- struct{}{}:
 			default:
@@ -628,6 +636,7 @@ func (n *notifier) runLoop() (closed bool) {
 		}
 	}()
 	for {
+		n.persist()
 		it, wait := n.next()
 		if it == nil {
 			timer := time.NewTimer(wait)
