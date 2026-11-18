@@ -24,8 +24,13 @@ type Options struct {
 	// TargetInUse: the target is the store Cosmos writes (to PostgreSQL);
 	// false when the source is (to the local file).
 	TargetInUse bool
-	// Batch is the number of rows read and written per transaction.
+	// Batch is the number of rows read and written per transaction, at most.
 	Batch int
+	// BatchTime, when set, adapts the rows per transaction so that one
+	// transaction of the target takes about that long (between 20 rows and
+	// Batch): a writer of the store in use waits at most about that long
+	// behind it. Zero keeps Batch rows per transaction.
+	BatchTime time.Duration
 	// Pause is how long to wait after a batch that took took (rate limit).
 	Pause func(took time.Duration) time.Duration
 	// Guard is asked before each batch: an error stops the copy (the store
@@ -168,6 +173,12 @@ func Copy(ctx context.Context, src, dst Store, opt Options, track *Tracker) (Rep
 		opt.Batch = 1000
 	}
 	c := &copier{src: src, dst: dst, opt: opt, track: track}
+	if opt.BatchTime > 0 {
+		c.size = opt.Batch
+		if c.size > 200 {
+			c.size = 200
+		}
+	}
 	report, err := c.run(ctx)
 	// a handle closed under the copy by a switch of the store fails the
 	// statement: that is the switch, not a failure of the table
@@ -183,6 +194,37 @@ type copier struct {
 	track    *Tracker
 	marker   runMarker
 	layouts  map[string]layout
+	size     int // rows per transaction now (see Options.BatchTime)
+}
+
+const minBatch = 20
+
+// limit is the rows a batch reads now.
+func (c *copier) limit() int {
+	if c.size > 0 {
+		return c.size
+	}
+	return c.opt.Batch
+}
+
+// adapt sizes the next batch by how long this one took.
+func (c *copier) adapt(took time.Duration) {
+	target := c.opt.BatchTime
+	if target <= 0 {
+		return
+	}
+	switch {
+	case took > 2*target && c.size > minBatch:
+		c.size /= 2
+		if c.size < minBatch {
+			c.size = minBatch
+		}
+	case took < target/2 && c.size < c.opt.Batch:
+		c.size *= 2
+		if c.size > c.opt.Batch {
+			c.size = c.opt.Batch
+		}
+	}
 }
 
 // background is the context of one batch's statements: a cancel waits for
@@ -213,6 +255,11 @@ func (c *copier) run(ctx context.Context) (Report, error) {
 	}
 	if err := c.checkSequences(bctx); err != nil {
 		return Report{}, err
+	}
+	if !c.dst.postgres() {
+		// fold the copy's journal into the file now, without waiting for
+		// anyone (PASSIVE), so that a writer's next commit does not do it
+		c.dst.DB.ExecContext(bctx, "PRAGMA wal_checkpoint(PASSIVE)")
 	}
 	return c.verifyAll(ctx)
 }
@@ -444,7 +491,9 @@ func (c *copier) copyTable(ctx context.Context, i int, r rule) error {
 		if read == 0 {
 			break
 		}
-		if err := c.pause(ctx, time.Since(started)); err != nil {
+		took := time.Since(started)
+		c.adapt(took)
+		if err := c.pause(ctx, took); err != nil {
 			return err
 		}
 	}
@@ -542,7 +591,7 @@ func (c *copier) readNatural(ctx context.Context, r rule, after []string, extra 
 		args = append(args, keyArgs...)
 	}
 	query := "SELECT " + c.layouts[r.table].list + " FROM " + r.table + " WHERE 1 = 1" + where +
-		" ORDER BY " + strings.Join(r.key, ", ") + " LIMIT " + strconv.Itoa(c.opt.Batch)
+		" ORDER BY " + strings.Join(r.key, ", ") + " LIMIT " + strconv.Itoa(c.limit())
 	rows, err := c.src.DB.QueryContext(ctx, c.src.bind(query), args...)
 	if err != nil {
 		return nil, err
@@ -645,20 +694,21 @@ func (c *copier) readSurrogate(ctx context.Context, r rule, after int64, extra s
 	args = append(args, extraArgs...)
 	list := c.layouts[r.table].list
 	query := "SELECT id, (" + r.window + ") AS w, " + list + " FROM " + r.table + " WHERE (" + r.window + ") > ?" + where +
-		" ORDER BY w, id LIMIT " + strconv.Itoa(c.opt.Batch)
+		" ORDER BY w, id LIMIT " + strconv.Itoa(c.limit())
 	rows, err := c.src.DB.QueryContext(ctx, c.src.bind(query), append([]interface{}{after}, args...)...)
 	if err != nil {
 		return nil, err
 	}
 	batch, err := scanRows(rows, r, true, true)
-	if err != nil || len(batch) < c.opt.Batch {
+	limit := c.limit()
+	if err != nil || len(batch) < limit {
 		return batch, err
 	}
 	// the rest of the last time value, so that a time value is never split
 	last := batch[len(batch)-1]
 	for {
 		query := "SELECT id, (" + r.window + ") AS w, " + list + " FROM " + r.table + " WHERE (" + r.window + ") = ? AND id > ?" + where +
-			" ORDER BY id LIMIT " + strconv.Itoa(c.opt.Batch)
+			" ORDER BY id LIMIT " + strconv.Itoa(limit)
 		rows, err := c.src.DB.QueryContext(ctx, c.src.bind(query), append([]interface{}{last.w, last.id}, args...)...)
 		if err != nil {
 			return nil, err
@@ -668,7 +718,7 @@ func (c *copier) readSurrogate(ctx context.Context, r rule, after int64, extra s
 			return nil, err
 		}
 		batch = append(batch, more...)
-		if len(more) < c.opt.Batch {
+		if len(more) < limit {
 			return batch, nil
 		}
 		last = more[len(more)-1]

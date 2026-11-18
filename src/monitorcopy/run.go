@@ -68,14 +68,17 @@ var state = &runState{}
 
 // settings the tests change
 var (
-	batchSize = 1000
-	pauseFor  = func(took time.Duration) time.Duration {
-		wait := took / 4
-		if wait < 2*time.Millisecond {
-			wait = 2 * time.Millisecond
+	batchSize = 1000                  // rows per transaction at most
+	batchTime = 50 * time.Millisecond // a transaction of the target takes about this long (Options.BatchTime)
+	// after a batch, the copy waits as long as the batch took (at least 5 ms,
+	// at most 0.5 s): the store's writers get the target at least half the time
+	pauseFor = func(took time.Duration) time.Duration {
+		wait := took
+		if wait < 5*time.Millisecond {
+			wait = 5 * time.Millisecond
 		}
-		if wait > 250*time.Millisecond {
-			wait = 250 * time.Millisecond
+		if wait > 500*time.Millisecond {
+			wait = 500 * time.Millisecond
 		}
 		return wait
 	}
@@ -190,6 +193,7 @@ func Start(direction string) error {
 		SourceID:    sourceID(direction),
 		TargetInUse: direction == ToPostgres,
 		Batch:       batchSize,
+		BatchTime:   batchTime,
 		Pause:       pauseFor,
 		Guard:       guard,
 	}
