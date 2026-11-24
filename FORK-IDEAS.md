@@ -316,6 +316,24 @@ cool-down, the 72 hours the previous files are kept, the 15-minute window.
   Cloudflare, e-mail, Telegram, Fail2ban and UPnP checks, were each run on
   their own branch only (each needs a set-up of its own).
 
+## The app's edit tabs: left for later (2026-11-18)
+
+- Docker resolves a bind again at every start: a folder the administrator ticked as "nested inside a folder another app can write" can still be redirected later by that app. The tick says so; nothing watches it afterwards.
+- Only the MAC address of the main network is kept across a recreate (Docker picks the one of a network connected after creation).
+- Propose a DNS app of the server (Pi-hole, AdGuard Home) as a DNS choice; bring the same proposals into the new-container form's steps.
+- The free-port proposal reads the socket tables: a port forwarded only by another program's firewall rule, or used in another network namespace, is not seen.
+- A legacy bridge `--link` to a container that is gone fails the recreate (upstream's behaviour, unchanged).
+- `fork-ui-check-credentials.sh clean` has the dind entry-point bug (its `rm -rf` becomes `docker rm`): the scratch folder is not removed.
+
+## Guides: left for later (2026-11-18)
+
+- A button that makes a bucket and a limited key for a site from inside Cosmos (an administrator-only, password-confirmed POST that talks to the storage's admin API with its root key, the secret shown once and never stored, recorded; quota and retention asked in the forms standard; tests against a RustFS in a Docker in Docker).
+- Guides for databases ("how to connect") and mail relays as new files of `src/guides`.
+- The Windows parts of the storage guide (folder rights with icacls, the scheduled task, Windows PowerShell 5.1) are from research and reasoning, not run: run them once on a Windows machine. The same for macOS, phones, NAS appliances and the WordPress plugins' screens.
+- MongoDB with `--oplog` on a replica set is not run by the examples test (its test server is a single one).
+- The 30-day expiry of replaced versions and the 7-day clean-up of cut uploads are set and accepted by RustFS 1.0.5; nobody waited to see them act.
+- A React unit-test runner: the URL form's storage proposal is unit-tested as a pure function and rendered only by the browser check.
+
 ## An app's links: left for later (2026-11-17)
 
 - A per-device check whether `.local` names resolve (today: the page having been opened by a `.local` name is the signal; otherwise names for use at home come first).

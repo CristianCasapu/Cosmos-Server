@@ -43,7 +43,7 @@
 import { chromium, firefox, webkit } from 'playwright';
 import { mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { storageMock, usersPatch, notificationsMock, eventsMock, notificationPagesMock, NOTIFICATION_ITEMS, edgeMock, edgeOverviewPatch, anyImageMock, protectionMock } from './fork-ui-gallery-fixtures.mjs';
+import { storageMock, usersPatch, notificationsMock, eventsMock, notificationPagesMock, NOTIFICATION_ITEMS, edgeMock, edgeOverviewPatch, anyImageMock, protectionMock, editHintsMock } from './fork-ui-gallery-fixtures.mjs';
 
 const base = process.env.BASE || 'http://polish.test:18080';
 const out = process.env.OUT || 'gallery';
@@ -214,6 +214,12 @@ const views = [
     { id: 'docker', tab: 6 },
     { id: 'network', tab: 7 },
     { id: 'storage', tab: 8 },
+  ] },
+  // plan 47 (I2c): the edit tabs with their proposals, from a made-up answer of the edit hints; guarded by CHECK=1
+  { id: 'container-edit', path: '/cosmos-ui/servapps/containers/jellyfin', guard: true, wait: 800, mock: editHintsMock, captures: [
+    { id: 'docker', tab: 6, wait: 1200 },
+    { id: 'network', tab: 7, wait: 1200 },
+    { id: 'storage', tab: 8, wait: 1200 },
   ] },
   { id: 'container-stopped', path: '/cosmos-ui/servapps/containers/pihole', wait: 800 },
   { id: 'container-long-name', path: '/cosmos-ui/servapps/containers/nextcloud-aio-mastercontainer-with-a-rather-long-name', wait: 800 },

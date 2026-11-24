@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/go-units"
 )
 
@@ -98,6 +99,19 @@ func CheckServiceRequest(request DockerServiceCreateRequest) error {
 			parts := strings.Split(device, ":")
 			if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
 				return fmt.Errorf("service %s, device %q: write it as /dev/on-the-server:/dev/in-the-container", key, device)
+			}
+		}
+		// Fork addition (plan 47, I2c review): a volume's driver options (fork_volume_options.go), the
+		// number of mounts and Docker's rule for a volume's name, before any look at Docker (third review m-3)
+		if len(service.Volumes) > maxEditMounts {
+			return fmt.Errorf("service %s: more than %d volumes and folders", key, maxEditMounts)
+		}
+		for _, volume := range service.Volumes {
+			if err := checkVolumeOptions(volume); err != nil {
+				return fmt.Errorf("service %s, %s", key, err.Error())
+			}
+			if volume.Type == mount.TypeVolume && volume.Source != "" && (len(volume.Source) > 255 || !volumeNamePattern.MatchString(volume.Source)) {
+				return fmt.Errorf("service %s, the volume name %q may hold letters, digits and _ . - only, starting with a letter or a digit", key, volume.Source)
 			}
 		}
 		if err := checkServiceFields(service); err != nil {
@@ -215,8 +229,15 @@ func forkRefuseService(w http.ResponseWriter, req *http.Request, request DockerS
 		flush()
 		return false
 	}
+	// Fork addition (plan 47, second review S1/S2): new host paths followed through their links, and where they lie (fork_edit_links.go)
+	where, err := serviceAccess(request, req.URL.Query().Get("replace") == "1")
+	if err != nil {
+		fmt.Fprintf(w, "%s", "[OPERATION FAILED] "+err.Error()+". Nothing was created.\n")
+		flush()
+		return false
+	}
 	// access to the server that needs the admin's yes, item by item (fork_sensitive_access.go)
-	if missing := unconfirmedSensitive(request, req.URL.Query()); len(missing) > 0 {
+	if missing := unconfirmedSensitive(request, req.URL.Query(), where...); len(missing) > 0 {
 		fmt.Fprintf(w, "%s", "[OPERATION FAILED] This definition asks for access to the server that needs your explicit confirmation on the review: "+
 			sensitiveSentence(missing)+". Nothing was created.\n")
 		flush()
