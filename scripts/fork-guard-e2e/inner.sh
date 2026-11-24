@@ -1517,7 +1517,9 @@ g_strangers() {
 	check "OpenSSH, password, a tunnel: signed in" test "$(sessions_of "$OC6")" = "openssh yes;"
 	stop_clients
 	by_password "$OC2" second password tester 22 -N
-	sleep 4
+	# (a wrong password costs PAM's delay of about 2 s before the second try: wait for it)
+	n=0; while [ $n -lt 15 ] && [ "$(sessions_of "$OC26")" != "openssh yes;" ]; do sleep 1; n=$((n + 1)); done
+	log "  (a wrong then the right password: $(sessions_of "$OC26") after $n s)"
 	check "OpenSSH, a wrong then the right password on one connection: signed in" test "$(sessions_of "$OC26")" = "openssh yes;"
 	stop_clients
 	by_password "$OC" right keyboard-interactive tester 22 -N
