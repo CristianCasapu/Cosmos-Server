@@ -336,8 +336,8 @@ tailnet_peers() {
 		mkdir -p "$RUN"
 		printf '%s\n' "$list" | grep . | sort -u | head -n 4096 > "$RUN/vpnpeers.new" && mv -f "$RUN/vpnpeers.new" "$RUN/vpnpeers"
 		set_state tailnet_peers ok
-	elif [ -f "$RUN/vpnpeers" ] && [ -n "$(find "$RUN/vpnpeers" -newermt "-$PEERS_KEEP seconds" 2>/dev/null)" ]; then
-		: # the last good list, while it is recent
+	elif trusted_file "$RUN/vpnpeers" && [ -n "$(find "$RUN/vpnpeers" -newermt "-$PEERS_KEEP seconds" 2>/dev/null)" ]; then
+		: # the last good list, while it is recent (checked again as it is read below)
 	else
 		rm -f "$RUN/vpnpeers"
 		if [ "$(sed -n 's/^tailnet_peers=//p' "$STATE" 2>/dev/null)" != unreadable ]; then
@@ -346,7 +346,24 @@ tailnet_peers() {
 		set_state tailnet_peers unreadable
 		return 0
 	fi
-	cat "$RUN/vpnpeers"
+	# read back: only addresses of the tailnet's ranges
+	while read -r a; do
+		valid_addr "$a" || continue
+		case "$a" in
+			100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*) echo "$a" ;;
+			[fF][dD]7[aA]:115[cC]:[aA]1[eE]0:*) echo "$a" ;;
+		esac
+	done < "$RUN/vpnpeers"
+}
+# trusted_file <path>: a regular file of root's that nobody else may write (what the
+# guard keeps under /run is read back only so)
+trusted_file() {
+	[ -f "$1" ] && [ ! -L "$1" ] || return 1
+	case "$(stat -c '%u %a' "$1" 2>/dev/null)" in
+		"0 "*[2367]?|"0 "*[2367]) return 1 ;;
+		"0 "*) return 0 ;;
+	esac
+	return 1
 }
 # a recognised VPN interface: Tailscale's, or a kernel WireGuard interface (only
 # root can make either)
@@ -722,7 +739,7 @@ fast_reload() {
 	mkdir -p "$RUN"
 	# taken away on purpose (cosmos-host-guard unload, the unit stopped, uninstall)
 	[ ! -e "$RUN/unloaded" ] || return 0
-	if [ -r "$RUN/reload.base" ] && [ -r "$CONF/cosmos-host-guard.nft" ]; then
+	if trusted_file "$RUN/reload.base" && [ -r "$CONF/cosmos-host-guard.nft" ]; then
 		{ cat "$RUN/reload.base"; allow_commands; } | nft -f -
 	else
 		do_load
@@ -767,7 +784,7 @@ do_refresh() {
 	[ "${1:-}" != periodic ] || other_filters
 	: > "$RUN/last-refresh"
 	old=""
-	[ ! -r "$RUN/dynamic" ] || old=$(cat "$RUN/dynamic")
+	! trusted_file "$RUN/dynamic" || old=$(cat "$RUN/dynamic")
 	if [ "$old" = "$now" ] && [ -n "$old" ] && [ "${1:-}" != force ]; then
 		return 0
 	fi

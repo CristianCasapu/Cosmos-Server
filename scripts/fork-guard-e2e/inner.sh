@@ -17,11 +17,10 @@
 #   forged-ok         an OpenSSH process title alone makes a session (sessions)
 #   priv-title        OpenSSH's "<name> [priv]" title means signed in (strangers, f2bsessions)
 #   no-journal        the servers' own records of a sign-in are not read (strangers)
-#   silence-no        OpenSSH: no line of success means "no" (strangers)
-#   dropbear-silence-no  dropbear: "no" without proof that its successes are logged (strangers)
+#   silence-no        an undecided connection (no line of success) is "no" (strangers)
+#   dropbear-no       dropbear gets a "no" when its processes show no sign-in (strangers)
 #   no-port           OpenSSH's line of success not matched on the port (strangers)
 #   no-exe            the writer's binary not matched (no probe can tell: see the plan)
-#   no-since          the journal read from the boot's oldest 5000 lines (not observable: see the plan)
 #   peers-none        Tailscale's devices never read (vpnexit)
 #   pending-closed    a new home network gets no SSH until confirmed (moved)
 #   any-socket        any connection a signed-in sshd holds is a session (sessions, f2bsessions)
@@ -68,7 +67,7 @@ fresh() { # nat|pub: a new machine on new networks (DOCKER_MODE: ipv6, noipv6, n
 	pieces_sum() { m sh -c 'cat /opt/cosmos/fork/nftables/* /opt/cosmos/fork/fail2ban/install.sh | md5sum'; }
 	[ -z "$BREAK" ] || unbroken=$(pieces_sum)
 	case "$BREAK" in
-		dropbear-any|forged-ok|priv-title|no-journal|silence-no|dropbear-silence-no|no-port|no-exe|no-since|peers-none|pending-closed|any-socket|accept-any|multipath-last|def1-ignored|multicast-uplink|transient-narrow|moved-home|stale-cache|exitnode-outside|exitnode-anyone|unload-reloaded)
+		dropbear-any|forged-ok|priv-title|no-journal|silence-no|dropbear-no|no-port|no-exe|peers-none|pending-closed|any-socket|accept-any|multipath-last|def1-ignored|multicast-uplink|transient-narrow|moved-home|stale-cache|exitnode-outside|exitnode-anyone|unload-reloaded)
 			docker exec -i "$M" sh -s "$BREAK" < "$HERE/break.sh" ;;
 		open-port) msh "sed -i 's/^\[ -n \"\$PUBLIC_TCP\$PUBLIC_UDP\" \] ||/add_port 9999 tcp broken; &/' $G/install.sh" ;;
 		no-ssh-allow) msh "sed -i -e 's/^\tfor a in \$OUTSIDE_PEERS; do\$/\tfor a in ; do/' -e 's/^\t\tfor a in \$OUTSIDE_PEERS; do\$/\t\tfor a in ; do/' $G/install.sh" ;;
@@ -1502,6 +1501,24 @@ g_strangers() {
 		check_not "Fail2ban does not keep the stranger named $u from bans" says "$OC26"
 		stop_clients
 	done
+	# a hundred strangers at the password prompt and the owner's tunnel: the scan is
+	# bounded (60 s) and its answers are right
+	msh 'printf "MaxStartups 300:30:400\nLoginGraceTime 300\n" > /etc/ssh/sshd_config.d/many.conf; /usr/local/bin/ssh_restart'
+	sleep 2
+	docker exec -d "$OC" sh -c "ssh $SSHO -N tester@$TM6"
+	docker exec "$OC2" sh -c "i=0; while [ \$i -lt 100 ]; do SSH_ASKPASS=/tmp/wait.sh SSH_ASKPASS_REQUIRE=force DISPLAY=:0 setsid ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=password -o PubkeyAuthentication=no tester@$TM6 true < /dev/null > /dev/null 2>&1 & i=\$((i + 1)); done"
+	n=0; while [ $n -lt 60 ] && [ "$(m sh -c "ps -eo args | grep -c '[t]ester \[net\]'")" -lt 100 ]; do sleep 1; n=$((n + 1)); done
+	t0=$(date +%s)
+	rows=$(m sh "$G/ssh-sessions.sh" sessions)
+	took=$(( $(date +%s) - t0 ))
+	log "  (100 strangers: $(m sh -c "ps -eo args | grep -c '[t]ester \[net\]'") waiting; the scan took $took s; rows of the strangers: $(printf '%s\n' "$rows" | awk -v a="$OC26" '$1 == a' | wc -l))"
+	check "100 strangers at the prompt: the scan ends within its bound ($took s, bound 60 s)" test "$took" -le 60
+	check "100 strangers at the prompt: all of them no" test "$(printf '%s\n' "$rows" | awk -v a="$OC26" '$1 == a {print $3, $4}' | sort -u)" = "openssh no"
+	check "100 strangers at the prompt: the owner's tunnel yes" test "$(printf '%s\n' "$rows" | awk -v a="$OC6" '$1 == a {print $3, $4}' | sort -u)" = "openssh yes"
+	stop_clients
+	m rm -f /etc/ssh/sshd_config.d/many.conf
+	m /usr/local/bin/ssh_restart
+	sleep 2
 	# a user writes sshd's line of success for a waiting stranger into the journal
 	by_password "$OC2" wait password tester 22
 	sleep 3
@@ -1539,7 +1556,7 @@ g_strangers() {
 	check "journal vacuumed: root's tunnel is unsure" test "$(sessions_of "$OC6")" = "openssh unsure;"
 	guard_install "$HC" --yes --port 2053
 	expect_rc 4 "journal vacuumed: an unsure outside session refuses the unattended run"
-	check "it says why" says "the server's record of a sign-in is not in the journal"
+	check "it says why" says "nothing proves a sign-in"
 	guard_uninstall # (when a broken guard installed itself, the next cases start from nothing again)
 	dry_run_from "$HC"
 	check_not "journal vacuumed: no allowance for the unsure session" says "ONLY.*$OC6"
@@ -1591,57 +1608,48 @@ g_strangers() {
 	# dropbear as its package runs it (a unit, logging to the journal)
 	m sh -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends dropbear-bin >/dev/null 2>&1; mkdir -p /etc/dropbear; [ -e /etc/dropbear/k ] || dropbearkey -t ed25519 -f /etc/dropbear/k >/dev/null 2>&1; systemd-run --quiet --unit=test-dropbear /usr/sbin/dropbear -EF -r /etc/dropbear/k -p 2022'
 	sleep 1
-	# before this dropbear has written any line of success, nothing proves its
-	# successes reach the journal: a stranger is unsure
-	docker exec -d "$OC2" sh -c "sleep 60 | nc $TM6 2022 > /dev/null"
-	sleep 2
-	check "dropbear, no success seen yet: a stranger is unsure" test "$(sessions_of "$OC26")" = "dropbear unsure;"
-	stop_clients
-	# a long journal: 6000 lines of the listener before the owner's tunnel (dropbear
-	# writes every connection's lines under its listener's pid in this mode)
+	# a long journal: 6000 lines of the listener before the owner's tunnel
 	lpid=$(m systemctl show -p MainPID --value test-dropbear)
 	jforge "$lpid" 6000 "Exit before auth from <192.0.2.1:1>: Exited normally"
 	docker exec -d "$OC" sh -c "ssh -p 2022 $SSHO -N tester@$TM6"
 	sleep 3
 	check "dropbear, past 6000 lines of its listener: the owner's tunnel is signed in" test "$(sessions_of "$OC6")" = "dropbear yes;"
 	docker exec "$OC" sh -c 'pkill -f "ssh "; true'
+	# strangers: dropbear has no "no" (nothing proves a connection still signing in):
+	# unsure, on every version, whatever the journal holds
 	for u in tester nosuchuser; do
 		by_password "$OC2" wait password "$u" 2022
 		sleep 3
-		check "dropbear, a stranger named $u at the password prompt: not signed in (no)" test "$(sessions_of "$OC26")" = "dropbear no;"
+		check "dropbear, a stranger named $u at the password prompt: unsure" test "$(sessions_of "$OC26")" = "dropbear unsure;"
 		# root forges dropbear's success under its listener for another port of that address
 		if [ "$u" = tester ]; then
 			sport=$(peer_port "$OC26" 2022)
 			jforge "$lpid" 1 "[1] Nov 24 00:00:00 Password auth succeeded for 'tester' from $OC26:$((sport + 1))"
 			sleep 1
-			check "dropbear, a root-forged success for another port: still no" test "$(sessions_of "$OC26")" = "dropbear no;"
+			check "dropbear, a root-forged success for another port: still unsure" test "$(sessions_of "$OC26")" = "dropbear unsure;"
 		fi
 		docker exec "$OC2" sh -c 'pkill -f "ssh "; true'
 		sleep 1
 	done
 	docker exec -d "$OC2" sh -c "sleep 60 | nc $TM6 2022 > /dev/null"
 	sleep 2
-	check "dropbear, a stranger who sent nothing: not signed in (no)" test "$(sessions_of "$OC26")" = "dropbear no;"
-	sport=$(m sh -c "ss -Htn state established | awk '\$3 ~ /:2022\$/ && index(\$4, \"$OC26\") {n = split(\$4, a, \":\"); print a[n]; exit}'")
+	check "dropbear, a stranger who sent nothing: unsure" test "$(sessions_of "$OC26")" = "dropbear unsure;"
+	sport=$(peer_port "$OC26" 2022)
 	m su tester -s /bin/sh -c "logger -t dropbear \"Pubkey auth succeeded for 'tester' with ssh-ed25519 key SHA256:x from $OC26:$sport\""
-	check "dropbear, a forged line of success: still not signed in" test "$(sessions_of "$OC26")" = "dropbear no;"
+	check "dropbear, a user's forged line of success: still unsure" test "$(sessions_of "$OC26")" = "dropbear unsure;"
 	guard_install "$HC" --yes --port 2053
-	expect_rc 0 "dropbear, a stranger does not refuse the unattended home run (its record shows no sign-in)"
-	guard_uninstall
+	expect_rc 4 "dropbear, a stranger from outside refuses the unattended run"
+	check "the refusal names the address" says "may be signed-in sessions ($OC26"
+	check "and the two ways on" says "run again with --ssh from <that address>, otherwise run again when no such connection is open"
+	guard_uninstall # (when a broken guard installed itself, the next cases start from nothing again)
+	dry_run_from "$HC"
+	check_not "dropbear, an interactive run offers the stranger no allowance" says "ONLY.*$OC26"
 	OUT=$(m sh /opt/cosmos/fork/fail2ban/install.sh --dry-run 2>&1)
 	check_not "Fail2ban does not keep the dropbear stranger from bans" says "$OC26"
 	stop_clients
 	docker exec -d "$OC" sh -c "ssh -p 2022 $SSHO -N tester@$TM6"
 	sleep 3
 	check "dropbear, a signed-in tunnel: signed in (its record in the journal)" test "$(sessions_of "$OC6")" = "dropbear yes;"
-	# journald dropped lines while the connection lived (its "Suppressed" line): unsure
-	docker exec -d "$OC2" sh -c "sleep 60 | nc $TM6 2022 > /dev/null"
-	sleep 2
-	jpid=$(m systemctl show -p MainPID --value systemd-journald)
-	jforge "$jpid" 1 "Suppressed 1234 messages from test-dropbear.service"
-	sleep 1
-	check "dropbear, journald suppressed lines meanwhile: a stranger is unsure" test "$(sessions_of "$OC26")" = "dropbear unsure;"
-	docker exec "$OC2" sh -c 'pkill -f "nc "; true'
 	by_password "$OC2" right password tester 2022 -N
 	sleep 3
 	check "dropbear, password, a tunnel: signed in" sh -c "printf '%s' '$(sessions_of "$OC26")' | grep -q 'dropbear yes;'"
@@ -1807,6 +1815,14 @@ g_vpnexit() {
 	m /usr/local/sbin/cosmos-host-guard refresh force
 	check "the client not answering: the last good list is kept" sh -c "docker exec $M /usr/local/sbin/cosmos-host-guard show | grep -qx 'vpnpeer4=100.100.1.2'"
 	check "the client not answering: the peer still reaches SSH" m ip netns exec vpnpeer nc -z -w 2 100.100.1.1 22
+	# the kept list is taken only from a file of root's that nobody else may write
+	m chmod 666 /run/cosmos-host-guard/vpnpeers
+	m /usr/local/sbin/cosmos-host-guard refresh force
+	check "a kept list others may write is not used" sh -c "docker exec $M /usr/local/sbin/cosmos-host-guard show | grep -qx 'vpnpeer4='"
+	m rm -f /etc/ts-fail
+	m /usr/local/sbin/cosmos-host-guard refresh force
+	m touch /etc/ts-fail
+	m /usr/local/sbin/cosmos-host-guard refresh force
 	# ... for longer than the bound (15 minutes): none count, said
 	m touch -d '-20 minutes' /run/cosmos-host-guard/vpnpeers
 	said=$(m /usr/local/sbin/cosmos-host-guard refresh force 2>&1)
@@ -1878,6 +1894,13 @@ g_flushstorm() {
 	check "after a flush the table is back" guard_loaded
 	check_not "and IPv4 still does not pass on eth0 (the cache is not older than the narrowing)" in_set pass4_if '"eth0"'
 	check_not "outside v4 does not reach 9999" tcp "$OC" "$TM4" 9999
+	m systemctl restart docker
+	# the fast reload's cache is taken only from a file of root's that nobody else may
+	# write: one with something else in it is not loaded (a full load is)
+	msh 'printf "this is not nft\n" > /run/cosmos-host-guard/reload.base; chmod 666 /run/cosmos-host-guard/reload.base'
+	m nft flush ruleset
+	sleep 3
+	check "a cache others may write is not used: the table is back after a flush" guard_loaded
 	m systemctl restart docker
 	# taken away on purpose: not loaded again, not counted
 	before=$(m sh -c "sed -n 's/^table_removed_hour=//p' /var/lib/cosmos-protection/nftables.state")

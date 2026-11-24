@@ -20,36 +20,32 @@ case "$1" in
 		cat > /tmp/brk <<EOF
 		for h in \$(holders "\$(inode_of "\$ext")"); do if $cond; then a=\${peer%:*}; a=\${a#[}; a=\${a%]}; echo "\$a \${local##*:} openssh yes"; continue 2; fi; done
 EOF
-		sed -i -e 's/| on_ports "$ports" |/|/' -e '/^\twhile read -r _ _ local peer ext; do$/r /tmp/brk' "$S"
+		sed -i -e 's/| on_ports "$ports" > "$WORK\/conns"$/> "$WORK\/conns"/' -e '/^\twhile read -r _ _ local peer ext; do$/r /tmp/brk' "$S"
 		;;
 	priv-title)
 		# the monitor's "<name> [priv]" title is taken as signed in (it is set as soon
 		# as a client names a user)
-		sed -i 's/^\t\t\topenssh_accepted "\$2" \&\& { echo yes; return; }$/\t\t\ttitle_of "$2" | grep -q "\\[priv\\]$" \&\& { echo yes; return; }; openssh_accepted "$2" \&\& { echo yes; return; }/' "$S"
+		sed -i 's/^\t\t\t# signed in: a child of the monitor running as the user (neither root nor$/\t\t\ttitle_of "$2" | grep -q "\\[priv\\]$" \&\& { echo yes; return; }\n&/' "$S"
 		;;
 	no-journal)
 		# the servers' own journal lines are not looked at
-		sed -i 's/^\ttimeout 5 journalctl -q --no-pager --system -b --since "@\$((\$3 - 1))".*$/\ttrue/' "$S"
+		sed -i 's/^\tcommand -v journalctl >\/dev\/null 2>\&1 || return 0$/\treturn 0/' "$S"
 		;;
 	silence-no)
-		# OpenSSH: a named monitor without a line of success is "no" (the journal's silence)
-		sed -i 's/^\t\t\techo unsure ;;$/\t\t\techo no ;;/' "$S"
+		# a connection the processes and the journal leave undecided is "no" (the journal's silence)
+		sed -i 's/(\$1 in yes) ? "yes" : \$5/($1 in yes) ? "yes" : ($5 == "unsure" ? "no" : $5)/' "$S"
 		;;
-	dropbear-silence-no)
-		# dropbear: "no" without proof that its successes reach the journal
-		sed -i 's/^dropbear_records() {$/dropbear_records() { return 0/' "$S"
+	dropbear-no)
+		# dropbear (and tinysshd) get a "no" when their processes show no sign-in
+		sed -i 's/^\t\t\tif \[ "\$(uid_of "\$2")" != 0 \] || \[ -n "\$(children_of "\$2")" \]; then echo yes; fi ;;$/\t\t\tif [ "$(uid_of "$2")" != 0 ] || [ -n "$(children_of "$2")" ]; then echo yes; else echo no; fi ;;/' "$S"
 		;;
 	no-port)
 		# the reviewer's rv5-no-port: OpenSSH's line of success not matched on the peer's port
-		sed -i 's/ \&\& \$7 == "port" \&\& \$8 == p {found = 1}/ {found = 1}/' "$S"
+		sed -i 's/ \&\& w\[7\] == "port" \&\& w\[8\] == p) yes\[r\] = 1/) yes[r] = 1/' "$S"
 		;;
 	no-exe)
 		# the reviewer's rv5-no-exe: the writer's binary is not matched
-		sed -i 's/ _PID="\$1" _UID=0 _EXE="\$2" / _PID="$1" _UID=0 /' "$S"
-		;;
-	no-since)
-		# the journal read from the boot's oldest lines, 5000 at most (the fourth round's code)
-		sed -i 's/ --since "@\$((\$3 - 1))" -n 20000 -o cat _PID=/ -o cat _PID=/; s/_EXE="\$2" 2>\/dev\/null || true$/_EXE="$2" 2>\/dev\/null | head -n 5000 || true/' "$S"
+		sed -i 's/ || bin != exe\[pid\] || / || /' "$S"
 		;;
 	peers-none)
 		# Tailscale's devices are never read
@@ -61,7 +57,7 @@ EOF
 		;;
 	any-socket)
 		# any connection held below a signed-in sshd counts, whatever its local port
-		sed -i -e 's/| on_ports "$ports" |/|/' \
+		sed -i -e 's/| on_ports "$ports" > "$WORK\/conns"$/> "$WORK\/conns"/' \
 			-e 's/^\tprintf .%s\\n. "\$LIST" | awk -v p="\$1" -v a="\$2" -v f=.*$/\tprintf "%s\\n" "$LIST" | awk "\\$1 == \\"openssh\\"" | head -n 1/' "$S"
 		;;
 	accept-any)

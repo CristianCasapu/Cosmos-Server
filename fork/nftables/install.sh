@@ -865,11 +865,11 @@ if [ -n "$PEERS" ]; then
 else
 	say "  SSH         no SSH session is open now (ports $SSH_PORTS)"
 fi
-[ -z "$UNSURE_OUTSIDE" ] || say "              SSH connections from outside that may or may not be signed in (the server's
-              record of a sign-in is not in the journal, so a stranger still signing in
-              cannot be told apart from a session):$UNSURE_OUTSIDE; no allowance.
-              If one of them is yours, run this again with --ssh from <that address>, or come in
-              from home or through a VPN"
+[ -z "$UNSURE_OUTSIDE" ] || say "              SSH connections from outside that may or may not be signed in (nothing proves a
+              sign-in: no record of it in the journal, and with dropbear or tinysshd a stranger
+              still signing in looks the same as a session):$UNSURE_OUTSIDE; no allowance.
+              If one of them is yours, run this again with --ssh from <that address>; otherwise
+              run it when no such connection is open, or come in from home or through a VPN"
 [ -z "$HINT_NOTE" ] || say "              ($HINT_NOTE)"
 [ -z "$UNEXPLAINED_TTY" ] || say "              this run's terminal ($UNEXPLAINED_TTY) belongs to no SSH session (tmux, screen, a web terminal?)"
 case "$SSH_MODE" in
@@ -920,7 +920,7 @@ if [ "$YES" = 1 ] && [ "$SSH_OPEN" = 0 ]; then
 	why=""
 	[ -z "$OUTSIDE_PEERS" ] || why="SSH sessions are open from outside the home network (${OUTSIDE_PEERS# })"
 	[ -z "$VPN_UNKNOWN_SESSION" ] || why="${why:+$why; }SSH sessions come through a VPN whose own port the guard cannot find:$VPN_UNKNOWN_SESSION"
-	[ -z "$UNSURE_OUTSIDE" ] || why="${why:+$why; }SSH connections from outside may be signed-in sessions (${UNSURE_OUTSIDE# }: the server's record of a sign-in is not in the journal, so a stranger still signing in cannot be told apart from a session)"
+	[ -z "$UNSURE_OUTSIDE" ] || why="${why:+$why; }SSH connections from outside may be signed-in sessions (${UNSURE_OUTSIDE# }: nothing proves a sign-in, and a stranger still signing in cannot be told apart from a session; if one is yours, run again with --ssh from <that address>, otherwise run again when no such connection is open)"
 	[ -z "$UNEXPLAINED_TTY" ] || why="${why:+$why; }this run's terminal ($UNEXPLAINED_TTY) belongs to no SSH session the guard can see, so it cannot tell where you are"
 	if [ -n "$why" ]; then
 		if [ -z "$OUTSIDE_PEERS$VPN_UNKNOWN_SESSION$UNEXPLAINED_TTY" ]; then

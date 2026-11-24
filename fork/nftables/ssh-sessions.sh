@@ -10,8 +10,8 @@
 #                                  exit 0 when an SSH server's process is among the
 #                                  ancestors of <pid> (its terminal comes from a session)
 #
-# <server> is openssh, dropbear or tinysshd; <signed-in> is yes, no (a stranger
-# still signing in) or unsure. Only "yes" may ever be given an SSH allowance or be
+# <server> is openssh, dropbear or tinysshd; <signed-in> is yes, no (OpenSSH only: a
+# stranger still signing in) or unsure. Only "yes" may ever be given an SSH allowance or be
 # kept from bans; "unsure" refuses an unattended install.
 #
 # What is trusted is what a user signed in over SSH cannot make:
@@ -51,21 +51,20 @@
 #   journal tells it from a stranger.
 # NOT signed in ("no") needs positive evidence too, never the journal's silence (a
 # server at LogLevel ERROR, a rate-limited or vacuumed journal would make a silence
-# lie, and a wrong "no" cuts the owner off):
-# - OpenSSH: the connection is still before authentication by its processes: its
-#   monitor has no user yet ("[accepted]"), or the monitor's pre-authentication
-#   child runs now (as the privilege separation user, "<name> [net]"; its binary is
-#   sshd-auth from OpenSSH 9.8). Measured on 9.2, 9.6 and 10.0: a stranger at the
-#   password prompt has that child, any signed-in connection (root's included) has
-#   it no more.
-# - dropbear: no process shows it (2022 keeps root's or a user's tunnel as root
-#   without a child), so only the journal, and only when it provably records this
-#   server's successes: the connection's own "Child connection from <peer>" line is
-#   there, journald runs since before the connection and has suppressed nothing
-#   since, and a line of success of this binary was written since its listener
-#   started; then a missing line of success for this peer is a stranger's.
-# Anything else is "unsure": root's own session without its line, a server that
-# logs elsewhere or nothing, a line rotated or vacuumed away.
+# lie, and a wrong "no" cuts the owner off). Only OpenSSH shows it: the connection
+# is still before authentication by its processes (its monitor has no user yet,
+# "[accepted]", or the monitor's pre-authentication child runs now, as the
+# privilege separation user, "<name> [net]"; its binary is sshd-auth from OpenSSH
+# 9.8). Measured on 9.2, 9.6 and 10.0: a stranger at the password prompt has that
+# child, any signed-in connection (root's included) has it no more.
+# Other servers (dropbear, tinysshd) have no "no": no process shows a connection
+# still signing in, and the journal cannot prove a missing line. Their connections
+# are "yes" on positive evidence, "unsure" otherwise.
+# Anything not decided is "unsure": root's own session without its line, a server
+# that logs elsewhere or nothing, a line rotated or vacuumed away, and whatever the
+# bounded scan (SCAN_BOUND) did not reach.
+# Cost: the processes decide first; the journal is read once, for all the
+# connections they leave undecided.
 
 set -eu
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
@@ -176,68 +175,23 @@ start_of() {
 	case "$ticks$hz$boot" in ''|*[!0-9]*) return 1 ;; esac
 	echo $((boot + ticks / hz))
 }
-# jmessages <pid> <binary> <since>: the messages root wrote from that process with
-# that binary since that time (seconds since 1970, a second of slack before it),
-# newest last and at most the 20000 newest (journald's own fields; bounded)
-jmessages() {
-	command -v journalctl >/dev/null 2>&1 || return 0
-	[ -n "$2" ] && [ -n "$3" ] || return 0
-	timeout 5 journalctl -q --no-pager --system -b --since "@$(($3 - 1))" -n 20000 -o cat _PID="$1" _UID=0 _EXE="$2" 2>/dev/null || true
-}
 # the peer's address and port, as the servers write them
 peer_parts() { # ss's peer
 	PA=${1%:*}; PP=${1##*:}
 	PA=${PA#[}; PA=${PA%]}; PA=${PA%%%*}
 	case "$PA" in ::ffff:*.*) PA=${PA#::ffff:} ;; esac
 }
-openssh_accepted() { # monitor pid: its "Accepted ... for U from A port P" for this peer
-	jmessages "$1" "$(exe_of "$1")" "$(start_of "$1")" | awk -v a="$PA" -v b="::ffff:$PA" -v p="$PP" '
-		$1 == "Accepted" && $3 == "for" && $5 == "from" && ($6 == a || $6 == b) && $7 == "port" && $8 == p {found = 1}
-		END {exit !found}'
-}
-# dropbear_line <pattern> <connection pid> [listener pids]: the connection's (or,
-# when dropbear logs to its standard error under a unit, its listener's) line of
-# that kind for this peer since the connection began; the address and the port at
-# the end tie it to this connection (no earlier connection can have had the same
-# address and port while this one lives)
-dropbear_line() {
-	since=$(start_of "$2") || return 1
-	for lp in "$2" $LPIDS; do
-		jmessages "$lp" "$(exe_of "$lp")" "$since" | awk -v re="$1" -v a="$PA:$PP" -v b="::ffff:$PA:$PP" '
-			$0 ~ re && $(NF - 1) == "from" && ($NF == a || $NF == b) {found = 1}
-			END {exit !found}' && return 0
-	done
-	return 1
-}
-# dropbear_records <connection pid>: dropbear's successes provably reach the journal
-# for this connection: journald runs since before the connection began, has
-# suppressed nothing since, and a line of success of this listener's binary was
-# written since the listener started (in this configuration, successes are logged)
-dropbear_records() {
-	command -v journalctl >/dev/null 2>&1 || return 1
-	since=$(start_of "$1") || return 1
-	jpid=$(systemctl show -p MainPID --value systemd-journald.service 2>/dev/null || true)
-	case "$jpid" in ''|0|*[!0-9]*) return 1 ;; esac
-	jstart=$(start_of "$jpid") || return 1
-	[ "$jstart" -lt "$since" ] || return 1
-	if jmessages "$jpid" "$(exe_of "$jpid")" "$since" | grep -q 'Suppressed'; then return 1; fi
-	for lp in $LPIDS; do
-		lstart=$(start_of "$lp") || continue
-		timeout 5 journalctl -q --no-pager --system -b --since "@$((lstart - 1))" -n 20000 -o cat _UID=0 _EXE="$(exe_of "$lp")" 2>/dev/null |
-			grep -q ' auth succeeded for ' && return 0
-	done
-	return 1
-}
 
 # the uid of OpenSSH's privilege separation user (it runs the pre-authentication child)
 privsep_uid() { id -u sshd 2>/dev/null || echo none; }
 
-# state <server> <connection's own process>: yes, no or unsure. Both "yes" and "no"
-# rest on positive evidence; everything else is "unsure".
-state_of() {
+# process_state <server> <connection's own process>: "yes" or "no" when the
+# processes tell, nothing when they do not (the journal is read for those, once)
+process_state() {
 	case "$1" in
 		openssh)
-			openssh_accepted "$2" && { echo yes; return; }
+			# signed in: a child of the monitor running as the user (neither root nor
+			# the privilege separation user)
 			for c in $(children_of "$2"); do
 				u=$(uid_of "$c")
 				case "$u" in ''|0|"$PRIVSEP") continue ;; esac
@@ -256,19 +210,60 @@ state_of() {
 				[ "$(uid_of "$c")" = "$PRIVSEP" ] || continue
 				[ "$(server_of "$c" || true)" = openssh ] || continue
 				case "$(title_of "$c")" in *"[net]"|*"[preauth]") echo no; return ;; esac
-			done
-			echo unsure ;;
-		dropbear|tinysshd)
-			if [ "$(uid_of "$2")" != 0 ] || [ -n "$(children_of "$2")" ]; then echo yes; return; fi
-			if [ "$1" = dropbear ]; then
-				dropbear_line ' auth succeeded for ' "$2" && { echo yes; return; }
-				# no process tells a dropbear connection still signing in from root's
-				# own tunnel: "no" only when the journal provably holds its successes
-				# and holds this connection's start without one
-				if dropbear_line 'Child connection from ' "$2" && dropbear_records "$2"; then echo no; return; fi
-			fi
-			echo unsure ;;
+			done ;;
+		*)
+			# another server (dropbear, tinysshd): its process dropped to a user's uid,
+			# or started a child (the shell or the command). There is no "no" for these
+			# servers: no process shows a connection still signing in.
+			if [ "$(uid_of "$2")" != 0 ] || [ -n "$(children_of "$2")" ]; then echo yes; fi ;;
 	esac
+}
+
+# journal_yes <rows file> <pids file>: of the undecided connections ("<row> <server>
+# <address> <port> <pid,...>"), those whose server wrote its line of success for
+# that peer: one bounded read of the journal for all of them (root's lines of
+# those processes since the oldest of them began), each line taken only when its
+# _EXE is the binary of the process named by its _PID ("<pid> <binary>"); prints
+# the rows signed in
+journal_yes() {
+	command -v journalctl >/dev/null 2>&1 || return 0
+	since=$(awk '{print $2}' "$2" | sort -n | head -n 1)
+	case "$since" in ''|*[!0-9]*) return 0 ;; esac
+	left=$((DEADLINE - $(date +%s)))
+	[ "$left" -gt 0 ] || return 0
+	# shellcheck disable=SC2046
+	timeout "$left" journalctl -q --no-pager --system -b --since "@$((since - 1))" -n 50000 -o json \
+		--output-fields=_PID,_EXE,MESSAGE _UID=0 $(awk '{print "_PID=" $1}' "$2") 2>/dev/null |
+	awk -v rows="$1" -v pids="$2" '
+		function field(name,   re, v) {
+			re = "\"" name "\":\"([^\"\\\\]|\\\\.)*\""
+			if (!match($0, re)) return ""
+			v = substr($0, RSTART + length(name) + 4, RLENGTH - length(name) - 5)
+			gsub(/\\"/, "\"", v); gsub(/\\\\/, "\\", v)
+			return v
+		}
+		BEGIN {
+			while ((getline line < pids) > 0) { split(line, f, " "); exe[f[1]] = f[3] }
+			while ((getline line < rows) > 0) {
+				split(line, f, " "); kind[f[1]] = f[2]; addr[f[1]] = f[3]; port[f[1]] = f[4]
+				n = split(f[5], ps, ","); for (i = 1; i <= n; i++) of[ps[i]] = of[ps[i]] " " f[1]
+			}
+		}
+		{
+			pid = field("_PID"); bin = field("_EXE"); msg = field("MESSAGE")
+			if (pid == "" || !(pid in exe) || bin != exe[pid] || msg == "") next
+			m = split(msg, w, " ")
+			k = split(of[pid], rs, " ")
+			for (i = 1; i <= k; i++) {
+				r = rs[i]; a = addr[r]; p = port[r]
+				if (kind[r] == "openssh") {
+					if (w[1] == "Accepted" && w[3] == "for" && w[5] == "from" && (w[6] == a || w[6] == "::ffff:" a) && w[7] == "port" && w[8] == p) yes[r] = 1
+				} else if (index(msg, " auth succeeded for ") && w[m - 1] == "from" && (w[m] == a ":" p || w[m] == "::ffff:" a ":" p)) {
+					yes[r] = 1
+				}
+			}
+		}
+		END { for (r in yes) print r }'
 }
 
 # on_ports <port,...>: the lines of `ss state established` whose local port is one of them
@@ -278,15 +273,23 @@ listeners_on() {
 	printf '%s\n' "$LIST" | awk -v p="$1" -v a="$2" -v f="*$3" '$4 == p && ($3 == "*" || $3 == f || $3 == a)'
 }
 
+# The whole scan is bounded (SCAN_BOUND seconds): a connection not decided by then
+# is "unsure". The processes decide first; the journal is read once, for the
+# connections they leave undecided.
+SCAN_BOUND=60
 sessions() {
+	DEADLINE=$(($(date +%s) + SCAN_BOUND))
 	INDEX=$(socket_index)
 	LIST=$(listeners)
 	[ -n "$LIST" ] || return 0
 	PRIVSEP=$(privsep_uid)
+	WORK=$(mktemp -d)
 	ports=$(printf '%s\n' "$LIST" | awk '{print $4}' | sort -u | paste -sd, -)
 	# only the connections on a listener's port go further (one pass over them all)
-	ss -Htne state established 2>/dev/null | on_ports "$ports" |
+	ss -Htne state established 2>/dev/null | on_ports "$ports" > "$WORK/conns"
+	row=0
 	while read -r _ _ local peer ext; do
+		row=$((row + 1))
 		lport=${local##*:}
 		laddr=$(addr_of "$local")
 		match=$(listeners_on "$lport" "$laddr" "$(fam_of "$local")")
@@ -296,18 +299,36 @@ sessions() {
 		ino=$(inode_of "$ext")
 		[ -n "$ino" ] || continue
 		peer_parts "$peer"
-		state=""
+		state=""; conn=""
 		for pid in $(holders "$ino"); do
-			conn=$(accepted "$pid" "$kind") || continue
-			s=$(state_of "$kind" "$conn")
+			c=$(accepted "$pid" "$kind") || continue
+			conn=$c
+			[ "$(date +%s)" -lt "$DEADLINE" ] || { state=unsure; break; }
+			s=$(process_state "$kind" "$c")
 			case "$state:$s" in
 				*:yes) state=yes; break ;;
-				:*|no:unsure) state=$s ;;
+				:no) state=no ;;
 			esac
 		done
-		[ -n "$state" ] || continue
-		printf '%s %s %s %s\n' "$PA" "$lport" "$kind" "$state"
-	done | sort -u
+		[ -n "$conn" ] || continue
+		if [ -z "$state" ] && [ "$kind" != tinysshd ] && start=$(start_of "$conn"); then
+			# undecided: its own line of success may be in the journal (dropbear also
+			# writes its children's lines under its listener when it logs to its
+			# standard error under a unit)
+			jp=$conn
+			[ "$kind" != dropbear ] || jp="$jp $LPIDS"
+			for p in $jp; do printf '%s %s %s\n' "$p" "$start" "$(exe_of "$p")" >> "$WORK/pids"; done
+			printf '%s %s %s %s %s\n' "$row" "$kind" "$PA" "$PP" "$(printf '%s' "$jp" | tr ' ' ',')" >> "$WORK/rows"
+		fi
+		printf '%s %s %s %s %s\n' "$row" "$PA" "$lport" "$kind" "${state:-unsure}" >> "$WORK/states"
+	done < "$WORK/conns"
+	if [ -s "$WORK/rows" ]; then
+		sort -u -k1,1n "$WORK/pids" -o "$WORK/pids"
+		journal_yes "$WORK/rows" "$WORK/pids" > "$WORK/yes" || true
+	fi
+	touch "$WORK/states" "$WORK/yes"
+	awk 'FILENAME == ARGV[1] {yes[$1] = 1; next} {print $2, $3, $4, (($1 in yes) ? "yes" : $5)}' "$WORK/yes" "$WORK/states" | sort -u
+	rm -rf "$WORK"
 }
 
 # explained <pid>: an SSH server's process is among its ancestors
