@@ -8,9 +8,10 @@ package upnp
 //   - The router: open while the pass is paused for it; over after a pass
 //     in which it answered, or in which nothing needed it (the settings).
 //   - A forward: open while it is among the refused ones; over once the
-//     router accepted it in this run, or when the saved settings no longer
-//     want it (the owner closed the port, switched UPnP or Cosmos' own port
-//     off, or the app's choice was dropped for good); unknown otherwise: a
+//     router accepted it in this run, or when the valid saved settings no
+//     longer want it (the owner closed the port, switched UPnP or Cosmos'
+//     own port off); unknown otherwise (review 7, N4: an invalid setting,
+//     or an app's choice the code dropped, is not the owner's removal): a
 //     forward not asked yet in this run (the router did not answer since
 //     the start) is not over.
 //
@@ -58,15 +59,24 @@ func forkForwardEnded(key string) {
 }
 
 // forkPlanSeen: a refused or accepted forward that the plan (made from the
-// saved settings) no longer holds, or that it drops for good, has ended.
-// The caller holds runMu.
+// saved settings) no longer holds has ended. Review 7 (N4): only a valid
+// saved change of the owner is: a plan whose settings are invalid
+// (cfgErr) ends nothing, and an app's choice the code drops (its container
+// or port gone for forgetAfter) is not the owner's removal: its forward is
+// unknown from then on (the chat keeps it until a level or the panel ends
+// it). The caller holds runMu.
 func forkPlanSeen(p plan) {
+	for _, key := range p.forget {
+		delete(accepted, key)
+		delete(ended, key)
+		delete(failed, key)
+	}
+	if p.cfgErr != nil {
+		return
+	}
 	inPlan := map[string]bool{}
 	for _, w := range p.wants {
 		inPlan[w.key] = true
-	}
-	for _, key := range p.forget {
-		forkForwardEnded(key)
 	}
 	for _, marks := range []map[string]bool{boolKeys(failed), accepted} {
 		for key := range marks {

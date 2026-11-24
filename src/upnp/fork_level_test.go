@@ -97,3 +97,39 @@ func TestAForwardNoLongerWantedEnds(t *testing.T) {
 		t.Fatal(thread)
 	}
 }
+
+// review 7, N4: an invalid saved setting is not the owner's removal: the
+// refused forward stays open; a valid change ends it.
+func TestAnInvalidSettingEndsNoForward(t *testing.T) {
+	w := newWorld(t)
+	w.router.refuse["TCP/2053"] = 606
+	w.config(func(c *utils.Config) { c.HTTPConfig.UPnP.Enabled = true })
+	reconcile(true)
+	thread := threadOf("cosmos:HTTPS")
+	if open, known := utils.SourceThreadLevel("upnp.forward.failed", thread); !open || !known {
+		t.Fatalf("refused: open %v known %v", open, known)
+	}
+	w.config(func(c *utils.Config) { c.HTTPConfig.UPnP.ExternalHTTPSPort = "70000" })
+	reconcile(true)
+	if open, known := utils.SourceThreadLevel("upnp.forward.failed", thread); !open && known {
+		t.Errorf("an invalid setting ended it: open %v known %v", open, known)
+	}
+	w.config(func(c *utils.Config) { c.HTTPConfig.UPnP.ExternalHTTPSPort = ""; c.HTTPConfig.UPnP.Enabled = false })
+	reconcile(true)
+	if open, known := utils.SourceThreadLevel("upnp.forward.failed", thread); open || !known {
+		t.Errorf("a valid change: open %v known %v", open, known)
+	}
+}
+
+// review 7, N4: an app's choice the code drops (its container gone for
+// forgetAfter) is not the owner's removal: unknown, not over.
+func TestADroppedChoiceIsNotAnEnd(t *testing.T) {
+	newWorld(t)
+	forkForwardRefused("app:x")
+	failed["app:x"] = "refused"
+	forkPlanSeen(plan{forget: []string{"app:x"}})
+	forkPlanSeen(plan{})
+	if open, known := forwardLevel(utils.ThreadName(threadOf("app:x"))); open || known {
+		t.Errorf("dropped by the code: open %v known %v", open, known)
+	}
+}
