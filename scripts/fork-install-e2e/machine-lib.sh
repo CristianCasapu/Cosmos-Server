@@ -276,6 +276,9 @@ add_snapshot_hooks() {
 	mkdir -p /etc/systemd/system/CosmosCloud.service.d
 	cat >/etc/systemd/system/CosmosCloud.service.d/e2e-snapshots.conf <<'HOOKS'
 [Service]
+# (hashing both folders can take long on a loaded host: the hooks get time)
+TimeoutStartSec=20min
+TimeoutStopSec=20min
 ExecStopPost=/bin/bash -c 'export E2E_RUN_ID="$(cat /.cosmos-e2e-machine)"; . /e2e/bin/machine-lib.sh; cosmos_snap stop'
 ExecStartPre=/bin/bash -c 'export E2E_RUN_ID="$(cat /.cosmos-e2e-machine)"; . /e2e/bin/machine-lib.sh; cosmos_snap start'
 HOOKS

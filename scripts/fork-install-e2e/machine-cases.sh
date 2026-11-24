@@ -672,7 +672,8 @@ kill_at() {
 }
 # kill_on_text <name> <text>: wait for the text in the run's output, then kill it
 kill_on_text() {
-	for _ in $(seq 1 1800); do
+	# (up to 20 minutes: a backup's copy and its lists can take long on a loaded host)
+	for _ in $(seq 1 6000); do
 		if grep -q "$2" "/e2e/out/$1.txt" 2>/dev/null; then mig_kill "$1"; echo "killed at '$2'"; return 0; fi
 		sleep 0.2
 	done
