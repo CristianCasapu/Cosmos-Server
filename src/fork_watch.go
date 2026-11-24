@@ -257,26 +257,30 @@ func statfsBounded(mount string, statfs func(string, *unix.Statfs_t) error) (uni
 }
 
 // watchUsages reads the space of "/" and of the data disks, network
-// shares left out, each mount bounded in time.
-func watchUsages() []watch.Usage {
+// shares left out, each mount bounded in time. A mount whose space could
+// not be read is given as Failed (review 6: one failed look is no
+// evidence); complete is false when the data disks could not be listed.
+func watchUsages() (usages []watch.Usage, complete bool) {
 	types := mountTypes()
 	mounts := []string{"/"}
-	for mount := range storage.ForkDataMountPaths() {
+	data, err := storage.ForkDataMountPathsChecked()
+	for mount := range data {
 		mounts = append(mounts, mount)
 	}
-	usages := []watch.Usage{}
+	usages = []watch.Usage{}
 	for _, mount := range mounts {
 		if skipForFill(types[mount]) {
 			continue
 		}
 		fs, ok := statfsBounded(mount, unix.Statfs)
 		if !ok {
+			usages = append(usages, watch.Usage{Mount: mount, Failed: true})
 			continue
 		}
 		usages = append(usages, watch.Usage{Mount: mount, Total: fs.Blocks * uint64(fs.Bsize), Free: fs.Bavail * uint64(fs.Bsize),
 			ReadOnly: fs.Flags&unix.ST_RDONLY != 0})
 	}
-	return usages
+	return usages, err == nil
 }
 
 // watchSnapshots gives the incremental backup's settings and what the

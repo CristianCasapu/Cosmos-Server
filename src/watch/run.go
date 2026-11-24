@@ -12,7 +12,7 @@ import (
 // real ones (src/fork_watch.go); a nil reader switches its watch off.
 type Readers struct {
 	Disks      func() ([]Disk, error)
-	Usages     func() []Usage
+	Usages     func() ([]Usage, bool)
 	DockerPing func(timeout time.Duration) error
 	// Snapshots gives the settings of the incremental backup and the last
 	// success of each folder the snapshot module knows in memory;
@@ -156,7 +156,12 @@ func round(st *store, r Readers, docker *dockerWatch, slots map[string]*slot, du
 		sl.checkStuck(now)
 	}
 	if s.Docker && r.DockerPing != nil {
-		slots["docker"].start(now, func() { docker.check(r.DockerPing, time.Now); markLooked("docker") })
+		slots["docker"].start(now, func() {
+			docker.check(r.DockerPing, time.Now)
+			if docker.wasConcluded() {
+				markLooked("docker")
+			}
+		})
 	} else {
 		docker.unwatched()
 		markLooked("docker")
@@ -170,7 +175,7 @@ func round(st *store, r Readers, docker *dockerWatch, slots map[string]*slot, du
 		})
 	}
 	if due("fill", fillEvery) && s.Fill && r.Usages != nil {
-		slots["fill"].start(now, func() { checkFill(st, r.Usages(), s.FillDays, time.Now()); markLooked("fill") })
+		slots["fill"].start(now, func() { usages, complete := r.Usages(); checkFill(st, usages, complete, s.FillDays, time.Now()); markLooked("fill") })
 	}
 	if due("snapshots", snapshotsEvery) && s.Snapshots && r.Snapshots != nil {
 		slots["snapshots"].start(now, func() {

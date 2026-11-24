@@ -34,6 +34,9 @@ type Usage struct {
 	Total    uint64
 	Free     uint64 // available to users
 	ReadOnly bool
+	// Failed: the mount is listed but its space could not be read (an
+	// error, a time-out): nothing is concluded (plan 48, review 6)
+	Failed bool
 }
 
 // trend is the growth of the used space in bytes per second over the
@@ -64,11 +67,18 @@ func trend(samples []fillSample) (perSecond float64, span time.Duration, ok bool
 }
 
 // checkFill adds the samples read now and writes what started and ended.
-func checkFill(st *store, usages []Usage, days int, now time.Time) {
+// complete: the mounts were listed; a mount is forgotten (and an open
+// warning ends with it) only when such a listing no longer holds it. A
+// mount whose space could not be read keeps what is known of it.
+func checkFill(st *store, usages []Usage, complete bool, days int, now time.Time) {
 	sort.Slice(usages, func(i, j int) bool { return usages[i].Mount < usages[j].Mount })
 	st.with(func(data *stateData) bool {
 		watched := map[string]bool{}
 		for _, u := range usages {
+			if u.Failed && u.Mount != "" {
+				watched[u.Mount] = true // listed, not read: nothing concluded
+				continue
+			}
 			if u.ReadOnly || u.Total < tinyDisk || u.Mount == "" {
 				continue
 			}
@@ -113,13 +123,15 @@ func checkFill(st *store, usages []Usage, days int, now time.Time) {
 				notify("success", fillInfo("disk.filling.over", u, 0, 0, 0))
 			}
 		}
-		// mounts that are gone are forgotten, and an open warning ends with them
+		// mounts that are gone are forgotten, and an open warning ends with
+		// them: only when the listing worked
 		for mount, ring := range data.Fill {
-			if !watched[mount] {
+			if complete && !watched[mount] {
 				if ring.Open {
 					resolveThread(fillThread(mount))
 				}
 				delete(data.Fill, mount)
+				noteFillGone(mount)
 			}
 		}
 		return true

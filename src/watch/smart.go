@@ -155,6 +155,7 @@ func checkSMART(st *store, disks []Disk, now time.Time) {
 			if len(reasons) > 0 {
 				memo.LastBad = now
 			}
+			noteSMARTRead(key, now) // plan 48, review 6: what this run read itself (levels.go)
 			switch {
 			case len(reasons) > 0 && !before.Open:
 				memo.Open = true

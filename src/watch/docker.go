@@ -32,6 +32,15 @@ type dockerWatch struct {
 	reason       string
 	open         bool
 	pending      bool
+	// concluded: a check of this run answered, or opened the problem
+	// (plan 48, review 6: a check inside the grace concludes nothing)
+	concluded bool
+}
+
+func (w *dockerWatch) wasConcluded() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.concluded
 }
 
 // step records one answer (err nil: Docker answered) and writes what
@@ -41,6 +50,7 @@ func (w *dockerWatch) step(err error, now time.Time) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if err == nil {
+		w.concluded = true // plan 48, review 6: Docker answered (levels.go)
 		if w.open {
 			lasted := now.Sub(w.failingSince)
 			w.open = false
@@ -65,6 +75,7 @@ func (w *dockerWatch) step(err error, now time.Time) {
 		return
 	}
 	w.open = true
+	w.concluded = true
 	w.remember()
 	logLine("Watches: Docker does not answer: " + reasonWords(w.reason))
 	minutes := int(now.Sub(w.failingSince).Minutes() + 0.5)

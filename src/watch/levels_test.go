@@ -1,51 +1,213 @@
 package watch
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
-// review 5: the watches say their level from their own state: unknown
-// before the state was read or a look made, then open or over.
-func TestTheWatchesSayTheirLevel(t *testing.T) {
+// levelEnv gives a store whose levels are registered, with this run's
+// memory empty.
+func levelEnv(t *testing.T, path string) *store {
+	t.Helper()
 	lookedMu.Lock()
-	saved := looked
+	savedLooked := looked
 	looked = map[string]bool{}
 	lookedMu.Unlock()
-	defer func() { lookedMu.Lock(); looked = saved; lookedMu.Unlock() }()
-	st := newStore("")
+	savedRun, savedGone, savedNow, savedSnap := smartRun, fillGone, levelNow, snapshotLimits
+	smartRun, fillGone = map[string]smartRunMemo{}, map[string]bool{}
+	t.Cleanup(func() {
+		lookedMu.Lock()
+		looked = savedLooked
+		lookedMu.Unlock()
+		smartRun, fillGone, levelNow, snapshotLimits = savedRun, savedGone, savedNow, savedSnap
+	})
+	st := newStore(path)
 	registerLevels(st)
-	if _, known := utils.SourceThreadLevel("smart.failing", "smart:serial:S1"); known {
-		t.Fatal("known before any look")
+	return st
+}
+
+// stateFile writes a state file the store reads as loaded.
+func stateFile(t *testing.T, change func(d *stateData)) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "watch.state.json")
+	st := newStore(path)
+	st.with(func(d *stateData) bool { change(d); return true })
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
 	}
-	st.with(func(d *stateData) bool {
+	return path
+}
+
+// reviews 5 and 6: with the state file read, the watches say their level
+// from it: open or over; a thing without a memo is unknown.
+func TestTheWatchesSayTheirLevel(t *testing.T) {
+	now := time.Now()
+	path := stateFile(t, func(d *stateData) {
 		d.SMART["serial:S1"] = smartMemo{Open: true}
 		d.SMART["serial:S2"] = smartMemo{Unreadable: true}
+		d.SMART["serial:S3"] = smartMemo{Read: true}
 		d.Fill["/mnt/data"] = &fillRing{Open: true}
+		d.Fill["/mnt/calm"] = &fillRing{}
 		d.Docker.Open = true
 		d.SnapLate["/srv"] = true
-		return false
+		d.SnapLast["/home"] = now.Add(-time.Hour)
 	})
-	for _, what := range []string{"smart", "fill", "docker", "snapshots"} {
-		markLooked(what)
+	levelEnv(t, path)
+	snapshotLimits = func() (map[string]bool, time.Duration) {
+		return map[string]bool{"/srv": true, "/home": true, "/new": true}, 36 * time.Hour
 	}
 	for _, c := range []struct {
 		kind, thread string
-		open         bool
+		open, known  bool
 	}{
-		{"smart.failing", "smart:serial:S1", true}, {"smart.failing", "smart:serial:S2", false},
-		{"smart.unreadable", "smart:serial:S2:unreadable", true}, {"smart.failing", "smart:serial:gone", false},
-		{"disk.filling", "fill:/mnt/data", true}, {"disk.filling", "fill:/mnt/other", false},
-		{"docker.down", "docker.down", true}, {"snapshots.late", "snapshots.late:/srv", true},
-		{"snapshots.late", "snapshots.late:/home", false},
+		{"smart.failing", "smart:serial:S1", true, true}, {"smart.failing", "smart:serial:S3", false, true},
+		{"smart.unreadable", "smart:serial:S2:unreadable", true, true}, {"smart.unreadable", "smart:serial:S3:unreadable", false, true},
+		{"smart.failing", "smart:serial:never", false, false},
+		{"disk.filling", "fill:/mnt/data", true, true}, {"disk.filling", "fill:/mnt/calm", false, true},
+		{"disk.filling", "fill:/mnt/other", false, false},
+		{"docker.down", "docker.down", true, true},
+		{"snapshots.late", "snapshots.late:/srv", true, true}, {"snapshots.late", "snapshots.late:/home", false, true},
+		{"snapshots.late", "snapshots.late:/new", false, false}, {"snapshots.late", "snapshots.late:/dropped", false, true},
 	} {
-		if open, known := utils.SourceThreadLevel(c.kind, c.thread); !known || open != c.open {
-			t.Errorf("%s %s: open %v known %v, want %v", c.kind, c.thread, open, known, c.open)
+		if open, known := utils.SourceThreadLevel(c.kind, c.thread); known != c.known || open != c.open {
+			t.Errorf("%s %s: open %v known %v, want %v %v", c.kind, c.thread, open, known, c.open, c.known)
 		}
 	}
 	opens := utils.SourceOpenThreads()
 	if len(opens["smart.failing"]) != 1 || len(opens["disk.filling"]) != 1 || len(opens["docker.down"]) != 1 || len(opens["snapshots.late"]) != 1 || len(opens["smart.unreadable"]) != 1 {
 		t.Errorf("open lists %v", opens)
+	}
+}
+
+// review 6, M1: without the state file, a look of this run is evidence only
+// once it concludes by the watch's own rule.
+func TestWithoutTheStateFileALookMustConclude(t *testing.T) {
+	record(t)
+	st := levelEnv(t, filepath.Join(t.TempDir(), "missing.json"))
+	start := time.Now()
+	levelNow = func() time.Time { return start }
+	snapshotLimits = func() (map[string]bool, time.Duration) { return map[string]bool{"/srv": true}, 36 * time.Hour }
+	disk := Disk{Device: "/dev/sdb", Serial: "S9", Reallocated: 8}
+	// S.M.A.R.T.: read well once, no history: not over
+	checkSMART(st, []Disk{disk}, start)
+	if _, known := utils.SourceThreadLevel("smart.failing", "smart:serial:S9"); known {
+		t.Error("one read without history is evidence of health")
+	}
+	for i := 1; i < readWindow; i++ {
+		checkSMART(st, []Disk{disk}, start.Add(time.Duration(i)*time.Hour))
+	}
+	if open, known := utils.SourceThreadLevel("smart.unreadable", "smart:serial:S9:unreadable"); open || !known {
+		t.Errorf("readable for a window of reads: open %v known %v", open, known)
+	}
+	levelNow = func() time.Time { return start.Add(calmAfter) }
+	if open, known := utils.SourceThreadLevel("smart.failing", "smart:serial:S9"); open || !known {
+		t.Errorf("calm for calmAfter: open %v known %v", open, known)
+	}
+	// an unreadable disk never read in this run is not stored: unknown
+	checkSMART(st, []Disk{{Device: "/dev/sdc", Serial: "S8", Unreadable: true}}, start)
+	if _, known := utils.SourceThreadLevel("smart.unreadable", "smart:serial:S8:unreadable"); known {
+		t.Error("a disk never read is known readable")
+	}
+	// Docker: a check inside the grace concludes nothing
+	dw := newDockerWatch(st, start)
+	dw.step(errors.New("refused"), start.Add(time.Minute))
+	if dw.wasConcluded() {
+		t.Error("a failing check inside the grace concluded")
+	}
+	if _, known := utils.SourceThreadLevel("docker.down", dockerThread); known {
+		t.Error("Docker known without a concluding check")
+	}
+	dw.step(nil, start.Add(2*time.Minute))
+	if !dw.wasConcluded() {
+		t.Error("Docker answered: not concluded")
+	}
+	levelNow = func() time.Time { return start }
+	// snapshots: the first look starts the count again: not evidence
+	checkSnapshots(st, utils.SnapshotsConfig{Enabled: true, Destination: "/backup", Sources: []string{"/srv"}, Frequency: "daily"}, nil, nil, 0, start)
+	if _, known := utils.SourceThreadLevel("snapshots.late", "snapshots.late:/srv"); known {
+		t.Error("a folder without a known snapshot is known on time")
+	}
+	checkSnapshots(st, utils.SnapshotsConfig{Enabled: true, Destination: "/backup", Sources: []string{"/srv"}, Frequency: "daily"}, map[string]time.Time{"/srv": start}, nil, 0, start)
+	if open, known := utils.SourceThreadLevel("snapshots.late", "snapshots.late:/srv"); open || !known {
+		t.Errorf("a snapshot just made: open %v known %v", open, known)
+	}
+}
+
+// review 6, F1: a look whose statfs failed or timed out concludes nothing:
+// the warning stays open and the samples are kept; only a listing that
+// worked and no longer holds the mount forgets it.
+func TestAFailedFillLookIsNoEvidence(t *testing.T) {
+	record(t)
+	st := levelEnv(t, "")
+	start := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
+	const tb = 1000 * 1000 * 1000 * 1000
+	free := uint64(400 * 1000 * 1000 * 1000)
+	for i := 0; i <= 14; i++ {
+		checkFill(st, []Usage{usage("/mnt/data", 4*tb, free)}, true, 3, start.Add(time.Duration(i)*fillEvery))
+		free -= 10 * 1000 * 1000 * 1000
+	}
+	if open, known := utils.SourceThreadLevel("disk.filling", "fill:/mnt/data"); !open || !known {
+		t.Fatalf("filling: open %v known %v", open, known)
+	}
+	samples := 0
+	st.with(func(d *stateData) bool { samples = len(d.Fill["/mnt/data"].Samples); return false })
+	checkFill(st, []Usage{{Mount: "/mnt/data", Failed: true}}, true, 3, start.Add(15*fillEvery))
+	checkFill(st, nil, false, 3, start.Add(16*fillEvery)) // the listing failed
+	if open, known := utils.SourceThreadLevel("disk.filling", "fill:/mnt/data"); !open || !known {
+		t.Errorf("after a failed look: open %v known %v", open, known)
+	}
+	st.with(func(d *stateData) bool {
+		if r := d.Fill["/mnt/data"]; r == nil || len(r.Samples) != samples {
+			t.Errorf("the samples were not kept")
+		}
+		return false
+	})
+	checkFill(st, nil, true, 3, start.Add(17*fillEvery)) // listed, and gone
+	if open, known := utils.SourceThreadLevel("disk.filling", "fill:/mnt/data"); open || !known {
+		t.Errorf("gone from a listing that worked: open %v known %v", open, known)
+	}
+}
+
+// review 6: a name the notifications cleaned (cut, trimmed) is still found
+// by its source.
+func TestALongNameIsFoundAsTheStoreKeepsIt(t *testing.T) {
+	long := "/mnt/" + strings.Repeat("данные", 40)
+	path := stateFile(t, func(d *stateData) { d.Fill[long] = &fillRing{Open: true} })
+	levelEnv(t, path)
+	stored := utils.ThreadName(fillThread(long))
+	if stored == fillThread(long) {
+		t.Fatal("the name is not cut by the store: the test proves nothing")
+	}
+	if open, known := utils.SourceThreadLevel("disk.filling", stored); !open || !known {
+		t.Errorf("open %v known %v", open, known)
+	}
+	if list := utils.SourceOpenThreads()["disk.filling"]; len(list) != 1 || list[0] != stored {
+		t.Errorf("open list %v", list)
+	}
+}
+
+// review 6: a watch stuck and told is open; a look still in progress is
+// unknown; a free slot (its look finished in this run) is over.
+func TestTheLevelOfAStuckWatch(t *testing.T) {
+	s := &slot{what: "failing disks"}
+	registerStuck(map[string]*slot{"smart": s})
+	thread := "watch.stuck:failing disks"
+	s.busy, s.told = true, true
+	if open, known := utils.SourceThreadLevel("watch.stuck", thread); !open || !known {
+		t.Errorf("told: open %v known %v", open, known)
+	}
+	s.told = false
+	if _, known := utils.SourceThreadLevel("watch.stuck", thread); known {
+		t.Error("a look in progress concluded")
+	}
+	s.busy = false
+	if open, known := utils.SourceThreadLevel("watch.stuck", thread); open || !known {
+		t.Errorf("free: open %v known %v", open, known)
 	}
 }

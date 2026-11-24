@@ -207,6 +207,17 @@ func forkDataMountSet(infos []*mountinfo.Info) map[string]bool {
 
 // ForkDataMountPaths returns the mount points of the host's data disks, for
 // the callers that do not have the mount table at hand.
+// ForkDataMountPathsChecked is ForkDataMountPaths with its error: the
+// fill watch forgets a disk only when a listing that worked no longer
+// holds it (plan 48, review 6).
+func ForkDataMountPathsChecked() (map[string]bool, error) {
+	infos, err := mountinfo.GetMounts(nil)
+	if err != nil {
+		return map[string]bool{}, err
+	}
+	return forkDataMountSet(infos), nil
+}
+
 func ForkDataMountPaths() map[string]bool {
 	infos, err := mountinfo.GetMounts(nil)
 	if err != nil {
