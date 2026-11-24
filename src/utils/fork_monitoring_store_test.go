@@ -68,6 +68,10 @@ func resetStoreState() {
 	setStoreState(func(s *MonitoringStoreState) { *s = MonitoringStoreState{Configured: "sqlite"} })
 	storeStateMu.Lock()
 	storeTold, storeOnLocal, storeOutages = false, time.Time{}, nil
+	// not the start of the process: a test that wants one says so (each
+	// test's clock starts at the same time, so a boot grace left by an
+	// earlier test would cover the next one)
+	storeStarted, storeBootUntil, storeLocalProblem = true, time.Time{}, ""
 	storeStateMu.Unlock()
 	adviceKey = ""
 }
@@ -950,6 +954,9 @@ func TestRestartDuringAToldOutage(t *testing.T) {
 	}
 	// "the restart": the in-memory state of the outage is gone
 	resetStoreState()
+	storeStateMu.Lock()
+	storeStarted = false
+	storeStateMu.Unlock()
 	CloseMetricsDatabase()
 	InitMetricsDatabase()
 	storeStateMu.Lock()
