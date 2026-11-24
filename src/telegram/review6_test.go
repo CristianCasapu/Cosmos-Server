@@ -251,3 +251,34 @@ func TestR6ANewEventTriesTheFullFormAgain(t *testing.T) {
 		t.Errorf("the closing went in the plain form: %q", last)
 	}
 }
+
+// Found by the model (review 6): a closing refused for its form leaves the
+// plain form set; when the level opens the problem again, the opening is
+// tried in its full form.
+func TestR6AReopeningByTheLevelTriesTheFullForm(t *testing.T) {
+	th := reachThread("reach:connect")
+	m := scripted(t, th)
+	m.open(th)
+	m.settle(5 * time.Minute)
+	m.quietEnd(th)
+	m.bot.badFormOnce = true
+	m.n.reconcile()
+	for m.bot.badFormOnce {
+		m.step() // until the closing is refused for its form
+	}
+	m.bot.down = true
+	m.settle(time.Minute) // its plain form waits
+	was := m.settings()
+	m.config.Telegram.Enabled = false // the chat left
+	leaveChatPins(m.n, was, m.bot)
+	m.truth(th, true) // open again, unheard
+	th.rowOpen = true
+	m.config.Telegram.Enabled = true
+	m.bot.down = false
+	m.n.reconcile()
+	m.settle(5 * time.Minute)
+	last := m.bot.chat[len(m.bot.chat)-1]
+	if !strings.Contains(last.text, "Opening of model thread") || strings.Contains(last.text, "are in the panel") {
+		t.Errorf("the opening: %q", last.text)
+	}
+}

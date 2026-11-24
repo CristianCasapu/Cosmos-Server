@@ -325,6 +325,7 @@ func (n *notifier) reconcile() {
 		}
 		if changed {
 			e.dirty = true
+			e.plain = false // new words: the full form is tried again (review 6)
 		}
 		e.queued = true
 	}
