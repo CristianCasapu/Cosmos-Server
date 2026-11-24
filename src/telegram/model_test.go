@@ -475,19 +475,19 @@ type model struct {
 	errP, unknownP, pruneP float64
 	// late events (TestModelWithLateEvents): a registered source's
 	// notification comes after its state changed
-	lateP   float64
-	lateRng *rand.Rand
-	pending []lateEvent
-	stats   map[string]int
-	final                  bool
-	lastOpenSent           time.Time
+	lateP        float64
+	lateRng      *rand.Rand
+	pending      []lateEvent
+	stats        map[string]int
+	final        bool
+	lastOpenSent time.Time
 	// review 6: the real store and level (model_store_test.go)
 	store            bool
-	lagging          bool              // the registered sources answer up to two minutes late
-	nextReconcile    time.Time         // the reconcile at its real cadence
-	unpairedTimedOut map[string]bool   // messages of their own whose answer was lost
+	lagging          bool                 // the registered sources answer up to two minutes late
+	nextReconcile    time.Time            // the reconcile at its real cadence
+	unpairedTimedOut map[string]bool      // messages of their own whose answer was lost
 	lines            map[string]firstLine // first lines that do not name the thread
-	leftChats        map[string]int    // chats left (their pins taken away), with the pins that stayed
+	leftChats        map[string]int       // chats left (their pins taken away), with the pins that stayed
 	leftAt           map[string]time.Time
 	// while the settings are refused, messages of their own are counted
 	// into a summary (by design); one refused for its form goes in a form

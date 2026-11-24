@@ -170,7 +170,11 @@ func round(st *store, r Readers, docker *dockerWatch, slots map[string]*slot, du
 		})
 	}
 	if due("fill", fillEvery) && s.Fill && r.Usages != nil {
-		slots["fill"].start(now, func() { usages, complete := r.Usages(); checkFill(st, usages, complete, s.FillDays, time.Now()); markLooked("fill") })
+		slots["fill"].start(now, func() {
+			usages, complete := r.Usages()
+			checkFill(st, usages, complete, s.FillDays, time.Now())
+			markLooked("fill")
+		})
 	}
 	if due("snapshots", snapshotsEvery) && s.Snapshots && r.Snapshots != nil {
 		slots["snapshots"].start(now, func() {

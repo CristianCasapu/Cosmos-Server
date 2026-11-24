@@ -131,15 +131,15 @@ func (s *savedNotice) notice() *notice {
 
 // savedEntry is a thread's state that is not settled yet.
 type savedEntry struct {
-	Name    string       `json:"name"`
-	Kind    string       `json:"kind,omitempty"`
-	Open    bool         `json:"open"`
-	Since   time.Time    `json:"since"`
+	Name  string    `json:"name"`
+	Kind  string    `json:"kind,omitempty"`
+	Open  bool      `json:"open"`
+	Since time.Time `json:"since"`
 	// SeenOpen: review 6, T1 (added field: older files have none)
-	SeenOpen time.Time   `json:"seenOpen,omitempty"`
-	Fresh    bool        `json:"fresh,omitempty"`
-	Opening *savedNotice `json:"opening,omitempty"`
-	Closing *savedNotice `json:"closing,omitempty"`
+	SeenOpen time.Time    `json:"seenOpen,omitempty"`
+	Fresh    bool         `json:"fresh,omitempty"`
+	Opening  *savedNotice `json:"opening,omitempty"`
+	Closing  *savedNotice `json:"closing,omitempty"`
 }
 
 type threadFile struct {
