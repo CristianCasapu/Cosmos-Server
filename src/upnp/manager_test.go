@@ -73,6 +73,7 @@ func newWorld(t *testing.T) *world {
 	reset := func() {
 		runMu.Lock()
 		held, failed, missing = map[string]heldMapping{}, map[string]string{}, map[string]time.Time{}
+		accepted, ended = map[string]bool{}, map[string]bool{}
 		paused, lastPlan, lastConfigErr, lastRouterTalk = false, "", "", time.Time{}
 		resetRetries()
 		lastProbe, lastGateway = time.Time{}, nil

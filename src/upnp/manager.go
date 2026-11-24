@@ -376,9 +376,14 @@ func run(p plan, manual bool) Status {
 		previous[keyOf(m)] = m
 	}
 	if manual {
-		failed = map[string]string{}
+		// a pass asked for (a start, "Check now", a change of the
+		// settings) asks the router about every forward again, but a
+		// refusal is forgotten only when the router accepts the forward
+		// or it is no longer wanted (plan 48, review 6: the level of a
+		// refused forward, fork_level.go)
 		resetRetries()
 	}
+	forkPlanSeen(p) // Fork addition (plan 48, review 6): a forward the settings no longer want ends, see fork_level.go
 	wasPaused := paused
 	routerFailed := false
 	notices := []upnpNotice{} // Fork addition: told in words, see fork_notify.go
@@ -598,7 +603,7 @@ func run(p plan, manual bool) Status {
 		}
 		request := requestOf(w)
 		// not asked again before its pause is over (retry.go)
-		if refused, isFailed := failed[w.key]; isFailed && refused == request && !retryDue(w.key, now) {
+		if refused, isFailed := failed[w.key]; isFailed && refused == request && !manual && !retryDue(w.key, now) {
 			if old, ok := previous[w.key]; ok && old.State == StateFailed {
 				m = old
 			} else {
@@ -687,6 +692,7 @@ func run(p plan, manual bool) Status {
 				delete(mappingRetry, w.key)
 			}
 			failed[w.key] = request
+			forkForwardRefused(w.key) // Fork addition (plan 48, review 6)
 			// tried again by itself: soon when the router did not answer or broke
 			// the connection, rarely when it answered with a refusal
 			pauses := refusedPauses
@@ -718,6 +724,7 @@ func run(p plan, manual bool) Status {
 			restored = append(restored, func() { resolveUPnP(threadOf(key), forwardBack(key, done)) })
 		}
 		delete(failed, w.key)
+		forkForwardAccepted(w.key) // Fork addition (plan 48, review 6): the router accepted it in this run
 		if refusal == nil {
 			delete(mappingRetry, w.key)
 		}
