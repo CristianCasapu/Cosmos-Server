@@ -532,6 +532,7 @@ PROTECTION.stale = v3({}, { liveness: { watcherAt: '2026-11-17T09:20:00Z', refre
 // flushing the ruleset (counted by the watcher)
 PROTECTION.exitnode = v3({ wanInterfaces: ['eth0', 'tailscale0'], vpnHomeInterfaces: ['tailscale0'], rpfInterfaces: [] }, { outsideSinceInstall: ['tailscale0'], vpnFound: [{ kind: 'tailscale', port: 41641 }] });
 PROTECTION.removed = v3({}, { tableRemoved: { count: 57, at: '2026-11-17T09:58:00Z' } });
+PROTECTION.peersunreadable = v3({ wanInterfaces: ['eth0', 'tailscale0'], vpnHomeInterfaces: ['tailscale0'], rpfInterfaces: [] }, { tailnetPeers: 'unreadable', vpnFound: [{ kind: 'tailscale', port: 41641 }] });
 export const protectionMock = (state) => [['/cosmos/api/protection', ok(PROTECTION[state])]];
 // Fork addition (plan 47, I2c): what a container's edit tabs propose from (GET
 // /api/servapps/{id}/edit-hints), for the guarded view `container-edit`: a
