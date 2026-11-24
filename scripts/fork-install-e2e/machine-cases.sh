@@ -627,3 +627,217 @@ m_aptrace_1() {
 	check "apt's history names psmisc in the other transaction" sh -c "grep -A3 'sleep 120' /var/log/apt/history.log | grep -q '^Install: .*psmisc'"
 	installed_ok 80
 }
+
+# ---- migrate.sh: upstream's Cosmos moved to the fork ---------------------------
+m_migrate_1() { # UPV from the host: upstream's version
+	upstream_install "$UPV"
+	note_upstream
+	# a dry run changes nothing
+	upstream_state dry
+	rc=0; migrate_a --yes --dry-run </dev/null >/e2e/out/dry.txt 2>&1 || rc=$?
+	tail -n 8 /e2e/out/dry.txt
+	check "the dry run ends with 0" test $rc = 0
+	upstream_unchanged dry
+	# the migration
+	rc=0; migrate_a --yes </dev/null >/e2e/out/migrate.txt 2>&1 || rc=$?
+	grep -vE '^  |debconf' /e2e/out/migrate.txt | tail -n 30
+	check "migrated (exit 0)" test $rc = 0
+	migrated_ok "$UPV"
+	check "it said upstream $UPV was older than the base, or the base" sh -c "grep -qE 'older than 0.24.0|Found: upstream' /e2e/out/migrate.txt"
+	# then neither script runs again, and uninstall.sh refuses
+	expect_exit 10 install_a --yes </dev/null
+	expect_exit 10 migrate_a --yes </dev/null
+	rc=0; bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null >/e2e/out/un.txt 2>&1 || rc=$?
+	cat /e2e/out/un.txt
+	check "uninstall.sh refuses a migrated Cosmos with 3" test $rc = 3
+	check "and names the way back" grep -q "GOING-BACK.txt" /e2e/out/un.txt
+	migrated_ok "$UPV"
+}
+m_migrate_2() { # VB from the host: the fork's own updater after a migration
+	PANEL_HOST=srv-e2e.local
+	code=$(api POST login "{\"nickname\":\"admin\",\"password\":\"$E2E_PASSWORD\"}"); echo "login: $code"
+	code=$(api POST sudo "{\"password\":\"$E2E_PASSWORD\"}"); echo "sudo: $code"
+	update_to "$VB"
+}
+
+m_migrate_refusals_1() {
+	# a machine with nothing: 19
+	expect_exit 19 migrate_a --yes </dev/null
+	check "nothing was made" test ! -e /var/lib/cosmos-installer
+	# a Cosmos container (upstream's image name): 17, not yet
+	tar -cf - --files-from /dev/null | docker import - azukaar/cosmos-server:latest >/dev/null
+	docker create --name cosmos-server azukaar/cosmos-server:latest /none >/dev/null
+	rc=0; migrate_a --yes </dev/null >/e2e/out/container.txt 2>&1 || rc=$?
+	cat /e2e/out/container.txt
+	check "a Cosmos container: 17" test $rc = 17
+	check "saying it is not done yet for containers" grep -q "not yet its Docker container" /e2e/out/container.txt
+	docker rm -f cosmos-server >/dev/null
+	check "nothing was made" test ! -e /var/lib/cosmos-installer
+}
+m_migrate_refusals_2() { # the fork installed by install.sh: 10, before anything
+	install_a --yes </dev/null >/dev/null 2>&1
+	upstream_state fork
+	rc=0; migrate_a --yes --accept-community-edition --backup-dir /root/b </dev/null >/e2e/out/fork.txt 2>&1 || rc=$?
+	cat /e2e/out/fork.txt
+	check "the fork already there: 10, whatever the flags" test $rc = 10
+	upstream_unchanged fork
+	rc=0; migrate_a --undo </dev/null >/e2e/out/fork-undo.txt 2>&1 || rc=$?
+	check "--undo over the fork: 10 too" test $rc = 10
+}
+m_migrate_refusals_3() { # upstream, each refusal on its own, then a licence migrated with the flag
+	upstream_install 0.24.0
+	note_upstream
+	config=/var/lib/cosmos/cosmos.config.json
+	cp -p "$config" /root/config.orig
+	refused() { # code, what, setup..., then the migration
+		local want=$1 what=$2 rc=0
+		upstream_state "$what"
+		migrate_a --yes "${@:3}" </dev/null >"/e2e/out/ref-$what.txt" 2>&1 || rc=$?
+		tail -n 2 "/e2e/out/ref-$what.txt"
+		check "$what: exit $want" test $rc = "$want"
+		upstream_unchanged "$what"
+	}
+	# a newer upstream than the base
+	cp -p /opt/cosmos/meta.json /root/meta.orig
+	sed -i 's/"version": "0.24.0"/"version": "0.25.1"/' /opt/cosmos/meta.json
+	refused 17 newer
+	check "it says what the fork is built on" grep -q "newer than 0.24.0" /e2e/out/ref-newer.txt
+	cp -p /root/meta.orig /opt/cosmos/meta.json
+	# users in MongoDB
+	/e2e/bin/helper config-set "$config" MongoDB '"mongodb://192.0.2.10:27017"'
+	refused 17 mongodb
+	cp -p /root/config.orig "$config"
+	# the wizard not finished
+	/e2e/bin/helper config-set "$config" NewInstall true
+	refused 17 newinstall
+	cp -p /root/config.orig "$config"
+	# an update of upstream waiting
+	: >/opt/cosmos/cosmos-update.zip
+	refused 17 staged-update
+	rm /opt/cosmos/cosmos-update.zip
+	# Cosmos not running
+	systemctl stop CosmosCloud
+	refused 17 stopped
+	systemctl start CosmosCloud; wait_panel 80
+	# the backup's place: full, in memory, read-only, inside what is backed up, through a link, existing
+	mkdir -p /mnt/small /mnt/big /root/ro /root/real
+	mount -t tmpfs -o size=1m tmpfs /mnt/small
+	mount -t tmpfs -o size=8g tmpfs /mnt/big
+	mount --bind /root/ro /root/ro && mount -o remount,bind,ro /root/ro
+	ln -s /root/real /root/link
+	refused 6 full --backup-dir /mnt/small/b
+	check "full: it says the space" grep -q "not enough free space" /e2e/out/ref-full.txt
+	refused 6 memory --backup-dir /mnt/big/b
+	check "memory: it says the reboot" grep -q "lost at the next reboot" /e2e/out/ref-memory.txt
+	refused 6 read-only --backup-dir /root/ro/b
+	check "read-only: it says so" grep -q "cannot be written" /e2e/out/ref-read-only.txt
+	refused 2 inside --backup-dir /var/lib/cosmos/b
+	refused 2 link --backup-dir /root/link/b
+	refused 2 exists --backup-dir /root/real
+	refused 2 relative --backup-dir backups
+	umount /mnt/small /mnt/big /root/ro
+	# a licence: 18 without the flag
+	/e2e/bin/helper config-set "$config" Licence '"e2e-made-up-licence"'
+	refused 18 licence
+	check "it explains the community edition" grep -q "community edition" /e2e/out/ref-licence.txt
+	# install.sh's options are refused by migrate.sh, and the other way
+	refused 2 install-option --http-port 8080
+	expect_exit 2 install_a --yes --backup-dir /root/x </dev/null
+	# with the flag: migrated, the licence kept in the settings, unused
+	rc=0; migrate_a --yes --accept-community-edition </dev/null >/e2e/out/licence-migrate.txt 2>&1 || rc=$?
+	tail -n 6 /e2e/out/licence-migrate.txt
+	check "with --accept-community-edition: migrated" test $rc = 0
+	check "the licence is still in the settings (only read, never touched)" grep -q '"Licence": *"e2e-made-up-licence"' "$config"
+	migrated_ok 0.24.0
+}
+
+m_migrate_fail_1() {
+	upstream_install 0.24.0
+	note_upstream
+	add_snapshot_hooks
+	# a failure at each step (the test mode makes it): everything back, byte for byte
+	for point in stopped backed-up swapped started checked; do
+		rc=0; COSMOS_INSTALL_TEST_FAIL_AT=$point migrate_test --yes </dev/null >"/e2e/out/fail-$point.txt" 2>&1 || rc=$?
+		grep -E "TEST MODE: the step|back as it was|stopped \\(exit" "/e2e/out/fail-$point.txt" || true
+		check "a failure at '$point': rolled back, exit 20" test $rc = 20
+		rolled_back_exactly
+		upstream_back 0.24.0
+		check "the app still answers" sh -c "curl -s -m 10 -H 'Host: app.srv-e2e.local' http://127.0.0.1/ | grep -qx e2e-app"
+	done
+}
+m_migrate_fail_2() { # VC from the host: a release that does not start
+	add_snapshot_hooks
+	rc=0; migrate_a --yes --from "/e2e/releases/v$VC" </dev/null >/e2e/out/fail-nostart.txt 2>&1 || rc=$?
+	grep -vE '^  |debconf' /e2e/out/fail-nostart.txt | tail -n 12
+	check "a fork that does not start: rolled back, exit 20" test $rc = 20
+	rolled_back_exactly
+	upstream_back 0.24.0
+	# a container that changes while the fork is checked
+	(
+		for _ in $(seq 1 600); do
+			if grep -q "\"version\": \"$VA\"" /opt/cosmos/meta.json 2>/dev/null; then
+				sleep 3; docker create --name e2e-intruder e2e-empty:1 /none >/dev/null 2>&1; exit 0
+			fi
+			sleep 0.5
+		done
+	) &
+	# (release A itself: C, which does not start, is still the newest on the stand-in)
+	rc=0; migrate_a --yes --from "/e2e/releases/v$VA" </dev/null >/e2e/out/fail-container.txt 2>&1 || rc=$?
+	wait
+	grep -vE '^  |debconf' /e2e/out/fail-container.txt | tail -n 25
+	check "a container changed during the check: rolled back, exit 20" test $rc = 20
+	check "and the reason named it" grep -q "e2e-intruder" /e2e/out/fail-container.txt
+	docker rm -f e2e-intruder >/dev/null
+	rolled_back_exactly
+	upstream_back 0.24.0
+}
+
+m_migrate_interrupt_1() {
+	upstream_install 0.24.0
+	note_upstream
+	add_snapshot_hooks
+	# the steps in their order: a step passes quickly into the next (backed-up
+	# into swapping), so the kill comes at the first state at or past the one asked
+	order=" stopping stopped backed-up swapping swapped started "
+	at_or_past() { # state wanted
+		[ -n "$1" ] || return 1
+		local before=${order%% "$2" *}
+		case $before in *" $1"* | *" $1 "*) return 1 ;; esac
+		case $order in *" $1 "*) return 0 ;; esac
+		return 1
+	}
+	kill_at() { # step: migrate.sh killed with -9 once the state says it reached the step
+		local s i
+		(setsid bash -c "echo \$\$ >/e2e/out/mpgid; exec bash /e2e/releases/v$VA/migrate.sh --yes </dev/null >/e2e/out/mrun-$1.txt 2>&1" &)
+		for i in $(seq 1 6000); do
+			s=$(sed -n "s/^mstep=//p" /var/lib/cosmos-installer/state 2>/dev/null | tail -n1 || true)
+			if at_or_past "$s" "$1"; then
+				kill -9 -- -"$(cat /e2e/out/mpgid)"
+				for _ in $(seq 1 300); do flock -n /run/cosmos-installer.lock true && break; sleep 0.2; done
+				echo "killed at $1 (the state then: $(sed -n 's/^mstep=//p' /var/lib/cosmos-installer/state | tail -n1))"
+				return 0
+			fi
+			sleep 0.1
+		done
+		echo "FAIL: migrate.sh never reached $1 (or a later step)"
+		tail -n 20 "/e2e/out/mrun-$1.txt"
+		return 1
+	}
+	for point in stopped backed-up swapped started; do
+		kill_at "$point"
+		rc=0; migrate_a --undo </dev/null >"/e2e/out/undo-$point.txt" 2>&1 || rc=$?
+		tail -n 4 "/e2e/out/undo-$point.txt"
+		check "killed at '$point', --undo: exit 0" test $rc = 0
+		# when the kill came before the stop's hook ran, there is nothing to compare
+		if ls /e2e/out/hook-*-stop >/dev/null 2>&1; then rolled_back_exactly; fi
+		upstream_back 0.24.0
+	done
+	# killed after the swap, then run again: it finishes
+	kill_at swapped
+	rc=0; migrate_a --yes </dev/null >/e2e/out/resume.txt 2>&1 || rc=$?
+	grep -E "interrupted|runs the fork" /e2e/out/resume.txt || true
+	check "killed after the swap, run again: migrated (exit 0)" test $rc = 0
+	migrated_ok 0.24.0
+	# killed before the swap on another try is covered by --undo above; and the
+	# resume before the swap: upstream back first, then migrated
+}

@@ -213,3 +213,150 @@ packages_back() {
 }
 
 pkg_installed() { dpkg-query -W -f='${db:Status-Abbrev}' "$1" 2>/dev/null | grep -q '^ii'; }
+
+# ---- Upstream's Cosmos and the migration (migrate.sh) ------------------------
+migrate_a() { bash "/e2e/releases/v$VA/migrate.sh" "$@"; }
+# the test mode: the repository's unstamped script with the test key, as
+# migrate.sh, which may make a step fail on purpose (COSMOS_INSTALL_TEST_FAIL_AT)
+migrate_test() {
+	COSMOS_INSTALL_TEST_KEYS=$(cat /e2e/bin/test.pub) COSMOS_INSTALL_TEST_VERSION=$VA \
+		COSMOS_INSTALL_TEST_REPOSITORY=example-owner/cosmos-fork COSMOS_INSTALL_TEST_BASE=0.24.0 \
+		COSMOS_INSTALL_TEST_ROLE=migrate bash /e2e/bin/install-unstamped.sh --from "/e2e/releases/v$VA" "$@"
+}
+E2E_PASSWORD='E2e-Test-Passw0rd!x'
+
+# upstream_install <version>: upstream's release zip as upstream's get.sh puts
+# it in place (unpacked to /opt/cosmos, "cosmos service install" with the two
+# ports, the unit started), its first-run wizard over the API, then a web app
+# in a container and a URL of Cosmos to it
+upstream_install() {
+	local v=$1 d
+	d=$(mktemp -d)
+	unzip -q "/e2e/bin/upstream/cosmos-cloud-$v-amd64.zip" -d "$d"
+	mkdir -p /opt/cosmos
+	cp -a "$d/cosmos-cloud-$v/." /opt/cosmos/
+	rm -rf "$d"
+	chmod +x /opt/cosmos/cosmos /opt/cosmos/cosmos-launcher /opt/cosmos/start.sh
+	(cd /opt/cosmos && env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin COSMOS_HTTP_PORT=80 COSMOS_HTTPS_PORT=443 ./cosmos service install >"$OUT/service-install.txt" 2>&1) || true # (it ends with 1 on success)
+	check "upstream's own service install wrote the unit" test -f /etc/systemd/system/CosmosCloud.service
+	systemctl daemon-reload
+	systemctl start CosmosCloud
+	wait_panel 80
+	check "upstream's Cosmos $v runs" grep -q "\"version\": \"$v\"" /opt/cosmos/meta.json
+	# upstream asks no setup code: the header the helper sends is ignored
+	wizard_and_login upstream-asks-none
+	check "upstream made no setup code" test ! -e /var/lib/cosmos/setup-code
+	# the app: a container answering on 8099, and Cosmos's URL to it
+	tar -cf - --files-from /dev/null | docker import - e2e-empty:1 >/dev/null
+	docker run -d --name e2e-app -p 8099:8099 -v /e2e/bin:/b:ro e2e-empty:1 /b/helper serve 8099 >/dev/null
+	systemctl stop CosmosCloud
+	/e2e/bin/helper add-route /var/lib/cosmos/cosmos.config.json e2e-app app.srv-e2e.local http://127.0.0.1:8099
+	systemctl start CosmosCloud
+	wait_panel 80
+	check "the app answers through upstream's Cosmos" sh -c "curl -s -m 10 -H 'Host: app.srv-e2e.local' http://127.0.0.1/ | grep -qx e2e-app"
+}
+
+# the snapshots of both folders that the unit's own hooks take when it stops
+# and before it starts (the folders are still then): a rollback is proven
+# when the folders at upstream's restart are those at the migration's stop
+cosmos_snap() { # event
+	local f
+	f=$OUT/hook-$(date +%s%N)-$1
+	{
+		for d in /opt/cosmos /var/lib/cosmos; do
+			echo "== $d"
+			[ -d "$d" ] || continue
+			(cd "$d" && find . -xdev -printf '%y %m %U:%G %p -> %l\n' | LC_ALL=C sort && find . -xdev -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum)
+		done
+		echo "== unit"
+		sha256sum /etc/systemd/system/CosmosCloud.service 2>/dev/null || true
+	} >"$f"
+}
+add_snapshot_hooks() {
+	mkdir -p /etc/systemd/system/CosmosCloud.service.d
+	cat >/etc/systemd/system/CosmosCloud.service.d/e2e-snapshots.conf <<'HOOKS'
+[Service]
+ExecStopPost=/bin/bash -c 'export E2E_RUN_ID="$(cat /.cosmos-e2e-machine)"; . /e2e/bin/machine-lib.sh; cosmos_snap stop'
+ExecStartPre=/bin/bash -c 'export E2E_RUN_ID="$(cat /.cosmos-e2e-machine)"; . /e2e/bin/machine-lib.sh; cosmos_snap start'
+HOOKS
+	systemctl daemon-reload
+	rm -f "$OUT"/hook-*
+}
+# rolled_back_exactly: the folders and the unit at upstream's last start are
+# those at the first stop since the hooks were cleared, byte for byte
+rolled_back_exactly() {
+	local stop start
+	stop=$(ls "$OUT"/hook-*-stop 2>/dev/null | head -n 1)
+	start=$(ls "$OUT"/hook-*-start 2>/dev/null | tail -n 1)
+	check "the unit's hooks saw the stop and the restart" sh -c "test -n '$stop' && test -n '$start' && test '$start' '>' '$stop'"
+	if ! cmp -s "$stop" "$start"; then
+		echo "FAIL: the folders or the unit differ from those at the stop:"
+		diff "$stop" "$start" | head -n 20
+		return 1
+	fi
+	echo "ok: /opt/cosmos, /var/lib/cosmos and the unit are byte for byte those of before ($(grep -c '^[0-9a-f]\{64\}  ' "$stop") files)"
+	rm -f "$OUT"/hook-*
+}
+# upstream_back <version>: upstream's Cosmos runs again as before, nothing of the migration left
+upstream_back() {
+	PANEL_HOST=srv-e2e.local
+	check "upstream's Cosmos $1 is in /opt/cosmos" grep -q "\"version\": \"$1\"" /opt/cosmos/meta.json
+	check "it is active and enabled as before" sh -c "systemctl is-active --quiet CosmosCloud && [ \"\$(systemctl is-enabled CosmosCloud)\" = \"\$(cat $OUT/was-enabled)\" ]"
+	wait_panel 80
+	check "nothing of the migration is left" sh -c "test ! -e /opt/.cosmos-upstream-before-fork && ! ls -d /var/backups/cosmos-before-fork-* /opt/.cosmos-fork-tried.* /var/lib/.cosmos-migrate-replaced.* /opt/.cosmos-migrate-replaced.* >/dev/null 2>&1 && test ! -e /var/lib/cosmos-installer/state && test ! -e /var/lib/cosmos-installer/migration"
+	local code
+	rm -f "$JAR"
+	code=$(api POST login "{\"nickname\":\"admin\",\"password\":\"$E2E_PASSWORD\"}")
+	check "the administrator signs in (code $code)" test "$code" = 200
+}
+# upstream_unchanged <name>: what a refusal must leave as it was (the
+# folder, the unit, the service, the packages; nothing of a migration)
+upstream_state() { # name
+	{
+		(cd /opt/cosmos && find . -printf '%y %m %p\n' | sort)
+		sha256sum /etc/systemd/system/CosmosCloud.service /var/lib/cosmos/cosmos.config.json
+		systemctl is-enabled CosmosCloud || true
+		systemctl is-active CosmosCloud || true
+		dpkg-query -W -f='${db:Status-Abbrev} ${binary:Package}\n' | awk '$1=="ii"{print $2}' | sort
+		ls -d /var/lib/cosmos-installer /var/backups/cosmos-before-fork-* /opt/.cosmos-* 2>/dev/null || true
+	} >"$OUT/upstream-$1"
+}
+upstream_unchanged() { # name of the state taken before
+	upstream_state "$1-after"
+	if cmp -s "$OUT/upstream-$1" "$OUT/upstream-$1-after"; then echo "unchanged: $1"; else echo "CHANGED: $1"; diff "$OUT/upstream-$1" "$OUT/upstream-$1-after" | head -n 10; return 1; fi
+}
+# migrated_ok <version from>: the fork runs on upstream's data
+migrated_ok() {
+	PANEL_HOST=srv-e2e.local
+	check "the fork $VA is in /opt/cosmos" grep -q "\"version\": \"$VA\"" /opt/cosmos/meta.json
+	check "start.sh is upstream's (kept)" cmp -s /opt/cosmos/start.sh "$OUT/upstream-start.sh"
+	check "the unit is the one of before" sh -c "sha256sum /etc/systemd/system/CosmosCloud.service | cut -d' ' -f1 | grep -qx \$(cat $OUT/unit.sha)"
+	check "it is active and enabled as before" sh -c "systemctl is-active --quiet CosmosCloud && [ \"\$(systemctl is-enabled CosmosCloud)\" = \"\$(cat $OUT/was-enabled)\" ]"
+	wait_panel 80
+	check "no first-run setup code: no file" test ! -e /var/lib/cosmos/setup-code
+	check "and none in the journal" sh -c "! journalctl -u CosmosCloud --no-pager | grep -q 'SETUP CODE'"
+	local code
+	# a session upstream made is not one the fork accepts: it is sent to the
+	# sign-in page (everyone signs in once more after the migration)
+	code=$(api GET me "")
+	echo "with upstream's session cookie: $code"
+	rm -f "$JAR"
+	code=$(api POST login "{\"nickname\":\"admin\",\"password\":\"$E2E_PASSWORD\"}")
+	check "the administrator of upstream signs in with the old password (code $code)" test "$code" = 200
+	check "the app's URL still answers through Cosmos" sh -c "curl -s -m 10 -H 'Host: app.srv-e2e.local' http://127.0.0.1/ | grep -qx e2e-app"
+	check "the container is the same one, still running" sh -c "[ \"\$(docker inspect -f '{{.Id}} {{.State.Status}}' e2e-app)\" = \"\$(cat $OUT/app.id) running\" ]"
+	check "the settings kept the hostname and the URL" sh -c "grep -q '\"Hostname\": *\"srv-e2e.local\"' /var/lib/cosmos/cosmos.config.json && grep -q 'app.srv-e2e.local' /var/lib/cosmos/cosmos.config.json"
+	local b
+	b=$(sed -n 's/^backup //p' /var/lib/cosmos-installer/record)
+	check "the record says migrated from $1, and where the backup is" sh -c "grep -qx 'migrated-from $1' /var/lib/cosmos-installer/record && test -n '$b'"
+	check "the backup is private and complete" sh -c "[ \"\$(stat -c %a '$b')\" = 700 ] && test -f '$b/GOING-BACK.txt' && test -d '$b/opt-cosmos' && test -d '$b/var-lib-cosmos' && test -f '$b/MANIFEST.var-lib-cosmos'"
+	check "the backup holds upstream's Cosmos $1" grep -q "\"version\": \"$1\"" "$b/opt-cosmos/meta.json"
+	check "upstream's folder is not left aside" test ! -e /opt/.cosmos-upstream-before-fork
+}
+# note_upstream: what migrated_ok and upstream_back compare with
+note_upstream() {
+	cp /opt/cosmos/start.sh "$OUT/upstream-start.sh"
+	sha256sum /etc/systemd/system/CosmosCloud.service | cut -d' ' -f1 >"$OUT/unit.sha"
+	systemctl is-enabled CosmosCloud >"$OUT/was-enabled" || true
+	docker inspect -f '{{.Id}}' e2e-app >"$OUT/app.id"
+}

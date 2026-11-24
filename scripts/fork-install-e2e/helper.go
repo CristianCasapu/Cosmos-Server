@@ -14,11 +14,18 @@
 //	                                  (a character device), ctrlchar (a
 //	                                  control character in a name) or bomb
 //	                                  (3.5 GiB of zeros, honestly declared)
+//	helper add-route <config> <name> <host> <target>   add a URL to Cosmos's
+//	                                  settings (every other field kept)
+//	helper config-set <config> <key> <json>   set one top-level setting
+//	helper serve <port>               answer "e2e-app" on every request (the
+//	                                  program of a test container)
 package main
 
 import (
 	"archive/zip"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"io"
 	"os"
 	"strconv"
@@ -143,7 +150,76 @@ func addBad(w *zip.Writer, top, kind string) error {
 	return err
 }
 
+// editConfig reads Cosmos's settings as plain JSON, lets f change them and
+// writes them back with the file's mode (every field it does not touch kept).
+func editConfig(path string, f func(map[string]any) error) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var config map[string]any
+	if err := json.Unmarshal(data, &config); err != nil {
+		return err
+	}
+	if err := f(config); err != nil {
+		return err
+	}
+	out, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, info.Mode().Perm())
+}
+
 func main() {
+	if len(os.Args) == 6 && os.Args[1] == "add-route" {
+		err := editConfig(os.Args[2], func(c map[string]any) error {
+			httpConfig, _ := c["HTTPConfig"].(map[string]any)
+			if httpConfig == nil {
+				return fmt.Errorf("no HTTPConfig")
+			}
+			proxy, _ := httpConfig["ProxyConfig"].(map[string]any)
+			if proxy == nil {
+				proxy = map[string]any{}
+				httpConfig["ProxyConfig"] = proxy
+			}
+			routes, _ := proxy["Routes"].([]any)
+			proxy["Routes"] = append(routes, map[string]any{
+				"Name": os.Args[3], "Host": os.Args[4], "UseHost": true, "Target": os.Args[5],
+				"Mode": "PROXY", "AuthEnabled": false, "Timeout": 14400000,
+			})
+			return nil
+		})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) == 5 && os.Args[1] == "config-set" {
+		var value any
+		if err := json.Unmarshal([]byte(os.Args[4]), &value); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := editConfig(os.Args[2], func(c map[string]any) error { c[os.Args[3]] = value; return nil }); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) == 3 && os.Args[1] == "serve" {
+		http.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintln(w, "e2e-app") })
+		if err := http.ListenAndServe(":"+os.Args[2], nil); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) >= 3 && os.Args[1] == "lock-dpkg" {
 		seconds, _ := strconv.Atoi(os.Args[2])
 		a := lock("/var/lib/dpkg/lock-frontend")

@@ -53,6 +53,9 @@
 # BUILD (a folder build.sh made, for its static/; else ./static, which
 # "npx vite build --base=/cosmos-ui/" makes), KEEP=1, JOBS (systems in
 # parallel, default 4). SYSTEMS and CASES take only the names listed here.
+# UPSTREAM_CACHE: a folder that may already hold upstream's release zips the
+# migration cases use (checked by their SHA-256 all the same; else they are
+# downloaded from upstream's GitHub releases into SCRATCH).
 #
 # Results: $RESULTS (default $SCRATCH-results, kept after the clean-up)
 # /<system>-<case>.log and a summary; exit 1 when any case failed.
@@ -66,7 +69,7 @@ SCRATCH=${SCRATCH:-/storage/dev/.cache/$PREFIX/e2e}
 RESULTS=${RESULTS:-$SCRATCH-results}
 ALL_SYSTEMS="debian12 debian13 ubuntu2404 ubuntu2604"
 SYSTEMS=${SYSTEMS:-$ALL_SYSTEMS}
-ALL_CASES="fresh byhand refusals tampered dryrun unavailable locked aptdaily aptrace apthang aptfail netcut interrupt docker-there hop trust env pieces wizardbind"
+ALL_CASES="fresh byhand refusals tampered dryrun unavailable locked aptdaily aptrace apthang aptfail netcut interrupt docker-there hop trust env pieces wizardbind migrate migrate-refusals migrate-fail migrate-interrupt"
 CASES=${CASES:-$ALL_CASES}
 JOBS=${JOBS:-4}
 REPO=example-owner/cosmos-fork
@@ -87,6 +90,9 @@ UBUNTU2404=ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d2924
 UBUNTU2604=ubuntu:26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db
 GOIMAGE=golang:1.27@sha256:205c7636d74e0ffbe3d007162df7d74f859f5a8c8322dfb9f907977686c126cf
 SHELLCHECK_IMAGE=koalaman/shellcheck:v0.10.0@sha256:2097951f02e735b613f4a34de20c40f937a6c8f18ecb170612c88c34517221fb
+# upstream's public release zips (the community edition) the migration cases
+# install the upstream way, pinned by their SHA-256
+UPSTREAM_ZIPS="0.24.0:0d73174d2d6eb340721fd3a5b9f4c7523a7a85cd4f47216256cd9b9564a1e4ae 0.23.4:9202db1f5332d92c84a9e1f6f11f99da87795943234cb7ee6df3e530bde29884"
 
 log() { printf '[e2e] %s\n' "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
@@ -273,7 +279,7 @@ build_releases() {
 			{ echo cosmos-fork-release-v1; echo "version $v"; echo "sha256 $(sha256sum "$out/cosmos-cloud-$v-amd64.zip" | cut -d" " -f1) cosmos-cloud-$v-amd64.zip"; } >"$out/manifest"
 			openssl pkeyutl -sign -inkey "$SCR/keys/test.pem" -rawin -in "$out/manifest" -out "$out/signature"
 			{ cat "$out/manifest"; echo "signature $(base64 -w0 "$out/signature")"; } >"$out/cosmos-cloud-$v.sig"
-			{ echo cosmos-fork-scripts-v1; echo "version $v"; for s in install.sh uninstall.sh; do echo "sha256 $(sha256sum "$out/$s" | cut -d" " -f1) $s"; done; } >"$out/manifest.scripts"
+			{ echo cosmos-fork-scripts-v1; echo "version $v"; for s in install.sh migrate.sh uninstall.sh; do echo "sha256 $(sha256sum "$out/$s" | cut -d" " -f1) $s"; done; } >"$out/manifest.scripts"
 			openssl pkeyutl -sign -inkey "$SCR/keys/test.pem" -rawin -in "$out/manifest.scripts" -out "$out/signature.scripts"
 			{ cat "$out/manifest.scripts"; echo "signature $(base64 -w0 "$out/signature.scripts")"; } >"$out/cosmos-cloud-$v.scripts.sig"
 			rm "$out/manifest" "$out/signature" "$out/manifest.scripts" "$out/signature.scripts"
@@ -328,6 +334,28 @@ build_releases() {
 			{ cat $kind/manifest; echo "signature $(base64 -w0 $kind/s)"; } >$kind/$sig; rm $kind/manifest $kind/s
 		done'
 	log "releases: $(ls "$SCRATCH/rel" | tr '\n' ' ')"
+	# the test mode of the migration: the repository's unstamped script and the test key
+	cp "$HERE/fork/install/install.sh" "$SCRATCH/bin/install-unstamped.sh"
+	cp "$SCRATCH/keys/test.pub" "$SCRATCH/bin/test.pub"
+	upstream_zips
+}
+
+# upstream_zips: upstream's release zips into $SCRATCH/bin/upstream (the
+# machines see them read-only), from UPSTREAM_CACHE or upstream's releases,
+# each checked against its pinned SHA-256
+upstream_zips() {
+	local pair v sum f
+	mkdir -p "$SCRATCH/bin/upstream"
+	for pair in $UPSTREAM_ZIPS; do
+		v=${pair%%:*} sum=${pair#*:} f=cosmos-cloud-${pair%%:*}-amd64.zip
+		if [ -n "${UPSTREAM_CACHE:-}" ] && [ -f "$UPSTREAM_CACHE/$f" ]; then
+			cp "$UPSTREAM_CACHE/$f" "$SCRATCH/bin/upstream/$f"
+		else
+			curl -fsSL --proto '=https' --max-time 900 -o "$SCRATCH/bin/upstream/$f" "https://github.com/azukaar/Cosmos-Server/releases/download/v$v/$f"
+		fi
+		[ "$(sha256sum "$SCRATCH/bin/upstream/$f" | cut -d' ' -f1)" = "$sum" ] || die "upstream's $f is not the one pinned"
+	done
+	log "upstream's releases for the migration: $(ls "$SCRATCH/bin/upstream" | tr '\n' ' ')"
 }
 
 # ---- The Docker in Docker and the machines ---------------------------------------
@@ -790,6 +818,47 @@ case_wizardbind() { # where the wizard really listens: an untrusted marker said 
 	M "$m" m_wizardbind_2
 	D network disconnect "$PREFIX-$sys-v6" "$m" >/dev/null 2>&1 || true
 	D network rm "$PREFIX-$sys-v6" >/dev/null 2>&1 || true
+}
+
+case_migrate() { # upstream's Cosmos 0.24.0 (the fork's base) and 0.23.4 moved to the fork; then the fork's own update
+	local sys=$1 m UPV
+	for UPV in 0.24.0 0.23.4; do
+		[ -z "${m:-}" ] || D rm -f -v "$m" >/dev/null
+		m=$(start_machine "$sys" "migrate-${UPV//./}" docker)
+		M "$m" m_migrate_1 UPV
+	done
+	cp -r "$SCRATCH/rel/v$VB" "$SCRATCH/world/$sys/releases/"
+	M "$m" m_migrate_2 VB
+	rm -rf "$SCRATCH/world/$sys/releases/v$VB"
+}
+
+case_migrate_refusals() { # what is not migrated, each refused and nothing changed; a licence migrated with the flag
+	local sys=$1 m
+	# one machine at a time (each removed when done: privileged systemd
+	# machines of four systems at once can leave the next one dying at start)
+	m=$(start_machine "$sys" migrate-refusals-none docker)
+	M "$m" m_migrate_refusals_1
+	D rm -f -v "$m" >/dev/null
+	m=$(start_machine "$sys" migrate-refusals-fork docker)
+	M "$m" m_migrate_refusals_2
+	D rm -f -v "$m" >/dev/null
+	m=$(start_machine "$sys" migrate-refusals-upstream docker)
+	M "$m" m_migrate_refusals_3
+}
+
+case_migrate_fail() { # a failure at each step, a release that does not start, a container that changes: rolled back byte for byte
+	local sys=$1 m
+	m=$(start_machine "$sys" migrate-fail docker)
+	M "$m" m_migrate_fail_1
+	cp -r "$SCRATCH/rel/v$VC" "$SCRATCH/world/$sys/releases/"
+	M "$m" m_migrate_fail_2 VC
+	rm -rf "$SCRATCH/world/$sys/releases/v$VC"
+}
+
+case_migrate_interrupt() { # kill -9 at each step then --undo, byte for byte; killed after the swap then run again
+	local sys=$1 m
+	m=$(start_machine "$sys" migrate-interrupt docker)
+	M "$m" m_migrate_interrupt_1
 }
 
 case_fresh_fast() { # the checks of every push: install, refusal over it, a tampered zip, uninstall
