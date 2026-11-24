@@ -820,45 +820,51 @@ case_wizardbind() { # where the wizard really listens: an untrusted marker said 
 	D network rm "$PREFIX-$sys-v6" >/dev/null 2>&1 || true
 }
 
-case_migrate() { # upstream's Cosmos 0.24.0 (the fork's base) and 0.23.4 moved to the fork; then the fork's own update
-	local sys=$1 m UPV
-	for UPV in 0.24.0 0.23.4; do
-		[ -z "${m:-}" ] || D rm -f -v "$m" >/dev/null
-		m=$(start_machine "$sys" "migrate-${UPV//./}" docker)
-		M "$m" m_migrate_1 UPV
-	done
+case_migrate() { # upstream 0.24.0 (the fork's base) moved, then the fork's own update; 0.23.4 moved through the hop to a newer release's migrate.sh
+	local sys=$1 m UPV=0.24.0
+	m=$(start_machine "$sys" migrate-0240 docker)
+	M "$m" m_migrate_1 UPV
 	cp -r "$SCRATCH/rel/v$VB" "$SCRATCH/world/$sys/releases/"
 	M "$m" m_migrate_2 VB
+	D rm -f -v "$m" >/dev/null
+	# B is still the newest on the stand-in: A's migrate.sh hops to B's own
+	m=$(start_machine "$sys" migrate-0234 docker)
+	M "$m" m_migrate_hop VB
 	rm -rf "$SCRATCH/world/$sys/releases/v$VB"
 }
 
-case_migrate_refusals() { # what is not migrated, each refused and nothing changed; a licence migrated with the flag
-	local sys=$1 m
+case_migrate_refusals() { # what is not migrated, each refused (and its dry run) with nothing changed; a licence migrated with the flag
+	local sys=$1 m n
 	# one machine at a time (each removed when done: privileged systemd
 	# machines of four systems at once can leave the next one dying at start)
-	m=$(start_machine "$sys" migrate-refusals-none docker)
-	M "$m" m_migrate_refusals_1
-	D rm -f -v "$m" >/dev/null
-	m=$(start_machine "$sys" migrate-refusals-fork docker)
-	M "$m" m_migrate_refusals_2
-	D rm -f -v "$m" >/dev/null
-	m=$(start_machine "$sys" migrate-refusals-upstream docker)
-	M "$m" m_migrate_refusals_3
+	for n in 1 2 3 4; do
+		m=$(start_machine "$sys" "migrate-refusals-$n" docker)
+		M "$m" "m_migrate_refusals_$n"
+		D rm -f -v "$m" >/dev/null
+	done
 }
 
-case_migrate_fail() { # a failure at each step, a release that does not start, a container that changes: rolled back byte for byte
-	local sys=$1 m
-	m=$(start_machine "$sys" migrate-fail docker)
-	M "$m" m_migrate_fail_1
+case_migrate_fail() { # a failure at each step on 0.24.0 and on 0.23.4, a release that does not start, a container and the unit changed: put back byte for byte
+	local sys=$1 m UPV=0.24.0
+	m=$(start_machine "$sys" migrate-fail-0240 docker)
+	M "$m" m_migrate_fail_1 UPV
 	cp -r "$SCRATCH/rel/v$VC" "$SCRATCH/world/$sys/releases/"
 	M "$m" m_migrate_fail_2 VC
 	rm -rf "$SCRATCH/world/$sys/releases/v$VC"
+	D rm -f -v "$m" >/dev/null
+	# shellcheck disable=SC2034 # read by M (passed by name)
+	UPV=0.23.4
+	m=$(start_machine "$sys" migrate-fail-0234 docker)
+	M "$m" m_migrate_fail_1 UPV
 }
 
-case_migrate_interrupt() { # kill -9 at each step then --undo, byte for byte; killed after the swap then run again
-	local sys=$1 m
-	m=$(start_machine "$sys" migrate-interrupt docker)
-	M "$m" m_migrate_interrupt_1
+case_migrate_interrupt() { # kills at each step then --undo; the owner using the server meanwhile (run, dry run, uninstall, --undo); the backup moved; a kill during the rollback; a reboot after a kill; a resume
+	local sys=$1 m n
+	for n in 1 2 3; do
+		m=$(start_machine "$sys" "migrate-interrupt-$n" docker)
+		M "$m" "m_migrate_interrupt_$n"
+		D rm -f -v "$m" >/dev/null
+	done
 }
 
 case_fresh_fast() { # the checks of every push: install, refusal over it, a tampered zip, uninstall

@@ -297,13 +297,15 @@ rolled_back_exactly() {
 	echo "ok: /opt/cosmos, /var/lib/cosmos and the unit are byte for byte those of before ($(grep -c '^[0-9a-f]\{64\}  ' "$stop") files)"
 	rm -f "$OUT"/hook-*
 }
-# upstream_back <version>: upstream's Cosmos runs again as before, nothing of the migration left
+# upstream_back <version>: upstream's Cosmos runs again from its own folder,
+# as before; nothing of the migration is in the way (its backups may stay:
+# the script deletes nothing it did not make in that run)
 upstream_back() {
 	PANEL_HOST=srv-e2e.local
 	check "upstream's Cosmos $1 is in /opt/cosmos" grep -q "\"version\": \"$1\"" /opt/cosmos/meta.json
 	check "it is active and enabled as before" sh -c "systemctl is-active --quiet CosmosCloud && [ \"\$(systemctl is-enabled CosmosCloud)\" = \"\$(cat $OUT/was-enabled)\" ]"
 	wait_panel 80
-	check "nothing of the migration is left" sh -c "test ! -e /opt/.cosmos-upstream-before-fork && ! ls -d /var/backups/cosmos-before-fork-* /opt/.cosmos-fork-tried.* /var/lib/.cosmos-migrate-replaced.* /opt/.cosmos-migrate-replaced.* >/dev/null 2>&1 && test ! -e /var/lib/cosmos-installer/state && test ! -e /var/lib/cosmos-installer/migration"
+	check "no migration is in progress (no state, no notes, no folder aside)" sh -c "test ! -e /opt/.cosmos-upstream-before-fork && test ! -e /var/lib/cosmos-installer/state && test ! -e /var/lib/cosmos-installer/migration"
 	local code
 	rm -f "$JAR"
 	code=$(api POST login "{\"nickname\":\"admin\",\"password\":\"$E2E_PASSWORD\"}")
@@ -314,27 +316,37 @@ upstream_back() {
 upstream_state() { # name
 	{
 		(cd /opt/cosmos && find . -printf '%y %m %p\n' | sort)
-		sha256sum /etc/systemd/system/CosmosCloud.service /var/lib/cosmos/cosmos.config.json
+		sha256sum /etc/systemd/system/CosmosCloud.service /var/lib/cosmos/cosmos.config.json 2>/dev/null || true
 		systemctl is-enabled CosmosCloud || true
 		systemctl is-active CosmosCloud || true
 		dpkg-query -W -f='${db:Status-Abbrev} ${binary:Package}\n' | awk '$1=="ii"{print $2}' | sort
-		ls -d /var/lib/cosmos-installer /var/backups/cosmos-before-fork-* /opt/.cosmos-* 2>/dev/null || true
+		ls -d /var/lib/cosmos-installer /var/lib/cosmos-installer/* /var/backups/cosmos-before-fork-* /opt/.cosmos-* /opt/cosmos-upstream-* 2>/dev/null || true
 	} >"$OUT/upstream-$1"
 }
 upstream_unchanged() { # name of the state taken before
 	upstream_state "$1-after"
 	if cmp -s "$OUT/upstream-$1" "$OUT/upstream-$1-after"; then echo "unchanged: $1"; else echo "CHANGED: $1"; diff "$OUT/upstream-$1" "$OUT/upstream-$1-after" | head -n 10; return 1; fi
 }
-# migrated_ok <version from>: the fork runs on upstream's data
+# the wizard refuses as on a set-up server (403 NI001), and nothing listens
+# otherwise than noted before the migration
+wizard_closed() {
+	local code
+	code=$(curl -s -m 10 -o "$OUT/wizard.out" -w '%{http_code}' --resolve "srv-e2e.local:80:127.0.0.1" -H 'Content-Type: application/json' -X POST --data '{"step":"2"}' http://srv-e2e.local/cosmos/api/newInstall || true)
+	check "the first-run wizard refuses as on a set-up server (got $code)" sh -c "test '$code' = 403 && grep -q NI001 $OUT/wizard.out"
+}
+listening() { awk 'FNR > 1 && $4 == "0A" { split($2, a, ":"); if (a[2] == "0050" || a[2] == "01BB") print FILENAME, $2 }' /proc/net/tcp /proc/net/tcp6 | sort -u; }
+# migrated_ok <version from> [fork version]: the fork runs on upstream's data
 migrated_ok() {
+	local want=${2:-$VA}
 	PANEL_HOST=srv-e2e.local
-	check "the fork $VA is in /opt/cosmos" grep -q "\"version\": \"$VA\"" /opt/cosmos/meta.json
+	check "the fork $want is in /opt/cosmos" grep -q "\"version\": \"$want\"" /opt/cosmos/meta.json
 	check "start.sh is upstream's (kept)" cmp -s /opt/cosmos/start.sh "$OUT/upstream-start.sh"
 	check "the unit is the one of before" sh -c "sha256sum /etc/systemd/system/CosmosCloud.service | cut -d' ' -f1 | grep -qx \$(cat $OUT/unit.sha)"
 	check "it is active and enabled as before" sh -c "systemctl is-active --quiet CosmosCloud && [ \"\$(systemctl is-enabled CosmosCloud)\" = \"\$(cat $OUT/was-enabled)\" ]"
 	wait_panel 80
-	check "no first-run setup code: no file" test ! -e /var/lib/cosmos/setup-code
-	check "and none in the journal" sh -c "! journalctl -u CosmosCloud --no-pager | grep -q 'SETUP CODE'"
+	wizard_closed
+	listening >"$OUT/listen.after"
+	check "the same ports listen as before the migration" cmp -s "$OUT/listen.before" "$OUT/listen.after"
 	local code
 	# a session upstream made is not one the fork accepts: it is sent to the
 	# sign-in page (everyone signs in once more after the migration)
@@ -347,11 +359,12 @@ migrated_ok() {
 	check "the container is the same one, still running" sh -c "[ \"\$(docker inspect -f '{{.Id}} {{.State.Status}}' e2e-app)\" = \"\$(cat $OUT/app.id) running\" ]"
 	check "the settings kept the hostname and the URL" sh -c "grep -q '\"Hostname\": *\"srv-e2e.local\"' /var/lib/cosmos/cosmos.config.json && grep -q 'app.srv-e2e.local' /var/lib/cosmos/cosmos.config.json"
 	local b
-	b=$(sed -n 's/^backup //p' /var/lib/cosmos-installer/record)
+	b=$(sed -n 's/^backup //p' /var/lib/cosmos-installer/record | tail -n 1)
 	check "the record says migrated from $1, and where the backup is" sh -c "grep -qx 'migrated-from $1' /var/lib/cosmos-installer/record && test -n '$b'"
 	check "the backup is private and complete" sh -c "[ \"\$(stat -c %a '$b')\" = 700 ] && test -f '$b/GOING-BACK.txt' && test -d '$b/opt-cosmos' && test -d '$b/var-lib-cosmos' && test -f '$b/MANIFEST.var-lib-cosmos'"
 	check "the backup holds upstream's Cosmos $1" grep -q "\"version\": \"$1\"" "$b/opt-cosmos/meta.json"
-	check "upstream's folder is not left aside" test ! -e /opt/.cosmos-upstream-before-fork
+	check "upstream's folder is kept, named" grep -q "\"version\": \"$1\"" "/opt/cosmos-upstream-$1-before-fork/meta.json"
+	check "nothing is aside under the hidden name" test ! -e /opt/.cosmos-upstream-before-fork
 }
 # note_upstream: what migrated_ok and upstream_back compare with
 note_upstream() {
@@ -359,4 +372,42 @@ note_upstream() {
 	sha256sum /etc/systemd/system/CosmosCloud.service | cut -d' ' -f1 >"$OUT/unit.sha"
 	systemctl is-enabled CosmosCloud >"$OUT/was-enabled" || true
 	docker inspect -f '{{.Id}}' e2e-app >"$OUT/app.id"
+	listening >"$OUT/listen.before"
+}
+
+# ---- The owner's files, and what may exist after any migration case ---------
+# plant_marker <name>: a file the "owner" writes into the data now (it must
+# exist somewhere at the end of the case: the script moves, never deletes)
+plant_marker() {
+	local f=/var/lib/cosmos/e2e-owner-$1
+	printf 'written by the owner at %s\n' "$1" >"$f"
+	echo "$1" >>"$OUT/markers"
+	echo "the owner wrote $f"
+}
+# migration_invariant: what is on the machine is one of the states the design
+# allows, and every file the owner wrote is somewhere (named)
+migration_invariant() {
+	local kind state mstep m found
+	kind=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' /opt/cosmos/meta.json 2>/dev/null | head -n 1 || true)
+	state=none
+	[ ! -f /var/lib/cosmos-installer/state ] || state=present
+	mstep=$(sed -n 's/^mstep=//p' /var/lib/cosmos-installer/state 2>/dev/null | tail -n 1 || true)
+	echo "now: /opt/cosmos holds ${kind:-nothing}; state $state${mstep:+ (mstep $mstep)}; unit $(systemctl is-active CosmosCloud 2>/dev/null || true); aside: $(ls -d /opt/.cosmos-upstream-before-fork 2>/dev/null || echo none); kept: $(ls -d /opt/cosmos-upstream-* 2>/dev/null | tr '\n' ' ')backups: $(ls -d /var/backups/cosmos-before-fork-* 2>/dev/null | wc -l)"
+	case $kind in
+	*-fork.*)
+		check "invariant: the fork runs only with a completed migration and upstream's folder kept" sh -c "grep -qx 'completed=yes' /var/lib/cosmos-installer/state && ls -d /opt/cosmos-upstream-*-before-fork >/dev/null 2>&1 && systemctl is-active --quiet CosmosCloud && test ! -e /opt/.cosmos-upstream-before-fork" ;;
+	"")
+		echo "FAIL: invariant: /opt/cosmos holds no Cosmos"; return 1 ;;
+	*)
+		check "invariant: upstream runs from its own folder, no migration in progress" sh -c "systemctl is-active --quiet CosmosCloud && test ! -e /opt/.cosmos-upstream-before-fork && ! grep -qs '^mstep=' /var/lib/cosmos-installer/state" ;;
+	esac
+	for b in /var/backups/cosmos-before-fork-*; do
+		[ -e "$b" ] || continue
+		check "invariant: the backup $b is private and marked" sh -c "[ \"\$(stat -c '%u %a' '$b')\" = '0 700' ] && test -f '$b/.made-by-migrate.sh'"
+	done
+	[ -f "$OUT/markers" ] || return 0
+	while read -r m; do
+		found=$(find / -xdev -name "e2e-owner-$m" -not -path '/proc/*' -not -path '/e2e/*' 2>/dev/null | head -n 3 | tr '\n' ' ')
+		check "the owner's file '$m' is still there: $found" test -n "$found"
+	done <"$OUT/markers"
 }
