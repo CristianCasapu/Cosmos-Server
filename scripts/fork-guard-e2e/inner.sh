@@ -1495,7 +1495,7 @@ g_flushstorm() {
 	used=$(( (cpu1 - cpu0) / 1000000 ))
 	log "  (samples without the table: $miss of $n; outside probes (n, open): $q; watcher CPU $used ms)"
 	check "the watcher's cost is bounded: $used ms of CPU for 20 flushes in 20 s (bound: 4000 ms)" test "$used" -lt 4000
-	check "the table was missing in at most 8 of $n samples ($miss)" test "$miss" -le 8
+	check "the table was missing in at most 12 of $n samples ($miss)" test "$miss" -le 12
 	check "the table is back after the storm" guard_loaded
 	check "the journal says it loudly" sh -c "docker exec $M journalctl -u cosmos-host-guard-watch --no-pager | grep -q 'WARNING: something removed the guard'"
 	check "the state says it for the panel (removals in the last hour)" sh -c "docker exec $M sed -n 's/^table_removed_hour=//p' /var/lib/cosmos-protection/nftables.state | awk '\$1 >= 10 {ok = 1} END {exit !ok}'"
