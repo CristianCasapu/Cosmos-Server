@@ -217,21 +217,19 @@ func openMonitoringStore() error {
 			return nil
 		}
 		w, r, err := openPostgresStore(db)
+		swapped := false
 		if err == nil {
-			err = prepareStoreSchema(w, db)
-		}
-		if err != nil && w != nil {
-			w.Close()
-			r.Close()
-		}
-		if err == nil {
-			swapped := false
-			defer func() { // a panic between the opening and the swap does not leak the pools
+			// a failure or a panic between the opening and the swap (the
+			// schema included) does not leak the new pools (review round 2, M2)
+			defer func() {
 				if !swapped {
 					w.Close()
 					r.Close()
 				}
 			}()
+			err = prepareStoreSchema(w, db)
+		}
+		if err == nil {
 			// an outage told for another server (the settings changed while
 			// it lasted) is closed in the store it was written to
 			prev := GetMonitoringStoreState()

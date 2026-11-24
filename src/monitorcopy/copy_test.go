@@ -601,8 +601,9 @@ func TestVerificationSeesAChangedClosedBucket(t *testing.T) {
 }
 
 // A value that is not a finite number (PostgreSQL's DOUBLE PRECISION holds
-// NaN and infinities) is stored as 0 in the local file, which cannot hold it
-// in a NOT NULL column, and said; towards PostgreSQL nothing is replaced.
+// NaN and infinities) cannot be held by the local file's NOT NULL column: it
+// is stored as the neutral value (1 for time_scale, the scale the panel
+// divides by) and said; towards PostgreSQL nothing is replaced.
 func TestNotANumber(t *testing.T) {
 	if len(dialects()) < 2 {
 		t.Skip("no PostgreSQL")

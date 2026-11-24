@@ -1007,3 +1007,61 @@ func TestOwnerAdvice(t *testing.T) {
 		t.Error(b)
 	}
 }
+
+// Review round 2, M2: a panic between the opening of PostgreSQL's pools and
+// the swap (here in the schema step) closes the new pools.
+func TestPanicBeforeTheSwapClosesTheNewPools(t *testing.T) {
+	withMonitoringStore(t, DatabaseConfig{PostgresHost: "192.0.2.10:5432", PostgresUsername: "cosmos", PostgresPassword: "x"}, nil)
+	fakePostgres(t)
+	open := openPostgresStore
+	var opened []*sql.DB
+	openPostgresStore = func(d DatabaseConfig) (*sql.DB, *sql.DB, error) {
+		w, r, err := open(d)
+		opened = append(opened, w, r)
+		return w, r, err
+	}
+	prepareStoreSchema = func(*sql.DB, DatabaseConfig) error { panic("schema") }
+	func() {
+		defer func() { _ = recover() }()
+		InitMetricsDatabase()
+	}()
+	if len(opened) != 2 {
+		t.Fatalf("pools opened: %d", len(opened))
+	}
+	for i, db := range opened {
+		if err := db.Ping(); err == nil || !strings.Contains(err.Error(), "closed") {
+			t.Errorf("pool %d left open after the panic: %v", i, err)
+		}
+	}
+}
+
+// Review round 2, M8: the outage's notice is closed in the local file
+// through a handle of its own (the store's may be closed or draining), and
+// again while another connection holds the file longer than its busy
+// timeout.
+func TestOutageResolvedThroughItsOwnHandleWhileBusy(t *testing.T) {
+	resolve := monitoringResolveDown
+	withMonitoringStore(t, DatabaseConfig{}, nil)
+	InitMetricsDatabase()
+	local, _ := MonitoringWriteDB()
+	if _, err := local.Exec("INSERT INTO notifications(node, recipient, title, date, fork_kind, fork_thread, fork_first, fork_info) VALUES('n', 'admin', 't', 1, 'monitoring.store.down', ?, 1, '{}')", monitoringStoreThread); err != nil {
+		t.Fatal(err)
+	}
+	CloseMetricsDatabase() // the store's handle is gone
+	holder, err := sql.Open(DialectSQLite, localFileDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Close()
+	tx, err := holder.Begin() // _txlock=immediate: the write lock, held
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { time.Sleep(5500 * time.Millisecond); tx.Rollback() }()
+	resolve()
+	check, _ := sql.Open(DialectSQLite, localFileDSN())
+	defer check.Close()
+	if at := unresolvedOutage(check); !at.IsZero() {
+		t.Errorf("the outage's notice is still open: %v", at)
+	}
+}

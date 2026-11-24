@@ -72,6 +72,17 @@ const putConfig = async (ctx, config, query = '') => {
   const r = await ctx.request.put(base + '/cosmos/api/config' + query, { data: config });
   return { status: r.status(), body: await r.text() };
 };
+const copyState = async (ctx) => (await (await ctx.request.get(base + '/cosmos/api/monitoring-copy')).json()).data || {};
+// the catch-up of a fallback's rows (review round 2, S4b): ended, and how
+const waitCatchUp = async (ctx, after, seconds) => {
+  let c = {};
+  for (let i = 0; i < seconds; i += 1) {
+    c = await copyState(ctx).catch(() => ({}));
+    if (c.catchUp && new Date(c.catchUp.finishedAt).getTime() >= after) return c.catchUp;
+    await sleep(1000);
+  }
+  return c.catchUp || {};
+};
 const storeState = async (ctx) => (await (await ctx.request.get(base + '/cosmos/api/monitoring-store')).json()).data || {};
 const waitBack = async (ctx) => {
   for (let i = 0; i < 30; i += 1) {
@@ -320,6 +331,14 @@ phases.down = async (page, id, size, ctx) => {
   s = await waitState(ctx, (st) => st.inUse === 'pgx' && !st.fallback, 420);
   expect(id + ': started again: healed without a restart', s.inUse === 'pgx' && !s.fallback, JSON.stringify(s));
   expect(id + ': the period in the local file is known', !!s.localFrom && !!s.localTo, JSON.stringify(s));
+  // the rows written meanwhile into the local file are caught up by themselves
+  const caught = await waitCatchUp(ctx, stoppedAt, 120);
+  expect(id + ': the rows of the outage are caught up by themselves', caught.outcome === 'done' && caught.written > 0 && !caught.missing, JSON.stringify(caught));
+  await openExternal(page);
+  const line2 = page.locator('[data-fork-copy-catchup]');
+  await line2.waitFor({ timeout: 20000 }).catch(() => {});
+  expect(id + ': External says it', /Caught up [\d.,\s\u00a0\u202f]+ records written while the database was away/.test(await line2.innerText().catch(() => '')), await line2.innerText().catch(() => ''));
+  await shotOf(line2, id, 'catchup');
   await sleep(2000);
   expect(id + ': the notice that it answers again is in PostgreSQL', (await pgCount("notifications where fork_kind='monitoring.store.restored'")) >= 1);
 };
@@ -338,8 +357,12 @@ phases.start = async (page, id, size, ctx) => {
   await page.locator('[data-fork-monitoring-fallback]').first().waitFor({ timeout: 20000 }).catch(() => {});
   expect(id + ': the monitoring page says it', await page.locator('[data-fork-monitoring-fallback]').count() > 0);
   await docker('/containers/postgresql/start');
-  s = await waitState(ctx, (st) => st.inUse === 'pgx' && !st.fallback, 420);
-  expect(id + ': healed by itself', s.inUse === 'pgx' && !s.fallback, JSON.stringify(s));
+  const startedDown = Date.now();
+  s = await waitState(ctx, (st) => st.inUse === 'pgx' && !st.fallback, 120);
+  // a reboot: back on the first good probe (review round 2, S4a), not after the steady minute
+  expect(id + ': healed by itself, on the first good probe after the start', s.inUse === 'pgx' && !s.fallback && Date.now() - startedDown < 60000, `${Date.now() - startedDown} ms ` + JSON.stringify(s));
+  const caught = await waitCatchUp(ctx, startedDown - 120000, 120);
+  expect(id + ': the rows written while the database was starting are caught up', caught.outcome === 'done' && caught.written > 0 && !caught.missing, JSON.stringify(caught));
 };
 
 // After the switch: the copy of the local file's history is offered, runs with progress, and the

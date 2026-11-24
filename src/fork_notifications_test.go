@@ -231,3 +231,23 @@ func TestEveryNotificationTextUsedHasEnglish(t *testing.T) {
 		t.Errorf("only %d keys found: the scan is broken", count)
 	}
 }
+
+// Review round 2, M5: the list names the store it was read from; when the
+// store changed during the read, it is read again and the new store named.
+func TestNotificationsNameTheStoreTheyWereReadFrom(t *testing.T) {
+	notificationRouter(t)
+	reads := 0
+	store, ok := ofOneStore(func() bool {
+		reads++
+		if reads == 1 { // the store changes while the first read runs
+			utils.CloseMetricsDatabase()
+			if err := utils.InitMetricsDatabase(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return true
+	})
+	if !ok || reads != 2 || store == "" || store != utils.MonitoringStoreID() {
+		t.Errorf("ok %v, reads %d, store %q, now %q", ok, reads, store, utils.MonitoringStoreID())
+	}
+}
