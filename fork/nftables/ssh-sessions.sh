@@ -31,10 +31,16 @@
 # process can set that title, and it exists for every signed-in connection,
 # tunnels without a terminal (ssh -N, -W, ProxyJump) included. A connection
 # whose monitor has no user yet is a stranger still signing in: not a session.
-# dropbear and tinysshd do not say: a connection whose process has dropped to a
-# user's uid, or has started a child (the shell or the command), is signed in;
-# any other is "unsure" (a stranger still signing in, or root's own tunnel,
-# cannot be told apart).
+# dropbear and tinysshd do not say it in a title. A connection is signed in when
+# its process has dropped to a user's uid (dropbear from 2024 on), has started a
+# child (the shell or the command), or, for dropbear, when the journal holds its
+# own line "... auth succeeded for '<user>' ... from <this peer's address:port>"
+# written by root's dropbear binary (journald's _UID, _EXE and _PID come from the
+# kernel: no user can forge them); dropbear up to 2022 (Debian 12, Ubuntu 24.04)
+# keeps a signed-in tunnel (-N) as root without a child, so only that line tells
+# it from a stranger still signing in. Any other connection is "unsure": a
+# stranger still signing in and root's own tunnel cannot be told apart (also when
+# dropbear logs nowhere the journal sees, e.g. with -E to a file).
 
 set -eu
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
@@ -123,6 +129,26 @@ signed_in_openssh() { # pid: yes when a root OpenSSH process from it up carries 
 	return 1
 }
 
+# dropbear_logged <connection pid> <peer as ss prints it>: root's dropbear wrote,
+# from that process (or from its listener, when dropbear logs to its standard
+# error under systemd), that this peer's address and port signed in
+dropbear_logged() {
+	command -v journalctl >/dev/null 2>&1 || return 1
+	pa=${2%:*}; pp=${2##*:}
+	pa=${pa#[}; pa=${pa%]}; pa=${pa%%%*}
+	case "$pp" in ''|*[!0-9]*) return 1 ;; esac
+	for lp in "$1" $LPIDS; do
+		exe=$(readlink "/proc/$lp/exe" 2>/dev/null || true)
+		exe=${exe% (deleted)}
+		[ -n "$exe" ] || continue
+		if timeout 5 journalctl -q --no-pager -b -o cat _PID="$lp" _UID=0 _EXE="$exe" 2>/dev/null |
+			awk -v a="$pa:$pp" -v b="::ffff:$pa:$pp" '/ auth succeeded for / && $(NF - 1) == "from" && ($NF == a || $NF == b) {found = 1} END {exit !found}'; then
+			return 0
+		fi
+	done
+	return 1
+}
+
 # accepted <holder pid> <server>: the holder descends from one of $LPIDS (the
 # listeners of that socket), or is that server's process whose parent is pid 1;
 # prints the process just below the listener (the connection's own process)
@@ -168,6 +194,7 @@ sessions() {
 					if [ "$(uid_of "$conn")" != 0 ] || [ -n "$(cat /proc/"$conn"/task/*/children 2>/dev/null | tr -d ' \n')" ]; then
 						state=yes; break
 					fi
+					if [ "$kind" = dropbear ] && dropbear_logged "$conn" "$peer"; then state=yes; break; fi
 					state=unsure ;;
 			esac
 		done

@@ -865,7 +865,9 @@ else
 	say "  SSH         no SSH session is open now (ports $SSH_PORTS)"
 fi
 [ -z "$UNSURE_OUTSIDE" ] || say "              connections from outside to dropbear or tinysshd that may still be signing in
-              (they cannot be told apart from root's own session):$UNSURE_OUTSIDE; no allowance"
+              (they cannot be told apart from root's own session):$UNSURE_OUTSIDE; no allowance.
+              If one of them is yours, run this again with --ssh from <that address>, or come in
+              from home or through a VPN"
 [ -z "$HINT_NOTE" ] || say "              ($HINT_NOTE)"
 [ -z "$UNEXPLAINED_TTY" ] || say "              this run's terminal ($UNEXPLAINED_TTY) belongs to no SSH session (tmux, screen, a web terminal?)"
 case "$SSH_MODE" in

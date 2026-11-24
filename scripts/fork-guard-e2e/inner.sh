@@ -1371,26 +1371,48 @@ sleep 85"
 	docker exec "$OC" sh -c 'pkill -f "ssh .*-N"; true'
 	docker exec "$OC2" sh -c 'pkill -f "nc .*7000"; true'
 
-	# dropbear: a stranger still signing in, and a signed-in tunnel
-	m sh -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends dropbear-bin >/dev/null 2>&1; mkdir -p /etc/dropbear; [ -e /etc/dropbear/k ] || dropbearkey -t ed25519 -f /etc/dropbear/k >/dev/null 2>&1; dropbear -r /etc/dropbear/k -p 2022 -E 2>/dev/null'
+	# dropbear as its package runs it (a unit, logging to the journal): a stranger
+	# still signing in, a forged log line, and a signed-in tunnel
+	m sh -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends dropbear-bin >/dev/null 2>&1; mkdir -p /etc/dropbear; [ -e /etc/dropbear/k ] || dropbearkey -t ed25519 -f /etc/dropbear/k >/dev/null 2>&1; systemd-run --quiet --unit=test-dropbear /usr/sbin/dropbear -EF -r /etc/dropbear/k -p 2022'
 	sleep 1
 	docker exec -d "$OC2" sh -c "sleep 60 | nc $TM6 2022 > /dev/null"
 	sleep 2
+	# a normal user writes dropbear's line for the stranger into the journal
+	sport=$(m sh -c "ss -Htn state established | awk '\$3 ~ /:2022\$/ && \$4 ~ /$OC26/ {n = split(\$4, a, \":\"); print a[n]; exit}'")
+	m su tester -s /bin/sh -c "logger -t dropbear \"Pubkey auth succeeded for 'tester' with ssh-ed25519 key SHA256:x from $OC26:$sport\""
 	guard_install "$HC" --yes --port 2053
 	expect_rc 4 "a stranger's connection to dropbear (it cannot be told from root's own tunnel) refuses an unattended run"
 	check "it says why" says "cannot be told apart from root"
 	guard_uninstall # (when a broken guard installed itself, the next cases start from nothing again)
 	dry_run_from "$HC"
-	check_not "an interactive run offers the stranger no allowance" says "ONLY.*$OC26"
+	check_not "an interactive run offers the stranger no allowance (a user's forged log line does not count)" says "ONLY.*$OC26"
+	check "and says what to do instead" says "run this again with --ssh from"
 	docker exec "$OC2" sh -c 'pkill -f "nc .*2022"; true'
 	sleep 1
 	docker exec -d "$OC" sh -c "ssh -p 2022 $SSHO -N tester@$TM6"
 	sleep 3
 	dry_run_from "$HC"
-	check "a signed-in dropbear tunnel from outside gets the allowance" says "ONLY $OC6 may reach SSH"
+	check "a signed-in dropbear tunnel from outside gets the allowance (its own log line in the journal)" says "ONLY $OC6 may reach SSH"
 	guard_install "$HC" --yes --port 2053
 	expect_rc 4 "a signed-in dropbear tunnel from outside refuses an unattended run"
 	guard_uninstall # (when a broken guard installed itself, the next cases start from nothing again)
+	docker exec "$OC" sh -c 'pkill -f "ssh .*2022"; true'
+	m systemctl stop test-dropbear
+	# dropbear logging nowhere the journal sees: before 2024 a signed-in tunnel keeps
+	# root's uid and starts no child, so it cannot be told from a stranger (unsure:
+	# no allowance, the advice said); from 2024 on it drops to the user's uid
+	m sh -c 'dropbear -r /etc/dropbear/k -p 2022 -E 2>/dev/null'
+	sleep 1
+	docker exec -d "$OC" sh -c "ssh -p 2022 $SSHO -N tester@$TM6"
+	sleep 3
+	year=$(m sh -c 'dropbear -V 2>&1 | grep -o "v20[0-9][0-9]" | tr -d v' | head -n 1)
+	dry_run_from "$HC"
+	if [ "${year:-0}" -ge 2024 ]; then
+		check "dropbear $year, not logged: a signed-in tunnel (the user's uid) gets the allowance" says "ONLY $OC6 may reach SSH"
+	else
+		check_not "dropbear ${year:-?}, not logged: a signed-in tunnel cannot be told from a stranger: no allowance" says "ONLY $OC6 may reach SSH"
+		check "dropbear ${year:-?}, not logged: the advice is said" says "run this again with --ssh from"
+	fi
 	docker exec "$OC" sh -c 'pkill -f "ssh .*2022"; true'
 	m pkill dropbear
 }
