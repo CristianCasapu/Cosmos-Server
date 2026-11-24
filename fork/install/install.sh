@@ -631,7 +631,12 @@ docker_answers() {
 		dockerd --version 2>/dev/null | sed -n 's/^Docker version \([0-9][0-9.]*\).*/\1/p' | head -n 1
 	fi
 }
-if command -v docker >/dev/null 2>&1 || [ -e /snap/bin/docker ] || command -v dockerd >/dev/null 2>&1; then
+if [ "$RESUMING" = 1 ] && recorded "package docker-ce"; then
+	# Docker's packages of the interrupted run of this script (perhaps left
+	# half-configured, so the daemon may not answer yet): its own, finished
+	# with the rest (dpkg --configure -a, then the packages step)
+	DOCKER_NOTE="Docker's packages were installed by the interrupted run of this script: they are finished with the rest."
+elif command -v docker >/dev/null 2>&1 || [ -e /snap/bin/docker ] || command -v dockerd >/dev/null 2>&1; then
 	docker_bin=$(command -v docker || command -v dockerd || echo /snap/bin/docker)
 	server_version=$(docker_answers)
 	origin="installed by hand"
@@ -725,7 +730,10 @@ apt_run() {
 	local bound=$1 started=$SECONDS rc=0
 	shift
 	APT_SCOPES=$((APT_SCOPES + 1))
-	systemd-run --scope --quiet --collect --unit="cosmos-install-apt-$$-$APT_SCOPES" \
+	# the subshell's own pid too: a call in a pipeline or in $(...) counts in
+	# its subshell, and two such calls in a row must not ask for the same
+	# name while systemd still holds the first
+	systemd-run --scope --quiet --collect --unit="cosmos-install-apt-$$-$BASHPID-$APT_SCOPES" \
 		-p RuntimeMaxSec="$bound" -p TimeoutStopSec=20 -- "$@" || rc=$?
 	APT_RAN_FOR=$((SECONDS - started))
 	return "$rc"
