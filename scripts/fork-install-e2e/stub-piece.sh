@@ -6,7 +6,8 @@
 # installer's side of the interface is tested without the pieces of
 # branch work/guard. It writes /etc/cosmos-e2e-stub-<piece> and records it;
 # /etc/cosmos-e2e-stub-<piece>.exit, when present, holds the exit code to
-# give instead (to try the installer's handling of 1, 3, 4).
+# give instead (to try the installer's handling of 1, 3, 4);
+# /etc/cosmos-e2e-stub-<piece>.packages, the packages --print-packages names.
 set -eu
 piece=$(basename "$(dirname "$0")")
 mode=install
@@ -15,7 +16,7 @@ record="" yes=0
 all="$*"
 while [ $# -gt 0 ]; do
 	case $1 in
-	--print-packages) exit 0 ;;
+	--print-packages) cat "/etc/cosmos-e2e-stub-$piece.packages" 2>/dev/null || true; exit 0 ;;
 	--yes) yes=1 ;;
 	--dry-run) exit 0 ;;
 	--record) record=$2; shift ;;

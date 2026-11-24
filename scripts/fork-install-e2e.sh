@@ -590,6 +590,9 @@ case_pieces() { # the real protection pieces of the repository (not the stubs), 
 	m=$(start_machine "$sys" pieces docker)
 	M "$m" m_pieces_1 VR
 	rm -rf "$SCRATCH/world/$sys/releases/v$VR"
+	# the pieces' packages: simulated only for pieces that run (the stubs of A)
+	m=$(start_machine "$sys" pieces2 docker)
+	M "$m" m_pieces_2
 }
 
 run_case() { # system case

@@ -26,6 +26,25 @@ export LC_ALL=C
 
 fail() { echo "::error::$*" >&2; exit 1; }
 
+# The systems install.sh supports, in words, from its one list (the line
+# SUPPORTED_SYSTEMS="debian:12 ..."): what the release notes say.
+#   bash scripts/fork-release-package.sh --systems-of fork/install/install.sh
+systems_of() {
+	local list d="" u="" s
+	list=$(sed -n 's/^SUPPORTED_SYSTEMS="\([a-z0-9.: ]*\)"$/\1/p' "$1")
+	[ "$(printf '%s\n' "$list" | grep -c .)" = 1 ] || fail "$1 has no single SUPPORTED_SYSTEMS line"
+	for s in $list; do
+		case $s in
+		debian:[0-9]*) d=${d:+$d/}${s#*:} ;;
+		ubuntu:[0-9]*) u=${u:+$u/}${s#*:} ;;
+		*) fail "$1: '$s' in SUPPORTED_SYSTEMS is neither debian:<n> nor ubuntu:<n>" ;;
+		esac
+	done
+	if [ -z "$d" ] || [ -z "$u" ]; then fail "$1: SUPPORTED_SYSTEMS lacks Debian or Ubuntu"; fi
+	printf 'Debian %s or Ubuntu %s\n' "$d" "$u"
+}
+if [ "${1:-}" = --systems-of ]; then systems_of "$2"; exit 0; fi
+
 BUILD="" VERSION="" REPOSITORY="" OUT="" KEYS=src/forkrelease/keys.go ARCHES="amd64 arm64"
 UPSTREAM="" BUILD_NUMBER="" PREVIOUS="" DEPS_NOTES=1
 while [ $# -gt 0 ]; do
@@ -71,6 +90,7 @@ sed -e "s|^RELEASE_KEYS='@FORK_RELEASE_KEYS@'\$|RELEASE_KEYS='$keys'|" \
 ! grep -q '@FORK_RELEASE_[A-Z]*@' "$WORK/install.sh" || fail "a placeholder survived in install.sh"
 [ "$(sed -n "s/^RELEASE_KEYS='\(.*\)'\$/\1/p" "$WORK/install.sh")" = "$keys" ] || fail "the keys in install.sh are not those of $KEYS"
 bash -n "$WORK/install.sh" || fail "the stamped install.sh is not valid bash"
+SYSTEMS_WORDS=$(systems_of "$WORK/install.sh") # what the notes say it supports (fails here when it cannot tell)
 cp "$FORK_DIR/install/uninstall.sh" "$WORK/uninstall.sh"
 bash -n "$WORK/uninstall.sh" || fail "uninstall.sh is not valid bash"
 chmod 755 "$WORK/install.sh" "$WORK/uninstall.sh"
@@ -134,7 +154,7 @@ if [ "$DEPS_NOTES" = 1 ]; then
 	{
 		echo "Fork build $BUILD_NUMBER on top of upstream Cosmos $UPSTREAM (commit ${GITHUB_SHA:-unknown})."
 		echo
-		echo "Install on a Debian 12/13 or Ubuntu 22.04/24.04/26.04 server (amd64 or arm64), as root:"
+		echo "Install on a $SYSTEMS_WORDS server (amd64 or arm64), as root:"
 		echo
 		echo '```'
 		echo "curl -fsSLO https://github.com/$REPOSITORY/releases/download/v$VERSION/install.sh"

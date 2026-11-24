@@ -450,6 +450,34 @@ m_pieces_1() { # VR from the host
 		check "uninstall ends well" sh -c "test ! -e /opt/cosmos"
 }
 
+m_pieces_2() {
+	# the pieces' packages are simulated only for pieces that will run, as
+	# they name them: never a list of the installer's own
+	printf "Package: fail2ban python3 nftables unattended-upgrades\nPin: release *\nPin-Priority: -1\n" >/etc/apt/preferences.d/e2e-no-pieces
+	DEBIAN_FRONTEND=noninteractive apt-get -q update >/dev/null
+	check "apt cannot install fail2ban here" sh -c "! apt-get -s -q install fail2ban >/dev/null 2>&1"
+	# 1. the stubs (they run) name no package: installed, whatever apt lacks
+	snap before
+	rc=0; install_a --yes --protection yes --unattended-upgrades yes </dev/null >/e2e/out/pieces2.txt 2>&1 || rc=$?
+	tail -n 8 /e2e/out/pieces2.txt
+	check "installed with the three pieces run (exit 0)" test $rc = 0
+	for p in unattended-upgrades fail2ban nftables; do check "the piece $p ran" grep -qx "piece-ran $p" /var/lib/cosmos-installer/record; done
+	check "no package of the pieces was simulated" sh -c "! grep -qE 'Missing: .*(fail2ban|unattended-upgrades)' /e2e/out/pieces2.txt"
+	bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null >/e2e/out/pieces2-un.txt 2>&1
+	check "uninstalled" test ! -e /opt/cosmos
+	# 2. a piece that will run names a package apt cannot install: refused
+	# before any change (exit 6)
+	echo fail2ban >/etc/cosmos-e2e-stub-fail2ban.packages
+	snap refused-before
+	rc=0; install_a --yes --protection yes </dev/null >/e2e/out/pieces3.txt 2>&1 || rc=$?
+	tail -n 6 /e2e/out/pieces3.txt
+	check "a package a piece needs and apt lacks: exit 6" test $rc = 6
+	check "it names the package" grep -q "fail2ban" /e2e/out/pieces3.txt
+	rm -f /etc/cosmos-e2e-stub-fail2ban.packages
+	same refused-before after-refused
+	rm -f /etc/apt/preferences.d/e2e-no-pieces
+}
+
 m_fresh_fast_1() {
 	snap before; install_a --yes </dev/null; installed_ok 80; record_matches before
 		code=$(curl -s -o /e2e/out/r.json -w "%{http_code}" -X POST -H "Content-Type: application/json" --data "{}" http://127.0.0.1/cosmos/api/setup)

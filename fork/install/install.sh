@@ -72,10 +72,12 @@
 #   --wizard-on-lan          [wizard-on-lan=yes] the first-run wizard answers on the
 #                            network, in clear HTTP, until it is done. Without it, the
 #                            wizard of a server that is not at home (placement other
-#                            than home, reachable from the internet, or a public IPv4
-#                            address on an interface) answers on 127.0.0.1 only, through
-#                            an SSH tunnel (the line is printed); at home it answers on
-#                            the home network and the tunnel is offered
+#                            than home, reachable from the internet, a public IPv4
+#                            address on an interface, or a global IPv6 address, which
+#                            the internet may reach) answers on 127.0.0.1 only, through
+#                            an SSH tunnel (the line is printed); at home without
+#                            either it answers on the home network and the tunnel is
+#                            offered
 #   --reuse-data             install over the data folder the fork left (upstream's
 #                            data is migrate.sh's job)
 #   --allow-older            install a release older than this script (refused
@@ -514,6 +516,17 @@ if [ "$DRY_RUN" = 0 ]; then
 fi
 
 # ---- 2. The system ----------------------------------------------------------
+# The systems this script supports, as <ID>:<VERSION_ID> of /etc/os-release:
+# the ONE list. The release notes name what it says
+# (scripts/fork-release-package.sh reads this line; a test compares them).
+SUPPORTED_SYSTEMS="debian:12 debian:13 ubuntu:24.04 ubuntu:26.04"
+supported_words() { # "Debian 12/13 or Ubuntu 24.04/26.04"
+	local d="" u="" s
+	for s in $SUPPORTED_SYSTEMS; do
+		case $s in debian:*) d=${d:+$d/}${s#*:} ;; ubuntu:*) u=${u:+$u/}${s#*:} ;; esac
+	done
+	printf 'Debian %s or Ubuntu %s' "$d" "$u"
+}
 step "Checking the system"
 [ -r /etc/os-release ] || die $EXIT_SYSTEM "/etc/os-release is missing: this is not a system this script knows"
 OS_ID=$(sed -n 's/^ID=//p' /etc/os-release | tr -d '"' | head -n 1)
@@ -523,18 +536,16 @@ OS_UBUNTU_CODENAME=$(sed -n 's/^UBUNTU_CODENAME=//p' /etc/os-release | tr -d '"'
 OS_LIKE=$(sed -n 's/^ID_LIKE=//p' /etc/os-release | tr -d '"' | head -n 1)
 OS_NAME=$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release | tr -d '"' | head -n 1 | tr -cd 'A-Za-z0-9 ._()/-')
 supported=0
-case "$OS_ID $OS_VERSION" in
-"debian 12" | "debian 13" | "ubuntu 24.04" | "ubuntu 26.04") supported=1 ;;
-esac
+case " $SUPPORTED_SYSTEMS " in *" $OS_ID:$OS_VERSION "*) [ -z "$OS_VERSION" ] || supported=1 ;; esac
 if [ "$supported" = 0 ]; then
 	case " $OS_ID $OS_LIKE " in
 	*" debian "* | *" ubuntu "*) ;;
 	*) die $EXIT_SYSTEM "$OS_NAME is not Debian or Ubuntu: this script only knows apt systems." ;;
 	esac
 	if [ "$FORCE" = 1 ]; then
-		warn "$OS_NAME is not a supported system (Debian 12 or 13, Ubuntu 24.04 or 26.04): going on because of --force, at your own risk."
+		warn "$OS_NAME is not a supported system ($(supported_words)): going on because of --force, at your own risk."
 	else
-		die $EXIT_SYSTEM "$OS_NAME is not supported (Debian 12 or 13, Ubuntu 24.04 or 26.04). Add --force to try anyway, at your own risk."
+		die $EXIT_SYSTEM "$OS_NAME is not supported (supported: $(supported_words)). Add --force to try anyway, at your own risk."
 	fi
 fi
 # Docker's repository: by the system's own name and code name; on a
@@ -678,16 +689,13 @@ TOOLS=(ca-certificates curl unzip openssl)
 BASE=(iproute2 procps util-linux psmisc avahi-daemon iptables)
 STORAGE=(fuse3 mergerfs snapraid samba mdadm parted e2fsprogs)
 DOCKER_PACKAGES=(docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin)
-# What the protection pieces install themselves: asked from the pieces with
-# --print-packages once the release is verified; until then this list.
+# The protection pieces. What they need is known only from the verified
+# release: each is asked with --print-packages once it is unpacked, and only
+# a piece that answers is run. So the first simulation holds none of their
+# packages (a piece that will not run must not stop the install), and the
+# second one, before any package beyond the download tools, holds exactly
+# those of the pieces that will run.
 PIECES="unattended-upgrades fail2ban nftables"
-piece_fallback_packages() {
-	case $1 in
-	nftables) echo nftables ;;
-	fail2ban) echo "fail2ban python3" ;;
-	unattended-upgrades) echo unattended-upgrades ;;
-	esac
-}
 chosen_pieces() {
 	local p
 	[ "$(answer protection)" = yes ] || { [ "$(answer unattended-upgrades)" = yes ] && echo unattended-upgrades; return 0; }
@@ -696,11 +704,9 @@ chosen_pieces() {
 		echo "$p"
 	done
 }
-wanted_packages() { # the distribution's packages wanted, before the pieces answered
-	local p
+wanted_packages() { # the distribution's packages wanted, before the pieces answered (see PIECES)
 	printf '%s\n' "${TOOLS[@]}" "${BASE[@]}"
 	if [ "$(answer storage-tools)" = yes ]; then printf '%s\n' "${STORAGE[@]}"; fi
-	for p in $(chosen_pieces); do piece_fallback_packages "$p" | tr ' ' '\n'; done
 }
 missing_of() { local p; for p in "$@"; do installed "$p" || echo "$p"; done; }
 
@@ -1359,7 +1365,7 @@ if [ "$DRY_RUN" = 1 ] && [ -n "$(missing_of "${TOOLS[@]}")" ]; then
 	say "- install the packages: ${MISSING[*]:-(none)}"
 	[ "$DOCKER_PLAN" != install ] || say "- add Docker's repository and install: ${DOCKER_PACKAGES[*]}"
 	say "- unpack the release to $INSTALL_DIR, data in $DATA_DIR, write and start $UNIT_FILE (ports $HTTP_PORT and $HTTPS_PORT)"
-	for p in $(chosen_pieces); do say "- run fork/$p/install.sh --yes"; done
+	for p in $(chosen_pieces); do say "- run fork/$p/install.sh --yes, if the release's piece speaks the installer's interface (its packages are checked once the release is verified)"; done
 	say "Nothing was changed."
 	exit 0
 fi
