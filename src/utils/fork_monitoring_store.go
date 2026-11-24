@@ -280,6 +280,7 @@ func openMonitoringStore() error {
 		localUnusable(err)
 		return err
 	}
+	afterLocalOpened()
 	beginFallback(db, start) // recorded in the local file from its start (review rounds 3 and 4)
 	return nil
 }

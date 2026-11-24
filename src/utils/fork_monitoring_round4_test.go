@@ -127,6 +127,7 @@ func TestAServerBackAfterAnotherTakesOnlyItsOwnRows(t *testing.T) {
 func TestTheEndMarksAreTakenAfterTheDrain(t *testing.T) {
 	stub := withMonitoringStore(t, pgConfig, nil)
 	fakePostgres(t)
+	setTiming(func(*storeTimes) { storeTiming.drain = 600 * time.Millisecond })
 	windows := handedWindows(t)
 	ping := pingSwitch()
 	InitMetricsDatabase()
@@ -137,6 +138,7 @@ func TestTheEndMarksAreTakenAfterTheDrain(t *testing.T) {
 	for i := 0; i < 400 && MonitoringDialect() != DialectPostgres; i++ {
 		stub.advance(w.look(false))
 	}
+	time.Sleep(200 * time.Millisecond)      // a writer still on the old handle, partway through the drain
 	straggler := writeLocalEvent(t, "drain") // within the drain, before the marks
 	waitCatchUps(t)
 	got := windows()
@@ -195,17 +197,29 @@ func TestTheSameDatabaseAtAnotherAddressKeepsItsLedger(t *testing.T) {
 func TestAFallbackRightAfterTheLastOneKeepsTheirRowsApart(t *testing.T) {
 	stub := withMonitoringStore(t, pgConfig, nil)
 	fakePostgres(t)
-	setTiming(func(*storeTimes) { storeTiming.drain = 300 * time.Millisecond })
 	windows := handedWindows(t)
 	InitMetricsDatabase()
+	// the switch back's goroutine is held until the next outage has begun
+	release := make(chan struct{})
+	prev := catchUpFallback
+	t.Cleanup(func() { catchUpFallback = prev })
+	held := true
+	catchUpFallback = func(db DatabaseConfig, endedNow *fallbackRecord, told bool, after MonitoringStoreState, drained <-chan struct{}) {
+		if held {
+			held = false
+			<-release
+		}
+		prev(db, endedNow, told, after, drained)
+	}
 	cut := func() { stub.setProblem(refusedProblem); stub.advance(time.Minute); InitMetricsDatabase() }
 	back := func() { stub.setProblem(nil); stub.advance(time.Minute); InitMetricsDatabase() }
 	cut()
 	first := []int64{writeLocalEvent(t, "first"), writeLocalEvent(t, "first")}
 	back()
-	cut() // within the drain of the switch back
+	cut() // the next outage, before the switch back's goroutine ran
 	second := []int64{writeLocalEvent(t, "second")}
-	time.Sleep(timing().drain + 200*time.Millisecond) // the switch back's goroutine wakes while the second is open
+	close(release)
+	time.Sleep(timing().drain + 200*time.Millisecond)
 	back()
 	waitCatchUps(t)
 	got := windows()
@@ -236,5 +250,33 @@ func TestAFallbackRightAfterTheLastOneKeepsTheirRowsApart(t *testing.T) {
 		if n := holds(id); n != 1 {
 			t.Errorf("event %d is in %d windows", id, n)
 		}
+	}
+}
+
+// The fallback's start is taken before the local file takes writes: a row a
+// writer puts there the moment the switch is made is in the window (round 4:
+// taken after, such rows were in no window, 30 of 46 639 over 200 cuts).
+func TestTheFallbacksStartIsTakenBeforeTheLocalFileTakesWrites(t *testing.T) {
+	stub := withMonitoringStore(t, pgConfig, nil)
+	fakePostgres(t)
+	windows := handedWindows(t)
+	InitMetricsDatabase()
+	var first int64
+	prev := afterLocalOpened
+	t.Cleanup(func() { afterLocalOpened = prev })
+	afterLocalOpened = func() {
+		if first == 0 {
+			first = writeLocalEvent(t, "at-once")
+		}
+	}
+	stub.setProblem(refusedProblem)
+	InitMetricsDatabase()
+	stub.setProblem(nil)
+	stub.advance(time.Minute)
+	InitMetricsDatabase()
+	waitCatchUps(t)
+	got := windows()
+	if len(got) != 1 || first == 0 || first <= got[0].After["events"] || first > got[0].Before["events"] {
+		t.Fatalf("the row written at the switch (id %d) is not in the window: %+v", first, got)
 	}
 }

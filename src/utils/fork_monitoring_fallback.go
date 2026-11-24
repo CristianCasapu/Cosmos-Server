@@ -422,6 +422,10 @@ func prepareFallback() fallbackStart {
 	return st
 }
 
+// afterLocalOpened runs between the switch to the local file and the
+// record of the fallback; the tests write there, as the writers do.
+var afterLocalOpened = func() {}
+
 // closeRecord takes a record's end marks and end time and adds the change of
 // the local file's own totals during its fallback to its server's part (at
 // the given start of the next fallback when there is one).

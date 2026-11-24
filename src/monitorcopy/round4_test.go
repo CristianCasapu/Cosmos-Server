@@ -168,3 +168,33 @@ func TestACopyOutOfTheStoreInUseWhileItIsWritten(t *testing.T) {
 		t.Fatalf("committed %v, %+v", committed, last)
 	}
 }
+
+// S1: the catch-up of a server's fallback takes its own rows only: events
+// and security entries by id alone (none of the time around it, where the
+// other server's rows are), notifications by id or changed in place during
+// it, the raw rows of its time.
+func TestACatchUpTakesNoRowOfAnotherServersTime(t *testing.T) {
+	src, dst := openStore(t, utils.DialectSQLite), openStore(t, utils.DialectSQLite)
+	since := time.Now().Add(-10 * time.Minute).UnixMilli()
+	event := func(label string, at int64) {
+		exec(t, src, "INSERT INTO events(node, event_id, label, application, level, date, data, object, search) VALUES('server.local', ?, ?, '', 'info', ?, '', '', '')", label, label, at)
+	}
+	event("other-before", since-20000) // another server's, 20 s before this fallback
+	marks := map[string]int64{"events": count(t, src, "SELECT MAX(id) FROM events"), "notifications": 0, "fork_security_events": 0}
+	event("mine", since+1000)
+	event("mine-kept", since-30000) // kept while the pings found it gone
+	before := map[string]int64{"events": count(t, src, "SELECT MAX(id) FROM events"), "notifications": 0, "fork_security_events": 0}
+	event("other-after", since+65000) // another server's, right after this fallback
+	opt := testOptions("own-rows", true)
+	opt.From, opt.End, opt.Back, opt.Since, opt.Store = since-45000-catchUpMargin.Milliseconds(), since+60000+catchUpMargin.Milliseconds(), since+60000, since, "pgx:mine"
+	opt.IDs = Window{After: marks, Before: before}.ids()
+	report := copyOnce(t, src, dst, opt)
+	for label, want := range map[string]int64{"mine": 1, "mine-kept": 1, "other-before": 0, "other-after": 0} {
+		if n := count(t, dst, "SELECT COUNT(*) FROM events WHERE label = ?", label); n != want {
+			t.Errorf("%s: %d in the target, want %d", label, n, want)
+		}
+	}
+	if p := tableOf(report, "events"); p.SourceRows != 2 {
+		t.Errorf("the check went through %d events, want the fallback's 2", p.SourceRows)
+	}
+}
