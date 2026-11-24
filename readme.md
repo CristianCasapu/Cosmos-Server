@@ -182,7 +182,7 @@ It removes what `install.sh` installed and nothing else, as its record lists it:
 - **the packages** it installed, unless you add `--remove-packages` (and `--purge` for their configuration files too); even then a package another of yours needs stays, and Docker's packages stay while any container exists or while the Docker daemon does not answer (its containers cannot be counted then);
 - Docker's images, containers and volumes, always.
 
-A Cosmos that was not installed by `install.sh` (by hand, or upstream's) is not touched, whatever the options: the uninstaller says "this Cosmos was not installed by install.sh: nothing to remove" and stops with exit code 3. Run a second time, it says there is nothing to remove and ends with 0. `--dry-run` shows what would be removed. It too must be run from a file, not from a pipe. Exit codes: 0 done; 1 something could not be removed (it says what); 2 bad usage; 3 nothing `install.sh` installed is here; 5 not root; 7 another run is going.
+A Cosmos that was not installed by `install.sh` (by hand, or upstream's) is not touched, whatever the options: the uninstaller says "this Cosmos was not installed by install.sh: nothing to remove" and stops with exit code 3. The same holds for a Cosmos that `migrate.sh` moved from upstream: it was not installed from nothing, and the way back is `GOING-BACK.txt` in the migration's backup. Run a second time, it says there is nothing to remove and ends with 0. `--dry-run` shows what would be removed. It too must be run from a file, not from a pipe. Exit codes: 0 done; 1 something could not be removed (it says what); 2 bad usage; 3 nothing `install.sh` installed is here; 5 not root; 7 another run is going.
 
 ### What a release is
 
@@ -226,14 +226,51 @@ done
 
 ### Moving upstream's Cosmos to the fork
 
-**There is no script for this yet.** `install.sh` refuses to run where upstream's Cosmos is installed, in a folder or as a container (exit 11), and changes nothing; its message names `migrate.sh`, which is not in this release. A script that moves upstream's bare-metal Cosmos to the fork is planned; until then the manual procedure below is the way.
+`migrate.sh` moves upstream's Cosmos installed on the system itself (as upstream's `get.sh` installs it: `/opt/cosmos`, data in `/var/lib/cosmos`, the service `CosmosCloud`) to the fork. It keeps the settings, users, URLs, certificates and containers. It runs as root; download it from the same release and read it first:
 
-### First install, over upstream's bare-metal install
+```sh
+curl -fsSLO https://github.com/CristianCasapu/Cosmos-Server/releases/latest/download/migrate.sh
+less migrate.sh
+sudo bash migrate.sh --dry-run    # what it would do; changes nothing
+sudo bash migrate.sh
+```
 
-1. Back up the configuration folder (`/var/lib/cosmos` by default) and the installation folder.
-2. Download and check the release for your architecture (above).
-3. Stop Cosmos (`systemctl stop CosmosCloud`), unpack the zip and copy the contents of its top folder over the installation folder, **keeping your `start.sh`**, then start it again (`systemctl start CosmosCloud`).
-4. The menu now shows the version with `-fork.<build>`. From here on the server looks for updates in this fork's releases only.
+It is the same script as `install.sh` with its role changed: the system checks, the packages, the download and the signature checks are those described above.
+
+**What it checks first, changing nothing:**
+- The fork already there: exit 10, before anything else, whatever the options. Updates come from the panel.
+- No Cosmos at all: exit 19. Use `install.sh`.
+- It refuses with exit 17 and says why:
+  - upstream's Docker container (not handled yet);
+  - other folders than upstream's defaults, or `COSMOS_CONFIG_FOLDER` / `CONFIG_FILE` in the unit;
+  - a Cosmos newer than the version the fork is built on;
+  - users still in MongoDB (before 0.23);
+  - a first-run wizard that is not finished;
+  - an update of upstream waiting in the folder;
+  - a Cosmos that is not running.
+- A licence in the settings stops it with exit 18. The fork is upstream's community edition: the paid edition's features are not in it, their settings stay in the file unused, and the licence's user limit stays as on the community edition. `--accept-community-edition` migrates all the same. The script only reads whether a licence is set.
+- An older upstream (0.23, for example) is migrated directly: the fork runs at its first start the same forward migrations that upstream's own update would.
+
+**What it does:**
+- It notes how Cosmos answers: its settings, the code each of its URLs answers with, and the containers.
+- It stops Cosmos (the containers keep running) and backs up `/opt/cosmos`, `/var/lib/cosmos` and the unit into a new folder. The default is `/var/backups/cosmos-before-fork-<time>`; `--backup-dir` sets another. The folder is private (0700), on a disk with room, and not in memory.
+- It checks the copy against a list of every file with its SHA-256.
+- It puts the fork's verified release in `/opt/cosmos`, keeping your `start.sh`, the unit and the data, and starts it.
+- It checks that the same settings, URLs and containers answer as before, and that no setup code appeared: the server keeps its administrator, who signs in with the old password.
+- **On any failure from the stop on, it puts everything back by itself:** the folder, the data (copied back from the backup and checked against the list), the unit, and the service as it was. It starts upstream's Cosmos again and ends with exit 20. If even that fails, it ends with exit 1 and says what to do by hand.
+- When interrupted (a lost connection, a reboot), it continues where it stopped when run again; `sudo bash migrate.sh --undo` puts everything back instead.
+
+**Afterwards:**
+- The backup stays, with `GOING-BACK.txt` in it. It holds the server's keys and its users' password hashes: delete it once you keep the fork.
+- Everyone signs in once more: sessions opened with upstream's Cosmos are not taken over. The accounts and their passwords are those of before (the data folder is kept as it is).
+- Updates come from the panel, as for any installation of the fork.
+- `uninstall.sh` does not remove a Cosmos that `migrate.sh` moved (exit 3); going back is done by hand.
+
+**Going back to upstream** is described in `GOING-BACK.txt`. There are two ways:
+1. Exactly what was there before, from the backup. Anything changed since the migration is lost.
+2. Keeping the data as the fork left it, by unpacking upstream's zip of 0.24.0 or newer over `/opt/cosmos` (keeping `start.sh`) and removing the fork's own files. Upstream ignores the fork's own settings and drops them at its next save. An upstream older than 0.24 cannot read settings that 0.24 converted.
+
+The manual way still works: back up both folders, stop Cosmos, copy the release's top folder over `/opt/cosmos` keeping your `start.sh`, and start it again.
 
 ### How updates arrive
 
