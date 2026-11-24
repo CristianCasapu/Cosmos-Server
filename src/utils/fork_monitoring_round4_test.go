@@ -138,7 +138,7 @@ func TestTheEndMarksAreTakenAfterTheDrain(t *testing.T) {
 	for i := 0; i < 400 && MonitoringDialect() != DialectPostgres; i++ {
 		stub.advance(w.look(false))
 	}
-	time.Sleep(200 * time.Millisecond)      // a writer still on the old handle, partway through the drain
+	time.Sleep(200 * time.Millisecond)       // a writer still on the old handle, partway through the drain
 	straggler := writeLocalEvent(t, "drain") // within the drain, before the marks
 	waitCatchUps(t)
 	got := windows()
