@@ -41,7 +41,7 @@ table inet cosmos_host_guard {
 		type ifname
 	}
 	# Tailscale's interface when it carries a default route (an exit node): it is
-	# outside, but its own peers (the tailnet's addresses) count as home on it.
+	# outside, but its own peers' addresses (vpnpeer4/6) count as home on it.
 	set vpnhome_if {
 		type ifname
 	}
@@ -65,6 +65,21 @@ table inet cosmos_host_guard {
 		type ipv6_addr
 		flags interval
 		auto-merge
+	}
+	# Another private IPv4 network on a home interface (the server moved): not home,
+	# and IPv4 there is filtered until it is confirmed. Only shown.
+	set pending4 {
+		type ipv4_addr
+		flags interval
+		auto-merge
+	}
+	# The addresses of Tailscale's peers (not the exit node's), from tailscaled: on
+	# an exit node's interface only these count as home.
+	set vpnpeer4 {
+		type ipv4_addr
+	}
+	set vpnpeer6 {
+		type ipv6_addr
 	}
 	# The DHCP servers of the current leases (their unicast renewal replies).
 	set dhcp_server4 {
@@ -153,8 +168,8 @@ table inet cosmos_host_guard {
 		iifname @lan_if ip6 saddr @onlink6 accept
 		iifname @lan_if ip6 saddr fe80::/10 accept
 		iifname @lan_if ip saddr 169.254.0.0/16 accept
-		iifname @vpnhome_if ip saddr 100.64.0.0/10 accept comment "Tailscale's own peers through an exit node"
-		iifname @vpnhome_if ip6 saddr fd7a:115c:a1e0::/48 accept comment "Tailscale's own peers through an exit node"
+		iifname @vpnhome_if ip saddr @vpnpeer4 accept comment "Tailscale's own peers through an exit node"
+		iifname @vpnhome_if ip6 saddr @vpnpeer6 accept comment "Tailscale's own peers through an exit node"
 		ip saddr @home4 accept
 		ip6 saddr @home6 accept
 
@@ -200,8 +215,8 @@ table inet cosmos_host_guard {
 		iifname @lan_if ip saddr @onlink4 accept
 		iifname @lan_if ip6 saddr @onlink6 accept
 		iifname @lan_if ip6 saddr fe80::/10 accept
-		iifname @vpnhome_if ip saddr 100.64.0.0/10 accept
-		iifname @vpnhome_if ip6 saddr fd7a:115c:a1e0::/48 accept
+		iifname @vpnhome_if ip saddr @vpnpeer4 accept
+		iifname @vpnhome_if ip6 saddr @vpnpeer6 accept
 		ip saddr @home4 accept
 		ip6 saddr @home6 accept
 		icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } accept

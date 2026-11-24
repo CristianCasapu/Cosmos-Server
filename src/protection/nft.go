@@ -348,7 +348,15 @@ func parseTable(out []byte) (Table, error) {
 			case "vpnhome_if":
 				table.VPNHomeInterfaces = nameElements(s.Elem)
 			case "pending6":
-				table.PendingPrefixes = networkElements(s.Elem, false)
+				table.PendingPrefixes = append(networkElements(s.Elem, false), table.PendingPrefixes...)
+				if len(table.PendingPrefixes) > maxElements {
+					table.PendingPrefixes = table.PendingPrefixes[:maxElements]
+				}
+			case "pending4":
+				table.PendingPrefixes = append(table.PendingPrefixes, networkElements(s.Elem, true)...)
+				if len(table.PendingPrefixes) > maxElements {
+					table.PendingPrefixes = table.PendingPrefixes[:maxElements]
+				}
 			case "ssh_port":
 				table.SSHPorts = portElements(s.Elem)
 			case "ssh_allow4":

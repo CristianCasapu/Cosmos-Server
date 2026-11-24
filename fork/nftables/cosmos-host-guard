@@ -124,8 +124,9 @@ plen() { case "$1" in */*) echo "${1#*/}" ;; *:*) echo 128 ;; *) echo 32 ;; esac
 # each nexthop of a multipath one and of a nexthop object; and a route that
 # covers most of the internet without being called default, as OpenVPN's def1
 # (0.0.0.0/1 + 128.0.0.0/1) or split IPv6 tunnels (::/1, 2000::/3, 2000::/4):
-# an IPv4 prefix shorter than /8, an IPv6 prefix of /16 or shorter that holds
-# global unicast addresses (2000::/3). A VPN's routes to its own networks (10/8,
+# an IPv4 prefix shorter than /8 below 224.0.0.0 (not multicast or reserved), an
+# IPv6 prefix of /16 or shorter that holds global unicast addresses (2000::/3;
+# ff00::/8 and fc00::/7 are outside it). A VPN's routes to its own networks (10/8,
 # 100.64/10, a ULA, a /48) do not make it an uplink.
 default_routes() {
 	raw=$({
@@ -137,7 +138,9 @@ default_routes() {
 		if (p !~ /^[0-9a-fA-F.:]+\/[0-9]+$/) return 0
 		len = substr(p, index(p, "/") + 1) + 0
 		n = substr(p, 1, index(p, "/") - 1)
-		if (n ~ /^[0-9.]+$/) return len < 8
+		# IPv4: shorter than /8 and unicast (224.0.0.0/3 is multicast and reserved:
+		# an IPTV or mDNS route 224.0.0.0/4 on a LAN is no way to the internet)
+		if (n ~ /^[0-9.]+$/) { split(n, o, "."); return len < 8 && o[1] + 0 < 224 }
 		if (len > 16) return 0
 		first = (n ~ /^::/) ? 0 : hexval(substr(n, 1, index(n, ":") - 1))
 		# its first min(len, 3) bits are those of 2000::/3 (001)
@@ -207,6 +210,19 @@ against_home() { # dev
 	done
 	return 1
 }
+# on_recorded4 <dev>: the recorded home IPv4 network is on the link, or no private
+# IPv4 network is (no address yet: missing evidence changes nothing); another
+# private network there means the server is elsewhere: IPv4 is filtered while so
+# (not written down: back home, it passes again)
+on_recorded4() {
+	seen=0
+	for p in $(onlink 4 "$1"); do
+		[ -n "$(block4 "$p")" ] || continue
+		case " $net4 " in *" $p "*) return 0 ;; esac
+		seen=1
+	done
+	[ "$seen" = 0 ]
+}
 # at least one private or unique-local address and no other (link-local aside)
 private_only() { # dev
 	n=0
@@ -274,6 +290,37 @@ tailscale_if() {
 	fi
 	[ -n "$TS_IF" ] && printf '%s\n' "$TS_IF"
 }
+# The tailnet addresses of Tailscale's peers, as tailscaled lists them
+# (`tailscale status --json`, the packaged root-owned client), without the peer
+# that is the exit node now. Through an exit node only these count as home: the
+# exit node's operator (a provider's node, a node shared from another tailnet)
+# may send from any address WireGuard routes to it (its allowed addresses hold
+# 0.0.0.0/0), including tailnet addresses no peer holds; WireGuard drops only
+# sources that belong to another peer. A listing that cannot be read gives none
+# (the peers are then filtered like strangers through the exit node).
+tailnet_peers() {
+	cli=""
+	for c in /usr/bin/tailscale /usr/sbin/tailscale; do
+		[ "$(stat -L -c '%u %a' "$c" 2>/dev/null | awk '$1 == 0 && $2 !~ /[2367].$|[2367]$/ {print "ok"}')" = ok ] && { cli=$c; break; }
+	done
+	[ -n "$cli" ] || return 0
+	timeout 5 "$cli" status --json 2>/dev/null | head -c 4000000 | awk '
+		/^\t"Peer": \{/ { inpeer = 1; next }
+		inpeer && /^\t\}/ { inpeer = 0 }
+		inpeer && /^\t\t"[^"]*": \{$/ { ips = ""; exitnode = 0; obj = 1; next }
+		inpeer && obj && /^\t\t\}/ { if (!exitnode) printf "%s", ips; obj = 0; next }
+		inpeer && obj && /^\t\t\t"ExitNode": true/ { exitnode = 1 }
+		inpeer && obj && /^\t\t\t"TailscaleIPs": \[/ { inips = 1; next }
+		inips && /\]/ { inips = 0; next }
+		inips { gsub(/[",[:space:]]/, ""); ips = ips $0 "\n" }' |
+	while read -r a; do
+		valid_addr "$a" || continue
+		case "$a" in
+			100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*) echo "$a" ;;
+			[fF][dD]7[aA]:115[cC]:[aA]1[eE]0:*) echo "$a" ;;
+		esac
+	done | sort -u | head -n 4096
+}
 # a recognised VPN interface: Tailscale's, or a kernel WireGuard interface (only
 # root can make either)
 recognised_vpn() { # dev
@@ -333,8 +380,9 @@ dynamic() {
 	pass4=""
 	p4=$(record pass4 | tr '\n' ',')
 	nop4=$(record nopass4 | tr '\n' ',')
+	net4=$(record net4 | tr '\n' ' ')
 	for dev in $lan; do
-		in_csv "$dev" "$p4" && ! in_csv "$dev" "$nop4" && pass4="$pass4 $dev"
+		in_csv "$dev" "$p4" && ! in_csv "$dev" "$nop4" && on_recorded4 "$dev" && pass4="$pass4 $dev"
 	done
 	p4any=$(record pass4any | tr '\n' ',')
 	for dev in $wan; do
@@ -363,11 +411,15 @@ dynamic() {
 	if [ -n "$ts" ] && [ -z "$failclosed" ]; then
 		for dev in $wan; do [ "$dev" != "$ts" ] || vpnhome="$vpnhome $dev"; done
 	fi
+	peers4=""; peers6=""
+	if [ -n "$vpnhome" ]; then
+		for a in $(tailnet_peers); do
+			case "$a" in *:*) peers6="$peers6 $a" ;; *) peers4="$peers4 $a" ;; esac
+		done
+	fi
 	net6=$(record net6 | tr '\n' ' ')
-	net4=$(record net4 | tr '\n' ' ')
-	blocks=$(record priv4 | tr '\n' ',')
 	ula=$(record ula)
-	on6=""; on4=""; pend6=""
+	on6=""; on4=""; pend6=""; pend4=""
 	for dev in $lan; do
 		recorded=0; in_csv "$dev" "$homes" && recorded=1
 		for p in $(onlink 6 "$dev"); do
@@ -378,7 +430,10 @@ dynamic() {
 		for p in $(onlink 4 "$dev"); do
 			b=$(block4 "$p")
 			[ -n "$b" ] || continue
-			if in_csv "$b" "$blocks" || [ "$recorded" = 0 ]; then on4="$on4 $p"; fi
+			if [ "$recorded" = 0 ]; then on4="$on4 $p"; continue; fi
+			# only the recorded home network: another private network on the same
+			# interface (the server moved to a hosting LAN, a cafe) waits for confirm
+			case " $net4 " in *" $p "*) on4="$on4 $p" ;; *) pend4="$pend4 $p" ;; esac
 		done
 		# without a route the addresses may be gone: what was home stays home
 		if [ -n "$failclosed" ] && [ "$recorded" = 1 ]; then
@@ -398,11 +453,14 @@ dynamic() {
 		printf 'failclosed_if=%s\n' "$(words $failclosed)"
 		printf 'lan_if=%s\n' "$(words $lan)"
 		printf 'vpnhome_if=%s\n' "$(words $vpnhome)"
+		printf 'vpnpeer4=%s\n' "$(words $peers4)"
+		printf 'vpnpeer6=%s\n' "$(words $peers6)"
 		printf 'pass4_if=%s\n' "$(words $pass4)"
 		printf 'rpf_if=%s\n' "$(words $rpf)"
 		printf 'onlink4=%s\n' "$(words $on4)"
 		printf 'onlink6=%s\n' "$(words $on6)"
 		printf 'pending6=%s\n' "$(words $pend6)"
+		printf 'pending4=%s\n' "$(words $pend4)"
 		printf 'wanlink4=%s\n' "$(words $wl4)"
 		printf 'dhcp_server4=%s\n' "$(dhcp_servers)"
 	}
@@ -578,6 +636,7 @@ build_load() { # file [sets]: writes the whole load transaction to it (the sets:
 
 do_load() {
 	build_load "$RUN/load.nft"
+	rm -f "$RUN/unloaded"
 	nft -f "$RUN/load.nft"
 	printf '%s\n' "$now" > "$RUN/dynamic"
 	rm -f "$RUN/load.nft"
@@ -634,6 +693,8 @@ other_filters() {
 fast_reload() {
 	have_table && return 0
 	mkdir -p "$RUN"
+	# taken away on purpose (cosmos-host-guard unload, the unit stopped, uninstall)
+	[ ! -e "$RUN/unloaded" ] || return 0
 	if [ -r "$RUN/reload.base" ] && [ -r "$CONF/cosmos-host-guard.nft" ]; then
 		{ cat "$RUN/reload.base"; allow_commands; } | nft -f -
 	else
@@ -641,6 +702,10 @@ fast_reload() {
 	fi
 	note "the guard's table was missing (something removed it): loading it again"
 	count_removal
+	# a full refresh follows through the watcher's debounce (the network may have
+	# changed while the table was gone)
+	[ -e "$RUN/dirty.first" ] || : > "$RUN/dirty.first"
+	: > "$RUN/dirty"
 }
 count_removal() {
 	t=$(date +%s)
@@ -664,7 +729,7 @@ do_refresh() {
 	if ! have_table; then
 		# removed by something else and the watcher did not see it (the timer's
 		# refresh): loaded again while the guard is meant to run
-		if systemctl is-active --quiet cosmos-host-guard.service 2>/dev/null; then
+		if [ ! -e "$RUN/unloaded" ] && systemctl is-active --quiet cosmos-host-guard.service 2>/dev/null; then
 			note "the guard's table was missing (something removed it): loading it again"
 			do_load
 			count_removal
@@ -687,11 +752,24 @@ do_refresh() {
 	oldwan=$(printf '%s\n' "$old" | sed -n 's/^wan_if=//p')
 	newwan=$(printf '%s\n' "$now" | sed -n 's/^wan_if=//p')
 	vh=$(printf '%s\n' "$now" | sed -n 's/^vpnhome_if=//p')
+	# a new prefix on a home interface (IPv6: the provider renumbered; IPv4: another
+	# private network, the server is elsewhere) is not home until confirmed
+	for kind in pending4 pending6; do
+		was=$(printf '%s\n' "$old" | sed -n "s/^$kind=//p")
+		for p in $(printf '%s\n' "$now" | sed -n "s/^$kind=//p" | tr ',' ' '); do
+			in_csv "$p" "$was" && continue
+			if [ "$kind" = pending4 ]; then
+				note "$p is on a home interface but is not the home network recorded at install: it does not count as home, and IPv4 there is filtered (if this is your home network now: cosmos-host-guard confirm)"
+			else
+				note "$p is a new prefix on a home interface: it does not count as home until confirmed (cosmos-host-guard confirm)"
+			fi
+		done
+	done
 	if [ -n "$old" ]; then
 		for dev in $(printf '%s' "$newwan" | tr ',' ' '); do
 			in_csv "$dev" "$oldwan" && continue
 			if in_csv "$dev" "$vh"; then
-				note "$dev is an outside interface now (Tailscale's, carrying a default route: an exit node): it is filtered; its own peers (100.64.0.0/10, fd7a:115c:a1e0::/48) still count as home"
+				note "$dev is an outside interface now (Tailscale's, carrying a default route: an exit node): it is filtered; its own peers' addresses (from tailscaled, the exit node left out) still count as home"
 			else
 				note "$dev is an outside interface now (a default route, or one that covers most of the internet, goes through it): it is filtered"
 			fi
@@ -776,6 +854,9 @@ case "${1:-}" in
 		exit 1 # a monitor ended: systemd starts the watcher again
 		;;
 	unload)
+		# the mark first: the watcher must not take the deletion for a removal
+		mkdir -p "$RUN"
+		: > "$RUN/unloaded"
 		if have_table; then nft delete table inet "$TNAME"; fi
 		rm -f "$RUN/dynamic" "$RUN/reload.base"
 		;;

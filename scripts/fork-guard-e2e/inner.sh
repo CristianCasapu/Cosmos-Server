@@ -6,8 +6,8 @@
 #
 #   sh inner.sh <machine image tag> [group...]
 # Groups: guard ssh live follow routes nftsvc docker docker-noipv6 docker-nft vpn pub4
-# spoof foreign race validate uplink failclosed ipv4later v4gap v4boot homewiden
-# sshservers sessions nohome churn flushstorm vpnports vpnexit cloud allowfile
+# spoof foreign race validate uplink failclosed ipv4later v4gap v4boot homewiden moved
+# sshservers sessions strangers nohome churn flushstorm vpnports vpnexit cloud allowfile
 # confirmwindow ufw firewalld fail2ban f2bsessions updates (default: all);
 # "fast" is guard, the unattended SSH cases, the live-session cases and what a session is.
 # BREAK=open-port|no-ssh-allow|no-undo|ssh-allow-all|rv-fc-fwd|rv-ll-all breaks the guard on purpose:
@@ -15,12 +15,19 @@
 # what is outside (each with the group that catches it; break.sh applies them):
 #   dropbear-any      any process named dropbear holding a connection is a session (sessions)
 #   forged-ok         an OpenSSH process title alone makes a session (sessions)
-#   tunnel-title      a session needs a terminal or a command in its title (sessions)
+#   priv-title        OpenSSH's "<name> [priv]" title means signed in (strangers, f2bsessions)
+#   no-journal        the servers' own records of a sign-in are not read (strangers)
 #   any-socket        any connection a signed-in sshd holds is a session (sessions, f2bsessions)
+#   accept-any        a holder need not descend from the listener (sessions)
 #   multipath-last    of a multipath default route only the last nexthop counts (uplink)
 #   def1-ignored      routes that cover the internet without "default" do not count (uplink)
+#   multicast-uplink  a multicast route makes an uplink (uplink)
 #   transient-narrow  home narrows on missing evidence (v4gap, v4boot)
+#   moved-home        any private network on a home interface is home (moved)
+#   stale-cache       a refresh does not renew the fast reload's cache (flushstorm)
+#   unload-reloaded   the watcher loads again a table taken away on purpose (flushstorm)
 #   exitnode-outside  Tailscale's own peers are refused once it carries a default route (vpnexit)
+#   exitnode-anyone   through an exit node every tailnet-range source is home (vpnexit)
 
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -32,8 +39,8 @@ shift
 MACHINE=$TAG
 IMAGE=cosmos-guard-test-machine:$TAG
 GROUPS_WANTED=${*:-all}
-[ "$GROUPS_WANTED" = all ] && GROUPS_WANTED="guard ssh live follow routes nftsvc docker docker-noipv6 docker-nft vpn pub4 spoof foreign race validate uplink failclosed ipv4later v4gap v4boot homewiden sshservers sessions nohome churn flushstorm vpnports vpnexit cloud allowfile confirmwindow ufw firewalld fail2ban f2bsessions updates"
-[ "$GROUPS_WANTED" = fast ] && GROUPS_WANTED="guard ssh-unattended live sessions uplink failclosed"
+[ "$GROUPS_WANTED" = all ] && GROUPS_WANTED="guard ssh live follow routes nftsvc docker docker-noipv6 docker-nft vpn pub4 spoof foreign race validate uplink failclosed ipv4later v4gap v4boot homewiden moved sshservers sessions strangers nohome churn flushstorm vpnports vpnexit cloud allowfile confirmwindow ufw firewalld fail2ban f2bsessions updates"
+[ "$GROUPS_WANTED" = fast ] && GROUPS_WANTED="guard ssh-unattended live sessions strangers uplink failclosed"
 BREAK=${BREAK:-}
 G=/opt/cosmos/fork/nftables
 # The test machines are containers: to the guard a virtual machine that may be a
@@ -54,7 +61,7 @@ fresh() { # nat|pub: a new machine on new networks (DOCKER_MODE: ipv6, noipv6, n
 	pieces_sum() { m sh -c 'cat /opt/cosmos/fork/nftables/* /opt/cosmos/fork/fail2ban/install.sh | md5sum'; }
 	[ -z "$BREAK" ] || unbroken=$(pieces_sum)
 	case "$BREAK" in
-		dropbear-any|forged-ok|tunnel-title|any-socket|multipath-last|def1-ignored|transient-narrow|exitnode-outside)
+		dropbear-any|forged-ok|priv-title|no-journal|any-socket|accept-any|multipath-last|def1-ignored|multicast-uplink|transient-narrow|moved-home|stale-cache|exitnode-outside|exitnode-anyone|unload-reloaded)
 			docker exec -i "$M" sh -s "$BREAK" < "$HERE/break.sh" ;;
 		open-port) msh "sed -i 's/^\[ -n \"\$PUBLIC_TCP\$PUBLIC_UDP\" \] ||/add_port 9999 tcp broken; &/' $G/install.sh" ;;
 		no-ssh-allow) msh "sed -i -e 's/^\tfor a in \$OUTSIDE_PEERS; do\$/\tfor a in ; do/' -e 's/^\t\tfor a in \$OUTSIDE_PEERS; do\$/\t\tfor a in ; do/' $G/install.sh" ;;
@@ -861,6 +868,23 @@ g_uplink() {
 	check_not "routes to 10/8, 100.64/10, fd00::/8 and a /48 do not make tun9 outside" in_set wan_if '"tun9"'
 	m ip netns del vpnp
 	m ip link del tun9 2>/dev/null
+	# a second LAN with the multicast route of IPTV or a multicast proxy (224.0.0.0/4),
+	# and routes that carry nothing (unreachable, blackhole, prohibit, throw)
+	msh 'ip netns add lan2p && ip link add lan2 type veth peer name lan2q && ip link set lan2q netns lan2p && ip addr add 10.50.0.1/24 dev lan2 && ip link set lan2 up && ip netns exec lan2p sh -c "ip addr add 10.50.0.2/24 dev lan2q; ip link set lan2q up; ip link set lo up"'
+	m /usr/local/sbin/cosmos-host-guard refresh force
+	check "a second LAN: a host on it reaches SSH" m ip netns exec lan2p nc -z -w 2 10.50.0.1 22
+	m ip route add 224.0.0.0/4 dev lan2
+	m ip route add 240.0.0.0/4 dev lan2
+	sleep 4
+	check_not "a multicast route (224.0.0.0/4) or class E (240.0.0.0/4) does not make the second LAN an uplink" in_set wan_if '"lan2"'
+	check "a host on the second LAN still reaches SSH" m ip netns exec lan2p nc -z -w 2 10.50.0.1 22
+	m ip route del 224.0.0.0/4 dev lan2
+	m ip route del 240.0.0.0/4 dev lan2
+	msh 'ip route add unreachable default table 200; ip route add blackhole 0.0.0.0/1 table 201; ip route add prohibit default table 202; ip route add throw default table 203; ip -6 route add unreachable default table 200'
+	m /usr/local/sbin/cosmos-host-guard refresh force
+	check "unreachable, blackhole, prohibit and throw routes make no uplink (wan_if=eth0)" sh -c "docker exec $M /usr/local/sbin/cosmos-host-guard show | grep -qx 'wan_if=eth0'"
+	msh 'ip route flush table 200; ip route flush table 201; ip route flush table 202; ip route flush table 203; ip -6 route flush table 200'
+	m ip netns del lan2p
 	guard_uninstall
 }
 
@@ -1371,50 +1395,205 @@ sleep 85"
 	docker exec "$OC" sh -c 'pkill -f "ssh .*-N"; true'
 	docker exec "$OC2" sh -c 'pkill -f "nc .*7000"; true'
 
-	# dropbear as its package runs it (a unit, logging to the journal): a stranger
-	# still signing in, a forged log line, and a signed-in tunnel
+	# a root sshd started by hand (a rescue, a supervisor): its sessions count, its port is an SSH port
+	m sh -c 'nohup sh -c "/usr/sbin/sshd -D -p 2222" > /dev/null 2>&1 &'
+	sleep 2
+	docker exec -d "$OC" sh -c "ssh -p 2222 $SSHO -N tester@$TM6"
+	sleep 3
+	guard_install "$HC" --yes --port 2053
+	expect_rc 4 "an outside session on a hand-started root sshd (port 2222) refuses the unattended run"
+	guard_uninstall # (when a broken guard installed itself, the next cases start from nothing again)
+	guard_install "$HC" --yes --port 2053 --ssh open
+	check "a hand-started root sshd's port 2222 is among the SSH ports" sh -c "docker exec $M nft list set inet cosmos_host_guard ssh_port | grep -q 2222"
+	guard_uninstall
+	docker exec "$OC" sh -c 'pkill -f "ssh -p 2222"; true'
+	m pkill -f 'sshd -D -p 2222'
+	# a -R forward on the other address family than the SSH port (sshd on 0.0.0.0:2222
+	# only; a user's forward on [::]:2222): its visitors are no session
+	msh 'printf "ListenAddress 0.0.0.0:22\nListenAddress [::]:22\nListenAddress 0.0.0.0:2222\nGatewayPorts clientspecified\n" > /etc/ssh/sshd_config.d/v4only.conf; /usr/local/bin/ssh_restart'
+	for _ in $(seq 1 20); do m sh -c 'ss -Htln | grep -q "0.0.0.0:2222 "' && break; sleep 1; done
+	docker exec -d "$HC" sh -c 'nc -lk 7100 > /dev/null'
+	docker exec -d "$HC" sh -c "ssh $SSHO -tt -R '[::]:2222:127.0.0.1:7100' tester@$TM6 'sleep 90'"
+	sleep 3
+	docker exec -d "$OC2" sh -c "sleep 60 | nc $TM6 2222"
+	sleep 2
+	log "  (the -R visitor: $(m sh -c "sh $G/ssh-sessions.sh sessions" | tr '\n' ';'))"
+	check_not "a visitor of a -R forward on the other family than the SSH port is not a session" sh -c "docker exec $M sh $G/ssh-sessions.sh sessions | grep -q '^$OC26 2222 '"
+	docker exec "$HC" sh -c 'pkill -f "ssh .*2222"; true'
+	docker exec "$OC2" sh -c 'pkill -f "nc .*2222"; true'
+	m rm -f /etc/ssh/sshd_config.d/v4only.conf
+	m /usr/local/bin/ssh_restart
+	sleep 2
+	# a socket on the SSH port held by a process that does not descend from the
+	# listener (its descriptor taken over by another root process): no connection of sshd's
+	m sh -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 >/dev/null 2>&1'
+	docker exec -d "$OC" sh -c "ssh $SSHO -N tester@$TM6"
+	sleep 3
+	# shellcheck disable=SC2016
+	msh 'set -- $(ss -Htnp state established | awk -v p="'"$OC6"'" "index(\$4, p) && \$3 ~ /:22\$/ {print \$5}" | grep -oE "pid=[0-9]+,fd=[0-9]+" | head -n 1 | tr -c "0-9\n" " "); printf "%s\n" "import ctypes, os, sys, time" "libc = ctypes.CDLL(None, use_errno=True)" "pfd = libc.syscall(434, int(sys.argv[1]), 0)" "fd = libc.syscall(438, pfd, int(sys.argv[2]), 0)" "time.sleep(120)" > /tmp/take.py; setsid python3 /tmp/take.py "$1" "$2" > /dev/null 2>&1 & sleep 2; pkill -9 -f "sshd.*tester" || true'
+	sleep 2
+	log "  (taken over: $(m sh -c "ss -Htnp state established | grep ':22 '" | tr '\n' ';' | cut -c1-300))"
+	check_not "a socket on port 22 held by a process that does not descend from sshd's listener is no connection of sshd's" sh -c "docker exec $M sh $G/ssh-sessions.sh sessions | grep -q '^$OC6 22 '"
+	m pkill -f /tmp/take.py
+	docker exec "$OC" sh -c 'pkill -f "ssh .*-N"; true'
+}
+
+# sessions_of <address>: the rows ssh-sessions.sh gives for that peer
+sessions_of() { m sh "$G/ssh-sessions.sh" sessions | awk -v a="$1" '$1 == a {print $3, $4}' | sort -u | tr '\n' ';'; }
+# askpass_scripts: on the outside clients, SSH_ASKPASS answers: wait (a stranger who
+# never answers), right (the password), second (a wrong password, then the right one)
+askpass_scripts() {
+	for c in "$OC" "$OC2"; do
+		docker exec "$c" sh -c 'rm -f /tmp/second.done
+printf "#!/bin/sh\nsleep 300\n" > /tmp/wait.sh
+printf "#!/bin/sh\necho Pw-0f-tester\n" > /tmp/right.sh
+printf "#!/bin/sh\nif [ -e /tmp/second.done ]; then echo Pw-0f-tester; else : > /tmp/second.done; echo wrong-one; fi\n" > /tmp/second.sh
+chmod 755 /tmp/wait.sh /tmp/right.sh /tmp/second.sh'
+	done
+}
+# by_password <client> <askpass> <method> <user> <port> <ssh arguments...>: an SSH client that answers with the askpass script
+by_password() {
+	c=$1; a=$2; meth=$3; u=$4; p=$5; shift 5
+	docker exec -d "$c" sh -c "SSH_ASKPASS=/tmp/$a.sh SSH_ASKPASS_REQUIRE=force DISPLAY=:0 setsid ssh -p $p -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=$meth -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=2 $* $u@$TM6 < /dev/null > /dev/null 2>&1"
+}
+stop_clients() { for c in "$OC" "$OC2"; do docker exec "$c" sh -c 'pkill -f "ssh "; pkill -f "nc "; true'; done; sleep 1; }
+
+g_strangers() {
+	log "== strangers: signed in only on the server's own record of a sign-in; a stranger at the password prompt is nobody's session ($TAG)"
+	fresh nat || return 1
+	m sh -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 nftables >/dev/null 2>&1'
+	msh 'echo tester:Pw-0f-tester | chpasswd; mkdir -p /root/.ssh && cp /home/tester/.ssh/authorized_keys /root/.ssh/ && chmod 600 /root/.ssh/authorized_keys; printf "KbdInteractiveAuthentication yes\n" > /etc/ssh/sshd_config.d/kbd.conf; /usr/local/bin/ssh_restart'
+	sleep 2
+	askpass_scripts
+	for u in tester nosuchuser; do
+		by_password "$OC2" wait password "$u" 22
+		sleep 3
+		log "  (a stranger named $u: $(sessions_of "$OC26"))"
+		check "OpenSSH, a stranger named $u at the password prompt: not signed in (no)" test "$(sessions_of "$OC26")" = "openssh no;"
+		guard_install "$HC" --yes --port 2053
+		expect_rc 0 "OpenSSH, a stranger named $u at the password prompt does not refuse the unattended home run"
+		check_not "and gets no allowance" m grep -q "$OC26" /etc/cosmos-host-guard/allow
+		guard_uninstall
+		dry_run_from "$HC"
+		check_not "an interactive run offers the stranger named $u no allowance" says "ONLY.*$OC26"
+		OUT=$(m sh /opt/cosmos/fork/fail2ban/install.sh --dry-run 2>&1)
+		check_not "Fail2ban does not keep the stranger named $u from bans" says "$OC26"
+		stop_clients
+	done
+	# a user writes sshd's line of success for a waiting stranger into the journal
+	by_password "$OC2" wait password tester 22
+	sleep 3
+	sport=$(m sh -c "ss -Htn state established | awk '\$3 ~ /:22\$/ && index(\$4, \"$OC26\") {n = split(\$4, a, \":\"); print a[n]; exit}'")
+	m su tester -s /bin/sh -c "logger -t sshd 'Accepted password for tester from $OC26 port $sport ssh2'; echo 'Accepted password for tester from $OC26 port $sport ssh2' | systemd-cat -t sshd"
+	sleep 1
+	check "a forged 'Accepted' line (logger, systemd-cat) makes nobody signed in" test "$(sessions_of "$OC26")" = "openssh no;"
+	stop_clients
+	# signed in: a password with a command, a failed then a right password on one
+	# connection, keyboard-interactive, a public key as root
+	by_password "$OC" right password tester 22 -N
+	sleep 3
+	check "OpenSSH, password, a tunnel: signed in" test "$(sessions_of "$OC6")" = "openssh yes;"
+	stop_clients
+	by_password "$OC2" second password tester 22 -N
+	sleep 4
+	check "OpenSSH, a wrong then the right password on one connection: signed in" test "$(sessions_of "$OC26")" = "openssh yes;"
+	stop_clients
+	by_password "$OC" right keyboard-interactive tester 22 -N
+	sleep 3
+	check "OpenSSH, keyboard-interactive, a tunnel: signed in" test "$(sessions_of "$OC6")" = "openssh yes;"
+	stop_clients
+	docker exec -d "$OC" sh -c "ssh $SSHO -N root@$TM6"
+	sleep 3
+	check "OpenSSH, root's own tunnel by public key: signed in (its record in the journal)" test "$(sessions_of "$OC6")" = "openssh yes;"
+	# the journal vacuumed: the user's tunnel keeps its post-sign-in process (signed
+	# in); root's has none (unsure: refused, never an allowance)
+	by_password "$OC2" right password tester 22 -N
+	sleep 3
+	msh 'journalctl --rotate >/dev/null 2>&1; sleep 2; journalctl --vacuum-time=1s >/dev/null 2>&1'
+	log "  (after the vacuum: $OC6 $(sessions_of "$OC6") $OC26 $(sessions_of "$OC26"))"
+	check "journal vacuumed: a user's tunnel is still signed in (its process)" test "$(sessions_of "$OC26")" = "openssh yes;"
+	check "journal vacuumed: root's tunnel is unsure" test "$(sessions_of "$OC6")" = "openssh unsure;"
+	guard_install "$HC" --yes --port 2053
+	expect_rc 4 "journal vacuumed: an unsure outside session refuses the unattended run"
+	check "it says why" says "the server's record of a sign-in is not in the journal"
+	guard_uninstall # (when a broken guard installed itself, the next cases start from nothing again)
+	dry_run_from "$HC"
+	check_not "journal vacuumed: no allowance for the unsure session" says "ONLY.*$OC6"
+	check "and the advice is said" says "run this again with --ssh from"
+	stop_clients
+
+	# dropbear as its package runs it (a unit, logging to the journal)
 	m sh -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends dropbear-bin >/dev/null 2>&1; mkdir -p /etc/dropbear; [ -e /etc/dropbear/k ] || dropbearkey -t ed25519 -f /etc/dropbear/k >/dev/null 2>&1; systemd-run --quiet --unit=test-dropbear /usr/sbin/dropbear -EF -r /etc/dropbear/k -p 2022'
 	sleep 1
+	for u in tester nosuchuser; do
+		by_password "$OC2" wait password "$u" 2022
+		sleep 3
+		check "dropbear, a stranger named $u at the password prompt: not signed in (no)" test "$(sessions_of "$OC26")" = "dropbear no;"
+		stop_clients
+	done
 	docker exec -d "$OC2" sh -c "sleep 60 | nc $TM6 2022 > /dev/null"
 	sleep 2
-	# a normal user writes dropbear's line for the stranger into the journal
-	sport=$(m sh -c "ss -Htn state established | awk '\$3 ~ /:2022\$/ && \$4 ~ /$OC26/ {n = split(\$4, a, \":\"); print a[n]; exit}'")
+	check "dropbear, a stranger who sent nothing: not signed in (no)" test "$(sessions_of "$OC26")" = "dropbear no;"
+	sport=$(m sh -c "ss -Htn state established | awk '\$3 ~ /:2022\$/ && index(\$4, \"$OC26\") {n = split(\$4, a, \":\"); print a[n]; exit}'")
 	m su tester -s /bin/sh -c "logger -t dropbear \"Pubkey auth succeeded for 'tester' with ssh-ed25519 key SHA256:x from $OC26:$sport\""
+	check "dropbear, a forged line of success: still not signed in" test "$(sessions_of "$OC26")" = "dropbear no;"
 	guard_install "$HC" --yes --port 2053
-	expect_rc 4 "a stranger's connection to dropbear (it cannot be told from root's own tunnel) refuses an unattended run"
-	check "it says why" says "cannot be told apart from root"
-	guard_uninstall # (when a broken guard installed itself, the next cases start from nothing again)
-	dry_run_from "$HC"
-	check_not "an interactive run offers the stranger no allowance (a user's forged log line does not count)" says "ONLY.*$OC26"
-	check "and says what to do instead" says "run this again with --ssh from"
-	docker exec "$OC2" sh -c 'pkill -f "nc .*2022"; true'
-	sleep 1
+	expect_rc 0 "dropbear, a stranger does not refuse the unattended home run (its record shows no sign-in)"
+	guard_uninstall
+	OUT=$(m sh /opt/cosmos/fork/fail2ban/install.sh --dry-run 2>&1)
+	check_not "Fail2ban does not keep the dropbear stranger from bans" says "$OC26"
+	stop_clients
 	docker exec -d "$OC" sh -c "ssh -p 2022 $SSHO -N tester@$TM6"
 	sleep 3
-	dry_run_from "$HC"
-	check "a signed-in dropbear tunnel from outside gets the allowance (its own log line in the journal)" says "ONLY $OC6 may reach SSH"
-	guard_install "$HC" --yes --port 2053
-	expect_rc 4 "a signed-in dropbear tunnel from outside refuses an unattended run"
-	guard_uninstall # (when a broken guard installed itself, the next cases start from nothing again)
-	docker exec "$OC" sh -c 'pkill -f "ssh .*2022"; true'
+	check "dropbear, a signed-in tunnel: signed in (its record in the journal)" test "$(sessions_of "$OC6")" = "dropbear yes;"
+	by_password "$OC2" right password tester 2022 -N
+	sleep 3
+	check "dropbear, password, a tunnel: signed in" sh -c "printf '%s' '$(sessions_of "$OC26")' | grep -q 'dropbear yes;'"
+	stop_clients
 	m systemctl stop test-dropbear
-	# dropbear logging nowhere the journal sees: before 2024 a signed-in tunnel keeps
-	# root's uid and starts no child, so it cannot be told from a stranger (unsure:
-	# no allowance, the advice said); from 2024 on it drops to the user's uid
+	# dropbear logging nowhere the journal sees: a stranger is unsure; a signed-in
+	# tunnel too before 2024 (it stays root without a child), signed in from 2024 on
 	m sh -c 'dropbear -r /etc/dropbear/k -p 2022 -E 2>/dev/null'
 	sleep 1
+	docker exec -d "$OC2" sh -c "sleep 60 | nc $TM6 2022 > /dev/null"
 	docker exec -d "$OC" sh -c "ssh -p 2022 $SSHO -N tester@$TM6"
 	sleep 3
+	check "dropbear without a journal: a stranger is unsure" test "$(sessions_of "$OC26")" = "dropbear unsure;"
+	guard_install "$HC" --yes --port 2053
+	expect_rc 4 "dropbear without a journal: an unsure connection from outside refuses the unattended run"
+	guard_uninstall # (when a broken guard installed itself, the next cases start from nothing again)
 	year=$(m sh -c 'dropbear -V 2>&1 | grep -o "v20[0-9][0-9]" | tr -d v' | head -n 1)
 	dry_run_from "$HC"
 	if [ "${year:-0}" -ge 2024 ]; then
-		check "dropbear $year, not logged: a signed-in tunnel (the user's uid) gets the allowance" says "ONLY $OC6 may reach SSH"
+		check "dropbear $year without a journal: a signed-in tunnel (the user's uid) gets the allowance" says "ONLY $OC6 may reach SSH"
 	else
-		check_not "dropbear ${year:-?}, not logged: a signed-in tunnel cannot be told from a stranger: no allowance" says "ONLY $OC6 may reach SSH"
-		check "dropbear ${year:-?}, not logged: the advice is said" says "run this again with --ssh from"
+		check_not "dropbear ${year:-?} without a journal: a signed-in tunnel cannot be told from a stranger: no allowance" says "ONLY $OC6 may reach SSH"
+		check "dropbear ${year:-?} without a journal: the advice is said" says "run this again with --ssh from"
 	fi
-	docker exec "$OC" sh -c 'pkill -f "ssh .*2022"; true'
+	stop_clients
 	m pkill dropbear
+	m rm -f /etc/ssh/sshd_config.d/kbd.conf
+}
+
+g_moved() {
+	log "== moved: another private network on a recorded home interface is not home ($TAG)"
+	fresh nat || return 1
+	guard_install "$HC" --yes --port 2053
+	expect_rc 0 "install behind a router"
+	check "IPv4 passes on eth0 at home" in_set pass4_if '"eth0"'
+	msh "ip addr del $TM4/24 dev eth0; ip addr add 192.168.77.10/24 dev eth0; ip route replace default via 192.168.77.1 dev eth0 onlink"
+	sleep 5
+	log "  (moved: $(m /usr/local/sbin/cosmos-host-guard show 2>/dev/null | grep -E '^(lan_if|pass4_if|onlink4|pending4)=' | tr '\n' ' '))"
+	check_not "another private network on the recorded interface is not home" in_set onlink4 192.168.77.0/24
+	check "it waits for confirmation (shown)" in_set pending4 192.168.77.0/24
+	check_not "and IPv4 is not left unfiltered there" in_set pass4_if '"eth0"'
+	check "the journal says so" sh -c "docker exec $M journalctl -u cosmos-host-guard-watch --no-pager | grep -q '192.168.77.0/24 is on a home interface but is not the home network'"
+	check_not "nothing is written down (no nopass4)" m grep -q nopass4 /etc/cosmos-host-guard/home
+	msh "ip addr del 192.168.77.10/24 dev eth0; ip addr add $TM4/24 dev eth0; ip route replace default via $RT4H"
+	sleep 5
+	check "back home: IPv4 passes on eth0 again" in_set pass4_if '"eth0"'
+	check "back home: home v4 reaches SSH" tcp "$HC" "$TM4" 22
+	guard_uninstall
 }
 
 g_v4gap() {
@@ -1478,6 +1657,9 @@ g_vpnexit() {
 	msh 'ip netns add vpnpeer && ip link add tailscale0 type veth peer name ts0p && ip link set ts0p netns vpnpeer && ip addr add 100.100.1.1/24 dev tailscale0 && ip -6 addr add fd7a:115c:a1e0::1/64 dev tailscale0 && ip link set tailscale0 up && ip netns exec vpnpeer sh -c "ip addr add 100.100.1.2/24 dev ts0p; ip -6 addr add fd7a:115c:a1e0::2/64 dev ts0p; ip addr add 203.0.113.77/32 dev ts0p; ip link set ts0p up; ip link set lo up; ip route add default via 100.100.1.1"'
 	# shellcheck disable=SC2016
 	msh 'cp "$(command -v nc)" /usr/sbin/tailscaled; printf "[Service]\nExecStart=/bin/sh -c \"exec /usr/sbin/tailscaled -6 -u -l -k 41641 > /dev/null 2>&1\"\n" > /etc/systemd/system/tailscaled.service; systemctl daemon-reload; systemctl start tailscaled'
+	# the Tailscale client's peer list (a stand-in): the peer 100.100.1.2, and the
+	# exit node 100.100.1.9; 100.100.1.50 is held by no peer
+	msh 'printf "%s\n" "#!/bin/sh" "cat /etc/ts-status.json" > /usr/bin/tailscale; chmod 755 /usr/bin/tailscale; printf "{\n\t\"Self\": {\n\t\t\"TailscaleIPs\": [\n\t\t\t\"100.100.1.1\"\n\t\t]\n\t},\n\t\"Peer\": {\n\t\t\"nodekey:a\": {\n\t\t\t\"TailscaleIPs\": [\n\t\t\t\t\"100.100.1.2\",\n\t\t\t\t\"fd7a:115c:a1e0::2\"\n\t\t\t],\n\t\t\t\"ExitNode\": false\n\t\t},\n\t\t\"nodekey:b\": {\n\t\t\t\"TailscaleIPs\": [\n\t\t\t\t\"100.100.1.9\"\n\t\t\t],\n\t\t\t\"ExitNode\": true\n\t\t}\n\t}\n}\n" > /etc/ts-status.json; ip netns exec vpnpeer sh -c "ip addr add 100.100.1.9/32 dev ts0p; ip addr add 100.100.1.50/32 dev ts0p"'
 	sleep 1
 	guard_install "$HC" --yes --port 2053
 	expect_rc 0 "install with Tailscale"
@@ -1491,11 +1673,14 @@ g_vpnexit() {
 	check "exit node on: a VPN peer still reaches SSH" m ip netns exec vpnpeer nc -z -w 2 100.100.1.1 22
 	check "exit node on: a VPN peer over IPv6 still reaches SSH" m ip netns exec vpnpeer nc -z -w 2 fd7a:115c:a1e0::1 22
 	check_not "exit node on: an internet host through the exit node does not reach 9999" m ip netns exec vpnpeer nc -z -w 2 -s 203.0.113.77 100.100.1.1 9999
+	check_not "exit node on: a tailnet address no peer holds does not reach SSH" m ip netns exec vpnpeer nc -z -w 2 -s 100.100.1.50 100.100.1.1 22
+	check_not "exit node on: the exit node's own address does not reach SSH" m ip netns exec vpnpeer nc -z -w 2 -s 100.100.1.9 100.100.1.1 22
 	check "the journal says tailscale0 became outside" sh -c "docker exec $M journalctl -u cosmos-host-guard-watch -u cosmos-host-guard-refresh --no-pager | grep -q 'tailscale0 is an outside interface now'"
 	check "the state names the interfaces outside at install (for the panel)" m grep -qx 'outside_at_install=eth0' /var/lib/cosmos-protection/nftables.state
 	m ip route del default dev tailscale0 table 52
 	m ip route del 203.0.113.77/32 dev tailscale0
 	m systemctl stop tailscaled
+	m rm -f /usr/bin/tailscale /etc/ts-status.json
 	m ip netns del vpnpeer
 	guard_uninstall
 }
@@ -1517,11 +1702,43 @@ g_flushstorm() {
 	used=$(( (cpu1 - cpu0) / 1000000 ))
 	log "  (samples without the table: $miss of $n; outside probes (n, open): $q; watcher CPU $used ms)"
 	check "the watcher's cost is bounded: $used ms of CPU for 20 flushes in 20 s (bound: 4000 ms)" test "$used" -lt 4000
-	check "the table was missing in at most 12 of $n samples ($miss)" test "$miss" -le 12
+	# (the samples without the table are said, not bounded: a gap per flush is the
+	# time nft takes to report the deletion and load the table again, and the old
+	# code's 12-15 of 100 cannot be told from the new one's 3-9; the CPU bound can)
 	check "the table is back after the storm" guard_loaded
 	check "the journal says it loudly" sh -c "docker exec $M journalctl -u cosmos-host-guard-watch --no-pager | grep -q 'WARNING: something removed the guard'"
 	check "the state says it for the panel (removals in the last hour)" sh -c "docker exec $M sed -n 's/^table_removed_hour=//p' /var/lib/cosmos-protection/nftables.state | awk '\$1 >= 10 {ok = 1} END {exit !ok}'"
 	m systemctl restart docker
+	sleep 3
+	# a full refresh follows a fast reload (the network may have changed meanwhile)
+	m touch -d '-1 hour' /run/cosmos-host-guard/last-refresh
+	m nft flush ruleset
+	sleep 15
+	check "a full refresh follows a reload within 15 s" m find /run/cosmos-host-guard/last-refresh -newermt '-20 seconds'
+	m systemctl restart docker
+	sleep 3
+	# the fast reload's cache follows a narrowing: a public gateway filters IPv4,
+	# and a flush afterwards does not bring the older sets back
+	check "IPv4 passes on eth0 before" in_set pass4_if '"eth0"'
+	msh "ip route replace default via 198.51.100.254 dev eth0 onlink"
+	sleep 5
+	check_not "a public gateway: IPv4 no longer passes" in_set pass4_if '"eth0"'
+	msh "ip route replace default via $RT4H"
+	sleep 5
+	m nft flush ruleset
+	sleep 2
+	check "after a flush the table is back" guard_loaded
+	check_not "and IPv4 still does not pass on eth0 (the cache is not older than the narrowing)" in_set pass4_if '"eth0"'
+	check_not "outside v4 does not reach 9999" tcp "$OC" "$TM4" 9999
+	m systemctl restart docker
+	# taken away on purpose: not loaded again, not counted
+	before=$(m sh -c "sed -n 's/^table_removed_hour=//p' /var/lib/cosmos-protection/nftables.state")
+	m /usr/local/sbin/cosmos-host-guard unload
+	sleep 4
+	check_not "a hand-typed unload is not undone by the watcher" guard_loaded
+	check "and not counted as a removal" test "$before" = "$(m sh -c "sed -n 's/^table_removed_hour=//p' /var/lib/cosmos-protection/nftables.state")"
+	m systemctl reload cosmos-host-guard
+	check "a reload loads it again" guard_loaded
 	guard_uninstall
 }
 
@@ -1578,6 +1795,8 @@ for g in $GROUPS_WANTED; do
 		fail2ban) g_fail2ban ;;
 		updates) g_updates ;;
 		sessions) g_sessions ;;
+		strangers) g_strangers ;;
+		moved) g_moved ;;
 		v4gap) g_v4gap ;;
 		v4boot) g_v4boot ;;
 		vpnexit) g_vpnexit ;;

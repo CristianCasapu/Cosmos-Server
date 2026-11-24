@@ -357,7 +357,7 @@ test('an interface outside since the install, Tailscale as an exit node, and rul
   const exit = cardOf('guard', v3({ wanInterfaces: ['eth0', 'tailscale0'], lanInterfaces: ['eth0'], vpnHomeInterfaces: ['tailscale0'] }, { outsideSinceInstall: ['tailscale0'] }), 2053);
   assert.ok(exit.chip.text[0] === 'protection.chip.active');
   assert.deepEqual(warn(exit), ['Filtered since the install: tailscale0. A default route, or a route that covers most of the internet, now goes through it, so what arrives through it reaches only the ports the guard keeps open.']);
-  assert.ok(words(exit).includes('On tailscale0 (Tailscale carrying a default route: an exit node) its own peers (100.64.0.0/10, fd7a:115c:a1e0::/48) count as home; anything else that arrives through it reaches only the ports above.'));
+  assert.ok(words(exit).includes('On tailscale0 (Tailscale carrying a default route: an exit node) the devices of your tailnet, as Tailscale lists them, count as home (the exit node itself does not); anything else that arrives through it reaches only the ports above.'));
   assert.ok(!words(exit).some((line) => line.startsWith('On tailscale0 nothing counts as home')));
   // a full tunnel that is not Tailscale's: outside, nothing of it is home
   const tunnel = cardOf('guard', v3({ wanInterfaces: ['eth0', 'tun0'], lanInterfaces: ['eth0'] }, { outsideSinceInstall: ['tun0'] }), 2053);

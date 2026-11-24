@@ -514,6 +514,7 @@ dyn() { printf '%s\n' "$DYNAMIC" | sed -n "s/^$1=//p"; }
 WAN=$(dyn wan_if)
 LAN=$(dyn lan_if)
 VPNHOME=$(dyn vpnhome_if)
+VPNPEERS="$(dyn vpnpeer4),$(dyn vpnpeer6)"
 PASS4=$(dyn pass4_if)
 TRUSTED=$(dyn trusted_if)
 FAILCLOSED=$(dyn failclosed_if)
@@ -568,8 +569,8 @@ for dev in $(csv_words "$WAN"); do
 	if in_csv "$dev" "$VPNHOME"; then
 		IF_NOTES="$IF_NOTES
   outside     $dev is Tailscale's and carries a default route (an exit node): it is filtered
-              like any outside interface, but its own peers (100.64.0.0/10,
-              fd7a:115c:a1e0::/48) still count as home on it"
+              like any outside interface, but its own peers' addresses (as tailscaled lists
+              them, the exit node's left out) still count as home on it"
 	elif ip -d -o link show dev "$dev" 2>/dev/null | grep -qE ' (wireguard|tun) '; then
 		IF_NOTES="$IF_NOTES
   outside     $dev is a VPN that carries a default route (an exit node or a full tunnel): it is
@@ -604,9 +605,9 @@ SSH_PORTS=$({
 } | grep -E '^[0-9]{1,5}$' | sort -un | tr '\n' ' ')
 [ -n "$SSH_PORTS" ] || SSH_PORTS="22 "
 
-# "<address> <local port> <server> <yes|unsure>": OpenSSH's sessions are signed in
-# (a stranger still signing in is not listed); dropbear's and tinysshd's are
-# "unsure" when a stranger still signing in cannot be told from root's own tunnel
+# "<address> <local port> <server> <yes|no|unsure>": signed in on the server's own
+# record (the journal) or the post-sign-in processes; "no": a stranger still
+# signing in; "unsure": the two cannot be told apart here (no record to read)
 SESSIONS=$(sessions_tool sessions)
 PEERS=$(printf '%s\n' "$SESSIONS" | awk '$4 == "yes" {print $1}' | sort -u)
 UNSURE=$(printf '%s\n' "$SESSIONS" | awk '$4 == "unsure" {print $1}' | sort -u)
@@ -659,7 +660,7 @@ where_from() {
 	if ! in_csv "$dev" "$WAN"; then echo "through ${dev:-an interface} the guard does not filter (loopback, a VPN, a bridge)"; return; fi
 	case "$a" in *:*) fam=6 ;; *) fam=4 ;; esac
 	if [ "$fam" = 4 ] && in_csv "$dev" "$PASS4"; then echo "over IPv4 on $dev, which the guard leaves alone"; return; fi
-	if in_csv "$dev" "$VPNHOME" && in_net "$a" 100.64.0.0/10 fd7a:115c:a1e0::/48; then echo "through $dev from one of the VPN's own peers"; return; fi
+	if in_csv "$dev" "$VPNHOME" && in_csv "$a" "$VPNPEERS"; then echo "through $dev from one of the VPN's own peers"; return; fi
 	# shellcheck disable=SC2086
 	if in_net "$a" $HOMES; then echo "from a --home network"; return; fi
 	if in_csv "$dev" "$LAN"; then
@@ -693,8 +694,8 @@ for p in $PEERS; do
 	fi
 done
 
-# connections to dropbear or tinysshd that may still be signing in, from outside:
-# never an allowance; an unattended run is refused (it may be root's own tunnel)
+# connections from outside that may or may not be signed in: never an allowance;
+# an unattended run is refused (it may be the owner's own session)
 UNSURE_OUTSIDE=""
 for p in $UNSURE; do
 	[ "$(where_from "$p")" = outside ] && UNSURE_OUTSIDE="$UNSURE_OUTSIDE ${p%%%*}"
@@ -864,8 +865,9 @@ if [ -n "$PEERS" ]; then
 else
 	say "  SSH         no SSH session is open now (ports $SSH_PORTS)"
 fi
-[ -z "$UNSURE_OUTSIDE" ] || say "              connections from outside to dropbear or tinysshd that may still be signing in
-              (they cannot be told apart from root's own session):$UNSURE_OUTSIDE; no allowance.
+[ -z "$UNSURE_OUTSIDE" ] || say "              SSH connections from outside that may or may not be signed in (the server's
+              record of a sign-in is not in the journal, so a stranger still signing in
+              cannot be told apart from a session):$UNSURE_OUTSIDE; no allowance.
               If one of them is yours, run this again with --ssh from <that address>, or come in
               from home or through a VPN"
 [ -z "$HINT_NOTE" ] || say "              ($HINT_NOTE)"
@@ -918,7 +920,7 @@ if [ "$YES" = 1 ] && [ "$SSH_OPEN" = 0 ]; then
 	why=""
 	[ -z "$OUTSIDE_PEERS" ] || why="SSH sessions are open from outside the home network (${OUTSIDE_PEERS# })"
 	[ -z "$VPN_UNKNOWN_SESSION" ] || why="${why:+$why; }SSH sessions come through a VPN whose own port the guard cannot find:$VPN_UNKNOWN_SESSION"
-	[ -z "$UNSURE_OUTSIDE" ] || why="${why:+$why; }connections from outside to dropbear or tinysshd may be signed-in sessions (${UNSURE_OUTSIDE# }: a stranger still signing in cannot be told apart from root's own session)"
+	[ -z "$UNSURE_OUTSIDE" ] || why="${why:+$why; }SSH connections from outside may be signed-in sessions (${UNSURE_OUTSIDE# }: the server's record of a sign-in is not in the journal, so a stranger still signing in cannot be told apart from a session)"
 	[ -z "$UNEXPLAINED_TTY" ] || why="${why:+$why; }this run's terminal ($UNEXPLAINED_TTY) belongs to no SSH session the guard can see, so it cannot tell where you are"
 	if [ -n "$why" ]; then
 		record status "refused ssh-session-from-outside"

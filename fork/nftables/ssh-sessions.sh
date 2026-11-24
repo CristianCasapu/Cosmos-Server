@@ -1,46 +1,62 @@
 #!/bin/sh
-# The SSH servers that listen on this machine and the SSH sessions open now, as
-# the host guard's and Fail2ban's installers need them (fork/nftables/install.sh,
-# fork/fail2ban/install.sh). Run as root; reads only ss and /proc.
+# The SSH servers that listen on this machine and the SSH connections open now,
+# as the host guard's and Fail2ban's installers need them (fork/nftables/install.sh,
+# fork/fail2ban/install.sh). Run as root; reads ss, /proc and the journal.
 #
 #   sh ssh-sessions.sh listeners   "<server> <pid> <address> <port>" per listening socket
-#   sh ssh-sessions.sh sessions    "<address> <local port> <server> <signed-in>" per session
+#   sh ssh-sessions.sh sessions    "<address> <local port> <server> <signed-in>" per
+#                                  connection accepted by an SSH server
 #   sh ssh-sessions.sh explained <pid>
 #                                  exit 0 when an SSH server's process is among the
 #                                  ancestors of <pid> (its terminal comes from a session)
 #
-# <server> is openssh, dropbear or tinysshd; <signed-in> is yes, or unsure.
+# <server> is openssh, dropbear or tinysshd; <signed-in> is yes, no (a stranger
+# still signing in) or unsure. Only "yes" may ever be given an SSH allowance or be
+# kept from bans; "unsure" refuses an unattended install.
 #
 # What is trusted is what a user signed in over SSH cannot make:
-# - a listener is a listening socket held by a root process whose executable,
-#   read through /proc/<pid>/exe (never its name or title), is an SSH server's
-#   binary owned by root and writable by root only, started by the service
-#   manager (parent 1) or the main process of the server's unit; or held by
-#   systemd itself (pid 1) on a port of ssh.socket, sshd.socket, dropbear.socket
-#   or tinysshd.socket (socket activation);
-# - a session is an ACCEPTED connection: an established socket whose local
-#   address and port are those of such a listener, held by a process with an SSH
-#   server's executable that descends from the listener (or, its listener gone or
-#   systemd's, by a process of the same server whose parent is pid 1).
-# Connections an SSH server makes outwards (-L, -D, -W forwards), visitors of a
-# -R forward and processes with a forged name or title are not on a listener's
-# port, so they never count.
+# - a LISTENER is a listening socket held by a root process whose executable, read
+#   through /proc/<pid>/exe (never its name), is an SSH server's binary owned by
+#   root and writable by root only: OpenSSH's daemon (its root-set title says
+#   "[listener]": a root session's -R forward does not), dropbear or tinysshd whose
+#   parent is not a process of the same server (a connection's -R forward listens
+#   in such a child); however it was started (a unit, by hand, a supervisor). Or
+#   systemd itself (pid 1) on a port of ssh.socket, sshd.socket, dropbear.socket or
+#   tinysshd.socket. "*" listens on both families, 0.0.0.0 on IPv4, [::] on IPv6.
+# - a CONNECTION counts when it was ACCEPTED: an established socket on such a
+#   listener's family, address and port, held (found by the socket's inode in
+#   /proc/<pid>/fd, never by parsing process names) by a process of that server's
+#   binary that descends from the listener through processes of that binary (or,
+#   its listener restarted or systemd's, whose parent is pid 1). Connections an
+#   SSH server makes outwards (-L, -D, -W), visitors of a -R forward and processes
+#   with a forged name or title are never on a listener's port.
 #
-# Signed in: OpenSSH's root monitor carries the user's name ("sshd...: user
-# [priv]", or "user@pts/N" / "user@notty" for root's own logins); only a root
-# process can set that title, and it exists for every signed-in connection,
-# tunnels without a terminal (ssh -N, -W, ProxyJump) included. A connection
-# whose monitor has no user yet is a stranger still signing in: not a session.
-# dropbear and tinysshd do not say it in a title. A connection is signed in when
-# its process has dropped to a user's uid (dropbear from 2024 on), has started a
-# child (the shell or the command), or, for dropbear, when the journal holds its
-# own line "... auth succeeded for '<user>' ... from <this peer's address:port>"
-# written by root's dropbear binary (journald's _UID, _EXE and _PID come from the
-# kernel: no user can forge them); dropbear up to 2022 (Debian 12, Ubuntu 24.04)
-# keeps a signed-in tunnel (-N) as root without a child, so only that line tells
-# it from a stranger still signing in. Any other connection is "unsure": a
-# stranger still signing in and root's own tunnel cannot be told apart (also when
-# dropbear logs nowhere the journal sees, e.g. with -E to a file).
+# SIGNED IN rests on evidence that authentication SUCCEEDED for that very
+# connection, never on a title (OpenSSH titles its monitor "<name> [priv]" as soon
+# as a client NAMES a user, before any authentication):
+# - the server's own line in the journal: OpenSSH "Accepted <method> for <user>
+#   from <address> port <port>", dropbear "... auth succeeded for '<user>' ... from
+#   <address>:<port>", with address and port equal to the socket's peer, and
+#   accepted only from an entry whose _PID is the connection's own process (for
+#   dropbear also its listener, which writes for its children when it logs to its
+#   standard error under a unit), _UID 0 and _EXE that process's binary: journald
+#   takes these fields from the kernel, a user's logger or systemd-cat line never
+#   has them (the message text and the identifier are not looked at);
+# - or the processes, which can only add certainty: OpenSSH's post-authentication
+#   child (a child of the monitor running as the user: neither root nor the
+#   privilege separation user, which runs the pre-authentication child), a
+#   dropbear connection process that dropped to a user's uid (dropbear from 2024)
+#   or started a child (the shell or the command). dropbear up to 2022 (Debian 12,
+#   Ubuntu 24.04) keeps a signed-in tunnel as root without a child: there only the
+#   journal tells it from a stranger.
+# NOT signed in ("no"): an OpenSSH connection whose monitor has not been given a
+# user name; one whose monitor was (a stranger at the password prompt) when the
+# journal covers the connection's whole life (its oldest entry of this boot is
+# older than the connection, and this server writes to it) and holds no such
+# line; a dropbear connection whose own "Child connection from <peer>" line is in
+# the journal without a line of success. Anything else is "unsure": no journal, a
+# server that logs elsewhere, a line rotated or vacuumed away, root's own session
+# without its line (its post-authentication child is root's too).
 
 set -eu
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
@@ -48,12 +64,13 @@ PATH=/usr/sbin:/usr/bin:/sbin:/bin
 uid_of() { awk '/^Uid:/ {print $2; exit}' "/proc/$1/status" 2>/dev/null || true; }
 ppid_of() { awk '/^PPid:/ {print $2; exit}' "/proc/$1/status" 2>/dev/null || echo 0; }
 title_of() { tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null | sed 's/ *$//' || true; }
+exe_of() { e=$(readlink "/proc/$1/exe" 2>/dev/null || true); printf '%s\n' "${e% (deleted)}"; }
+children_of() { cat /proc/"$1"/task/*/children 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+$' || true; }
 
 # server_of <pid>: openssh, dropbear or tinysshd when the process's executable is
 # that server's binary, owned by root and not writable by anyone else
 server_of() {
-	exe=$(readlink "/proc/$1/exe" 2>/dev/null || true)
-	exe=${exe% (deleted)}
+	exe=$(exe_of "$1")
 	case "$exe" in
 		/usr/sbin/sshd|/sbin/sshd|/usr/local/sbin/sshd|/usr/lib/openssh/sshd-session|/usr/lib/openssh/sshd-auth|/usr/libexec/openssh/sshd-session|/usr/libexec/openssh/sshd-auth|/usr/local/libexec/sshd-session|/usr/local/libexec/sshd-auth) kind=openssh ;;
 		/usr/sbin/dropbear|/usr/bin/dropbear|/sbin/dropbear|/usr/local/sbin/dropbear) kind=dropbear ;;
@@ -70,20 +87,28 @@ server_of() {
 	echo "$kind"
 }
 
-# the listening address without brackets, scope or the IPv4-mapped prefix; "*" for any
-addr_of() { # ss's "address:port"
+# addr_of <ss's address:port>: the address without brackets or scope, an
+# IPv4-mapped one as IPv4; "*" for any on both families, "*4" / "*6" for any on one
+fam_of() { case "$1" in \[*) echo 6 ;; *) echo 4 ;; esac; }
+addr_of() {
 	a=${1%:*}
 	a=${a#[}; a=${a%]}
 	a=${a%%%*}
 	a=${a%]}
 	case "$a" in ::ffff:*.*) a=${a#::ffff:} ;; esac
-	case "$a" in '*'|0.0.0.0|::) a='*' ;; esac
+	case "$a" in '*') a='*' ;; 0.0.0.0) a='*4' ;; ::) a='*6' ;; esac
 	printf '%s\n' "$a"
 }
 
-main_pids() {
-	systemctl show -p MainPID --value ssh.service sshd.service dropbear.service tinysshd.service 2>/dev/null | grep -E '^[1-9][0-9]*$' | tr '\n' ' ' || true
+# "<inode> <pid>" for every socket every process holds (one pass over /proc)
+socket_index() {
+	find /proc/[0-9]*/fd -maxdepth 1 -type l -lname 'socket:\[*' -printf '%l %h\n' 2>/dev/null |
+		sed -n 's|^socket:\[\([0-9]*\)\] /proc/\([0-9]*\)/fd$|\1 \2|p' || true
 }
+holders() { printf '%s\n' "$INDEX" | awk -v i="$1" '$1 == i {print $2}' | sort -un; }
+# ss -e lines: the inode
+inode_of() { printf '%s\n' "$1" | tr ' ' '\n' | sed -n 's/^ino:\([0-9][0-9]*\)$/\1/p' | head -n 1; }
+
 # the ports of the SSH servers' socket units: "<server> <port>"
 unit_ports() {
 	for unit in ssh.socket sshd.socket dropbear.socket tinysshd.socket; do
@@ -93,13 +118,15 @@ unit_ports() {
 }
 
 listeners() {
-	mains=" $(main_pids) "
+	[ -n "${INDEX:-}" ] || INDEX=$(socket_index)
 	uports=$(unit_ports)
-	ss -Htlnp 2>/dev/null | while read -r _ _ _ local _ procs; do
+	ss -Htlne 2>/dev/null | while read -r _ _ _ local _ ext; do
 		port=${local##*:}
 		case "$port" in ''|*[!0-9]*) continue ;; esac
 		addr=$(addr_of "$local")
-		for pid in $(printf '%s' "$procs" | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u); do
+		ino=$(inode_of "$ext")
+		[ -n "$ino" ] || continue
+		for pid in $(holders "$ino"); do
 			if [ "$pid" = 1 ]; then
 				# systemd holds the socket of a socket unit
 				printf '%s\n' "$uports" | awk -v p="$port" -v a="$addr" '$2 == p {print $1, 1, a, p}'
@@ -107,51 +134,19 @@ listeners() {
 			fi
 			[ "$(uid_of "$pid")" = 0 ] || continue
 			kind=$(server_of "$pid") || continue
-			case "$mains" in *" $pid "*) ;; *) [ "$(ppid_of "$pid")" = 1 ] || continue ;; esac
+			case "$kind" in
+				openssh) title_of "$pid" | grep -q '\[listener\]' || continue ;;
+				*) [ "$(server_of "$(ppid_of "$pid")" || true)" != "$kind" ] || continue ;;
+			esac
 			printf '%s %s %s %s\n' "$kind" "$pid" "$addr" "$port"
 		done
 	done | sort -u
 }
 
-signed_in_openssh() { # pid: yes when a root OpenSSH process from it up carries the user's name
-	p=$1; depth=0
-	while [ "$p" -gt 1 ] 2>/dev/null && [ "$depth" -lt 64 ]; do
-		case " $LPIDS " in *" $p "*) break ;; esac
-		if [ "$(uid_of "$p")" = 0 ] && [ "$(server_of "$p" || true)" = openssh ]; then
-			t=$(title_of "$p")
-			# the monitor of a signed-in connection (any: with a terminal, a command or none)
-			printf '%s\n' "$t" | grep -qE '^sshd[a-z-]*: [^ []+ \[priv\]$' && return 0
-			# root's own session, whose process is root's too
-			printf '%s\n' "$t" | grep -qE '^sshd[a-z-]*: [^ []+@(pts/[0-9]+|notty)$' && return 0
-		fi
-		p=$(ppid_of "$p"); depth=$((depth + 1))
-	done
-	return 1
-}
-
-# dropbear_logged <connection pid> <peer as ss prints it>: root's dropbear wrote,
-# from that process (or from its listener, when dropbear logs to its standard
-# error under systemd), that this peer's address and port signed in
-dropbear_logged() {
-	command -v journalctl >/dev/null 2>&1 || return 1
-	pa=${2%:*}; pp=${2##*:}
-	pa=${pa#[}; pa=${pa%]}; pa=${pa%%%*}
-	case "$pp" in ''|*[!0-9]*) return 1 ;; esac
-	for lp in "$1" $LPIDS; do
-		exe=$(readlink "/proc/$lp/exe" 2>/dev/null || true)
-		exe=${exe% (deleted)}
-		[ -n "$exe" ] || continue
-		if timeout 5 journalctl -q --no-pager -b -o cat _PID="$lp" _UID=0 _EXE="$exe" 2>/dev/null |
-			awk -v a="$pa:$pp" -v b="::ffff:$pa:$pp" '/ auth succeeded for / && $(NF - 1) == "from" && ($NF == a || $NF == b) {found = 1} END {exit !found}'; then
-			return 0
-		fi
-	done
-	return 1
-}
-
 # accepted <holder pid> <server>: the holder descends from one of $LPIDS (the
-# listeners of that socket), or is that server's process whose parent is pid 1;
-# prints the process just below the listener (the connection's own process)
+# listeners of that socket) through processes of that server's binary, or is
+# such a process whose parent is pid 1; prints the process just below the
+# listener (the connection's own process: OpenSSH's monitor)
 accepted() {
 	p=$1; depth=0; below=$1
 	while [ "$p" -gt 1 ] 2>/dev/null && [ "$depth" -lt 64 ]; do
@@ -164,45 +159,118 @@ accepted() {
 	return 1
 }
 
+# jmessages <pid> <binary>: the messages root wrote from that process with that
+# binary in this boot (journald's own fields; bounded)
+jmessages() {
+	command -v journalctl >/dev/null 2>&1 || return 0
+	[ -n "$2" ] || return 0
+	timeout 5 journalctl -q --no-pager -b -o cat _PID="$1" _UID=0 _EXE="$2" 2>/dev/null | head -n 5000 || true
+}
+# the peer's address and port, as the servers write them
+peer_parts() { # ss's peer
+	PA=${1%:*}; PP=${1##*:}
+	PA=${PA#[}; PA=${PA%]}; PA=${PA%%%*}
+	case "$PA" in ::ffff:*.*) PA=${PA#::ffff:} ;; esac
+}
+openssh_accepted() { # monitor pid: its "Accepted ... for U from A port P" for this peer
+	jmessages "$1" "$(exe_of "$1")" | awk -v a="$PA" -v b="::ffff:$PA" -v p="$PP" '
+		$1 == "Accepted" && $3 == "for" && $5 == "from" && ($6 == a || $6 == b) && $7 == "port" && $8 == p {found = 1}
+		END {exit !found}'
+}
+dropbear_line() { # pattern connection-pid: its (or its listener's) line of that kind for this peer
+	for lp in "$2" $LPIDS; do
+		jmessages "$lp" "$(exe_of "$lp")" | awk -v re="$1" -v a="$PA:$PP" -v b="::ffff:$PA:$PP" '
+			$0 ~ re && $(NF - 1) == "from" && ($NF == a || $NF == b) {found = 1}
+			END {exit !found}' && return 0
+	done
+	return 1
+}
+
+# covers <pid>: the journal holds this boot from before the process started, and
+# the process's binary writes to it (so a missing line of success means none)
+covers() {
+	command -v journalctl >/dev/null 2>&1 || return 1
+	if [ -z "${OLDEST:-}" ]; then
+		OLDEST=$(timeout 5 journalctl -b -q --no-pager -o short-unix 2>/dev/null | head -n 1 | cut -d. -f1 || true)
+		case "$OLDEST" in ''|*[!0-9]*) OLDEST=none ;; esac
+	fi
+	[ "$OLDEST" != none ] || return 1
+	ticks=$(awk '{print $22}' "/proc/$1/stat" 2>/dev/null || echo x)
+	hz=$(getconf CLK_TCK 2>/dev/null || echo 100)
+	boot=$(awk '/^btime/ {print $2}' /proc/stat)
+	case "$ticks$hz$boot" in ''|*[!0-9]*) return 1 ;; esac
+	[ "$OLDEST" -lt $((boot + ticks / hz)) ] || return 1
+	timeout 5 journalctl -q --no-pager -b -n 1 -o cat _UID=0 _EXE="$(exe_of "$1")" 2>/dev/null | grep -q .
+}
+
+# the uid of OpenSSH's privilege separation user (it runs the pre-authentication child)
+privsep_uid() { id -u sshd 2>/dev/null || echo none; }
+
+# state <server> <connection's own process>: yes, no or unsure
+state_of() {
+	case "$1" in
+		openssh)
+			openssh_accepted "$2" && { echo yes; return; }
+			for c in $(children_of "$2"); do
+				u=$(uid_of "$c")
+				case "$u" in ''|0|"$PRIVSEP") continue ;; esac
+				[ "$(server_of "$c" || true)" = openssh ] || continue
+				case "$(exe_of "$c")" in */sshd-auth) continue ;; esac
+				case "$(title_of "$c")" in *"[net]"|*"[preauth]") continue ;; esac
+				echo yes; return
+			done
+			# no user named yet ("[accepted]", "[net]"...): a stranger at the very start;
+			# a name ("tester [priv]", root's own "root" or "root@pts/0"): from here only
+			# the journal tells a stranger at the password prompt from a session
+			if ! title_of "$2" | grep -qE '^sshd[a-z-]*: [^[ ]'; then echo no; return; fi
+			if covers "$2"; then echo no; else echo unsure; fi ;;
+		dropbear|tinysshd)
+			if [ "$(uid_of "$2")" != 0 ] || [ -n "$(children_of "$2")" ]; then echo yes; return; fi
+			if [ "$1" = dropbear ]; then
+				dropbear_line ' auth succeeded for ' "$2" && { echo yes; return; }
+				dropbear_line 'Child connection from ' "$2" && { echo no; return; }
+			fi
+			echo unsure ;;
+	esac
+}
+
 # on_ports <port,...>: the lines of `ss state established` whose local port is one of them
 on_ports() { awk -v ports=",$1," '{n = split($3, a, ":"); if (index(ports, "," a[n] ",")) print}'; }
-# listeners_on <port> <address>: the listeners ($LIST) of that local address and port
+# listeners_on <port> <address> <family>: the listeners ($LIST) of that local address and port
 listeners_on() {
-	printf '%s\n' "$LIST" | awk -v p="$1" -v a="$2" '$4 == p && ($3 == "*" || $3 == a)'
+	printf '%s\n' "$LIST" | awk -v p="$1" -v a="$2" -v f="*$3" '$4 == p && ($3 == "*" || $3 == f || $3 == a)'
 }
 
 sessions() {
+	INDEX=$(socket_index)
 	LIST=$(listeners)
 	[ -n "$LIST" ] || return 0
+	PRIVSEP=$(privsep_uid)
+	OLDEST=""
 	ports=$(printf '%s\n' "$LIST" | awk '{print $4}' | sort -u | paste -sd, -)
 	# only the connections on a listener's port go further (one pass over them all)
-	ss -Htnp state established 2>/dev/null | on_ports "$ports" |
-	while read -r _ _ local peer procs; do
+	ss -Htne state established 2>/dev/null | on_ports "$ports" |
+	while read -r _ _ local peer ext; do
 		lport=${local##*:}
 		laddr=$(addr_of "$local")
-		# the listeners of this local address and port
-		match=$(listeners_on "$lport" "$laddr")
+		match=$(listeners_on "$lport" "$laddr" "$(fam_of "$local")")
 		[ -n "$match" ] || continue
 		kind=$(printf '%s\n' "$match" | awk '{print $1; exit}')
 		LPIDS=$(printf '%s\n' "$match" | awk -v k="$kind" '$1 == k {print $2}' | tr '\n' ' ')
+		ino=$(inode_of "$ext")
+		[ -n "$ino" ] || continue
+		peer_parts "$peer"
 		state=""
-		for pid in $(printf '%s' "$procs" | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u); do
+		for pid in $(holders "$ino"); do
 			conn=$(accepted "$pid" "$kind") || continue
-			case "$kind" in
-				openssh) if signed_in_openssh "$pid"; then state=yes; break; fi ;;
-				*)
-					if [ "$(uid_of "$conn")" != 0 ] || [ -n "$(cat /proc/"$conn"/task/*/children 2>/dev/null | tr -d ' \n')" ]; then
-						state=yes; break
-					fi
-					if [ "$kind" = dropbear ] && dropbear_logged "$conn" "$peer"; then state=yes; break; fi
-					state=unsure ;;
+			s=$(state_of "$kind" "$conn")
+			case "$state:$s" in
+				*:yes) state=yes; break ;;
+				:*|no:unsure) state=$s ;;
 			esac
 		done
 		[ -n "$state" ] || continue
-		addr=${peer%:*}
-		addr=${addr#[}; addr=${addr%]}
-		case "$addr" in ::ffff:*.*) addr=${addr#::ffff:} ;; esac
-		printf '%s %s %s %s\n' "$addr" "$lport" "$kind" "$state"
+		printf '%s %s %s %s\n' "$PA" "$lport" "$kind" "$state"
 	done | sort -u
 }
 

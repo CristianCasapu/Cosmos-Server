@@ -140,6 +140,8 @@ fi
 
 LEFT=""
 systemctl stop "$UNDO_UNIT.timer" "$UNDO_UNIT.service" >/dev/null 2>&1 || true
+# a removal on purpose: a watcher still running must not load the table again
+mkdir -p "$RUN_DIR" && : > "$RUN_DIR/unloaded"
 for unit in $PRESENT_UNITS; do
 	systemctl disable --now "$unit" >/dev/null 2>&1 || systemctl stop "$unit" >/dev/null 2>&1 || true
 done

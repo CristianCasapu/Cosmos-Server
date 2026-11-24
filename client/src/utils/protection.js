@@ -210,7 +210,7 @@ const answerLines = (piece, table, formatDate) => {
     if (lan.includes(ifname)) {
       lines.push(['protection.guard.homeLan', 'Home network on {{ifname}}: its own prefixes count as home.', { ifname }]);
     } else if (vpnHome.includes(ifname)) {
-      lines.push(['protection.guard.homeVpnExit', 'On {{ifname}} (Tailscale carrying a default route: an exit node) its own peers (100.64.0.0/10, fd7a:115c:a1e0::/48) count as home; anything else that arrives through it reaches only the ports above.', { ifname }]);
+      lines.push(['protection.guard.homeVpnExit', 'On {{ifname}} (Tailscale carrying a default route: an exit node) the devices of your tailnet, as Tailscale lists them, count as home (the exit node itself does not); anything else that arrives through it reaches only the ports above.', { ifname }]);
     } else if (home.length) {
       lines.push(['protection.guard.homeNamed', 'On {{ifname}} only the networks named with --home count as home (the segment is the provider\'s).', { ifname }]);
     } else {

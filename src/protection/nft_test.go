@@ -380,6 +380,7 @@ func TestTablePendingPrefixesAndNewSetsAreValidated(t *testing.T) {
 		{"set": {"family": "inet", "table": "cosmos_host_guard", "name": "trusted_if", "elem": ["tun0", "bad name", "$(x)", "this-name-is-far-too-long"]}},
 		{"set": {"family": "inet", "table": "cosmos_host_guard", "name": "rpf_if", "elem": ["eth0", "eth0", 7]}},
 		{"set": {"family": "inet", "table": "cosmos_host_guard", "name": "vpnhome_if", "elem": ["tailscale0", "bad name", 3]}},
+		{"set": {"family": "inet", "table": "cosmos_host_guard", "name": "pending4", "elem": [{"prefix": {"addr": "192.168.77.0", "len": 24}}, "2001:db8::1", "x"]}},
 		{"set": {"family": "inet", "table": "other", "name": "trusted_if", "elem": ["wg9"]}},
 		{"counter": {"family": "inet", "table": "cosmos_host_guard", "name": "dropped_rpf", "packets": 5, "bytes": 300}},
 		{"counter": {"family": "inet", "table": "other", "name": "dropped_rpf", "packets": 9, "bytes": 9}}
@@ -388,7 +389,7 @@ func TestTablePendingPrefixesAndNewSetsAreValidated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"2001:db8:5::/64", "2001:db8:7::-2001:db8:7::ff"}; !reflect.DeepEqual(table.PendingPrefixes, want) {
+	if want := []string{"2001:db8:5::/64", "2001:db8:7::-2001:db8:7::ff", "192.168.77.0/24"}; !reflect.DeepEqual(table.PendingPrefixes, want) {
 		t.Errorf("pending %v, want %v", table.PendingPrefixes, want)
 	}
 	if !reflect.DeepEqual(table.TrustedInterfaces, []string{"tun0"}) || !reflect.DeepEqual(table.RPFInterfaces, []string{"eth0"}) || !reflect.DeepEqual(table.VPNHomeInterfaces, []string{"tailscale0"}) {
