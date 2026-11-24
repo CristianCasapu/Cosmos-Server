@@ -44,12 +44,20 @@ type levelSource interface {
 	state(name string, kind string, since time.Time) (threadLevel, *notice, error)
 }
 
-// storeLevels reads the notifications.
-type storeLevels struct{}
+// storeLevels reads the notifications. now is the notifier's clock (nil:
+// the wall clock).
+type storeLevels struct{ now func() time.Time }
 
-func (storeLevels) openThreads(kinds []string) ([]notice, error) {
-	out := []notice{}
-	seen := map[string]bool{}
+func (l storeLevels) clock() time.Time {
+	if l.now != nil {
+		return l.now()
+	}
+	return time.Now()
+}
+
+func (l storeLevels) openThreads(kinds []string) ([]notice, error) {
+	rowOf := map[string]notice{}
+	order := []string{}
 	rows, err := utils.ForkOpenThreads(kinds, reconcileHorizon, maxThreadEntries)
 	if err == nil {
 		config := utils.GetMainConfig()
@@ -59,20 +67,41 @@ func (storeLevels) openThreads(kinds []string) ([]notice, error) {
 			}
 			nt := noticeFromInfo(row, config)
 			nt.at = row.Date
-			out = append(out, nt)
-			seen[row.Fork.Thread] = true
+			rowOf[row.Fork.Thread] = nt
+			order = append(order, row.Fork.Thread)
 		}
 	}
-	// review 5: what the sources hold open, its notification deleted or not
-	for kind, threads := range utils.SourceOpenThreads() {
+	out := []notice{}
+	seen := map[string]bool{}
+	// review 5 and 6: what the sources hold open first (their own state is
+	// the stronger evidence; a full table of rows must not crowd it out),
+	// with its notification's words when the row is there
+	sourceOpens := utils.SourceOpenThreads()
+	sourceKinds := make([]string, 0, len(sourceOpens))
+	for kind := range sourceOpens {
+		sourceKinds = append(sourceKinds, kind)
+	}
+	sort.Strings(sourceKinds)
+	for _, kind := range sourceKinds {
 		if !pairedOpening(kind) {
 			continue
 		}
-		for _, name := range threads {
-			if !seen[name] && len(out) < maxThreadEntries {
-				seen[name] = true
-				out = append(out, genericOpening(kind, name, time.Now()))
+		for _, name := range sourceOpens[kind] {
+			if seen[name] || len(out) >= maxThreadEntries {
+				continue
 			}
+			seen[name] = true
+			if nt, has := rowOf[name]; has {
+				out = append(out, nt)
+			} else {
+				out = append(out, genericOpening(kind, name, l.clock()))
+			}
+		}
+	}
+	for _, name := range order {
+		if !seen[name] && len(out) < maxThreadEntries {
+			seen[name] = true
+			out = append(out, rowOf[name])
 		}
 	}
 	if len(out) == 0 && err != nil {

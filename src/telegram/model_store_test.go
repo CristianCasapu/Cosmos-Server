@@ -122,7 +122,7 @@ func (l faultyLevels) openThreads(kinds []string) ([]notice, error) {
 		m.feature("store error")
 		return nil, errReadFailed
 	}
-	return storeLevels{}.openThreads(kinds)
+	return storeLevels{now: m.now}.openThreads(kinds)
 }
 
 func (l faultyLevels) state(name string, kind string, since time.Time) (threadLevel, *notice, error) {
@@ -137,7 +137,7 @@ func (l faultyLevels) state(name string, kind string, since time.Time) (threadLe
 			return levelUnknown, nil, nil
 		}
 	}
-	return storeLevels{}.state(name, kind, since)
+	return storeLevels{now: m.now}.state(name, kind, since)
 }
 
 type readError struct{}

@@ -113,7 +113,7 @@ func TestR6TheSourceComesFirst(t *testing.T) {
 // when the notifications cannot be read (or the row was deleted).
 func TestR6TheSourcesOpenListsAreRead(t *testing.T) {
 	utils.RegisterOpenThreads("docker.down", func() ([]string, bool) { return []string{"docker.down"}, true })
-	defer utils.RegisterOpenThreads("docker.down", func() ([]string, bool) { return nil, false })
+	defer registerModelSources() // the model's sources again
 	found, err := (storeLevels{}).openThreads(PairedKinds())
 	if err != nil || len(found) != 1 || found[0].thread != "docker.down" || found[0].kind != "docker.down" {
 		t.Fatalf("%v %+v", err, found)
@@ -303,5 +303,26 @@ func TestR6TheEndOfAToldProblemGetsAnEntryWhenTheTableIsFull(t *testing.T) {
 	m.settle(5 * time.Minute)
 	if got := strings.Join(m.actions(th), ","); got != "open,close" || len(m.pinnedNow()) != 0 {
 		t.Errorf("%s, pinned %v", got, m.pinnedNow())
+	}
+}
+
+// Found by the model (review 6): more than 256 open rows (a full table) do
+// not crowd out a problem a source holds open.
+func TestR6WhatASourceHoldsOpenIsNotCrowdedOut(t *testing.T) {
+	modelStoreEnv(t)
+	defer registerModelSources()
+	utils.RegisterOpenThreads("docker.down", func() ([]string, bool) { return []string{"docker.down"}, true })
+	for i := 0; i < maxThreadEntries+10; i++ {
+		utils.WriteNotification(utils.Notification{Recipient: "admin", Level: "warning", Fork: &utils.NotificationInfo{
+			Kind: "disk.filling", Thread: fmt.Sprintf("fill:/bulk/%d", i),
+			What: utils.NText("notif.update.attention.what", "summary", "x")}})
+	}
+	found, err := (storeLevels{}).openThreads(PairedKinds())
+	held := false
+	for _, nt := range found {
+		held = held || nt.thread == "docker.down"
+	}
+	if err != nil || !held || len(found) != maxThreadEntries {
+		t.Errorf("err %v, held %v, %d found", err, held, len(found))
 	}
 }

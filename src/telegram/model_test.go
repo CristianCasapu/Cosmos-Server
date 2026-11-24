@@ -1612,6 +1612,9 @@ func TestModelSeedsThatFailedOnce(t *testing.T) {
 		1795511299980245804, // a closing refused for its form, then reopened by the level: the full form again
 		1795511419007793193, // a thread beyond the full table with a name longer than the store keeps
 		1795512053694767857, // a full table and a restart (the bounds of the file and of the store's listing)
+		1795512583667663259, // failed only inside a long pass: the level's clock was the wall clock (now the notifier's)
+		1795512662653143204, // a full table of rows crowded out what a source held open
+		1795512767026516955, // the same
 	} {
 		runModel(t, seed)
 	}
