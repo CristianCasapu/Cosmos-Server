@@ -61,7 +61,7 @@ func TestTableOfARealNft(t *testing.T) {
 		PublicTCP: []int{2052, 2053}, PublicUDP: []int{}, VPNUDP: []int{41641},
 		WANInterfaces: []string{"eth0", "lo"}, LANInterfaces: []string{}, FailClosedInterfaces: []string{},
 		SSHPorts: []int{}, SSHAllowed: []Allowance{}, IPv4PassInterfaces: []string{}, RPFInterfaces: []string{},
-		TrustedInterfaces: []string{}, PendingPrefixes: []string{},
+		TrustedInterfaces: []string{}, VPNHomeInterfaces: []string{}, PendingPrefixes: []string{},
 		HomeNetworks: []string{"10.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7", "fe80::/10"},
 	}
 	if !reflect.DeepEqual(table, want) {
@@ -226,7 +226,7 @@ func TestTableOfTodaysGuard(t *testing.T) {
 			{Address: "2001:db8:2::20", Expires: int64p(86399)},
 		},
 		HomeNetworks:       []string{"192.0.2.0/24", "203.0.113.5", "2001:db8:5::/48"},
-		IPv4PassInterfaces: []string{}, RPFInterfaces: []string{}, TrustedInterfaces: []string{}, PendingPrefixes: []string{},
+		IPv4PassInterfaces: []string{}, RPFInterfaces: []string{}, TrustedInterfaces: []string{}, VPNHomeInterfaces: []string{}, PendingPrefixes: []string{},
 	}
 	if !reflect.DeepEqual(table, want) {
 		got, _ := json.Marshal(table)
@@ -315,7 +315,7 @@ func TestTableOfTheGuardWithIPv4PerInterface(t *testing.T) {
 	want := Table{
 		Loaded: true, InputHooked: true, ForwardHooked: true, InputFilters: true, ForwardFilters: true,
 		DroppedInput: &Counter{}, DroppedForward: &Counter{}, DroppedSpoofed: &Counter{}, DroppedRPF: &Counter{},
-		IPv4PassInterfaces: []string{"eth0"}, RPFInterfaces: []string{"wlan0"}, TrustedInterfaces: []string{},
+		IPv4PassInterfaces: []string{"eth0"}, RPFInterfaces: []string{"wlan0"}, TrustedInterfaces: []string{}, VPNHomeInterfaces: []string{},
 		PendingPrefixes: []string{"2001:db8:5::/64"},
 		PublicTCP:       []int{2053}, PublicUDP: []int{}, VPNUDP: []int{41641},
 		WANInterfaces: []string{"eth0", "wlan0"}, LANInterfaces: []string{"eth0"}, FailClosedInterfaces: []string{},
@@ -379,6 +379,7 @@ func TestTablePendingPrefixesAndNewSetsAreValidated(t *testing.T) {
 			{"range": ["2001:db8:7::", "2001:db8:7::ff"]}]}},
 		{"set": {"family": "inet", "table": "cosmos_host_guard", "name": "trusted_if", "elem": ["tun0", "bad name", "$(x)", "this-name-is-far-too-long"]}},
 		{"set": {"family": "inet", "table": "cosmos_host_guard", "name": "rpf_if", "elem": ["eth0", "eth0", 7]}},
+		{"set": {"family": "inet", "table": "cosmos_host_guard", "name": "vpnhome_if", "elem": ["tailscale0", "bad name", 3]}},
 		{"set": {"family": "inet", "table": "other", "name": "trusted_if", "elem": ["wg9"]}},
 		{"counter": {"family": "inet", "table": "cosmos_host_guard", "name": "dropped_rpf", "packets": 5, "bytes": 300}},
 		{"counter": {"family": "inet", "table": "other", "name": "dropped_rpf", "packets": 9, "bytes": 9}}
@@ -390,8 +391,8 @@ func TestTablePendingPrefixesAndNewSetsAreValidated(t *testing.T) {
 	if want := []string{"2001:db8:5::/64", "2001:db8:7::-2001:db8:7::ff"}; !reflect.DeepEqual(table.PendingPrefixes, want) {
 		t.Errorf("pending %v, want %v", table.PendingPrefixes, want)
 	}
-	if !reflect.DeepEqual(table.TrustedInterfaces, []string{"tun0"}) || !reflect.DeepEqual(table.RPFInterfaces, []string{"eth0"}) {
-		t.Errorf("interfaces %v %v", table.TrustedInterfaces, table.RPFInterfaces)
+	if !reflect.DeepEqual(table.TrustedInterfaces, []string{"tun0"}) || !reflect.DeepEqual(table.RPFInterfaces, []string{"eth0"}) || !reflect.DeepEqual(table.VPNHomeInterfaces, []string{"tailscale0"}) {
+		t.Errorf("interfaces %v %v %v", table.TrustedInterfaces, table.RPFInterfaces, table.VPNHomeInterfaces)
 	}
 	if table.DroppedRPF == nil || table.DroppedRPF.Packets != 5 {
 		t.Errorf("dropped_rpf %+v", table.DroppedRPF)

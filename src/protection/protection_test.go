@@ -341,14 +341,14 @@ func TestRouteIsForAdministratorsAndGetOnly(t *testing.T) {
 	}
 	var guard map[string]json.RawMessage
 	json.Unmarshal(body.Data["guard"], &guard)
-	for _, key := range []string{"installed", "active", "state", "stateFile", "command", "commandKind", "table", "publicTcp", "publicUdp", "portMissing", "keptOpen", "otherFilters", "vpnFound", "udpNotOpen", "trustedInterfaces"} {
+	for _, key := range []string{"installed", "active", "state", "stateFile", "command", "commandKind", "table", "publicTcp", "publicUdp", "portMissing", "keptOpen", "otherFilters", "vpnFound", "udpNotOpen", "trustedInterfaces", "outsideSinceInstall"} {
 		if _, found := guard[key]; !found {
 			t.Errorf("guard has no %q: %s", key, body.Data["guard"])
 		}
 	}
 	var table map[string]json.RawMessage
 	json.Unmarshal(guard["table"], &table)
-	if got := keys(table); !reflect.DeepEqual(got, []string{"failClosedInterfaces", "forwardFilters", "forwardHooked", "homeNetworks", "inputFilters", "inputHooked", "ipv4PassInterfaces", "ipv4Passed", "lanInterfaces", "loaded", "pendingPrefixes", "publicTcp", "publicUdp", "rpfInterfaces", "sshAllowed", "sshPorts", "trustedInterfaces", "vpnUdp", "wanInterfaces"}) {
+	if got := keys(table); !reflect.DeepEqual(got, []string{"failClosedInterfaces", "forwardFilters", "forwardHooked", "homeNetworks", "inputFilters", "inputHooked", "ipv4PassInterfaces", "ipv4Passed", "lanInterfaces", "loaded", "pendingPrefixes", "publicTcp", "publicUdp", "rpfInterfaces", "sshAllowed", "sshPorts", "trustedInterfaces", "vpnHomeInterfaces", "vpnUdp", "wanInterfaces"}) {
 		t.Errorf("table keys %v", got)
 	}
 	var updates map[string]json.RawMessage
@@ -520,5 +520,55 @@ func TestGuardSaysWhetherItsWatcherAndTimerRun(t *testing.T) {
 	w.noTable()
 	if guard := GetStatus().Guard; guard.Liveness != nil {
 		t.Errorf("not loaded: %+v", guard.Liveness)
+	}
+}
+
+func TestGuardSaysWhatBecameOutsideAndThatItsTableKeepsBeingRemoved(t *testing.T) {
+	w := newWorld(t)
+	w.table("nft-guard-v3-filtered.json") // filters eth0
+	now := time.Now().UTC().Truncate(time.Second)
+	cases := []struct {
+		state string
+		since []string
+	}{
+		{guardState, []string{}},                               // not recorded: nothing said
+		{guardState + "outside_at_install=eth0\n", []string{}}, // as at install
+		{guardState + "outside_at_install=\n", []string{"eth0"}},
+		{guardState + "outside_at_install=wlan0\n", []string{"eth0"}},
+	}
+	for _, c := range cases {
+		forget()
+		w.state(PieceGuard, c.state)
+		if guard := GetStatus().Guard; !reflect.DeepEqual(guard.OutsideSinceInstall, c.since) {
+			t.Errorf("%q: outside since install %v, want %v", c.state, guard.OutsideSinceInstall, c.since)
+		}
+	}
+	// fail-closed filters every interface: not a new uplink
+	forget()
+	w.table("nft-guard-v2-failclosed.json")
+	w.state(PieceGuard, guardState+"outside_at_install=\n")
+	if guard := GetStatus().Guard; len(guard.OutsideSinceInstall) != 0 {
+		t.Errorf("fail-closed: %v", guard.OutsideSinceInstall)
+	}
+	w.table("nft-guard-v3-filtered.json")
+	removed := func(at time.Time, count string) *Removals {
+		forget()
+		w.state(PieceGuard, guardState+"table_removed_hour="+count+"\ntable_removed_at="+at.Format(time.RFC3339)+"\n")
+		return GetStatus().Guard.TableRemoved
+	}
+	if got := removed(now.Add(-10*time.Minute), "25"); got == nil || got.Count != 25 || !got.At.Equal(now.Add(-10*time.Minute)) {
+		t.Errorf("ten minutes ago: %+v", got)
+	}
+	if got := removed(now.Add(-2*time.Hour), "25"); got != nil {
+		t.Errorf("two hours ago: %+v, want nothing", got)
+	}
+	if got := removed(now.Add(time.Hour), "25"); got != nil {
+		t.Errorf("in the future: %+v, want nothing", got)
+	}
+	forget()
+	w.state(PieceGuard, guardState+"table_removed_hour=25\ntable_removed_at="+now.Add(-time.Minute).Format(time.RFC3339)+"\n")
+	answer, _ := json.Marshal(GetStatus().Guard)
+	if !strings.Contains(string(answer), `"tableRemoved":{"count":25,"at":"`) || !strings.Contains(string(answer), `"outsideSinceInstall":[]`) || !strings.Contains(string(answer), `"vpnHomeInterfaces":[]`) {
+		t.Errorf("the answer: %s", answer)
 	}
 }

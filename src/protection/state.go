@@ -49,6 +49,9 @@ const (
 	maxVPNs = 16
 	// maxInterfaces bounds a list of interfaces in a state file.
 	maxInterfaces = 64
+	// maxRemovals bounds the count of removals of the table in an hour (the
+	// watcher keeps at most 500 times).
+	maxRemovals = 500
 )
 
 // ipv4Reasons are the values ipv4_reason may take: why the installer
@@ -120,6 +123,14 @@ type State struct {
 	// TrustedInterfaces were trusted with --trust-interface; nil when the
 	// value did not pass.
 	TrustedInterfaces []string
+	// OutsideAtInstall are the interfaces that were outside when it was
+	// installed; nil when not recorded (an older installer) or not valid.
+	OutsideAtInstall []string
+	// TableRemovedHour is how often something else removed the guard's table
+	// in the hour up to TableRemovedAt (the watcher counts it); -1 when not
+	// recorded.
+	TableRemovedHour int
+	TableRemovedAt   time.Time
 	// fail2ban
 	SSHD        *bool
 	CosmosJails *bool
@@ -240,6 +251,15 @@ func parseState(piece string, content []byte) (State, error) {
 			state.SSHMode = values["ssh_mode"]
 		}
 		state.TrustedInterfaces, _ = parseInterfaces(values["trusted_if"])
+		if outside, present := values["outside_at_install"]; present {
+			state.OutsideAtInstall, _ = parseInterfaces(outside)
+		}
+		state.TableRemovedHour = -1
+		if at, ok := parseTime(values["table_removed_at"]); ok {
+			if n, err := strconv.Atoi(values["table_removed_hour"]); err == nil && n >= 1 && n <= maxRemovals && len(values["table_removed_hour"]) <= 6 {
+				state.TableRemovedHour, state.TableRemovedAt = n, at
+			}
+		}
 	case PieceFail2ban:
 		state.SSHD = parseYesNo(values["sshd"], "on", "off")
 		state.CosmosJails = parseYesNo(values["cosmos_jails"], "on", "off")

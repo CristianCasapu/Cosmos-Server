@@ -262,3 +262,39 @@ func TestStateFileOfTheGuardDropsWhatItFoundWhenItDoesNotPass(t *testing.T) {
 		t.Errorf("16 entries (one VPN): %v", state.VPNs)
 	}
 }
+
+func TestStateFileOfTheGuardSaysWhatWasOutsideAndHowOftenItsTableWasRemoved(t *testing.T) {
+	newWorld(t)
+	// an older installer wrote neither: not known
+	writeState(t, PieceGuard, guardState)
+	if state, _ := readState(PieceGuard); state.OutsideAtInstall != nil || state.TableRemovedHour != -1 {
+		t.Errorf("not recorded: %+v", state)
+	}
+	writeState(t, PieceGuard, guardState+"outside_at_install=eth0,wlan0\ntable_removed_hour=17\ntable_removed_at=2026-11-24T05:00:00Z\n")
+	state, _ := readState(PieceGuard)
+	if !reflect.DeepEqual(state.OutsideAtInstall, []string{"eth0", "wlan0"}) || state.TableRemovedHour != 17 || !state.TableRemovedAt.Equal(time.Date(2026, 11, 24, 5, 0, 0, 0, time.UTC)) {
+		t.Errorf("recorded: %+v", state)
+	}
+	writeState(t, PieceGuard, guardState+"outside_at_install=\n")
+	if state, _ := readState(PieceGuard); state.OutsideAtInstall == nil || len(state.OutsideAtInstall) != 0 {
+		t.Errorf("none outside at install: %+v, want an empty list", state.OutsideAtInstall)
+	}
+	for _, bad := range []string{
+		"outside_at_install=eth0,bad name\n", "outside_at_install=$(x)\n",
+		"table_removed_hour=0\ntable_removed_at=2026-11-24T05:00:00Z\n", "table_removed_hour=-3\ntable_removed_at=2026-11-24T05:00:00Z\n",
+		"table_removed_hour=501\ntable_removed_at=2026-11-24T05:00:00Z\n", "table_removed_hour=12a\ntable_removed_at=2026-11-24T05:00:00Z\n",
+		"table_removed_hour=0000012\ntable_removed_at=2026-11-24T05:00:00Z\n", "table_removed_hour=12\ntable_removed_at=yesterday\n", "table_removed_hour=12\n",
+	} {
+		writeState(t, PieceGuard, guardState+bad)
+		state, file := readState(PieceGuard)
+		if file != fileOK {
+			t.Errorf("%q: the file %s, want ok (only the value is left out)", bad, file)
+		}
+		if strings.HasPrefix(bad, "outside") && state.OutsideAtInstall != nil {
+			t.Errorf("%q: kept %v", bad, state.OutsideAtInstall)
+		}
+		if strings.HasPrefix(bad, "table") && state.TableRemovedHour != -1 {
+			t.Errorf("%q: kept %d", bad, state.TableRemovedHour)
+		}
+	}
+}

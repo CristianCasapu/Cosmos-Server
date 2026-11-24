@@ -205,9 +205,12 @@ const answerLines = (piece, table, formatDate) => {
   // what counts as home, per outside interface
   const lan = names(table.lanInterfaces);
   const home = names(table.homeNetworks);
+  const vpnHome = names(table.vpnHomeInterfaces);
   for (const ifname of filtered) {
     if (lan.includes(ifname)) {
       lines.push(['protection.guard.homeLan', 'Home network on {{ifname}}: its own prefixes count as home.', { ifname }]);
+    } else if (vpnHome.includes(ifname)) {
+      lines.push(['protection.guard.homeVpnExit', 'On {{ifname}} (Tailscale carrying a default route: an exit node) its own peers (100.64.0.0/10, fd7a:115c:a1e0::/48) count as home; anything else that arrives through it reaches only the ports above.', { ifname }]);
     } else if (home.length) {
       lines.push(['protection.guard.homeNamed', 'On {{ifname}} only the networks named with --home count as home (the segment is the provider\'s).', { ifname }]);
     } else {
@@ -302,6 +305,12 @@ const guardDetails = (piece, formatDate) => {
         : ['protection.guard.dropped', 'Refused from outside since it was loaded: {{input}} packets to the server, {{forward}} to containers.', { input, forward }]);
     }
   }
+  const removed = piece.tableRemoved;
+  if (piece.installed && removed && Number.isInteger(removed.count) && removed.count > 0 && removed.count < 3 && typeof removed.at === 'string') {
+    lines.push(removed.count === 1
+      ? ['protection.guard.tableRemovedOnce', 'Something removed the guard\'s rules once in the last hour (at {{at}}); they were loaded again within moments.', { at: formatDate(removed.at) }]
+      : ['protection.guard.tableRemovedTwice', 'Something removed the guard\'s rules twice in the last hour (the last time at {{at}}); they were loaded again within moments each time.', { at: formatDate(removed.at) }]);
+  }
   if (piece.installed) {
     lines.push(['protection.guard.notCovered', 'Not covered: containers on macvlan or ipvlan networks (they bypass the server\'s packet filter), mosh\'s UDP ports.']);
   }
@@ -322,6 +331,14 @@ const guardWarnings = (piece, formatDate) => {
     } else if (live.refreshStale === true && typeof live.refreshAt === 'string') {
       warnings.push(['protection.guard.timerStale', 'The guard\'s one-minute check has not run since {{since}} (sudo systemctl restart cosmos-host-guard-refresh.timer); its watcher still follows address changes.', { since: formatDate(live.refreshAt) }]);
     }
+  }
+  const removed = piece.tableRemoved;
+  if (piece.installed && removed && Number.isInteger(removed.count) && removed.count >= 3 && typeof removed.at === 'string') {
+    warnings.push(['protection.guard.tableRemoved', 'Something keeps removing the guard\'s rules: {{count}} times in the hour up to {{at}}. They were loaded again within moments each time, but while they were missing nothing was filtered. Find what flushes the firewall (nftables.service, a script or a tool that runs "nft flush ruleset") and stop it.', { count: count(removed.count), at: formatDate(removed.at) }]);
+  }
+  const since = names(piece.outsideSinceInstall);
+  if (piece.installed && since.length) {
+    warnings.push(['protection.guard.outsideSince', 'Filtered since the install: {{ifnames}}. A default route, or a route that covers most of the internet, now goes through it, so what arrives through it reaches only the ports the guard keeps open.', { ifnames: since.join(', ') }]);
   }
   const table = piece.table;
   const pending = table && table.loaded ? names(table.pendingPrefixes) : [];

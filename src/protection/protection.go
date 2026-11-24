@@ -124,7 +124,24 @@ type Guard struct {
 	// Liveness: whether its watcher and its timer still run, for a guard
 	// whose table is loaded.
 	Liveness *Liveness `json:"liveness,omitempty"`
+	// OutsideSinceInstall are interfaces the guard filters now that were not
+	// outside at install (a new uplink, a VPN that carries a default route
+	// now); empty when the installer did not record them or none.
+	OutsideSinceInstall []string `json:"outsideSinceInstall"`
+	// TableRemoved: something else removed the guard's table within the
+	// last hour (the watcher loaded it again each time); nil when not.
+	TableRemoved *Removals `json:"tableRemoved,omitempty"`
 }
+
+// Removals is how often something else removed the guard's table: Count
+// times in the hour up to At.
+type Removals struct {
+	Count int       `json:"count"`
+	At    time.Time `json:"at"`
+}
+
+// removalsShownFor: a removal older than this is no longer shown.
+const removalsShownFor = time.Hour
 
 // Fail2ban is the card of Fail2ban (fork/fail2ban).
 type Fail2ban struct {
@@ -235,7 +252,7 @@ func readGuard(now time.Time) Guard {
 	state, file := readState(PieceGuard)
 	guard := Guard{
 		Piece: Piece{StateFile: file}, PublicTCP: []int{}, PublicUDP: []int{}, KeptOpen: []int{}, OtherFilters: []string{},
-		VPNFound: []VPN{}, UDPNotOpen: []int{}, TrustedInterfaces: []string{},
+		VPNFound: []VPN{}, UDPNotOpen: []int{}, TrustedInterfaces: []string{}, OutsideSinceInstall: []string{},
 	}
 	if file == fileOK {
 		guard.Since = timePointer(state.InstalledAt)
@@ -308,11 +325,35 @@ func readGuard(now time.Time) Guard {
 	if loaded {
 		live := readLiveness(now)
 		guard.Liveness = &live
+		guard.OutsideSinceInstall = outsideSince(state, *guard.Table)
+	}
+	if file == fileOK && state.TableRemovedHour >= 1 && !state.TableRemovedAt.After(now.Add(time.Minute)) && now.Sub(state.TableRemovedAt) <= removalsShownFor {
+		guard.TableRemoved = &Removals{Count: state.TableRemovedHour, At: state.TableRemovedAt}
 	}
 	// an inactive guard keeps the reason it does not filter; stateFile
 	// "invalid" tells that its record cannot be read as well
 	guard.Command, guard.CommandKind = command(PieceGuard, guard.Installed)
 	return guard
+}
+
+// outsideSince are the interfaces the table filters that were not outside at
+// install, nothing when that was not recorded or the guard fails closed (then
+// every interface is filtered, which the card says on its own).
+func outsideSince(state State, table Table) []string {
+	since := []string{}
+	if state.OutsideAtInstall == nil || len(table.FailClosedInterfaces) > 0 {
+		return since
+	}
+	recorded := map[string]bool{}
+	for _, name := range state.OutsideAtInstall {
+		recorded[name] = true
+	}
+	for _, name := range table.WANInterfaces {
+		if !recorded[name] {
+			since = append(since, name)
+		}
+	}
+	return since
 }
 
 // withPortCheck compares Cosmos' public port with what the guard keeps open.

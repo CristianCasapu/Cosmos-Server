@@ -352,6 +352,34 @@ test('the watcher and the timer: warned when they stopped, nothing when not know
   assert.deepEqual(keys(both.warnings), ['protection.guard.watcherStale', 'protection.guard.portMissing']);
 });
 
+test('an interface outside since the install, Tailscale as an exit node, and rules that keep being removed', () => {
+  // filtered since the install: a warning; Tailscale's own peers still home on it
+  const exit = cardOf('guard', v3({ wanInterfaces: ['eth0', 'tailscale0'], lanInterfaces: ['eth0'], vpnHomeInterfaces: ['tailscale0'] }, { outsideSinceInstall: ['tailscale0'] }), 2053);
+  assert.ok(exit.chip.text[0] === 'protection.chip.active');
+  assert.deepEqual(warn(exit), ['Filtered since the install: tailscale0. A default route, or a route that covers most of the internet, now goes through it, so what arrives through it reaches only the ports the guard keeps open.']);
+  assert.ok(words(exit).includes('On tailscale0 (Tailscale carrying a default route: an exit node) its own peers (100.64.0.0/10, fd7a:115c:a1e0::/48) count as home; anything else that arrives through it reaches only the ports above.'));
+  assert.ok(!words(exit).some((line) => line.startsWith('On tailscale0 nothing counts as home')));
+  // a full tunnel that is not Tailscale's: outside, nothing of it is home
+  const tunnel = cardOf('guard', v3({ wanInterfaces: ['eth0', 'tun0'], lanInterfaces: ['eth0'] }, { outsideSinceInstall: ['tun0'] }), 2053);
+  assert.ok(words(tunnel).some((line) => line.startsWith('On tun0 nothing counts as home')));
+  assert.equal(keys(tunnel.warnings)[0], 'protection.guard.outsideSince');
+  // nothing new: no warning
+  assert.deepEqual(cardOf('guard', v3({}, { outsideSinceInstall: [] }), 2053).warnings, []);
+  assert.deepEqual(cardOf('guard', v3({}, {}), 2053).warnings, []);
+  // removed by something else: three or more in the hour warn, once or twice is a line
+  const at = (tableRemoved) => cardOf('guard', v3({}, { tableRemoved }), 2053, (iso) => 'local ' + iso);
+  assert.deepEqual(warn(at({ count: 25, at: '2026-11-24T05:00:00Z' })),
+    ['Something keeps removing the guard\'s rules: 25 times in the hour up to local 2026-11-24T05:00:00Z. They were loaded again within moments each time, but while they were missing nothing was filtered. Find what flushes the firewall (nftables.service, a script or a tool that runs "nft flush ruleset") and stop it.']);
+  assert.deepEqual(at({ count: 1, at: '2026-11-24T05:00:00Z' }).warnings, []);
+  assert.ok(words(at({ count: 1, at: '2026-11-24T05:00:00Z' })).includes('Something removed the guard\'s rules once in the last hour (at local 2026-11-24T05:00:00Z); they were loaded again within moments.'));
+  assert.ok(keys(at({ count: 2, at: '2026-11-24T05:00:00Z' }).lines).includes('protection.guard.tableRemovedTwice'));
+  for (const bad of [{ count: 'many', at: '2026-11-24T05:00:00Z' }, { count: 25 }, { count: 0, at: '2026-11-24T05:00:00Z' }, null, 'x']) {
+    const card = at(bad);
+    assert.deepEqual(card.warnings, []);
+    assert.ok(!keys(card.lines).some((key) => key.startsWith('protection.guard.tableRemoved')));
+  }
+});
+
 test('the note on what is not covered, for an installed guard only', () => {
   assert.equal(cardOf('guard', v3({}), 2053).lines.at(-1)[0], 'protection.guard.notCovered');
   assert.ok(!keys(cardOf('guard', NOTHING.guard, 2053).lines).includes('protection.guard.notCovered'));

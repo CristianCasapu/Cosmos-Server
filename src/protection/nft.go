@@ -85,6 +85,9 @@ type Table struct {
 	// TrustedInterfaces were trusted with --trust-interface: they carry a
 	// default route and nothing arriving through them is filtered.
 	TrustedInterfaces []string `json:"trustedInterfaces"`
+	// VPNHomeInterfaces are Tailscale's interface while it carries a default
+	// route (an exit node): filtered, but its own peers count as home on it.
+	VPNHomeInterfaces []string `json:"vpnHomeInterfaces"`
 	// PendingPrefixes are new prefixes on a home interface waiting for the
 	// administrator's confirmation: not home yet.
 	PendingPrefixes []string `json:"pendingPrefixes"`
@@ -212,7 +215,7 @@ func emptyTable() Table {
 		PublicTCP: []int{}, PublicUDP: []int{}, VPNUDP: []int{}, WANInterfaces: []string{},
 		LANInterfaces: []string{}, FailClosedInterfaces: []string{}, SSHPorts: []int{},
 		SSHAllowed: []Allowance{}, HomeNetworks: []string{}, IPv4PassInterfaces: []string{},
-		RPFInterfaces: []string{}, TrustedInterfaces: []string{}, PendingPrefixes: []string{},
+		RPFInterfaces: []string{}, TrustedInterfaces: []string{}, VPNHomeInterfaces: []string{}, PendingPrefixes: []string{},
 	}
 }
 
@@ -342,6 +345,8 @@ func parseTable(out []byte) (Table, error) {
 				table.RPFInterfaces = nameElements(s.Elem)
 			case "trusted_if":
 				table.TrustedInterfaces = nameElements(s.Elem)
+			case "vpnhome_if":
+				table.VPNHomeInterfaces = nameElements(s.Elem)
 			case "pending6":
 				table.PendingPrefixes = networkElements(s.Elem, false)
 			case "ssh_port":
