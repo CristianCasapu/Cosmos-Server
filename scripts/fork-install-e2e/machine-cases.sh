@@ -453,7 +453,9 @@ m_pieces_1() { # VR from the host
 m_pieces_2() {
 	# the pieces' packages are simulated only for pieces that will run, as
 	# they name them: never a list of the installer's own
-	printf "Package: fail2ban python3 nftables unattended-upgrades\nPin: release *\nPin-Priority: -1\n" >/etc/apt/preferences.d/e2e-no-pieces
+	# (two of the pieces' own packages: python3 and nftables are needed by
+	# packages of the system on some releases, and stay)
+	printf "Package: fail2ban unattended-upgrades\nPin: release *\nPin-Priority: -1\n" >/etc/apt/preferences.d/e2e-no-pieces
 	DEBIAN_FRONTEND=noninteractive apt-get -q update >/dev/null
 	check "apt cannot install fail2ban here" sh -c "! apt-get -s -q install fail2ban >/dev/null 2>&1"
 	# 1. the stubs (they run) name no package: installed, whatever apt lacks
@@ -463,12 +465,13 @@ m_pieces_2() {
 	check "installed with the three pieces run (exit 0)" test $rc = 0
 	for p in unattended-upgrades fail2ban nftables; do check "the piece $p ran" grep -qx "piece-ran $p" /var/lib/cosmos-installer/record; done
 	check "no package of the pieces was simulated" sh -c "! grep -qE 'Missing: .*(fail2ban|unattended-upgrades)' /e2e/out/pieces2.txt"
+	check "none of them was installed" sh -c "! dpkg-query -W -f='\${db:Status-Abbrev}\\n' fail2ban unattended-upgrades 2>/dev/null | grep -q '^ii'"
 	bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null >/e2e/out/pieces2-un.txt 2>&1
 	check "uninstalled" test ! -e /opt/cosmos
 	# 2. a piece that will run names a package apt cannot install: refused
 	# before any change (exit 6)
-	echo fail2ban >/etc/cosmos-e2e-stub-fail2ban.packages
 	snap refused-before
+	echo fail2ban >/etc/cosmos-e2e-stub-fail2ban.packages
 	rc=0; install_a --yes --protection yes </dev/null >/e2e/out/pieces3.txt 2>&1 || rc=$?
 	tail -n 6 /e2e/out/pieces3.txt
 	check "a package a piece needs and apt lacks: exit 6" test $rc = 6
