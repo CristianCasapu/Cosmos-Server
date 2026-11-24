@@ -274,6 +274,14 @@ func (n *notifier) reconcile() {
 			n.Notify(nt) // the thread is marked: it goes as a message of its own
 		}
 	}()
+	// review 7, N6: what was decided is written now, not when the sender
+	// next wakes (after the unlock, before the plain messages)
+	var saves map[string]*savedEntry
+	defer func() {
+		if len(saves) > 0 {
+			n.threads.saveEntries(saves)
+		}
+	}()
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	now := n.now()
@@ -361,6 +369,7 @@ func (n *notifier) reconcile() {
 	n.allDueLocked()
 	n.pinsDue = true
 	n.levelWait = time.Time{}
+	saves = n.saveDirtyLocked()
 }
 
 type threadLook struct {
