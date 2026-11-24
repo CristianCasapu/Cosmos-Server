@@ -132,7 +132,9 @@ type savedEntry struct {
 	Kind    string       `json:"kind,omitempty"`
 	Open    bool         `json:"open"`
 	Since   time.Time    `json:"since"`
-	Fresh   bool         `json:"fresh,omitempty"`
+	// SeenOpen: review 6, T1 (added field: older files have none)
+	SeenOpen time.Time   `json:"seenOpen,omitempty"`
+	Fresh    bool        `json:"fresh,omitempty"`
 	Opening *savedNotice `json:"opening,omitempty"`
 	Closing *savedNotice `json:"closing,omitempty"`
 }
@@ -503,10 +505,14 @@ func (m *threadMemory) saveEntries(entries map[string]*savedEntry) {
 			}
 		}
 		if old, had := m.data.Entries[id]; had {
-			a, _ := json.Marshal(old)
-			b, _ := json.Marshal(*e)
-			if string(a) == string(b) {
-				continue // written only on a change (review 5)
+			// written only on a change (review 5); the moment it was last
+			// seen open alone is no change (review 6: it goes with the next)
+			a, b := old, *e
+			a.SeenOpen, b.SeenOpen = time.Time{}, time.Time{}
+			ja, _ := json.Marshal(a)
+			jb, _ := json.Marshal(b)
+			if string(ja) == string(jb) {
+				continue
 			}
 		}
 		m.data.Entries[id] = *e

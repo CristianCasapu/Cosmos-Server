@@ -197,7 +197,11 @@ func TestNothingUnpairedIsSwallowed(t *testing.T) {
 }
 
 // P2: an outage told and pinned, ended quietly (its cause changed), then
-// another days later: the chat hears the quiet end, and the later outage.
+// another days later: when the level was looked at in between, the chat
+// hears the quiet end, and the later outage as a new opening; without a
+// look, the notifier never saw an end, so the later tell is a repeat of the
+// opening the chat holds (review 6, D1: no new opening without an end acted
+// on).
 func TestALaterOutageAfterAQuietEndIsTold(t *testing.T) {
 	for _, look := range []bool{true, false} {
 		th := reachThread("reach:connect")
@@ -212,7 +216,7 @@ func TestALaterOutageAfterAQuietEndIsTold(t *testing.T) {
 		m.clock = m.clock.Add(72 * time.Hour)
 		m.open(th)
 		m.settle(10 * time.Minute)
-		want := "open,open"
+		want := "open,repeat"
 		if look {
 			want = "open,close,open"
 		}
@@ -221,6 +225,9 @@ func TestALaterOutageAfterAQuietEndIsTold(t *testing.T) {
 		}
 		msgs := m.messages()
 		last := msgs[len(msgs)-1]
+		if !look {
+			last = msgs[0] // the opening the repeat answers
+		}
 		if !m.pinnedNow()[last.id] || len(m.pinnedNow()) != 1 {
 			t.Errorf("look %v: pinned %v, the open outage is %d", look, m.bot.pinned, last.id)
 		}

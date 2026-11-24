@@ -316,11 +316,12 @@ func TestR5LateEventIsTheSameEpisode(t *testing.T) {
 	if got := strings.Join(m.actions(th), ","); got != "open" || len(m.pinnedNow()) != 1 {
 		t.Fatalf("the late notification of the same episode: %s, pinned %v", got, m.pinnedNow())
 	}
-	// ended quietly and opened again before any look: a new opening
+	// ended quietly and told again before any look: no end was acted on,
+	// so it is a repeat (review 6, D1)
 	m.quietEnd(th)
 	m.open(th)
 	m.settle(5 * time.Minute)
-	if got := strings.Join(m.actions(th), ","); got != "open,open" || len(m.pinnedNow()) != 1 {
+	if got := strings.Join(m.actions(th), ","); got != "open,repeat" || len(m.pinnedNow()) != 1 {
 		t.Errorf("a re-opening the chat did not see the end of: %s, pinned %v", got, m.pinnedNow())
 	}
 }

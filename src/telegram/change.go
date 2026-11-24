@@ -177,6 +177,21 @@ func contains(list []string, value string) bool {
 	return false
 }
 
+// leaveChatPins takes away the pins of the chat that loses the
+// notifications, in THAT chat, and forgets its threads; it returns how many
+// could not be taken away.
+func leaveChatPins(n *notifier, was settings, client botClient) int {
+	stuck := 0
+	for _, id := range n.threads.leave(was) {
+		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)
+		if client.pin(ctx, was, id, false) != nil {
+			stuck++
+		}
+		cancel()
+	}
+	return stuck
+}
+
 func sendChanges() {
 	defer func() {
 		if recover() != nil {
@@ -248,14 +263,7 @@ func sendChange(entry *chatChange) {
 	// away are said
 	if left := leavesChat(entry.whats); left {
 		if n := std.Load(); n != nil && n.threads != nil {
-			stuck := 0
-			for _, id := range n.threads.leave(entry.was) {
-				ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)
-				if directClient.pin(ctx, entry.was, id, false) != nil {
-					stuck++
-				}
-				cancel()
-			}
+			stuck := leaveChatPins(n, entry.was, directClient)
 			if stuck > 0 {
 				before := nt.extra
 				nt.extra = func(c *composer) {

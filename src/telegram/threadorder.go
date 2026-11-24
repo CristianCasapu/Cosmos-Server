@@ -27,10 +27,11 @@ package telegram
 //	                                      and it is critical); told = yes. Not wanted by
 //	                                      the settings now: nothing, decided again when
 //	                                      they change (B2)
-//	open    yes    a fresh opening      → OPEN: the source opened it again after an end
-//	                                      the chat did not see (a quiet end); the old pin
-//	                                      gives way
-//	open    yes    a repeat waits       → REPEAT: the repeat as a reply
+//	open    yes    a fresh opening      → OPEN: only from a threads file of an earlier
+//	                                      version (review 6, D1: a tell while the entry is
+//	                                      open is a repeat; a new opening needs an end in
+//	                                      between that was acted on)
+//	open    yes    a repeat waits       → REPEAT: the repeat (or a further tell) as a reply
 //	open    yes    -                    → nothing
 //	closed  yes    -                    → CLOSE: unpin and forget the opening ALWAYS; send
 //	                                      the closing as a reply (with no closing known:
@@ -88,6 +89,11 @@ type threadEntry struct {
 	kind     string // the opening kind of the pair
 	open     bool
 	since    time.Time
+	// seenOpen: the last moment the thread was seen open (its opening or a
+	// repeat, or a reconcile that read it open, as of the start of its
+	// reads): an end is believed only on evidence newer than it (review 6,
+	// T1: an earlier episode's end is not this one's)
+	seenOpen time.Time
 	episode  int
 	// fresh: an opening came while the chat held an older one
 	fresh bool
@@ -176,6 +182,9 @@ func (n *notifier) threadEventLocked(st settings, nt notice, now time.Time) bool
 	c := nt
 	byLevel := e.byLevel
 	e.byLevel = false
+	if nt.resolves == "" && nt.at.After(e.seenOpen) {
+		e.seenOpen = nt.at
+	}
 	switch {
 	case nt.resolves != "":
 		if e.open {
@@ -185,7 +194,7 @@ func (n *notifier) threadEventLocked(st settings, nt notice, now time.Time) bool
 	case !e.open:
 		// a new episode; a repeat says the problem is open too (P1)
 		c.repeat = false
-		e.open, e.since = true, nt.at
+		e.open, e.since, e.seenOpen = true, nt.at, nt.at
 		e.episode++
 		e.opening, e.closing, e.repeat, e.fresh = &c, nil, nil, false
 		if nt.repeat {
@@ -205,9 +214,17 @@ func (n *notifier) threadEventLocked(st settings, nt notice, now time.Time) bool
 		// no second opening
 		e.opening = &c
 	default:
-		// an opening while open: the source ended it and opened it again
-		// without the chat seeing the end (P2)
-		e.opening, e.repeat, e.fresh = &c, nil, true
+		// review 6, D1: a further tell while the entry is open (the store
+		// groups only within a day; a source in memory tells again after a
+		// restart) is never a new opening: an end must come in between,
+		// and be acted on. It is a repeat.
+		r := nt
+		r.repeat = true
+		e.repeat = &r
+		if e.opening == nil {
+			o := nt
+			e.opening = &o
+		}
 	}
 	e.dirty = true
 	n.dueLocked(e)
@@ -381,7 +398,7 @@ func (n *notifier) saveDirtyLocked() map[string]*savedEntry {
 			continue
 		}
 		e.dirty = false
-		out[id] = &savedEntry{Name: boundName(e.name), Kind: e.kind, Open: e.open, Since: e.since, Fresh: e.fresh,
+		out[id] = &savedEntry{Name: boundName(e.name), Kind: e.kind, Open: e.open, Since: e.since, SeenOpen: e.seenOpen, Fresh: e.fresh,
 			Opening: saveNotice(e.opening), Closing: saveNotice(e.closing)}
 	}
 	for id := range n.removed {
@@ -696,7 +713,7 @@ func (n *notifier) loadEntries() {
 			n.removed[id] = true
 			continue
 		}
-		n.entries[id] = &threadEntry{id: id, name: s.Name, kind: s.Kind, open: s.Open, since: s.Since, fresh: s.Fresh, episode: 1,
+		n.entries[id] = &threadEntry{id: id, name: s.Name, kind: s.Kind, open: s.Open, since: s.Since, seenOpen: s.SeenOpen, fresh: s.Fresh, episode: 1,
 			opening: s.Opening.notice(), closing: s.Closing.notice(), queued: true, touched: n.now()}
 	}
 	n.signal()

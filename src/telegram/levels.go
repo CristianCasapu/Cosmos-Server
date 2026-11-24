@@ -92,39 +92,51 @@ func genericOpening(kind string, name string, at time.Time) notice {
 // state: what the source says (its own state: utils.RegisterThreadLevel),
 // else what the notifications prove; a store error is unknown.
 func (storeLevels) state(name string, kind string, since time.Time) (threadLevel, *notice, error) {
-	sourceOver := false
-	if open, known := utils.SourceThreadLevel(kind, name); known {
-		if open {
-			return levelOpen, nil, nil
-		}
-		sourceOver = true
+	sourceOpen, sourceKnown := utils.SourceThreadLevel(kind, name)
+	if sourceKnown && sourceOpen {
+		return levelOpen, nil, nil
 	}
 	open, over, closing, err := utils.ForkThreadState(name, closingsOf(kind), since)
-	if err != nil {
-		if sourceOver {
-			return levelOver, nil, nil
-		}
-		return levelUnknown, nil, err
-	}
-	if sourceOver && open {
+	lvl, resolveRow := combineLevel(sourceKnown, sourceOpen, err, open, over)
+	if resolveRow {
 		// the source knows it is over: the panel is set right too
 		utils.ResolveThread(name)
 	}
+	if lvl == levelUnknown {
+		return levelUnknown, nil, err
+	}
 	var follow *notice
-	if closing != nil {
+	if lvl == levelOver && err == nil && closing != nil {
 		nt := noticeFromInfo(*closing, utils.GetMainConfig())
 		nt.at = closing.Date
 		if pairedThread(nt) != "" {
 			follow = &nt
 		}
 	}
+	return lvl, follow, nil
+}
+
+// combineLevel is the precedence of the two answers (review 6, m18): the
+// source first, since a source says "over" only on evidence of its own
+// (a successful look of this run, or the owner's settings), and then it
+// also resolves a row the panel still holds open; the notifications only
+// when the source does not know: open on an unresolved row, over on a
+// resolved or closing row since the thread was last seen open, unknown
+// otherwise and on any error of the store.
+func combineLevel(sourceKnown, sourceOpen bool, storeErr error, storeOpen, storeOver bool) (lvl threadLevel, resolveRow bool) {
 	switch {
-	case sourceOver || (over && !open):
-		return levelOver, follow, nil
-	case open:
-		return levelOpen, nil, nil
+	case sourceKnown && sourceOpen:
+		return levelOpen, false
+	case sourceKnown:
+		return levelOver, storeErr == nil && storeOpen
+	case storeErr != nil:
+		return levelUnknown, false
+	case storeOpen:
+		return levelOpen, false
+	case storeOver:
+		return levelOver, false
 	}
-	return levelUnknown, nil, nil
+	return levelUnknown, false
 }
 
 // reconcileLoop looks at the level of the threads now and then. A panic is
@@ -163,9 +175,13 @@ func (n *notifier) reconcile() {
 	}
 	n.mu.Lock()
 	start := n.seq
+	readAt := n.now() // what the reads see is as of now (review 6, T1)
 	known := map[string]threadLook{}
 	for id, e := range n.entries {
 		look := threadLook{name: e.name, since: e.since, kind: e.kind}
+		if e.seenOpen.After(look.since) {
+			look.since = e.seenOpen
+		}
 		if look.kind == "" && e.opening != nil {
 			look.kind = e.opening.kind
 		} else if look.kind == "" && e.closing != nil {
@@ -274,10 +290,17 @@ func (n *notifier) reconcile() {
 			e = &threadEntry{id: id, name: look.name, kind: look.kind, touched: now}
 			n.entries[id] = e
 		}
+		if tr.open && readAt.After(e.seenOpen) {
+			// seen open by the level: an end is believed only on newer
+			// evidence (kept in memory; written with the entry's next change)
+			e.seenOpen = readAt
+		}
 		changed := true
 		switch {
 		case tr.open && !e.open:
-			e.open, e.since = true, look.since
+			// review 6, T1: this episode starts now; the previous one's end
+			// is not evidence about it
+			e.open, e.since = true, readAt
 			e.episode++
 			e.closing, e.repeat, e.byLevel = nil, nil, true
 			if o, has := opens[id]; has {
