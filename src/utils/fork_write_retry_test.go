@@ -43,3 +43,31 @@ func TestKeptRowsAreWrittenAgain(t *testing.T) {
 }
 
 var errLost = &PostgresProblem{"network", "lost"}
+
+// An insert that ran on a handle a switch had closed (taken just before the
+// switch, held past the drain) is written at once into the store in use,
+// and reported as written.
+func TestEventOnAClosedHandleWrittenAtOnce(t *testing.T) {
+	withMonitoringStore(t, DatabaseConfig{}, nil)
+	InitMetricsDatabase()
+	old, _ := MonitoringWriteDB()
+	CloseMetricsDatabase() // the switch: the handle the writer holds is closed
+	InitMetricsDatabase()
+	at := time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC)
+	_, err := old.Exec("INSERT INTO events(node, event_id, label, application, level, date, data, object, search) VALUES('n', 'late', 'x', '', 'info', 1, '', '', '')")
+	if !closedHandle(err) {
+		t.Fatalf("not the closed handle's error: %v", err)
+	}
+	if err := forkKeepEvent(Event{EventId: "late", Label: "x", Date: at}, err); err != nil {
+		t.Fatalf("reported as failed: %v", err)
+	}
+	db, _ := MonitoringWriteDB()
+	var n int
+	db.QueryRow("SELECT COUNT(*) FROM events WHERE event_id = 'late'").Scan(&n)
+	pendingMu.Lock()
+	kept := len(pendingEvents)
+	pendingMu.Unlock()
+	if n != 1 || kept != 0 {
+		t.Errorf("stored %d, kept for later %d", n, kept)
+	}
+}

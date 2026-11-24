@@ -8,6 +8,7 @@ package utils
 // looked up first, so it is not stored twice.
 
 import (
+	"encoding/json"
 	"strconv"
 	"sync"
 	"time"
@@ -28,10 +29,17 @@ var (
 	pendingEvery = 5 * time.Second
 )
 
-// forkKeepEvent is the hook of InsertEvent's error: the event is kept.
+// forkKeepEvent is the hook of InsertEvent's error: an insert that ran on a
+// handle closed by a switch (taken just before it, held past the drain) is
+// written at once into the store in use; otherwise the event is kept.
 func forkKeepEvent(e Event, err error) error {
 	if err == nil {
 		return nil
+	}
+	if closedHandle(err) {
+		if err = insertEventAgain(e); err == nil {
+			return nil
+		}
 	}
 	pendingMu.Lock()
 	if len(pendingEvents) >= maxPendingEvents {
@@ -109,3 +117,28 @@ func eventStored(e Event) bool {
 }
 
 func itoa64(n int64) string { return strconv.FormatInt(n, 10) }
+
+// closedHandle: the statement ran on a store's handle that a switch closed
+// (database/sql's error is not exported).
+func closedHandle(err error) bool {
+	return err != nil && err.Error() == "sql: database is closed"
+}
+
+// insertEventAgain is InsertEvent's statement on the store in use now.
+func insertEventAgain(e Event) error {
+	db, err := MonitoringWriteDB()
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(e.Data)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(MonitoringRebindFor(db,
+		"INSERT INTO events(node, event_id, label, application, level, date, data, object, search)"+
+			" VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+		MonitoringNode(), e.EventId, e.Label, e.Application, e.Level,
+		TimeToMillis(e.Date), string(payload), e.Object,
+		e.EventId+" "+string(payload))
+	return err
+}
