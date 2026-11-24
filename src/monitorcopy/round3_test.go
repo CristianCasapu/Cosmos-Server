@@ -6,6 +6,9 @@ package monitorcopy
 
 import (
 	"context"
+	"errors"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -261,5 +264,34 @@ func TestAnUncertainFlushIsNotAddedTwice(t *testing.T) {
 				t.Errorf("again: day total %d, want %d", v, want)
 			}
 		})
+	}
+}
+
+// M4 (review round 3): a connection cut under a batch is said as such, not
+// as "the database refused the batch".
+func TestACutConnectionIsSaidAsSuch(t *testing.T) {
+	c := &copier{}
+	for _, text := range []string{"unexpected EOF", "conn closed", "read tcp 192.0.2.1:5432: connection reset by peer", "write: broken pipe", "failed to connect to `host=192.0.2.1`: dial error"} {
+		err := c.fail(rule{table: "events"}, "copying", errors.New(text))
+		if !strings.Contains(err.Error(), "connection to the database closed") {
+			t.Errorf("%q: %s", text, err)
+		}
+	}
+	if err := c.fail(rule{table: "events"}, "copying", errors.New("syntax error")); !strings.Contains(err.Error(), "refused the batch") {
+		t.Errorf("a refusal: %s", err)
+	}
+}
+
+// M4: without the local file, a catch-up says that the records cannot be
+// read; it gives no count and never "done".
+func TestACatchUpWithoutTheLocalFileGivesNoCount(t *testing.T) {
+	env := useCatchUp(t, utils.DialectSQLite)
+	env.local.DB.Close()
+	if err := os.Remove(utils.LocalMonitoringFile()); err != nil {
+		t.Fatal(err)
+	}
+	got, calls := env.catchUp(t)
+	if calls != 1 || !got.Ran || got.Counted || got.Complete() || got.Aside != 0 || !strings.Contains(got.Problem, "not there any more") {
+		t.Fatalf("%d calls, %+v", calls, got)
 	}
 }
