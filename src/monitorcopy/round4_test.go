@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
@@ -196,5 +198,31 @@ func TestACatchUpTakesNoRowOfAnotherServersTime(t *testing.T) {
 	}
 	if p := tableOf(report, "events"); p.SourceRows != 2 {
 		t.Errorf("the check went through %d events, want the fallback's 2", p.SourceRows)
+	}
+}
+
+// A batch that met the store's writers in a deadlock is tried again (round
+// 4: the catch-up's merge and the metrics' flush update the same rows; the
+// replay saw "deadlock detected" end a catch-up as failed).
+func TestABatchInADeadlockIsTriedAgain(t *testing.T) {
+	src, dst := openStore(t, utils.DialectSQLite), openStore(t, utils.DialectSQLite)
+	now := time.Now().UnixMilli()
+	totals(t, src, "sum", "sum", map[string][3]int64{"day": {now - now%86400000, 5, 1}})
+	prev := batchFault
+	t.Cleanup(func() { batchFault = prev })
+	failed := 0
+	batchFault = func(table string) error {
+		if table == "metric_values" && failed < 2 {
+			failed++
+			return &pgconn.PgError{Code: "40P01", Message: "deadlock detected"}
+		}
+		return nil
+	}
+	report := copyOnce(t, src, dst, testOptions("deadlock", true))
+	if failed != 2 || report.Mismatch {
+		t.Fatalf("failed %d times, %+v", failed, tableOf(report, "metric_values"))
+	}
+	if v, _ := bucketValue(t, dst, "sum", "day"); v != 5 {
+		t.Errorf("day total %d", v)
 	}
 }

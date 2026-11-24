@@ -249,6 +249,8 @@ func (c *copier) fail(r rule, stage string, err error) error {
 		switch {
 		case pgErr.Code == "42501":
 			sentence = "The PostgreSQL user may not write " + name + "."
+		case pgErr.Code == "40P01" || pgErr.Code == "40001":
+			sentence = "Working on " + name + " met the writers of the database in a deadlock several times in a row. The rows copied so far are kept; the copy can be resumed."
 		case pgErr.Code == "53100":
 			sentence = "PostgreSQL's disk is full: " + name + " could not be copied entirely. The rows copied so far are kept."
 		case strings.HasPrefix(pgErr.Code, "08"), strings.HasPrefix(pgErr.Code, "57"):

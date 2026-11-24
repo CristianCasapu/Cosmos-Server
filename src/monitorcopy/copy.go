@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
@@ -306,6 +308,21 @@ func (c *copier) run(ctx context.Context) (Report, error) {
 	return report, err
 }
 
+// batchFault: the tests make a batch fail before it runs.
+var batchFault = func(table string) error { return nil }
+
+// retryableBatch: the batch was rolled back by the database for a reason
+// that goes away (a deadlock with a writer, a serialization failure, a lock
+// not granted in time, the local file busy).
+func retryableBatch(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "40P01" || pgErr.Code == "40001" || pgErr.Code == "55P03"
+	}
+	text := err.Error()
+	return strings.Contains(text, "SQLITE_BUSY") || strings.Contains(text, "database is locked")
+}
+
 // beforeCheck runs between a copy's last batch and its check; the tests
 // commit a write held open across the copy there.
 var beforeCheck = func() {}
@@ -586,9 +603,24 @@ func (c *copier) copyTable(ctx context.Context, i int, r rule) error {
 			return err
 		}
 		started := time.Now()
-		bctx, cancel := batchContext()
-		read, written, err := c.batch(bctx, r, &m)
-		cancel()
+		var read, written int64
+		var err error
+		// a batch that met the store's writers in a deadlock (or a busy local
+		// file) is rolled back whole: tried again, a few times (review round
+		// 4: the catch-up's merge and the metrics' flush update the same rows)
+		for attempt := 1; ; attempt++ {
+			bctx, cancel := batchContext()
+			if err = batchFault(r.table); err == nil {
+				read, written, err = c.batch(bctx, r, &m)
+			}
+			cancel()
+			if err == nil || attempt >= 5 || !retryableBatch(err) {
+				break
+			}
+			if c.pause(ctx, time.Duration(attempt)*100*time.Millisecond) != nil {
+				return errStopped
+			}
+		}
 		if err != nil {
 			return c.fail(r, "copying", err)
 		}
