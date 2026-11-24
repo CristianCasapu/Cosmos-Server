@@ -189,8 +189,38 @@ func ForkThreadState(thread string, closings []string, since time.Time) (open bo
 	return false, resolved > 0 || closing != nil, closing, nil
 }
 
-// JobThread is the thread of a scheduled job's failure.
-func JobThread(name string) string { return "error.job:" + cleanVar(name, 160) }
+// ThreadName is a thread's name as the notifications store it (review 6):
+// a source compares its own keys through it, so that a name the store
+// cleaned (trimmed, control characters replaced, cut) is still found.
+func ThreadName(name string) string { return cleanVar(name, 200) }
+
+// JobThread is the thread of a scheduled job's failure. It names the
+// scheduler (review 6: two jobs of one name in two schedulers are two
+// things); the jobs of the owner's own list ("Custom") keep the name
+// alone, as before.
+func JobThread(scheduler string, name string) string {
+	if scheduler == "" || scheduler == "Custom" {
+		return "error.job:" + cleanVar(name, 160)
+	}
+	return "error.job:" + cleanVar(scheduler+"/"+name, 160)
+}
+
+// JobThreadLegacy is the thread a job's failure had before review 6 (the
+// name alone, whatever the scheduler).
+func JobThreadLegacy(name string) string { return "error.job:" + cleanVar(name, 160) }
+
+// JobScheduleThread is the thread of a job that could not be scheduled
+// (review 6: its own truth, not a job named "scheduling").
+func JobScheduleThread(scheduler string, name string) string {
+	if scheduler == "" {
+		scheduler = "Custom"
+	}
+	return "error.job.schedule:" + cleanVar(scheduler+"/"+name, 160)
+}
+
+// JobSchedulingLegacy is the one thread every scheduling failure shared
+// before review 6.
+const JobSchedulingLegacy = "error.job:scheduling"
 
 // viewNotification is a stored row as the notification that raised it.
 func viewNotification(v NotificationView) Notification {

@@ -90,9 +90,43 @@ func init() {
 // error (src/cron): when the job's failure is still open, it is marked
 // resolved and a follow-up says the job works again. It never waits long:
 // one indexed question to the database, and only then a write.
-func ForkJobSucceeded(name string) {
+func ForkJobSucceeded(scheduler string, name string) {
+	forkJobWorks(JobThread(scheduler, name), name)
+}
+
+// ForkJobScheduled is the hook of a job the scheduler took (review 6):
+// when it could not be scheduled before, it is said that it works again.
+func ForkJobScheduled(scheduler string, name string) {
+	forkJobWorks(JobScheduleThread(scheduler, name), name)
+}
+
+// ForkJobFailed is the hook of a scheduled job that failed: upstream's
+// "Server Error", on the job's own thread (it names the scheduler).
+func ForkJobFailed(scheduler string, name string, err error) {
+	errStr := ""
+	if err != nil {
+		errStr = err.Error()
+	}
+	message := "CRON job " + name + " failed"
+	info := majorErrorInfo(message, errStr)
+	info.Thread = JobThread(scheduler, name)
+	MajorErrorWith(message, err, info)
+}
+
+// ForkJobScheduleFailed is the hook of a job the scheduler refused: its
+// own thread, named after the job (review 6).
+func ForkJobScheduleFailed(scheduler string, name string, err error) {
+	errStr := ""
+	if err != nil {
+		errStr = err.Error()
+	}
+	info := majorErrorInfo("CRON job "+name+" failed", "could not be scheduled: "+errStr)
+	info.Thread = JobScheduleThread(scheduler, name)
+	MajorErrorWith("CRON job scheduling", err, info)
+}
+
+func forkJobWorks(thread string, name string) {
 	defer func() { recover() }()
-	thread := JobThread(name)
 	if !ThreadOpen(thread) {
 		return
 	}

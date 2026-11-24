@@ -13,14 +13,14 @@ func TestAJobThatWorksAgainClosesItsFailure(t *testing.T) {
 	forwarded := []Notification{}
 	SetNotificationForwarder(func(n Notification) { forwarded = append(forwarded, n) })
 
-	ForkJobSucceeded("nightly")
+	ForkJobSucceeded("Custom", "nightly")
 	if items := list(t, NotificationQuery{Recipient: "bob", Admin: true}); len(items) != 0 {
 		t.Fatalf("a job that never failed wrote %d notifications", len(items))
 	}
 
 	MajorError("CRON job nightly failed", errors.New("exit status 1"))
 	*now = now.Add(25 * time.Minute)
-	ForkJobSucceeded("nightly")
+	ForkJobSucceeded("Custom", "nightly")
 	items := list(t, NotificationQuery{Recipient: "bob", Admin: true})
 	if len(items) != 2 || items[0].Kind != "job.restored" || items[1].Resolved == nil {
 		t.Fatalf("%+v", items)
@@ -30,7 +30,7 @@ func TestAJobThatWorksAgainClosesItsFailure(t *testing.T) {
 		t.Fatalf("the follow-up does not close the failure's thread: %+v", last.Fork)
 	}
 	// once closed, another success writes nothing
-	ForkJobSucceeded("nightly")
+	ForkJobSucceeded("Custom", "nightly")
 	if items := list(t, NotificationQuery{Recipient: "bob", Admin: true}); len(items) != 2 {
 		t.Fatalf("got %d", len(items))
 	}
