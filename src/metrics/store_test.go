@@ -264,3 +264,35 @@ func TestANewStoreGetsTheChangeSinceTheLastFlush(t *testing.T) {
 		t.Errorf("first store %d/%d, second %d/%d: want 10/1 and 5/0 (15 pushed, one raw bucket)", av, ai, bv, bi)
 	}
 }
+
+// Review round 3: a raw bucket that closes while its flushes fail (the store
+// does not answer, before the fallback) is kept until a flush writes it.
+func TestAClosedBucketIsKeptUntilItIsWritten(t *testing.T) {
+	setupMetricsStore(t)
+	def := DataDef{Max: 100, Period: 30 * time.Second, Label: "t", AggloType: "sum", SetOperation: "sum"}
+	pushSetMetric("kept", 7, def)
+	lock <- true
+	for k, dp := range dataBuffer {
+		dp.Expire = time.Now().Add(-time.Second) // its period is over
+		dataBuffer[k] = dp
+	}
+	<-lock
+	utils.CloseMetricsDatabase() // the flush fails
+	SaveMetrics()
+	if err := utils.InitMetricsDatabase(); err != nil {
+		t.Fatal(err)
+	}
+	SaveMetrics()
+	db, _ := utils.MonitoringReadDB()
+	var v int64
+	db.QueryRow("SELECT value FROM metric_values WHERE key = 'cosmos.kept' AND granularity = 'day'").Scan(&v)
+	if v != 7 {
+		t.Errorf("the closed bucket's value: %d, want 7", v)
+	}
+	lock <- true
+	left := len(dataBuffer)
+	<-lock
+	if left != 0 {
+		t.Errorf("%d buckets kept after they were written", left)
+	}
+}

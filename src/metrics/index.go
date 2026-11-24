@@ -142,6 +142,12 @@ func SaveMetrics() {
 		if dp.Expire.After(now) {
 			continue
 		}
+		// Fork addition (plan 51, review round 3): a closed bucket whose last
+		// flush failed (the store did not answer) is kept until it is written,
+		// an hour at most: its unflushed part would be lost
+		if (!dp.Contributed || dp.Value != dp.Written) && now.Sub(dp.Expire) < time.Hour {
+			continue
+		}
 		CheckAlerts(dp.Key, "latest", utils.AlertMetricTrack{
 			Key:    dp.Key,
 			Object: dp.Object,

@@ -381,14 +381,24 @@ func runWindow(w Window, write, read Store) (Result, bool) {
 	var final Result
 	window := w
 	done := launchLocked(CatchUp, local, write, local, opt, &window, func(r Result) {
-		// true numbers (review round 3, M4): every row of the window is
-		// present, missing, not mergeable exactly, or not checked
+		// true numbers (review round 3, M4): every record of the window is
+		// present, missing, not mergeable exactly, or not checked. When the
+		// check ran to its end, the records are the rows it went through (the
+		// last hour's fine points that expire within the check's margin are
+		// copied, but are not history and are not counted); when it did not,
+		// every row of the window is counted, and those not gone through are
+		// "not checked"
+		checked := r.Outcome == "done" || r.Outcome == "mismatch"
 		r.Aside, r.Present, r.Missing, r.Unchecked, r.Inexact = 0, 0, 0, 0, 0
 		for _, p := range r.Tables {
-			r.Aside += p.Total
 			r.Present += p.TargetRows
 			r.Missing += p.Missing
 			r.Inexact += p.Inexact
+			if checked {
+				r.Aside += p.SourceRows
+				continue
+			}
+			r.Aside += p.Total
 			if left := p.Total - p.TargetRows - p.Missing - p.Inexact; left > 0 {
 				r.Unchecked += left
 			}
