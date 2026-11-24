@@ -26,6 +26,10 @@ var (
 	fillMinSpan = 6 * time.Hour
 )
 
+// FillTestMounts: mounts the fill watch also reads. Empty in every build but
+// the end-to-end one (the tag watch_fastclock, fastclock_e2e.go).
+var FillTestMounts []string
+
 // fillGoneAfter: how long a mount must be absent from listings that worked
 // before it is forgotten (review 7, N2)
 const fillGoneAfter = 24 * time.Hour

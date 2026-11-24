@@ -217,11 +217,6 @@ func mountTypes() map[string]string {
 	return types
 }
 
-// fillTestMounts: mounts the fill watch also reads. Empty in every build
-// but the end-to-end one (the tag watch_fastclock, fork_watch_e2e.go), whose
-// test disk is a size-limited tmpfs that needs no rights.
-var fillTestMounts []string
-
 // statfsDeadline bounds one mount's statfs: a mergerfs pool with a dead
 // branch hangs there, and must not hold the other mounts.
 var statfsDeadline = 10 * time.Second
@@ -272,7 +267,7 @@ func watchUsages() (usages []watch.Usage, complete bool) {
 	for mount := range data {
 		mounts = append(mounts, mount)
 	}
-	mounts = append(mounts, fillTestMounts...) // only the end-to-end build sets it
+	mounts = append(mounts, watch.FillTestMounts...) // only the end-to-end build sets it (src/watch/fastclock_e2e.go)
 	usages = []watch.Usage{}
 	for _, mount := range mounts {
 		if skipForFill(types[mount]) {
