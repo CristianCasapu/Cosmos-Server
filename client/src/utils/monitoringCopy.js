@@ -104,18 +104,25 @@ export function countedAgo(offer, t = identity) {
 export function catchUpOf(view, t = identity, locale) {
   const c = view && view.catchUp;
   if (!c || !c.outcome) return null;
+  // review round 3: never more than was checked; aside = present + missing + unchecked + inexact
   const vars = {
-    n: formatCount(c.written), missing: formatCount(c.missing),
+    n: formatCount(c.aside), copied: formatCount(c.written), present: formatCount(c.present), missing: formatCount(c.missing),
+    unchecked: formatCount(c.unchecked), inexact: formatCount(c.inexact),
     from: formatTime(c.from, locale), to: formatTime(c.to, locale), message: c.message || '',
   };
-  switch (c.outcome) {
-    case 'done':
-      return { outcome: 'done', severity: 'success', text: t('mgmt.config.general.monitoringDb.copy.caughtUp', 'Caught up {{n}} records written while the database was away (from {{from}} to {{to}}).', vars) };
-    case 'skipped':
-      return { outcome: 'skipped', severity: 'info', text: t('mgmt.config.general.monitoringDb.copy.catchUpSkipped', 'The records written while the database was away (from {{from}} to {{to}}) were not caught up: {{message}}', vars) };
-    default:
-      return { outcome: c.outcome, severity: 'warning', text: t('mgmt.config.general.monitoringDb.copy.catchUpPartly', 'Caught up {{n}} records written while the database was away (from {{from}} to {{to}}); {{missing}} were not: {{message}}', vars) };
+  if (c.outcome === 'skipped') {
+    return { outcome: 'skipped', severity: 'info', text: t('mgmt.config.general.monitoringDb.copy.catchUpSkipped', 'The records written while the database was away (from {{from}} to {{to}}) were not caught up: {{message}}', vars) };
   }
+  if (!c.counted) {
+    return { outcome: c.outcome, severity: 'warning', text: t('mgmt.config.general.monitoringDb.copy.catchUpUncounted', 'The records written while the database was away (from {{from}} to {{to}}) could not be counted nor brought over now: {{message}}', vars) };
+  }
+  if (c.outcome === 'done' && !(c.missing > 0) && !(c.unchecked > 0) && !(c.inexact > 0)) {
+    return { outcome: 'done', severity: 'success', text: t('mgmt.config.general.monitoringDb.copy.caughtUp', 'Caught up {{n}} records written while the database was away (from {{from}} to {{to}}): each is in the database, checked one by one ({{copied}} brought over now).', vars) };
+  }
+  const parts = [t('mgmt.config.general.monitoringDb.copy.catchUpPartly', '{{n}} records were written while the database was away (from {{from}} to {{to}}): {{present}} are in the database, {{missing}} are not, {{unchecked}} could not be checked.', vars)];
+  if (c.inexact > 0) parts.push(t('mgmt.config.general.monitoringDb.copy.catchUpInexact', '{{inexact}} hourly or daily totals could not be added up exactly.', vars));
+  if (c.message) parts.push(c.message);
+  return { outcome: c.outcome, severity: 'warning', text: parts.join(' ') };
 }
 
 // offerLabel is the button of an offer, with its numbers.

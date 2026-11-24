@@ -20,7 +20,7 @@ import { useTranslation } from 'react-i18next';
 import * as API from '../../api';
 import ProposalBox from '../../components/proposalBox';
 import { takeProposal, replaceWithProposal, holdsProposal, testPayload, postgresHostProblem } from '../../utils/postgresProposal';
-import { choiceValues, containerAddressSentence, containerAddressWarning, hostChoices, maskedPasswordStale, moveSentence, pickedChoice, requestSaveAnyway, storeStateLine } from '../../utils/monitoringStoreForm';
+import { choiceValues, containerAddressSentence, containerAddressWarning, hostChoices, maskedPasswordStale, moveSentence, pickedChoice, requestSaveAnyway, storeStateLine, asideLines } from '../../utils/monitoringStoreForm';
 
 const touch = { minHeight: 44 };
 
@@ -277,11 +277,16 @@ export const MonitoringStoreLine = ({ state: given }) => {
   const polled = useMonitoringStore();
   const state = given || polled;
   const line = storeStateLine(state, (d) => new Date(d).toLocaleString());
-  if (!line) return null;
-  const [key, text, params] = line;
-  return <Alert severity="warning" sx={{ overflowWrap: 'anywhere' }} data-fork-monitoring-fallback>
-    {t(key, text, params)}
-  </Alert>;
+  const aside = asideLines(state, (d) => new Date(d).toLocaleString());
+  if (!line && aside.length === 0) return null;
+  return <>
+    {line && <Alert severity="warning" sx={{ overflowWrap: 'anywhere' }} data-fork-monitoring-fallback>
+      {t(line[0], line[1], line[2])}
+    </Alert>}
+    {aside.map(([key, text, params]) => <Alert key={params.host + params.from} severity="info" sx={{ overflowWrap: 'anywhere' }} data-fork-monitoring-aside>
+      {t(key, text, params)}
+    </Alert>)}
+  </>;
 };
 
 // Plan 51: what a save that moves the store does to the history, asked once

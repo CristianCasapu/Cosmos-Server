@@ -119,6 +119,16 @@ export const storeStateLine = (state, formatDate = (d) => d) => {
     { since }];
 };
 
+// Plan 51, review round 3 (M8): outages of another server whose records stay
+// in the local file (the settings changed while they lasted): one line each,
+// [key, English, params]; [] when there are none.
+export const asideLines = (state, formatDate = (d) => d) => {
+  const aside = (state && Array.isArray(state.aside)) ? state.aside : [];
+  return aside.filter((a) => a && a.host).map((a) => ['mgmt.config.general.monitoringDb.fork.state.aside',
+    'The local file (database.db) holds the records written while {{host}} did not answer ({{from}} to {{to}}). They stay there: they are brought over by themselves when that server is the monitoring database again, and the copy on this page can take them now.',
+    { host: a.host, from: a.from ? formatDate(a.from) : '', to: a.to ? formatDate(a.to) : '' }]);
+};
+
 // The server field holds a container's own address on Docker's network (the
 // owner once saved 172.17.0.x:5432): it works now and changes when the
 // container is made again. { container, address, prefer } (prefer: the

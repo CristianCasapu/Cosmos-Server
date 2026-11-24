@@ -149,12 +149,19 @@ test('the catch-up after a fallback: its line and its progress', () => {
   const from = Date.UTC(2026, 10, 18, 9);
   const to = Date.UTC(2026, 10, 18, 10);
   assert.equal(catchUpOf(idle), null);
-  const done = catchUpOf({ catchUp: { outcome: 'done', written: 1234, from, to } }, undefined, 'en-GB');
+  const done = catchUpOf({ catchUp: { outcome: 'done', counted: true, aside: 1234, present: 1234, written: 1200, from, to } }, undefined, 'en-GB');
   assert.equal(done.severity, 'success');
-  assert.match(done.text, /^Caught up 1\u00a0234 records written while the database was away \(from .*2026.* to .*2026.*\)\.$/);
-  const partly = catchUpOf({ catchUp: { outcome: 'stopped', written: 10, missing: 5, from, to, message: 'It stopped.' } });
+  assert.match(done.text, /^Caught up 1\u00a0234 records written while the database was away \(from .*2026.* to .*2026.*\): each is in the database, checked one by one \(1\u00a0200 brought over now\)\.$/);
+  // review round 3: true numbers, never "caught up" when something is not known
+  const partly = catchUpOf({ catchUp: { outcome: 'stopped', counted: true, aside: 2500, present: 10, missing: 0, unchecked: 2490, written: 10, from, to, message: 'It stopped.' } });
   assert.equal(partly.severity, 'warning');
-  assert.match(partly.text, /; 5 were not: It stopped\.$/);
+  assert.match(partly.text, /^2\u00a0500 records were written while the database was away .*: 10 are in the database, 0 are not, 2\u00a0490 could not be checked\. It stopped\.$/);
+  const inexact = catchUpOf({ catchUp: { outcome: 'done', counted: true, aside: 5, present: 4, inexact: 1, from, to } });
+  assert.equal(inexact.severity, 'warning');
+  assert.match(inexact.text, /1 hourly or daily totals could not be added up exactly\./);
+  const uncounted = catchUpOf({ catchUp: { outcome: 'failed', from, to, message: 'The local file is not there any more.' } });
+  assert.match(uncounted.text, /could not be counted nor brought over now: The local file/);
+  assert.doesNotMatch(uncounted.text, /\b0\b/);
   assert.equal(catchUpOf({ catchUp: { outcome: 'skipped', from, to, message: 'A copy ran.' } }).severity, 'info');
   const p = progressOf({ running: true, direction: CATCH_UP, phase: 'copying', window: { from, to }, tables: [] });
   assert.equal(p.direction, CATCH_UP);

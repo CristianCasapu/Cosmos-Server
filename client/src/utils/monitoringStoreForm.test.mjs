@@ -91,6 +91,17 @@ test('the line about the store in use', () => {
   assert.equal(storeStateLine({ fallback: true, host: 'h', since: 'T', message: 'Not reached.', advice: 'Use 192.168.1.10:5432.' })[2].reason, 'Not reached. Use 192.168.1.10:5432.');
 });
 
+test('the records of another server\'s outage that stay in the local file (review round 3, M8)', async () => {
+  const { asideLines } = await import('./monitoringStoreForm.js');
+  assert.deepEqual(asideLines(null), []);
+  assert.deepEqual(asideLines({ aside: [] }), []);
+  const lines = asideLines({ aside: [{ host: '192.0.2.5:5432', database: 'cosmos', from: 'A', to: 'B' }] }, (d) => 'at ' + d);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0][1], /holds the records written while \{\{host\}\} did not answer/);
+  assert.match(lines[0][1], /They stay there/);
+  assert.deepEqual(lines[0][2], { host: '192.0.2.5:5432', from: 'at A', to: 'at B' });
+});
+
 test('a container\'s own address on Docker\'s network: works now, said, with the address that stays', async () => {
   const { containerAddressWarning, containerAddressSentence } = await import('./monitoringStoreForm.js');
   const proposals = [
