@@ -36,7 +36,10 @@ func forkKeepEvent(e Event, err error) error {
 	if err == nil {
 		return nil
 	}
-	if closedHandle(err) {
+	// a handle a switch closed, or the local file held longer than its busy
+	// timeout (two handles of it during a drain): once more at once, on the
+	// store in use (neither error leaves the row written)
+	if closedHandle(err) || sqliteBusy(err) {
 		if err = insertEventAgain(e); err == nil {
 			return nil
 		}

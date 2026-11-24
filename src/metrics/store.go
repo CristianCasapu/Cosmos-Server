@@ -79,7 +79,20 @@ func writeBuckets(buckets []DataPush) error {
 // the same transaction (fork_flush.go); committing says that the error came
 // from the commit, whose outcome is then not known.
 func writeBucketsTx(buckets []DataPush, kv map[string]string) (db *sql.DB, committing bool, err error) {
-	db, err = utils.MonitoringWriteDB()
+	db, committing, err = writeBucketsOnce(buckets, kv)
+	if err != nil && !committing && utils.IsClosedHandle(err) {
+		// Fork addition (plan 51): the handle was closed by a switch of the
+		// store before the transaction ran: once more on the store in use
+		return writeBucketsOnce(buckets, kv)
+	}
+	return db, committing, err
+}
+
+// bucketsHandle is the store's handle for a flush; replaced by the tests.
+var bucketsHandle = utils.MonitoringWriteDB
+
+func writeBucketsOnce(buckets []DataPush, kv map[string]string) (db *sql.DB, committing bool, err error) {
+	db, err = bucketsHandle()
 	if err != nil {
 		return nil, false, err
 	}

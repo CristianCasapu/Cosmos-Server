@@ -3,6 +3,7 @@ package utils
 // Fork addition (plan 51, review round 2, M4): tests of fork_write_retry.go.
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -112,5 +113,22 @@ func TestAKeptNotificationIsNotWrittenTwice(t *testing.T) {
 	db.QueryRow("SELECT date FROM notifications WHERE title = 'kept'").Scan(&date)
 	if date != TimeToMillis(at) {
 		t.Errorf("the kept notification is dated %d, its first try %d", date, TimeToMillis(at))
+	}
+}
+
+// An event whose insert met the local file held longer than its busy timeout
+// is written again at once, and reported as written.
+func TestEventOnABusyLocalFileWrittenAtOnce(t *testing.T) {
+	withMonitoringStore(t, DatabaseConfig{}, nil)
+	InitMetricsDatabase()
+	busy := errors.New("database is locked (5) (SQLITE_BUSY)")
+	if err := forkKeepEvent(Event{EventId: "busy", Label: "x", Date: time.Now()}, busy); err != nil {
+		t.Fatalf("reported as failed: %v", err)
+	}
+	db, _ := MonitoringWriteDB()
+	var n int
+	db.QueryRow("SELECT COUNT(*) FROM events WHERE event_id = 'busy'").Scan(&n)
+	if n != 1 {
+		t.Errorf("stored %d", n)
 	}
 }

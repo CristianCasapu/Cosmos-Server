@@ -105,3 +105,38 @@ func TestAnUncertainFlushIsCarriedIntoTheOtherStore(t *testing.T) {
 		t.Errorf("not carried: %d", len(uncertain))
 	}
 }
+
+// A flush that took the store's handle just before a switch closed it is
+// written once more at once on the store in use, and reported as written.
+func TestAFlushOnAClosedHandleIsWrittenAtOnce(t *testing.T) {
+	setupMetricsStore(t)
+	old, _ := utils.MonitoringWriteDB()
+	utils.CloseMetricsDatabase()
+	if err := utils.InitMetricsDatabase(); err != nil {
+		t.Fatal(err)
+	}
+	prev := bucketsHandle
+	t.Cleanup(func() { bucketsHandle = prev })
+	first := true
+	bucketsHandle = func() (*sql.DB, error) {
+		if first {
+			first = false
+			return old, nil // closed by the switch
+		}
+		return prev()
+	}
+	def := DataDef{Max: 100, Period: time.Hour, Label: "t", AggloType: "sum", SetOperation: "sum"}
+	pushSetMetric("closedhandle", 4, def)
+	lock <- true
+	dp := []DataPush{}
+	for _, v := range dataBuffer {
+		dp = append(dp, v)
+	}
+	<-lock
+	if err := writeBuckets(dp); err != nil {
+		t.Fatalf("reported as failed: %v", err)
+	}
+	if got := dayTotal(t, "closedhandle"); got != 4 {
+		t.Errorf("day total %d", got)
+	}
+}
