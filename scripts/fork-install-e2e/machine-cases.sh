@@ -1078,6 +1078,16 @@ m_migrate_interrupt_3() { # killed after the swap, nothing ran since: a run fini
 	take_now swap-started
 	expect_rc 21 swap-started-run --yes
 	unchanged_since swap-started
+	# the same, with the data put back as the backup's list has it: only the
+	# unit's start says something ran since, and that alone is enough
+	systemctl stop CosmosCloud
+	b=$(sed -n 's/^backup=//p' /var/lib/cosmos-installer/state | tail -n 1)
+	mv -T /var/lib/cosmos /root/data-the-fork-used
+	cp -a "$b/var-lib-cosmos" /var/lib/cosmos
+	take_now swap-started-same-data
+	expect_rc 21 swap-started-same-data-run --yes
+	unchanged_since swap-started-same-data
+	rm -rf /root/data-the-fork-used
 	expect_rc 0 swap-started-undo --undo
 	rolled_back_exactly
 	upstream_back 0.24.0
