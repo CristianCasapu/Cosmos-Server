@@ -125,6 +125,12 @@ record_trusted() {
 	[ "$(stat -c '%u %a %h' -- "$RECORD")" = "0 600 1" ] || return 1
 	grep -qxE "dir ${INSTALL_DIR//./\\.}|unit ${UNIT//./\\.}\\.service|package [a-z0-9][a-z0-9.+-]*|file /etc/apt/(keyrings/docker\\.asc|sources\\.list\\.d/docker\\.sources)" -- "$RECORD"
 }
+# A migration by migrate.sh that is not finished: its state, its notes and
+# upstream's folder renamed aside are the way back (migrate.sh --undo):
+# nothing of them is touched, whatever the options.
+if { [ -f "$STATE" ] && grep -qx 'role=migrate' -- "$STATE" && ! grep -qx 'completed=yes' -- "$STATE"; } || [ -e "$STATE_DIR/migration" ] || [ -e /opt/.cosmos-upstream-before-fork ]; then
+	die 3 "a migration by migrate.sh is not finished here (its state, its notes or upstream's folder renamed aside are there): uninstall.sh removes nothing, whatever the options. To put upstream's Cosmos back: sudo bash migrate.sh --undo (from the same release); to keep the fork: sudo bash migrate.sh --continue. Nothing was changed."
+fi
 # A Cosmos that migrate.sh moved from upstream to the fork was not installed
 # from nothing: removing it would remove the owner's installation with it.
 # The way out is going back to upstream, by hand (GOING-BACK.txt).
@@ -268,7 +274,13 @@ if recorded "dir $INSTALL_DIR"; then
 	rm -rf -- "$INSTALL_DIR"
 	remove_line "dir $INSTALL_DIR"
 fi
-for f in /opt/.cosmos-install.*; do [ ! -d "$f" ] || rm -rf -- "$f"; done
+# the unpack folder of an interrupted install.sh: only when its state names it
+# and it holds the mark of the run that made it; anything else is named
+if [ -f "$STATE" ]; then
+	m=$(sed -n 's/^tmp-mark=//p' "$STATE" | tail -n 1) f=$(sed -n 's/^tmp-staging=//p' "$STATE" | tail -n 1)
+	if [ -n "$m" ] && [[ $f =~ ^/opt/\.cosmos-install\.[A-Za-z0-9]{8}$ ]] && [ -d "$f" ] && [ ! -L "$f" ] && [ "$(cat -- "$f/.made-by-cosmos-script" 2>/dev/null)" = "$m" ]; then rm -rf -- "$f"; fi
+fi
+for f in /opt/.cosmos-install.*; do [ ! -e "$f" ] || say "Left by an earlier run of install.sh and named by no state, so not removed: $f"; done
 
 # 4. the data
 if [ "$DELETE_DATA_YES" = 1 ] && [ -d "$DATA_DIR" ]; then
