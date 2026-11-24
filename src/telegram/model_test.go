@@ -224,6 +224,12 @@ func (b *modelBot) sendMessage(ctx context.Context, st settings, out outgoing) (
 		if marker := b.plainThread(msg.text, outcome != "timeout"); marker != "" { // an answer lost: it comes again
 			m.plainOf[msg.id] = marker // one refusal can stand for several plain sends
 		}
+		// review 7: the thread the notifier is sending, when it sends one,
+		// is the truth (several threads of one kind refused have the same
+		// plain form)
+		if marker := m.sendingThread(); marker != "" {
+			m.plainOf[msg.id] = marker
+		}
 	} else if found := markerPattern.FindStringSubmatch(msg.text); found != nil {
 		// the full form went through: its refusals are over
 		kept := b.refusedForms[:0]
@@ -255,6 +261,26 @@ func (b *modelBot) sendMessage(ctx context.Context, st settings, out outgoing) (
 		return 0, &sendError{Reason: ReasonTimeout, Message: "timeout", Retryable: true}
 	}
 	return msg.id, nil
+}
+
+// sendingThread: the model thread whose entry the notifier is delivering
+// now (n.current), "" outside a thread's delivery.
+func (m *model) sendingThread() string {
+	if m.n == nil {
+		return ""
+	}
+	m.n.mu.Lock()
+	current := m.n.current
+	m.n.mu.Unlock()
+	if current == "" {
+		return ""
+	}
+	for _, th := range m.threads {
+		if threadID(utils.ThreadName(th.name)) == current || threadID(th.name) == current {
+			return th.marker
+		}
+	}
+	return ""
 }
 
 // plainThread: the thread of a plain form, from the latest refusal whose
@@ -503,6 +529,7 @@ type model struct {
 	lostCloseAt   map[string][]time.Time // a closing whose fate is unknown (S2: the chat may show it over)
 	fillAt        time.Time
 	readsAt       []time.Time // review 7: when a reconcile read the level
+	leftPins      map[string]int // review 7: per chat, the pin records made before it was last left
 	persistedAt   time.Time
 	threadLines   map[string]map[string]bool
 	excusedClose  map[int]bool // closings the live I9 excused (the model's own doing)
@@ -695,7 +722,7 @@ func newModelWith(t *testing.T, seed int64, store bool) *model {
 	m := &model{t: t, seed: seed, rng: rand.New(rand.NewSource(seed)),
 		clock: time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC), config: testConfig(),
 		unpaired: map[string]int{}, unpairedAt: map[string]time.Time{}, features: map[string]bool{},
-		store: store, unpairedTimedOut: map[string]bool{}, leftChats: map[string]int{}, leftAt: map[string]time.Time{}, closingOffAt: map[string][]time.Time{}, closingOnAt: map[string][]time.Time{}, plainOf: map[int]string{}, excusedClose: map[int]bool{}, lostCloseAt: map[string][]time.Time{}, unpairedPlain: map[string]bool{}}
+		store: store, unpairedTimedOut: map[string]bool{}, leftChats: map[string]int{}, leftAt: map[string]time.Time{}, leftPins: map[string]int{}, closingOffAt: map[string][]time.Time{}, closingOnAt: map[string][]time.Time{}, plainOf: map[int]string{}, excusedClose: map[int]bool{}, lostCloseAt: map[string][]time.Time{}, unpairedPlain: map[string]bool{}}
 	m.config.Telegram.MaxPerMinute = maxMaxPerMinute
 	m.config.Telegram.ChatID = modelChatA
 	m.path = filepath.Join(t.TempDir(), threadsFileName)
@@ -1037,6 +1064,7 @@ func (m *model) change() {
 			// "were switched off" leaves the chat as a change of chat does
 			m.leftChats[was.chatID] += leaveChatPins(m.n, was, m.bot) // the pins that stayed, over every leave
 			m.leftAt[was.chatID] = m.clock
+			m.leftPins[was.chatID] = len(m.bot.pins) // the pin records before this leave
 			m.feature("chat-leave unpin")
 		}
 		m.toggledOff = true
@@ -1074,6 +1102,7 @@ func (m *model) changeChat() {
 			// the chat that loses the notifications: its pins taken away there
 			m.leftChats[was.chatID] += leaveChatPins(m.n, was, m.bot) // the pins that stayed, over every leave
 			m.leftAt[was.chatID] = m.clock
+			m.leftPins[was.chatID] = len(m.bot.pins) // the pin records before this leave
 			m.feature("chat-leave unpin")
 		}
 	}()
@@ -1463,16 +1492,16 @@ func (m *model) check(start time.Time) {
 		}
 		kept := 0
 		for id := range m.bot.pinned[left] {
-			pinnedAt := time.Time{}
-			for _, p := range m.bot.pins {
+			pinnedAt, pinnedIdx := time.Time{}, 0
+			for i, p := range m.bot.pins {
 				if p.chat == left && p.id == id && p.pin && p.ok {
-					pinnedAt = p.at
+					pinnedAt, pinnedIdx = p.at, i
 				}
 			}
 			// a pin whose record went with a lost threads file is not known;
 			// one pinned after the chat was last left stays when the chat is
 			// changed again without the notifier seeing it (review 7, m07)
-			if !between(m.lostAt, pinnedAt, m.leftAt[left]) && !pinnedAt.After(m.leftAt[left]) {
+			if !between(m.lostAt, pinnedAt, m.leftAt[left]) && pinnedIdx < m.leftPins[left] {
 				kept++
 			}
 		}
@@ -1669,6 +1698,7 @@ func TestModelSeedsThatFailedOnce(t *testing.T) {
 		// review 7 (N8): more than the table holds open at once
 		1795530366717436634, // the end of a thread beyond the table told twice (its closing answered another message)
 		1795534412523359670, // the end of a thread beyond the table sent after its reopening: "OK" while open
+		1795548267531982420, // the model's record: plain forms of two refused threads of one kind (now: the thread being sent)
 	} {
 		runModel(t, seed)
 	}
@@ -1681,6 +1711,10 @@ func TestModelSeedsThatFailedOnce(t *testing.T) {
 		1795511762948446379, // the same
 		1795511998330992138, // plain forms of two threads of one kind, one of them refused twice
 		1795513930293952598, // a pin pinned again while its refused unpin still waited (TestR6APinWantedAgainDropsItsWaitingUnpin)
+		// review 7, with late events
+		1795547005394055672, // the model: a pin made in the second a chat was left, then a change of chat the notifier did not see
+		1795547053576536593, // the same
+		1795548550403887976, // a flap within a second, its reopening's write lost in a restart, the source starting (excused)
 	} {
 		runModelWith(t, seed, true, map[string]int{})
 	}

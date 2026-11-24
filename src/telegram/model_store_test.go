@@ -451,10 +451,16 @@ func (m *model) closeExcused(th *modelThread) bool {
 	if !th.lostOpenAt.IsZero() && !m.readSince(th.lostOpenAt, th.readyAt) {
 		return true
 	}
-	// review 7 (N7): no excuse for "the reopening's write was lost in a
-	// restart, the source still starting": T1 keeps that closing back (the
-	// end is believed only on evidence newer than the moment the thread was
-	// last seen open), and the excuse hid its regression (m36)
+	// review 7 (N7): "the reopening's write was lost in a restart, the
+	// source still starting" is excused only when the reopening came within
+	// T1's tolerance (one second) of the end before it: the end's resolved
+	// row is then as new as the moment it was seen open, and nothing else
+	// tells the notifier it opened again. Wider, it hid T1's regression (m36).
+	if last := latestBefore(th.openedAt, m.clock); last.After(th.writtenAt) && th.readyAt.After(last) {
+		if end := latestBefore(th.closedAt, last); !end.After(last) && last.Sub(end) <= time.Second && len(th.closedAt) > 0 {
+			return true
+		}
+	}
 	// a source lagging up to two minutes said over from a look before the
 	// opening, and no read corrected it since (or within the period after)
 	return m.lagging && (th.wrongOver || lagWindow(th, m.clock))
