@@ -187,6 +187,9 @@ func (b *modelBot) sendMessage(ctx context.Context, st settings, out outgoing) (
 		}
 		if marker != "" {
 			b.refusedForms = append(b.refusedForms, refusedForm{marker, m.clock})
+			if markerPattern.FindStringSubmatch(out.message.text) != nil {
+				delete(b.plainSeen, marker) // its full form refused again: a new plain form follows
+			}
 		}
 		m.log("refused for its form: %q", strings.ReplaceAll(out.message.text, "\n", " | "))
 	}
@@ -1622,6 +1625,7 @@ func TestModelSeedsThatFailedOnce(t *testing.T) {
 		1795512662653143204, // a full table of rows crowded out what a source held open
 		1795512767026516955, // the same
 		1795515786879045332, // a lagging source's wrong "over", sent after Telegram's refusals and a month
+		1795518914437939061, // a thread's full form refused again after an earlier plain form (the stand-in's record)
 	} {
 		runModel(t, seed)
 	}
