@@ -17,8 +17,10 @@ package watch
 //     was read or the last readWindow reads of this run were good.
 //   - A disk filling: over when its ring is not open and either the state
 //     file was read or the ring has enough samples for a trend; a mount
-//     that a listing that worked no longer holds is over; any other mount
-//     without a ring is unknown.
+//     absent from listings that worked for a day (fillGoneAfter) is over;
+//     a mount not read (statfs failed, or remounted read-only) or absent
+//     for less than that is unknown, its samples kept (review 7, N2); any
+//     other mount without a ring is unknown.
 //   - Docker: over when not open, once the state file was read or a check
 //     of this run concluded (Docker answered, or the problem opened); the
 //     watch switched off by the owner is over (docker.unwatched says so).
@@ -204,6 +206,9 @@ func registerLevels(st *store) {
 			_, gone, _ := matching(fillGone, fillThread, thread)
 			return false, gone
 		}
+		if ring.Unread || !ring.Missing.IsZero() {
+			return false, false // not read, or absent from the listing: unknown (review 7, N2)
+		}
 		if ring.Open {
 			return true, true
 		}
@@ -271,17 +276,18 @@ func registerLevels(st *store) {
 
 // registerStuck: whether a watch is stuck is known in memory only, once
 // the loop runs: a watch of this run is stuck (told), or over when its
-// slot is free (its look of this run finished); a look still in progress
-// is unknown (review 6); a name no slot has is over (it was a hang of an
-// earlier run of the server: the process that hung is gone).
+// slot is free after a look of this run; a look still in progress, or none
+// started yet in this run, is unknown (reviews 6 and 7); a name no slot has
+// is over: no watch of that name exists in this version of the server
+// (the code changed), which is the program's own state, not a look.
 func registerStuck(slots map[string]*slot) {
 	utils.RegisterThreadLevel("watch.stuck", func(thread string) (bool, bool) {
 		for _, s := range slots {
 			if thread == utils.ThreadName("watch.stuck:"+s.what) {
 				s.mu.Lock()
 				defer s.mu.Unlock()
-				if s.busy && !s.told {
-					return false, false // a look in progress: nothing concluded
+				if (s.busy && !s.told) || !s.ran {
+					return false, false // a look in progress, or none yet in this run: nothing concluded
 				}
 				return s.busy, true
 			}

@@ -159,8 +159,15 @@ func TestAFailedFillLookIsNoEvidence(t *testing.T) {
 	st.with(func(d *stateData) bool { samples = len(d.Fill["/mnt/data"].Samples); return false })
 	checkFill(st, []Usage{{Mount: "/mnt/data", Failed: true}}, true, 3, start.Add(15*fillEvery))
 	checkFill(st, nil, false, 3, start.Add(16*fillEvery)) // the listing failed
-	if open, known := utils.SourceThreadLevel("disk.filling", "fill:/mnt/data"); !open || !known {
-		t.Errorf("after a failed look: open %v known %v", open, known)
+	if _, known := utils.SourceThreadLevel("disk.filling", "fill:/mnt/data"); known {
+		t.Errorf("after a failed look: known")
+	}
+	// review 7, N2: remounted read-only (a failing disk): not read, kept
+	ro := usage("/mnt/data", 4*tb, free)
+	ro.ReadOnly = true
+	checkFill(st, []Usage{ro}, true, 3, start.Add(17*fillEvery))
+	if _, known := utils.SourceThreadLevel("disk.filling", "fill:/mnt/data"); known {
+		t.Errorf("read-only: known")
 	}
 	st.with(func(d *stateData) bool {
 		if r := d.Fill["/mnt/data"]; r == nil || len(r.Samples) != samples {
@@ -168,9 +175,21 @@ func TestAFailedFillLookIsNoEvidence(t *testing.T) {
 		}
 		return false
 	})
-	checkFill(st, nil, true, 3, start.Add(17*fillEvery)) // listed, and gone
+	// read again: open
+	checkFill(st, []Usage{usage("/mnt/data", 4*tb, free)}, true, 3, start.Add(18*fillEvery))
+	if open, known := utils.SourceThreadLevel("disk.filling", "fill:/mnt/data"); !open || !known {
+		t.Errorf("read again: open %v known %v", open, known)
+	}
+	// absent from listings that worked: unknown, for a day; then over
+	gone := start.Add(19 * fillEvery)
+	checkFill(st, nil, true, 3, gone)
+	checkFill(st, nil, true, 3, gone.Add(fillGoneAfter-time.Minute))
+	if _, known := utils.SourceThreadLevel("disk.filling", "fill:/mnt/data"); known {
+		t.Errorf("absent for less than a day: known")
+	}
+	checkFill(st, nil, true, 3, gone.Add(fillGoneAfter))
 	if open, known := utils.SourceThreadLevel("disk.filling", "fill:/mnt/data"); open || !known {
-		t.Errorf("gone from a listing that worked: open %v known %v", open, known)
+		t.Errorf("absent for a day: open %v known %v", open, known)
 	}
 }
 
@@ -198,6 +217,10 @@ func TestTheLevelOfAStuckWatch(t *testing.T) {
 	s := &slot{what: "failing disks"}
 	registerStuck(map[string]*slot{"smart": s})
 	thread := "watch.stuck:failing disks"
+	if _, known := utils.SourceThreadLevel("watch.stuck", thread); known {
+		t.Error("no look of this run yet: known")
+	}
+	s.ran = true
 	s.busy, s.told = true, true
 	if open, known := utils.SourceThreadLevel("watch.stuck", thread); !open || !known {
 		t.Errorf("told: open %v known %v", open, known)

@@ -106,6 +106,11 @@ type fillSample struct {
 type fillRing struct {
 	Samples []fillSample `json:"samples"`
 	Open    bool         `json:"open,omitempty"`
+	// plan 48, review 7 (N2): the last look could not read it (statfs
+	// failed, or it is mounted read-only: the classic sign of a failing
+	// disk); since when listings that worked no longer hold it
+	Unread  bool      `json:"unread,omitempty"`
+	Missing time.Time `json:"missing,omitempty"`
 }
 
 // stateData is what is remembered between runs and restarts.

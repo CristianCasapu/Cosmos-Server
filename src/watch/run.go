@@ -62,6 +62,7 @@ type slot struct {
 	busy  bool
 	since time.Time
 	told  bool
+	ran   bool // a look of this run started (review 7: before, unknown)
 }
 
 func (s *slot) start(now time.Time, work func()) {
@@ -71,7 +72,7 @@ func (s *slot) start(now time.Time, work func()) {
 		s.checkStuck(now)
 		return
 	}
-	s.busy, s.since = true, now
+	s.busy, s.since, s.ran = true, now, true
 	s.mu.Unlock()
 	go func() {
 		defer func() {

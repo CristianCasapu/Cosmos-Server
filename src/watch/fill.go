@@ -26,6 +26,10 @@ var (
 	fillMinSpan = 6 * time.Hour
 )
 
+// fillGoneAfter: how long a mount must be absent from listings that worked
+// before it is forgotten (review 7, N2)
+const fillGoneAfter = 24 * time.Hour
+
 const (
 	fillMinPoints = 6
 	maxMounts     = 16
@@ -80,11 +84,14 @@ func checkFill(st *store, usages []Usage, complete bool, days int, now time.Time
 	st.with(func(data *stateData) bool {
 		watched := map[string]bool{}
 		for _, u := range usages {
-			if u.Failed && u.Mount != "" {
-				watched[u.Mount] = true // listed, not read: nothing concluded
+			if ring, known := data.Fill[u.Mount]; known && u.Mount != "" && (u.Failed || u.ReadOnly) {
+				// listed, not read (or gone read-only): nothing concluded,
+				// the samples kept (review 7, N2)
+				watched[u.Mount] = true
+				ring.Unread, ring.Missing = true, time.Time{}
 				continue
 			}
-			if u.ReadOnly || u.Total < tinyDisk || u.Mount == "" {
+			if u.Failed || u.ReadOnly || u.Total < tinyDisk || u.Mount == "" {
 				continue
 			}
 			ring, known := data.Fill[u.Mount]
@@ -96,6 +103,7 @@ func checkFill(st *store, usages []Usage, complete bool, days int, now time.Time
 				data.Fill[u.Mount] = ring
 			}
 			watched[u.Mount] = true
+			ring.Unread, ring.Missing = false, time.Time{}
 			used := float64(u.Total - min(u.Free, u.Total))
 			kept := ring.Samples[:0]
 			for _, s := range ring.Samples {
@@ -128,10 +136,17 @@ func checkFill(st *store, usages []Usage, complete bool, days int, now time.Time
 				notify("success", fillInfo("disk.filling.over", u, 0, 0, 0))
 			}
 		}
-		// mounts that are gone are forgotten, and an open warning ends with
-		// them: only when the listing worked
+		// a mount absent from listings that worked is unknown; after a day
+		// of them it is forgotten, and an open warning ends with it ("No
+		// longer followed"): a decision that long is the owner's (review 7, N2)
 		for mount, ring := range data.Fill {
-			if complete && !watched[mount] {
+			if !complete || watched[mount] {
+				continue
+			}
+			if ring.Missing.IsZero() {
+				ring.Missing = now
+			}
+			if now.Sub(ring.Missing) >= fillGoneAfter {
 				if ring.Open {
 					resolveThread(fillThread(mount))
 				}
