@@ -856,6 +856,10 @@ g_uplink() {
 	check "def1: it reaches the public port 2053 (the provider's forwarded port)" m ip netns exec vpnp nc -z -w 2 -s 203.0.113.99 10.8.0.2 2053
 	m ip route del 0.0.0.0/1 via 10.8.0.1 dev tun9
 	m ip route del 128.0.0.0/1 via 10.8.0.1 dev tun9
+	# (the full tunnel gone, tun9 leaves the outside interfaces first: otherwise the
+	# next check would see it outside from before, and race the refresh that takes it out)
+	n=0; while [ $n -lt 8 ] && in_set wan_if '"tun9"'; do sleep 1; n=$((n + 1)); done
+	check_not "def1 removed: tun9 is no longer outside ($n s)" in_set wan_if '"tun9"'
 	# an IPv6 full tunnel: global unicast (2000::/3) through it
 	m ip -6 route add 2000::/3 via fd00:8::1 dev tun9
 	n=0; while [ $n -lt 8 ] && ! in_set wan_if '"tun9"'; do sleep 1; n=$((n + 1)); done
