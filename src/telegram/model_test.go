@@ -1626,6 +1626,7 @@ func TestModelSeedsThatFailedOnce(t *testing.T) {
 		1795511211590472632, // the same
 		1795511762948446379, // the same
 		1795511998330992138, // plain forms of two threads of one kind, one of them refused twice
+		1795513930293952598, // a pin pinned again while its refused unpin still waited (TestR6APinWantedAgainDropsItsWaitingUnpin)
 	} {
 		runModelWith(t, seed, true, map[string]int{})
 	}

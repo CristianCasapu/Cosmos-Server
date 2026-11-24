@@ -438,6 +438,14 @@ func repinLocked(c *chatThreads) {
 		t := c.Threads[newest]
 		t.WantPin, t.GaveWay, t.PinTries = true, false, 0
 		c.Threads[newest] = t
+		// an unpin of it still waiting (refused earlier) is not done now
+		kept := c.Unpin[:0]
+		for _, p := range c.Unpin {
+			if p.MessageID != t.MessageID {
+				kept = append(kept, p)
+			}
+		}
+		c.Unpin = kept
 		pins++
 	}
 }

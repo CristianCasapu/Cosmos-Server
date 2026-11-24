@@ -14,6 +14,7 @@ package utils
 
 import (
 	"errors"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -53,8 +54,14 @@ func SourceOpenThreads() map[string][]string {
 		opens[kind] = f
 	}
 	threadLevelsMu.Unlock()
+	kinds := make([]string, 0, len(opens))
+	for kind := range opens {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds) // the same order every time (the Telegram model replays seeds)
 	out := map[string][]string{}
-	for kind, f := range opens {
+	for _, kind := range kinds {
+		f := opens[kind]
 		func() {
 			defer func() { recover() }()
 			if list := f(); len(list) > 0 {

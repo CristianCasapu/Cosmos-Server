@@ -326,3 +326,26 @@ func TestR6WhatASourceHoldsOpenIsNotCrowdedOut(t *testing.T) {
 		t.Errorf("err %v, held %v, %d found", err, held, len(found))
 	}
 }
+
+// Found by the model (review 6): a pin gave way and Telegram refused to take
+// it away; when it is wanted again (a pinned problem ended), the unpin still
+// waiting is dropped, or it would take the pin away later.
+func TestR6APinWantedAgainDropsItsWaitingUnpin(t *testing.T) {
+	mem := newThreadMemory(t.TempDir() + "/" + threadsFileName)
+	st := testSettings()
+	for i := 1; i <= 4; i++ {
+		id := threadID(fmt.Sprintf("reach:%d", i))
+		mem.open(st, id, fmt.Sprintf("reach:%d", i), "reach.down", i, true)
+		mem.pinned(st, id, i, true)
+	}
+	mem.unpinned(st, 1, false) // the unpin of the one that gave way, refused
+	mem.close(st, threadID("reach:4"))
+	for _, p := range mem.unpins(st) {
+		if p.MessageID == 1 {
+			t.Fatalf("the unpin of message 1 still waits: %+v", mem.unpins(st))
+		}
+	}
+	if _, wanted := mem.toPin(st)[threadID("reach:1")]; !wanted {
+		t.Errorf("message 1 is not wanted pinned again: %+v", mem.toPin(st))
+	}
+}
