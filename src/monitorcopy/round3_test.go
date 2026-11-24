@@ -184,6 +184,36 @@ func TestRawRowsGoToTheStoreWithTheLaterFlush(t *testing.T) {
 	}
 }
 
+// A last-value total (no kind of total: the last flush wins) in a catch-up:
+// a bucket that ended before PostgreSQL came back takes the local file's
+// value, one still open keeps PostgreSQL's; the counts add up; a manual copy
+// (no moment of the switch back) says it cannot merge it.
+func TestLastValueTotalsInACatchUp(t *testing.T) {
+	src, dst := openStore(t, utils.DialectSQLite), openStore(t, utils.DialectSQLite)
+	now := time.Now().UnixMilli()
+	hour := int64(time.Hour / time.Millisecond)
+	thisHour := now - now%hour
+	for _, s := range []struct {
+		store Store
+		v     int64
+	}{{src, 7}, {dst, 3}} {
+		totals(t, s.store, "last", "", map[string][3]int64{"hour": {thisHour - 2*hour, s.v, 2}})
+		exec(t, s.store, "INSERT INTO metric_values(node, key, granularity, date, value, avg_index, expire) VALUES('server.local', 'last', 'day', ?, ?, 2, ?)", now-now%(24*hour), s.v, now+40*24*hour)
+	}
+	opt := testOptions("last", true)
+	opt.From, opt.End, opt.Back = thisHour-3*hour, now+60000, thisHour-hour // back after the old hour ended, before the day did
+	report := copyOnce(t, src, dst, opt)
+	if v, i := bucketValue(t, dst, "last", "hour"); v != 7 || i != 4 {
+		t.Errorf("an hour that ended during the fallback: %d/%d, want the local file's 7, counts 4", v, i)
+	}
+	if v, i := bucketValue(t, dst, "last", "day"); v != 3 || i != 4 {
+		t.Errorf("the day still open: %d/%d, want PostgreSQL's 3, counts 4", v, i)
+	}
+	if got := tableOf(report, "metric_values"); got.Inexact != 0 || got.Missing != 0 {
+		t.Errorf("checked: %+v", got)
+	}
+}
+
 // Windows of consecutive fallbacks (no row of the local file between them)
 // are one run; windows with rows of another period between them are not.
 func TestTouchingWindowsAreOneRun(t *testing.T) {

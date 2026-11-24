@@ -293,6 +293,11 @@ func (c *copier) mergeKind(b bucket) string {
 	case "min":
 		return "min"
 	}
+	// the last value flushed: mergeable by when the bucket ended, in a
+	// catch-up (it knows when PostgreSQL came back)
+	if c.opt.From > 0 && c.opt.Back > 0 {
+		return "last"
+	}
 	return "none"
 }
 
@@ -380,6 +385,20 @@ func (c *copier) batchBuckets(ctx context.Context, r rule, m *tableMarker) (int6
 				continue
 			}
 			err = exec(insert+"DO UPDATE SET value = "+fn+"(metric_values.value, excluded.value), avg_index = metric_values.avg_index + excluded.avg_index, expire = "+greatest+"(metric_values.expire, excluded.expire)",
+				b.node, b.key, b.granularity, b.date, b.value, di, b.expire)
+			dv = b.value - gave.value - got.value
+		case "last":
+			// a bucket that ended before PostgreSQL came back got its last flush
+			// in the local file: its value; one still open keeps the target's
+			// (the next flush replaces it anyway); the count adds up
+			if di < 0 {
+				di = 0
+			}
+			value := "metric_values.value"
+			if c.periodEnd(b) <= c.opt.Back {
+				value = "excluded.value"
+			}
+			err = exec(insert+"DO UPDATE SET value = "+value+", avg_index = metric_values.avg_index + excluded.avg_index, expire = "+greatest+"(metric_values.expire, excluded.expire)",
 				b.node, b.key, b.granularity, b.date, b.value, di, b.expire)
 			dv = b.value - gave.value - got.value
 		default:
@@ -473,6 +492,12 @@ func (c *copier) checkBuckets(ctx context.Context, r rule, batch []row) (present
 			}
 		case "min":
 			if there.value <= b.value {
+				present++
+			} else {
+				missing++
+			}
+		case "last":
+			if c.periodEnd(b) > c.opt.Back || there.value == b.value {
 				present++
 			} else {
 				missing++
