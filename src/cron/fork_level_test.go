@@ -11,9 +11,13 @@ import (
 func jobLevelEnv(t *testing.T, saved ...string) {
 	t.Helper()
 	savedList, savedInit, savedScheduled, savedTaken, savedNames := jobsList, wasInit, scheduled, takenCustom, savedJobNames
+	savedConfig, savedOff := savedSettings, backupsOff
 	t.Cleanup(func() {
 		jobsList, wasInit, scheduled, takenCustom, savedJobNames = savedList, savedInit, savedScheduled, savedTaken, savedNames
+		savedSettings, backupsOff = savedConfig, savedOff
 	})
+	savedSettings = func() utils.Config { return utils.Config{} }
+	backupsOff = func() bool { return false }
 	wasInit = true
 	scheduled, takenCustom = map[schedKey]bool{}, map[string]bool{}
 	savedJobNames = func() []string { return saved }
@@ -152,5 +156,71 @@ func TestAJobTheOwnerRemovedIsOver(t *testing.T) {
 	// a job never taken in this run is unknown, saved or not
 	if _, known := level(utils.JobThread("Custom", "never")); known {
 		t.Error("a job never seen in this run is known")
+	}
+}
+
+// review 7, N1: a pass forgets the answer of a job its list no longer
+// holds (unknown); a job the owner removed, or disabled, is over.
+func TestARefusedJobGoneFromTheListIsForgotten(t *testing.T) {
+	jobLevelEnv(t, "bad")
+	job := ConfigJob{Name: "bad", Scheduler: "Custom"}
+	jobsList = map[string]map[string]ConfigJob{"Custom": {"bad": job}}
+	forkScheduled(job, errors.New("bad crontab"))
+	thread := utils.JobScheduleThread("Custom", "bad")
+	if open, known := level(thread); !open || !known {
+		t.Fatalf("refused: open %v known %v", open, known)
+	}
+	jobsList["Custom"] = map[string]ConfigJob{}
+	forkPruneScheduled()
+	if len(scheduled) != 0 {
+		t.Errorf("not forgotten: %v", scheduled)
+	}
+	if _, known := level(thread); known {
+		t.Error("gone from the list but still saved: known")
+	}
+	savedJobNames = func() []string { return nil }
+	if open, known := level(thread); open || !known {
+		t.Errorf("removed: open %v known %v", open, known)
+	}
+	// disabled by the owner: over
+	job.Disabled = true
+	jobsList["Custom"] = map[string]ConfigJob{"bad": job}
+	forkScheduled(ConfigJob{Name: "bad", Scheduler: "Custom"}, errors.New("bad crontab"))
+	forkPruneScheduled()
+	if open, known := level(thread); open || !known {
+		t.Errorf("disabled: open %v known %v", open, known)
+	}
+}
+
+// review 7, N3: a Restic or SnapRAID job the saved settings no longer make
+// is over, in both thread forms; with backups off every Restic job is.
+func TestAJobTheSettingsNoLongerMakeIsOver(t *testing.T) {
+	jobLevelEnv(t)
+	jobsList = map[string]map[string]ConfigJob{"Restic": {}, "SnapRAID": {}}
+	config := utils.Config{}
+	config.Backup.Backups = map[string]utils.SingleBackupConfig{"kept": {Name: "kept"}}
+	config.Storage.SnapRAIDs = []utils.SnapRAIDConfig{{Name: "pool"}}
+	savedSettings = func() utils.Config { return config }
+	for _, c := range []struct {
+		thread string
+		known  bool
+	}{
+		{utils.JobThread("Restic", "Restic backup kept"), false},
+		{utils.JobThread("Restic", "Restic backup gone"), true},
+		{utils.JobThreadLegacy("Restic forget gone"), true},
+		{utils.JobScheduleThread("Restic", "Restic backup gone"), true},
+		{utils.JobThread("SnapRAID", "SnapRAID sync pool"), false},
+		{utils.JobThread("SnapRAID", "SnapRAID scrub old"), true},
+		{utils.JobThread("SnapRAID", "SnapRAID fix pool"), false},
+		{utils.JobThread("Custom", "Restic-like"), false},
+	} {
+		open, known := level(c.thread)
+		if open || known != c.known {
+			t.Errorf("%s: open %v known %v, want known %v", c.thread, open, known, c.known)
+		}
+	}
+	backupsOff = func() bool { return true }
+	if open, known := level(utils.JobThread("Restic", "Restic backup kept")); open || !known {
+		t.Errorf("backups off: open %v known %v", open, known)
 	}
 }

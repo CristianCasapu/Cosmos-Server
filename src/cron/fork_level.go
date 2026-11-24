@@ -15,9 +15,17 @@ package cron
 //     and from the saved configuration was removed: its failure is over
 //     (the chat says "No longer followed", whose text says that what it
 //     was about is gone).
+//     Review 7 (N3): the same for the jobs the owner's saved settings
+//     make: a Restic job whose backup is no longer in the saved
+//     configuration (or with backups off: no valid licence, or inside a
+//     container), a SnapRAID sync or scrub whose array is no longer saved;
+//     in their thread's name of before review 6 too.
 //   - A job the scheduler could not take (utils.JobScheduleThread): open
 //     while its last scheduling in this run failed; over once a later
-//     pass took it (and "works again" is written); unknown before.
+//     pass took it (and "works again" is written), or once it is disabled
+//     or removed as above; unknown before. A pass forgets the answers of
+//     jobs its list no longer holds (review 7, N1): unknown then, until
+//     the job is taken again or known removed.
 //   - The one thread all scheduling failures shared before review 6
 //     (utils.JobSchedulingLegacy): over once a pass in this run took every
 //     job of the list; unknown before.
@@ -25,6 +33,8 @@ package cron
 // Unknown also while the list is being changed (asked again later).
 
 import (
+	"strings"
+
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
@@ -44,6 +54,10 @@ var (
 		}
 		return names
 	}
+	// savedSettings, backupsOff: the saved configuration, and whether the
+	// backups are off (no valid licence, or inside a container: InitBackups)
+	savedSettings = utils.GetMainConfig
+	backupsOff    = func() bool { return utils.FBL == nil || !utils.FBL.LValid || utils.IsInsideContainer }
 )
 
 // forkScheduled records the scheduler's answer for a job, and tells it.
@@ -63,6 +77,74 @@ func forkScheduled(job ConfigJob, err error) {
 	} else if failedBefore {
 		go utils.ForkJobScheduled(job.Scheduler, job.Name)
 	}
+}
+
+// forkPruneScheduled forgets the answers of jobs the list no longer holds,
+// and holds a disabled job's scheduling failure over (the owner's saved
+// setting). The caller holds CRONLock (review 7, N1).
+func forkPruneScheduled() {
+	for key := range scheduled {
+		job, listed := jobsList[key.scheduler][key.name]
+		if !listed {
+			delete(scheduled, key)
+		} else if job.Disabled {
+			scheduled[key] = false
+		}
+	}
+}
+
+// savedJobThreads: the threads, of both forms, of the jobs the saved
+// settings make for Restic and SnapRAID; off: the scheduler's jobs are
+// off (review 7, N3).
+func savedJobThreads(scheduler string) (threads map[string]bool, off bool) {
+	config := savedSettings()
+	threads = map[string]bool{}
+	add := func(name string) {
+		threads[utils.JobThread(scheduler, name)] = true
+		threads[utils.JobThreadLegacy(name)] = true
+		threads[utils.JobScheduleThread(scheduler, name)] = true
+	}
+	switch scheduler {
+	case "Restic":
+		if backupsOff() {
+			return threads, true
+		}
+		for _, backup := range config.Backup.Backups {
+			add("Restic backup " + backup.Name)
+			add("Restic forget " + backup.Name)
+		}
+	case "SnapRAID":
+		for _, raid := range config.Storage.SnapRAIDs {
+			add("SnapRAID sync " + raid.Name)
+			add("SnapRAID scrub " + raid.Name)
+		}
+	}
+	return threads, false
+}
+
+// removedBySettings: the thread is of a Restic or SnapRAID job the saved
+// settings no longer make (the caller found it in no list).
+func removedBySettings(thread string) bool {
+	for _, form := range []struct{ scheduler, prefix string }{
+		{"Restic", "Restic backup "}, {"Restic", "Restic forget "},
+		{"SnapRAID", "SnapRAID sync "}, {"SnapRAID", "SnapRAID scrub "},
+	} {
+		ofForm := false
+		for _, start := range []string{
+			utils.JobThread(form.scheduler, form.prefix),
+			utils.JobThreadLegacy(form.prefix),
+			utils.JobScheduleThread(form.scheduler, form.prefix),
+		} {
+			// the thread names are trimmed: the prefix's own trailing space too
+			ofForm = ofForm || strings.HasPrefix(thread, strings.TrimSpace(start)+" ")
+		}
+		if !ofForm {
+			continue
+		}
+		saved, off := savedJobThreads(form.scheduler)
+		return off || !saved[thread]
+	}
+	return false
 }
 
 func jobLevel(read func()) bool {
@@ -122,8 +204,21 @@ func jobFailureLevel(thread string) (open bool, ok bool) {
 			return failed, true
 		}
 	}
+	if strings.HasPrefix(thread, "error.job.schedule:") {
+		custom := strings.TrimPrefix(thread, "error.job.schedule:Custom/")
+		if custom != thread && takenCustom[utils.JobThread("Custom", custom)] && !savedCustom(custom) {
+			return false, true // removed by the owner (review 7, N1)
+		}
+		if removedBySettings(thread) {
+			return false, true
+		}
+		return false, false // not in the list now: unknown
+	}
 	job, found := jobOf(thread)
 	if !found {
+		if removedBySettings(thread) {
+			return false, true // the saved settings no longer make it (review 7, N3)
+		}
 		if !takenCustom[thread] {
 			return false, false // not in the list now: unknown
 		}
@@ -138,6 +233,15 @@ func jobFailureLevel(thread string) (open bool, ok bool) {
 		return false, false // its result is set aside while it runs; not run yet in this run
 	}
 	return !job.LastRunSuccess, true
+}
+
+func savedCustom(name string) bool {
+	for _, saved := range savedJobNames() {
+		if utils.JobThread("Custom", saved) == utils.JobThread("Custom", name) {
+			return true
+		}
+	}
+	return false
 }
 
 func init() {

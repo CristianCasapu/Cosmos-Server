@@ -499,6 +499,7 @@ func InitScheduler() {
 			}
 		}
 	}
+	forkPruneScheduled() // Fork addition (plan 48, review 7)
 
 	// start
 	

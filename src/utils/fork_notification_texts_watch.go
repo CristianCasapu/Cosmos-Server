@@ -108,9 +108,22 @@ func ForkJobFailed(scheduler string, name string, err error) {
 		errStr = err.Error()
 	}
 	message := "CRON job " + name + " failed"
-	info := majorErrorInfo(message, errStr)
+	MajorErrorWith(message, err, jobFailureInfo(scheduler, name, errStr))
+}
+
+// jobFailureInfo, jobScheduleInfo: a job's failure is error.job whatever
+// its name, SnapRAID's included, so that its "works again" pairs with it
+// (review 7, N5).
+func jobFailureInfo(scheduler string, name string, errStr string) *NotificationInfo {
+	info := majorErrorInfoOf("error.job", "CRON job "+name+" failed", errStr)
 	info.Thread = JobThread(scheduler, name)
-	MajorErrorWith(message, err, info)
+	return info
+}
+
+func jobScheduleInfo(scheduler string, name string, errStr string) *NotificationInfo {
+	info := majorErrorInfoOf("error.job", "CRON job "+name+" failed", "could not be scheduled: "+errStr)
+	info.Thread = JobScheduleThread(scheduler, name)
+	return info
 }
 
 // ForkJobScheduleFailed is the hook of a job the scheduler refused: its
@@ -120,9 +133,7 @@ func ForkJobScheduleFailed(scheduler string, name string, err error) {
 	if err != nil {
 		errStr = err.Error()
 	}
-	info := majorErrorInfo("CRON job "+name+" failed", "could not be scheduled: "+errStr)
-	info.Thread = JobScheduleThread(scheduler, name)
-	MajorErrorWith("CRON job scheduling", err, info)
+	MajorErrorWith("CRON job scheduling", err, jobScheduleInfo(scheduler, name, errStr))
 }
 
 func forkJobWorks(thread string, name string) {
