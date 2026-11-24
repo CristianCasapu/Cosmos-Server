@@ -98,6 +98,7 @@ func resetStoreState() {
 	storeStarted, storeBootUntil, storeLocalProblem = true, time.Time{}, ""
 	storeStateMu.Unlock()
 	adviceKey = ""
+	identities.Range(func(k, _ interface{}) bool { identities.Delete(k); return true })
 }
 
 func withMonitoringStore(t *testing.T, db DatabaseConfig, problem *PostgresProblem) *storeStub {
@@ -154,8 +155,10 @@ func withMonitoringStore(t *testing.T, db DatabaseConfig, problem *PostgresProbl
 func fakePostgres(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
-	openPostgresStore = func(DatabaseConfig) (*sql.DB, *sql.DB, error) {
-		dsn := "file:" + dir + "/pg.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+	openPostgresStore = func(db DatabaseConfig) (*sql.DB, *sql.DB, error) {
+		// a database of its own per server and database
+		name := strings.NewReplacer(":", "_", "/", "_", ".", "_").Replace(db.PostgresHost + "_" + db.PostgresDatabase)
+		dsn := "file:" + dir + "/pg-" + name + ".db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
 		w, err := sql.Open(DialectSQLite, dsn)
 		if err != nil {
 			return nil, nil, err
@@ -951,7 +954,11 @@ func TestLocalFileRetriedUntilThereIsAStore(t *testing.T) {
 	stub := withMonitoringStore(t, DatabaseConfig{PostgresHost: "192.0.2.10:5432", PostgresUsername: "cosmos", PostgresPassword: "x"}, nil)
 	fakePostgres(t)
 	InitMetricsDatabase()
-	// the file cannot be made: a folder in its place
+	// the file cannot be made: a folder in its place (the opening made it to
+	// remember the database's identity)
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		os.Remove(CONFIGFOLDER + "database.db" + suffix)
+	}
 	if err := os.Mkdir(CONFIGFOLDER+"database.db", 0o700); err != nil {
 		t.Fatal(err)
 	}

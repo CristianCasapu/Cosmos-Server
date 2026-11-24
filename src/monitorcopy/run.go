@@ -81,8 +81,10 @@ var state = &runState{}
 
 // settings the tests change
 var (
-	batchSize = 1000                  // rows per transaction at most
-	batchTime = 50 * time.Millisecond // a transaction of the target takes about this long (Options.BatchTime)
+	// sourceInUseMargin: a copy out of the store in use ends this long before it starts
+	sourceInUseMargin = 30 * time.Second
+	batchSize         = 1000                  // rows per transaction at most
+	batchTime         = 50 * time.Millisecond // a transaction of the target takes about this long (Options.BatchTime)
 	// after a batch, the copy waits as long as the batch took (at least 5 ms,
 	// at most 0.5 s): the store's writers get the target at least half the time
 	pauseFor = func(took time.Duration) time.Duration {
@@ -152,7 +154,10 @@ func inUse() (Store, Store, error) {
 		return Store{}, Store{}, ErrNotPostgres
 	}
 	config := utils.GetMainConfig().Database
-	id := storeID("pgx", config.PostgresHost+"/"+config.PostgresDatabase+"/"+config.PostgresUsername)
+	id := utils.MonitoringLedgerIDOf(w) // by the database's own identity (review round 4, M7)
+	if id == "" {
+		id = storeID("pgx", config.PostgresHost+"/"+config.PostgresDatabase+"/"+config.PostgresUsername)
+	}
 	return Store{DB: w, Dialect: utils.DialectPostgres, ID: id}, Store{DB: r, Dialect: utils.DialectPostgres, ID: id}, nil
 }
 
@@ -218,6 +223,12 @@ func Start(direction string) error {
 		BatchTime:   batchTime,
 		Pause:       pauseFor,
 		Guard:       guardFor(write, read),
+	}
+	if direction == ToLocal {
+		// the source is the store in use: a row dated just before the copy may
+		// commit after its batch passed; the copy ends 30 s before it starts
+		// (a write's statements are bounded by 30 s) (review round 4, M6)
+		opt.End = time.Now().Add(-sourceInUseMargin).UnixMilli()
 	}
 	utils.Log("Monitoring history copy: started (" + direction + ")")
 	launchLocked(direction, src, dst, own, opt, nil, func(result Result) {

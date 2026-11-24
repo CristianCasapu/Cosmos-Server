@@ -197,4 +197,38 @@ func sweepTokens(db *sql.DB, now time.Time) {
 		flushTokenPrefix, flushTokenPrefix+"~", padded(now.Add(-48*time.Hour)))
 	db.Exec(utils.MonitoringRebindFor(db, "DELETE FROM monitoring_kv WHERE key >= ? AND key < ?"),
 		UncertainPrefix, UncertainPrefix+padded(now.Add(-40*24*time.Hour)))
+	utils.PruneBucketKeys(db, utils.MonitoringDialectOf(db), utils.PriorPrefix, now, 50000, 5000)
+}
+
+// notePrior: before a flush of dp into the hour or day row of poolDate, when
+// the raw bucket was flushed before (into another store: this one has no such
+// row) the row about to be made gets the whole bucket; the part flushed
+// elsewhere (its value for sum and avg, its count) is noted in this store's
+// monitoring_kv in the same transaction (utils.PriorPrefix), and the copy
+// subtracts it when it merges the stores (review round 4, M5).
+func notePrior(tx *sql.Tx, dialect, node, granularity string, poolDate time.Time, dp DataPush) error {
+	if !dp.Contributed {
+		return nil
+	}
+	date := utils.TimeToMillis(poolDate)
+	var one int
+	err := tx.QueryRow(utils.RebindFor(dialect, "SELECT 1 FROM metric_values WHERE node = ? AND key = ? AND granularity = ? AND date = ?"),
+		node, dp.Key, granularity, date).Scan(&one)
+	if err == nil {
+		return nil // the row is there: the change is added to it
+	}
+	if err != sql.ErrNoRows {
+		return err
+	}
+	value := int64(0)
+	if dp.AggloType == "sum" || dp.AggloType == "avg" {
+		value = int64(dp.Written)
+	}
+	key := utils.PriorPrefix + node + "|" + dp.Key + "|" + granularity + "|" + strconv.FormatInt(date, 10)
+	var text string
+	tx.QueryRow(utils.RebindFor(dialect, "SELECT value FROM monitoring_kv WHERE key = ?"), key).Scan(&text)
+	had, _ := utils.ParsePair(text)
+	_, err = tx.Exec(utils.RebindFor(dialect, "INSERT INTO monitoring_kv(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"),
+		key, utils.FormatPair([2]int64{had[0] + value, had[1] + 1}))
+	return err
 }

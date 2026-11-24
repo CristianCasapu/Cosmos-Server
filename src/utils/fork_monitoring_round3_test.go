@@ -307,7 +307,8 @@ func TestOnlyARecentOutageOfTheSameServerIsContinued(t *testing.T) {
 func TestTheWatcherConvergesFromEveryState(t *testing.T) {
 	for _, configured := range []string{"sqlite", "answers", "refuses"} {
 		for _, fallback := range []bool{false, true} {
-			for _, inUse := range []string{"", DialectSQLite, DialectPostgres} {
+			// "other": PostgreSQL of a server the settings do not name (review round 4, M4)
+			for _, inUse := range []string{"", DialectSQLite, DialectPostgres, "other"} {
 				t.Run(fmt.Sprintf("%s-%v-%s", configured, fallback, inUse), func(t *testing.T) {
 					db := pgConfig
 					if configured == "sqlite" {
@@ -328,12 +329,16 @@ func TestTheWatcherConvergesFromEveryState(t *testing.T) {
 						if err := openLocalStore(node); err != nil {
 							t.Fatal(err)
 						}
-					case DialectPostgres:
-						w, r, err := openPostgresStore(pgConfig)
+					case DialectPostgres, "other":
+						server := pgConfig
+						if inUse == "other" {
+							server = DatabaseConfig{PostgresHost: "192.0.2.99:5432", PostgresUsername: "cosmos", PostgresPassword: "z"}
+						}
+						w, r, err := openPostgresStore(server)
 						if err != nil {
 							t.Fatal(err)
 						}
-						swapMonitoringStore(w, r, DialectPostgres, postgresStoreKey(pgConfig), node)
+						swapMonitoringStore(w, r, DialectPostgres, postgresStoreKey(server), node)
 					}
 					setStoreState(func(s *MonitoringStoreState) {
 						s.Fallback, s.Configured, s.Since = fallback, "postgres", stub.clock()
@@ -355,8 +360,8 @@ func TestTheWatcherConvergesFromEveryState(t *testing.T) {
 					case "refuses":
 						wantFallback = true
 					}
-					if s.InUse != want || s.Fallback != wantFallback {
-						t.Errorf("ended on %q, fallback %v; want %q, %v", s.InUse, s.Fallback, want, wantFallback)
+					if s.InUse != want || s.Fallback != wantFallback || want == DialectPostgres && !storeOpenAs(postgresStoreKey(pgConfig)) {
+						t.Errorf("ended on %q (the named server: %v), fallback %v; want %q, %v", s.InUse, storeOpenAs(postgresStoreKey(pgConfig)), s.Fallback, want, wantFallback)
 					}
 				})
 			}

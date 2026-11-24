@@ -51,6 +51,9 @@ type Options struct {
 	// Back, with From: when PostgreSQL became the store again (unix ms): a raw
 	// bucket that ended before it was last flushed into the local file.
 	Back int64
+	// Store, with From: the server whose fallback this catch-up is: of the
+	// local file's hour and day totals, its part only (buckets.go).
+	Store string
 	// Sleep waits between batches (nil: a timer); the tests count the waits.
 	Sleep func(ctx context.Context, d time.Duration) error
 }
@@ -290,8 +293,20 @@ func (c *copier) run(ctx context.Context) (Report, error) {
 		// anyone (PASSIVE), so that a writer's next commit does not do it
 		c.dst.DB.ExecContext(bctx, "PRAGMA wal_checkpoint(PASSIVE)")
 	}
-	return c.verifyAll(ctx)
+	beforeCheck()
+	report, err := c.verifyAll(ctx)
+	if err == nil {
+		// the ledgers of buckets the retention removed (review round 4, M3)
+		for _, prefix := range []string{ledgerPrefix, ownLedgerPrefix, utils.PriorPrefix} {
+			utils.PruneBucketKeys(c.dst.DB, c.dst.Dialect, prefix, c.opt.now(), 50000, 5000)
+		}
+	}
+	return report, err
 }
+
+// beforeCheck runs between a copy's last batch and its check; the tests
+// commit a write held open across the copy there.
+var beforeCheck = func() {}
 
 // verifyOnly compares the stores as the end of a copy does, without
 // copying (for the tests).

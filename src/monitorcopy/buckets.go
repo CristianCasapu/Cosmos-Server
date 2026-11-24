@@ -1,25 +1,34 @@
 package monitorcopy
 
-// Metric buckets both stores hold (plan 51, review round 3, S2).
+// Metric buckets both stores hold (plan 51, review rounds 3 and 4).
 //
 // A metric's hour and day rows are built on write: each flush of a raw bucket
 // adds its change since the last flush (sum and avg: value and the count of
 // raw buckets; max and min: the larger or smaller value). When the store
-// changes, the next flush into the other store adds only the change since the
-// last flush, wherever that went (src/metrics, writeBucket), so each store's
-// hour and day rows hold exactly the contributions it received: the truth is
-// their sum (sum, avg: value and count), their larger value (max), their
-// smaller one (min).
+// changes, the first flush of a raw bucket into the other store meets no row
+// of its hour or day there: the row gets the whole raw bucket (so that it
+// reads right on its own, averages included) and that store notes the part
+// that went elsewhere (prior:<bucket>, src/metrics/fork_flush.go).
 //
-// A merge from store X into store Y adds X's contribution to Y once. Each
-// store keeps a ledger in its monitoring_kv (keys of the copy's bookkeeping
-// prefix, never copied): for each bucket, how much of the other store's row it
-// has absorbed (value, count). The part of X's row that is X's own and not yet
-// in Y is X.row − (what X absorbed from Y) − (what Y absorbed from X); Y adds
-// it and raises its ledger by it in the same transaction: a re-run or an
-// interrupted run adds nothing twice, and a part that came from Y is never
-// sent back. A kind of total that cannot be merged (the last value) keeps Y's
-// row and is counted as not merged exactly.
+// A store's own part of its row is the row less that note. Each store keeps
+// a ledger in its monitoring_kv (keys of the copy's bookkeeping prefix, never
+// copied) of how much of the other store's row it has absorbed
+// (absorbed:<other>:<bucket>, value and count), written in the transaction of
+// the addition:
+//   - a manual copy from X into Y adds X.row − prior − (what X absorbed from Y)
+//     − (what Y absorbed from X): everything of X's own not yet in Y, once;
+//   - the catch-up of a fallback of server Y adds Y's part of the local file's
+//     totals (own:<Y>:<bucket>, the change of the local file's own totals
+//     during Y's fallbacks, kept by src/utils/fork_monitoring_fallback.go) less
+//     what Y absorbed of it before (absorbedown:<local>:<bucket>): the local
+//     file's rows are shared by the outages of every server and by its own
+//     periods, and a server gets its own part only (review round 4, S1). A
+//     manual copy into Y counts Y's part as absorbed too.
+// A negative change of value (a falling gauge) is merged like a positive one;
+// only a negative count is refused (review round 4, S2). sum and avg add;
+// max and min take the larger or smaller value (and add the count); the last
+// value is taken from the store with the later flush in a catch-up, and is
+// not merged by a manual copy (said as not merged exactly).
 //
 // Raw rows (the last hour's fine points) are replaced on each flush: in both
 // stores, the catch-up takes the local file's when the raw bucket ended
@@ -33,6 +42,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/azukaar/cosmos-server/src/utils"
 )
 
 // metricInfo is what a merge needs to know of a metric.
@@ -40,8 +51,6 @@ type metricInfo struct {
 	agg    string
 	period int64 // ms, from time_scale (the period in 30 s)
 }
-
-const ledgerPrefix = markerPrefix + "absorbed:"
 
 // loadMetricInfo reads each metric's kind of total and period from the
 // source's catalogue, the target's for metrics the source does not describe.
@@ -115,7 +124,107 @@ func (c *copier) periodEnd(b bucket) int64 {
 	return b.date + period
 }
 
+const (
+	ledgerPrefix    = markerPrefix + "absorbed:"
+	ownLedgerPrefix = markerPrefix + "absorbedown:"
+)
+
 func ledgerKey(other string, b bucket) string { return ledgerPrefix + other + ":" + b.id() }
+
+func ownLedgerKey(other string, b bucket) string { return ownLedgerPrefix + other + ":" + b.id() }
+
+type tally = [2]int64
+
+func add(a, b tally) tally { return tally{a[0] + b[0], a[1] + b[1]} }
+func sub(a, b tally) tally { return tally{a[0] - b[0], a[1] - b[1]} }
+
+// pairsOf reads the pairs a store keeps under prefix+bucket id, for the
+// buckets given (by bucket id).
+func pairsOf(ctx context.Context, s Store, q rowsQueryer, prefix string, buckets []bucket) (map[string]tally, error) {
+	out := map[string]tally{}
+	for start := 0; start < len(buckets); start += 500 {
+		end := min(start+500, len(buckets))
+		keys := []interface{}{}
+		for _, b := range buckets[start:end] {
+			if b.pooled() {
+				keys = append(keys, prefix+b.id())
+			}
+		}
+		if len(keys) == 0 {
+			continue
+		}
+		rows, err := q.QueryContext(ctx, s.bind("SELECT key, value FROM monitoring_kv WHERE key IN ("+placeholders(len(keys))+")"), keys...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var key, value string
+			if err := rows.Scan(&key, &value); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if p, ok := utils.ParsePair(value); ok {
+				out[strings.TrimPrefix(key, prefix)] = p
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// bucketLedgers is what a merge and its check know of a batch.
+type bucketLedgers struct {
+	prior, gave, own tally // the source's: noted at a change, absorbed from the target, the target server's part
+	got, gotOwn      tally // the target's: absorbed from the source, of its own part
+}
+
+// ledgersOf reads them; dst is the target's transaction (or handle).
+func (c *copier) ledgersOf(ctx context.Context, q rowsQueryer, buckets []bucket) (map[string]bucketLedgers, error) {
+	prior, err := pairsOf(ctx, c.src, c.src.DB, utils.PriorPrefix, buckets)
+	if err != nil {
+		return nil, err
+	}
+	gave, err := pairsOf(ctx, c.src, c.src.DB, ledgerPrefix+c.dst.id()+":", buckets)
+	if err != nil {
+		return nil, err
+	}
+	server := c.opt.Store
+	if server == "" {
+		server = c.dst.id()
+	}
+	own, err := pairsOf(ctx, c.src, c.src.DB, utils.OwnPrefix+server+":", buckets)
+	if err != nil {
+		return nil, err
+	}
+	got, err := pairsOf(ctx, c.dst, q, ledgerPrefix+c.src.id()+":", buckets)
+	if err != nil {
+		return nil, err
+	}
+	gotOwn, err := pairsOf(ctx, c.dst, q, ownLedgerPrefix+c.src.id()+":", buckets)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]bucketLedgers{}
+	for _, b := range buckets {
+		id := b.id()
+		out[id] = bucketLedgers{prior: prior[id], gave: gave[id], own: own[id], got: got[id], gotOwn: gotOwn[id]}
+	}
+	return out, nil
+}
+
+// catchUp: this copy is the catch-up of a fallback (its server's part only).
+func (c *copier) catchUp() bool { return c.opt.From > 0 && c.opt.Store != "" }
+
+// change is what the merge adds of bucket b.
+func (c *copier) change(b bucket, l bucketLedgers) tally {
+	if c.catchUp() {
+		return sub(l.own, l.gotOwn)
+	}
+	return sub(sub(sub(tally{b.value, b.index}, l.prior), l.gave), l.got)
+}
 
 // The notes of uncertain flushes the metrics writer carried into the source
 // (src/metrics/fork_flush.go): a flush into the target whose commit's answer
@@ -134,8 +243,9 @@ type uncertainNote struct {
 
 // absorbUncertain: for each such flush whose token the target holds (the
 // commit did happen), the target holds that change already: it is counted
-// as absorbed from the source, so that the merge does not add it again. Once
-// per flush (a done key, in the same transaction).
+// as absorbed from the source (and of its own part, which holds it too), so
+// that the merge does not add it again. Once per flush (a done key, in the
+// same transaction).
 func (c *copier) absorbUncertain(ctx context.Context) error {
 	rows, err := c.src.DB.QueryContext(ctx, c.src.bind("SELECT value FROM monitoring_kv WHERE key >= ? AND key < ?"), uncertainPrefix, uncertainPrefix+"~")
 	if err != nil {
@@ -166,16 +276,18 @@ func (c *copier) absorbUncertain(ctx context.Context) error {
 		if err == nil && !done {
 			var written bool
 			if _, written, err = c.dst.getKV(ctx, tx, flushToken+n.Token); err == nil && written {
+			deltas:
 				for id, d := range n.Deltas {
-					key := ledgerPrefix + c.src.id() + ":" + id
-					value, _, e := c.dst.getKV(ctx, tx, key)
-					if e != nil {
-						err = e
-						break
-					}
-					a, _ := parseAbsorbed(value)
-					if err = c.dst.setKV(ctx, tx, key, absorbed{a.value + d[0], a.index + d[1]}.String()); err != nil {
-						break
+					for _, key := range []string{ledgerPrefix + c.src.id() + ":" + id, ownLedgerPrefix + c.src.id() + ":" + id} {
+						value, _, e := c.dst.getKV(ctx, tx, key)
+						if e != nil {
+							err = e
+							break deltas
+						}
+						had, _ := utils.ParsePair(value)
+						if err = c.dst.setKV(ctx, tx, key, utils.FormatPair(add(had, d))); err != nil {
+							break deltas
+						}
 					}
 				}
 			}
@@ -193,59 +305,6 @@ func (c *copier) absorbUncertain(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-
-type absorbed struct{ value, index int64 }
-
-func parseAbsorbed(text string) (absorbed, bool) {
-	parts := strings.SplitN(text, "|", 2)
-	if len(parts) != 2 {
-		return absorbed{}, false
-	}
-	v, err1 := strconv.ParseInt(parts[0], 10, 64)
-	i, err2 := strconv.ParseInt(parts[1], 10, 64)
-	return absorbed{v, i}, err1 == nil && err2 == nil
-}
-
-func (a absorbed) String() string {
-	return strconv.FormatInt(a.value, 10) + "|" + strconv.FormatInt(a.index, 10)
-}
-
-// ledgerOf reads store s's ledger of what it absorbed from other, for the
-// buckets given (by bucket id).
-func ledgerOf(ctx context.Context, s Store, q rowsQueryer, other string, buckets []bucket) (map[string]absorbed, error) {
-	out := map[string]absorbed{}
-	for start := 0; start < len(buckets); start += 500 {
-		end := min(start+500, len(buckets))
-		keys := []interface{}{}
-		for _, b := range buckets[start:end] {
-			if b.pooled() {
-				keys = append(keys, ledgerKey(other, b))
-			}
-		}
-		if len(keys) == 0 {
-			continue
-		}
-		rows, err := q.QueryContext(ctx, s.bind("SELECT key, value FROM monitoring_kv WHERE key IN ("+placeholders(len(keys))+")"), keys...)
-		if err != nil {
-			return nil, err
-		}
-		for rows.Next() {
-			var key, value string
-			if err := rows.Scan(&key, &value); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			if a, ok := parseAbsorbed(value); ok {
-				out[strings.TrimPrefix(key, ledgerPrefix+other+":")] = a
-			}
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-	}
-	return out, nil
 }
 
 // targetBuckets reads the target's rows of the batch's keys.
@@ -302,7 +361,7 @@ func (c *copier) mergeKind(b bucket) string {
 }
 
 // batchBuckets copies the next batch of metric_values (see the top of the
-// file), the ledger and the table's marker in one transaction of the target.
+// file), the ledgers and the table's marker in one transaction of the target.
 func (c *copier) batchBuckets(ctx context.Context, r rule, m *tableMarker) (int64, int64, error) {
 	batch, err := c.readNatural(ctx, r, m.Key, "", nil)
 	if err != nil || len(batch) == 0 {
@@ -312,16 +371,12 @@ func (c *copier) batchBuckets(ctx context.Context, r rule, m *tableMarker) (int6
 	for i, one := range batch {
 		buckets[i] = bucketOf(r, one)
 	}
-	srcLedger, err := ledgerOf(ctx, c.src, c.src.DB, c.dst.id(), buckets)
-	if err != nil {
-		return 0, 0, err
-	}
 	tx, err := c.dst.begin(ctx)
 	if err != nil {
 		return 0, 0, err
 	}
 	defer tx.Rollback()
-	dstLedger, err := ledgerOf(ctx, c.dst, tx, c.src.id(), buckets)
+	ledgers, err := c.ledgersOf(ctx, tx, buckets)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -359,56 +414,48 @@ func (c *copier) batchBuckets(ctx context.Context, r rule, m *tableMarker) (int6
 			}
 			continue
 		}
-		// the source's own part not yet in the target
-		got, gave := dstLedger[b.id()], srcLedger[b.id()]
-		dv, di := b.value-gave.value-got.value, b.index-gave.index-got.index
+		l := ledgers[b.id()]
+		d := c.change(b, l)
 		kind := c.mergeKind(b)
 		if !exists {
-			kind = "add" // the target has nothing of this bucket: the source's part is all of it
+			kind = "add" // the target has nothing of this bucket: the change is all of it
+		}
+		if d[1] < 0 || d == (tally{}) && (kind == "add" || exists) {
+			continue // nothing new (a negative count is refused: said by the check)
 		}
 		switch kind {
 		case "add":
-			if dv < 0 || di < 0 || dv == 0 && di == 0 {
-				continue // nothing new (or a ledger that does not fit: said by the check)
-			}
 			err = exec(insert+"DO UPDATE SET value = metric_values.value + excluded.value, avg_index = metric_values.avg_index + excluded.avg_index, expire = "+greatest+"(metric_values.expire, excluded.expire)",
-				b.node, b.key, b.granularity, b.date, dv, di, b.expire)
+				b.node, b.key, b.granularity, b.date, d[0], d[1], b.expire)
 		case "max", "min":
 			fn := greatest
 			if kind == "min" {
 				fn = least
 			}
-			if di < 0 {
-				di = 0
-			}
-			if dv == 0 && di == 0 && (kind == "max" && there.value >= b.value || kind == "min" && there.value <= b.value) {
-				continue
-			}
 			err = exec(insert+"DO UPDATE SET value = "+fn+"(metric_values.value, excluded.value), avg_index = metric_values.avg_index + excluded.avg_index, expire = "+greatest+"(metric_values.expire, excluded.expire)",
-				b.node, b.key, b.granularity, b.date, b.value, di, b.expire)
-			dv = b.value - gave.value - got.value
+				b.node, b.key, b.granularity, b.date, b.value, d[1], b.expire)
 		case "last":
-			// a bucket that ended before PostgreSQL came back got its last flush
-			// in the local file: its value; one still open keeps the target's
-			// (the next flush replaces it anyway); the count adds up
-			if di < 0 {
-				di = 0
-			}
 			value := "metric_values.value"
 			if c.periodEnd(b) <= c.opt.Back {
 				value = "excluded.value"
 			}
 			err = exec(insert+"DO UPDATE SET value = "+value+", avg_index = metric_values.avg_index + excluded.avg_index, expire = "+greatest+"(metric_values.expire, excluded.expire)",
-				b.node, b.key, b.granularity, b.date, b.value, di, b.expire)
-			dv = b.value - gave.value - got.value
+				b.node, b.key, b.granularity, b.date, b.value, d[1], b.expire)
 		default:
 			continue // not mergeable: the target's row stays (counted by the check)
 		}
 		if err != nil {
 			return 0, 0, err
 		}
-		next := absorbed{got.value + dv, got.index + di}
-		if err := c.dst.setKV(ctx, tx, ledgerKey(c.src.id(), b), next.String()); err != nil {
+		_ = there
+		if err := c.dst.setKV(ctx, tx, ledgerKey(c.src.id(), b), utils.FormatPair(add(l.got, d))); err != nil {
+			return 0, 0, err
+		}
+		gotOwn := add(l.gotOwn, d)
+		if !c.catchUp() {
+			gotOwn = l.own // a manual copy took everything: the target's own part too
+		}
+		if err := c.dst.setKV(ctx, tx, ownLedgerKey(c.src.id(), b), utils.FormatPair(gotOwn)); err != nil {
 			return 0, 0, err
 		}
 	}
@@ -434,15 +481,11 @@ func (c *copier) checkBuckets(ctx context.Context, r rule, batch []row) (present
 	for i, one := range batch {
 		buckets[i] = bucketOf(r, one)
 	}
-	srcLedger, err := ledgerOf(ctx, c.src, c.src.DB, c.dst.id(), buckets)
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	var dstLedger map[string]absorbed
+	var ledgers map[string]bucketLedgers
 	var have map[string]bucket
 	err = c.dst.within(ctx, func(q dbtx) error {
 		var err error
-		if dstLedger, err = ledgerOf(ctx, c.dst, q, c.src.id(), buckets); err != nil {
+		if ledgers, err = c.ledgersOf(ctx, q, buckets); err != nil {
 			return err
 		}
 		have, err = c.targetBuckets(ctx, q, r, buckets)
@@ -458,9 +501,15 @@ func (c *copier) checkBuckets(ctx context.Context, r rule, batch []row) (present
 		return c.opt.TargetInUse || c.periodEnd(b) <= c.marker.End-int64(2*time.Minute/time.Millisecond)
 	}
 	for _, b := range buckets {
+		l := ledgers[b.id()]
 		there, ok := have[b.id()]
 		if !ok {
-			missing++
+			// nothing of it in the target: right only when nothing was owed
+			if b.pooled() && c.change(b, l) == (tally{}) && (c.catchUp() || tally{b.value, b.index} == add(add(l.prior, l.gave), l.got)) {
+				present++
+			} else {
+				missing++
+			}
 			continue
 		}
 		if !settled(b) {
@@ -475,8 +524,13 @@ func (c *copier) checkBuckets(ctx context.Context, r rule, batch []row) (present
 			}
 			continue
 		}
-		got, gave := dstLedger[b.id()], srcLedger[b.id()]
-		accounted := got.value+gave.value == b.value && got.index+gave.index == b.index
+		// the whole part owed is accounted for in the target's ledger
+		var accounted bool
+		if c.catchUp() {
+			accounted = l.gotOwn == l.own
+		} else {
+			accounted = add(add(l.got, l.gave), l.prior) == tally{b.value, b.index}
+		}
 		switch c.mergeKind(b) {
 		case "add":
 			if accounted {
@@ -485,13 +539,13 @@ func (c *copier) checkBuckets(ctx context.Context, r rule, batch []row) (present
 				missing++
 			}
 		case "max":
-			if there.value >= b.value {
+			if there.value >= b.value || c.catchUp() {
 				present++
 			} else {
 				missing++
 			}
 		case "min":
-			if there.value <= b.value {
+			if there.value <= b.value || c.catchUp() {
 				present++
 			} else {
 				missing++

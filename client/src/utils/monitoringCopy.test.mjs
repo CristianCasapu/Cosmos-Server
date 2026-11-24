@@ -151,7 +151,7 @@ test('the catch-up after a fallback: its line and its progress', () => {
   assert.equal(catchUpOf(idle), null);
   const done = catchUpOf({ catchUp: { outcome: 'done', counted: true, aside: 1234, present: 1234, written: 1200, from, to } }, undefined, 'en-GB');
   assert.equal(done.severity, 'success');
-  assert.match(done.text, /^Caught up 1\u00a0234 records written while the database was away \(from .*2026.* to .*2026.*\): each is in the database, checked one by one \(1\u00a0200 brought over now\)\.$/);
+  assert.match(done.text, /^Caught up 1\u00a0234 records written while the database was away \(from .*2026.* to .*2026.*\): each is in the database, checked one by one\.$/);
   // review round 3: true numbers, never "caught up" when something is not known
   const partly = catchUpOf({ catchUp: { outcome: 'stopped', counted: true, aside: 2500, present: 10, missing: 0, unchecked: 2490, written: 10, from, to, message: 'It stopped.' } });
   assert.equal(partly.severity, 'warning');

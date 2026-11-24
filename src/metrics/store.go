@@ -161,14 +161,18 @@ func writeBucket(tx *sql.Tx, dialect string, node string, dp DataPush) error {
 		poolDate := ModuloTime(dp.Date, pool.period)
 		expire := poolDate.Add(pool.period).Add(pool.retention)
 
+		// Fork addition (plan 51, review round 4, M5): a raw bucket flushed
+		// before into another store meets no row of its hour or day in this one
+		// (the store changed): the row gets the whole bucket (it reads right on
+		// its own) and this store notes the part that went elsewhere, see
+		// fork_flush.go
+		if err := notePrior(tx, dialect, node, pool.granularity, poolDate, dp); err != nil {
+			return err
+		}
 		query := aggregateInsert + aggregateMerge(dp.AggloType, dialect)
 		_, err = tx.Exec(utils.RebindFor(dialect, query),
 			node, dp.Key, pool.granularity, utils.TimeToMillis(poolDate),
-			// Fork addition (plan 51, review round 3, S2): a new row gets the same
-			// contribution as an existing one (the change since the last flush,
-			// counted once): after a change of the monitoring store each store's
-			// row holds exactly what it received, and the two add up
-			aggregateArg(dp.AggloType, dp), countInc, utils.TimeToMillis(expire),
+			dp.Value, 1, utils.TimeToMillis(expire),
 			aggregateArg(dp.AggloType, dp), countInc)
 		if err != nil {
 			return err

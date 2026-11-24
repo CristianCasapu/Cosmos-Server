@@ -50,6 +50,8 @@ type Window struct {
 	Back   int64            `json:"back,omitempty"`
 	After  map[string]int64 `json:"after,omitempty"`
 	Before map[string]int64 `json:"before,omitempty"`
+	// Store: the server whose fallback it is (its part of the totals)
+	Store string `json:"store,omitempty"`
 }
 
 func (w Window) same(o Window) bool {
@@ -61,6 +63,9 @@ func (w Window) same(o Window) bool {
 // touches: o follows w without a row of the local file between them (the
 // local file got no row between the two fallbacks): one run takes both.
 func (w Window) touches(o Window) bool {
+	if w.Store != o.Store {
+		return false // a window belongs to one server (review round 4, S1)
+	}
 	if w.After == nil || o.After == nil || w.Before == nil {
 		return o.From <= w.To // times only
 	}
@@ -115,7 +120,7 @@ func once(done func(utils.CatchUpResult)) func(utils.CatchUpResult) {
 // is called exactly once, from the background.
 func CatchUpAfterFallback(cw utils.CatchUpWindow, done func(utils.CatchUpResult)) {
 	done = once(done)
-	w := Window{From: cw.From.UnixMilli(), To: cw.To.UnixMilli(), After: cw.After, Before: cw.Before}
+	w := Window{From: cw.From.UnixMilli(), To: cw.To.UnixMilli(), After: cw.After, Before: cw.Before, Store: cw.Store}
 	if !cw.Back.IsZero() {
 		w.Back = cw.Back.UnixMilli()
 	}
@@ -324,6 +329,11 @@ func catchUpWork() {
 					err = savePending(ctx, write, kept)
 					removed = err == nil
 				}
+				if removed {
+					// the window's run and table markers are of no use any more (review round 4, M3)
+					id := catchUpSourceID(w)
+					write.DB.ExecContext(ctx, write.bind("DELETE FROM monitoring_kv WHERE key = ? OR (key > ? AND key < ?)"), runKey(id), tableKey(id, ""), tableKey(id, "~"))
+				}
 			}
 			cancel()
 		}
@@ -376,6 +386,7 @@ func runWindow(w Window, write, read Store) (Result, bool) {
 		End:         w.To + catchUpMargin.Milliseconds(),
 		IDs:         w.ids(),
 		Back:        w.Back,
+		Store:       w.Store,
 	}
 	utils.Log("Monitoring history catch-up: started")
 	var final Result

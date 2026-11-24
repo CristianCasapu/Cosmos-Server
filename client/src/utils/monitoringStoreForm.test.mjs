@@ -86,6 +86,8 @@ test('the line about the store in use', () => {
   const [, text, params] = storeStateLine({ fallback: true, host: 'localhost:5432', since: 'T', message: 'Nothing answers.' }, (d) => 'at ' + d);
   assert.match(text, /does not answer since \{\{since\}\}/);
   assert.match(text, /Records are kept in the local file/);
+  // review round 4, M5: the charts' hourly and daily values are partial meanwhile, said
+  assert.match(text, /hourly and daily values of the charts hold only what was recorded since then/);
   assert.deepEqual(params, { host: 'localhost:5432', since: 'at T', reason: 'Nothing answers.' });
   assert.match(storeStateLine({ fallback: true, since: 'T' })[0], /NoHost$/);
   assert.equal(storeStateLine({ fallback: true, host: 'h', since: 'T', message: 'Not reached.', advice: 'Use 192.168.1.10:5432.' })[2].reason, 'Not reached. Use 192.168.1.10:5432.');

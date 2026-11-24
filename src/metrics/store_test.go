@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -228,11 +229,12 @@ func TestResetLocalMetrics(t *testing.T) {
 	}
 }
 
-// Review round 3, S2: after a change of the monitoring store, the first flush
-// of an open raw bucket into a store that has no row for its hour or day adds
-// the change since the last flush (counted once), not the whole bucket: each
-// store's hour and day rows hold exactly what they received, and the two add
-// up to what was pushed.
+// Review rounds 3 and 4: after a change of the monitoring store, the first
+// flush of an open raw bucket into a store that has no row for its hour or
+// day writes the whole bucket (the row reads right on its own, averages
+// included) and notes, in that store, the part flushed elsewhere: the
+// store's own part is the change since the last flush (counted once), and
+// with the first store's row it adds up to what was pushed.
 func TestANewStoreGetsTheChangeSinceTheLastFlush(t *testing.T) {
 	setupMetricsStore(t)
 	def := DataDef{Max: 100, Period: time.Hour, Label: "t", AggloType: "sum", SetOperation: "sum"}
@@ -247,21 +249,27 @@ func TestANewStoreGetsTheChangeSinceTheLastFlush(t *testing.T) {
 	}
 	pushSetMetric("split", 5, def)
 	SaveMetrics()
-	day := func() (int64, int64) {
+	day := func() (int64, int64, [2]int64) {
 		db, _ := utils.MonitoringReadDB()
-		var v, i int64
-		db.QueryRow("SELECT value, avg_index FROM metric_values WHERE key = 'cosmos.split' AND granularity = 'day'").Scan(&v, &i)
-		return v, i
+		var v, i, date int64
+		db.QueryRow("SELECT value, avg_index, date FROM metric_values WHERE key = 'cosmos.split' AND granularity = 'day'").Scan(&v, &i, &date)
+		var note string
+		db.QueryRow("SELECT value FROM monitoring_kv WHERE key = ?", utils.PriorPrefix+utils.MonitoringNode()+"|cosmos.split|day|"+strconv.FormatInt(date, 10)).Scan(&note)
+		prior, _ := utils.ParsePair(note)
+		return v, i, prior
 	}
-	bv, bi := day()
+	bv, bi, bprior := day()
 	utils.CloseMetricsDatabase()
 	utils.CONFIGFOLDER = first
 	if err := utils.InitMetricsDatabase(); err != nil {
 		t.Fatal(err)
 	}
-	av, ai := day()
-	if av != 10 || ai != 1 || bv != 5 || bi != 0 || av+bv != 15 {
-		t.Errorf("first store %d/%d, second %d/%d: want 10/1 and 5/0 (15 pushed, one raw bucket)", av, ai, bv, bi)
+	av, ai, aprior := day()
+	if bv != 15 || bi != 1 || bprior != [2]int64{10, 1} {
+		t.Errorf("second store %d/%d noting %v: want the whole bucket 15/1 noting 10|1", bv, bi, bprior)
+	}
+	if av != 10 || ai != 1 || aprior != [2]int64{} || av+(bv-bprior[0]) != 15 || ai+(bi-bprior[1]) != 1 {
+		t.Errorf("first store %d/%d (noting %v): the own parts do not add up to 15/1", av, ai, aprior)
 	}
 }
 

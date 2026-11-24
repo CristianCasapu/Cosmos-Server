@@ -237,7 +237,7 @@ func openMonitoringStore() error {
 			err = prepareStoreSchema(w, db)
 		}
 		if err == nil {
-			handleLedger.Store(w, postgresLedgerID(db))
+			handleLedger.Store(w, storeIdentity(w, db)) // review round 4, M7: by the database's own identity
 			swapMonitoringStore(w, r, DialectPostgres, key, node)
 			swapped = true
 			markPostgresInUse(db)
@@ -308,7 +308,7 @@ func localFileDSN() string {
 
 // unresolvedOutage: the start of an outage notice left open in the local
 // file (told before a restart), zero when none.
-func unresolvedOutage(local *sql.DB) time.Time {
+func unresolvedOutage(local kvq) time.Time {
 	var first sql.NullInt64
 	if local == nil || local.QueryRow("SELECT MIN(CASE WHEN fork_first > 0 THEN fork_first ELSE date END) FROM notifications WHERE fork_thread = ? AND fork_resolved = 0 AND fork_info <> ''",
 		monitoringStoreThread).Scan(&first) != nil || !first.Valid || first.Int64 <= 0 {
@@ -757,6 +757,14 @@ func (w *monitoringWatch) look(kicked bool) time.Duration {
 		}
 		return timing().retryFirst
 
+	case state.InUse == DialectPostgres && !storeOpenAs(postgresStoreKey(db)):
+		// another PostgreSQL than the settings name is in use (settings changed
+		// without an opening): the named one is opened (review round 4, M4)
+		if err := InitMetricsDatabase(); err != nil {
+			return w.grow()
+		}
+		return timing().retryFirst
+
 	case state.InUse == DialectPostgres:
 		ctx, cancel := context.WithTimeout(context.Background(), timing().pingWithin)
 		err := pingMonitoringStore(ctx)
@@ -869,7 +877,7 @@ func MonitoringStoreSentence(s MonitoringStoreState) string {
 		return ""
 	}
 	return "The monitoring database at " + s.Host + " does not answer since " + s.Since.Local().Format("2006-01-02 15:04") +
-		": " + s.Message + adviceSuffix(s) + " Records are kept in the local file (database.db) meanwhile; Cosmos tries again by itself."
+		": " + s.Message + adviceSuffix(s) + " Records are kept in the local file (database.db) meanwhile; Cosmos tries again by itself. Until then the hourly and daily values of the charts hold only what was recorded since then."
 }
 
 func adviceSuffix(s MonitoringStoreState) string {
@@ -935,7 +943,7 @@ func tellMonitoringBack(s MonitoringStoreState, since time.Time, caught CatchUpR
 	switch {
 	case caught.Complete():
 		means = NText("notif.monitoring.store.restored.caught", "duration", NotificationDuration(now.Sub(since)),
-			"aside", strconv.FormatInt(caught.Aside, 10), "count", strconv.FormatInt(caught.Copied, 10))
+			"aside", strconv.FormatInt(caught.Aside, 10))
 		steps = nil
 	case caught.Ran && !caught.Counted:
 		means = NText("notif.monitoring.store.restored.unknown", "duration", NotificationDuration(now.Sub(since)), "problem", caught.Problem)
@@ -972,7 +980,7 @@ var monitoringNotificationTexts = map[string]string{
 	"notif.monitoring.store.restored.title":   "The monitoring database answers again",
 	"notif.monitoring.store.restored.what":    "The monitoring database at {{host}} answers again since {{at}}: monitoring records into it again.",
 	"notif.monitoring.store.restored.means":   "It did not answer for {{duration}}. The records from {{from}} to {{to}} are in the local file (database.db).",
-	"notif.monitoring.store.restored.caught":  "It did not answer for {{duration}}. The {{aside}} records written meanwhile into the local file are in the database now, checked one by one ({{count}} brought over by the catch-up): the history in the database has no gap.",
+	"notif.monitoring.store.restored.caught":  "It did not answer for {{duration}}. The {{aside}} records written meanwhile into the local file are in the database now, checked one by one: the history in the database has no gap.",
 	"notif.monitoring.store.restored.partly":  "It did not answer for {{duration}}. {{aside}} records were written meanwhile into the local file: {{present}} are in the database now, {{missing}} are not, {{unchecked}} could not be checked. {{problem}}",
 	"notif.monitoring.store.restored.unknown": "It did not answer for {{duration}}. The records written meanwhile into the local file could not be counted nor brought over now: {{problem}} Cosmos tries again the next time the database becomes the store.",
 	"notif.monitoring.store.ended.title":      "The outage of the monitoring database is closed",
