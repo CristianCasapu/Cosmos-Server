@@ -137,7 +137,18 @@ func (l faultyLevels) state(name string, kind string, since time.Time) (threadLe
 			return levelUnknown, nil, nil
 		}
 	}
-	return storeLevels{now: m.now}.state(name, kind, since)
+	lvl, follow, err := storeLevels{now: m.now}.state(name, kind, since)
+	if th := m.byName(name); th != nil {
+		m.log("level of %s: %s (since %s, err %v)", th.marker, lvl, since.Format("01-02 15:04:05"), err)
+		// a lagging source's wrong "over" stands until a read corrects it
+		switch {
+		case lvl == levelOver && th.open:
+			th.wrongOver = true
+		case lvl == levelOpen:
+			th.wrongOver = false
+		}
+	}
+	return lvl, follow, err
 }
 
 type readError struct{}
@@ -409,9 +420,9 @@ func (m *model) closeExcused(th *modelThread) bool {
 	if last := latestBefore(th.openedAt, m.clock); last.After(th.writtenAt) && m.clock.Before(th.readyAt) {
 		return true
 	}
-	// a source lagging up to two minutes can say over from a look before
-	// the opening until the next look (the reconcile's period)
-	return m.lagging && lagWindow(th, m.clock)
+	// a source lagging up to two minutes said over from a look before the
+	// opening, and no read corrected it since (or within the period after)
+	return m.lagging && (th.wrongOver || lagWindow(th, m.clock))
 }
 
 // lagWindow: an opening of the thread came within the time a lagging

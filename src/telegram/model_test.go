@@ -338,6 +338,7 @@ type modelThread struct {
 	rowAt      time.Time   // when its open row was last written
 	writtenAt  time.Time   // when its last opening was written (heard by the notifier)
 	lostOpenAt time.Time   // a restart came before the notifier wrote its opening down
+	wrongOver  bool        // its lagging source's last answer was a wrong "over"
 }
 
 // lateEvent is a notification a source writes after its state changed.
@@ -500,6 +501,7 @@ type model struct {
 	fillAt        time.Time
 	persistedAt   time.Time
 	threadLines   map[string]map[string]bool
+	excusedClose  map[int]bool // closings the live I9 excused (the model's own doing)
 }
 
 func (m *model) now() time.Time { return m.clock }
@@ -635,8 +637,12 @@ func (m *model) sentAt(msg modelMessage, st settings) {
 			m.violate("I5", "a closing switched off by itself was sent")
 		}
 		// I9, live (review 6): never told over while it is open
-		if m.store && th.open && !m.closeExcused(th) {
-			m.violate("I9", "%s told over at #%d while it is open", th.marker, msg.id)
+		if m.store && th.open {
+			if m.closeExcused(th) {
+				m.excusedClose[msg.id] = true
+			} else {
+				m.violate("I9", "%s told over at #%d while it is open", th.marker, msg.id)
+			}
 		}
 	}
 }
@@ -685,7 +691,7 @@ func newModelWith(t *testing.T, seed int64, store bool) *model {
 	m := &model{t: t, seed: seed, rng: rand.New(rand.NewSource(seed)),
 		clock: time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC), config: testConfig(),
 		unpaired: map[string]int{}, unpairedAt: map[string]time.Time{}, features: map[string]bool{},
-		store: store, unpairedTimedOut: map[string]bool{}, leftChats: map[string]int{}, leftAt: map[string]time.Time{}, closingOffAt: map[string][]time.Time{}, closingOnAt: map[string][]time.Time{}, plainOf: map[int]string{}, lostCloseAt: map[string][]time.Time{}, unpairedPlain: map[string]bool{}}
+		store: store, unpairedTimedOut: map[string]bool{}, leftChats: map[string]int{}, leftAt: map[string]time.Time{}, closingOffAt: map[string][]time.Time{}, closingOnAt: map[string][]time.Time{}, plainOf: map[int]string{}, excusedClose: map[int]bool{}, lostCloseAt: map[string][]time.Time{}, unpairedPlain: map[string]bool{}}
 	m.config.Telegram.MaxPerMinute = maxMaxPerMinute
 	m.config.Telegram.ChatID = modelChatA
 	m.path = filepath.Join(t.TempDir(), threadsFileName)
@@ -1271,7 +1277,7 @@ func (m *model) check(start time.Time) {
 			}
 			if th != nil && opening != nil {
 				from := latestBefore(th.openedAt, opening.at)
-				if !between(th.closedAt, from, msg.at) && !(m.lagging && lagWindow(th, msg.at)) {
+				if !between(th.closedAt, from, msg.at) && !(m.lagging && lagWindow(th, msg.at)) && !m.excusedClose[msg.id] {
 					m.violate("I9", "%s: told over at #%d while it never ended since #%d", msg.thread, msg.id, opening.id)
 				}
 			}
@@ -1615,6 +1621,7 @@ func TestModelSeedsThatFailedOnce(t *testing.T) {
 		1795512583667663259, // failed only inside a long pass: the level's clock was the wall clock (now the notifier's)
 		1795512662653143204, // a full table of rows crowded out what a source held open
 		1795512767026516955, // the same
+		1795515786879045332, // a lagging source's wrong "over", sent after Telegram's refusals and a month
 	} {
 		runModel(t, seed)
 	}
