@@ -275,7 +275,7 @@ func openMonitoringStore() error {
 		s.Attempts++
 	})
 	kickMonitoringWatcher()
-	start := prepareFallback() // the fallback's start, taken before the local file takes writes
+	start := prepareFallback(db) // the fallback's start, taken before the local file takes writes
 	if err := openLocalStore(node); err != nil {
 		localUnusable(err)
 		return err
@@ -332,7 +332,7 @@ func ensureLocalStore() bool {
 	if monitoringInUse() == DialectSQLite {
 		return true
 	}
-	start := prepareFallback()
+	start := prepareFallback(config.Database)
 	if err := openLocalStore(resolveNodeName(config)); err != nil {
 		localUnusable(err)
 		return false

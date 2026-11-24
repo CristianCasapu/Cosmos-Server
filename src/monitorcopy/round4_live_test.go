@@ -422,6 +422,24 @@ func TestManyCutsLive(t *testing.T) {
 			}
 			t.Logf("local ids not in PostgreSQL: %s", strings.Join(missing, " "))
 		}
+		if rows, err := local.Query("SELECT id, title FROM notifications WHERE title LIKE ? ORDER BY id", run+"-%"); err == nil {
+			missing, inLocal := []string{}, 0
+			for rows.Next() {
+				var id int64
+				var title string
+				rows.Scan(&id, &title)
+				inLocal++
+				var one int
+				if pg.QueryRow("SELECT 1 FROM notifications WHERE title = $1", title).Scan(&one) != nil {
+					missing = append(missing, strconv.FormatInt(id, 10))
+				}
+			}
+			rows.Close()
+			if len(missing) > 40 {
+				missing = append(missing[:20], append([]string{"..."}, missing[len(missing)-20:]...)...)
+			}
+			t.Logf("notifications in the local file %d; not in PostgreSQL: %s", inLocal, strings.Join(missing, " "))
+		}
 		local.Close()
 	}
 	c := Status().CatchUp

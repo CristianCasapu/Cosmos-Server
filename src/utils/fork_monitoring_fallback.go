@@ -393,14 +393,26 @@ type fallbackStart struct {
 
 // prepareFallback takes it when the local file is not the store yet (once
 // the switch to it is made, writers insert at once: marks taken after it
-// would leave those rows in no window, review round 4). A fallback that
-// ended a moment ago (a switch back whose drain is not over) is waited for:
-// its stragglers first. forkInitMu held.
-func prepareFallback() fallbackStart {
+// would leave those rows in no window, review round 4). The fallback of
+// another server that ended a moment ago (a switch back whose drain is not
+// over) is waited for, its stragglers first: they are that server's. One of
+// the same server is not (a straggler of it goes to the same server; and
+// meanwhile every write fails into the store that stopped answering).
+// forkInitMu held.
+func prepareFallback(db DatabaseConfig) fallbackStart {
 	if monitoringInUse() == DialectSQLite {
 		return fallbackStart{}
 	}
-	waitLocalDrain(localFileDrained())
+	other := false
+	withLocalFile(false, func(local *sql.DB) error {
+		for _, r := range loadFallbacks(local) {
+			other = other || r.Before == nil && r.Ended != 0 && !r.of(db)
+		}
+		return nil
+	})
+	if other {
+		waitLocalDrain(localFileDrained())
+	}
 	storeStateMu.Lock()
 	from := TimeToMillis(storeState.Since.Add(-fallbackLead()))
 	storeStateMu.Unlock()
