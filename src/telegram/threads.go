@@ -62,6 +62,9 @@ type openThread struct {
 	// Uncertain: a closing of it timed out in flight in this chat (review
 	// 5, S2): the chat may show it over
 	Uncertain bool `json:"uncertain,omitempty"`
+	// GaveWay: its pin gave way to a newer one (at most maxPinned): it is
+	// pinned again when a pinned problem ends (review 6)
+	GaveWay bool `json:"gaveWay,omitempty"`
 }
 
 // pendingUnpin is a pin Telegram did not take away yet.
@@ -336,7 +339,7 @@ func (m *threadMemory) open(st settings, id string, name string, kind string, me
 			if t.Pinned {
 				unpin = append(unpin, t.MessageID)
 			}
-			t.WantPin, t.Pinned = false, false
+			t.WantPin, t.Pinned, t.GaveWay = false, false, true
 			c.Threads[key] = t
 			pins--
 		}
@@ -406,10 +409,37 @@ func (m *threadMemory) close(st settings, id string) (openThread, bool) {
 		delete(c.Threads, id)
 		if t.Pinned || t.WantPin {
 			m.unpinLaterLocked(c, t.MessageID)
+			repinLocked(c)
 		}
 		m.saveLocked()
 	}
 	return t, ok
+}
+
+// repinLocked: a pin is free; the newest problems whose pin gave way are
+// pinned again (review 6).
+func repinLocked(c *chatThreads) {
+	pins := 0
+	for _, t := range c.Threads {
+		if t.WantPin {
+			pins++
+		}
+	}
+	for pins < maxPinned {
+		newest := ""
+		for key, t := range c.Threads {
+			if t.GaveWay && (newest == "" || t.At.After(c.Threads[newest].At) || (t.At.Equal(c.Threads[newest].At) && key > newest)) {
+				newest = key
+			}
+		}
+		if newest == "" {
+			return
+		}
+		t := c.Threads[newest]
+		t.WantPin, t.GaveWay, t.PinTries = true, false, 0
+		c.Threads[newest] = t
+		pins++
+	}
 }
 
 func (m *threadMemory) unpinLaterLocked(c *chatThreads, messageID int) {

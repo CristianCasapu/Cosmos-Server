@@ -276,7 +276,10 @@ func (n *notifier) reconcile() {
 			if look.inMemory {
 				continue // forgotten since it was read: the read is stale
 			}
-			if len(n.entries) >= maxThreadEntries && !n.evictLocked() {
+			// the end of a problem the chat holds always gets its entry, the
+			// table full or not (review 6: bounded by the chat's told
+			// threads; it is forgotten once its end is sent)
+			if tr.open && len(n.entries) >= maxThreadEntries && !n.evictLocked() {
 				// the table is full of open problems: an open one the chat
 				// was not told goes as a message of its own, once
 				if o, has := opens[id]; has && tr.open && !told && !n.plainSent[brakeKey(st, id)] && n.threads.markPlain(id, true) {

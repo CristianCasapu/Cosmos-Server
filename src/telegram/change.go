@@ -181,6 +181,22 @@ func contains(list []string, value string) bool {
 // notifications, in THAT chat, and forgets its threads; it returns how many
 // could not be taken away.
 func leaveChatPins(n *notifier, was settings, client botClient) int {
+	// what the notifier remembers of messages in that chat goes too: a
+	// brake of the chat left must not stand for an opening there later
+	// (review 6)
+	prefix := chatKey(was) + ":"
+	n.mu.Lock()
+	for key := range n.brakes {
+		if strings.HasPrefix(key, prefix) {
+			delete(n.brakes, key)
+		}
+	}
+	for key := range n.plainSent {
+		if strings.HasPrefix(key, prefix) {
+			delete(n.plainSent, key)
+		}
+	}
+	n.mu.Unlock()
 	stuck := 0
 	for _, id := range n.threads.leave(was) {
 		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)

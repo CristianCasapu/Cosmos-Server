@@ -154,3 +154,100 @@ func TestR6TheLeftChatsPinsAreUnpinnedThere(t *testing.T) {
 	}
 	t.Error("the left chat's pin was not taken away")
 }
+
+// Found by the model (review 6): with a closing kind switched off by itself,
+// an end the source made quietly is not told either ("No longer followed"):
+// the opening stays the chat's last word, unpinned.
+func TestR6AQuietEndObeysTheClosingSwitchedOff(t *testing.T) {
+	th := reachThread("reach:connect")
+	m := scripted(t, th)
+	m.open(th)
+	m.settle(5 * time.Minute)
+	m.config.Telegram.Kinds = map[string]bool{"reach.restored": false}
+	m.quietEnd(th)
+	m.n.reconcile()
+	m.settle(5 * time.Minute)
+	if got := strings.Join(m.actions(th), ","); got != "open" || len(m.pinnedNow()) != 0 {
+		t.Errorf("%s, pinned %v", got, m.pinnedNow())
+	}
+}
+
+// Found by the model (review 6): more open critical problems than may be
+// pinned; when a pinned one ends, the newest one whose pin gave way is
+// pinned again.
+func TestR6APinThatGaveWayComesBack(t *testing.T) {
+	threads := []*modelThread{}
+	for _, cause := range []string{"a", "b", "c", "d"} {
+		threads = append(threads, reachThread("reach:"+cause))
+	}
+	m := scripted(t, threads...)
+	for _, th := range threads {
+		m.open(th)
+		m.settle(time.Minute)
+	}
+	if len(m.pinnedNow()) != maxPinned {
+		t.Fatalf("pinned %v", m.pinnedNow())
+	}
+	m.closeWith(threads[3])
+	m.settle(5 * time.Minute)
+	first := m.messages()[0].id
+	if len(m.pinnedNow()) != maxPinned || !m.pinnedNow()[first] {
+		t.Errorf("after an end: pinned %v, the first opening is %d", m.pinnedNow(), first)
+	}
+}
+
+// Found by the model (review 6): the chat is left and chosen again within a
+// minute of an opening there; the next episode's opening is sent, not taken
+// for the message sent before the chat was left.
+func TestR6AChatLeftForgetsItsBrakes(t *testing.T) {
+	th := reachThread("reach:connect")
+	m := scripted(t, th)
+	m.open(th)
+	for len(m.actions(th)) == 0 {
+		m.step()
+	}
+	was := m.settings()
+	m.changeChat()
+	leaveChatPins(m.n, was, m.bot)
+	m.changeChat()
+	m.quietEnd(th)
+	m.n.reconcile()
+	m.open(th)
+	m.settle(5 * time.Minute)
+	opens := 0
+	for _, msg := range m.messages() {
+		if msg.chat == was.chatID && msg.action == "open" {
+			opens++
+		}
+	}
+	if opens != 2 {
+		t.Errorf("openings in the chat chosen again: %d", opens)
+	}
+}
+
+// Found by the model (review 6): a message refused for its form goes in its
+// plain form; when that send's answer is lost, the next event (new words)
+// is tried in the full form again.
+func TestR6ANewEventTriesTheFullFormAgain(t *testing.T) {
+	th := reachThread("reach:connect")
+	m := scripted(t, th)
+	m.bot.badFormOnce = true
+	m.open(th)
+	for len(m.bot.chat) == 0 {
+		if m.bot.badFormOnce {
+			m.step()
+			continue
+		}
+		m.bot.timeoutTaken = true // the plain form is taken, its answer lost
+		m.step()
+	}
+	if !strings.Contains(m.bot.chat[0].text, "are in the panel") {
+		t.Fatalf("not the plain form: %q", m.bot.chat[0].text)
+	}
+	m.closeWith(th) // before the brake lets the opening go again
+	m.settle(5 * time.Minute)
+	last := m.bot.chat[len(m.bot.chat)-1].text
+	if !strings.Contains(last, "End of model thread") || strings.Contains(last, "are in the panel") {
+		t.Errorf("the closing went in the plain form: %q", last)
+	}
+}

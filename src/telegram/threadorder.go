@@ -182,6 +182,7 @@ func (n *notifier) threadEventLocked(st settings, nt notice, now time.Time) bool
 	c := nt
 	byLevel := e.byLevel
 	e.byLevel = false
+	e.plain = false // new words: the full form is tried again (review 6)
 	if nt.resolves == "" && nt.at.After(e.seenOpen) {
 		e.seenOpen = nt.at
 	}
@@ -375,6 +376,16 @@ func (n *notifier) decideLocked(st settings, e *threadEntry, told openThread, is
 			closing = *e.closing
 		}
 		send, wanted := closingWanted(st, closing)
+		if closing.kind == "thread.ended" {
+			// review 6: an end without its closing obeys the pair's closing
+			// kinds switched off by themselves too (the card says so: the
+			// opening stays the chat's last word, unpinned)
+			for _, kind := range closingsOf(told.Kind) {
+				if on, set := st.kinds[kind]; set && !on {
+					send = false
+				}
+			}
+		}
 		d.action, d.subject, d.send, d.silent, d.replyTo = actionClose, closing, send, !wanted, told.MessageID
 	case !e.open && !isTold && e.opening != nil && e.closing != nil:
 		subject := *e.closing
