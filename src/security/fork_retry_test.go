@@ -59,3 +59,31 @@ func TestBatchOnAClosedHandleStoredAtOnce(t *testing.T) {
 		t.Errorf("another error is not tried again here: %v %v", err, calls)
 	}
 }
+
+// Review round 3: the closed-handle retry is on the recorder's path (round
+// 2's fix was on insert(), which the recorder does not call): through the
+// recorder, a batch whose handle a switch closed is stored at once, not kept.
+func TestTheRecorderStoresABatchOnAClosedHandleAtOnce(t *testing.T) {
+	folder := openDatabase(t)
+	clock := newTestClock()
+	recorder := startRecorder(t, folder, clock.now)
+	prev := insertBatch
+	t.Cleanup(func() { insertBatch = prev })
+	calls := []int{}
+	insertBatch = func(events []Event, retried int) error {
+		calls = append(calls, retried)
+		if len(calls) == 1 {
+			return errors.New("sql: database is closed")
+		}
+		return insertRetrying(events, retried)
+	}
+	clock.advance(time.Second)
+	recorder.Record(Event{Kind: utils.SecLoginFailed, IP: "203.0.113.7", Target: "closed"})
+	recorder.Flush()
+	if n := len(all(t)); n != 1 || len(calls) != 2 || calls[1] != 1 {
+		t.Fatalf("%d stored, calls %v", n, calls)
+	}
+	if len(recorder.unsaved) != 0 {
+		t.Errorf("kept for later although stored: %d", len(recorder.unsaved))
+	}
+}

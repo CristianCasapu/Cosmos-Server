@@ -574,27 +574,36 @@ func TestStoresTakingTurns(t *testing.T) {
 	}
 }
 
-// Copied to the local file (the source wins), a closed bucket whose value
-// changed in the target is seen; an open one may change, and is not.
+// The check compares values (review round 3, S2): a day total whose
+// source part is not all in the target (the target's row lost it, or the row
+// is gone) is missing; an open total of a source that is the store in use
+// may grow after the copy began, and only its presence is checked.
 func TestVerificationSeesAChangedClosedBucket(t *testing.T) {
 	for _, p := range pairs() {
 		t.Run(short(p.src)+"-to-"+short(p.dst), func(t *testing.T) {
 			src, dst := openStore(t, p.src), openStore(t, p.dst)
-			old := time.Now().Add(-40 * 24 * time.Hour).UnixMilli()
-			recent := time.Now().Add(-2 * time.Hour).UnixMilli()
-			for _, date := range []int64{old, recent} {
-				exec(t, src, "INSERT INTO metric_values(node, key, granularity, date, value, avg_index, expire) VALUES('server.local', 'k', 'daily', ?, 10, 1, 0)", date)
+			day := int64(24 * time.Hour / time.Millisecond)
+			now := time.Now().UnixMilli()
+			old, today := now-now%day-20*day, now-now%day
+			exec(t, src, "INSERT INTO metrics(node, key, agglo_type, time_scale, last_update) VALUES('server.local', 'k', 'sum', 1, ?)", now-1000)
+			for _, date := range []int64{old, today} {
+				exec(t, src, "INSERT INTO metric_values(node, key, granularity, date, value, avg_index, expire) VALUES('server.local', 'k', 'day', ?, 10, 1, ?)", date, now+40*day)
 			}
 			copyOnce(t, src, dst, testOptions("test", false))
-			exec(t, dst, "UPDATE metric_values SET value = 11 WHERE date = ?", recent)
+			exec(t, src, "UPDATE metric_values SET value = 12, avg_index = 2 WHERE date = ?", today) // the open day grows in the source
 			report, err := verifyOnly(context.Background(), src, dst, testOptions("test", false), &Tracker{})
 			if err != nil || report.Mismatch {
-				t.Fatalf("an open bucket that changed: %v %+v", err, tableOf(report, "metric_values"))
+				t.Fatalf("an open bucket that grew: %v %+v", err, tableOf(report, "metric_values"))
 			}
-			exec(t, dst, "UPDATE metric_values SET value = 11 WHERE date = ?", old)
+			exec(t, dst, "UPDATE monitoring_kv SET value = '4|1' WHERE key LIKE '"+ledgerPrefix+"%' AND key LIKE ?", "%|"+itoa(old))
 			report, err = verifyOnly(context.Background(), src, dst, testOptions("test", false), &Tracker{})
 			if got := tableOf(report, "metric_values"); err != nil || got.State != "mismatch" || got.Missing != 1 {
-				t.Fatalf("a closed bucket that changed: %v %+v", err, got)
+				t.Fatalf("a closed total only partly in the target: %v %+v", err, got)
+			}
+			exec(t, dst, "DELETE FROM metric_values WHERE date = ?", today)
+			report, _ = verifyOnly(context.Background(), src, dst, testOptions("test", false), &Tracker{})
+			if got := tableOf(report, "metric_values"); got.Missing != 2 {
+				t.Fatalf("a total gone from the target: %+v", got)
 			}
 		})
 	}

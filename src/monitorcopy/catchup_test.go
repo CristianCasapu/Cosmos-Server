@@ -76,11 +76,12 @@ func TestCopyOfAWindowOnly(t *testing.T) {
 					}
 				}
 			}
-			// before the window by two hours: only its hour bucket, which the
-			// day the window reaches back for takes (the store in use keeps its own)
+			// before the window by two hours: its hour bucket is of an hour the
+			// window does not touch, so nothing of it (an hour or day bucket is
+			// taken from the hour or day the window begins in)
 			for table, there := range hasLabel(t, dst, "before") {
-				if there != (table == "metric_values") {
-					t.Errorf("before, %s: copied %v", table, there)
+				if there {
+					t.Errorf("before, %s: copied", table)
 				}
 			}
 			again := copyOnce(t, src, dst, opt)
@@ -148,7 +149,7 @@ func (e *catchUpEnv) catchUp(t *testing.T) (utils.CatchUpResult, int) {
 	var mu sync.Mutex
 	calls := 0
 	var got utils.CatchUpResult
-	CatchUpAfterFallback(time.UnixMilli(e.at.from), time.UnixMilli(e.at.to), func(r utils.CatchUpResult) {
+	CatchUpAfterFallback(utils.CatchUpWindow{From: time.UnixMilli(e.at.from), To: time.UnixMilli(e.at.to)}, func(r utils.CatchUpResult) {
 		mu.Lock()
 		calls++
 		got = r
@@ -244,7 +245,8 @@ func TestCatchUpResumesThroughTheMarker(t *testing.T) {
 				return env.dst, env.dst, nil
 			}
 			got, calls := env.catchUp(t)
-			if calls != 1 || !got.Ran || got.Missing == 0 || got.Problem == "" || !strings.Contains(got.Problem, "changed") {
+			// true numbers: every record counted, the ones not gone through are "not checked"
+			if calls != 1 || !got.Ran || !got.Counted || got.Complete() || got.Unchecked == 0 || got.Aside != got.Present+got.Missing+got.Unchecked+got.Inexact || !strings.Contains(got.Problem, "changed") {
 				t.Fatalf("interrupted: %d calls, %+v", calls, got)
 			}
 			if left := pendingOf(t, env.dst); len(left) != 1 || left[0].From != env.at.from {
@@ -312,7 +314,8 @@ func TestCatchUpFailureSaysWhy(t *testing.T) {
 	exec(t, env.local, "ALTER TABLE notifications DROP COLUMN fork_first")
 	recorded := captureSecurity(t)
 	got, calls := env.catchUp(t)
-	if calls != 1 || !got.Ran || got.Missing == 0 || !strings.Contains(got.Problem, "older layout") {
+	// stopped before it could count: no number is given as known
+	if calls != 1 || !got.Ran || got.Counted || got.Complete() || got.Aside != 0 || !strings.Contains(got.Problem, "older layout") {
 		t.Fatalf("%d calls, %+v", calls, got)
 	}
 	failed := false
@@ -331,8 +334,8 @@ func TestCatchUpFailureSaysWhy(t *testing.T) {
 func TestCatchUpOfNothing(t *testing.T) {
 	useCatchUp(t, utils.DialectSQLite)
 	calls := 0
-	CatchUpAfterFallback(time.Time{}, time.Now(), func(utils.CatchUpResult) { calls++ })
-	CatchUpAfterFallback(time.Now(), time.Now().Add(-time.Minute), func(utils.CatchUpResult) { calls++ })
+	CatchUpAfterFallback(utils.CatchUpWindow{To: time.Now()}, func(utils.CatchUpResult) { calls++ })
+	CatchUpAfterFallback(utils.CatchUpWindow{From: time.Now(), To: time.Now().Add(-time.Minute)}, func(utils.CatchUpResult) { calls++ })
 	catchUpWG.Wait()
 	if calls != 2 {
 		t.Fatalf("%d calls", calls)
@@ -342,7 +345,7 @@ func TestCatchUpOfNothing(t *testing.T) {
 func TestWindowsMerge(t *testing.T) {
 	got := merge([]Window{{From: 50, To: 60}, {From: 10, To: 20}, {From: 15, To: 30}, {From: 30, To: 40}, {From: 70, To: 70}})
 	want := []Window{{From: 10, To: 40}, {From: 50, To: 60}}
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+	if len(got) != len(want) || !got[0].same(want[0]) || !got[1].same(want[1]) {
 		t.Fatalf("%v", got)
 	}
 }
@@ -354,14 +357,22 @@ func TestStatementTimeoutOfTheCopy(t *testing.T) {
 		t.Skip("no PostgreSQL")
 	}
 	dsn, name := newPGDatabase(t)
-	admin, err := sql.Open(utils.DialectPostgres, dsn)
+	// the contents first, through a session without the bound (review round
+	// 3, M9: the test's own inserts must not meet the bound it tests)
+	setup, err := sql.Open(utils.DialectPostgres, dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer admin.Close()
-	if _, err := admin.Exec("ALTER DATABASE " + name + " SET statement_timeout = '100ms'"); err != nil {
+	defer setup.Close()
+	if err := utils.PrepareMonitoringSchema(setup, utils.DialectPostgres); err != nil {
 		t.Fatal(err)
 	}
+	fill(t, Store{DB: setup, Dialect: utils.DialectPostgres}, contents{node: "server.local", metrics: 5, values: 400, events: 3000, notifications: 50, security: 300, end: time.Now().UnixMilli() - 3600000})
+	if _, err := setup.Exec("ALTER DATABASE " + name + " SET statement_timeout = '100ms'"); err != nil {
+		t.Fatal(err)
+	}
+	setup.Close()
+	// new sessions carry the bound
 	db, err := sql.Open(utils.DialectPostgres, dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -383,11 +394,7 @@ func TestStatementTimeoutOfTheCopy(t *testing.T) {
 		t.Errorf("a statement of a batch's transaction: %v", err)
 	}
 	tx.Rollback()
-	// and a whole copy out of and into stores with that bound
-	if err := utils.PrepareMonitoringSchema(db, utils.DialectPostgres); err != nil {
-		t.Fatal(err)
-	}
-	fill(t, s, contents{node: "server.local", metrics: 5, values: 400, events: 3000, notifications: 50, security: 300, end: time.Now().UnixMilli() - 3600000})
+	// and a whole copy out of a store with that bound
 	dst := openStore(t, utils.DialectSQLite)
 	if report := copyOnce(t, s, dst, testOptions("bound", false)); report.Mismatch {
 		t.Fatalf("%+v", report.Tables)

@@ -73,6 +73,9 @@ type rule struct {
 	// "" leaves the table out of a catch-up.
 	touched      string
 	touchedSlack time.Duration
+	// touchedFilter, when set, is the catch-up's time condition instead of
+	// touched and touchedSlack (from and end in unix ms)
+	touchedFilter func(from, end int64) (string, []interface{})
 	// where is a fixed condition on the rows copied (monitoring_kv's
 	// bookkeeping keys are left out by it)
 	where string
@@ -156,7 +159,11 @@ var rules = func() []rule {
 		table:   "metrics",
 		columns: metricCols,
 		touched: "last_update",
-		key:     []string{"node", "key"},
+		// last_update is the date of the bucket last flushed: a bucket of an
+		// hour's period, flushed late (kept while the pings found PostgreSQL
+		// gone), is dated up to an hour before
+		touchedSlack: 75 * time.Minute,
+		key:          []string{"node", "key"},
 		// Key: (node, key), the table's primary key. A metric in both
 		// stores: the row whose last_update is newer wins (the catalogue
 		// describes the metric as last seen), whichever store it is in.
@@ -176,15 +183,22 @@ var rules = func() []rule {
 		key:       []string{"node", "key", "granularity", "date"},
 		window:    "date",
 		expireCol: "expire",
-		// a day bucket begins at midnight: the window goes back a day
+		// a bucket carries the time its period began: a day bucket written in
+		// the window began at the midnight before it, an hour bucket at the
+		// hour, a raw bucket at most an hour (its longest period) before
 		touched:      "date",
 		touchedSlack: 24 * time.Hour,
+		touchedFilter: func(from, end int64) (string, []interface{}) {
+			day, hour := int64(24*time.Hour/time.Millisecond), int64(time.Hour/time.Millisecond)
+			return "((granularity = 'day' AND date >= ?) OR (granularity = 'hour' AND date >= ?) OR (granularity NOT IN ('day', 'hour') AND date >= ?)) AND date < ?",
+				[]interface{}{from - from%day, from - from%hour, from - hour, end}
+		},
 		// Key: (node, key, granularity, date), the primary key: one bucket.
-		// A bucket in both stores (the buckets that were open when the store
-		// was switched): the store in use wins, without merging. Merging
-		// sums would count again at every run, and a bucket is only partial
-		// on one side or the other; keeping one side is idempotent and loses
-		// at most the part of the bucket that straddled the switch.
+		// A bucket in both stores is merged by buckets.go (review round 3,
+		// S2): hour and day rows add up the other store's contribution once
+		// (sum, avg) or take the larger (max) or smaller (min) value; raw rows
+		// go to the store with the later flushes. onConflict is used by
+		// nothing for this table.
 		onConflict: func(targetInUse bool) string {
 			if targetInUse {
 				return "DO NOTHING"

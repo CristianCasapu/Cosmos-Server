@@ -45,6 +45,7 @@ func MonitoringStoreRoute(w http.ResponseWriter, req *http.Request) {
 		// the sentences name the server, the user, the database and the
 		// containers (review S3): the reason only
 		state.Host, state.Database, state.Message, state.Advice = "", "", "", ""
+		state.Aside = nil // other servers' names (review round 3, M8)
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "OK", "data": state})

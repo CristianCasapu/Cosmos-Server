@@ -22,7 +22,7 @@ const (
 var (
 	pendingMu            sync.Mutex
 	pendingEvents        []Event
-	pendingNotifications []Notification
+	pendingNotifications []keptNotification
 	pendingRunning       bool
 	pendingDropped       int64
 	// pendingEvery: how often the kept rows are tried again; the tests shorten it
@@ -52,14 +52,21 @@ func forkKeepEvent(e Event, err error) error {
 	return err
 }
 
+// keptNotification is a notification whose rows could not be written, with
+// the reference its rows carry.
+type keptNotification struct {
+	n   Notification
+	ref string
+}
+
 // keepNotification keeps a notification whose rows could not be written.
-func keepNotification(n Notification) {
+func keepNotification(n Notification, ref string) {
 	pendingMu.Lock()
 	if len(pendingNotifications) >= maxPendingNotifications {
 		pendingNotifications = pendingNotifications[1:]
 		pendingDropped++
 	}
-	pendingNotifications = append(pendingNotifications, n)
+	pendingNotifications = append(pendingNotifications, keptNotification{n, ref})
 	startPendingLocked()
 	pendingMu.Unlock()
 }
@@ -86,9 +93,12 @@ func writePending() {
 			}
 			InsertEvent(e) // kept again by its hook on failure
 		}
-		for _, n := range notifications {
-			if !forkWriteNotification(n) {
-				keepNotification(n)
+		for _, k := range notifications {
+			if notificationStored(k.ref) {
+				continue // its commit went through although its answer was lost
+			}
+			if !writeNotificationAs(k.n, k.ref) {
+				keepNotification(k.n, k.ref)
 			}
 		}
 		pendingMu.Lock()
@@ -103,6 +113,16 @@ func writePending() {
 		}
 		pendingMu.Unlock()
 	}
+}
+
+// notificationStored: rows with this reference are in the store already.
+func notificationStored(ref string) bool {
+	db, err := MonitoringReadDB()
+	if err != nil || ref == "" {
+		return false
+	}
+	var one int
+	return db.QueryRow(MonitoringRebindFor(db, "SELECT 1 FROM notifications WHERE fork_ref = ? LIMIT 1"), ref).Scan(&one) == nil
 }
 
 // eventStored: an event equal to e is in the store already.

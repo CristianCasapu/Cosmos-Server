@@ -227,3 +227,40 @@ func TestResetLocalMetrics(t *testing.T) {
 		t.Fatalf("reset left %d metrics behind", len(docs))
 	}
 }
+
+// Review round 3, S2: after a change of the monitoring store, the first flush
+// of an open raw bucket into a store that has no row for its hour or day adds
+// the change since the last flush (counted once), not the whole bucket: each
+// store's hour and day rows hold exactly what they received, and the two add
+// up to what was pushed.
+func TestANewStoreGetsTheChangeSinceTheLastFlush(t *testing.T) {
+	setupMetricsStore(t)
+	def := DataDef{Max: 100, Period: time.Hour, Label: "t", AggloType: "sum", SetOperation: "sum"}
+	pushSetMetric("split", 10, def)
+	SaveMetrics()
+	first := utils.CONFIGFOLDER
+	// the store changes (another file stands for the other store)
+	utils.CloseMetricsDatabase()
+	utils.CONFIGFOLDER = t.TempDir() + "/"
+	if err := utils.InitMetricsDatabase(); err != nil {
+		t.Fatal(err)
+	}
+	pushSetMetric("split", 5, def)
+	SaveMetrics()
+	day := func() (int64, int64) {
+		db, _ := utils.MonitoringReadDB()
+		var v, i int64
+		db.QueryRow("SELECT value, avg_index FROM metric_values WHERE key = 'cosmos.split' AND granularity = 'day'").Scan(&v, &i)
+		return v, i
+	}
+	bv, bi := day()
+	utils.CloseMetricsDatabase()
+	utils.CONFIGFOLDER = first
+	if err := utils.InitMetricsDatabase(); err != nil {
+		t.Fatal(err)
+	}
+	av, ai := day()
+	if av != 10 || ai != 1 || bv != 5 || bi != 0 || av+bv != 15 {
+		t.Errorf("first store %d/%d, second %d/%d: want 10/1 and 5/0 (15 pushed, one raw bucket)", av, ai, bv, bi)
+	}
+}

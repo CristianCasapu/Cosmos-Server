@@ -134,7 +134,11 @@ func writeBucket(tx *sql.Tx, dialect string, node string, dp DataPush) error {
 		query := aggregateInsert + aggregateMerge(dp.AggloType, dialect)
 		_, err = tx.Exec(utils.RebindFor(dialect, query),
 			node, dp.Key, pool.granularity, utils.TimeToMillis(poolDate),
-			dp.Value, 1, utils.TimeToMillis(expire),
+			// Fork addition (plan 51, review round 3, S2): a new row gets the same
+			// contribution as an existing one (the change since the last flush,
+			// counted once): after a change of the monitoring store each store's
+			// row holds exactly what it received, and the two add up
+			aggregateArg(dp.AggloType, dp), countInc, utils.TimeToMillis(expire),
 			aggregateArg(dp.AggloType, dp), countInc)
 		if err != nil {
 			return err

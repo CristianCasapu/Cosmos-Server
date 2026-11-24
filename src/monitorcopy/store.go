@@ -19,6 +19,25 @@ import (
 type Store struct {
 	DB      *sql.DB
 	Dialect string
+	// ID names the store in the other store's ledger of merged buckets
+	// (buckets.go): the local file by its path, PostgreSQL by its server and
+	// database; nothing secret
+	ID string
+}
+
+// id is the store's name for the ledgers (one made of the handle when the
+// store was opened without one).
+func (s Store) id() string {
+	if s.ID != "" {
+		return s.ID
+	}
+	return s.Dialect + ":" + fmt.Sprintf("%p", s.DB)
+}
+
+// storeID names a store by what identifies it.
+func storeID(dialect, identity string) string {
+	sum := sha256.Sum256([]byte(identity))
+	return dialect + ":" + fmt.Sprintf("%x", sum[:8])
 }
 
 func (s Store) postgres() bool { return s.Dialect == utils.DialectPostgres }

@@ -43,6 +43,14 @@ type Options struct {
 	From int64
 	// End, when set (unix ms), is the copy's end instead of the time it starts.
 	End int64
+	// IDs, with From: the rows of a table with a surrogate id that a fallback
+	// inserted into the local file, id in (IDs[table][0], IDs[table][1]],
+	// whatever time they carry (review round 3, S1); taken besides the rows
+	// touched from From on.
+	IDs map[string][2]int64
+	// Back, with From: when PostgreSQL became the store again (unix ms): a raw
+	// bucket that ended before it was last flushed into the local file.
+	Back int64
 	// Sleep waits between batches (nil: a timer); the tests count the waits.
 	Sleep func(ctx context.Context, d time.Duration) error
 }
@@ -69,6 +77,9 @@ type TableProgress struct {
 	SourceRows int64 `json:"sourceRows"`
 	TargetRows int64 `json:"targetRows"`
 	Missing    int64 `json:"missing"` // source rows without their counterpart in the target, or with one that differs
+	// Inexact: hour or day totals both stores hold whose kind of total cannot
+	// be merged (neither a sum, an average, a maximum nor a minimum)
+	Inexact int64 `json:"inexact,omitempty"`
 }
 
 // Tracker holds the progress of a copy; the engine updates it, readers take
@@ -210,7 +221,9 @@ type copier struct {
 	track    *Tracker
 	marker   runMarker
 	layouts  map[string]layout
-	size     int // rows per transaction now (see Options.BatchTime)
+	// metrics: each metric's kind of total and period, for merging its buckets
+	metrics map[string]metricInfo
+	size    int // rows per transaction now (see Options.BatchTime)
 }
 
 const minBatch = 20
@@ -325,6 +338,9 @@ func (c *copier) prepare() error {
 	if err := c.loadRun(bctx); err != nil {
 		return err
 	}
+	if c.metrics, err = c.loadMetricInfo(bctx); err != nil {
+		return &CopyError{Table: "metrics", Sentence: "The source's table metrics could not be read.", Err: err}
+	}
 	for i, r := range rules {
 		if !c.layouts[r.table].exists {
 			track.set(i, func(p *TableProgress) { p.State = "copied" })
@@ -410,8 +426,18 @@ func (c *copier) copyFilter(r rule, end int64) (string, []interface{}) {
 		if r.touched == "" {
 			return where + " AND 1 = 0", args
 		}
-		where += " AND " + r.touched + " >= ? AND " + r.touched + " < ?"
-		args = append(args, c.opt.From-r.touchedSlack.Milliseconds(), end)
+		timed := r.touched + " >= ? AND " + r.touched + " < ?"
+		timeArgs := []interface{}{c.opt.From - r.touchedSlack.Milliseconds(), end}
+		if r.touchedFilter != nil {
+			timed, timeArgs = r.touchedFilter(c.opt.From, end)
+		}
+		if ids, ok := c.opt.IDs[r.table]; ok && r.surrogate() && ids[1] > ids[0] {
+			where += " AND ((id > ? AND id <= ?) OR (" + timed + "))"
+			args = append(append(args, ids[0], ids[1]), timeArgs...)
+		} else {
+			where += " AND " + timed
+			args = append(args, timeArgs...)
+		}
 	}
 	return where, args
 }
@@ -573,6 +599,9 @@ func (c *copier) countUpTo(ctx context.Context, r rule, m tableMarker) (int64, e
 func (c *copier) batch(ctx context.Context, r rule, m *tableMarker) (int64, int64, error) {
 	if r.surrogate() {
 		return c.batchSurrogate(ctx, r, m)
+	}
+	if r.table == "metric_values" {
+		return c.batchBuckets(ctx, r, m)
 	}
 	return c.batchNatural(ctx, r, m)
 }

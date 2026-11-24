@@ -50,11 +50,17 @@ type Result struct {
 	// the window of a catch-up (unix ms)
 	From int64 `json:"from,omitempty"`
 	To   int64 `json:"to,omitempty"`
-	// Missing: rows of a catch-up's window not brought over
-	Missing int64           `json:"missing,omitempty"`
-	Message string          `json:"message"`
-	Table   string          `json:"table"`
-	Tables  []TableProgress `json:"tables"`
+	// a catch-up's records (review round 3, true numbers): Aside = Present +
+	// Missing + Inexact + Unchecked
+	Counted   bool            `json:"counted,omitempty"` // the records were counted (the copy got past its preparation)
+	Aside     int64           `json:"aside,omitempty"`
+	Present   int64           `json:"present,omitempty"`
+	Missing   int64           `json:"missing,omitempty"`
+	Unchecked int64           `json:"unchecked,omitempty"`
+	Inexact   int64           `json:"inexact,omitempty"`
+	Message   string          `json:"message"`
+	Table     string          `json:"table"`
+	Tables    []TableProgress `json:"tables"`
 }
 
 type runState struct {
@@ -118,7 +124,7 @@ func openLocalAt(path string, readOnly bool) (Store, error) {
 		return Store{}, err
 	}
 	db.SetMaxOpenConns(1)
-	return Store{DB: db, Dialect: utils.DialectSQLite}, nil
+	return Store{DB: db, Dialect: utils.DialectSQLite, ID: storeID("sqlite", path)}, nil
 }
 
 func sourceID(direction string) string {
@@ -145,7 +151,9 @@ func inUse() (Store, Store, error) {
 	if utils.MonitoringDialectOf(w) != utils.DialectPostgres || utils.MonitoringDialectOf(r) != utils.DialectPostgres {
 		return Store{}, Store{}, ErrNotPostgres
 	}
-	return Store{DB: w, Dialect: utils.DialectPostgres}, Store{DB: r, Dialect: utils.DialectPostgres}, nil
+	config := utils.GetMainConfig().Database
+	id := storeID("pgx", config.PostgresHost+"/"+config.PostgresDatabase+"/"+config.PostgresUsername)
+	return Store{DB: w, Dialect: utils.DialectPostgres, ID: id}, Store{DB: r, Dialect: utils.DialectPostgres, ID: id}, nil
 }
 
 // storeInUse is inUse; the tests put a store of their own in its place.
@@ -248,8 +256,8 @@ func launchLocked(direction string, src, dst, own Store, opt Options, window *Wi
 }
 
 func resultOf(direction string, report Report, err error, track *Tracker) Result {
-	_, tables := track.Snapshot()
-	result := Result{Direction: direction, FinishedAt: time.Now(), Tables: tables}
+	phase, tables := track.Snapshot()
+	result := Result{Direction: direction, FinishedAt: time.Now(), Tables: tables, Counted: phase != "preparing"}
 	for _, p := range tables {
 		result.Written += p.Written
 		result.Replaced += p.Replaced

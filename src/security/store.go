@@ -137,12 +137,15 @@ const insertSQL = "INSERT INTO " + tableName +
 
 // insert stores the events in one transaction, in their order, and sets
 // their IDs. Either all of them are stored or none.
-func insert(events []Event) error {
-	err := insertBatch(events, 0)
+func insert(events []Event) error { return insertKept(events, 0) }
+
+// insertKept is insert where the first retried events were in a batch that
+// failed (the recorder's path). Fork addition (plan 51): a batch whose handle
+// a switch of the store closed under it is stored at once on the store in
+// use, each event looked up first (review round 3: on the recorder's path).
+func insertKept(events []Event, retried int) error {
+	err := insertBatch(events, retried)
 	if utils.IsClosedHandle(err) {
-		// Fork addition (plan 51): the handle was closed by a switch of the
-		// store under this batch: once more at once on the store in use, each
-		// event looked up first
 		err = insertBatch(events, len(events))
 	}
 	return err

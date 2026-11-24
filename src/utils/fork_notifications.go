@@ -311,7 +311,16 @@ type writeOutcome struct {
 // forkWriteNotification is the hook of WriteNotification. It writes every
 // notification; false only when the database is not open, so that
 // upstream's path reports the error as before.
-func forkWriteNotification(n Notification) bool {
+func forkWriteNotification(n Notification) bool { return writeNotificationAs(n, "") }
+
+// writeNotificationAs writes a notification whose new rows carry ref ("": a
+// new one). A notification kept because its rows could not be written keeps
+// its ref, so that it is looked up before it is written again (plan 51,
+// review round 3: a commit whose answer was lost is not stored twice).
+func writeNotificationAs(n Notification, ref string) bool {
+	if ref == "" {
+		ref = newRef()
+	}
 	db, err := MonitoringWriteDB()
 	if err != nil {
 		return false
@@ -350,10 +359,10 @@ func forkWriteNotification(n Notification) bool {
 		}
 	}
 
-	outcome, err := writeRows(db, n, info, explicit, recipients, audience)
+	outcome, err := writeRows(db, n, info, explicit, recipients, audience, ref)
 	if err != nil {
 		Error("Notifications: Error while writing notification", err)
-		keepNotification(original) // written again a few seconds later, see fork_write_retry.go
+		keepNotification(original, ref) // written again a few seconds later, see fork_write_retry.go
 		return true
 	}
 	if outcome.alert {
@@ -395,11 +404,10 @@ func searchText(n Notification, info NotificationInfo, explicit bool) string {
 	return text
 }
 
-func writeRows(db *sql.DB, n Notification, info NotificationInfo, explicit bool, recipients []string, audience string) (writeOutcome, error) {
+func writeRows(db *sql.DB, n Notification, info NotificationInfo, explicit bool, recipients []string, audience string, ref string) (writeOutcome, error) {
 	now := notificationClock()
 	nowMs := TimeToMillis(now)
 	outcome := writeOutcome{}
-	ref := newRef()
 	search := searchText(n, info, explicit)
 
 	tx, err := db.Begin()

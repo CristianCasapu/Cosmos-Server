@@ -71,3 +71,37 @@ func TestEventOnAClosedHandleWrittenAtOnce(t *testing.T) {
 		t.Errorf("stored %d, kept for later %d", n, kept)
 	}
 }
+
+// Review round 3: a kept notification whose commit went through although
+// its answer was lost is not written again (it keeps its reference and is
+// looked up first).
+func TestAKeptNotificationIsNotWrittenTwice(t *testing.T) {
+	withMonitoringStore(t, DatabaseConfig{}, nil)
+	prev := pendingEvery
+	pendingEvery = 20 * time.Millisecond
+	t.Cleanup(func() { pendingEvery = prev })
+	InitMetricsDatabase()
+	n := Notification{Recipient: "tester", Title: "once", Message: "once", Level: "info"}
+	ref := newRef()
+	if !writeNotificationAs(n, ref) { // stored...
+		t.Fatal("not written")
+	}
+	keepNotification(n, ref) // ...but its answer was "lost"
+	keepNotification(Notification{Recipient: "tester", Title: "kept", Message: "kept", Level: "info"}, newRef())
+	for i := 0; i < 100; i++ {
+		pendingMu.Lock()
+		running := pendingRunning
+		pendingMu.Unlock()
+		if !running {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	db, _ := MonitoringWriteDB()
+	var once, kept int
+	db.QueryRow("SELECT COUNT(*) FROM notifications WHERE title = 'once'").Scan(&once)
+	db.QueryRow("SELECT COUNT(*) FROM notifications WHERE title = 'kept'").Scan(&kept)
+	if once != 1 || kept != 1 {
+		t.Errorf("once %d, kept %d", once, kept)
+	}
+}

@@ -2,12 +2,15 @@ package monitorcopy
 
 // The catch-up after a fallback (plan 51, S4b, the owner's decision of
 // 2026-11-18). While PostgreSQL did not answer, the store's writers wrote
-// into the local file; when PostgreSQL is the store again, the watcher
-// (utils/fork_monitoring_store.go) calls MonitoringCatchUp with the window of
-// the fallback, and the rows the local file got in it are copied into
-// PostgreSQL by the copy's own machinery: by time (each table's touched
-// column, Options.From), paced, idempotent, verified, in the one slot a copy
-// has. It is the one copy that runs without an administrator's click.
+// into the local file; when PostgreSQL is the store again (whatever made it
+// so), utils/fork_monitoring_fallback.go calls MonitoringCatchUp with the
+// fallback's window: the rows the writers inserted into the local file
+// during the fallback (by id, whatever time they carry: review round 3, S1)
+// and the rows touched in its time (metric rows, rows changed in place) are
+// copied into PostgreSQL by the copy's own machinery, metric buckets both
+// stores hold merged exactly once (buckets.go, S2): paced, idempotent,
+// verified row by row and value by value, in the one slot a copy has. It is
+// the one copy that runs without an administrator's click.
 //
 // The windows not yet caught up are kept in PostgreSQL's monitoring_kv
 // (key fork_monitoring_copy:catchup), so that a restart, a new outage or a
@@ -37,10 +40,48 @@ const catchUpKey = markerPrefix + "catchup"
 // margin around a window: the switch's drain, the clocks of the writers
 const catchUpMargin = 5 * time.Second
 
-// Window is a period whose rows of the local file are caught up (unix ms).
+// Window is what a catch-up brings over (unix ms): the rows touched from
+// From to To, the rows with ids in (After, Before] per table; Back is when
+// PostgreSQL became the store again. A window of an older version has times
+// only.
 type Window struct {
-	From int64 `json:"from"`
-	To   int64 `json:"to"`
+	From   int64            `json:"from"`
+	To     int64            `json:"to"`
+	Back   int64            `json:"back,omitempty"`
+	After  map[string]int64 `json:"after,omitempty"`
+	Before map[string]int64 `json:"before,omitempty"`
+}
+
+func (w Window) same(o Window) bool {
+	a, _ := json.Marshal(w)
+	b, _ := json.Marshal(o)
+	return string(a) == string(b)
+}
+
+// touches: o follows w without a row of the local file between them (the
+// local file got no row between the two fallbacks): one run takes both.
+func (w Window) touches(o Window) bool {
+	if w.After == nil || o.After == nil || w.Before == nil {
+		return o.From <= w.To // times only
+	}
+	for _, t := range utils.FallbackTables() {
+		if o.After[t] > w.Before[t] || o.After[t] < w.After[t] {
+			return false
+		}
+	}
+	return true
+}
+
+// ids are the window's id ranges for the copy.
+func (w Window) ids() map[string][2]int64 {
+	if w.After == nil || w.Before == nil {
+		return nil
+	}
+	out := map[string][2]int64{}
+	for t, a := range w.After {
+		out[t] = [2]int64{a, w.Before[t]}
+	}
+	return out
 }
 
 func init() {
@@ -72,10 +113,13 @@ func once(done func(utils.CatchUpResult)) func(utils.CatchUpResult) {
 
 // CatchUpAfterFallback is utils.MonitoringCatchUp. It returns at once; done
 // is called exactly once, from the background.
-func CatchUpAfterFallback(from, to time.Time, done func(utils.CatchUpResult)) {
+func CatchUpAfterFallback(cw utils.CatchUpWindow, done func(utils.CatchUpResult)) {
 	done = once(done)
-	w := Window{From: from.UnixMilli(), To: to.UnixMilli()}
-	if from.IsZero() || !to.After(from) {
+	w := Window{From: cw.From.UnixMilli(), To: cw.To.UnixMilli(), After: cw.After, Before: cw.Before}
+	if !cw.Back.IsZero() {
+		w.Back = cw.Back.UnixMilli()
+	}
+	if cw.From.IsZero() || !cw.To.After(cw.From) {
 		done(utils.CatchUpResult{Ran: true})
 		return
 	}
@@ -139,7 +183,9 @@ func savePending(ctx context.Context, s Store, windows []Window) error {
 	return s.setKV(ctx, s.DB, catchUpKey, string(encoded))
 }
 
-// merge sorts windows and joins those that overlap or touch.
+// merge sorts windows and joins those that overlap or touch (in time, or
+// in the local file's ids: no row of the file between them), so that a
+// backlog after flapping is one run (review round 3, M6).
 func merge(windows []Window) []Window {
 	sort.Slice(windows, func(i, j int) bool { return windows[i].From < windows[j].From })
 	out := []Window{}
@@ -147,13 +193,30 @@ func merge(windows []Window) []Window {
 		if w.To <= w.From {
 			continue
 		}
-		if n := len(out); n > 0 && w.From <= out[n-1].To {
-			if w.To > out[n-1].To {
-				out[n-1].To = w.To
+		if n := len(out); n > 0 && out[n-1].touches(w) {
+			p := &out[n-1]
+			p.To, p.Back = max(p.To, w.To), max(p.Back, w.Back)
+			if p.After != nil && w.After != nil {
+				for t := range w.After {
+					p.After[t] = min(p.After[t], w.After[t])
+					p.Before[t] = max(p.Before[t], w.Before[t])
+				}
+			} else {
+				p.After, p.Before = nil, nil
 			}
 			continue
 		}
-		out = append(out, w)
+		c := w
+		if w.After != nil {
+			c.After, c.Before = map[string]int64{}, map[string]int64{}
+			for t, v := range w.After {
+				c.After[t] = v
+			}
+			for t, v := range w.Before {
+				c.Before[t] = v
+			}
+		}
+		out = append(out, c)
 	}
 	return out
 }
@@ -229,7 +292,7 @@ func catchUpWork() {
 		// the waiters of this window (and of windows merged into it)
 		mine, rest := []waiting{}, []waiting{}
 		for _, q := range waiters {
-			if q.window.From < w.To && q.window.To > w.From || q.window.From == w.From {
+			if q.window.From < w.To && q.window.To > w.From || q.window.From == w.From || w.touches(q.window) {
 				mine = append(mine, q)
 			} else {
 				rest = append(rest, q)
@@ -241,12 +304,10 @@ func catchUpWork() {
 			tell(mine, utils.CatchUpResult{Ran: false})
 			return
 		}
-		caught := utils.CatchUpResult{Ran: true, Copied: result.Written, Missing: result.Missing}
+		caught := utils.CatchUpResult{Ran: true, Counted: result.Counted, Aside: result.Aside, Copied: result.Written, Present: result.Present,
+			Missing: result.Missing, Unchecked: result.Unchecked, Inexact: result.Inexact}
 		if result.Outcome != "done" {
 			caught.Problem = result.Message
-			if caught.Missing == 0 {
-				caught.Missing = 1 // at least: what was not gone through is not known
-			}
 		}
 		removed := false
 		if result.Outcome == "done" {
@@ -255,7 +316,7 @@ func catchUpWork() {
 			if err == nil {
 				kept := []Window{}
 				for _, x := range left {
-					if x != w {
+					if !x.same(w) {
 						kept = append(kept, x)
 					}
 				}
@@ -290,8 +351,9 @@ func runWindow(w Window, write, read Store) (Result, bool) {
 		return Result{}, false
 	}
 	if !localExists() {
-		// no local file: nothing was written aside
-		r := Result{Direction: CatchUp, Outcome: "done", FinishedAt: time.Now(), From: w.From, To: w.To, UpTo: w.To}
+		// no local file: what was written aside cannot be read (review round 3, M4)
+		r := Result{Direction: CatchUp, Outcome: "failed", FinishedAt: time.Now(), From: w.From, To: w.To,
+			Message: "The local file (database.db) is not there any more: the records written into it while the database was away cannot be read."}
 		state.catchUp = &r
 		state.mu.Unlock()
 		return r, true
@@ -312,23 +374,27 @@ func runWindow(w Window, write, read Store) (Result, bool) {
 		Guard:       guardFor(write, read),
 		From:        w.From - catchUpMargin.Milliseconds(),
 		End:         w.To + catchUpMargin.Milliseconds(),
+		IDs:         w.ids(),
+		Back:        w.Back,
 	}
 	utils.Log("Monitoring history catch-up: started")
 	var final Result
 	window := w
 	done := launchLocked(CatchUp, local, write, local, opt, &window, func(r Result) {
+		// true numbers (review round 3, M4): every row of the window is
+		// present, missing, not mergeable exactly, or not checked
+		r.Aside, r.Present, r.Missing, r.Unchecked, r.Inexact = 0, 0, 0, 0, 0
 		for _, p := range r.Tables {
+			r.Aside += p.Total
+			r.Present += p.TargetRows
 			r.Missing += p.Missing
-		}
-		if r.Outcome != "done" && r.Outcome != "mismatch" {
-			for _, p := range r.Tables {
-				if p.Total > p.Done {
-					r.Missing += p.Total - p.Done
-				}
+			r.Inexact += p.Inexact
+			if left := p.Total - p.TargetRows - p.Missing - p.Inexact; left > 0 {
+				r.Unchecked += left
 			}
 		}
 		if r.Outcome == "mismatch" {
-			r.Message = "Some rows written while the database was away are not in PostgreSQL after the catch-up; the copy on the External page brings over what is missing."
+			r.Message = "Some records written while the database was away are not in PostgreSQL after the catch-up; the copy on the External page brings over what is missing."
 		}
 		state.catchUp = &r
 		final = r

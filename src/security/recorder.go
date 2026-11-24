@@ -271,7 +271,7 @@ func (r *Recorder) write(batch []Event) {
 	if len(r.unsaved) > 0 {
 		toStore = append(r.unsaved, batch...)
 	}
-	if err := insertRetrying(toStore, len(r.unsaved)); err != nil { // plan 51: a retried batch may have been stored already
+	if err := insertKept(toStore, len(r.unsaved)); err != nil { // plan 51: a retried batch may have been stored already; a closed handle is tried again at once
 		if !errors.Is(err, utils.ErrDatabaseClosed) {
 			utils.Debug("Security events: the events could not be stored: " + err.Error())
 		}

@@ -125,6 +125,9 @@ type MonitoringStoreState struct {
 	// Advice: the likely right server while it does not answer (from the
 	// PostgreSQL containers of this server)
 	Advice string `json:"advice,omitempty"`
+	// Aside: outages of other servers whose rows stay in the local file (the
+	// settings changed while they lasted; review round 3, M8)
+	Aside []AsideOutage `json:"aside,omitempty"`
 }
 
 var (
@@ -197,9 +200,13 @@ func openMonitoringStore() error {
 	if db.PostgresHost == "" {
 		setStoreState(func(s *MonitoringStoreState) { *s = MonitoringStoreState{Configured: "sqlite"} })
 		storeStateMu.Lock()
-		storeTold, storeOnLocal = false, time.Time{}
+		storeOnLocal = time.Time{}
 		storeStateMu.Unlock()
-		return openLocalStore(node)
+		if err := openLocalStore(node); err != nil {
+			return err
+		}
+		endFallbackForLocal() // an open outage ends: the settings ask for the local file (review round 3, S3)
+		return nil
 	}
 
 	timeout := timing().probe
@@ -230,26 +237,13 @@ func openMonitoringStore() error {
 			err = prepareStoreSchema(w, db)
 		}
 		if err == nil {
-			// an outage told for another server (the settings changed while
-			// it lasted) is closed in the store it was written to
-			prev := GetMonitoringStoreState()
-			local, _ := MonitoringWriteDB()
 			swapMonitoringStore(w, r, DialectPostgres, key, node)
 			swapped = true
-			if prev.Fallback && prev.Host != db.PostgresHost {
-				storeStateMu.Lock()
-				told := storeTold
-				storeTold = false
-				storeStateMu.Unlock()
-				if told && local != nil {
-					monitoringResolveDown()
-				}
-			}
 			markPostgresInUse(db)
 			Log("Monitoring database ready (" + DialectPostgres + ", node " + node + ")")
-			if first {
-				go closeOutageOfLastRun(db) // an outage told before a restart ends now
-			}
+			// every switch to PostgreSQL ends the outages, whatever caused it
+			// (the watcher, a save, the start): review round 3, S3
+			endFallbacks(db, GetMonitoringStoreState())
 			if opened := OnMonitoringStorePostgres; opened != nil {
 				go opened() // a catch-up interrupted by a restart goes on (src/monitorcopy)
 			}
@@ -260,15 +254,16 @@ func openMonitoringStore() error {
 
 	Warn("Monitoring database: PostgreSQL at " + db.PostgresHost + " cannot be the store (" + problem.Reason + "): the local file is used meanwhile")
 	now := monitoringClock()
-	fresh := false
 	setStoreState(func(s *MonitoringStoreState) {
 		same := s.Fallback && s.Host == db.PostgresHost && s.Database == postgresDatabaseName(db)
 		if !same {
-			fresh = true
 			*s = MonitoringStoreState{Since: now}
 			storeTold, storeOnLocal = false, now
+			// a reboot, not an outage: the first fallback of the process only
+			// (review round 3, M5)
+			storeBootFallback = first
 			if first {
-				storeBootUntil = now.Add(timing().bootGrace) // a reboot, not an outage
+				storeBootUntil = now.Add(timing().bootGrace)
 			} else {
 				storeOutages = append(recentOutages(now), now)
 			}
@@ -283,9 +278,7 @@ func openMonitoringStore() error {
 		localUnusable(err)
 		return err
 	}
-	if fresh {
-		takeOutageOfLastRun() // a restart during a told outage: the same outage
-	}
+	beginFallback(db) // recorded in the local file from its start (review round 3, S1, M2, S3)
 	return nil
 }
 
@@ -323,65 +316,27 @@ func unresolvedOutage(local *sql.DB) time.Time {
 	return MillisToTime(first.Int64)
 }
 
-// takeOutageOfLastRun: a fallback that starts while the local file holds an
-// open outage notice (told before a restart) continues that outage (review
-// round 2, S3): told, and since its start.
-func takeOutageOfLastRun() {
-	local, err := MonitoringWriteDB()
-	if err != nil || MonitoringDialectOf(local) != DialectSQLite {
-		return
-	}
-	since := unresolvedOutage(local)
-	if since.IsZero() {
-		return
-	}
-	storeStateMu.Lock()
-	storeTold = true
-	if since.Before(storeState.Since) {
-		storeState.Since = since
-	}
-	storeStateMu.Unlock()
-}
-
-// closeOutageOfLastRun: PostgreSQL answers at the start while the local
-// file holds an open outage notice of the last run: the outage ended during
-// the restart; it is closed there, its rows caught up, and "answers again"
-// told. A variable for the tests.
-var closeOutageOfLastRun = func(db DatabaseConfig) {
-	local, err := sql.Open(DialectSQLite, localFileDSN())
-	if err != nil {
-		return
-	}
-	since := unresolvedOutage(local)
-	local.Close()
-	if since.IsZero() {
-		return
-	}
-	monitoringResolveDown()
-	after := GetMonitoringStoreState()
-	finish := func(caught CatchUpResult) { monitoringTellBack(after, since, caught) }
-	if catchUp := MonitoringCatchUp; catchUp != nil {
-		catchUp(since, monitoringClock(), finish)
-	} else {
-		finish(CatchUpResult{})
-	}
-}
-
 // ensureLocalStore makes the local file the store when no store answers.
+// The state is read again under the lock: a save that made PostgreSQL the
+// store meanwhile is not undone (review round 3, S4).
 func ensureLocalStore() bool {
 	forkInitMu.Lock()
 	defer forkInitMu.Unlock()
+	config := GetMainConfig()
+	if !GetMonitoringStoreState().Fallback || config.Database.PostgresHost == "" {
+		return true
+	}
 	if monitoringInUse() == DialectSQLite {
 		return true
 	}
-	if err := openLocalStore(resolveNodeName(GetMainConfig())); err != nil {
+	if err := openLocalStore(resolveNodeName(config)); err != nil {
 		localUnusable(err)
 		return false
 	}
 	storeStateMu.Lock()
 	storeLocalProblem = ""
 	storeStateMu.Unlock()
-	takeOutageOfLastRun()
+	beginFallback(config.Database)
 	return true
 }
 
@@ -617,7 +572,8 @@ func PauseMonitoringStore() func() {
 func MonitoringStorePartial() bool {
 	storeStateMu.Lock()
 	defer storeStateMu.Unlock()
-	return storeState.Fallback
+	// until the catch-up of the rows written aside has ended (review round 3, M7)
+	return storeState.Fallback || catchUpsRunning.Load() > 0
 }
 
 func kickMonitoringWatcher() {
@@ -707,11 +663,19 @@ func (w *monitoringWatch) look(kicked bool) time.Duration {
 	adviseFallback()
 
 	db := GetMainConfig().Database
-	if db.PostgresHost == "" {
-		return timing().idle
-	}
 	state := GetMonitoringStoreState()
 	now := monitoringClock()
+	if db.PostgresHost == "" {
+		// the local file is asked for: anything else is opened again (review
+		// round 3, S4: the watcher converges from every state)
+		if state.InUse != DialectSQLite || state.Fallback || state.Configured != "sqlite" {
+			if err := InitMetricsDatabase(); err != nil {
+				return w.grow()
+			}
+			return timing().retryFirst
+		}
+		return timing().idle
+	}
 
 	switch {
 	case state.Fallback:
@@ -735,6 +699,7 @@ func (w *monitoringWatch) look(kicked bool) time.Duration {
 				s.NextTry = now.Add(wait)
 			})
 			tellLastingOutage() // still failing: told once it has lasted
+			noteFallback(false)
 			return wait
 		}
 		// it answers: several times, over a while, and after a stay on the
@@ -751,7 +716,7 @@ func (w *monitoringWatch) look(kicked bool) time.Duration {
 			stay = timing().maxStay
 		}
 		storeStateMu.Lock()
-		boot := now.Before(storeBootUntil)
+		boot := storeBootFallback && now.Before(storeBootUntil)
 		storeStateMu.Unlock()
 		ready := boot || w.good >= timing().goodProbes && now.Sub(w.goodSince) >= timing().goodSpan && now.Sub(onLocal) >= stay
 		if !ready {
@@ -775,28 +740,9 @@ func (w *monitoringWatch) look(kicked bool) time.Duration {
 			tellLastingOutage()
 			return wait
 		}
-		storeStateMu.Lock()
-		told := storeTold
-		storeTold = false
-		storeStateMu.Unlock()
+		// the switch ended the outage: its notice, the catch-up and "answers
+		// again" are the opening's (endFallbacks), whatever caused it
 		Log("Monitoring database: PostgreSQL at " + db.PostgresHost + " answers again; the store is PostgreSQL")
-		if told {
-			// the notice of the outage is closed where it was written
-			monitoringResolveDown()
-		}
-		// the rows the local file got meanwhile are brought over (src/monitorcopy),
-		// then "answers again" says so, for an outage that was told
-		from, to := state.Since, now
-		finish := func(caught CatchUpResult) {
-			if told {
-				monitoringTellBack(after, from, caught)
-			}
-		}
-		if catchUp := MonitoringCatchUp; catchUp != nil && !from.IsZero() {
-			catchUp(from, to, finish)
-		} else {
-			finish(CatchUpResult{})
-		}
 		w.backoff, w.failures, w.good = timing().retryFirst, 0, 0
 		return timing().pingEvery
 
@@ -827,7 +773,12 @@ func (w *monitoringWatch) look(kicked bool) time.Duration {
 		}
 		return timing().retryFirst
 	}
-	return timing().idle
+	// PostgreSQL is asked for, no fallback, and the local file is in use (a
+	// look that raced a save, review round 3, S4): opened again
+	if err := InitMetricsDatabase(); err != nil {
+		return w.grow()
+	}
+	return timing().retryFirst
 }
 
 // monitoringAdviceFor is PostgresHostAdvice, bounded; replaced by the tests.
@@ -886,6 +837,7 @@ func tellLastingOutage() {
 	storeStateMu.Unlock()
 	if due {
 		monitoringTellDown(s)
+		noteFallback(true)
 	}
 }
 
@@ -936,19 +888,37 @@ func tellMonitoringDown(s MonitoringStoreState) {
 	}})
 }
 
-// CatchUpResult is what the catch-up after a fallback did.
+// CatchUpResult is what the catch-up after a fallback did, in numbers that
+// are true (review round 3): Aside = Present + Missing + Unchecked.
 type CatchUpResult struct {
-	Ran     bool   // it ran (a manual copy running, or no copy machinery: false)
-	Copied  int64  // rows brought over
-	Missing int64  // rows of the window not brought over
+	Ran bool // it ran (a manual copy running, or no copy machinery: false)
+	// Counted: the records were counted (false: it stopped before; the
+	// numbers below are then not known)
+	Counted bool
+	// Aside: the records the local file got during the fallback (counted
+	// there: the rows with the fallback's ids, the metric rows of its time)
+	Aside   int64
+	Copied  int64 // rows this catch-up wrote into PostgreSQL
+	Present int64 // records checked: in PostgreSQL, with their values
+	Missing int64 // records checked: not in PostgreSQL (or not with their values)
+	// Unchecked: records not checked (the catch-up stopped before its check)
+	Unchecked int64
+	// Inexact: hourly or daily totals that could not be added up exactly
+	Inexact int64
 	Problem string // why not, a fixed sentence ("" when nothing is missing)
 }
 
+// Complete: every record of the fallback is known to be in PostgreSQL with
+// its value.
+func (r CatchUpResult) Complete() bool {
+	return r.Ran && r.Counted && r.Missing == 0 && r.Unchecked == 0 && r.Inexact == 0 && r.Problem == ""
+}
+
 // MonitoringCatchUp is set by src/monitorcopy: after a switch back to
-// PostgreSQL it brings the rows the local file got between from and to into
-// the store in use (paced, idempotent, verified, recorded as automatic, in
-// the background), then calls done once. nil: nothing is caught up.
-var MonitoringCatchUp func(from, to time.Time, done func(CatchUpResult))
+// PostgreSQL it brings the rows of the window the local file got into the
+// store in use (paced, idempotent, verified, recorded as automatic, in the
+// background), then calls done once. nil: nothing is caught up.
+var MonitoringCatchUp func(w CatchUpWindow, done func(CatchUpResult))
 
 // OnMonitoringStorePostgres is set by src/monitorcopy: called (in its own
 // goroutine) each time PostgreSQL becomes the store in use.
@@ -960,12 +930,21 @@ func tellMonitoringBack(s MonitoringStoreState, since time.Time, caught CatchUpR
 		"from", since.Local().Format("2006-01-02 15:04"), "to", now.Local().Format("2006-01-02 15:04"))
 	steps := []NotificationStep{{NotificationText: *NText("notif.step.monitoringdb.copy"), Link: "/cosmos-ui/config-general?tab=external"}}
 	switch {
-	case caught.Ran && caught.Missing == 0:
-		means = NText("notif.monitoring.store.restored.caught", "duration", NotificationDuration(now.Sub(since)), "count", strconv.FormatInt(caught.Copied, 10))
+	case caught.Complete():
+		means = NText("notif.monitoring.store.restored.caught", "duration", NotificationDuration(now.Sub(since)),
+			"aside", strconv.FormatInt(caught.Aside, 10), "count", strconv.FormatInt(caught.Copied, 10))
 		steps = nil
+	case caught.Ran && !caught.Counted:
+		means = NText("notif.monitoring.store.restored.unknown", "duration", NotificationDuration(now.Sub(since)), "problem", caught.Problem)
 	case caught.Ran:
+		problem := caught.Problem
+		if caught.Inexact > 0 {
+			problem = strings.TrimSpace(problem + " " + strconv.FormatInt(caught.Inexact, 10) +
+				" hourly or daily totals could not be added up exactly (their kind of total cannot be merged).")
+		}
 		means = NText("notif.monitoring.store.restored.partly", "duration", NotificationDuration(now.Sub(since)),
-			"count", strconv.FormatInt(caught.Copied, 10), "missing", strconv.FormatInt(caught.Missing, 10), "problem", caught.Problem)
+			"aside", strconv.FormatInt(caught.Aside, 10), "present", strconv.FormatInt(caught.Present, 10),
+			"missing", strconv.FormatInt(caught.Missing, 10), "unchecked", strconv.FormatInt(caught.Unchecked, 10), "problem", problem)
 	}
 	WriteNotification(Notification{Recipient: "admin", Level: "success", Fork: &NotificationInfo{
 		Kind: "monitoring.store.restored", Thread: monitoringStoreThread, Resolves: monitoringStoreThread,
@@ -979,20 +958,27 @@ func tellMonitoringBack(s MonitoringStoreState, since time.Time, caught CatchUpR
 var monitoringNotificationKinds = map[string]notificationKind{
 	"monitoring.store.down":     {"monitoring", "notif.monitoring.store.down.title"},
 	"monitoring.store.restored": {"monitoring", "notif.monitoring.store.restored.title"},
+	"monitoring.store.ended":    {"monitoring", "notif.monitoring.store.ended.title"},
 }
 
 var monitoringNotificationTexts = map[string]string{
-	"notif.monitoring.store.down.title":      "The monitoring database does not answer",
-	"notif.monitoring.store.down.what":       "The monitoring database at {{host}} does not answer since {{at}}: {{reason}}",
-	"notif.monitoring.store.down.means":      "Monitoring keeps recording into the local file (database.db) meanwhile: the charts, events and notifications of this period are there, not in PostgreSQL.",
-	"notif.monitoring.store.down.doing":      "Cosmos tries the database again by itself, more and more seldom (at most every 5 minutes), and switches over once it has answered steadily for a minute.",
-	"notif.monitoring.store.restored.title":  "The monitoring database answers again",
-	"notif.monitoring.store.restored.what":   "The monitoring database at {{host}} answers again since {{at}}: monitoring records into it again.",
-	"notif.monitoring.store.restored.means":  "It did not answer for {{duration}}. The records from {{from}} to {{to}} are in the local file (database.db).",
-	"notif.monitoring.store.restored.caught": "It did not answer for {{duration}}. The {{count}} records written meanwhile into the local file were brought over: the history in the database has no gap.",
-	"notif.monitoring.store.restored.partly": "It did not answer for {{duration}}. {{count}} records written meanwhile into the local file were brought over; {{missing}} were not: {{problem}}",
-	"notif.step.monitoringdb.open":           "Open Configuration > External (the monitoring database) and check the server, the port and that the database runs",
-	"notif.step.monitoringdb.copy":           "Open Configuration > External to copy the records of the local file into the database",
+	"notif.monitoring.store.down.title":       "The monitoring database does not answer",
+	"notif.monitoring.store.down.what":        "The monitoring database at {{host}} does not answer since {{at}}: {{reason}}",
+	"notif.monitoring.store.down.means":       "Monitoring keeps recording into the local file (database.db) meanwhile: the charts, events and notifications of this period are there, not in PostgreSQL.",
+	"notif.monitoring.store.down.doing":       "Cosmos tries the database again by itself, more and more seldom (at most every 5 minutes), and switches over once it has answered steadily for a minute.",
+	"notif.monitoring.store.restored.title":   "The monitoring database answers again",
+	"notif.monitoring.store.restored.what":    "The monitoring database at {{host}} answers again since {{at}}: monitoring records into it again.",
+	"notif.monitoring.store.restored.means":   "It did not answer for {{duration}}. The records from {{from}} to {{to}} are in the local file (database.db).",
+	"notif.monitoring.store.restored.caught":  "It did not answer for {{duration}}. The {{aside}} records written meanwhile into the local file are in the database now, checked one by one ({{count}} brought over by the catch-up): the history in the database has no gap.",
+	"notif.monitoring.store.restored.partly":  "It did not answer for {{duration}}. {{aside}} records were written meanwhile into the local file: {{present}} are in the database now, {{missing}} are not, {{unchecked}} could not be checked. {{problem}}",
+	"notif.monitoring.store.restored.unknown": "It did not answer for {{duration}}. The records written meanwhile into the local file could not be counted nor brought over now: {{problem}} Cosmos tries again the next time the database becomes the store.",
+	"notif.monitoring.store.ended.title":      "The outage of the monitoring database is closed",
+	"notif.monitoring.store.ended.other":      "The settings name another monitoring database now. The records written into the local file (database.db) while the earlier one did not answer stay there; Configuration > External can copy them.",
+	"notif.monitoring.store.ended.local":      "Monitoring uses the local file (database.db) now, as the settings ask: the outage of the monitoring database is closed.",
+	"notif.monitoring.store.ended.stale":      "Cosmos was not running for a long time during this outage of the monitoring database: it is closed here, and a new one is counted from now.",
+	"notif.monitoring.store.ended.staleback":  "The monitoring database answers again. Cosmos was not running for a long time during its outage, so how long it lasted is not known; the records written meanwhile into the local file are brought over.",
+	"notif.step.monitoringdb.open":            "Open Configuration > External (the monitoring database) and check the server, the port and that the database runs",
+	"notif.step.monitoringdb.copy":            "Open Configuration > External to copy the records of the local file into the database",
 }
 
 func init() {

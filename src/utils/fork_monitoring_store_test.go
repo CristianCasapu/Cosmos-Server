@@ -37,7 +37,26 @@ type storeStub struct {
 	down     []MonitoringStoreState
 	back     []MonitoringStoreState
 	resolved int
+	ended    []string
 	now      time.Time
+}
+
+// waitCatchUps waits for the catch-ups handed over after switches (they run
+// after the drain, in the background).
+func waitCatchUps(t *testing.T) {
+	t.Helper()
+	for i := 0; i < 400 && catchUpsRunning.Load() > 0; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := catchUpsRunning.Load(); n > 0 {
+		t.Fatalf("%d catch-ups still running", n)
+	}
+}
+
+func (s *storeStub) endedWhy() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.ended...)
 }
 
 func (s *storeStub) clock() time.Time {
@@ -81,7 +100,7 @@ func withMonitoringStore(t *testing.T, db DatabaseConfig, problem *PostgresProbl
 	stub := &storeStub{problem: problem, now: time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC)}
 	storeWatchPaused.Store(true) // the test's own looks only
 	prevFolder, prevConfig := CONFIGFOLDER, GetBaseMainConfig()
-	prevProbe, prevDown, prevBack, prevResolve := probeMonitoringPostgres, monitoringTellDown, monitoringTellBack, monitoringResolveDown
+	prevProbe, prevDown, prevBack, prevResolve, prevEnded := probeMonitoringPostgres, monitoringTellDown, monitoringTellBack, monitoringResolveDown, tellMonitoringEnded
 	prevClock, prevAdvice, prevOpen, prevSchema, prevPing := monitoringClock, monitoringAdviceFor, openPostgresStore, prepareStoreSchema, pingMonitoringStore
 	prevTiming := timing()
 	CloseMetricsDatabase()
@@ -107,6 +126,7 @@ func withMonitoringStore(t *testing.T, db DatabaseConfig, problem *PostgresProbl
 		stub.mu.Unlock()
 	}
 	monitoringResolveDown = func() { stub.mu.Lock(); stub.resolved++; stub.mu.Unlock() }
+	tellMonitoringEnded = func(why string) { stub.mu.Lock(); stub.ended = append(stub.ended, why); stub.mu.Unlock() }
 	monitoringAdviceFor = func(string, string) string { return "" }
 	setTiming(func(*storeTimes) { storeTiming.drain = 50 * time.Millisecond })
 	resetStoreState()
@@ -114,7 +134,8 @@ func withMonitoringStore(t *testing.T, db DatabaseConfig, problem *PostgresProbl
 		CloseMetricsDatabase()
 		CONFIGFOLDER = prevFolder
 		LoadBaseMainConfig(prevConfig)
-		probeMonitoringPostgres, monitoringTellDown, monitoringTellBack, monitoringResolveDown = prevProbe, prevDown, prevBack, prevResolve
+		waitCatchUps(t)
+		probeMonitoringPostgres, monitoringTellDown, monitoringTellBack, monitoringResolveDown, tellMonitoringEnded = prevProbe, prevDown, prevBack, prevResolve, prevEnded
 		monitoringClock, monitoringAdviceFor, openPostgresStore, prepareStoreSchema, pingMonitoringStore = prevClock, prevAdvice, prevOpen, prevSchema, prevPing
 		setTiming(func(t *storeTimes) { *t = prevTiming })
 		resetStoreState()
@@ -357,6 +378,7 @@ func TestHysteresis(t *testing.T) {
 	for i := 0; i < 200 && MonitoringDialect() != DialectPostgres; i++ {
 		stub.advance(look())
 	}
+	waitCatchUps(t)
 	if down, back, resolved := stub.counts(); down != 1 || back != 1 || resolved != 1 {
 		t.Errorf("long outage: %d down, %d back, %d resolved", down, back, resolved)
 	}
@@ -856,8 +878,15 @@ func TestOutageOfAnOldServerClosedOnAChange(t *testing.T) {
 	LoadBaseMainConfig(config)
 	stub.setProblem(nil)
 	InitMetricsDatabase() // the save of the new server
+	waitCatchUps(t)
 	if down, back, resolved := stub.counts(); MonitoringDialect() != DialectPostgres || resolved != 1 || back != 0 || down != 1 {
 		t.Errorf("%s: down %d, back %d, resolved %d", MonitoringDialect(), down, back, resolved)
+	}
+	if why := stub.endedWhy(); len(why) != 1 || why[0] != "other" {
+		t.Errorf("closed with %v, want the words of another server", why)
+	}
+	if s := GetMonitoringStoreState(); len(s.Aside) != 1 || s.Aside[0].Host != "172.17.0.2:5432" {
+		t.Errorf("the rows of the old server's outage are not said to stay aside: %+v", s.Aside)
 	}
 	stub.advance(time.Hour)
 	w.look(false)
@@ -945,13 +974,16 @@ func TestLocalFileRetriedUntilThereIsAStore(t *testing.T) {
 func TestRestartDuringAToldOutage(t *testing.T) {
 	stub := withMonitoringStore(t, DatabaseConfig{PostgresHost: "192.0.2.10:5432", PostgresUsername: "cosmos", PostgresPassword: "x"}, refusedProblem)
 	fakePostgres(t)
+	started := stub.clock()
 	InitMetricsDatabase()
-	local, _ := MonitoringWriteDB()
-	started := stub.clock().Add(-10 * time.Minute)
-	if _, err := local.Exec("INSERT INTO notifications(node, recipient, title, date, fork_kind, fork_thread, fork_first, fork_info) VALUES('n', 'admin', 't', ?, 'monitoring.store.down', ?, ?, '{}')",
-		TimeToMillis(started), monitoringStoreThread, TimeToMillis(started)); err != nil {
-		t.Fatal(err)
+	w0 := &monitoringWatch{backoff: storeTiming.retryFirst}
+	w0.look(true)
+	stub.advance(storeTiming.tellAfter + time.Minute)
+	w0.look(false)
+	if down, _, _ := stub.counts(); down != 1 {
+		t.Fatal("not told before the restart")
 	}
+	stub.advance(10 * time.Minute)
 	// "the restart": the in-memory state of the outage is gone
 	resetStoreState()
 	storeStateMu.Lock()
@@ -970,7 +1002,8 @@ func TestRestartDuringAToldOutage(t *testing.T) {
 	for i := 0; i < 50 && MonitoringDialect() != DialectPostgres; i++ {
 		stub.advance(w.look(false))
 	}
-	if down, back, resolved := stub.counts(); MonitoringDialect() != DialectPostgres || back != 1 || resolved != 1 || down != 0 {
+	waitCatchUps(t)
+	if down, back, resolved := stub.counts(); MonitoringDialect() != DialectPostgres || back != 1 || resolved != 1 || down != 1 {
 		t.Errorf("%s: down %d back %d resolved %d", MonitoringDialect(), down, back, resolved)
 	}
 }

@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io"
 	"math"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -34,10 +36,6 @@ import (
 
 const verifyMargin = time.Hour
 
-// bucketOpen: how long after its date a metric bucket may still change (the
-// longest granularity is a month).
-const bucketOpen = 32 * 24 * time.Hour
-
 func (c *copier) verifyExtra(r rule, now int64) (string, []interface{}) {
 	where := ""
 	args := []interface{}{}
@@ -57,14 +55,17 @@ func (c *copier) verifyTable(ctx context.Context, i int, r rule) error {
 	now := c.opt.now().UnixMilli()
 	extra, extraArgs := c.verifyExtra(r, now)
 	mismatch := false
-	var sourceRows, targetRows, missing int64
+	var sourceRows, targetRows, missing, inexact int64
 
 	// every source row of the copied range, one by one: the target's own
 	// rows (of its turns as the store in use, at any time) are not compared
 	var err error
-	if r.surrogate() {
+	switch {
+	case r.surrogate():
 		sourceRows, targetRows, missing, err = c.verifySurrogate(ctx, r, math.MinInt64, extra, extraArgs)
-	} else {
+	case r.table == "metric_values":
+		sourceRows, targetRows, missing, inexact, err = c.verifyBuckets(ctx, r, extra, extraArgs)
+	default:
 		sourceRows, targetRows, missing, err = c.verifyKeys(ctx, r, extra, extraArgs)
 	}
 	if err != nil {
@@ -73,7 +74,7 @@ func (c *copier) verifyTable(ctx context.Context, i int, r rule) error {
 	mismatch = missing > 0
 
 	c.track.set(i, func(p *TableProgress) {
-		p.SourceRows, p.TargetRows, p.Missing = sourceRows, targetRows, missing
+		p.SourceRows, p.TargetRows, p.Missing, p.Inexact = sourceRows, targetRows, missing, inexact
 		p.State = "verified"
 		if mismatch {
 			p.State = "mismatch"
@@ -146,20 +147,6 @@ func (c *copier) verifyKeys(ctx context.Context, r rule, extra string, extraArgs
 	if r.table == "metrics" {
 		lastUpdate = r.index("last_update")
 	}
-	// where the source wins (to the local file), a closed bucket the copy
-	// wrote must hold the source's values; a bucket may still change for a
-	// month after its date, and the target's own value wins where it is the
-	// store in use, so only those are compared
-	closedBefore := int64(math.MinInt64)
-	values := []int{}
-	if r.table == "metric_values" && !c.opt.TargetInUse {
-		closedBefore = c.marker.End - bucketOpen.Milliseconds()
-		values = []int{r.index("value"), r.index("avg_index"), r.index("expire")}
-	}
-	date := -1
-	if r.table == "metric_values" {
-		date = r.index("date")
-	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -220,18 +207,6 @@ func (c *copier) verifyKeys(ctx context.Context, r rule, extra string, extraArgs
 					continue
 				}
 			}
-			if date >= 0 && one.values[date].(int64) < closedBefore {
-				differs := false
-				for _, k := range values {
-					if one.values[k] != there.values[k] {
-						differs = true
-					}
-				}
-				if differs {
-					missing++
-					continue
-				}
-			}
 			targetRows++
 		}
 		after = encodeKey(r, batch[len(batch)-1].values)
@@ -268,7 +243,7 @@ func (c *copier) fail(r rule, stage string, err error) error {
 		sentence = "A value of column " + tooLarge.column + " in " + name + " is too large for PostgreSQL: nothing of that batch was copied."
 	case errors.Is(err, context.DeadlineExceeded):
 		sentence = "The database did not answer in time while working on " + name + ". The rows copied so far are kept; the copy can be resumed."
-	case errors.Is(err, sql.ErrConnDone) || strings.Contains(err.Error(), "database is closed"):
+	case errors.Is(err, sql.ErrConnDone) || connectionCut(err):
 		sentence = "The connection to the database closed while working on " + name + ". The rows copied so far are kept; the copy can be resumed."
 	case errors.As(err, &pgErr):
 		switch {
@@ -285,4 +260,19 @@ func (c *copier) fail(r rule, stage string, err error) error {
 		sentence = "The local file was busy for too long while working on " + name + ". The rows copied so far are kept; the copy can be resumed."
 	}
 	return &CopyError{Table: table, Sentence: sentence, Err: err}
+}
+
+// connectionCut: the connection to the database was lost under a statement
+// (review round 3, M4: not "the database refused the batch").
+func connectionCut(err error) bool {
+	if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNREFUSED) {
+		return true
+	}
+	text := err.Error()
+	for _, cue := range []string{"database is closed", "conn closed", "unexpected EOF", "connection reset", "broken pipe", "connection refused", "failed to connect", "server closed the connection"} {
+		if strings.Contains(text, cue) {
+			return true
+		}
+	}
+	return false
 }
