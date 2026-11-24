@@ -156,12 +156,7 @@ func round(st *store, r Readers, docker *dockerWatch, slots map[string]*slot, du
 		sl.checkStuck(now)
 	}
 	if s.Docker && r.DockerPing != nil {
-		slots["docker"].start(now, func() {
-			docker.check(r.DockerPing, time.Now)
-			if docker.wasConcluded() {
-				markLooked("docker")
-			}
-		})
+		slots["docker"].start(now, func() { lookDocker(docker, r.DockerPing) })
 	} else {
 		docker.unwatched()
 		markLooked("docker")
@@ -197,4 +192,13 @@ func contains(text string, parts ...string) bool {
 		}
 	}
 	return false
+}
+
+// lookDocker asks Docker once; the look counts for the level only when it
+// concluded (plan 48, review 6: a check inside the grace concludes nothing).
+func lookDocker(docker *dockerWatch, ping func(time.Duration) error) {
+	docker.check(ping, time.Now)
+	if docker.wasConcluded() {
+		markLooked("docker")
+	}
 }

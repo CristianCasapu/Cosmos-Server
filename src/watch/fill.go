@@ -18,10 +18,15 @@ import (
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
+// the fill watch's timing: variables only for the end-to-end build with
+// the tag watch_fastclock (fastclock_e2e.go), never set otherwise
+var (
+	fillEvery   = 30 * time.Minute
+	fillWindow  = 24 * time.Hour
+	fillMinSpan = 6 * time.Hour
+)
+
 const (
-	fillEvery     = 30 * time.Minute
-	fillWindow    = 24 * time.Hour
-	fillMinSpan   = 6 * time.Hour
 	fillMinPoints = 6
 	maxMounts     = 16
 	maxSamples    = 50

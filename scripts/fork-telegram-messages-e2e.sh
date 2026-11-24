@@ -14,6 +14,11 @@
 #   sh scripts/fork-telegram-messages-e2e.sh events2   plan 48's watches that can be faked here: the test's own
 #                                                      Docker paused for four minutes (Docker not answering, then
 #                                                      again), a scheduled job that fails and then works again
+#   sh scripts/fork-telegram-messages-e2e.sh events3   a data disk of the test's own (a 3 GiB ext4 file, loop-mounted
+#                                                      at /mnt/data in the test Cosmos) filled by 1.5 GiB in two
+#                                                      minutes, then emptied: "filling fast" opens, then ends (the
+#                                                      server is built with the tag watch_fastclock: samples every
+#                                                      20 s over 4 min; a release never has it)
 #   sh scripts/fork-telegram-messages-e2e.sh messages  print what the stand-in received (also to $SCRATCH/messages.txt)
 #   sh scripts/fork-telegram-messages-e2e.sh clean     remove everything it made
 #
@@ -63,7 +68,10 @@ wait_for() {
 up() {
 	clean
 	test -s "$REPO/static/index.html" || { echo "build ./static first (npx vite build --base=/cosmos-ui/)"; exit 2; }
-	mkdir -p "$SCRATCH/bin" "$SCRATCH/config" "$SCRATCH/shared"
+	mkdir -p "$SCRATCH/bin" "$SCRATCH/config" "$SCRATCH/shared" "$SCRATCH/disk"
+	# a data disk of the test's own (events3): a sparse 3 GiB ext4 file
+	docker run --rm --name "$PREFIX-mkfs" -v "$SCRATCH/disk:/disk" "$GO_IMAGE" sh -c \
+		'truncate -s 3G /disk/data.img && mkfs.ext4 -q -F /disk/data.img' >/dev/null
 	echo "== building the server and the stand-in"
 	docker run --rm --name "$PREFIX-build" -v "$REPO:/src:ro" -v "$SCRATCH/bin:/out" \
 		-v /storage/dev/.cache/go-mod:/go/pkg/mod -v /storage/dev/.cache/go-build:/root/.cache/go-build \
@@ -71,7 +79,7 @@ up() {
 		set -e
 		mkdir -p /tmp/build/scripts && cp -r src go.mod go.sum /tmp/build/ && cp scripts/fork-fake-telegram.go /tmp/build/scripts/
 		cd /tmp/build
-		go build -o /out/cosmos src/*.go
+		go build -tags watch_fastclock -o /out/cosmos src/*.go
 		go build -o /out/fake-telegram scripts/fork-fake-telegram.go
 		echo "{\"version\": \"0.0.0-tgmsg-test\"}" > /out/meta.json
 	'
@@ -89,11 +97,13 @@ up() {
 	docker save busybox:1.36 | docker exec -i "$PREFIX-dind" docker load >/dev/null
 
 	echo "== the test Cosmos"
+	# privileged for the loop mount of its data disk (events3)
 	docker run -d --name "$PREFIX-app" --hostname cosmos-tgmsg-app --network "$NET" --ip "$APP" --network-alias cosmos.example.org \
+		--privileged -v "$SCRATCH/disk:/disk" \
 		-v "$SCRATCH/bin:/work:ro" -v "$SCRATCH/shared:/shared:ro" -v "$SCRATCH/config:/config" -w /work \
 		-e COSMOS_CONFIG_FOLDER=/config/ -e COSMOS_HTTP_PORT=2052 -e COSMOS_HTTPS_PORT=2053 -e SSL_CERT_FILE=/shared/ca.pem -e TZ=UTC \
 		-e DOCKER_HOST="tcp://$SUBNET.30:2375" \
-		--entrypoint sh "$BOX_IMAGE" -c 'while true; do /work/cosmos; sleep 1; done' >/dev/null
+		--entrypoint sh "$BOX_IMAGE" -c 'mkdir -p /mnt/data && mount -o loop /disk/data.img /mnt/data; while true; do /work/cosmos; sleep 1; done' >/dev/null
 	wait_for "http://cosmos.example.org:2052/cosmos/api/status"
 	step() { ctl curl -s -o /dev/null -m 30 -H 'Content-Type: application/json' -d "$1" "http://$APP:2052/cosmos/api/newInstall" || true; }
 	step '{"step":"2","mongodbMode":"Create"}'
@@ -166,6 +176,19 @@ events2() {
 	sleep 60
 }
 
+events3() {
+	echo "== the test's data disk filled by 1.5 GiB in two minutes"
+	for i in $(seq 1 12); do
+		docker exec "$PREFIX-app" dd if=/dev/zero of=/mnt/data/fill-$i bs=1M count=128 conv=fsync 2>/dev/null
+		sleep 10
+	done
+	echo "== waiting for the warning (a sample every 20 s)"
+	sleep 120
+	echo "== emptied: the warning ends"
+	docker exec "$PREFIX-app" sh -c 'rm -f /mnt/data/fill-*; sync'
+	sleep 300
+}
+
 messages() {
 	ctl curl -s "http://$FAKE:8080/messages" > "$SCRATCH/messages.json"
 	docker run --rm -v "$SCRATCH:/s" "$NODE_IMAGE" node -e '
@@ -186,8 +209,9 @@ case "${1:-}" in
 up) up ;;
 events) events ;;
 events2) events2 ;;
+events3) events3 ;;
 messages) messages ;;
 clean) clean ;;
 ctl) shift; ctl "$@" ;;
-*) echo "usage: $0 up|events|events2|messages|clean|ctl ..."; exit 2 ;;
+*) echo "usage: $0 up|events|events2|events3|messages|clean|ctl ..."; exit 2 ;;
 esac

@@ -211,3 +211,19 @@ func TestTheLevelOfAStuckWatch(t *testing.T) {
 		t.Errorf("free: open %v known %v", open, known)
 	}
 }
+
+// review 6, M1: a Docker check inside the start-up grace is no look for the
+// level; one that Docker answered is.
+func TestADockerCheckInsideTheGraceIsNoLook(t *testing.T) {
+	record(t)
+	st := levelEnv(t, filepath.Join(t.TempDir(), "missing.json"))
+	dw := newDockerWatch(st, time.Now())
+	lookDocker(dw, func(time.Duration) error { return errors.New("refused") })
+	if _, known := utils.SourceThreadLevel("docker.down", dockerThread); known {
+		t.Error("a failing check inside the grace counts")
+	}
+	lookDocker(dw, func(time.Duration) error { return nil })
+	if open, known := utils.SourceThreadLevel("docker.down", dockerThread); open || !known {
+		t.Errorf("Docker answered: open %v known %v", open, known)
+	}
+}
