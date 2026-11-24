@@ -88,7 +88,7 @@ This fork is used in production on one server. It is checked by unit tests, by a
 - **Routers:** UPnP port forwarding is tested mostly against a stand-in router; real routers differ in what they list and answer. Nothing watches from outside the network whether the server can be reached.
 - **Devices:** the installable app was never tried on real phones or tablets; the panel was not tried on a real phone, real Safari or with a screen reader.
 - **Email:** the less common entries of the built-in provider table are unverified.
-- **arm64:** the arm64 zip is built and signed by the same checks, but only the amd64 build is started by them.
+- **arm64:** the arm64 zip is built and signed by the same checks, but only the amd64 build is started by them, and the install scripts are tried on amd64 machines only.
 - **Limited API tokens and roles:** by upstream's design the "Configuration" permission still controls the network edge (URLs, hostnames, trusted proxies, the admin address list), "Resources" is root through Docker and "Admin" through the terminal. Treat a token with one of those as powerful. Turnstile and the blocks at Cloudflare's edge were tried against stand-ins, never against the real Cloudflare.
 - Upstream's generated API documentation (`api-docs/`) does not know the fork's routes, and upstream's test `TestEveryRouteIsDocumented` fails for them by design.
 
@@ -100,11 +100,93 @@ The working list of what is left is [`FORK-IDEAS.md`](FORK-IDEAS.md).
 
 ### What is supported
 
-The fork is built for the owner's own use: **upstream's bare-metal installation on Linux** (Cosmos in a folder such as `/opt/cosmos`, run as the systemd service `CosmosCloud` that `cosmos service install` sets up, configuration in `/var/lib/cosmos`), amd64. The fork publishes **no Docker image**; its updater replaces files in place, which a Docker install does not do. Nothing is promised beyond that: no support, no warranty (see [`LICENCE`](LICENCE) and [`FORK-LICENCE.md`](FORK-LICENCE.md)), no guaranteed upgrade path back to upstream. Questions about the fork belong in this repository's issues, not on upstream's Discord or issue tracker.
+The fork is built for the owner's own use: **upstream's bare-metal installation on Linux** (Cosmos in a folder such as `/opt/cosmos`, run as the systemd service `CosmosCloud` that `cosmos service install` sets up, configuration in `/var/lib/cosmos`), amd64 and arm64. A new server is installed with `install.sh` (below) on Debian 12 or 13, or Ubuntu 24.04 or 26.04. The fork publishes **no Docker image**; its updater replaces files in place, which a Docker install does not do. Nothing is promised beyond that: no support, no warranty (see [`LICENCE`](LICENCE) and [`FORK-LICENCE.md`](FORK-LICENCE.md)), no guaranteed upgrade path back to upstream. Questions about the fork belong in this repository's issues, not on upstream's Discord or issue tracker.
+
+### Install
+
+On a Debian 12 or 13, or Ubuntu 24.04 or 26.04 server (amd64 or arm64, with systemd) where no Cosmos is installed:
+
+```sh
+curl -fsSLO https://github.com/CristianCasapu/Cosmos-Server/releases/latest/download/install.sh
+less install.sh                  # it runs as root: read it first
+sudo bash install.sh --dry-run   # what it would do; changes nothing
+sudo bash install.sh
+```
+
+What it does, in this order:
+
+1. It looks for a Cosmos that is already there: this fork, upstream's Cosmos (in a folder or as a container), a `CosmosCloud` unit, an `/opt/cosmos` folder, or the data of an earlier one in `/var/lib/cosmos`. If it finds one it **stops**, before it changes anything. It never runs over an installation, and no option makes it: an installed fork updates itself (see [How updates arrive](#how-updates-arrive)).
+2. It checks the system: root, Debian or Ubuntu in a supported version (another is refused unless `--force`, at your own risk), the processor, systemd, free space (about 1.2 GB in `/opt`, 700 MB in `/var/tmp`, 300 MB in `/var/lib`), and free ports: 80 and 443, else 8080/8443, else 2052/2053. On a new server the system's own daily apt run (`apt-daily`, `unattended-upgrades`) often holds apt for a few minutes: the script says which program it waits for, and waits at most 10 minutes for it.
+3. It works out which packages are missing and has apt **simulate** installing them, on a copy of the package lists: a package that cannot be had, or a dead network, stops it before anything was changed.
+4. It installs `ca-certificates`, `curl`, `unzip` and `openssl` if they are missing, downloads the release from GitHub (or takes it from `--from`) and **verifies it before it unpacks anything**: the Ed25519 signature file against the release keys written into the script when the release was built, the zip's SHA-256 against the signed line, the MD5, and every entry of the zip (no absolute path, no `..`, no link, no duplicate name, nothing outside its top folder). A release that does not verify stops it, and the four tools it just installed are removed again: nothing is left.
+5. It installs what Cosmos needs (`iproute2`, `procps`, `util-linux`, `psmisc`, `avahi-daemon` for `.local` names, `iptables`, and the Storage pages' tools `fuse3`, `mergerfs`, `snapraid`, `samba`, `mdadm`, `parted`, `e2fsprogs` unless `--storage-tools no`) and **Docker from Docker's own apt repository** (Docker's signing key is inside the script). A Docker that is already there (the distribution's `docker.io`, Docker's packages, or the snap) is used as it is and never touched; one older than 20.10, or one that does not answer, stops the script.
+6. It unpacks the release to `/opt/cosmos`, makes the data folder `/var/lib/cosmos` (mode 0700), writes the systemd unit `CosmosCloud` itself, enables and starts it, and waits until the panel answers.
+7. When protection was chosen, it runs the release's protection pieces (see "Protection" below).
+8. It prints where to finish the first-run wizard, and the one-time setup code.
+
+It opens nothing to the internet: no firewall rule, no router forward. Everything it installed or wrote is listed in `/var/lib/cosmos-installer/record`, and the uninstaller removes exactly that.
+
+**How far the first download is trusted.** `install.sh` itself comes over HTTPS from GitHub, and that is all that vouches for it (a checksum printed here would come from the same place). From there the script proves what it installs: it verifies the release's signature with the keys stamped into it. To check `install.sh` by hand as well, see [Checking a release by hand](#checking-a-release-by-hand). A copy of `install.sh` keeps trusting the keys it carries, also after a later release replaced a key: always download it anew from the latest release. A kept old copy may refuse a release signed only with a new key, and would go on trusting a key that was retired; when a key is retired because it leaked, the release notes say so, and copies from before that release must not be used.
+
+The script must be run from a file: `curl … | sh` is refused. It installs the release it belongs to or a newer one: when a newer release is asked for (`--version`, or the newest is newer than the script), it takes that release's own `install.sh`, after checking it against the release's signed list of scripts. An older release is refused unless `--allow-older`.
+
+**Where the wizard answers, and the setup code.** Until the first-run wizard has set HTTPS up, it speaks plain HTTP: what is typed into it crosses the network in clear.
+
+- By default (no `--placement`, or a cloud server, the router's exposed host, `--reachable internet`, a public IPv4 address or a global IPv6 address on an interface of the server) the wizard answers on **127.0.0.1 only** until it is done. The script prints the SSH tunnel to open from your computer, for example `ssh -L 8080:127.0.0.1:80 you@your-server`, then `http://127.0.0.1:8080/` on that computer. In the wizard's HTTPS step give the server's real name or address, not 127.0.0.1. Once the wizard is done, Cosmos listens on every address as usual.
+- With `--placement home` (and none of the above) the wizard answers on the home network, and the script says that anyone on that network could read the code and the password typed into it, and prints the tunnel as well.
+- `--wizard-on-lan` makes the wizard answer on the network in every case: only where you trust that network.
+
+The script checks where the wizard really listens before it says so, and says it loudly if the server listens on the network although 127.0.0.1 was asked.
+
+At its first start a new Cosmos makes a **one-time setup code** (five groups of four letters and digits) and keeps it in `/var/lib/cosmos/setup-code`, readable by root only. `install.sh` prints it at the end (with `--yes` or without a terminal it names the file instead, unless `--print-setup-code`); it is also in the journal: `sudo journalctl -u CosmosCloud | grep -A1 'SETUP CODE'`. The wizard asks for it on its first screen, and the server refuses every setup request without it, so nobody else on the network, on the internet or on the server itself can take the wizard over. After a few wrong codes from one address that address is asked to wait (at most 15 minutes), but the right code is accepted at any time, so nobody can lock you out by guessing. It is removed once the setup is done. A Cosmos installed by hand gets one too.
+
+**Questions and options.** The script asks no questions yet: every run takes the options given and its proposals, and never waits for a keyboard (also without a terminal). An option with an answers-file key can also be given as a line `key=value` of a file named with `--answers <file>` (an option on the command line wins over the file):
+
+| Option | Answers-file key | Default |
+|---|---|---|
+| `--http-port <n>`, `--https-port <n>` | `http-port`, `https-port` | 80/443, else the first free pair of 8080/8443, 2052/2053 |
+| `--storage-tools yes\|no` | `storage-tools` | yes |
+| `--reachable internet\|home` | `reachable` | home |
+| `--protection yes\|no` | `protection` | yes when reachable from the internet |
+| `--unattended-upgrades yes\|no` | `unattended-upgrades` | as protection |
+| `--placement home\|exposed-host\|cloud\|unknown` | `placement` | unknown (behind the router at home, the router's exposed host, or a cloud server) |
+| `--ssh open\|from:<addresses>\|closed-i-have-a-console` | `ssh` | not given (for the host firewall of a server with no home network) |
+| `--keep-ssh-open` | `keep-ssh-open=yes` | no |
+| `--no-outside` | `outside-lookup=no` | an outside service may be asked for the public address when the router does not tell it |
+| `--wizard-on-lan` | `wizard-on-lan=yes` | no (see above) |
+| `--address`, `--upnp`, `--router` | `address`, `upnp`, `router` | accepted already, used by a later version |
+| `--version <x.y.z-fork.n>`, `--from <zip or folder>` | — | the newest release, from GitHub |
+| `--proxy http://<host>:<port>` | — | none: the proxy variables of your shell are not read |
+| `--dry-run`, `--yes`, `--reuse-data`, `--allow-older`, `--print-setup-code`, `--force`, `--help` | — | |
+
+`--from` installs a release you downloaded yourself (the zip with its `cosmos-cloud-<version>.sig` next to it) without the network for the release; the packages still come from apt. `--reuse-data` installs over a data folder the fork left (after an uninstall that kept it); upstream's data is refused.
+
+**Protection, in this release.** `--protection yes` (the default with `--reachable internet`) is meant to run the release's protection pieces: Fail2ban, a firewall guard for the host and automatic security updates. **In this release the installer runs none of them.** The host firewall guard and the automatic security updates are not in the release yet (the script says "the protection piece … is not in this release: skipped"); the Fail2ban piece in `fork/fail2ban/` does not speak the installer's interface yet, so it is not run either ("PIECE NOT RUN"). Cosmos is installed all the same, and the run ends with exit code 16 and the line "installed WITHOUT the protection you asked for". Fail2ban can be installed by hand afterwards (`sudo apt-get install nftables`, then `sudo sh /opt/cosmos/fork/fail2ban/install.sh`; the uninstaller does not remove what was installed by hand). The installer runs the three pieces from a later release on.
+
+**When something goes wrong.** If the script is interrupted (a lost SSH session, a reboot), run the same command again: it continues where it stopped (asked for another version or other ports, it refuses: exit 14). If it fails after it changed something, it says what it changed and how `uninstall.sh` removes it. A package that a failed apt run left half-installed is named and stays in the record. An apt or dpkg step that hangs is stopped after 100 minutes, with everything it started; run the script again, it finishes the package database first.
+
+Exit codes: 0 done (or dry run); 1 failed (what was changed is printed); 2 bad usage; 3 system not supported; 4 the release did not verify (nothing unpacked, nothing left); 5 not root; 6 a package cannot be installed (nothing changed); 7 another run is going; 10 the fork is already installed; 11 upstream's Cosmos is installed; 12 another Cosmos, or a half-removed one, is there; 13 data of an earlier Cosmos is there (`--reuse-data`); 14 an interrupted run used other options; 15 the release is older than the script (`--allow-older`); 16 Cosmos is installed WITHOUT protection you asked for.
+
+The manual procedure (below) stays as a fallback.
+
+### Uninstall
+
+```sh
+sudo bash /opt/cosmos/fork/install/uninstall.sh          # says what it will remove, asks first
+sudo bash /opt/cosmos/fork/install/uninstall.sh --yes    # unattended
+```
+
+It removes what `install.sh` installed and nothing else, as its record lists it: the service `CosmosCloud`, the protection pieces it set up (each with its own uninstaller), `/opt/cosmos`, and Docker's apt source and key. It keeps:
+
+- **your data** (`/var/lib/cosmos`: settings, users, certificates), unless you add `--delete-data` (you then type the folder's name) or `--yes-delete-data`; with the data kept, `install.sh --reuse-data` installs Cosmos over it again;
+- **the packages** it installed, unless you add `--remove-packages` (and `--purge` for their configuration files too); even then a package another of yours needs stays, and Docker's packages stay while any container exists or while the Docker daemon does not answer (its containers cannot be counted then);
+- Docker's images, containers and volumes, always.
+
+A Cosmos that was not installed by `install.sh` (by hand, or upstream's) is not touched, whatever the options: the uninstaller says "this Cosmos was not installed by install.sh: nothing to remove" and stops with exit code 3. Run a second time, it says there is nothing to remove and ends with 0. `--dry-run` shows what would be removed. It too must be run from a file, not from a pipe. Exit codes: 0 done; 1 something could not be removed (it says what); 2 bad usage; 3 nothing `install.sh` installed is here; 5 not root; 7 another run is going.
 
 ### What a release is
 
-Releases are on this repository's *Releases* page, named `<upstream version>-fork.<build>` (for example `0.24.0-fork.22`: build 22, based on upstream 0.24.0). Each has, per architecture, `cosmos-cloud-<version>-amd64.zip` / `-arm64.zip` with an `.md5`, and one signature file `cosmos-cloud-<version>.sig` that covers both zips.
+Releases are on this repository's *Releases* page, named `<upstream version>-fork.<build>` (for example `0.24.0-fork.22`: build 22, based on upstream 0.24.0). Each has, per architecture, `cosmos-cloud-<version>-amd64.zip` / `-arm64.zip` with an `.md5`, and one signature file `cosmos-cloud-<version>.sig` that covers both zips. From the first release with the install scripts on, it also has `install.sh` and `uninstall.sh` (the same files are inside each zip, under `fork/install/`), their `SHA256SUMS`, and `cosmos-cloud-<version>.scripts.sig`, the signed list of the two scripts.
 
 ### Checking a release by hand
 
@@ -127,6 +209,25 @@ done
 
 The zip line must say `OK` and at least one line `Signature Verified Successfully`. (The `printf` adds the fixed 12-byte prefix that turns a raw Ed25519 key into the form OpenSSL reads.)
 
+`install.sh` and `uninstall.sh` are checked the same way with `cosmos-cloud-$V.scripts.sig` (the signed text is `cosmos-fork-scripts-v1`, the version, and `sha256 <hash> <script>` per script), in a folder holding the script, that file and `keys.go`:
+
+```sh
+grep -v '^signature ' "cosmos-cloud-$V.scripts.sig" > manifest.scripts
+grep ' install.sh$' manifest.scripts | awk '{print $2 "  " $3}' | sha256sum -c -
+for key in $(grep -oE '^[[:space:]]*"[A-Za-z0-9+/]{43}=",' keys.go | grep -oE '[A-Za-z0-9+/]{43}='); do
+  { printf '\060\052\060\005\006\003\053\145\160\003\041\000'; printf '%s' "$key" | base64 -d; } > key.der
+  openssl pkey -pubin -inform DER -in key.der -out key.pem
+  grep '^signature ' "cosmos-cloud-$V.scripts.sig" | cut -d' ' -f2 | while read -r s; do
+    printf '%s' "$s" | base64 -d > signature.bin
+    openssl pkeyutl -verify -pubin -inkey key.pem -rawin -in manifest.scripts -sigfile signature.bin
+  done
+done
+```
+
+### Moving upstream's Cosmos to the fork
+
+**There is no script for this yet.** `install.sh` refuses to run where upstream's Cosmos is installed, in a folder or as a container (exit 11), and changes nothing; its message names `migrate.sh`, which is not in this release. A script that moves upstream's bare-metal Cosmos to the fork is planned; until then the manual procedure below is the way.
+
 ### First install, over upstream's bare-metal install
 
 1. Back up the configuration folder (`/var/lib/cosmos` by default) and the installation folder.
@@ -136,7 +237,7 @@ The zip line must say `OK` and at least one line `Signature Verified Successfull
 
 ### How updates arrive
 
-The server checks this fork's releases after it starts and every six hours, and *Configuration > General* shows the running and the latest version with "Check" (installs nothing) and "Update now" (asks first). With upstream's automatic-update setting on, a newer release is installed at the maintenance time (02:00 by default, configurable). Every update is verified twice as described above; a release that does not verify is refused and the server stays on its version.
+The server checks this fork's releases after it starts and every six hours, and *Configuration > General* shows the running and the latest version with "Check" (installs nothing) and "Update now" (asks first). With upstream's automatic-update setting on, a newer release is installed at the maintenance time (02:00 by default, configurable). Every update is verified twice as described above; a release that does not verify is refused and the server stays on its version. This is the only way an installed fork is updated: **never run `install.sh` again to update**, it refuses to run over an installation (exit 10), however the fork was installed.
 
 A release placed by hand for the launcher needs its signature next to it: `cosmos-update.zip` and `cosmos-update.sig` in the installation folder.
 

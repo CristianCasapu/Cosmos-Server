@@ -316,6 +316,21 @@ cool-down, the 72 hours the previous files are kept, the 15-minute window.
   Cloudflare, e-mail, Telegram, Fail2ban and UPnP checks, were each run on
   their own branch only (each needs a set-up of its own).
 
+## The installer: left for later (2026-11-24)
+
+- `migrate.sh`: moving upstream's bare-metal Cosmos (0.23 or newer) to the fork, with a backup and a way back on failure; then upstream's Docker container. Until then `install.sh` refuses (exit 11), but its message names `migrate.sh` as if it were in the release: say "not yet" there.
+- The questions at installation (plan 47, E1): asked in the terminal, proposals first; `--address`, `--upnp` and `--router` are accepted already and unused.
+- The protection pieces: the host firewall guard and the automatic security updates are on another branch, and the Fail2ban piece does not speak the installer's interface (`--print-packages`, `--record`), so the installer runs none of them today and a run that asked for protection ends with exit 16. Once they are merged: run the test bed's `pieces` and `docker-there` cases on every system, and `fresh` with `--reachable internet` from an outside SSH session (the guard's exit 4 reported, nothing recorded); agree with the guard on the one-argument `--ssh from:<addresses>` form.
+- The release notes written by `scripts/fork-release-package.sh` still name Ubuntu 22.04, which `install.sh` refuses.
+- The first simulation also checks the pieces' fallback packages (fail2ban, python3, nftables, unattended-upgrades) when protection is chosen, although the pieces may then be skipped: a system where one of them cannot be had refuses to install (exit 6).
+- The setup code is also in the journal (the owner's choice): members of `adm` or `systemd-journal`, and log shippers that send the journal off the server, can read it until the setup is done.
+- The courtesy pause is per address: someone behind the owner's NAT, or a DNS-rebinding page open in the owner's browser, can make the owner's address wait (the right code is still accepted). Once the table of 4096 addresses is full, each new address scans it twice under one lock (throughput only).
+- Upstream: `/oauth2/token`, `/oauth2/introspect`, `/oauth2/revoke` and `/.well-known/jwks.json` panic (recovered per request) while the installation is new.
+- The release build's `e2e` job can still delete or overwrite the `release` artifact by name: publish then fails (a denial only; what is signed is checked by ID and SHA-256).
+- The test bed runs privileged Docker in Docker on the host's Docker: a VM for local runs, or fewer privileges for the machines.
+- The install scripts were run on amd64 machines only, never on arm64.
+- apt follows the caller's proxy variables while the script's own downloads ignore them (`--proxy`).
+
 ## The app's edit tabs: left for later (2026-11-18)
 
 - Docker resolves a bind again at every start: a folder the administrator ticked as "nested inside a folder another app can write" can still be redirected later by that app. The tick says so; nothing watches it afterwards.

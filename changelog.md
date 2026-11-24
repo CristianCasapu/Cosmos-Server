@@ -10,7 +10,16 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 Merged into `custom` since `0.24.0-fork.39`, to be part of the next release:
 
-- Nothing yet.
+### Added
+- An installer: on a clean Debian 12 or 13, or Ubuntu 24.04 or 26.04 server (amd64 or arm64), `sudo bash install.sh` installs the fork with everything it needs, Docker included (from Docker's own repository), without questions. It checks first that every package can be installed, verifies the release's signature before it unpacks anything, writes the `CosmosCloud` service, and prints where to finish the setup. It refuses to run where a Cosmos is already installed (an installed fork updates itself from the panel), continues where it stopped after an interruption, and lists everything it installed so that `uninstall.sh` removes exactly that (the data and the packages only when asked). See "Install" in the README.
+- Every release carries `install.sh` and `uninstall.sh`, inside its zips and next to them, with a signed list of the two scripts, so that they can be checked by hand.
+- In this release the installer's protection choice installs nothing yet: the host firewall guard and the automatic security updates are not in the release, and the Fail2ban piece is not run by the installer (install it by hand as before). An installation that asked for protection ends with exit code 16 and says so.
+
+### Security
+- The first-run wizard asks for a one-time setup code before anything else. A new Cosmos makes it at its first start, readable by root only (`/var/lib/cosmos/setup-code`, and in the journal); the installer prints it. Without the code the server refuses every setup request, so nobody else on the network, on the internet or on the server can make themselves the administrator of a new installation. This holds for a Cosmos installed by hand too.
+- A server installed by the script that is not at home (a cloud server, the router's exposed host, a public address) answers its first-run wizard on 127.0.0.1 only, reached through an SSH tunnel, so that the code and the administrator's password never cross the network in clear.
+- The server's databases (`auth.db` with the password hashes, `database.db`) are readable by Cosmos' own user only; before, they could be read by other users of the server until its next restart.
+- The release build signs only files that the build itself made, checked file by file.
 
 ## Fork 0.24.0-fork.39 — 2026-11-18
 
