@@ -282,3 +282,26 @@ func TestR6AReopeningByTheLevelTriesTheFullForm(t *testing.T) {
 		t.Errorf("the opening: %q", last.text)
 	}
 }
+
+// Found by the model (review 6): a told problem without an entry (the
+// threads file keeps at most maxThreads entries across a restart) ends
+// while 256 open problems fill the table: its end is told all the same.
+func TestR6TheEndOfAToldProblemGetsAnEntryWhenTheTableIsFull(t *testing.T) {
+	th := reachThread("reach:connect")
+	m := scripted(t, th)
+	m.open(th)
+	m.settle(5 * time.Minute)
+	m.n.mu.Lock()
+	delete(m.n.entries, threadID(th.name))
+	for i := 0; i < maxThreadEntries; i++ {
+		id := fmt.Sprintf("full%04d", i)
+		m.n.entries[id] = &threadEntry{id: id, name: "fill:/x/" + id, kind: "disk.filling", open: true, touched: m.clock}
+	}
+	m.n.mu.Unlock()
+	m.quietEnd(th)
+	m.n.reconcile()
+	m.settle(5 * time.Minute)
+	if got := strings.Join(m.actions(th), ","); got != "open,close" || len(m.pinnedNow()) != 0 {
+		t.Errorf("%s, pinned %v", got, m.pinnedNow())
+	}
+}
