@@ -275,11 +275,12 @@ func openMonitoringStore() error {
 		s.Attempts++
 	})
 	kickMonitoringWatcher()
+	start := prepareFallback() // the fallback's start, taken before the local file takes writes
 	if err := openLocalStore(node); err != nil {
 		localUnusable(err)
 		return err
 	}
-	beginFallback(db) // recorded in the local file from its start (review round 3, S1, M2, S3)
+	beginFallback(db, start) // recorded in the local file from its start (review rounds 3 and 4)
 	return nil
 }
 
@@ -330,6 +331,7 @@ func ensureLocalStore() bool {
 	if monitoringInUse() == DialectSQLite {
 		return true
 	}
+	start := prepareFallback()
 	if err := openLocalStore(resolveNodeName(config)); err != nil {
 		localUnusable(err)
 		return false
@@ -337,7 +339,7 @@ func ensureLocalStore() bool {
 	storeStateMu.Lock()
 	storeLocalProblem = ""
 	storeStateMu.Unlock()
-	beginFallback(config.Database)
+	beginFallback(config.Database, start)
 	return true
 }
 
@@ -424,17 +426,24 @@ func setMonitorNode(node string) {
 // after a drain (sql.DB.Close then waits for the statements running).
 func swapMonitoringStore(w, r *sql.DB, dialect string, key string, node string) {
 	registerHandles(dialect, w, r)
+	drained := make(chan struct{})
 	monitorMu.Lock()
 	oldW, oldR := monitorWriteDB, monitorReadDB
+	if oldW != nil && monitorDialect == DialectSQLite {
+		localDrain = drained // the local file's handles go
+	}
 	monitorWriteDB, monitorReadDB = w, r
 	monitorDialect, monitorKey, monitorNode = dialect, key, node
 	monitorID = randomStoreID()
 	DBStatus = true
 	monitorMu.Unlock()
 	if oldW == nil && oldR == nil {
+		close(drained)
 		return
 	}
 	time.AfterFunc(timing().drain, func() {
+		// Close waits for the statements running on the old handles: once it
+		// returned, nothing writes through them any more
 		if oldW != nil {
 			oldW.Close()
 		}
@@ -443,7 +452,29 @@ func swapMonitoringStore(w, r *sql.DB, dialect string, key string, node string) 
 		}
 		forgetHandles(oldW, oldR)
 		handleLedger.Delete(oldW)
+		close(drained)
 	})
+}
+
+// localDrain is closed when the local file's handles of before the last swap
+// away from it are closed (under monitorMu).
+var localDrain = func() chan struct{} { c := make(chan struct{}); close(c); return c }()
+
+// localFileDrained: closed once nothing writes through the local file's
+// handles of before the last switch away from it (review round 4, S1: a
+// fallback's end marks are taken then).
+func localFileDrained() <-chan struct{} {
+	monitorMu.RLock()
+	defer monitorMu.RUnlock()
+	return localDrain
+}
+
+// waitLocalDrain waits for it, bounded.
+func waitLocalDrain(drained <-chan struct{}) {
+	select {
+	case <-drained:
+	case <-time.After(timing().drain + time.Minute):
+	}
 }
 
 // MonitoringStoreID names the store in use for clients: a random value

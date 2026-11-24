@@ -402,6 +402,9 @@ func (c *copier) batchBuckets(ctx context.Context, r rule, m *tableMarker) (int6
 	for _, b := range buckets {
 		there, exists := have[b.id()]
 		if !b.pooled() {
+			if c.catchUp() && c.periodEnd(b) <= c.opt.Since {
+				continue // ended before this fallback: not its last flush
+			}
 			if c.rawSourceWins(b) {
 				err = exec(insert+"DO UPDATE SET value = excluded.value, avg_index = excluded.avg_index, expire = excluded.expire"+
 					" WHERE metric_values.value <> excluded.value OR metric_values.avg_index <> excluded.avg_index OR metric_values.expire <> excluded.expire",

@@ -130,9 +130,9 @@ type AsideOutage struct {
 // rows changed in place), and of the hour and day totals the part of server
 // Store. Back is when its fallback ended.
 type CatchUpWindow struct {
-	From, To, Back time.Time
-	After, Before  map[string]int64
-	Store          string
+	From, To, Back, Since time.Time
+	After, Before         map[string]int64
+	Store                 string
 }
 
 var (
@@ -381,12 +381,62 @@ func ownTotals(q kvq, from int64) map[string][2]int64 {
 	return out
 }
 
+// fallbackStart is the local file at a fallback's start, taken before it
+// takes writes: its marks, and its own totals from the earliest day an open
+// record reaches back to.
+type fallbackStart struct {
+	ok     bool
+	marks  map[string]int64
+	totals map[string][2]int64
+	from   int64
+}
+
+// prepareFallback takes it when the local file is not the store yet (once
+// the switch to it is made, writers insert at once: marks taken after it
+// would leave those rows in no window, review round 4). A fallback that
+// ended a moment ago (a switch back whose drain is not over) is waited for:
+// its stragglers first. forkInitMu held.
+func prepareFallback() fallbackStart {
+	if monitoringInUse() == DialectSQLite {
+		return fallbackStart{}
+	}
+	waitLocalDrain(localFileDrained())
+	storeStateMu.Lock()
+	from := TimeToMillis(storeState.Since.Add(-fallbackLead()))
+	storeStateMu.Unlock()
+	st := fallbackStart{}
+	fallbackMu.Lock()
+	defer fallbackMu.Unlock()
+	withLocalFile(false, func(local *sql.DB) error {
+		for _, r := range loadFallbacks(local) {
+			if r.Before == nil && r.From < from {
+				from = r.From
+			}
+		}
+		st = fallbackStart{ok: true, marks: localMarks(local), totals: ownTotals(local, from), from: from}
+		return nil
+	})
+	if !st.ok { // no local file yet: nothing in it
+		st = fallbackStart{ok: true, marks: map[string]int64{}, totals: map[string][2]int64{}, from: from}
+	}
+	return st
+}
+
 // closeRecord takes a record's end marks and end time and adds the change of
-// the local file's own totals during its fallback to its server's part.
+// the local file's own totals during its fallback to its server's part (at
+// the given start of the next fallback when there is one).
 func closeRecord(q kvq, r *fallbackRecord, now time.Time) error {
-	r.Before = localMarks(q)
+	return closeRecordAt(q, r, now, fallbackStart{})
+}
+
+func closeRecordAt(q kvq, r *fallbackRecord, now time.Time, at fallbackStart) error {
+	marks, totals := at.marks, at.totals
+	if !at.ok || at.from > r.From {
+		marks, totals = localMarks(q), ownTotals(q, r.From)
+	}
+	r.Before = marks
 	r.To = TimeToMillis(now.Add(time.Second))
-	for id, end := range ownTotals(q, r.From) {
+	for id, end := range totals {
 		start := r.Start[id]
 		d := [2]int64{end[0] - start[0], end[1] - start[1]}
 		if d == [2]int64{} {
@@ -427,7 +477,7 @@ func asideOf(records []fallbackRecord, db DatabaseConfig) []AsideOutage {
 // (start, told); the fallback of another server that was still open ends now
 // (the local file stands in for this one from now on), as does a stale one of
 // this server. forkInitMu held.
-func beginFallback(db DatabaseConfig) {
+func beginFallback(db DatabaseConfig, start fallbackStart) {
 	storeStateMu.Lock()
 	since := storeState.Since
 	storeStateMu.Unlock()
@@ -442,12 +492,20 @@ func beginFallback(db DatabaseConfig) {
 		for _, r := range records {
 			switch {
 			case r.Ended != 0:
-				kept = append(kept, r) // ended: waits for its server, as it is
+				// ended: its end is taken now at the latest, before this
+				// fallback's rows (a switch back's drain may not be over), and
+				// it waits for its server as it is
+				if r.Before == nil {
+					if err := closeRecordAt(tx, &r, now, start); err != nil {
+						return err
+					}
+				}
+				kept = append(kept, r)
 			case !r.of(db):
 				// another server's outage, left open by a change of the settings:
 				// it ends here, before this one's rows
 				r.Ended = TimeToMillis(now)
-				if err := closeRecord(tx, &r, now); err != nil {
+				if err := closeRecordAt(tx, &r, now, start); err != nil {
 					return err
 				}
 				if r.Told {
@@ -478,6 +536,10 @@ func beginFallback(db DatabaseConfig) {
 			from := since.Add(-fallbackLead())
 			rec := fallbackRecord{Host: db.PostgresHost, Database: postgresDatabaseName(db), Store: store, Since: TimeToMillis(since),
 				From: TimeToMillis(from), After: localMarks(tx), Start: ownTotals(tx, TimeToMillis(from)), Seen: TimeToMillis(now)}
+			if start.ok {
+				// as the local file was before it took this fallback's writes
+				rec.After, rec.Start = start.marks, start.totals
+			}
 			if closeWhy == "" && !unresolvedOutage(tx).IsZero() {
 				closeWhy = "stale" // an open notice without a record (an older version)
 			}
@@ -594,20 +656,22 @@ func endFallbacks(db DatabaseConfig, after MonitoringStoreState) {
 		tellMonitoringEnded("staleback")
 	}
 	catchUpsRunning.Add(1)
-	go catchUpFallback(db, endedNow, told, after)
+	go catchUpFallback(db, endedNow, told, after, localFileDrained())
 }
 
 // catchUpFallback, once the switch's drain has ended (nothing writes into
 // the local file for the fallbacks that ended any more): takes their end
 // marks, then hands each record of server db to the catch-up on its own, and
 // tells "answers again" for the outage that ended now.
-var catchUpFallback = func(db DatabaseConfig, endedNow *fallbackRecord, told bool, after MonitoringStoreState) {
+var catchUpFallback = func(db DatabaseConfig, endedNow *fallbackRecord, told bool, after MonitoringStoreState, drained <-chan struct{}) {
 	defer catchUpsRunning.Add(-1)
-	time.Sleep(timing().drain + 300*time.Millisecond)
+	// the local file's old handles closed (Close waits for the statements
+	// running on them): no straggler of the fallback writes after the marks
+	waitLocalDrain(drained)
 	now := monitoringClock()
 	mine := []fallbackRecord{}
 	fallbackMu.Lock()
-	inLocalTx(false, func(tx kvq) error {
+	closeErr := inLocalTx(false, func(tx kvq) error {
 		records := loadFallbacks(tx)
 		for i := range records {
 			if records[i].Ended != 0 && records[i].Before == nil {
@@ -615,7 +679,9 @@ var catchUpFallback = func(db DatabaseConfig, endedNow *fallbackRecord, told boo
 					return err
 				}
 			}
-			if records[i].of(db) {
+			// this server's fallbacks that ended (never the one open now: a
+			// new outage may have begun meanwhile)
+			if records[i].of(db) && records[i].Ended != 0 && records[i].Before != nil {
 				records[i].Told = false // told below, once
 				mine = append(mine, records[i])
 			}
@@ -623,12 +689,15 @@ var catchUpFallback = func(db DatabaseConfig, endedNow *fallbackRecord, told boo
 		return saveFallbacks(tx, records)
 	})
 	fallbackMu.Unlock()
+	if closeErr != nil {
+		Error("Monitoring database: the end of a fallback could not be recorded in the local file", closeErr)
+	}
 	pruneLocalBookkeeping(now)
 	for _, rec := range mine {
 		rec := rec
 		tellNow := told && endedNow != nil && rec.same(*endedNow)
 		window := CatchUpWindow{From: MillisToTime(rec.From), To: MillisToTime(rec.To), Back: MillisToTime(rec.Ended),
-			After: rec.After, Before: rec.Before, Store: rec.Store}
+			Since: MillisToTime(rec.Since), After: rec.After, Before: rec.Before, Store: rec.Store}
 		catchUpsRunning.Add(1)
 		finish := func(caught CatchUpResult) {
 			defer catchUpsRunning.Add(-1) // after "answers again": the history is partial until then

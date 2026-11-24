@@ -322,9 +322,9 @@ phases.down = async (page, id, size, ctx) => {
   const marksBefore = localMarks();
   const today = dayOf(Date.now());
   const dayBefore = Object.fromEntries((await pgLines(`SELECT m.key, v.value FROM metric_values v JOIN metrics m ON m.node = v.node AND m.key = v.key WHERE m.agglo_type = 'sum' AND v.granularity = 'day' AND v.date = ${today}`)).map((l) => { const [k, v] = l.split('|'); return [k, Number(v)]; }));
-  // what PostgreSQL absorbed of the local file's day totals so far (earlier phases: the copy, other outages)
-  // a line is "fork_monitoring_copy:absorbed:<store>:<node>|<key>|day|<date>|<value>|<count>"
-  const absorbedOf = async () => Object.fromEntries((await pgLines(`SELECT key, value FROM monitoring_kv WHERE key LIKE 'fork_monitoring_copy:absorbed:%|day|${today}'`)).map((l) => {
+  // what PostgreSQL absorbed so far of its own part of the local file's day totals (its earlier outages)
+  // a line is "fork_monitoring_copy:absorbedown:<local file>:<node>|<key>|day|<date>|<value>|<count>"
+  const absorbedOf = async () => Object.fromEntries((await pgLines(`SELECT key, value FROM monitoring_kv WHERE key LIKE 'fork_monitoring_copy:absorbedown:%|day|${today}'`)).map((l) => {
     const parts = l.split('|');
     return [parts[1], Number(parts[parts.length - 2])];
   }));
@@ -399,11 +399,14 @@ phases.down = async (page, id, size, ctx) => {
   if (pick) {
     const local = Number(pick.value);
     const after = Number((await pgLines(`SELECT value FROM metric_values WHERE key = '${pick.key}' AND granularity = 'day' AND date = ${today}`))[0] || 0);
-    const absorbed = Number(((await pgLines(`SELECT value FROM monitoring_kv WHERE key LIKE 'fork_monitoring_copy:absorbed:%:${pick.node}|${pick.key}|day|${today}'`))[0] || '0|0').split('|')[0]);
+    const absorbed = Number(((await pgLines(`SELECT value FROM monitoring_kv WHERE key LIKE 'fork_monitoring_copy:absorbedown:%:${pick.node}|${pick.key}|day|${today}'`))[0] || '0|0').split('|')[0]);
+    // this database's part of the local file's day total (its outages), kept in the local file under its identity
+    const identity = ((await pgLines("SELECT value FROM monitoring_kv WHERE key = 'fork_monitoring_copy:identity'"))[0] || '').trim();
+    const own = localRows('SELECT value FROM monitoring_kv WHERE key = ?', `fork_monitoring_copy:own:pgx:${identity}:${pick.node}|${pick.key}|day|${today}`).map((r) => Number(String(r.value).split('|')[0]))[0] || 0;
     const before = dayBefore[pick.key] || 0;
-    const outage = absorbed - (absorbedBefore[pick.key] || 0); // the local file's part of this outage, added now
-    note(`  ${id}: day total of ${pick.key}: PostgreSQL before ${before}, the local file's part of this outage ${outage} (the local file's row ${local}), PostgreSQL after ${after}, absorbed in all ${absorbed}`);
-    expect(id + ': the day total holds the local file\'s part, once', absorbed === local && outage > 0 && after >= before + outage, JSON.stringify({ before, outage, local, after, absorbed }));
+    const outage = absorbed - (absorbedBefore[pick.key] || 0); // this outage's part, added now
+    note(`  ${id}: day total of ${pick.key}: PostgreSQL before ${before}, this outage's part ${outage}, PostgreSQL after ${after}; this database's part of the local file's row ${own} (the row ${local}), absorbed ${absorbed}`);
+    expect(id + ': the day total holds this outage\'s part, once', absorbed === own && outage !== 0 && after >= before + outage, JSON.stringify({ before, outage, own, local, after, absorbed }));
   } else {
     expect(id + ': a summed metric with a day total in the local file', false);
   }

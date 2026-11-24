@@ -50,8 +50,10 @@ type Window struct {
 	Back   int64            `json:"back,omitempty"`
 	After  map[string]int64 `json:"after,omitempty"`
 	Before map[string]int64 `json:"before,omitempty"`
-	// Store: the server whose fallback it is (its part of the totals)
+	// Store: the server whose fallback it is (its part of the totals), Since:
+	// when that fallback began
 	Store string `json:"store,omitempty"`
+	Since int64  `json:"since,omitempty"`
 }
 
 func (w Window) same(o Window) bool {
@@ -121,6 +123,9 @@ func once(done func(utils.CatchUpResult)) func(utils.CatchUpResult) {
 func CatchUpAfterFallback(cw utils.CatchUpWindow, done func(utils.CatchUpResult)) {
 	done = once(done)
 	w := Window{From: cw.From.UnixMilli(), To: cw.To.UnixMilli(), After: cw.After, Before: cw.Before, Store: cw.Store}
+	if !cw.Since.IsZero() {
+		w.Since = cw.Since.UnixMilli()
+	}
 	if !cw.Back.IsZero() {
 		w.Back = cw.Back.UnixMilli()
 	}
@@ -201,6 +206,9 @@ func merge(windows []Window) []Window {
 		if n := len(out); n > 0 && out[n-1].touches(w) {
 			p := &out[n-1]
 			p.To, p.Back = max(p.To, w.To), max(p.Back, w.Back)
+			if w.Since > 0 && (p.Since == 0 || w.Since < p.Since) {
+				p.Since = w.Since
+			}
 			if p.After != nil && w.After != nil {
 				for t := range w.After {
 					p.After[t] = min(p.After[t], w.After[t])
@@ -387,6 +395,7 @@ func runWindow(w Window, write, read Store) (Result, bool) {
 		IDs:         w.ids(),
 		Back:        w.Back,
 		Store:       w.Store,
+		Since:       w.Since,
 	}
 	utils.Log("Monitoring history catch-up: started")
 	var final Result

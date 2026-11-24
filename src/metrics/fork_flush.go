@@ -125,9 +125,12 @@ func flushBuckets(flushKeys []string, buckets []DataPush) error {
 			kept = append(kept, u)
 			continue
 		}
-		if found { // it was written: its buckets are as written then
+		if found {
+			// it was written: its buckets are as written then (nothing was
+			// flushed into this store since: uncertain flushes are looked up
+			// first; a value may have fallen since, review round 4)
 			for i, key := range u.keys {
-				if dp, ok := dataBuffer[key]; ok && !(dp.Contributed && dp.Written >= u.values[i]) {
+				if dp, ok := dataBuffer[key]; ok {
 					dp.Written, dp.Contributed = u.values[i], true
 					dataBuffer[key] = dp
 				}

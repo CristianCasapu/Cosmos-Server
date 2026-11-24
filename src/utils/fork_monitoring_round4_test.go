@@ -186,3 +186,55 @@ func TestTheSameDatabaseAtAnotherAddressKeepsItsLedger(t *testing.T) {
 		t.Errorf("a fallback at the new address would use %q, not %q", got, first)
 	}
 }
+
+// A fallback that begins while the switch back from the previous one is
+// still draining (an outage a moment after another): the previous record's
+// end is the new one's start (no row in both, none in neither), and the
+// fallback still open is never handed to the catch-up (round 4: 200 cuts
+// found both).
+func TestAFallbackRightAfterTheLastOneKeepsTheirRowsApart(t *testing.T) {
+	stub := withMonitoringStore(t, pgConfig, nil)
+	fakePostgres(t)
+	setTiming(func(*storeTimes) { storeTiming.drain = 300 * time.Millisecond })
+	windows := handedWindows(t)
+	InitMetricsDatabase()
+	cut := func() { stub.setProblem(refusedProblem); stub.advance(time.Minute); InitMetricsDatabase() }
+	back := func() { stub.setProblem(nil); stub.advance(time.Minute); InitMetricsDatabase() }
+	cut()
+	first := []int64{writeLocalEvent(t, "first"), writeLocalEvent(t, "first")}
+	back()
+	cut() // within the drain of the switch back
+	second := []int64{writeLocalEvent(t, "second")}
+	time.Sleep(timing().drain + 200*time.Millisecond) // the switch back's goroutine wakes while the second is open
+	back()
+	waitCatchUps(t)
+	got := windows()
+	for _, w := range got {
+		if w.Before == nil || w.Back.IsZero() {
+			t.Fatalf("a fallback still open was handed over: %+v", w)
+		}
+	}
+	if len(got) < 2 {
+		t.Fatalf("%d windows", len(got))
+	}
+	holds := func(id int64) int {
+		n := 0
+		seen := map[[2]int64]bool{}
+		for _, w := range got {
+			r := [2]int64{w.After["events"], w.Before["events"]}
+			if seen[r] {
+				continue // the same record handed again
+			}
+			seen[r] = true
+			if id > r[0] && id <= r[1] {
+				n++
+			}
+		}
+		return n
+	}
+	for _, id := range append(first, second...) {
+		if n := holds(id); n != 1 {
+			t.Errorf("event %d is in %d windows", id, n)
+		}
+	}
+}

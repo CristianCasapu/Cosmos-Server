@@ -140,3 +140,21 @@ func TestAFlushOnAClosedHandleIsWrittenAtOnce(t *testing.T) {
 		t.Errorf("day total %d", got)
 	}
 }
+
+// A falling gauge (the last value, averaged) whose flush's answer was lost:
+// counted once (round 4: the look-up kept the higher value written before).
+func TestAFallingGaugeWhoseFlushAnswerWasLostIsCountedOnce(t *testing.T) {
+	setupMetricsStore(t)
+	uncertain = nil
+	def := DataDef{Max: 1000, Period: time.Hour, Label: "t", AggloType: "avg", SetOperation: "min"}
+	pushSetMetric("falling", 50, def)
+	SaveMetrics() // 50 written
+	pushSetMetric("falling", 30, def)
+	loseAnswers(t, true)
+	SaveMetrics() // 30 written, its answer lost
+	pushSetMetric("falling", 20, def)
+	SaveMetrics()
+	if got := dayTotal(t, "falling"); got != 20 {
+		t.Errorf("day total %d, the bucket's value 20", got)
+	}
+}

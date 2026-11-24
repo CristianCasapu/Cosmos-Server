@@ -54,6 +54,8 @@ type Options struct {
 	// Store, with From: the server whose fallback this catch-up is: of the
 	// local file's hour and day totals, its part only (buckets.go).
 	Store string
+	// Since, with Store: when that fallback began (unix ms)
+	Since int64
 	// Sleep waits between batches (nil: a timer); the tests count the waits.
 	Sleep func(ctx context.Context, d time.Duration) error
 }
@@ -437,6 +439,26 @@ func (c *copier) saveRun(ctx context.Context) error {
 
 func (c *copier) copyFilter(r rule, end int64) (string, []interface{}) {
 	where, args := copyFilter(r, end)
+	if c.catchUp() && c.opt.IDs != nil {
+		// a fallback's own rows, nothing of the periods around it (review
+		// round 4, S1): the rows it inserted (by id), the notifications it
+		// changed in place, its server's part of the hour and day totals, the
+		// raw rows of its time
+		ids := c.opt.IDs[r.table]
+		switch r.table {
+		case "events", "fork_security_events":
+			return where + " AND id > ? AND id <= ?", append(args, ids[0], ids[1])
+		case "notifications":
+			return where + " AND ((id > ? AND id <= ?) OR (date >= ? AND date <= ?))", append(args, ids[0], ids[1], c.opt.Since, c.opt.Back)
+		case "metric_values":
+			own := "EXISTS (SELECT 1 FROM monitoring_kv WHERE monitoring_kv.key = ? || metric_values.node || '|' || metric_values.key || '|' || metric_values.granularity || '|' || CAST(metric_values.date AS TEXT))"
+			return where + " AND ((granularity IN ('hour', 'day') AND " + own + ") OR (granularity NOT IN ('hour', 'day') AND date >= ? AND date <= ?))",
+				append(args, utils.OwnPrefix+c.opt.Store+":", c.opt.Since-int64(time.Hour/time.Millisecond), c.opt.Back)
+		case "metrics":
+			return where + " AND last_update >= ? AND last_update < ?", append(args, c.opt.From-r.touchedSlack.Milliseconds(), end)
+		}
+		return where + " AND 1 = 0", args
+	}
 	if c.opt.From > 0 {
 		if r.touched == "" {
 			return where + " AND 1 = 0", args
