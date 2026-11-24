@@ -14,7 +14,7 @@
 #   sh scripts/fork-telegram-messages-e2e.sh events2   plan 48's watches that can be faked here: the test's own
 #                                                      Docker paused for four minutes (Docker not answering, then
 #                                                      again), a scheduled job that fails and then works again
-#   sh scripts/fork-telegram-messages-e2e.sh events3   a data disk of the test's own (a 3 GiB ext4 file, loop-mounted
+#   sh scripts/fork-telegram-messages-e2e.sh events3   a data disk of the test's own (a 3 GiB FAT file, loop-mounted
 #                                                      at /mnt/data in the test Cosmos) filled by 1.5 GiB in two
 #                                                      minutes, then emptied: "filling fast" opens, then ends (the
 #                                                      server is built with the tag watch_fastclock: samples every
@@ -69,9 +69,10 @@ up() {
 	clean
 	test -s "$REPO/static/index.html" || { echo "build ./static first (npx vite build --base=/cosmos-ui/)"; exit 2; }
 	mkdir -p "$SCRATCH/bin" "$SCRATCH/config" "$SCRATCH/shared" "$SCRATCH/disk"
-	# a data disk of the test's own (events3): a sparse 3 GiB ext4 file
-	docker run --rm --name "$PREFIX-mkfs" -v "$SCRATCH/disk:/disk" "$GO_IMAGE" sh -c \
-		'truncate -s 3G /disk/data.img && mkfs.ext4 -q -F /disk/data.img' >/dev/null
+	# a data disk of the test's own (events3): a sparse 3 GiB file with a
+	# FAT file system (the tool the Docker image has), loop-mounted
+	docker run --rm --name "$PREFIX-mkfs" -v "$SCRATCH/disk:/disk" --entrypoint sh "$BOX_IMAGE" -c \
+		'truncate -s 3G /disk/data.img && mkfs.vfat -F 32 /disk/data.img' >/dev/null
 	echo "== building the server and the stand-in"
 	docker run --rm --name "$PREFIX-build" -v "$REPO:/src:ro" -v "$SCRATCH/bin:/out" \
 		-v /storage/dev/.cache/go-mod:/go/pkg/mod -v /storage/dev/.cache/go-build:/root/.cache/go-build \
