@@ -11,6 +11,11 @@ import (
 	"github.com/azukaar/cosmos-server/src/utils"
 )
 
+
+// The store's watcher is held for the test process: the tests change the
+// configuration folder under it.
+func init() { utils.PauseMonitoringStore() }
+
 func TestRetriedBatchIsNotStoredTwice(t *testing.T) {
 	openDatabase(t)
 	now := time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC)

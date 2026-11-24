@@ -32,6 +32,11 @@ func pgBase(t testing.TB) string {
 
 var databaseCounter atomic.Int64
 
+// The store's watcher is held for the test process (the tests change the
+// configuration folder under it); the live test that needs it at its real
+// cadence lets it go and holds it again.
+var resumeWatcher = utils.PauseMonitoringStore()
+
 // newPGDatabase creates an empty database of its own; it is dropped at the end.
 func newPGDatabase(t testing.TB) (string, string) {
 	t.Helper()

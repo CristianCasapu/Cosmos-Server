@@ -30,6 +30,11 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+// The watcher (started by the first InitMetricsDatabase of any test) is held
+// for the whole test process: the store's tests drive the looks themselves,
+// and the other tests change the configuration folder under it.
+func init() { storeWatchPaused.Store(true) }
+
 type storeStub struct {
 	mu       sync.Mutex
 	problem  *PostgresProblem
@@ -131,15 +136,15 @@ func withMonitoringStore(t *testing.T, db DatabaseConfig, problem *PostgresProbl
 	setTiming(func(*storeTimes) { storeTiming.drain = 50 * time.Millisecond })
 	resetStoreState()
 	t.Cleanup(func() {
+		waitCatchUps(t) // a catch-up handed over reads the folder and the hooks
 		CloseMetricsDatabase()
 		CONFIGFOLDER = prevFolder
 		LoadBaseMainConfig(prevConfig)
-		waitCatchUps(t)
 		probeMonitoringPostgres, monitoringTellDown, monitoringTellBack, monitoringResolveDown, tellMonitoringEnded = prevProbe, prevDown, prevBack, prevResolve, prevEnded
 		monitoringClock, monitoringAdviceFor, openPostgresStore, prepareStoreSchema, pingMonitoringStore = prevClock, prevAdvice, prevOpen, prevSchema, prevPing
 		setTiming(func(t *storeTimes) { *t = prevTiming })
 		resetStoreState()
-		storeWatchPaused.Store(false)
+		storeWatchPaused.Store(true)
 	})
 	return stub
 }

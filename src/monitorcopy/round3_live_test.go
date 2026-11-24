@@ -150,6 +150,7 @@ func TestNothingLeftBehindLive(t *testing.T) {
 		return def
 	}
 	outages, _ := strconv.Atoi(env("ROUND3_OUTAGES", "1"))
+	resumeWatcher() // the real watcher, at its real cadence
 	proxy := newCutProxy(t, host)
 	db := utils.DatabaseConfig{PostgresHost: proxy.addr, PostgresDatabase: env("COSMOS_FORK_PG_TEST_DB", "cosmos"),
 		PostgresUsername: env("COSMOS_FORK_PG_TEST_USER", "cosmos"), PostgresPassword: env("COSMOS_FORK_PG_TEST_PASSWORD", "cosmos-test-pw")}
@@ -163,6 +164,13 @@ func TestNothingLeftBehindLive(t *testing.T) {
 	utils.LoadBaseMainConfig(config)
 	storeInUse = inUse
 	t.Cleanup(func() {
+		// the real watcher started by this test is held for the rest of the
+		// process: it would act on the settings of the tests that follow
+		utils.PauseMonitoringStore()
+		// the process' security recorder started here takes nothing more: the
+		// tests that follow record (and change the folder) on their own
+		security.Flush()
+		utils.SetSecurityRecorder(func(utils.SecurityEvent) {}, func() {})
 		utils.CloseMetricsDatabase()
 		utils.CONFIGFOLDER = prevFolder
 		utils.LoadBaseMainConfig(prevConfig)
