@@ -1,16 +1,42 @@
-# Lines host-lint.awk must flag (bad:) and must let through (good:); the test
-# bed's guard_checks counts them before it trusts the lint.
-bad: 	bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null
-bad: 	M "$m" 'x'; sh /opt/cosmos/fork/install/install.sh --yes
-bad: 	"$INSTALL_DIR"/fork/install/install.sh --yes
-bad: 	D exec "$name" systemctl is-system-running
-bad: 	apt-get -q install -y less
-bad: 	DEBIAN_FRONTEND=noninteractive apt install -y less
-bad: 	dpkg --purge snapraid
-bad: 	rm -rf /var/lib/cosmos
-bad: 	rm -fr -- /opt/cosmos
-good: 	cp "$a/install.sh" "$a/uninstall.sh" "$d/"
-good: 	local files=(fork/install/install.sh fork/install/uninstall.sh)
-good: 	rm -rf "$SCRATCH/world/$sys/releases"
-good: 	M "$m" m_fresh_1 VB
-good: 	log "apt's lists" # apt-get in a comment
+# Lines host-lint.awk must flag (every line between here and "# ---- good"),
+# then lines it must let through. The test bed's guard_checks compares the
+# lines flagged with exactly the first part before it trusts the lint.
+# ---- bad
+	bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null
+	M "$m" 'x'; sh /opt/cosmos/fork/install/install.sh --yes
+	"$INSTALL_DIR"/fork/install/install.sh --yes
+	D exec "$name" systemctl is-system-running
+	apt-get -q install -y less
+	DEBIAN_FRONTEND=noninteractive apt install -y less
+	dpkg --purge snapraid
+	rm -rf /var/lib/cosmos
+	rm -fr -- /opt/cosmos
+	eval "$step"
+	"$cmd" --yes
+	x=1; $run_it now
+	bash -c "$snippet"
+	source "$steps"
+	. "$SCRATCH/steps.sh"
+	if true; then . "$x"; fi
+	D ps -aq | xargs -r docker rm -f
+	find "$SCRATCH" -mindepth 1 -delete
+	rm -rf "$dir"
+	rm -rf ./*
+	docker run --rm -v /:/host debian:13 true
+	docker run --rm -v "$(dirname "$SCRATCH"):/w" debian:13 true
+	docker run --rm -v "$HERE:/src" node:22 true
+	docker run --rm --mount type=bind,src=/,dst=/h debian:13 true
+	docker run --rm debian:13 rm -rf /w/x # lint-ok: outside the allowed functions
+# ---- good
+	cp "$a/install.sh" "$a/uninstall.sh" "$d/"
+	local files=(fork/install/install.sh fork/install/uninstall.sh)
+	rm -rf "$SCRATCH/world/$sys/releases"
+	M "$m" m_fresh_1 VB
+	log "apt's lists" # apt-get in a comment
+	rm -rf "$SCRATCH/world/$sys/releases"
+	docker run --rm -v "$HERE:/src:ro" -v "$SCRATCH:/scratch" -v /var/lib/docker debian:13 true
+	-v /storage/dev/.cache/go-mod:/go/pkg/mod \
+	{ main "$@"; exit; }
+	for v in "$@"; do echo "$v"; done
+	log "the source of $x"
+	cp "$a/b.sh" "$SCRATCH/bin/"

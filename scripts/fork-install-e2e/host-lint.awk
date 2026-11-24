@@ -3,7 +3,8 @@
 #   - no call of apt, dpkg, systemctl, install.sh or uninstall.sh (those are
 #     only in machine-lib.sh and machine-cases.sh, which run in the test
 #     machines and refuse anywhere else);
-#   - no command held in a variable: no eval, no "$cmd ..." or bash -c "$x";
+#   - no command held in a variable: no eval, no "$cmd ...", bash -c "$x",
+#     source "$f" or . "$f";
 #   - no recursive removal but of a path under the scratch folder ("$SCRATCH/
 #     or, in the build steps, "$SCR/), no xargs rm, no find -delete or -exec rm;
 #   - no mount of a host path but the worktree read-only ("$HERE...:ro), the
@@ -36,6 +37,7 @@ function bad() { printf "%d: %s\n", NR, line; found++ }
 		heredoc = h
 	}
 	# a command continued from the line before (ends in a backslash)
+	wascont = cont
 	full = (cont ? full " " : "") line
 	cont = (line ~ /\\$/)
 	# a comment: a # at the start of the line, or after a blank outside quotes
@@ -58,8 +60,10 @@ function bad() { printf "%d: %s\n", NR, line; found++ }
 	    code ~ /install\.sh["']?[ \t]+(--?[A-Za-z]|<)/) { bad(); next }
 	# a command held in a variable
 	if (code ~ /(^|[^A-Za-z0-9_-])eval([ \t]|$)/ ||
-	    code ~ /(^|[;&|({]|\$\(|then|do|else)[ \t]*"?\$\{?[A-Za-z_@*][A-Za-z0-9_]*(\[[@*]\])?\}?"?([ \t;]|$)/ ||
-	    code ~ /(^|[^A-Za-z0-9_-])(bash|sh)[ \t]+-c[ \t]+"?\$/) { bad(); next }
+	    (!wascont && code ~ /^[ \t]*"?\$\{?[A-Za-z_@*][A-Za-z0-9_]*(\[[@*]\])?\}?"?([ \t;]|$)/) ||
+	    code ~ /([;&|({]|\$\(|then|do|else)[ \t]*"?\$\{?[A-Za-z_@*][A-Za-z0-9_]*(\[[@*]\])?\}?"?([ \t;]|$)/ ||
+	    code ~ /(^|[^A-Za-z0-9_-])(bash|sh)[ \t]+-c[ \t]+"?\$/ ||
+	    code ~ /(^|[;&|({]|then|do|else)[ \t]*(source|\.)[ \t]+"?\$/) { bad(); next }
 	# removals
 	if (code ~ /xargs[^|;]*[ \t]rm([ \t]|$)/ || code ~ /find[^|;]*[ \t](-delete|-exec[ \t]+rm)/) { bad(); next }
 	rest = code
@@ -76,6 +80,7 @@ function bad() { printf "%d: %s\n", NR, line; found++ }
 		v = substr(rest, RSTART, RLENGTH)
 		sub(/^[ \t(]*-v[ \t]+/, "", v)
 		rest = substr(rest, RSTART + RLENGTH)
+		if (v ~ /\$\(|`/) { bad(); next } # a path computed on the spot
 		if (v !~ /:/) continue # a volume of the container's own, no host path
 		if (v ~ /^"\$HERE[^:]*:[^:"]+:ro"$/) continue
 		if (v ~ /^"\$SCRATCH[\/:]/) continue
