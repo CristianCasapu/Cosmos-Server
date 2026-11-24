@@ -131,6 +131,9 @@ type State struct {
 	// recorded.
 	TableRemovedHour int
 	TableRemovedAt   time.Time
+	// TailnetPeers is ok or unreadable: whether the guard could list Tailscale's
+	// devices the last time an exit node needed them; empty when not known.
+	TailnetPeers string
 	// fail2ban
 	SSHD        *bool
 	CosmosJails *bool
@@ -253,6 +256,9 @@ func parseState(piece string, content []byte) (State, error) {
 		state.TrustedInterfaces, _ = parseInterfaces(values["trusted_if"])
 		if outside, present := values["outside_at_install"]; present {
 			state.OutsideAtInstall, _ = parseInterfaces(outside)
+		}
+		if peers := values["tailnet_peers"]; peers == "ok" || peers == "unreadable" {
+			state.TailnetPeers = peers
 		}
 		state.TableRemovedHour = -1
 		if at, ok := parseTime(values["table_removed_at"]); ok {

@@ -298,3 +298,20 @@ func TestStateFileOfTheGuardSaysWhatWasOutsideAndHowOftenItsTableWasRemoved(t *t
 		}
 	}
 }
+
+func TestStateFileOfTheGuardSaysWhetherTailscalesDevicesCouldBeListed(t *testing.T) {
+	newWorld(t)
+	for value, want := range map[string]string{"ok": "ok", "unreadable": "unreadable", "": "", "maybe": "", "ok;x": ""} {
+		writeState(t, PieceGuard, guardState+"tailnet_peers="+value+"\n")
+		if state, _ := readState(PieceGuard); state.TailnetPeers != want {
+			t.Errorf("tailnet_peers=%q: %q, want %q", value, state.TailnetPeers, want)
+		}
+	}
+	writeState(t, PieceGuard, guardState+"tailnet_peers=unreadable\n")
+	w := newWorld(t)
+	w.state(PieceGuard, guardState+"tailnet_peers=unreadable\n")
+	w.table("nft-guard-v3-filtered.json")
+	if guard := GetStatus().Guard; guard.TailnetPeers != "unreadable" {
+		t.Errorf("the card's value: %q", guard.TailnetPeers)
+	}
+}

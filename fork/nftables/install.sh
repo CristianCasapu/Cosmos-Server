@@ -923,8 +923,12 @@ if [ "$YES" = 1 ] && [ "$SSH_OPEN" = 0 ]; then
 	[ -z "$UNSURE_OUTSIDE" ] || why="${why:+$why; }SSH connections from outside may be signed-in sessions (${UNSURE_OUTSIDE# }: the server's record of a sign-in is not in the journal, so a stranger still signing in cannot be told apart from a session)"
 	[ -z "$UNEXPLAINED_TTY" ] || why="${why:+$why; }this run's terminal ($UNEXPLAINED_TTY) belongs to no SSH session the guard can see, so it cannot tell where you are"
 	if [ -n "$why" ]; then
-		record status "refused ssh-session-from-outside"
-		printf '%s\n' "Refused for the SSH sessions' safety: $why, and an unattended run has nobody to confirm that a new connection still works. Install the guard from inside the home network (or a VPN), run it without --yes to confirm by hand, or add --ssh open (--allow-ssh-from-outside) to keep the SSH port open." >&2
+		if [ -z "$OUTSIDE_PEERS$VPN_UNKNOWN_SESSION$UNEXPLAINED_TTY" ]; then
+			record status "refused ssh-session-unsure"
+		else
+			record status "refused ssh-session-from-outside"
+		fi
+		printf '%s\n' "Refused for the SSH sessions' safety: $why, and an unattended run has nobody to confirm that a new connection still works. Install the guard from inside the home network (or a VPN), run it without --yes to confirm by hand, add --ssh from <your address> to keep SSH open to that address only, or add --ssh open (--allow-ssh-from-outside) to keep the SSH port open." >&2
 		exit 4
 	fi
 fi

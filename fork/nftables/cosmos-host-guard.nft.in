@@ -60,14 +60,15 @@ table inet cosmos_host_guard {
 		type ifname
 	}
 	# New prefixes on a home interface waiting for the administrator's
-	# confirmation (cosmos-host-guard confirm): not home yet. Only shown.
+	# confirmation (cosmos-host-guard confirm): not home yet; only SSH answers them.
 	set pending6 {
 		type ipv6_addr
 		flags interval
 		auto-merge
 	}
-	# Another private IPv4 network on a home interface (the server moved): not home,
-	# and IPv4 there is filtered until it is confirmed. Only shown.
+	# Another private IPv4 network on a home interface (a new router, or the server
+	# moved): not home, IPv4 there is filtered and only SSH answers it until it is
+	# confirmed.
 	set pending4 {
 		type ipv4_addr
 		flags interval
@@ -172,6 +173,10 @@ table inet cosmos_host_guard {
 		iifname @vpnhome_if ip6 saddr @vpnpeer6 accept comment "Tailscale's own peers through an exit node"
 		ip saddr @home4 accept
 		ip6 saddr @home6 accept
+		# a new network on a home interface waiting for confirmation (a new router, a
+		# new prefix): its hosts reach SSH only, so that the owner can confirm it
+		iifname @lan_if ip saddr @pending4 tcp dport @ssh_port accept comment "a new home network, until confirmed: SSH only"
+		iifname @lan_if ip6 saddr @pending6 tcp dport @ssh_port accept comment "a new home prefix, until confirmed: SSH only"
 
 		ip saddr @ssh_allow4 tcp dport @ssh_port accept comment "an SSH session that installed the guard"
 		ip6 saddr @ssh_allow6 tcp dport @ssh_port accept comment "an SSH session that installed the guard"

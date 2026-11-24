@@ -341,11 +341,14 @@ const guardWarnings = (piece, formatDate) => {
     warnings.push(['protection.guard.outsideSince', 'Filtered since the install: {{ifnames}}. A default route, or a route that covers most of the internet, now goes through it, so what arrives through it reaches only the ports the guard keeps open.', { ifnames: since.join(', ') }]);
   }
   const table = piece.table;
+  if (piece.installed && piece.tailnetPeers === 'unreadable' && table && table.loaded && names(table.vpnHomeInterfaces).length) {
+    warnings.push(['protection.guard.tailnetUnreadable', 'Tailscale carries the default route (an exit node), but the guard cannot list your tailnet\'s devices (tailscaled does not answer, or python3 is missing): through the exit node they are refused like strangers until it can.']);
+  }
   const pending = table && table.loaded ? names(table.pendingPrefixes) : [];
   if (pending.length === 1) {
-    warnings.push(['protection.guard.pending', 'A new prefix {{prefixes}} appeared on the home network and is not counted as home yet. If it is your provider\'s new prefix, confirm it: sudo cosmos-host-guard confirm', { prefixes: pending[0] }]);
+    warnings.push(['protection.guard.pending', 'A new network {{prefixes}} appeared on the home interface (a new router, or the provider\'s new prefix): until you confirm it, only SSH answers it. If it is your home network, confirm it: sudo cosmos-host-guard confirm', { prefixes: pending[0] }]);
   } else if (pending.length > 1) {
-    warnings.push(['protection.guard.pendingMany', 'New prefixes {{prefixes}} appeared on the home network and are not counted as home yet. If they are your provider\'s new prefixes, confirm them: sudo cosmos-host-guard confirm', { prefixes: pending.join(', ') }]);
+    warnings.push(['protection.guard.pendingMany', 'New networks {{prefixes}} appeared on the home interface (a new router, or the provider\'s new prefixes): until you confirm them, only SSH answers them. If they are your home network, confirm them: sudo cosmos-host-guard confirm', { prefixes: pending.join(', ') }]);
   }
   return warnings;
 };

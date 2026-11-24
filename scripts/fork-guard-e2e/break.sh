@@ -29,7 +29,35 @@ EOF
 		;;
 	no-journal)
 		# the servers' own journal lines are not looked at
-		sed -i 's/^\ttimeout 5 journalctl -q --no-pager -b -o cat _PID=.*$/\ttrue/' "$S"
+		sed -i 's/^\ttimeout 5 journalctl -q --no-pager --system -b --since "@\$((\$3 - 1))".*$/\ttrue/' "$S"
+		;;
+	silence-no)
+		# OpenSSH: a named monitor without a line of success is "no" (the journal's silence)
+		sed -i 's/^\t\t\techo unsure ;;$/\t\t\techo no ;;/' "$S"
+		;;
+	dropbear-silence-no)
+		# dropbear: "no" without proof that its successes reach the journal
+		sed -i 's/^dropbear_records() {$/dropbear_records() { return 0/' "$S"
+		;;
+	no-port)
+		# the reviewer's rv5-no-port: OpenSSH's line of success not matched on the peer's port
+		sed -i 's/ \&\& \$7 == "port" \&\& \$8 == p {found = 1}/ {found = 1}/' "$S"
+		;;
+	no-exe)
+		# the reviewer's rv5-no-exe: the writer's binary is not matched
+		sed -i 's/ _PID="\$1" _UID=0 _EXE="\$2" / _PID="$1" _UID=0 /' "$S"
+		;;
+	no-since)
+		# the journal read from the boot's oldest lines, 5000 at most (the fourth round's code)
+		sed -i 's/ --since "@\$((\$3 - 1))" -n 20000 -o cat _PID=/ -o cat _PID=/; s/_EXE="\$2" 2>\/dev\/null || true$/_EXE="$2" 2>\/dev\/null | head -n 5000 || true/' "$S"
+		;;
+	peers-none)
+		# Tailscale's devices are never read
+		sed -i 's/^read_peers() {$/read_peers() { return 1/' "$G"
+		;;
+	pending-closed)
+		# a new home network gets nothing until confirmed, SSH included
+		sed -i '/ip6\{0,1\} saddr @pending[46] tcp dport @ssh_port accept/d' "$F/cosmos-host-guard.nft.in"
 		;;
 	any-socket)
 		# any connection held below a signed-in sshd counts, whatever its local port

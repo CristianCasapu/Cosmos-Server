@@ -17,6 +17,13 @@
 #   forged-ok         an OpenSSH process title alone makes a session (sessions)
 #   priv-title        OpenSSH's "<name> [priv]" title means signed in (strangers, f2bsessions)
 #   no-journal        the servers' own records of a sign-in are not read (strangers)
+#   silence-no        OpenSSH: no line of success means "no" (strangers)
+#   dropbear-silence-no  dropbear: "no" without proof that its successes are logged (strangers)
+#   no-port           OpenSSH's line of success not matched on the port (strangers)
+#   no-exe            the writer's binary not matched (no probe can tell: see the plan)
+#   no-since          the journal read from the boot's oldest 5000 lines (not observable: see the plan)
+#   peers-none        Tailscale's devices never read (vpnexit)
+#   pending-closed    a new home network gets no SSH until confirmed (moved)
 #   any-socket        any connection a signed-in sshd holds is a session (sessions, f2bsessions)
 #   accept-any        a holder need not descend from the listener (sessions)
 #   multipath-last    of a multipath default route only the last nexthop counts (uplink)
@@ -61,7 +68,7 @@ fresh() { # nat|pub: a new machine on new networks (DOCKER_MODE: ipv6, noipv6, n
 	pieces_sum() { m sh -c 'cat /opt/cosmos/fork/nftables/* /opt/cosmos/fork/fail2ban/install.sh | md5sum'; }
 	[ -z "$BREAK" ] || unbroken=$(pieces_sum)
 	case "$BREAK" in
-		dropbear-any|forged-ok|priv-title|no-journal|any-socket|accept-any|multipath-last|def1-ignored|multicast-uplink|transient-narrow|moved-home|stale-cache|exitnode-outside|exitnode-anyone|unload-reloaded)
+		dropbear-any|forged-ok|priv-title|no-journal|silence-no|dropbear-silence-no|no-port|no-exe|no-since|peers-none|pending-closed|any-socket|accept-any|multipath-last|def1-ignored|multicast-uplink|transient-narrow|moved-home|stale-cache|exitnode-outside|exitnode-anyone|unload-reloaded)
 			docker exec -i "$M" sh -s "$BREAK" < "$HERE/break.sh" ;;
 		open-port) msh "sed -i 's/^\[ -n \"\$PUBLIC_TCP\$PUBLIC_UDP\" \] ||/add_port 9999 tcp broken; &/' $G/install.sh" ;;
 		no-ssh-allow) msh "sed -i -e 's/^\tfor a in \$OUTSIDE_PEERS; do\$/\tfor a in ; do/' -e 's/^\t\tfor a in \$OUTSIDE_PEERS; do\$/\t\tfor a in ; do/' $G/install.sh" ;;
@@ -1460,6 +1467,17 @@ by_password() {
 	c=$1; a=$2; meth=$3; u=$4; p=$5; shift 5
 	docker exec -d "$c" sh -c "SSH_ASKPASS=/tmp/$a.sh SSH_ASKPASS_REQUIRE=force DISPLAY=:0 setsid ssh -p $p -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=$meth -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=2 $* $u@$TM6 < /dev/null > /dev/null 2>&1"
 }
+# jforge <pid> <count> <message>: root writes a line into the journal under another
+# process's pid (SCM_CREDENTIALS: journald then takes that pid's _EXE and _UID)
+jforge() {
+	m sh -c 'test -e /tmp/jforge.py || printf "%s\n" "import socket, struct, sys" "pid, n, msg = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]" "s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)" "data = (\"MESSAGE=\" + msg + \"\\n\").encode()" "for i in range(n):" "    s.sendmsg([data], [(socket.SOL_SOCKET, socket.SCM_CREDENTIALS, struct.pack(\"3i\", pid, 0, 0))], 0, \"/run/systemd/journal/socket\")" > /tmp/jforge.py'
+	m python3 /tmp/jforge.py "$1" "$2" "$3"
+}
+# peer_port <client address> <server port>: the client's port of its connection
+peer_port() { m sh -c "ss -Htn state established | awk '\$3 ~ /:$2\$/ && index(\$4, \"$1\") {n = split(\$4, a, \":\"); print a[n]; exit}'"; }
+# holder_of <client address> <server port>: a root process holding that connection (OpenSSH's monitor, dropbear's process)
+# shellcheck disable=SC2016
+holder_of() { m sh -c "ss -Htnp state established | awk '\$3 ~ /:$2\$/ && index(\$4, \"$1\")' | grep -oE 'pid=[0-9]+' | cut -d= -f2" | while read -r p; do [ "$(m awk '/^Uid:/ {print $2}' "/proc/$p/status")" = 0 ] && { echo "$p"; break; }; done; }
 stop_clients() { for c in "$OC" "$OC2"; do docker exec "$c" sh -c 'pkill -f "ssh "; pkill -f "nc "; true'; done; sleep 1; }
 
 g_strangers() {
@@ -1525,15 +1543,79 @@ g_strangers() {
 	check_not "journal vacuumed: no allowance for the unsure session" says "ONLY.*$OC6"
 	check "and the advice is said" says "run this again with --ssh from"
 	stop_clients
+	# the system journal trimmed while a user journal still holds an early entry
+	# (a line of tester's written just before): root's tunnel stays unsure
+	m su tester -s /bin/sh -c 'logger "an early line of a user journal"'
+	sleep 2
+	docker exec -d "$OC" sh -c "ssh $SSHO -N root@$TM6"
+	sleep 3
+	msh 'journalctl --rotate >/dev/null 2>&1; sleep 1; rm -f /var/log/journal/*/system@*.journal'
+	log "  (journal files: $(m sh -c 'ls /var/log/journal/*/' | tr '\n' ' '))"
+	check_not "system journal trimmed, a user journal older: root's tunnel is not called no" test "$(sessions_of "$OC6")" = "openssh no;"
+	stop_clients
+	# sshd that does not log its successes (LogLevel ERROR): root's own tunnel is never
+	# called "no" (it is unsure: refused, not cut)
+	msh 'printf "LogLevel ERROR\n" > /etc/ssh/sshd_config.d/00-quiet.conf; /usr/local/bin/ssh_restart'
+	sleep 2
+	docker exec -d "$OC" sh -c "ssh $SSHO -N root@$TM6"
+	sleep 3
+	log "  (root at LogLevel ERROR: $(sessions_of "$OC6"))"
+	check "LogLevel ERROR: root's tunnel is unsure" test "$(sessions_of "$OC6")" = "openssh unsure;"
+	guard_install "$HC" --yes --port 2053
+	expect_rc 4 "LogLevel ERROR: root's tunnel from outside refuses the unattended run"
+	guard_uninstall # (when a broken guard installed itself, the next cases start from nothing again)
+	stop_clients
+	check "after the tunnel ended, outside can still open SSH" tcp "$OC" "$TM6" 22
+	by_password "$OC2" wait password tester 22
+	sleep 3
+	check "LogLevel ERROR: a stranger at the password prompt is still no (its pre-authentication process)" test "$(sessions_of "$OC26")" = "openssh no;"
+	stop_clients
+	m rm -f /etc/ssh/sshd_config.d/00-quiet.conf
+	m /usr/local/bin/ssh_restart
+	sleep 2
+	# root forges sshd's line of success under the stranger's own monitor (its pid, so
+	# its _EXE and _UID): for another port it does not count
+	by_password "$OC2" wait password tester 22
+	sleep 3
+	sport=$(peer_port "$OC26" 22); mon=$(holder_of "$OC26" 22)
+	jforge "$mon" 1 "Accepted password for tester from $OC26 port $((sport + 1)) ssh2"
+	sleep 1
+	check "a root-forged line under the monitor's pid for another port: still no" test "$(sessions_of "$OC26")" = "openssh no;"
+	jforge 1 1 "Accepted password for tester from $OC26 port $sport ssh2"
+	sleep 1
+	check "a root-forged line under another root process's pid (systemd's): still no" test "$(sessions_of "$OC26")" = "openssh no;"
+	stop_clients
 
 	# dropbear as its package runs it (a unit, logging to the journal)
 	m sh -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends dropbear-bin >/dev/null 2>&1; mkdir -p /etc/dropbear; [ -e /etc/dropbear/k ] || dropbearkey -t ed25519 -f /etc/dropbear/k >/dev/null 2>&1; systemd-run --quiet --unit=test-dropbear /usr/sbin/dropbear -EF -r /etc/dropbear/k -p 2022'
 	sleep 1
+	# before this dropbear has written any line of success, nothing proves its
+	# successes reach the journal: a stranger is unsure
+	docker exec -d "$OC2" sh -c "sleep 60 | nc $TM6 2022 > /dev/null"
+	sleep 2
+	check "dropbear, no success seen yet: a stranger is unsure" test "$(sessions_of "$OC26")" = "dropbear unsure;"
+	stop_clients
+	# a long journal: 6000 lines of the listener before the owner's tunnel (dropbear
+	# writes every connection's lines under its listener's pid in this mode)
+	lpid=$(m systemctl show -p MainPID --value test-dropbear)
+	jforge "$lpid" 6000 "Exit before auth from <192.0.2.1:1>: Exited normally"
+	docker exec -d "$OC" sh -c "ssh -p 2022 $SSHO -N tester@$TM6"
+	sleep 3
+	check "dropbear, past 6000 lines of its listener: the owner's tunnel is signed in" test "$(sessions_of "$OC6")" = "dropbear yes;"
+	docker exec "$OC" sh -c 'pkill -f "ssh "; true'
 	for u in tester nosuchuser; do
 		by_password "$OC2" wait password "$u" 2022
 		sleep 3
 		check "dropbear, a stranger named $u at the password prompt: not signed in (no)" test "$(sessions_of "$OC26")" = "dropbear no;"
-		stop_clients
+		# root forges dropbear's success under its listener for another port of that address
+		if [ "$u" = tester ]; then
+			sport=$(peer_port "$OC26" 2022)
+			jforge "$lpid" 1 "[1] Nov 24 00:00:00 Password auth succeeded for 'tester' from $OC26:$((sport + 1))"
+			sleep 1
+			check "dropbear, a root-forged success for another port: still no" test "$(sessions_of "$OC26")" = "dropbear no;"
+		fi
+		docker exec "$OC2" sh -c 'pkill -f "ssh "; true'
+		sleep 1
 	done
 	docker exec -d "$OC2" sh -c "sleep 60 | nc $TM6 2022 > /dev/null"
 	sleep 2
@@ -1550,6 +1632,14 @@ g_strangers() {
 	docker exec -d "$OC" sh -c "ssh -p 2022 $SSHO -N tester@$TM6"
 	sleep 3
 	check "dropbear, a signed-in tunnel: signed in (its record in the journal)" test "$(sessions_of "$OC6")" = "dropbear yes;"
+	# journald dropped lines while the connection lived (its "Suppressed" line): unsure
+	docker exec -d "$OC2" sh -c "sleep 60 | nc $TM6 2022 > /dev/null"
+	sleep 2
+	jpid=$(m systemctl show -p MainPID --value systemd-journald)
+	jforge "$jpid" 1 "Suppressed 1234 messages from test-dropbear.service"
+	sleep 1
+	check "dropbear, journald suppressed lines meanwhile: a stranger is unsure" test "$(sessions_of "$OC26")" = "dropbear unsure;"
+	docker exec "$OC2" sh -c 'pkill -f "nc "; true'
 	by_password "$OC2" right password tester 2022 -N
 	sleep 3
 	check "dropbear, password, a tunnel: signed in" sh -c "printf '%s' '$(sessions_of "$OC26")' | grep -q 'dropbear yes;'"
@@ -1592,6 +1682,26 @@ g_moved() {
 	check "it waits for confirmation (shown)" in_set pending4 192.168.77.0/24
 	check_not "and IPv4 is not left unfiltered there" in_set pass4_if '"eth0"'
 	check "the journal says so" sh -c "docker exec $M journalctl -u cosmos-host-guard-watch --no-pager | grep -q '192.168.77.0/24 is on a home interface but is not the home network'"
+	# the owner at home behind the new router (its new subnet): SSH answers, nothing else
+	docker exec "$HC" ip addr add 192.168.77.20/24 dev eth0
+	check "the owner on the new home network reaches SSH over IPv4" tcp "$HC" 192.168.77.10 22
+	check_not "but not 9999" tcp "$HC" 192.168.77.10 9999
+	check_not "nor a container port (18080)" tcp "$HC" 192.168.77.10 18080
+	# a new IPv6 prefix as well (a new router often brings both)
+	msh 'ip -6 addr add 2001:db8:1:77::10/64 dev eth0 nodad'
+	docker exec "$HC" ip -6 addr add 2001:db8:1:77::20/64 dev eth0 nodad
+	sleep 5
+	check "a new IPv6 prefix waits too" in_set pending6 2001:db8:1:77::/64
+	check "the owner reaches SSH over the new IPv6 prefix" tcp "$HC" 2001:db8:1:77::10 22
+	check_not "but not 9999 there" tcp "$HC" 2001:db8:1:77::10 9999
+	# fail-closed (no default route) keeps the same
+	msh "ip route del default; ip -6 route del default"
+	for _ in $(seq 1 15); do in_set failclosed_if '"eth0"' && break; sleep 1; done
+	check "fail-closed: the owner on the new home network still reaches SSH" tcp "$HC" 192.168.77.10 22
+	check_not "fail-closed: but not 9999" tcp "$HC" 192.168.77.10 9999
+	msh "ip route replace default via 192.168.77.1 dev eth0 onlink; ip -6 route replace default via $RT6H"
+	msh 'ip -6 addr del 2001:db8:1:77::10/64 dev eth0'
+	docker exec "$HC" sh -c 'ip addr del 192.168.77.20/24 dev eth0; ip -6 addr del 2001:db8:1:77::20/64 dev eth0' 
 	check_not "nothing is written down (no nopass4)" m grep -q nopass4 /etc/cosmos-host-guard/home
 	msh "ip addr del 192.168.77.10/24 dev eth0; ip addr add $TM4/24 dev eth0; ip route replace default via $RT4H"
 	sleep 5
@@ -1663,7 +1773,13 @@ g_vpnexit() {
 	msh 'cp "$(command -v nc)" /usr/sbin/tailscaled; printf "[Service]\nExecStart=/bin/sh -c \"exec /usr/sbin/tailscaled -6 -u -l -k 41641 > /dev/null 2>&1\"\n" > /etc/systemd/system/tailscaled.service; systemctl daemon-reload; systemctl start tailscaled'
 	# the Tailscale client's peer list (a stand-in): the peer 100.100.1.2, and the
 	# exit node 100.100.1.9; 100.100.1.50 is held by no peer
-	msh 'printf "%s\n" "#!/bin/sh" "cat /etc/ts-status.json" > /usr/bin/tailscale; chmod 755 /usr/bin/tailscale; printf "{\n\t\"Self\": {\n\t\t\"TailscaleIPs\": [\n\t\t\t\"100.100.1.1\"\n\t\t]\n\t},\n\t\"Peer\": {\n\t\t\"nodekey:a\": {\n\t\t\t\"TailscaleIPs\": [\n\t\t\t\t\"100.100.1.2\",\n\t\t\t\t\"fd7a:115c:a1e0::2\"\n\t\t\t],\n\t\t\t\"ExitNode\": false\n\t\t},\n\t\t\"nodekey:b\": {\n\t\t\t\"TailscaleIPs\": [\n\t\t\t\t\"100.100.1.9\"\n\t\t\t],\n\t\t\t\"ExitNode\": true\n\t\t}\n\t}\n}\n" > /etc/ts-status.json; ip netns exec vpnpeer sh -c "ip addr add 100.100.1.9/32 dev ts0p; ip addr add 100.100.1.50/32 dev ts0p"'
+	# the Tailscale client's peer list (a stand-in printing ts-status.json: the real
+	# layout of `tailscale status --json`, two-space indentation; the peer 100.100.1.2,
+	# and the exit node 100.100.1.9; 100.100.1.50 is held by no peer); it fails while
+	# /etc/ts-fail exists
+	m sh -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 >/dev/null 2>&1'
+	docker cp "$HERE/ts-status.json" "$M:/etc/ts-status.json"
+	msh 'printf "%s\n" "#!/bin/sh" "[ ! -e /etc/ts-fail ] || exit 1" "cat /etc/ts-status.json" > /usr/bin/tailscale; chmod 755 /usr/bin/tailscale; ip netns exec vpnpeer sh -c "ip addr add 100.100.1.9/32 dev ts0p; ip addr add 100.100.1.50/32 dev ts0p"'
 	sleep 1
 	guard_install "$HC" --yes --port 2053
 	expect_rc 0 "install with Tailscale"
@@ -1679,6 +1795,32 @@ g_vpnexit() {
 	check_not "exit node on: an internet host through the exit node does not reach 9999" m ip netns exec vpnpeer nc -z -w 2 -s 203.0.113.77 100.100.1.1 9999
 	check_not "exit node on: a tailnet address no peer holds does not reach SSH" m ip netns exec vpnpeer nc -z -w 2 -s 100.100.1.50 100.100.1.1 22
 	check_not "exit node on: the exit node's own address does not reach SSH" m ip netns exec vpnpeer nc -z -w 2 -s 100.100.1.9 100.100.1.1 22
+	check "the real layout: the peer is listed, the exit node is not" sh -c "docker exec $M /usr/local/sbin/cosmos-host-guard show | grep -qx 'vpnpeer4=100.100.1.2'"
+	# the compact layout (one line) too
+	msh 'python3 -c "import json; d = json.load(open(\"/etc/ts-status.json\")); open(\"/etc/ts-status.json\", \"w\").write(json.dumps(d, separators=(\",\", \":\")))"'
+	m /usr/local/sbin/cosmos-host-guard refresh force
+	check "the compact layout: the peer is listed" sh -c "docker exec $M /usr/local/sbin/cosmos-host-guard show | grep -qx 'vpnpeer4=100.100.1.2'"
+	# tailscaled not answering for a moment: the last good list is kept
+	m touch /etc/ts-fail
+	m /usr/local/sbin/cosmos-host-guard refresh force
+	check "the client not answering: the last good list is kept" sh -c "docker exec $M /usr/local/sbin/cosmos-host-guard show | grep -qx 'vpnpeer4=100.100.1.2'"
+	check "the client not answering: the peer still reaches SSH" m ip netns exec vpnpeer nc -z -w 2 100.100.1.1 22
+	# ... for longer than the bound (15 minutes): none count, said
+	m touch -d '-20 minutes' /run/cosmos-host-guard/vpnpeers
+	said=$(m /usr/local/sbin/cosmos-host-guard refresh force 2>&1)
+	check "past the bound: no peer counts" sh -c "docker exec $M /usr/local/sbin/cosmos-host-guard show | grep -qx 'vpnpeer4='"
+	check "past the bound: the state says so for the panel" m grep -qx 'tailnet_peers=unreadable' /var/lib/cosmos-protection/nftables.state
+	# (said on the refresh's standard error: the journal's, when the units run it)
+	check "past the bound: it is said" sh -c "printf '%s' \"\$1\" | grep -q \"Tailscale's devices cannot be listed\"" _ "$said"
+	m rm -f /etc/ts-fail
+	m /usr/local/sbin/cosmos-host-guard refresh force
+	check "the client back: the peer is listed again" sh -c "docker exec $M /usr/local/sbin/cosmos-host-guard show | grep -qx 'vpnpeer4=100.100.1.2'"
+	check "the client back: the state says ok" m grep -qx 'tailnet_peers=ok' /var/lib/cosmos-protection/nftables.state
+	# without python3 the list cannot be read
+	# shellcheck disable=SC2016
+	msh 'p=$(command -v python3); mv "$p" "$p.off"; rm -f /run/cosmos-host-guard/vpnpeers; /usr/local/sbin/cosmos-host-guard refresh force; mv "$p.off" "$p"'
+	check "without python3: unreadable, said" m grep -qx 'tailnet_peers=unreadable' /var/lib/cosmos-protection/nftables.state
+	m /usr/local/sbin/cosmos-host-guard refresh force
 	check "the journal says tailscale0 became outside" sh -c "docker exec $M journalctl -u cosmos-host-guard-watch -u cosmos-host-guard-refresh --no-pager | grep -q 'tailscale0 is an outside interface now'"
 	check "the state names the interfaces outside at install (for the panel)" m grep -qx 'outside_at_install=eth0' /var/lib/cosmos-protection/nftables.state
 	m ip route del default dev tailscale0 table 52

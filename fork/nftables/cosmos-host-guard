@@ -291,35 +291,62 @@ tailscale_if() {
 	[ -n "$TS_IF" ] && printf '%s\n' "$TS_IF"
 }
 # The tailnet addresses of Tailscale's peers, as tailscaled lists them
-# (`tailscale status --json`, the packaged root-owned client), without the peer
-# that is the exit node now. Through an exit node only these count as home: the
-# exit node's operator (a provider's node, a node shared from another tailnet)
-# may send from any address WireGuard routes to it (its allowed addresses hold
-# 0.0.0.0/0), including tailnet addresses no peer holds; WireGuard drops only
-# sources that belong to another peer. A listing that cannot be read gives none
-# (the peers are then filtered like strangers through the exit node).
-tailnet_peers() {
+# (`tailscale status --json`, the packaged root-owned client, read with python3's
+# json module: never by its layout), without the peer that is the exit node now.
+# Through an exit node only these count as home: the exit node's operator (a
+# provider's node, a node shared from another tailnet) may send from any address
+# WireGuard routes to it (its allowed addresses hold 0.0.0.0/0), including tailnet
+# addresses no peer holds; WireGuard drops only sources that belong to another peer.
+# A list that cannot be read (tailscaled restarting, python3 missing) is replaced by
+# the last good one for up to PEERS_KEEP seconds; after that none count (the peers
+# are filtered like strangers through the exit node), which the state file says
+# for the panel (tailnet_peers=unreadable) and the journal says once.
+PEERS_KEEP=900
+read_peers() {
 	cli=""
 	for c in /usr/bin/tailscale /usr/sbin/tailscale; do
 		[ "$(stat -L -c '%u %a' "$c" 2>/dev/null | awk '$1 == 0 && $2 !~ /[2367].$|[2367]$/ {print "ok"}')" = ok ] && { cli=$c; break; }
 	done
-	[ -n "$cli" ] || return 0
-	timeout 5 "$cli" status --json 2>/dev/null | head -c 4000000 | awk '
-		/^\t"Peer": \{/ { inpeer = 1; next }
-		inpeer && /^\t\}/ { inpeer = 0 }
-		inpeer && /^\t\t"[^"]*": \{$/ { ips = ""; exitnode = 0; obj = 1; next }
-		inpeer && obj && /^\t\t\}/ { if (!exitnode) printf "%s", ips; obj = 0; next }
-		inpeer && obj && /^\t\t\t"ExitNode": true/ { exitnode = 1 }
-		inpeer && obj && /^\t\t\t"TailscaleIPs": \[/ { inips = 1; next }
-		inips && /\]/ { inips = 0; next }
-		inips { gsub(/[",[:space:]]/, ""); ips = ips $0 "\n" }' |
-	while read -r a; do
-		valid_addr "$a" || continue
-		case "$a" in
-			100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*) echo "$a" ;;
-			[fF][dD]7[aA]:115[cC]:[aA]1[eE]0:*) echo "$a" ;;
-		esac
-	done | sort -u | head -n 4096
+	[ -n "$cli" ] || return 1
+	command -v python3 >/dev/null 2>&1 || return 1
+	timeout 5 "$cli" status --json 2>/dev/null | head -c 4000000 | python3 -I -c '
+import ipaddress, json, sys
+try:
+    status = json.load(sys.stdin)
+    peers = status.get("Peer") or {}
+    if not isinstance(peers, dict):
+        raise ValueError
+except Exception:
+    sys.exit(1)
+tailnet = (ipaddress.ip_network("100.64.0.0/10"), ipaddress.ip_network("fd7a:115c:a1e0::/48"))
+for peer in peers.values():
+    if not isinstance(peer, dict) or peer.get("ExitNode") is True:
+        continue
+    for text in peer.get("TailscaleIPs") or []:
+        try:
+            address = ipaddress.ip_address(text)
+        except (TypeError, ValueError):
+            continue
+        if any(address.version == net.version and address in net for net in tailnet):
+            print(address)
+'
+}
+tailnet_peers() {
+	if list=$(read_peers); then
+		mkdir -p "$RUN"
+		printf '%s\n' "$list" | grep . | sort -u | head -n 4096 > "$RUN/vpnpeers.new" && mv -f "$RUN/vpnpeers.new" "$RUN/vpnpeers"
+		set_state tailnet_peers ok
+	elif [ -f "$RUN/vpnpeers" ] && [ -n "$(find "$RUN/vpnpeers" -newermt "-$PEERS_KEEP seconds" 2>/dev/null)" ]; then
+		: # the last good list, while it is recent
+	else
+		rm -f "$RUN/vpnpeers"
+		if [ "$(sed -n 's/^tailnet_peers=//p' "$STATE" 2>/dev/null)" != unreadable ]; then
+			note "Tailscale's devices cannot be listed (tailscaled does not answer, or python3 is missing): through the exit node they are filtered like strangers until they can"
+		fi
+		set_state tailnet_peers unreadable
+		return 0
+	fi
+	cat "$RUN/vpnpeers"
 }
 # a recognised VPN interface: Tailscale's, or a kernel WireGuard interface (only
 # root can make either)
@@ -759,9 +786,9 @@ do_refresh() {
 		for p in $(printf '%s\n' "$now" | sed -n "s/^$kind=//p" | tr ',' ' '); do
 			in_csv "$p" "$was" && continue
 			if [ "$kind" = pending4 ]; then
-				note "$p is on a home interface but is not the home network recorded at install: it does not count as home, and IPv4 there is filtered (if this is your home network now: cosmos-host-guard confirm)"
+				note "$p is on a home interface but is not the home network recorded at install: this server seems to be on a new home network (a new router?): only SSH answers it, and IPv4 there is otherwise filtered, until you confirm it (cosmos-host-guard confirm)"
 			else
-				note "$p is a new prefix on a home interface: it does not count as home until confirmed (cosmos-host-guard confirm)"
+				note "$p is a new prefix on a home interface: only SSH answers it until you confirm it (cosmos-host-guard confirm)"
 			fi
 		done
 	done

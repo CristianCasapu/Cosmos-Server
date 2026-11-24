@@ -49,14 +49,23 @@
 #   or started a child (the shell or the command). dropbear up to 2022 (Debian 12,
 #   Ubuntu 24.04) keeps a signed-in tunnel as root without a child: there only the
 #   journal tells it from a stranger.
-# NOT signed in ("no"): an OpenSSH connection whose monitor has not been given a
-# user name; one whose monitor was (a stranger at the password prompt) when the
-# journal covers the connection's whole life (its oldest entry of this boot is
-# older than the connection, and this server writes to it) and holds no such
-# line; a dropbear connection whose own "Child connection from <peer>" line is in
-# the journal without a line of success. Anything else is "unsure": no journal, a
-# server that logs elsewhere, a line rotated or vacuumed away, root's own session
-# without its line (its post-authentication child is root's too).
+# NOT signed in ("no") needs positive evidence too, never the journal's silence (a
+# server at LogLevel ERROR, a rate-limited or vacuumed journal would make a silence
+# lie, and a wrong "no" cuts the owner off):
+# - OpenSSH: the connection is still before authentication by its processes: its
+#   monitor has no user yet ("[accepted]"), or the monitor's pre-authentication
+#   child runs now (as the privilege separation user, "<name> [net]"; its binary is
+#   sshd-auth from OpenSSH 9.8). Measured on 9.2, 9.6 and 10.0: a stranger at the
+#   password prompt has that child, any signed-in connection (root's included) has
+#   it no more.
+# - dropbear: no process shows it (2022 keeps root's or a user's tunnel as root
+#   without a child), so only the journal, and only when it provably records this
+#   server's successes: the connection's own "Child connection from <peer>" line is
+#   there, journald runs since before the connection and has suppressed nothing
+#   since, and a line of success of this binary was written since its listener
+#   started; then a missing line of success for this peer is a stranger's.
+# Anything else is "unsure": root's own session without its line, a server that
+# logs elsewhere or nothing, a line rotated or vacuumed away.
 
 set -eu
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
@@ -159,12 +168,21 @@ accepted() {
 	return 1
 }
 
-# jmessages <pid> <binary>: the messages root wrote from that process with that
-# binary in this boot (journald's own fields; bounded)
+# start_of <pid>: when the process started, in seconds since 1970
+start_of() {
+	ticks=$(awk '{print $22}' "/proc/$1/stat" 2>/dev/null || echo x)
+	hz=$(getconf CLK_TCK 2>/dev/null || echo 100)
+	boot=$(awk '/^btime/ {print $2}' /proc/stat)
+	case "$ticks$hz$boot" in ''|*[!0-9]*) return 1 ;; esac
+	echo $((boot + ticks / hz))
+}
+# jmessages <pid> <binary> <since>: the messages root wrote from that process with
+# that binary since that time (seconds since 1970, a second of slack before it),
+# newest last and at most the 20000 newest (journald's own fields; bounded)
 jmessages() {
 	command -v journalctl >/dev/null 2>&1 || return 0
-	[ -n "$2" ] || return 0
-	timeout 5 journalctl -q --no-pager -b -o cat _PID="$1" _UID=0 _EXE="$2" 2>/dev/null | head -n 5000 || true
+	[ -n "$2" ] && [ -n "$3" ] || return 0
+	timeout 5 journalctl -q --no-pager --system -b --since "@$(($3 - 1))" -n 20000 -o cat _PID="$1" _UID=0 _EXE="$2" 2>/dev/null || true
 }
 # the peer's address and port, as the servers write them
 peer_parts() { # ss's peer
@@ -173,40 +191,49 @@ peer_parts() { # ss's peer
 	case "$PA" in ::ffff:*.*) PA=${PA#::ffff:} ;; esac
 }
 openssh_accepted() { # monitor pid: its "Accepted ... for U from A port P" for this peer
-	jmessages "$1" "$(exe_of "$1")" | awk -v a="$PA" -v b="::ffff:$PA" -v p="$PP" '
+	jmessages "$1" "$(exe_of "$1")" "$(start_of "$1")" | awk -v a="$PA" -v b="::ffff:$PA" -v p="$PP" '
 		$1 == "Accepted" && $3 == "for" && $5 == "from" && ($6 == a || $6 == b) && $7 == "port" && $8 == p {found = 1}
 		END {exit !found}'
 }
-dropbear_line() { # pattern connection-pid: its (or its listener's) line of that kind for this peer
+# dropbear_line <pattern> <connection pid> [listener pids]: the connection's (or,
+# when dropbear logs to its standard error under a unit, its listener's) line of
+# that kind for this peer since the connection began; the address and the port at
+# the end tie it to this connection (no earlier connection can have had the same
+# address and port while this one lives)
+dropbear_line() {
+	since=$(start_of "$2") || return 1
 	for lp in "$2" $LPIDS; do
-		jmessages "$lp" "$(exe_of "$lp")" | awk -v re="$1" -v a="$PA:$PP" -v b="::ffff:$PA:$PP" '
+		jmessages "$lp" "$(exe_of "$lp")" "$since" | awk -v re="$1" -v a="$PA:$PP" -v b="::ffff:$PA:$PP" '
 			$0 ~ re && $(NF - 1) == "from" && ($NF == a || $NF == b) {found = 1}
 			END {exit !found}' && return 0
 	done
 	return 1
 }
-
-# covers <pid>: the journal holds this boot from before the process started, and
-# the process's binary writes to it (so a missing line of success means none)
-covers() {
+# dropbear_records <connection pid>: dropbear's successes provably reach the journal
+# for this connection: journald runs since before the connection began, has
+# suppressed nothing since, and a line of success of this listener's binary was
+# written since the listener started (in this configuration, successes are logged)
+dropbear_records() {
 	command -v journalctl >/dev/null 2>&1 || return 1
-	if [ -z "${OLDEST:-}" ]; then
-		OLDEST=$(timeout 5 journalctl -b -q --no-pager -o short-unix 2>/dev/null | head -n 1 | cut -d. -f1 || true)
-		case "$OLDEST" in ''|*[!0-9]*) OLDEST=none ;; esac
-	fi
-	[ "$OLDEST" != none ] || return 1
-	ticks=$(awk '{print $22}' "/proc/$1/stat" 2>/dev/null || echo x)
-	hz=$(getconf CLK_TCK 2>/dev/null || echo 100)
-	boot=$(awk '/^btime/ {print $2}' /proc/stat)
-	case "$ticks$hz$boot" in ''|*[!0-9]*) return 1 ;; esac
-	[ "$OLDEST" -lt $((boot + ticks / hz)) ] || return 1
-	timeout 5 journalctl -q --no-pager -b -n 1 -o cat _UID=0 _EXE="$(exe_of "$1")" 2>/dev/null | grep -q .
+	since=$(start_of "$1") || return 1
+	jpid=$(systemctl show -p MainPID --value systemd-journald.service 2>/dev/null || true)
+	case "$jpid" in ''|0|*[!0-9]*) return 1 ;; esac
+	jstart=$(start_of "$jpid") || return 1
+	[ "$jstart" -lt "$since" ] || return 1
+	if jmessages "$jpid" "$(exe_of "$jpid")" "$since" | grep -q 'Suppressed'; then return 1; fi
+	for lp in $LPIDS; do
+		lstart=$(start_of "$lp") || continue
+		timeout 5 journalctl -q --no-pager --system -b --since "@$((lstart - 1))" -n 20000 -o cat _UID=0 _EXE="$(exe_of "$lp")" 2>/dev/null |
+			grep -q ' auth succeeded for ' && return 0
+	done
+	return 1
 }
 
 # the uid of OpenSSH's privilege separation user (it runs the pre-authentication child)
 privsep_uid() { id -u sshd 2>/dev/null || echo none; }
 
-# state <server> <connection's own process>: yes, no or unsure
+# state <server> <connection's own process>: yes, no or unsure. Both "yes" and "no"
+# rest on positive evidence; everything else is "unsure".
 state_of() {
 	case "$1" in
 		openssh)
@@ -219,16 +246,26 @@ state_of() {
 				case "$(title_of "$c")" in *"[net]"|*"[preauth]") continue ;; esac
 				echo yes; return
 			done
-			# no user named yet ("[accepted]", "[net]"...): a stranger at the very start;
-			# a name ("tester [priv]", root's own "root" or "root@pts/0"): from here only
-			# the journal tells a stranger at the password prompt from a session
+			# still before authentication, shown by the processes themselves (OpenSSH 9.2
+			# to 10.0, measured): the monitor has no user yet ("[accepted]"), or its
+			# pre-authentication child runs now (the privilege separation user,
+			# "<name> [net]"; sshd-auth from OpenSSH 9.8). Once signed in that child is
+			# gone. The journal's silence is never taken as "no".
 			if ! title_of "$2" | grep -qE '^sshd[a-z-]*: [^[ ]'; then echo no; return; fi
-			if covers "$2"; then echo no; else echo unsure; fi ;;
+			for c in $(children_of "$2"); do
+				[ "$(uid_of "$c")" = "$PRIVSEP" ] || continue
+				[ "$(server_of "$c" || true)" = openssh ] || continue
+				case "$(title_of "$c")" in *"[net]"|*"[preauth]") echo no; return ;; esac
+			done
+			echo unsure ;;
 		dropbear|tinysshd)
 			if [ "$(uid_of "$2")" != 0 ] || [ -n "$(children_of "$2")" ]; then echo yes; return; fi
 			if [ "$1" = dropbear ]; then
 				dropbear_line ' auth succeeded for ' "$2" && { echo yes; return; }
-				dropbear_line 'Child connection from ' "$2" && { echo no; return; }
+				# no process tells a dropbear connection still signing in from root's
+				# own tunnel: "no" only when the journal provably holds its successes
+				# and holds this connection's start without one
+				if dropbear_line 'Child connection from ' "$2" && dropbear_records "$2"; then echo no; return; fi
 			fi
 			echo unsure ;;
 	esac
@@ -246,7 +283,6 @@ sessions() {
 	LIST=$(listeners)
 	[ -n "$LIST" ] || return 0
 	PRIVSEP=$(privsep_uid)
-	OLDEST=""
 	ports=$(printf '%s\n' "$LIST" | awk '{print $4}' | sort -u | paste -sd, -)
 	# only the connections on a listener's port go further (one pass over them all)
 	ss -Htne state established 2>/dev/null | on_ports "$ports" |

@@ -298,11 +298,11 @@ test('IPv4 per interface: not filtered where pass4_if says, filtered on the othe
 
 test('a pending prefix: a warning and the command that confirms it', () => {
   const card = cardOf('guard', v3({ pendingPrefixes: ['2001:db8:5::/64'] }), 2053);
-  assert.deepEqual(warn(card), ['A new prefix 2001:db8:5::/64 appeared on the home network and is not counted as home yet. If it is your provider\'s new prefix, confirm it: sudo cosmos-host-guard confirm']);
+  assert.deepEqual(warn(card), ['A new network 2001:db8:5::/64 appeared on the home interface (a new router, or the provider\'s new prefix): until you confirm it, only SSH answers it. If it is your home network, confirm it: sudo cosmos-host-guard confirm']);
   assert.deepEqual(card.confirm, { text: CONFIRM_COMMAND, label: ['protection.command.confirm', 'To count the new prefix as home, run on the server:'] });
   assert.equal(CONFIRM_COMMAND, 'sudo cosmos-host-guard confirm');
   const two = cardOf('guard', v3({ pendingPrefixes: ['2001:db8:5::/64', '2001:db8:6::/64'] }), 2053);
-  assert.match(warn(two)[0], /^New prefixes 2001:db8:5::\/64, 2001:db8:6::\/64 appeared/);
+  assert.match(warn(two)[0], /^New networks 2001:db8:5::\/64, 2001:db8:6::\/64 appeared/);
   assert.equal(cardOf('guard', v3({}), 2053).confirm, null);
   assert.deepEqual(cardOf('guard', v3({}), 2053).warnings, []);
 });
@@ -378,6 +378,15 @@ test('an interface outside since the install, Tailscale as an exit node, and rul
     assert.deepEqual(card.warnings, []);
     assert.ok(!keys(card.lines).some((key) => key.startsWith('protection.guard.tableRemoved')));
   }
+});
+
+test('the devices of Tailscale that cannot be listed while an exit node is on: a warning', () => {
+  const card = (extra, table = { wanInterfaces: ['eth0', 'tailscale0'], vpnHomeInterfaces: ['tailscale0'] }) => cardOf('guard', v3(table, extra), 2053);
+  assert.deepEqual(keys(card({ tailnetPeers: 'unreadable' }).warnings), ['protection.guard.tailnetUnreadable']);
+  assert.deepEqual(card({ tailnetPeers: 'ok' }).warnings, []);
+  assert.deepEqual(card({}).warnings, []);
+  // no exit node: nothing to say
+  assert.deepEqual(card({ tailnetPeers: 'unreadable' }, {}).warnings, []);
 });
 
 test('the note on what is not covered, for an installed guard only', () => {

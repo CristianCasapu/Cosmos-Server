@@ -131,6 +131,9 @@ type Guard struct {
 	// TableRemoved: something else removed the guard's table within the
 	// last hour (the watcher loaded it again each time); nil when not.
 	TableRemoved *Removals `json:"tableRemoved,omitempty"`
+	// TailnetPeers is ok or unreadable: whether Tailscale's devices could be
+	// listed for an exit node (only they count as home through it).
+	TailnetPeers string `json:"tailnetPeers,omitempty"`
 }
 
 // Removals is how often something else removed the guard's table: Count
@@ -268,6 +271,7 @@ func readGuard(now time.Time) Guard {
 			guard.OtherFilters = state.OtherFilters
 		}
 		guard.Cloud, guard.Virt, guard.SSHMode = state.Cloud, state.Virt, state.SSHMode
+		guard.TailnetPeers = state.TailnetPeers
 		if state.VPNs != nil {
 			guard.VPNFound = state.VPNs
 		}
