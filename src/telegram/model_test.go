@@ -174,7 +174,16 @@ func (b *modelBot) sendMessage(ctx context.Context, st settings, out outgoing) (
 		marker := m.threadOfText(out.message.text)
 		if markerPattern.FindStringSubmatch(out.message.text) == nil && strings.Contains(out.message.text, "are in the panel") {
 			// the plain form refused too: the thread of the refusal it follows
-			marker = b.plainThread(out.message.text)
+			marker = b.plainThread(out.message.text, false)
+		}
+		if marker == "" && out.replyTo != 0 {
+			// a reply that names nothing ("No longer followed"): the thread
+			// of the message it answers
+			for _, other := range b.chat {
+				if other.id == out.replyTo && other.chat == st.chatID {
+					marker = m.threadOfMessage(other)
+				}
+			}
 		}
 		if marker != "" {
 			b.refusedForms = append(b.refusedForms, refusedForm{marker, m.clock})
@@ -209,7 +218,7 @@ func (b *modelBot) sendMessage(ctx context.Context, st settings, out outgoing) (
 	// only the plain form says that the values are in the panel
 	if markerPattern.FindStringSubmatch(msg.text) == nil && strings.Contains(msg.text, "are in the panel") {
 		// the latest refusal first: the plain form follows its own refusal
-		if marker := b.plainThread(msg.text); marker != "" {
+		if marker := b.plainThread(msg.text, outcome != "timeout"); marker != "" { // an answer lost: it comes again
 			m.plainOf[msg.id] = marker // one refusal can stand for several plain sends
 		}
 	} else if found := markerPattern.FindStringSubmatch(msg.text); found != nil {
@@ -247,7 +256,7 @@ func (b *modelBot) sendMessage(ctx context.Context, st settings, out outgoing) (
 
 // plainThread: the thread of a plain form, from the latest refusal whose
 // thread can have its first line.
-func (b *modelBot) plainThread(text string) string {
+func (b *modelBot) plainThread(text string, accepted bool) string {
 	line := PreviewLine(text)
 	// a refused thread whose plain form has not come yet first
 	for _, first := range []bool{true, false} {
@@ -257,7 +266,9 @@ func (b *modelBot) plainThread(text string) string {
 				if b.plainSeen == nil {
 					b.plainSeen = map[string]bool{}
 				}
-				b.plainSeen[r.marker] = true
+				if accepted {
+					b.plainSeen[r.marker] = true // a refused plain form did not come
+				}
 				return r.marker
 			}
 		}
@@ -326,6 +337,7 @@ type modelThread struct {
 	lastDue    time.Time   // the last late event of this thread waiting
 	rowAt      time.Time   // when its open row was last written
 	writtenAt  time.Time   // when its last opening was written (heard by the notifier)
+	lostOpenAt time.Time   // a restart came before the notifier wrote its opening down
 }
 
 // lateEvent is a notification a source writes after its state changed.
@@ -486,6 +498,7 @@ type model struct {
 	plainOf       map[int]string         // the thread of a message sent in its plain form
 	lostCloseAt   map[string][]time.Time // a closing whose fate is unknown (S2: the chat may show it over)
 	fillAt        time.Time
+	persistedAt   time.Time
 	threadLines   map[string]map[string]bool
 }
 
@@ -615,7 +628,10 @@ func (m *model) sentAt(msg modelMessage, st settings) {
 			m.violate("I5", "%s of %s sent while %s is not wanted", msg.action, msg.thread, th.opening)
 		}
 	case "close":
-		if on, set := st.kinds[th.closing]; set && !on {
+		// a message of its own (the table full) is decided when it is
+		// queued, as before plan 48
+		queuedBefore := m.features["full table"] && msg.replyTo == 0 && between(m.settingAt, latestBefore(th.closedAt, m.clock), m.clock)
+		if on, set := st.kinds[th.closing]; set && !on && !queuedBefore {
 			m.violate("I5", "a closing switched off by itself was sent")
 		}
 		// I9, live (review 6): never told over while it is open
@@ -1068,6 +1084,13 @@ func (m *model) restartKeeping(keep bool) {
 		m.feature("restart with the file")
 	}
 	m.log("restart (file kept: %v)", keep)
+	for _, th := range m.threads {
+		// an opening heard after the threads file was last written is
+		// lost with the process (the level gives it back)
+		if last := latestBefore(th.openedAt, m.clock); th.open && !last.Before(m.persistedAt) {
+			th.lostOpenAt = m.clock
+		}
+	}
 	if len(m.pending) > 0 {
 		// what a source had not written yet is lost with the process; its
 		// state (registered) is not
@@ -1109,6 +1132,7 @@ func (m *model) fillTable() {
 // step lets the sender do one thing, or the time pass; a reconcile asked
 // for (the switch-on path) is served as the loop serves it.
 func (m *model) step() bool {
+	m.persistedAt = m.clock // the sender writes the threads file as it wakes
 	m.deliverDue(false)
 	if m.store && !m.clock.Before(m.nextReconcile) {
 		// the reconcile at its real cadence (30 s after a start, then every
@@ -1264,7 +1288,7 @@ func (m *model) check(start time.Time) {
 		wanted := st.wants(newNotice(th.opening, nil))
 		// a thread sent as messages of its own (the table full) is under the
 		// cap and the summaries, as before plan 48: not asserted here
-		known := m.knownAtEnd(th) && !m.plainIDs[threadID(th.name)]
+		known := m.knownAtEnd(th) && !m.plainIDs[threadID(utils.ThreadName(th.name))]
 		lostSince := between(m.lostAt, last.at, m.clock)
 		// I1
 		if th.open && wanted && known && last.action != "open" && last.action != "repeat" && !m.beyondTheBound(th) {
@@ -1288,7 +1312,7 @@ func (m *model) check(start time.Time) {
 				// as a new opening)
 				left := between(m.chatAt, outstanding.at, msg.at) || m.closingOffDuring(th, outstanding.at, msg.at) ||
 					between(m.lostCloseAt[th.marker], outstanding.at, msg.at)
-				plainAgain := m.plainIDs[threadID(th.name)]
+				plainAgain := m.plainIDs[threadID(utils.ThreadName(th.name))]
 				if outstanding.id != 0 && !outstanding.timedOut && !between(m.lostAt, outstanding.at, msg.at) && !left && !plainAgain {
 					m.violate("I4", "%s opened twice (#%d then #%d)", th.marker, outstanding.id, msg.id)
 				}
@@ -1346,7 +1370,7 @@ func (m *model) check(start time.Time) {
 						break
 					}
 					// a message of its own (the table full) is not pinned
-					if !between(m.lostAt, msgs[i].at, m.clock) && !msgs[i].timedOut && !m.plainIDs[threadID(th.name)] {
+					if !between(m.lostAt, msgs[i].at, m.clock) && !msgs[i].timedOut && !m.plainIDs[threadID(utils.ThreadName(th.name))] {
 						pinWanted = append(pinWanted, msgs[i].id)
 					}
 					break
@@ -1583,6 +1607,11 @@ func TestModelSeedsThatFailedOnce(t *testing.T) {
 		1794986394991302526, // review 5: an entry that forgot its kind could not be looked at
 		1794986845873144210, // review 5: a closing lost in flight is sent again after a re-opening
 		1794991808159429524, // review 5: a closing that timed out is uncertain in its chat, across a change of chat
+		// review 6, the real level
+		1795511231975621236, // an opening heard but not written down before a restart; the pending closing went
+		1795511299980245804, // a closing refused for its form, then reopened by the level: the full form again
+		1795511419007793193, // a thread beyond the full table with a name longer than the store keeps
+		1795512053694767857, // a full table and a restart (the bounds of the file and of the store's listing)
 	} {
 		runModel(t, seed)
 	}
@@ -1590,6 +1619,10 @@ func TestModelSeedsThatFailedOnce(t *testing.T) {
 	for _, seed := range []int64{
 		1795509994520303309, // a closing sent after a restart lost the reopening's write, the source still starting
 		1795510390319121856, // plain forms of several threads of one kind, refused one after the other
+		1795510797275221351, // the end of a thread beyond the full table, queued before its closing was switched off
+		1795511211590472632, // the same
+		1795511762948446379, // the same
+		1795511998330992138, // plain forms of two threads of one kind, one of them refused twice
 	} {
 		runModelWith(t, seed, true, map[string]int{})
 	}

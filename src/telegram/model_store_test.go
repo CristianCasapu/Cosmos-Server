@@ -303,7 +303,7 @@ func (m *model) checkLastWords(start time.Time, when string) {
 	for _, th := range m.threads {
 		last := m.lastWord(th)
 		wanted := st.wants(newNotice(th.opening, nil))
-		known := m.knownAtEnd(th) && !m.plainIDs[threadID(th.name)]
+		known := m.knownAtEnd(th) && !m.plainIDs[threadID(utils.ThreadName(th.name))]
 		lostSince := between(m.lostAt, last.at, m.clock)
 		if th.open && wanted && known && last.action != "open" && last.action != "repeat" && !m.beyondTheBound(th) {
 			m.violate("I1", "%s: %s is open, the chat's last word is %q", when, th.marker, last.action)
@@ -398,6 +398,11 @@ func (m *model) closeExcused(th *modelThread) bool {
 		if ev.th == th {
 			return true // a write of the source is still to come
 		}
+	}
+	// the latest opening was heard but not written down before a restart:
+	// until the level is looked at again (a reconcile period)
+	if !th.lostOpenAt.IsZero() && m.clock.Sub(th.lostOpenAt) <= 11*time.Minute {
+		return true
 	}
 	// the latest opening's write was lost in a restart and the source does
 	// not know yet: nothing tells the notifier it opened again
