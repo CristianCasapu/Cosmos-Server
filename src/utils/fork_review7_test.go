@@ -60,3 +60,22 @@ func TestAProblemResolvedByHandIsOver(t *testing.T) {
 		t.Error("id 0 taken")
 	}
 }
+
+// review 7, N3: a problem a watch still sees is not resolved by hand.
+func TestAProblemAWatchStillSeesStaysOpen(t *testing.T) {
+	notificationEnv(t)
+	RegisterThreadLevel("upnp.forward.failed", func(string) (bool, bool) { return true, true })
+	defer func() {
+		threadLevelsMu.Lock()
+		delete(threadLevels, "upnp.forward.failed")
+		threadLevelsMu.Unlock()
+	}()
+	WriteNotification(upnpNotification("2053"))
+	items := list(t, NotificationQuery{Recipient: "alice", Admin: true})
+	if resolved, err := ResolveNotificationByHand("alice", true, items[0].ID); err != nil || resolved {
+		t.Errorf("resolved %v err %v", resolved, err)
+	}
+	if !ThreadOpen("upnp:cosmos:HTTPS") {
+		t.Error("resolved although a watch sees it")
+	}
+}
