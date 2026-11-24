@@ -242,35 +242,60 @@ It is the same script as `install.sh` with its role changed: the system checks, 
 - No Cosmos at all: exit 19. Use `install.sh`.
 - It refuses with exit 17 and says why:
   - upstream's Docker container (not handled yet);
-  - other folders than upstream's defaults, or `COSMOS_CONFIG_FOLDER` / `CONFIG_FILE` in the unit;
+  - other folders than upstream's defaults;
+  - a link or a mount point at `/opt/cosmos` or `/var/lib/cosmos` (or on their way): for example the data kept on another disk through a link;
+  - a unit whose configuration, as systemd runs it, holds something the script does not know: drop-ins, environment files, `COSMOS_CONFIG_FOLDER` / `CONFIG_FILE`, another folder or user;
+  - what an earlier migration left that no state of the script names;
   - a Cosmos newer than the version the fork is built on;
   - users still in MongoDB (before 0.23);
   - a first-run wizard that is not finished;
   - an update of upstream waiting in the folder;
   - a Cosmos that is not running.
-- A licence in the settings stops it with exit 18. The fork is upstream's community edition: the paid edition's features are not in it, their settings stay in the file unused, and the licence's user limit stays as on the community edition. `--accept-community-edition` migrates all the same. The script only reads whether a licence is set.
+- **A licence in the settings stops it with exit 18; `--accept-community-edition` migrates all the same.** The script only reads whether a licence is set. The message says what happens to a licence after the move:
+  - The fork is built as upstream's community edition and keeps upstream's licence client as it is.
+  - The licence stays in the settings. The fork renews it with upstream's licence server (`api.cosmos-cloud.io`) when it starts and once a day. It sends the licence, whether the server is an agent node and the number of users, as upstream's community edition does.
+  - While the licence is valid, the features upstream ties to it in the community edition keep working (Constellation, remote storage, backups), with the licence's user and server limits.
+  - The features of upstream's Pro edition (groups, CI and functions, managed databases, the registry, SeaweedFS, the scheduler) are not in the fork.
+- The backup's place must be:
+  - new, and under folders only root can change;
+  - on a local Linux file system (not vfat, exfat, NTFS, CIFS or NFS);
+  - not in memory, and not under `/tmp` or `/var/tmp`;
+  - with room for the copy and for what a rollback keeps there.
 - An older upstream (0.23, for example) is migrated directly: the fork runs at its first start the same forward migrations that upstream's own update would.
 
 **What it does:**
-- It notes how Cosmos answers: its settings, the code each of its URLs answers with, and the containers.
-- It stops Cosmos (the containers keep running) and backs up `/opt/cosmos`, `/var/lib/cosmos` and the unit into a new folder. The default is `/var/backups/cosmos-before-fork-<time>`; `--backup-dir` sets another. The folder is private (0700), on a disk with room, and not in memory.
+- It installs only what it needs itself (the download tools and jq). The rest of what Cosmos uses is what upstream's installation already put there.
+- It notes how Cosmos answers: its settings, the code each of its URLs answers with, the containers, the listening ports, and that the first-run wizard refuses.
+- It stops Cosmos (the containers keep running). It backs up `/opt/cosmos`, `/var/lib/cosmos` and the unit into a new folder, private (0700) from its creation. The default is `/var/backups/cosmos-before-fork-<time>`; `--backup-dir` sets another.
 - It checks the copy against a list of every file with its SHA-256.
-- It puts the fork's verified release in `/opt/cosmos`, keeping your `start.sh`, the unit and the data, and starts it.
-- It checks that the same settings, URLs and containers answer as before, and that no setup code appeared: the server keeps its administrator, who signs in with the old password.
-- **On any failure from the stop on, it puts everything back by itself:** the folder, the data (copied back from the backup and checked against the list), the unit, and the service as it was. It starts upstream's Cosmos again and ends with exit 20. If even that fails, it ends with exit 1 and says what to do by hand.
-- When interrupted (a lost connection, a reboot), it continues where it stopped when run again; `sudo bash migrate.sh --undo` puts everything back instead.
+- It renames upstream's folder aside and puts the fork's verified release in `/opt/cosmos`, keeping your `start.sh`, the unit and the data. Then it starts the fork.
+- It checks that everything answers as before: the same settings, URLs, containers and listening ports, and the wizard refused. The server keeps its administrator, who signs in with the old password.
+- **On any failure in that run from the stop on, it puts everything back by itself and ends with exit 20.**
+  - Upstream's folder is renamed back, and the release it tried is moved into the backup.
+  - The data is put back only if the fork changed it: the data as it was is moved into the backup and named, then the backup's copy is put back and checked.
+  - The unit, `/etc/sysconfig/CosmosCloud`, and the service enabled and running as before.
+  - It then compares with before. If something still differs (for example a container someone changed meanwhile), it names it and ends with exit 22. If it could not put things back, it ends with exit 1 and says what to do by hand.
+- **It never deletes anything it did not make in that run.** What it replaces is moved into the backup folder, and the path is printed.
+
+**When interrupted** (a lost connection, a power cut), run it again:
+- Interrupted before the fork was put in place: it starts upstream's Cosmos again if it ran before, keeps the earlier backup (named), and migrates from the start.
+- Interrupted after the fork was put in place: it finishes only if nothing ran since and the data is still the backup's. Otherwise (a reboot started Cosmos, someone used the server) it replaces nothing. It stops with exit 21, says what it found, and waits for your word:
+  - `sudo bash migrate.sh --undo` goes back to upstream. The data as it is now is moved into the backup (named), and the backup's copy is put back.
+  - `sudo bash migrate.sh --continue` keeps the fork. The data as it is now is first copied into the backup, then the fork is checked and the migration completed.
+- `--dry-run` never changes anything: over an interrupted migration it only says what a run and `--undo` would do.
+- `uninstall.sh` refuses to touch a server whose migration is not finished (exit 3).
 
 **Afterwards:**
-- The backup stays, with `GOING-BACK.txt` in it. It holds the server's keys and its users' password hashes: delete it once you keep the fork.
+- The backup stays, with `GOING-BACK.txt` in it, and upstream's installation folder stays as `/opt/cosmos-upstream-<version>-before-fork`. The backup holds the server's keys and its users' password hashes: delete both once you keep the fork.
 - Everyone signs in once more: sessions opened with upstream's Cosmos are not taken over. The accounts and their passwords are those of before (the data folder is kept as it is).
 - Updates come from the panel, as for any installation of the fork.
 - `uninstall.sh` does not remove a Cosmos that `migrate.sh` moved (exit 3); going back is done by hand.
 
 **Going back to upstream** is described in `GOING-BACK.txt`. There are two ways:
-1. Exactly what was there before, from the backup. Anything changed since the migration is lost.
+1. Exactly what was there before, from the backup. Anything changed since the migration is lost: it is moved aside, not deleted.
 2. Keeping the data as the fork left it, by unpacking upstream's zip of 0.24.0 or newer over `/opt/cosmos` (keeping `start.sh`) and removing the fork's own files. Upstream ignores the fork's own settings and drops them at its next save. An upstream older than 0.24 cannot read settings that 0.24 converted.
 
-The manual way still works: back up both folders, stop Cosmos, copy the release's top folder over `/opt/cosmos` keeping your `start.sh`, and start it again.
+The manual way still works: stop Cosmos, then back up both folders, copy the release's top folder over `/opt/cosmos` keeping your `start.sh`, and start it again.
 
 ### How updates arrive
 
