@@ -43,7 +43,7 @@ EOF
 			-e '/^\t\t\tagainst_home "\$dev" || continue$/d' "$G"
 		;;
 	exitnode-outside)
-		sed -i '/vpnhome="\$vpnhome \$dev"; done$/d' "$G"
+		sed -i 's/^\t\tfor dev in \$wan; do .* vpnhome="\$vpnhome \$dev"; done$/\t\t:/' "$G"
 		;;
 	*) echo "unknown break $1" >&2; exit 2 ;;
 esac

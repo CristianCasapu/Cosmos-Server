@@ -528,6 +528,10 @@ PROTECTION.pending = v3({ pendingPrefixes: ['2001:db8:5::/64'] });
 PROTECTION.cloud = v3({ lanInterfaces: [], publicTcp: [2053] }, { cloud: 'Amazon EC2', exposed: true, ipv4Reason: 'exposed', sshMode: 'console' });
 PROTECTION.vpnunknown = v3({}, { vpnFound: [{ kind: 'tailscale', port: 41641 }, { kind: 'wireguard', interface: 'wg0' }], udpNotOpen: [5353, 51820] });
 PROTECTION.stale = v3({}, { liveness: { watcherAt: '2026-11-17T09:20:00Z', refreshAt: '2026-11-17T09:21:00Z', watcherStale: true, refreshStale: true } });
+// after the third review: Tailscale switched to an exit node after the install, and a program that keeps
+// flushing the ruleset (counted by the watcher)
+PROTECTION.exitnode = v3({ wanInterfaces: ['eth0', 'tailscale0'], vpnHomeInterfaces: ['tailscale0'], rpfInterfaces: [] }, { outsideSinceInstall: ['tailscale0'], vpnFound: [{ kind: 'tailscale', port: 41641 }] });
+PROTECTION.removed = v3({}, { tableRemoved: { count: 57, at: '2026-11-17T09:58:00Z' } });
 export const protectionMock = (state) => [['/cosmos/api/protection', ok(PROTECTION[state])]];
 // Fork addition (plan 47, I2c): what a container's edit tabs propose from (GET
 // /api/servapps/{id}/edit-hints), for the guarded view `container-edit`: a
