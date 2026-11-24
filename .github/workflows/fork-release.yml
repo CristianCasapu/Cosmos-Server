@@ -262,7 +262,7 @@ jobs:
           cd release
           expected=$(printf '%s\n' "cosmos-cloud-$VERSION-amd64.zip" "cosmos-cloud-$VERSION-amd64.zip.md5" \
             "cosmos-cloud-$VERSION-arm64.zip" "cosmos-cloud-$VERSION-arm64.zip.md5" notes.md dependencies.json \
-            install.sh uninstall.sh SHA256SUMS | sort)
+            install.sh migrate.sh uninstall.sh SHA256SUMS | sort)
           found=$(find . -mindepth 1 -printf '%P\n' | sort)
           if [ "$found" != "$expected" ]; then
             echo "::error::The build handed over other files than a release has"; printf '%s\n' "$found"; exit 1
@@ -277,9 +277,13 @@ jobs:
           # The scripts: bounded, the version and only release keys stamped
           # in (compared with keys.go of this commit when signing is checked),
           # and listed in SHA256SUMS.
-          for f in install.sh uninstall.sh SHA256SUMS; do
+          for f in install.sh migrate.sh uninstall.sh SHA256SUMS; do
             if [ "$(stat -c %s "$f")" -gt 1048576 ]; then echo "::error::$f is larger than a script should be"; exit 1; fi
           done
+          # migrate.sh is install.sh with its role line, nothing else
+          if [ "$(diff install.sh migrate.sh | grep '^[<>]' | tr '\n' ' ')" != "< SCRIPT_ROLE=install > SCRIPT_ROLE=migrate " ]; then
+            echo "::error::migrate.sh is not install.sh with its role"; exit 1
+          fi
           if [ "$(sed -n "s/^RELEASE_VERSION='\(.*\)'\$/\1/p" install.sh)" != "$VERSION" ]; then
             echo "::error::install.sh does not carry the version $VERSION"; exit 1
           fi
@@ -315,10 +319,11 @@ jobs:
           cat manifest
           # The install scripts are signed in a file of their own: the
           # servers' parser refuses any name but the two zips in the .sig.
+          # (migrate.sh is install.sh with its role: both are listed.)
           {
             echo "cosmos-fork-scripts-v1"
             echo "version $VERSION"
-            for f in install.sh uninstall.sh; do
+            for f in install.sh migrate.sh uninstall.sh; do
               echo "sha256 $(sha256sum "release/$f" | awk '{print $1}') $f"
             done
           } > manifest.scripts
@@ -473,7 +478,7 @@ jobs:
             "cosmos-cloud-$VERSION-amd64.zip" "cosmos-cloud-$VERSION-amd64.zip.md5" \
             "cosmos-cloud-$VERSION-arm64.zip" "cosmos-cloud-$VERSION-arm64.zip.md5" \
             "cosmos-cloud-$VERSION.sig" dependencies.json \
-            install.sh uninstall.sh SHA256SUMS "cosmos-cloud-$VERSION.scripts.sig" \
+            install.sh migrate.sh uninstall.sh SHA256SUMS "cosmos-cloud-$VERSION.scripts.sig" \
             --target "$GITHUB_SHA" \
             --title "$VERSION" \
             --latest \

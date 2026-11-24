@@ -62,6 +62,8 @@ func TestInstallScriptHoldsOnlyPlaceholders(t *testing.T) {
 		"RELEASE_KEYS='@FORK_RELEASE_KEYS@'",
 		"RELEASE_VERSION='@FORK_RELEASE_VERSION@'",
 		"RELEASE_REPOSITORY='@FORK_RELEASE_REPOSITORY@'",
+		"RELEASE_BASE='@FORK_RELEASE_BASE@'",
+		"SCRIPT_ROLE=install",
 	} {
 		if n := strings.Count(script, "\n"+line+"\n"); n != 1 {
 			t.Errorf("install.sh holds the placeholder line %q %d times, want once", line, n)
@@ -95,28 +97,55 @@ func TestInstallScriptHoldsOnlyPlaceholders(t *testing.T) {
 	}
 }
 
-// migrate.sh (plan 47, D1) must refuse an installed fork exactly as
-// install.sh does: the detection is one block, the same in both.
-func TestScriptsShareTheDetection(t *testing.T) {
-	block := func(path string) string {
-		data, err := os.ReadFile(path)
+// migrate.sh (plan 47, D1) is install.sh with its role: the release build
+// writes it as the same stamped bytes with the one line SCRIPT_ROLE changed,
+// so every check the two share (the refusal of an installed fork first) is
+// the same code.
+func TestMigrateIsInstallWithItsRole(t *testing.T) {
+	out := t.TempDir()
+	cmd := exec.Command("bash", packageScript, "--scripts-only", "--version", "0.24.0-fork.77",
+		"--repository", "example-owner/cosmos-fork", "--base", "0.24.0", "--keys", "keys.go", "--out", out)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%s --scripts-only: %v\n%s", packageScript, err, b)
+	}
+	read := func(name string) []string {
+		data, err := os.ReadFile(filepath.Join(out, name))
 		if err != nil {
-			return ""
+			t.Fatal(err)
 		}
-		s := string(data)
-		begin := strings.Index(s, "# BEGIN shared detection")
-		end := strings.Index(s, "# END shared detection")
-		if begin < 0 || end < begin {
-			t.Fatalf("%s has no shared detection block", path)
+		return strings.Split(string(data), "\n")
+	}
+	install, migrate := read("install.sh"), read("migrate.sh")
+	if len(install) != len(migrate) {
+		t.Fatalf("install.sh has %d lines, migrate.sh %d", len(install), len(migrate))
+	}
+	differ := 0
+	for i := range install {
+		if install[i] == migrate[i] {
+			continue
 		}
-		return s[begin:end]
+		differ++
+		if install[i] != "SCRIPT_ROLE=install" || migrate[i] != "SCRIPT_ROLE=migrate" {
+			t.Errorf("line %d differs beyond the role: %q / %q", i+1, install[i], migrate[i])
+		}
 	}
-	install := block(installScript)
-	if install == "" {
-		t.Fatal("install.sh is missing")
+	if differ != 1 {
+		t.Errorf("%d lines differ, want exactly the role line", differ)
 	}
-	if migrate := block("../../fork/install/migrate.sh"); migrate != "" && migrate != install {
-		t.Error("migrate.sh's detection differs from install.sh's")
+	for _, want := range []string{"RELEASE_VERSION='0.24.0-fork.77'", "RELEASE_BASE='0.24.0'", "RELEASE_REPOSITORY='example-owner/cosmos-fork'"} {
+		found := false
+		for _, l := range migrate {
+			found = found || l == want
+		}
+		if !found {
+			t.Errorf("the stamped migrate.sh lacks %q", want)
+		}
+	}
+	// a base that is not x.y.z stops the packaging
+	bad := exec.Command("bash", packageScript, "--scripts-only", "--version", "0.24.0-fork.77",
+		"--repository", "example-owner/cosmos-fork", "--base", "0.24", "--keys", "keys.go", "--out", t.TempDir())
+	if b, err := bad.CombinedOutput(); err == nil {
+		t.Errorf("a base of 0.24 was packaged:\n%s", b)
 	}
 }
 

@@ -8,19 +8,24 @@
 #   bash scripts/fork-release-package.sh --build <dir> --version <x.y.z-fork.n> \
 #        --repository <owner/repo> --out <dir> [--keys <keys.go>] [--arches "amd64 arm64"] \
 #        [--upstream <x.y.z> --build-number <n> --previous <tag>] [--no-deps-notes]
+#   bash scripts/fork-release-package.sh --scripts-only --version <v> --repository <o/r> \
+#        --base <x.y.z> --out <dir> [--keys <keys.go>]   (the three scripts only: the tests)
 #
 # <build> is what build.sh made (cosmos, cosmos-launcher, their -arm64
 # twins, static/, meta.json, ...). It writes into <out>:
 #   cosmos-cloud-<v>-<arch>.zip and .md5   (the top folder holds fork/, with
 #                                          fork/install/install.sh stamped)
-#   install.sh uninstall.sh SHA256SUMS     (the assets: names without an
+#   install.sh migrate.sh uninstall.sh SHA256SUMS (the assets: names without an
 #                                          architecture and not ending in .md5,
 #                                          which the updater would take for a
 #                                          zip or a checksum, src/update.go)
 #   notes.md, dependencies.json            (only without --no-deps-notes)
 # The release keys and the version are written into install.sh from
-# keys.go (default src/forkrelease/keys.go). Any failure ends with a
-# non-zero status and an "::error::" line, before anything is published.
+# keys.go (default src/forkrelease/keys.go), and the upstream version the
+# release is built on from <build>/meta.json ("upstream"). migrate.sh is the
+# stamped install.sh with its role line changed, nothing else (checked). Any
+# failure ends with a non-zero status and an "::error::" line, before
+# anything is published.
 set -euo pipefail
 export LC_ALL=C
 
@@ -46,7 +51,7 @@ systems_of() {
 if [ "${1:-}" = --systems-of ]; then systems_of "$2"; exit 0; fi
 
 BUILD="" VERSION="" REPOSITORY="" OUT="" KEYS=src/forkrelease/keys.go ARCHES="amd64 arm64"
-UPSTREAM="" BUILD_NUMBER="" PREVIOUS="" DEPS_NOTES=1
+UPSTREAM="" BUILD_NUMBER="" PREVIOUS="" DEPS_NOTES=1 SCRIPTS_ONLY=0 BASE=""
 while [ $# -gt 0 ]; do
 	case $1 in
 	--build) BUILD=$2; shift ;;
@@ -59,11 +64,18 @@ while [ $# -gt 0 ]; do
 	--build-number) BUILD_NUMBER=$2; shift ;;
 	--previous) PREVIOUS=$2; shift ;;
 	--no-deps-notes) DEPS_NOTES=0 ;;
+	--scripts-only) SCRIPTS_ONLY=1 DEPS_NOTES=0 ;;
+	--base) BASE=$2; shift ;;
 	*) fail "unknown option $1" ;;
 	esac
 	shift
 done
-[ -d "$BUILD" ] || fail "--build: $BUILD is not a folder"
+if [ "$SCRIPTS_ONLY" = 0 ]; then
+	[ -d "$BUILD" ] || fail "--build: $BUILD is not a folder"
+	# the upstream version the release is built on, from the build itself
+	BASE=$(sed -n 's/.*"upstream"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$BUILD/meta.json" 2>/dev/null | head -n 1)
+fi
+[[ $BASE =~ ^(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$ ]] || fail "the upstream version the release is built on ('$BASE', meta.json's \"upstream\" or --base) is not x.y.z"
 [[ $VERSION =~ ^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}-fork\.[1-9][0-9]{0,8}$ ]] || fail "--version: '$VERSION' is not a fork version"
 [[ $REPOSITORY =~ ^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$ ]] || fail "--repository: '$REPOSITORY' is not owner/name"
 [ -n "$OUT" ] || fail "--out is missing"
@@ -84,16 +96,28 @@ src=$FORK_DIR/install/install.sh
 [ "$(grep -c "^RELEASE_KEYS='@FORK_RELEASE_KEYS@'$" "$src")" = 1 ] || fail "install.sh lacks its placeholder line for the keys"
 [ "$(grep -c "^RELEASE_VERSION='@FORK_RELEASE_VERSION@'$" "$src")" = 1 ] || fail "install.sh lacks its placeholder line for the version"
 [ "$(grep -c "^RELEASE_REPOSITORY='@FORK_RELEASE_REPOSITORY@'$" "$src")" = 1 ] || fail "install.sh lacks its placeholder line for the repository"
+[ "$(grep -c "^RELEASE_BASE='@FORK_RELEASE_BASE@'$" "$src")" = 1 ] || fail "install.sh lacks its placeholder line for the upstream version"
+[ "$(grep -c '^SCRIPT_ROLE=install$' "$src")" = 1 ] || fail "install.sh lacks its role line"
 sed -e "s|^RELEASE_KEYS='@FORK_RELEASE_KEYS@'\$|RELEASE_KEYS='$keys'|" \
 	-e "s|^RELEASE_VERSION='@FORK_RELEASE_VERSION@'\$|RELEASE_VERSION='$VERSION'|" \
-	-e "s|^RELEASE_REPOSITORY='@FORK_RELEASE_REPOSITORY@'\$|RELEASE_REPOSITORY='$REPOSITORY'|" "$src" >"$WORK/install.sh"
+	-e "s|^RELEASE_REPOSITORY='@FORK_RELEASE_REPOSITORY@'\$|RELEASE_REPOSITORY='$REPOSITORY'|" \
+	-e "s|^RELEASE_BASE='@FORK_RELEASE_BASE@'\$|RELEASE_BASE='$BASE'|" "$src" >"$WORK/install.sh"
 ! grep -q '@FORK_RELEASE_[A-Z]*@' "$WORK/install.sh" || fail "a placeholder survived in install.sh"
 [ "$(sed -n "s/^RELEASE_KEYS='\(.*\)'\$/\1/p" "$WORK/install.sh")" = "$keys" ] || fail "the keys in install.sh are not those of $KEYS"
 bash -n "$WORK/install.sh" || fail "the stamped install.sh is not valid bash"
 SYSTEMS_WORDS=$(systems_of "$WORK/install.sh") # what the notes say it supports (fails here when it cannot tell)
+# migrate.sh: the same bytes, its role line aside
+sed 's/^SCRIPT_ROLE=install$/SCRIPT_ROLE=migrate/' "$WORK/install.sh" >"$WORK/migrate.sh"
+if [ "$(diff "$WORK/install.sh" "$WORK/migrate.sh" | grep '^[<>]' | tr '\n' ' ')" != "< SCRIPT_ROLE=install > SCRIPT_ROLE=migrate " ]; then
+	fail "migrate.sh must differ from install.sh in its role line, and only there"
+fi
 cp "$FORK_DIR/install/uninstall.sh" "$WORK/uninstall.sh"
 bash -n "$WORK/uninstall.sh" || fail "uninstall.sh is not valid bash"
-chmod 755 "$WORK/install.sh" "$WORK/uninstall.sh"
+chmod 755 "$WORK/install.sh" "$WORK/migrate.sh" "$WORK/uninstall.sh"
+if [ "$SCRIPTS_ONLY" = 1 ]; then
+	cp "$WORK/install.sh" "$WORK/migrate.sh" "$WORK/uninstall.sh" "$OUT/"
+	exit 0
+fi
 
 # 2. What the release changes in its dependencies (the workflow only).
 if [ "$DEPS_NOTES" = 1 ]; then
@@ -127,8 +151,7 @@ for arch in $ARCHES; do
 	done
 	rm -rf "$dir/fork"
 	cp -r "$FORK_DIR" "$dir/fork"
-	cp "$WORK/install.sh" "$dir/fork/install/install.sh"
-	cp "$WORK/uninstall.sh" "$dir/fork/install/uninstall.sh"
+	cp "$WORK/install.sh" "$WORK/migrate.sh" "$WORK/uninstall.sh" "$dir/fork/install/"
 	if find "$dir" -type l | grep -q .; then fail "$top holds a symbolic link: install.sh refuses links"; fi
 	if find "$dir" | sed "s|^$WORK/||" | grep -vqE '^([A-Za-z0-9._+@(),~-]+/)*[A-Za-z0-9._+@(),~-]+$'; then
 		find "$dir" | sed "s|^$WORK/||" | grep -vE '^([A-Za-z0-9._+@(),~-]+/)*[A-Za-z0-9._+@(),~-]+$' | head -n 5 >&2
@@ -137,15 +160,17 @@ for arch in $ARCHES; do
 	(cd "$WORK" && zip -qr "$OUT/$pkg-$arch.zip" "$top")
 	(cd "$OUT" && md5sum "$pkg-$arch.zip" >"$pkg-$arch.zip.md5")
 	unzip -tq "$OUT/$pkg-$arch.zip" >/dev/null || fail "$pkg-$arch.zip does not test as a valid zip"
-	cmp -s <(unzip -p "$OUT/$pkg-$arch.zip" "$top/fork/install/install.sh") "$WORK/install.sh" || fail "the install.sh inside $pkg-$arch.zip is not the stamped one"
+	for name in install.sh migrate.sh; do
+		cmp -s <(unzip -p "$OUT/$pkg-$arch.zip" "$top/fork/install/$name") "$WORK/$name" || fail "the $name inside $pkg-$arch.zip is not the stamped one"
+	done
 done
 
 # 4. The scripts as assets, and their checksums. Their signed list
 # (cosmos-cloud-<v>.scripts.sig) is written by the publish job, which holds
 # the key.
-cp "$WORK/install.sh" "$WORK/uninstall.sh" "$OUT/"
-(cd "$OUT" && sha256sum install.sh uninstall.sh >SHA256SUMS)
-for name in install.sh uninstall.sh SHA256SUMS; do
+cp "$WORK/install.sh" "$WORK/migrate.sh" "$WORK/uninstall.sh" "$OUT/"
+(cd "$OUT" && sha256sum install.sh migrate.sh uninstall.sh >SHA256SUMS)
+for name in install.sh migrate.sh uninstall.sh SHA256SUMS; do
 	case $name in *amd64* | *arm64* | *.md5) fail "the asset name $name would be taken by the updater for a zip or a checksum" ;; esac
 done
 
@@ -163,7 +188,17 @@ if [ "$DEPS_NOTES" = 1 ]; then
 		echo '```'
 		echo
 		echo "The script installs what is missing (Docker from Docker's repository), verifies this release's signature before unpacking it, and refuses to run over an existing Cosmos. Removing it: \`sudo bash /opt/cosmos/fork/install/uninstall.sh\`. An installed server updates itself from the panel; do not run install.sh again."
-		echo "To check install.sh by hand: \`cosmos-cloud-$VERSION.scripts.sig\` lists its SHA-256, signed with the release key (see the README)."
+		echo
+		echo "To move upstream's Cosmos (installed on the system, as upstream's get.sh does) to the fork, keeping its settings, users, addresses and containers:"
+		echo
+		echo '```'
+		echo "curl -fsSLO https://github.com/$REPOSITORY/releases/download/v$VERSION/migrate.sh"
+		echo "sudo bash migrate.sh --dry-run   # what it would do"
+		echo "sudo bash migrate.sh"
+		echo '```'
+		echo
+		echo "It backs up the installation and its data first (checked file by file), puts everything back by itself if anything fails, and writes how to go back to upstream by hand (GOING-BACK.txt in the backup)."
+		echo "To check the scripts by hand: \`cosmos-cloud-$VERSION.scripts.sig\` lists their SHA-256, signed with the release key (see the README)."
 		if [ -n "$PREVIOUS" ]; then
 			echo
 			echo "Changes since ${PREVIOUS#v}:"

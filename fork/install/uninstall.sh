@@ -27,7 +27,8 @@
 #   --help
 #
 # Exit codes: 0 done; 1 something could not be removed (said); 2 bad usage;
-# 3 there is nothing install.sh installed here; 5 not root; 7 another run is going.
+# 3 there is nothing install.sh installed here (also: a Cosmos migrate.sh moved
+# from upstream, which goes back to upstream by hand); 5 not root; 7 another run is going.
 
 # Never from a pipe, and run again with bash only when $0 is this very
 # script (see install.sh).
@@ -71,7 +72,7 @@ die() {
 	printf 'ERROR: %s\n' "$*" >&2
 	exit "$code"
 }
-usage() { sed -n '2,/^# 3 there is nothing/p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,/another run is going\.$/p' "$0" | sed 's/^# \{0,1\}//'; }
 
 YES=0 DRY_RUN=0 REMOVE_PACKAGES=0 PURGE=0 DELETE_DATA=0 DELETE_DATA_YES=0
 for a in "$@"; do
@@ -124,6 +125,13 @@ record_trusted() {
 	[ "$(stat -c '%u %a %h' -- "$RECORD")" = "0 600 1" ] || return 1
 	grep -qxE "dir ${INSTALL_DIR//./\\.}|unit ${UNIT//./\\.}\\.service|package [a-z0-9][a-z0-9.+-]*|file /etc/apt/(keyrings/docker\\.asc|sources\\.list\\.d/docker\\.sources)" -- "$RECORD"
 }
+# A Cosmos that migrate.sh moved from upstream to the fork was not installed
+# from nothing: removing it would remove the owner's installation with it.
+# The way out is going back to upstream, by hand (GOING-BACK.txt).
+if [ -f "$RECORD" ] && grep -q '^migrated-from ' -- "$RECORD"; then
+	backup=$(sed -n 's|^backup \(/[A-Za-z0-9._/-]\{1,200\}\)$|\1|p' -- "$RECORD" | head -n 1)
+	die 3 "this Cosmos was moved from upstream's Cosmos to the fork by migrate.sh, not installed by install.sh: uninstall.sh removes nothing of it, whatever the options. To go back to upstream's Cosmos, follow ${backup:-the backup folder migrate.sh named}/GOING-BACK.txt. Nothing was changed."
+fi
 if ! record_trusted; then
 	if [ -e "$INSTALL_DIR" ] || [ -e /etc/systemd/system/$UNIT.service ]; then
 		why="there is no $RECORD"

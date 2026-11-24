@@ -71,3 +71,25 @@ test('publish checks the files against the build before anything is signed, and 
 test('publish needs the build and the e2e job', () => {
   assert.match(all.publish, /needs: \[build, e2e\]/);
 });
+
+// migrate.sh is shipped exactly as install.sh is: in the files the build hands
+// over, in the signed file of scripts, as a release asset, and in SHA256SUMS
+// (written by scripts/fork-release-package.sh); and it is checked to be
+// install.sh with its role line only.
+test('every script asset (install.sh, migrate.sh, uninstall.sh) is listed, signed and published', () => {
+  const publish = all.publish;
+  const expected = publish.match(/expected=\$\(printf[\s\S]*?\| sort\)/);
+  assert.ok(expected, 'the list of files a release has');
+  const signed = publish.match(/echo "cosmos-fork-scripts-v1"[\s\S]*?> manifest\.scripts/);
+  assert.ok(signed, 'the signed file of scripts');
+  const create = publish.match(/gh release create[\s\S]*?--notes-file/);
+  assert.ok(create, 'the release itself');
+  for (const name of ['install.sh', 'migrate.sh', 'uninstall.sh']) {
+    assert.ok(new RegExp(`\\s${name.replace('.', '\\.')}\\s`).test(expected[0]), `${name} among the files handed over`);
+    assert.ok(new RegExp(`\\s${name.replace('.', '\\.')}[;\\s]`).test(signed[0]), `${name} in the signed file of scripts`);
+    assert.ok(new RegExp(`\\s${name.replace('.', '\\.')}\\s`).test(create[0]), `${name} published`);
+  }
+  assert.ok(/diff install\.sh migrate\.sh[^\n]*SCRIPT_ROLE=install > SCRIPT_ROLE=migrate/.test(publish), 'migrate.sh is checked to be install.sh with its role');
+  const pack = readFileSync(join(here, 'fork-release-package.sh'), 'utf8');
+  assert.ok(/sha256sum install\.sh migrate\.sh uninstall\.sh >SHA256SUMS/.test(pack), 'SHA256SUMS lists the three scripts');
+});

@@ -17,7 +17,7 @@ const release = () => {
   const root = mkdtempSync(join(tmpdir(), 'handover-'));
   const dir = join(root, 'release');
   mkdirSync(dir);
-  const files = { 'cosmos-cloud-0.24.0-fork.40-amd64.zip': 'zip-a', 'install.sh': '#!/bin/bash\n', 'notes.md': 'notes' };
+  const files = { 'cosmos-cloud-0.24.0-fork.40-amd64.zip': 'zip-a', 'install.sh': '#!/bin/bash\n', 'migrate.sh': '#!/bin/bash\n# migrate\n', 'notes.md': 'notes' };
   for (const [name, body] of Object.entries(files)) writeFileSync(join(dir, name), body);
   const sums = join(root, 'sums');
   writeFileSync(sums, Object.entries(files).map(([name, body]) => `${sha(body)}  ${name}`).join('\n') + '\n');

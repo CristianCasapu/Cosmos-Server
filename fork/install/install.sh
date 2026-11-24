@@ -42,7 +42,38 @@
 # installation completed, every later run refuses: updates come from the
 # panel (or by themselves at night), never from this script.
 #
-# Options (each answer also has a key of the answers file, in brackets):
+# migrate.sh is this same script: the release build writes it with the one
+# line SCRIPT_ROLE changed. It moves upstream's bare-metal Cosmos (as
+# upstream's get.sh installs it: /opt/cosmos, data /var/lib/cosmos, the unit
+# CosmosCloud) to the fork, keeping start.sh, the unit and the data:
+#   1. refuses, before anything else, the fork already there (10); then a
+#      Cosmos container (17: not yet), other places than those, a Cosmos newer
+#      than the fork's base, users in MongoDB, an unfinished first-run wizard,
+#      an update of upstream waiting, a Cosmos that is not running (17), a
+#      licence without --accept-community-edition (18), no Cosmos at all (19:
+#      use install.sh);
+#   2. checks the system, installs what is missing (as steps 2-6 above, jq
+#      too) and downloads and verifies the release the same way;
+#   3. notes how Cosmos answers (its settings, each of its addresses, the
+#      containers), stops it, BACKS UP /opt/cosmos, /var/lib/cosmos and the
+#      unit into a new folder (--backup-dir; proposed:
+#      /var/backups/cosmos-before-fork-<time>; 0700) and checks the copy
+#      against a list of every file with its SHA-256;
+#   4. puts the fork's release in /opt/cosmos (upstream's folder is kept aside
+#      until the end; start.sh, the unit and the data as they are), starts it,
+#      and checks that it answers with the same settings, addresses and
+#      containers and made no setup code (the server has its administrator);
+#   5. on ANY failure from the stop on: puts everything back (the folder; the
+#      data from the backup, checked against the list; the unit; enabled and
+#      running as before), starts upstream's Cosmos again and says so (exit
+#      20; 1 when even that failed, with what to do by hand);
+#   6. writes GOING-BACK.txt in the backup: how to return to upstream by hand.
+# Interrupted, it continues where it stopped when run again; --undo puts
+# everything back instead. Once done, updates come from the panel; uninstall.sh
+# does not remove a Cosmos migrate.sh moved (GOING-BACK.txt is the way back).
+#
+# Options (each answer also has a key of the answers file, in brackets; those
+# that only make sense for one of the two scripts are refused by the other):
 #   --yes                    accept every proposal, never ask
 #   --answers <file>         answers as key=value lines (keys below)
 #   --dry-run                show what would be done; change nothing
@@ -86,6 +117,14 @@
 #                            proxy variables of the shell are not read)
 #   --print-setup-code       print the one-time setup code even with --yes or
 #                            without a terminal (otherwise its file is named)
+# migrate.sh only (it keeps the unit, its ports and the settings; of the options
+# above it takes --yes, --answers, --dry-run, --version, --from, --allow-older,
+# --proxy, --force and --storage-tools):
+#   --backup-dir <dir>       [backup-dir] where the backup of before goes (a new
+#                            folder: its parent must exist, not in memory)
+#   --accept-community-edition  migrate a Cosmos that has a licence: the paid
+#                            edition's features are not in the fork
+#   --undo                   put back what an interrupted migration changed
 #   --force                  go on on a system that is not supported (your risk)
 #   --help
 #
@@ -98,7 +137,10 @@
 # there (--reuse-data); 14 an interrupted run used other options; 15 the
 # release asked for is older than this script (--allow-older); 16 Cosmos
 # is installed WITHOUT protection that was asked for (a piece skipped or
-# failed: the last line names it).
+# failed: the last line names it). migrate.sh: 17 this Cosmos cannot be
+# migrated (the reason is said; nothing changed); 18 it has a licence
+# (--accept-community-edition); 19 there is no upstream Cosmos here (use
+# install.sh); 20 the migration failed and everything was put back as before.
 #
 # The environment is not read, but for COSMOS_INSTALL_APT_TIMEOUT (seconds one
 # apt or dpkg call may take, 60 to 86400) and COSMOS_INSTALL_APT_WAIT (seconds apt
@@ -115,11 +157,12 @@
 cosmos_self=""
 case $0 in
 */*) cosmos_self=$0 ;;
-*install*.sh) cosmos_self=./$0 ;;
+*install*.sh | *migrate*.sh) cosmos_self=./$0 ;;
 esac
 if [ -z "$cosmos_self" ] || [ ! -f "$cosmos_self" ] || ! grep -q '^# COSMOS-FORK-INSTALL-SH$' "$cosmos_self" 2>/dev/null; then
-	echo "install.sh must be run from a file, not from a pipe. Download it, then run it:" >&2
+	echo "install.sh and migrate.sh must be run from a file, not from a pipe. Download, then run:" >&2
 	echo "    curl -fsSLO https://github.com/<owner>/<repo>/releases/latest/download/install.sh && sudo bash install.sh" >&2
+	echo "    (or migrate.sh the same way, to move upstream's Cosmos to the fork)" >&2
 	exit 2
 fi
 if [ -z "${BASH_VERSION:-}" ]; then
@@ -141,19 +184,32 @@ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 RELEASE_KEYS='@FORK_RELEASE_KEYS@'
 RELEASE_VERSION='@FORK_RELEASE_VERSION@'
 RELEASE_REPOSITORY='@FORK_RELEASE_REPOSITORY@'
+RELEASE_BASE='@FORK_RELEASE_BASE@'
 # ---------------------------------------------------------------------------
+# The role: install (install.sh) or migrate (migrate.sh). The release build
+# writes migrate.sh as this same file with only this line changed.
+SCRIPT_ROLE=install
 
 # Test mode: only a copy that the release build did NOT stamp reads its keys,
 # version and repository from the environment (the test bed's own key, never
 # the real one). A stamped script ignores these variables: nothing a user
 # passes makes it trust another key.
-TEST_MODE=0
+TEST_MODE=0 TEST_FAIL_AT=""
 if [ "$RELEASE_KEYS" = "@FORK_""RELEASE_KEYS@" ]; then
 	TEST_MODE=1
 	RELEASE_KEYS=${COSMOS_INSTALL_TEST_KEYS:-}
 	RELEASE_VERSION=${COSMOS_INSTALL_TEST_VERSION:-}
 	RELEASE_REPOSITORY=${COSMOS_INSTALL_TEST_REPOSITORY:-}
+	RELEASE_BASE=${COSMOS_INSTALL_TEST_BASE:-}
+	if [ "${COSMOS_INSTALL_TEST_ROLE:-}" = migrate ]; then SCRIPT_ROLE=migrate; fi
+	# a step of the migration made to fail, to prove the way back
+	TEST_FAIL_AT=${COSMOS_INSTALL_TEST_FAIL_AT:-}
 fi
+case $SCRIPT_ROLE in
+install) SELF=install.sh ;;
+migrate) SELF=migrate.sh ;;
+*) echo "ERROR: this script's role line is damaged" >&2; exit 2 ;;
+esac
 
 INSTALL_DIR=/opt/cosmos
 DATA_DIR=/var/lib/cosmos
@@ -171,6 +227,7 @@ MAX_UNPACKED=$((3 * 1024 * 1024 * 1024))
 
 EXIT_FAILED=1 EXIT_USAGE=2 EXIT_SYSTEM=3 EXIT_UNVERIFIED=4 EXIT_ROOT=5 EXIT_PREREQ=6 EXIT_BUSY=7
 EXIT_FORK=10 EXIT_UPSTREAM=11 EXIT_OTHER=12 EXIT_DATA=13 EXIT_RESUME=14 EXIT_OLDER=15 EXIT_UNPROTECTED=16
+EXIT_CANNOT=17 EXIT_LICENCE=18 EXIT_NOTHING=19 EXIT_ROLLED_BACK=20
 
 say() { printf '%s\n' "$*"; }
 step() { printf '\n==> %s\n' "$*"; }
@@ -189,7 +246,9 @@ usage() {
 # ---- The answers: flags, an answers file, defaults -------------------------
 # One variable per key. Flags win over the file; the file over the defaults.
 declare -gA ANSWER=() ANSWER_FROM=()
-ANSWER_KEYS="http-port https-port storage-tools reachable protection unattended-upgrades address upnp router outside-lookup keep-ssh-open placement ssh wizard-on-lan"
+ANSWER_KEYS="http-port https-port storage-tools reachable protection unattended-upgrades address upnp router outside-lookup keep-ssh-open placement ssh wizard-on-lan backup-dir"
+# the keys only install.sh takes (migrate.sh keeps the unit and the settings)
+INSTALL_ONLY_KEYS="http-port https-port reachable protection unattended-upgrades address upnp router outside-lookup keep-ssh-open placement ssh wizard-on-lan"
 
 valid_answer() { # key, value
 	case $1 in
@@ -202,6 +261,7 @@ valid_answer() { # key, value
 	placement) [[ $2 =~ ^(home|exposed-host|cloud|unknown)$ ]] ;;
 	# from:<addresses or networks, comma-separated, at most 20>
 	ssh) [[ $2 =~ ^(open|closed-i-have-a-console|from:[0-9A-Fa-f.:/]{2,43}(,[0-9A-Fa-f.:/]{2,43}){0,19})$ ]] ;;
+	backup-dir) [[ $2 =~ ^/[A-Za-z0-9._/-]{1,200}$ ]] && [[ $2 != *..* ]] ;;
 	*) return 1 ;;
 	esac
 }
@@ -232,7 +292,7 @@ read_answers_file() { # file
 	done <"$file"
 }
 
-ALLOW_OLDER=0 PRINT_CODE=0 PROXY=""
+ALLOW_OLDER=0 PRINT_CODE=0 PROXY="" UNDO=0 ACCEPT_CE=0
 YES=0 DRY_RUN=0 FORCE=0 REUSE_DATA=0 WANT_VERSION="" FROM="" ANSWERS_FILE=""
 ORIGINAL_ARGS=("$@")
 while [ $# -gt 0 ]; do
@@ -246,8 +306,10 @@ while [ $# -gt 0 ]; do
 	--no-outside) set_answer outside-lookup no flag ;;
 	--keep-ssh-open) set_answer keep-ssh-open yes flag ;;
 	--wizard-on-lan) set_answer wizard-on-lan yes flag ;;
+	--undo) UNDO=1 ;;
+	--accept-community-edition) ACCEPT_CE=1 ;;
 	--version | --from | --answers | --proxy | --http-port | --https-port | --storage-tools | --reachable | --protection | \
-		--unattended-upgrades | --address | --upnp | --router | --placement | --ssh)
+		--unattended-upgrades | --address | --upnp | --router | --placement | --ssh | --backup-dir)
 		[ $# -ge 2 ] || die $EXIT_USAGE "$1 needs a value"
 		case $1 in
 		--version) [[ $2 =~ ^v?(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})-fork\.[1-9][0-9]{0,8}$ ]] || die $EXIT_USAGE "--version takes a fork version such as 0.24.0-fork.35"
@@ -268,6 +330,26 @@ while [ $# -gt 0 ]; do
 done
 if [ -n "$ANSWERS_FILE" ]; then read_answers_file "$ANSWERS_FILE"; fi
 if [ -n "$FROM" ] && [ -n "$WANT_VERSION" ]; then die $EXIT_USAGE "--from and --version do not go together"; fi
+# each script takes its own options only
+if [ "$SCRIPT_ROLE" = migrate ]; then
+	for k in $INSTALL_ONLY_KEYS; do
+		[ -z "${ANSWER_FROM[$k]:-}" ] || die $EXIT_USAGE "'$k' (${ANSWER_FROM[$k]}) is an option of install.sh: migrate.sh keeps the unit, its ports and the settings as they are"
+	done
+	if [ "$REUSE_DATA" = 1 ] || [ "$PRINT_CODE" = 1 ]; then die $EXIT_USAGE "--reuse-data and --print-setup-code are options of install.sh"; fi
+else
+	if [ -n "${ANSWER_FROM[backup-dir]:-}" ] || [ "$UNDO" = 1 ] || [ "$ACCEPT_CE" = 1 ]; then
+		die $EXIT_USAGE "--backup-dir, --undo and --accept-community-edition are options of migrate.sh"
+	fi
+fi
+
+# curl and openssl run with a fixed, minimal environment: no ~/.curlrc
+# (curl -q), no proxy or OPENSSL_CONF from the caller's shell (sudo -E, su).
+# A server that needs a proxy for GitHub gives it with --proxy (or
+# downloads the release by hand and uses --from).
+SAFE_PATH=/usr/sbin:/usr/bin:/sbin:/bin
+CURL=(env -i PATH="$SAFE_PATH" HOME=/nonexistent LC_ALL=C curl -q)
+if [ -n "$PROXY" ]; then CURL+=(--proxy "$PROXY" --noproxy ''); fi
+OSSL=(env -i PATH="$SAFE_PATH" HOME=/nonexistent LC_ALL=C openssl)
 
 # Defaults that follow other answers (decisions D4 and Q6).
 answer() { printf '%s' "${ANSWER[$1]:-}"; }
@@ -291,12 +373,12 @@ if [ "$YES" = 0 ] && [ -t 0 ] && [ -t 1 ]; then ASK=1; fi
 # ---- Root, one run at a time ------------------------------------------------
 [ "$(id -u)" = 0 ] || die $EXIT_ROOT "run this as root: sudo bash $0"
 exec 9>"$LOCK"
-flock -n 9 || die $EXIT_BUSY "another run of install.sh or uninstall.sh is going on"
+flock -n 9 || die $EXIT_BUSY "another run of install.sh, migrate.sh or uninstall.sh is going on"
 
 WORK=""
 STAGING=""
 HOP_DIR=""
-case $0 in /var/tmp/cosmos-install-next.*/install.sh) HOP_DIR=$(dirname -- "$0") ;; esac
+case $0 in /var/tmp/cosmos-install-next.*/install.sh | /var/tmp/cosmos-install-next.*/migrate.sh) HOP_DIR=$(dirname -- "$0") ;; esac
 cleanup() {
 	if [ -n "$STAGING" ] && [ -d "$STAGING" ]; then rm -rf -- "$STAGING"; fi
 	if [ -n "$WORK" ] && [ -d "$WORK" ]; then rm -rf -- "$WORK"; fi
@@ -309,9 +391,9 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM HUP
 
 if [ "$TEST_MODE" = 1 ]; then
-	warn "TEST MODE: this copy of install.sh was not stamped by a release build."
-	if [ -z "$RELEASE_KEYS" ] || [ -z "$RELEASE_REPOSITORY" ] || [ -z "$RELEASE_VERSION" ]; then
-		die $EXIT_USAGE "this copy of install.sh is not the one of a release: download install.sh from the fork's releases"
+	warn "TEST MODE: this copy of $SELF was not stamped by a release build."
+	if [ -z "$RELEASE_KEYS" ] || [ -z "$RELEASE_REPOSITORY" ] || [ -z "$RELEASE_VERSION" ] || [ -z "$RELEASE_BASE" ]; then
+		die $EXIT_USAGE "this copy of $SELF is not the one of a release: download $SELF from the fork's releases"
 	fi
 fi
 for key in $RELEASE_KEYS; do
@@ -319,8 +401,9 @@ for key in $RELEASE_KEYS; do
 done
 [[ $RELEASE_VERSION =~ ^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}-fork\.[1-9][0-9]{0,8}$ ]] || die $EXIT_USAGE "the release version in this script is damaged"
 [[ $RELEASE_REPOSITORY =~ ^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$ ]] || die $EXIT_USAGE "the repository in this script is damaged"
+[[ $RELEASE_BASE =~ ^(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$ ]] || die $EXIT_USAGE "the upstream version this script's release is built on is damaged"
 
-# BEGIN shared detection (the same block is in migrate.sh; a test compares them)
+# BEGIN shared detection (migrate.sh is this same script with its role: it runs this too)
 # detect_cosmos: is a Cosmos of any kind on this machine? Changes nothing,
 # installs nothing, needs only coreutils, grep and systemd (and docker when
 # it is there). Sets:
@@ -334,13 +417,15 @@ done
 # .proven or .trial, and its binaries carry the signature header
 # "cosmos-fork-release-v1". Any one of these is the fork.
 FOUND=none FOUND_WHAT="" FOUND_VERSION="" FOUND_DIR="" FOUND_UNIT=""
-cosmos_folder_kind() { # folder -> prints fork|upstream|none|unknown
-	local dir=$1 version=""
-	if [ ! -e "$dir" ]; then echo none; return; fi
-	if [ -f "$dir/meta.json" ]; then
-		version=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]\{1,64\}\)".*/\1/p' "$dir/meta.json" | head -n 1 | tr -cd 'A-Za-z0-9.+-')
+meta_version() { # folder -> the version its meta.json names, or nothing
+	if [ -f "$1/meta.json" ]; then
+		sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]\{1,64\}\)".*/\1/p' "$1/meta.json" | head -n 1 | tr -cd 'A-Za-z0-9.+-'
 	fi
-	FOUND_VERSION=$version
+}
+cosmos_folder_kind() { # folder -> prints fork|upstream|none|unknown (it runs in $(...): it sets nothing)
+	local dir=$1 version
+	if [ ! -e "$dir" ]; then echo none; return; fi
+	version=$(meta_version "$dir")
 	if [[ $version == *-fork.* ]] || [ -e "$dir/FORK-LICENCE.md" ] || [ -e "$dir/cosmos-update.previous" ] ||
 		[ -e "$dir/cosmos-update.proven" ] || [ -e "$dir/cosmos-update.trial" ]; then
 		echo fork; return
@@ -377,6 +462,7 @@ detect_cosmos() {
 		kind=$(cosmos_folder_kind /opt/cosmos)
 		[ "$kind" = none ] || FOUND_DIR=/opt/cosmos
 	fi
+	FOUND_VERSION=$(meta_version "$FOUND_DIR")
 	case $kind in
 	fork) FOUND=fork; FOUND_WHAT="the Cosmos fork${FOUND_VERSION:+ $FOUND_VERSION} is installed in $FOUND_DIR${unit:+ (unit $unit)}"; return ;;
 	upstream) FOUND=upstream; FOUND_WHAT="upstream's Cosmos${FOUND_VERSION:+ $FOUND_VERSION} is installed in $FOUND_DIR${unit:+ (unit $unit)}"; return ;;
@@ -441,18 +527,494 @@ record() { # one record line, written once
 }
 recorded() { [ -f "$RECORD" ] && grep -qxF -- "$*" "$RECORD"; }
 
+# ---- The migration (migrate.sh's role) ---------------------------------------
+# What migrate.sh keeps between its steps, besides the state file: what Cosmos
+# looked like before (settings, URLs, containers), in $MIG_DIR. Upstream's
+# folder waits in $MIG_OLD (a rename: the same disk) while the fork is tried.
+MIG_DIR=$STATE_DIR/migration
+MIG_OLD=/opt/.cosmos-upstream-before-fork
+MIG_MARK=.made-by-migrate.sh
+MIG_RESUME="" MIG_BACKUP="" MIG_FROM="" MIG_UNSTABLE=""
+# test_fail_at <step>: the test mode (an unstamped copy) can make a step fail
+# on purpose, to prove the way back; a release's script never does.
+test_fail_at() {
+	if [ "$TEST_MODE" = 1 ] && [ "$TEST_FAIL_AT" = "$1" ]; then
+		die $EXIT_FAILED "TEST MODE: the step '$1' fails on purpose"
+	fi
+}
+unit_enabled() { systemctl is-enabled "$UNIT.service" 2>/dev/null || true; }
+unit_active() { systemctl is-active "$UNIT.service" 2>/dev/null || true; }
+# manifest_of <folder>: every entry (type, mode, owner, path, link target)
+# and every file's SHA-256, sorted. Equal lists: equal folders, byte for byte
+# (times are not compared; cp -a keeps them anyway).
+manifest_of() {
+	(
+		cd -- "$1" || exit 1
+		find . -xdev -printf '%y %m %U:%G %p -> %l\n' | LC_ALL=C sort
+		find . -xdev -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum
+	)
+}
+# same_as_manifest <folder> <manifest>
+same_as_manifest() {
+	[ -d "$1" ] && [ -f "$2" ] || return 1
+	local now
+	now=$(mktemp "$STATE_DIR/.manifest.XXXXXX")
+	if ! manifest_of "$1" >"$now"; then rm -f -- "$now"; return 1; fi
+	if cmp -s -- "$now" "$2"; then rm -f -- "$now"; return 0; fi
+	diff -- "$2" "$now" | grep '^[<>]' | head -n 5 >&2 || true
+	rm -f -- "$now"
+	return 1
+}
+# wait_answer <port> <seconds>: the panel answers (any answer of the server)
+wait_answer() {
+	local code i
+	for ((i = 0; i < $2; i++)); do
+		code=$("${CURL[@]}" -s -o /dev/null -m 5 -w '%{http_code}' "http://127.0.0.1:$1/cosmos-ui/" || true)
+		case $code in 200 | 30[1278] | 400 | 401 | 403 | 404) return 0 ;; esac
+		sleep 1
+	done
+	return 1
+}
+# mig_observe <name>: how Cosmos answers now, into $MIG_DIR/<name>.*:
+#   .settings    the settings a migration must keep (jq, sorted)
+#   .urls        each enabled URL of the settings and the code it answers on
+#                127.0.0.1 with its own Host (at most 50)
+#   .containers  every container: ID, name, state
+JQ_SETTINGS='{hostname: .HTTPConfig.Hostname, http: .HTTPConfig.HTTPPort, https: .HTTPConfig.HTTPSPort,
+	tls: .HTTPConfig.HTTPSCertificateMode, newInstall: .NewInstall,
+	routes: [(.HTTPConfig.ProxyConfig.Routes // [])[] | {Name, Host, UsePathPrefix, PathPrefix, Target, Mode, Disabled}]}'
+JQ_URLS='[(.HTTPConfig.Hostname // "") + " /cosmos-ui/"] +
+	[(.HTTPConfig.ProxyConfig.Routes // [])[] | select(.Disabled != true) | (.Host // "") + " " + (if .UsePathPrefix then (.PathPrefix // "/") else "/" end)] | .[]'
+mig_observe() {
+	local name=$1 config=$DATA_DIR/cosmos.config.json host path n=0 code
+	jq -S "$JQ_SETTINGS" "$config" >"$MIG_DIR/$name.settings" || die $EXIT_FAILED "jq cannot read $config"
+	: >"$MIG_DIR/$name.urls"
+	while read -r host path && [ "$n" -lt 50 ]; do
+		# only plain names and paths (they come from the settings file)
+		[[ $host =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?(:[0-9]{1,5})?$ ]] || continue
+		[[ $path =~ ^/[A-Za-z0-9._~%/-]{0,200}$ ]] || continue
+		code=$("${CURL[@]}" -s -o /dev/null -m 10 -w '%{http_code}' -H "Host: $host" -- "http://127.0.0.1:$HTTP_PORT$path" || true)
+		printf '%s %s %s\n' "$host" "$path" "$code" >>"$MIG_DIR/$name.urls"
+		n=$((n + 1))
+	done < <(jq -r "$JQ_URLS" "$config" 2>/dev/null || true)
+	if command -v docker >/dev/null 2>&1; then
+		timeout 30 docker ps -a --no-trunc --format '{{.ID}} {{.Names}} {{.State}}' 2>/dev/null | LC_ALL=C sort >"$MIG_DIR/$name.containers" || true
+	else
+		: >"$MIG_DIR/$name.containers"
+	fi
+}
+
+# going_back_text <backup> <upstream version>: GOING-BACK.txt
+going_back_text() {
+	cat <<EOF
+Going back from the Cosmos fork to upstream's Cosmos $2
+(written by migrate.sh on $(date -u +%FT%TZ))
+
+This folder holds what was there before the migration, copied while Cosmos was
+stopped, and checked file by file:
+  opt-cosmos/           /opt/cosmos: upstream's Cosmos $2
+  var-lib-cosmos/       /var/lib/cosmos: its data (settings, users, certificates,
+                        the server's keys: keep this folder private)
+  $UNIT.service   the unit (migrate.sh did not change it)
+  MANIFEST.*            every file with its SHA-256
+
+1. Back to exactly what was there before (what changed since is lost):
+     sudo systemctl stop $UNIT
+     sudo mv /opt/cosmos /opt/cosmos.fork
+     sudo cp -a $1/opt-cosmos /opt/cosmos
+     sudo mv /var/lib/cosmos /var/lib/cosmos.fork
+     sudo cp -a $1/var-lib-cosmos /var/lib/cosmos
+     sudo systemctl start $UNIT
+   then, once upstream's Cosmos works: sudo rm -rf /opt/cosmos.fork /var/lib/cosmos.fork
+
+2. Back keeping the data as the fork left it: only to upstream 0.24.0 or newer
+   (0.24 changed how the HTTPS settings are kept; an older one cannot read them).
+   Upstream ignores the fork's own settings (Telegram, snapshots, ...) and drops
+   them at its next save.
+     sudo systemctl stop $UNIT
+     unzip upstream's cosmos-cloud-<0.24.0 or newer>-<amd64 or arm64>.zip
+     copy its folder's files over /opt/cosmos, keeping /opt/cosmos/start.sh
+     sudo rm -rf /opt/cosmos/FORK-LICENCE.md /opt/cosmos/fork /opt/cosmos/cosmos-update.*
+     sudo systemctl start $UNIT
+   Upstream's own updater then follows upstream's releases again.
+
+Either way the fork's own files in /var/lib/cosmos stay (upstream ignores them).
+
+uninstall.sh does not remove a Cosmos that migrate.sh moved: going back is
+done as above. Once you are sure you keep the fork, delete this folder: it
+holds your server's keys and its users' password hashes.
+EOF
+}
+
+# migrate_rollback: puts upstream's Cosmos back as it was, from any step of an
+# unfinished migration: its folder, its data (from the backup, checked against
+# the manifest), the unit, enabled and running as before. Each part is done
+# only when needed and checked, so it can run again after an interruption.
+# Prints what it did; returns 1 when something could not be put back.
+migrate_rollback() {
+	set +e
+	# not cut short by Ctrl-C or a lost session: what it puts back is the
+	# owner's installation (a run interrupted all the same is resumed or
+	# undone by the next one)
+	trap '' INT TERM HUP
+	local ok=1 backup mstep aside
+	backup=$(state_get backup)
+	mstep=$(state_get mstep)
+	step "Putting upstream's Cosmos back as it was"
+	# the fork is (or was) in place: the unit is stopped whatever its state
+	# (active, still starting, restarting after a crash); upstream's Cosmos
+	# not yet stopped by the migration is left running
+	if [ -d "$MIG_OLD" ] || [ "$(cosmos_folder_kind "$INSTALL_DIR")" != upstream ]; then
+		systemctl stop "$UNIT.service" || ok=0
+	fi
+	# the installation folder: upstream's was only renamed
+	if [ -d "$MIG_OLD" ]; then
+		if [ -e "$INSTALL_DIR" ]; then
+			aside=$(mktemp -u /opt/.cosmos-fork-tried.XXXXXXXX)
+			mv -- "$INSTALL_DIR" "$aside" || ok=0
+		fi
+		if [ "$ok" = 1 ] && mv -- "$MIG_OLD" "$INSTALL_DIR"; then
+			[ -z "${aside:-}" ] || rm -rf -- "$aside"
+			say "$INSTALL_DIR: upstream's folder is back."
+		else
+			ok=0
+		fi
+	fi
+	if [ -n "$backup" ] && [ -f "$backup/MANIFEST.opt-cosmos" ] && ! same_as_manifest "$INSTALL_DIR" "$backup/MANIFEST.opt-cosmos"; then
+		say "$INSTALL_DIR differs from the backup: copying it back."
+		restore_from "$backup/opt-cosmos" "$INSTALL_DIR" "$backup/MANIFEST.opt-cosmos" || ok=0
+	fi
+	# the data: the fork may have run on it
+	if [ -n "$backup" ] && [ -f "$backup/MANIFEST.var-lib-cosmos" ]; then
+		if same_as_manifest "$DATA_DIR" "$backup/MANIFEST.var-lib-cosmos"; then
+			say "$DATA_DIR is as it was (checked against the backup's list)."
+		else
+			say "$DATA_DIR was changed: copying it back from the backup."
+			restore_from "$backup/var-lib-cosmos" "$DATA_DIR" "$backup/MANIFEST.var-lib-cosmos" || ok=0
+		fi
+	else
+		say "$DATA_DIR was not touched (the migration stopped before its backup was complete)."
+	fi
+	# the unit (migrate.sh does not change it; put back if anything did)
+	if [ -n "$backup" ] && [ -f "$backup/$UNIT.service" ] && ! cmp -s -- "$backup/$UNIT.service" "$UNIT_FILE"; then
+		cp -a -- "$backup/$UNIT.service" "$UNIT_FILE" || ok=0
+		systemctl daemon-reload
+	fi
+	if [ "$ok" = 1 ]; then
+		[ "$(state_get was-enabled)" != enabled ] || systemctl enable "$UNIT.service" >/dev/null 2>&1 || ok=0
+		if [ "$(state_get was-active)" = active ] && [ "$(unit_active)" != active ]; then
+			# the fork's starts may have used up the unit's start limit (5 in 10 s)
+			systemctl reset-failed "$UNIT.service" 2>/dev/null || true
+			systemctl start "$UNIT.service" || ok=0
+		fi
+		if [ "$(state_get was-active)" = active ] && ! wait_answer "$HTTP_PORT" 180; then
+			warn "upstream's Cosmos is back in place but its panel does not answer yet: journalctl -u $UNIT"
+			ok=0
+		fi
+	fi
+	if [ "$ok" = 1 ]; then
+		# nothing of the migration is left: its backup, its notes, its state
+		# the backup folder this run made (the state names it; marked, or
+		# killed before its mark was written and so still empty of it)
+		if [ -n "$backup" ] && [ -d "$backup" ] && { [ -f "$backup/$MIG_MARK" ] || [ -z "$(ls -A -- "$backup")" ]; }; then rm -rf -- "$backup"; fi
+		rm -rf -- "$MIG_DIR"
+		rm -f -- "$STATE"
+		[ -s "$RECORD" ] || rm -rf -- "$STATE_DIR"
+		say "Upstream's Cosmos is back as it was (folder and data checked against the backup, which is now removed)."
+		[ ! -s "$RECORD" ] || say "Packages this script installed stay (listed in $RECORD)."
+		trap 'exit 130' INT TERM HUP
+		set -e
+		return 0
+	fi
+	warn "upstream's Cosmos could NOT be put back entirely (step reached: ${mstep:-none})."
+	if [ -n "$backup" ]; then
+		warn "The backup of before is complete in $backup: follow $backup/GOING-BACK.txt (part 1), or run $SELF --undo again."
+	fi
+	trap 'exit 130' INT TERM HUP
+	set -e
+	return 1
+}
+# restore_from <copy> <folder> <manifest>: the folder becomes the copy,
+# checked; what was in its place is removed once the copy checked
+restore_from() {
+	local aside=""
+	if [ -e "$2" ]; then
+		aside=$(mktemp -u "$(dirname -- "$2")/.cosmos-migrate-replaced.XXXXXXXX")
+		mv -- "$2" "$aside" || return 1
+	fi
+	cp -a -- "$1" "$2" || return 1
+	if ! same_as_manifest "$2" "$3"; then
+		warn "the copy of $1 in $2 does not match the backup's list"
+		[ -z "$aside" ] || warn "what was in $2 before is in $aside"
+		return 1
+	fi
+	[ -z "$aside" ] || rm -rf -- "$aside"
+	return 0
+}
+
+# migrate_backup_place: the backup's folder (new, private, on a disk with
+# room, that survives a reboot); refused before any change
+migrate_backup_place() {
+	local b parent need have fstype
+	b=${ANSWER[backup-dir]:-/var/backups/cosmos-before-fork-$(date -u +%Y%m%dT%H%M%SZ)}
+	[[ $b == /?* ]] || die $EXIT_USAGE "--backup-dir: '$b' is not an absolute path"
+	[ "$(realpath -m -- "$b")" = "$b" ] || die $EXIT_USAGE "--backup-dir: '$b' is not its own real path (no link, no .., no / at the end)"
+	case $b/ in
+	/opt/cosmos/* | "$DATA_DIR"/* | /opt/.cosmos* | "$STATE_DIR"/*) die $EXIT_USAGE "--backup-dir: '$b' is inside what is backed up or changed" ;;
+	esac
+	if [ -e "$b" ] || [ -L "$b" ]; then die $EXIT_USAGE "--backup-dir: '$b' exists already: give a new folder (the script makes it)"; fi
+	parent=$(dirname -- "$b")
+	[ -d "$parent" ] || die $EXIT_PREREQ "the folder $parent, where the backup is to go, does not exist. Nothing was changed."
+	need=$(( ($(du -skx -- "$INSTALL_DIR" | cut -f1) + $(du -skx -- "$DATA_DIR" | cut -f1)) * 11 / 10 + 102400 ))
+	have=$(free_kib "$parent")
+	if [ -z "$have" ] || [ "$have" -lt "$need" ]; then
+		die $EXIT_PREREQ "not enough free space in $parent for the backup: $(( ${have:-0} / 1024 )) MiB free, $((need / 1024)) MiB needed (give another place with --backup-dir). Nothing was changed."
+	fi
+	fstype=$(stat -f -c %T -- "$parent" 2>/dev/null || echo unknown)
+	case $fstype in tmpfs | ramfs) die $EXIT_PREREQ "$parent is in memory ($fstype): the backup would be lost at the next reboot (give another place with --backup-dir). Nothing was changed." ;; esac
+	[ -w "$parent" ] || die $EXIT_PREREQ "$parent cannot be written (a read-only disk?): give another place with --backup-dir. Nothing was changed."
+	MIG_BACKUP=$b
+}
+
+# migrate_checks: what must hold before a migration starts (only reads)
+migrate_checks() {
+	local unit_text config=$DATA_DIR/cosmos.config.json
+	if [ "$FOUND_DIR" != "$INSTALL_DIR" ] || [ "$FOUND_UNIT" != "$UNIT_FILE" ]; then
+		die $EXIT_CANNOT "$FOUND_WHAT, not in upstream's default places ($INSTALL_DIR, the unit $UNIT_FILE): migrate.sh moves only those. Nothing was changed."
+	fi
+	unit_text=$(cat -- "$UNIT_FILE")
+	if [ -f "/etc/sysconfig/$UNIT" ]; then unit_text="$unit_text
+$(cat -- "/etc/sysconfig/$UNIT")"; fi
+	if has_line '(COSMOS_CONFIG_FOLDER|CONFIG_FILE)=' "$unit_text"; then
+		die $EXIT_CANNOT "the unit sets COSMOS_CONFIG_FOLDER or CONFIG_FILE: this Cosmos keeps its data outside $DATA_DIR, which migrate.sh does not move. Nothing was changed."
+	fi
+	if has_line '^WorkingDirectory=' "$unit_text" && ! has_line "^WorkingDirectory=${INSTALL_DIR//./\\.}/?\$" "$unit_text"; then
+		die $EXIT_CANNOT "the unit runs Cosmos from another folder than $INSTALL_DIR. Nothing was changed."
+	fi
+	[ -f "$config" ] || die $EXIT_CANNOT "$config is missing: there are no settings to keep. Nothing was changed."
+	if [ -n "$(findmnt -rn -o TARGET 2>/dev/null | grep -E "^(${INSTALL_DIR//./\\.}|${DATA_DIR//./\\.})/" || true)" ]; then
+		die $EXIT_CANNOT "a disk is mounted inside $INSTALL_DIR or $DATA_DIR: its backup would not be what it seems. Nothing was changed."
+	fi
+	cosmos_data_kind "$DATA_DIR"
+	if [ "$DATA_PROBLEM" = mongodb ]; then
+		die $EXIT_CANNOT "this Cosmos keeps its users in MongoDB (a Cosmos from before 0.23): no Cosmos of today reads them, and upstream did not import them either. Nothing was changed."
+	fi
+	if grep -qE '"NewInstall"[[:space:]]*:[[:space:]]*true' -- "$config"; then
+		die $EXIT_CANNOT "this Cosmos's first-run wizard is not finished: there is no administrator to keep. Remove it, then use install.sh. Nothing was changed."
+	fi
+	if [ -e "$INSTALL_DIR/cosmos-update.zip" ]; then
+		die $EXIT_CANNOT "an update of upstream's Cosmos waits in $INSTALL_DIR (cosmos-update.zip): let it finish first (sudo systemctl restart $UNIT). Nothing was changed."
+	fi
+	[[ $FOUND_VERSION =~ ^((0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5}))(-unstable[0-9]{1,6})?$ ]] ||
+		die $EXIT_CANNOT "the version of this Cosmos ('$FOUND_VERSION' in $INSTALL_DIR/meta.json) is not one migrate.sh knows. Nothing was changed."
+	MIG_FROM=${BASH_REMATCH[1]}
+	MIG_UNSTABLE=${BASH_REMATCH[5]}
+	base_allows "$MIG_FROM" "$MIG_UNSTABLE" "$RELEASE_BASE"
+	[ "$(unit_active)" = active ] ||
+		die $EXIT_CANNOT "upstream's Cosmos is not running: start it first (sudo systemctl start $UNIT). The migration compares how it answers before and after. Nothing was changed."
+	if [ "$DATA_PROBLEM" = licence ] && [ "$ACCEPT_CE" = 0 ]; then
+		die $EXIT_LICENCE "this Cosmos has a licence in its settings. The fork is upstream's community edition: the paid edition's features (and its updates) are not in it; their settings stay in the file, unused, and the licence's user limit stays as on the community edition. To migrate all the same, run again with --accept-community-edition. Nothing was changed."
+	fi
+	[ "$DATA_PROBLEM" != licence ] || warn "this Cosmos has a licence: migrating to the community edition as asked (--accept-community-edition); the paid edition's features are not in the fork."
+}
+# base_allows <x.y.z> <-unstableN or ""> <base x.y.z>: refuses an upstream newer than the fork's base
+base_allows() {
+	local have base_v
+	IFS=. read -r -a have <<<"$1"
+	IFS=. read -r -a base_v <<<"$3"
+	if [ "${have[0]}" -gt "${base_v[0]}" ] || { [ "${have[0]}" = "${base_v[0]}" ] && { [ "${have[1]}" -gt "${base_v[1]}" ] || { [ "${have[1]}" = "${base_v[1]}" ] && [ "${have[2]}" -gt "${base_v[2]}" ]; }; }; }; then
+		die $EXIT_CANNOT "this Cosmos is $1$2, newer than $3, which the fork is built on: moving to the fork would go back in upstream's code. Wait for a fork release on $1 or newer. Nothing was changed."
+	fi
+	if [ "$1" = "$3" ] && [ -n "$2" ]; then warn "this Cosmos is a test build ($1$2) of the version the fork is built on: migrating to the fork's $3."; fi
+	if [ "$1" != "$3" ]; then say "This Cosmos is $1, older than $3: the fork runs the same forward migrations at its first start that upstream's own update to $3 would."; fi
+}
+# migrate_ports: the ports the unit gives (else the settings, else 80/443)
+migrate_ports() {
+	local text p
+	text=$(cat -- "$UNIT_FILE" "/etc/sysconfig/$UNIT" 2>/dev/null || true)
+	p=$(sed -n 's/^\(Environment=\)\{0,1\}"\{0,1\}COSMOS_HTTP_PORT=\([0-9]\{1,5\}\)"\{0,1\}$/\2/p' <<<"$text" | tail -n 1)
+	[ -n "$p" ] || p=$(grep -oE '"HTTPPort"[[:space:]]*:[[:space:]]*"[0-9]{1,5}"' -- "$DATA_DIR/cosmos.config.json" | head -n 1 | grep -oE '[0-9]{1,5}"$' | tr -d '"' || true)
+	HTTP_PORT=${p:-80}
+	p=$(sed -n 's/^\(Environment=\)\{0,1\}"\{0,1\}COSMOS_HTTPS_PORT=\([0-9]\{1,5\}\)"\{0,1\}$/\2/p' <<<"$text" | tail -n 1)
+	HTTPS_PORT=${p:-443}
+}
+
+# migrate_run: after the release is verified and the packages are in: the
+# observation, the stop, the backup, the swap, the start and the checks
+migrate_run() {
+	local b=$MIG_BACKUP
+	[ -d "$MIG_DIR" ] || mkdir -m 700 -- "$MIG_DIR"
+	step "How Cosmos answers now (compared after the migration)"
+	mig_observe before
+	say "Settings noted; $(wc -l <"$MIG_DIR/before.urls") addresses answer ($(cut -d' ' -f3 "$MIG_DIR/before.urls" | sort | uniq -c | awk '{printf "%s%s x%s", sep, $2, $1; sep=", "}')); $(wc -l <"$MIG_DIR/before.containers") containers."
+	state_set was-enabled "$(unit_enabled)"
+	state_set was-active "$(unit_active)"
+	state_set backup "$b"
+	state_set migrated-from "$FOUND_VERSION"
+	PHASE=migrating
+	step "Stopping upstream's Cosmos (its containers keep running)"
+	state_set mstep stopping
+	systemctl stop "$UNIT.service"
+	state_set mstep stopped
+	test_fail_at stopped
+
+	step "Backing up $INSTALL_DIR and $DATA_DIR to $b"
+	mkdir -m 700 -- "$b"
+	printf 'made by migrate.sh\n' >"$b/$MIG_MARK"
+	cp -a -- "$INSTALL_DIR" "$b/opt-cosmos"
+	cp -a -- "$DATA_DIR" "$b/var-lib-cosmos"
+	cp -a -- "$UNIT_FILE" "$b/$UNIT.service"
+	if [ -f "/etc/sysconfig/$UNIT" ]; then cp -a -- "/etc/sysconfig/$UNIT" "$b/sysconfig-$UNIT"; fi
+	manifest_of "$INSTALL_DIR" >"$b/MANIFEST.opt-cosmos"
+	manifest_of "$DATA_DIR" >"$b/MANIFEST.var-lib-cosmos"
+	same_as_manifest "$b/opt-cosmos" "$b/MANIFEST.opt-cosmos" || die $EXIT_FAILED "the backup of $INSTALL_DIR does not match the original"
+	same_as_manifest "$b/var-lib-cosmos" "$b/MANIFEST.var-lib-cosmos" || die $EXIT_FAILED "the backup of $DATA_DIR does not match the original"
+	going_back_text "$b" "$FOUND_VERSION" >"$b/GOING-BACK.txt"
+	sync -f "$b" 2>/dev/null || true
+	say "Backup: $(du -sh -- "$b" | cut -f1), every file checked against the original ($(grep -c '^[0-9a-f]\{64\}  ' "$b/MANIFEST.var-lib-cosmos") files of data)."
+	state_set mstep backed-up
+	test_fail_at backed-up
+
+	step "Putting the fork $VERSION in $INSTALL_DIR (start.sh, the unit and the data stay)"
+	state_set mstep swapping
+	mv -- "$INSTALL_DIR" "$MIG_OLD"
+	mv -- "$NEW" "$INSTALL_DIR"
+	cp -p -- "$MIG_OLD/start.sh" "$INSTALL_DIR/start.sh"
+	chmod 755 "$INSTALL_DIR" "$INSTALL_DIR/start.sh"
+	sync -f "$INSTALL_DIR" 2>/dev/null || true
+	state_set mstep swapped
+	test_fail_at swapped
+	migrate_start_and_check
+}
+# changed_lines <before> <after> <n>: the first n lines that differ, on one
+# line; always status 0 (diff ends with 1 when there are differences, which
+# under pipefail would end the script before it says what differed)
+changed_lines() {
+	{ diff -- "$1" "$2" || true; } | grep '^[<>]' | head -n "$3" | tr '\n' ' ' || true
+}
+# migrate_start_and_check: also where a migration interrupted after the
+# swap goes on
+migrate_start_and_check() {
+	PHASE=migrating
+	local diffs="" b
+	b=$(state_get backup)
+	step "Starting the fork"
+	state_set mstep started
+	systemctl start "$UNIT.service"
+	wait_answer "$HTTP_PORT" 180 || die $EXIT_FAILED "the fork did not answer on port $HTTP_PORT within 3 minutes"
+	test_fail_at started
+	# a moment for what Cosmos does at its start (containers it watches)
+	sleep 10
+	step "Checking that it answers as before"
+	mig_observe after
+	local what
+	for what in settings urls containers; do
+		if ! cmp -s -- "$MIG_DIR/before.$what" "$MIG_DIR/after.$what"; then
+			case $what in
+			settings) diffs="$diffs
+  the settings (before < > after): $(changed_lines "$MIG_DIR/before.$what" "$MIG_DIR/after.$what" 4)" ;;
+			urls) diffs="$diffs
+  the addresses (host, path, code; before < > after): $(changed_lines "$MIG_DIR/before.$what" "$MIG_DIR/after.$what" 6)" ;;
+			containers) diffs="$diffs
+  the containers (before < > after): $(changed_lines "$MIG_DIR/before.$what" "$MIG_DIR/after.$what" 6)" ;;
+			esac
+		fi
+	done
+	cmp -s -- "$b/$UNIT.service" "$UNIT_FILE" || diffs="$diffs
+  the unit $UNIT_FILE changed"
+	grep -q "\"version\": *\"$VERSION\"" "$INSTALL_DIR/meta.json" || diffs="$diffs
+  $INSTALL_DIR/meta.json does not say $VERSION"
+	if [ -e "$DATA_DIR/setup-code" ]; then diffs="$diffs
+  the server made a first-run setup code: it took itself for a new installation"; fi
+	[ -z "$diffs" ] || die $EXIT_FAILED "the fork does not answer as upstream's Cosmos did:$diffs"
+	test_fail_at checked
+	say "Settings, $(wc -l <"$MIG_DIR/after.urls") addresses and $(wc -l <"$MIG_DIR/after.containers") containers: as before. No setup code (the administrator is the one of before)."
+
+	# done: upstream's folder is in the backup
+	rm -rf -- "$MIG_OLD"
+	record "migrated-from $(state_get migrated-from)"
+	record "backup $b"
+	state_set version "$VERSION"
+	state_set completed-at "$(date -u +%FT%TZ)"
+	state_set completed yes
+	PHASE="done"
+	step "Cosmos runs the fork $VERSION"
+	say "Moved from upstream's Cosmos $(state_get migrated-from): the same settings, users, addresses and containers."
+	say "The backup of before is in $b ($(du -sh -- "$b" | cut -f1); private: it holds the server's keys)."
+	say "How to go back to upstream by hand: $b/GOING-BACK.txt"
+	say "Once you keep the fork, delete the backup: sudo rm -rf $b"
+	say "Updates come from the panel (or by themselves at night), not from install.sh or migrate.sh."
+	exit 0
+}
+
 RESUMING=0
+STATE_ROLE=install
+if [ -f "$STATE" ] && [ -n "$(state_get role)" ]; then STATE_ROLE=$(state_get role); fi
 if [ -f "$STATE" ] && [ "$(state_get completed)" = yes ]; then
-	die $EXIT_FORK "the Cosmos fork $(state_get version) was installed by this script on $(state_get completed-at) in $INSTALL_DIR.
+	if [ "$STATE_ROLE" = migrate ]; then
+		die $EXIT_FORK "the Cosmos fork $(state_get version) runs here: migrate.sh moved it from upstream's Cosmos $(state_get migrated-from) on $(state_get completed-at).
 Updates are made from the panel (the update notice) or by the server itself at night,
-never by running install.sh again. To remove it: sudo bash $INSTALL_DIR/fork/install/uninstall.sh"
+never by install.sh or migrate.sh. Going back to upstream: $(state_get backup)/GOING-BACK.txt"
+	fi
+	die $EXIT_FORK "the Cosmos fork $(state_get version) was installed by install.sh on $(state_get completed-at) in $INSTALL_DIR.
+Updates are made from the panel (the update notice) or by the server itself at night,
+never by install.sh or migrate.sh. To remove it: sudo bash $INSTALL_DIR/fork/install/uninstall.sh"
 fi
 if [ -f "$STATE" ]; then
 	RESUMING=1
+	if [ "$STATE_ROLE" != "$SCRIPT_ROLE" ]; then
+		if [ "$STATE_ROLE" = migrate ]; then
+			die $EXIT_RESUME "a migration by migrate.sh was interrupted here: run migrate.sh again to finish it, or migrate.sh --undo to put upstream's Cosmos back. Nothing was changed."
+		fi
+		die $EXIT_RESUME "an installation by install.sh was interrupted here: run install.sh again to finish it, or remove what it did with uninstall.sh. Nothing was changed."
+	fi
 fi
 
+if [ "$SCRIPT_ROLE" = migrate ]; then
+	# An interrupted migration: after the swap it is finished (the fork is
+	# started and checked); before it, upstream is put back and the
+	# migration starts again. --undo puts upstream back in both cases.
+	if [ "$RESUMING" = 1 ]; then
+		HTTP_PORT=$(state_get http-port) HTTPS_PORT=$(state_get https-port)
+		[[ $HTTP_PORT =~ ^[1-9][0-9]{0,4}$ ]] || migrate_ports
+		if [ "$UNDO" = 1 ]; then
+			migrate_rollback || die $EXIT_FAILED "the migration could not be undone entirely (above)"
+			say "The interrupted migration is undone: upstream's Cosmos is as it was."
+			exit 0
+		fi
+		case $(state_get mstep) in
+		swapped | started)
+			MIG_RESUME=finish
+			say "A migration was interrupted after the fork was put in place: it is started and checked now (or put back if the check fails)." ;;
+		*)
+			say "A migration was interrupted (at: $(state_get mstep)): upstream's Cosmos is put back first, then the migration starts again."
+			migrate_rollback || die $EXIT_FAILED "the interrupted migration could not be put back entirely (above)"
+			RESUMING=0 ;;
+		esac
+	elif [ "$UNDO" = 1 ]; then
+		say "There is no interrupted migration to undo: nothing was changed."
+		exit 0
+	fi
+	if [ "$MIG_RESUME" != finish ]; then
+		detect_cosmos
+		case $FOUND in
+		upstream) say "Found: $FOUND_WHAT." ;;
+		fork) die $EXIT_FORK "$FOUND_WHAT.
+This script never runs over an installation of the fork. Updates are made from the
+panel (the update notice) or by the server itself at night, not by install.sh or migrate.sh." ;;
+		container) die $EXIT_CANNOT "$FOUND_WHAT.
+migrate.sh moves only a Cosmos installed on the system itself (upstream's get.sh), not yet its Docker container. Nothing was changed." ;;
+		none) die $EXIT_NOTHING "there is no Cosmos here to move to the fork: install the fork with install.sh from the same release. Nothing was changed." ;;
+		*) die $EXIT_OTHER "$FOUND_WHAT.
+This is not a complete installation of upstream's Cosmos: migrate.sh moves only one. Nothing was changed." ;;
+		esac
+	fi
+fi
+
+if [ "$SCRIPT_ROLE" = install ]; then
 detect_cosmos
-if [ "$FOUND" != none ]; then
+fi
+if [ "$SCRIPT_ROLE" = install ] && [ "$FOUND" != none ]; then
 	ours=0
 	if [ "$RESUMING" = 1 ]; then
 		# An interrupted run of this script: what is there must be what it made.
@@ -492,7 +1054,7 @@ Nothing was changed. Remove what is left by hand (or with uninstall.sh if this s
 	fi
 fi
 
-if [ "$RESUMING" = 1 ]; then
+if [ "$RESUMING" = 1 ] && [ "$SCRIPT_ROLE" = install ]; then
 	prev_version=$(state_get version)
 	prev_ports="$(state_get http-port)/$(state_get https-port)"
 	if [ -n "$WANT_VERSION" ] && [ -n "$prev_version" ] && [ "$WANT_VERSION" != "$prev_version" ]; then
@@ -510,7 +1072,7 @@ fi
 # What a run killed with -9 left in its private folders (the lock says no
 # other run is going).
 if [ "$DRY_RUN" = 0 ]; then
-	for f in /opt/.cosmos-install.* /var/tmp/cosmos-install.* /var/tmp/cosmos-install-apt.*; do
+	for f in /opt/.cosmos-install.* /var/tmp/cosmos-install.* /var/tmp/cosmos-install-apt.* /opt/.cosmos-fork-tried.*; do
 		if [ -d "$f" ] && [ ! -L "$f" ]; then rm -rf -- "$f"; fi
 	done
 fi
@@ -614,8 +1176,13 @@ choose_ports() {
 	done
 	die $EXIT_FAILED "the ports 80/443, 8080/8443 and 2052/2053 are all in use: choose two with --http-port and --https-port. Nothing was changed."
 }
-choose_ports
-say "Ports: HTTP $HTTP_PORT, HTTPS $HTTPS_PORT."
+if [ "$SCRIPT_ROLE" = install ]; then
+	choose_ports
+	say "Ports: HTTP $HTTP_PORT, HTTPS $HTTPS_PORT."
+elif [ "$MIG_RESUME" != finish ]; then
+	migrate_ports
+	say "Ports (the unit's, kept): HTTP $HTTP_PORT, HTTPS $HTTPS_PORT."
+fi
 
 # ---- Docker that is already there -------------------------------------------
 # Never "producer | grep -q" for a decision: under pipefail, grep -q stopping
@@ -684,8 +1251,18 @@ fi
 [ -n "$DOCKER_NOTE" ] || DOCKER_NOTE="Docker is not installed: it will be installed from Docker's own repository (download.docker.com)."
 say "$DOCKER_NOTE"
 
+# What a migration needs, read before anything changes (migrate.sh)
+if [ "$SCRIPT_ROLE" = migrate ] && [ "$MIG_RESUME" != finish ]; then
+	step "Checking that this Cosmos can be moved to the fork"
+	migrate_checks
+	migrate_backup_place
+	say "It can: upstream's Cosmos $FOUND_VERSION, settings in $DATA_DIR; the backup goes to $MIG_BACKUP."
+fi
+
 # ---- 3. Which packages, and a simulation before any change -------------------
 TOOLS=(ca-certificates curl unzip openssl)
+# migrate.sh reads the settings with jq
+if [ "$SCRIPT_ROLE" = migrate ]; then TOOLS+=(jq); fi
 BASE=(iproute2 procps util-linux psmisc avahi-daemon iptables)
 STORAGE=(fuse3 mergerfs snapraid samba mdadm parted e2fsprogs)
 DOCKER_PACKAGES=(docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin)
@@ -1060,6 +1637,22 @@ on_failure() {
 	if [ "${#half[@]}" -gt 0 ] && ! { { [ "$PHASE" = tools ] || [ "$PHASE" = release ]; } && [ "$(state_get reached)" != packages ]; }; then
 		warn "the failed apt transaction left these packages half-installed (dpkg): ${half[*]}. Repair dpkg first (sudo dpkg --configure -a)."
 	fi
+	if [ "$PHASE" = migrating ]; then
+		printf '\nThe migration stopped (exit %s).\n' "$rc" >&2
+		if migrate_rollback; then
+			printf 'Nothing of the migration is left: upstream'"'"'s Cosmos runs as before. See the reason above.\n' >&2
+			cleanup
+			exit "$EXIT_ROLLED_BACK"
+		fi
+		cleanup
+		exit "$EXIT_FAILED"
+	fi
+	if [ "$SCRIPT_ROLE" = migrate ] && [ "$PHASE" != check ] && [ "$PHASE" != "done" ] &&
+		! { { [ "$PHASE" = tools ] || [ "$PHASE" = release ]; } && [ "$(state_get reached)" != packages ]; }; then
+		printf '\nThe migration stopped (exit %s) before Cosmos was touched: upstream'"'"'s Cosmos runs as before.\n' "$rc" >&2
+		if [ -s "$RECORD" ]; then printf 'Installed by this script so far (they stay; run migrate.sh again to continue):\n' >&2; sed 's/^/  /' "$RECORD" >&2; fi
+		return 0
+	fi
 	case $PHASE in
 	check | done) ;; # done: installed (exit 16 says what protection is missing)
 	tools | release)
@@ -1077,6 +1670,13 @@ on_failure() {
 }
 trap 'on_failure; cleanup' EXIT
 
+# A migration interrupted after the swap: start and check the fork
+if [ "$MIG_RESUME" = finish ]; then
+	VERSION=$(state_get version)
+	[[ $VERSION =~ ^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}-fork\.[1-9][0-9]{0,8}$ ]] || die $EXIT_FAILED "the state of the interrupted migration names no fork version: run migrate.sh --undo"
+	migrate_start_and_check
+fi
+
 start_state() {
 	[ "$DRY_RUN" = 1 ] && return 0
 	if [ ! -d "$STATE_DIR" ]; then
@@ -1087,6 +1687,7 @@ start_state() {
 		mv "$STATE_DIR/etc-dirs-before.new" "$STATE_DIR/etc-dirs-before"
 	fi
 	[ -f "$STATE" ] || state_set started-at "$(date -u +%FT%TZ)"
+	state_set role "$SCRIPT_ROLE"
 	state_set http-port "$HTTP_PORT"
 	state_set https-port "$HTTPS_PORT"
 	if [ "$REUSE_DATA" = 1 ]; then state_set reuse-data yes; fi
@@ -1202,14 +1803,7 @@ allowed_url() {
 	esac
 	return 1
 }
-# curl and openssl run with a fixed, minimal environment: no ~/.curlrc
-# (curl -q), no proxy or OPENSSL_CONF from the caller's shell (sudo -E, su).
-# A server that needs a proxy for GitHub gives it with --proxy (or
-# downloads the release by hand and uses --from).
-SAFE_PATH=/usr/sbin:/usr/bin:/sbin:/bin
-CURL=(env -i PATH="$SAFE_PATH" HOME=/nonexistent LC_ALL=C curl -q)
-if [ -n "$PROXY" ]; then CURL+=(--proxy "$PROXY" --noproxy ''); fi
-OSSL=(env -i PATH="$SAFE_PATH" HOME=/nonexistent LC_ALL=C openssl)
+# (SAFE_PATH, CURL and OSSL: set at the start, after the options)
 # said once, when a download fails: the shell's proxy is not what is used
 PROXY_TOLD=0
 proxy_hint() {
@@ -1364,6 +1958,12 @@ if [ "$DRY_RUN" = 1 ] && [ -n "$(missing_of "${TOOLS[@]}")" ]; then
 	say "- then download and verify the release, and check Docker's repository (not possible in a dry run before those tools are there)"
 	say "- install the packages: ${MISSING[*]:-(none)}"
 	[ "$DOCKER_PLAN" != install ] || say "- add Docker's repository and install: ${DOCKER_PACKAGES[*]}"
+	if [ "$SCRIPT_ROLE" = migrate ]; then
+		say "- note how Cosmos answers, stop it, back up $INSTALL_DIR, $DATA_DIR and the unit to $MIG_BACKUP (checked file by file)"
+		say "- put the release in $INSTALL_DIR (start.sh, the unit and the data stay), start it, check that it answers as before; put everything back on any failure"
+		say "Nothing was changed."
+		exit 0
+	fi
 	say "- unpack the release to $INSTALL_DIR, data in $DATA_DIR, write and start $UNIT_FILE (ports $HTTP_PORT and $HTTPS_PORT)"
 	for p in $(chosen_pieces); do say "- run fork/$p/install.sh --yes, if the release's piece speaks the installer's interface (its packages are checked once the release is verified)"; done
 	say "Nothing was changed."
@@ -1418,19 +2018,19 @@ else
 	if [ "$VERSION" != "$RELEASE_VERSION" ] && [ "${COSMOS_INSTALL_HOPPED:-}" != "$VERSION" ]; then
 		# Another release: its own install.sh installs it, after its signed
 		# file of scripts verified under this script's keys.
-		say "This script belongs to $RELEASE_VERSION; $VERSION is asked for: taking that release's own install.sh."
+		say "This script belongs to $RELEASE_VERSION; $VERSION is asked for: taking that release's own $SELF."
 		base="https://github.com/$RELEASE_REPOSITORY/releases/download/v$VERSION"
 		mkdir -p "$WORK/next"
-		fetch "$base/install.sh" "$WORK/next/install.sh" 1048576 || die $EXIT_FAILED "could not download install.sh of $VERSION"
+		fetch "$base/$SELF" "$WORK/next/$SELF" 1048576 || die $EXIT_FAILED "could not download $SELF of $VERSION (a release from before $SELF existed has none)"
 		fetch "$base/cosmos-cloud-$VERSION.scripts.sig" "$WORK/next/scripts.sig" 4096 ||
 			refuse "release $VERSION has no signed file of scripts (cosmos-cloud-$VERSION.scripts.sig); releases before install.sh existed cannot be installed by script"
 		verify_signed "$WORK/next/scripts.sig" cosmos-fork-scripts-v1 "$WORK/next/signed" ||
 			refuse "the scripts of $VERSION are not signed with a release key this script trusts"
 		[ "$(sed -n 2p "$WORK/next/signed")" = "version $VERSION" ] || refuse "the signed file of scripts is for another version"
-		want=$(awk '$1=="sha256" && $3=="install.sh"{print $2}' "$WORK/next/signed")
-		if ! { [ -n "$want" ] && [ "$(sha256sum "$WORK/next/install.sh" | awk '{print $1}')" = "$want" ]; }; then refuse "install.sh of $VERSION does not match its signed SHA-256"; fi
+		want=$(awk -v n="$SELF" '$1=="sha256" && $3==n{print $2}' "$WORK/next/signed")
+		if ! { [ -n "$want" ] && [ "$(sha256sum "$WORK/next/$SELF" | awk '{print $1}')" = "$want" ]; }; then refuse "$SELF of $VERSION does not match its signed SHA-256 (or its signed file does not list it)"; fi
 		hop=$(mktemp -d /var/tmp/cosmos-install-next.XXXXXXXX)
-		cp "$WORK/next/install.sh" "$hop/install.sh"
+		cp "$WORK/next/$SELF" "$hop/$SELF"
 		trap - EXIT
 		cleanup
 		export COSMOS_INSTALL_HOPPED=$VERSION
@@ -1441,9 +2041,9 @@ else
 			if [ "$a" = --version ]; then skip=1; continue; fi
 			args+=("$a")
 		done
-		exec bash "$hop/install.sh" "${args[@]}" --version "$VERSION"
+		exec bash "$hop/$SELF" "${args[@]}" --version "$VERSION"
 	fi
-	[ "$VERSION" = "$RELEASE_VERSION" ] || die $EXIT_FAILED "install.sh of $VERSION says it is $RELEASE_VERSION"
+	[ "$VERSION" = "$RELEASE_VERSION" ] || die $EXIT_FAILED "$SELF of $VERSION says it is $RELEASE_VERSION"
 	base="https://github.com/$RELEASE_REPOSITORY/releases/download/v$VERSION"
 	zipname=cosmos-cloud-$VERSION-$ARCH.zip
 	say "Downloading $zipname ..."
@@ -1452,7 +2052,7 @@ else
 	if [ "$rc" = 2 ]; then refuse "release $VERSION has no signature file (cosmos-cloud-$VERSION.sig): it is not installed unverified"; fi
 	[ "$rc" = 0 ] || die $EXIT_FAILED "could not download the signature file of $VERSION (network?)"
 	fetch "$base/$zipname.md5" "$WORK/release.md5" 1024 || die $EXIT_FAILED "could not download $zipname.md5"
-	fetch "$base/$zipname" "$WORK/release.zip" "$MAX_ZIP" || die $EXIT_FAILED "the download of $zipname failed (network cut?). Run install.sh again."
+	fetch "$base/$zipname" "$WORK/release.zip" "$MAX_ZIP" || die $EXIT_FAILED "the download of $zipname failed (network cut?). Run $SELF again."
 	ZIP="$WORK/release.zip" SIG="$WORK/release.sig" MD5="$WORK/release.md5"
 fi
 
@@ -1487,25 +2087,35 @@ done
 grep -q "\"version\": *\"$VERSION\"" "$NEW/meta.json" || refuse "meta.json of the zip names another version"
 chmod 755 "$NEW/cosmos" "$NEW/cosmos-launcher" "$NEW/start.sh"
 for f in restic nebula nebula-cert; do [ ! -f "$NEW/$f" ] || chmod 755 "$NEW/$f"; done
-if [ -f "$NEW/fork/install/install.sh" ]; then
-	if cmp -s -- "$0" "$NEW/fork/install/install.sh"; then
-		say "This install.sh is the one inside the signed release."
+if [ -f "$NEW/fork/install/$SELF" ]; then
+	if cmp -s -- "$0" "$NEW/fork/install/$SELF"; then
+		say "This $SELF is the one inside the signed release."
 	else
-		say "Note: this install.sh differs from the one inside the release (the release's copy is in $INSTALL_DIR/fork/install/)."
+		say "Note: this $SELF differs from the one inside the release (the release's copy is in $INSTALL_DIR/fork/install/)."
 	fi
+fi
+# migrate.sh: the release's own base, which a zip of another version may have
+if [ "$SCRIPT_ROLE" = migrate ]; then
+	zip_base=$(sed -n 's/.*"upstream"[[:space:]]*:[[:space:]]*"\([0-9.]\{5,20\}\)".*/\1/p' "$NEW/meta.json" | head -n 1)
+	[[ $zip_base =~ ^(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$ ]] || refuse "meta.json of the release does not say which upstream version it is built on"
+	base_allows "$MIG_FROM" "$MIG_UNSTABLE" "$zip_base"
 fi
 
 # What the release's binary sees of the network (it changes nothing).
 DETECT="$WORK/detect.json"
+: >"$DETECT"
 detect_args=(--timeout 10)
 # a dry run tells no one: never an outside service
 if [ "$(answer outside-lookup)" != yes ] || [ "$DRY_RUN" = 1 ]; then detect_args+=(--no-outside); fi
-if timeout 30 env -i PATH="$SAFE_PATH" HOME="$WORK" RCLONE_CONFIG="$WORK/none.conf" "$NEW/cosmos" fork-detect "${detect_args[@]}" >"$DETECT" 2>/dev/null; then :; else : >"$DETECT"; fi
+if [ "$SCRIPT_ROLE" = install ]; then
+	if timeout 30 env -i PATH="$SAFE_PATH" HOME="$WORK" RCLONE_CONFIG="$WORK/none.conf" "$NEW/cosmos" fork-detect "${detect_args[@]}" >"$DETECT" 2>/dev/null; then :; else : >"$DETECT"; fi
+fi
 json_string() { # key in the network part (plain values only)
 	sed -n "/\"network\"/,/}/s/.*\"$1\": \"\\([0-9a-zA-Z.:/_-]*\\)\".*/\\1/p" "$DETECT" | head -n 1
 }
 LAN_ADDRESS=$(json_string address)
-if grep -q '"answers": true' "$DETECT"; then
+if [ "$SCRIPT_ROLE" = migrate ]; then :
+elif grep -q '"answers": true' "$DETECT"; then
 	say "Router: answers UPnP ($(sed -n 's/.*"name": "\([^"\\]\{0,64\}\)".*/\1/p' "$DETECT" | head -n 1 | tr -cd '[:print:]'))."
 else
 	say "Router: does not answer UPnP (or none was found)."
@@ -1539,6 +2149,16 @@ elif [ "${#MISSING[@]}" -gt 0 ]; then
 	simulate "${MISSING[@]}"
 fi
 
+if [ "$DRY_RUN" = 1 ] && [ "$SCRIPT_ROLE" = migrate ]; then
+	step "Dry run: this is what a real run would do"
+	say "- install the packages: ${PREINSTALL[*]:-(none)}"
+	say "- note how Cosmos answers (settings, its addresses, $(timeout 30 docker ps -aq 2>/dev/null | wc -l) containers), stop it"
+	say "- back up $INSTALL_DIR ($(du -sh -- "$INSTALL_DIR" | cut -f1)), $DATA_DIR ($(du -sh -- "$DATA_DIR" | cut -f1)) and the unit to $MIG_BACKUP, checked file by file"
+	say "- put $zipname (verified) in $INSTALL_DIR, keeping start.sh, the unit and the data; start it; check that it answers as before"
+	say "- on any failure, put everything back and start upstream's Cosmos $FOUND_VERSION again"
+	say "Nothing was changed."
+	exit 0
+fi
 if [ "$DRY_RUN" = 1 ]; then
 	step "Dry run: this is what a real run would do"
 	say "- install the packages: ${PREINSTALL[*]:-(none)}"
@@ -1595,6 +2215,9 @@ fi
 # avahi-daemon (.local names) is started only when this script installed it:
 # one the admin had, enabled or not, is left as it is
 if recorded "package avahi-daemon"; then systemctl enable --now avahi-daemon.service >/dev/null 2>&1 || warn "avahi-daemon did not start (.local names will not work): systemctl status avahi-daemon"; fi
+
+# migrate.sh: the observation, the stop, the backup, the swap, the checks
+if [ "$SCRIPT_ROLE" = migrate ]; then migrate_run; fi
 
 # ---- 7. Cosmos ------------------------------------------------------------------
 PHASE=cosmos
