@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -226,6 +228,16 @@ func TestR5PanicsAreCountedAgainstTheirThread(t *testing.T) {
 	if e := m.n.entries[threadID(th.name)]; e != nil && e.panics != 0 {
 		t.Errorf("the thread was blamed: %d", e.panics)
 	}
+	// a panic of its own, then a success: its count starts again
+	m.n.mu.Lock()
+	m.n.current = threadID(th.name)
+	m.n.mu.Unlock()
+	m.n.recovered(errors.New("once"))
+	m.repeatOf(th)
+	m.settle(10 * time.Minute)
+	if e := m.n.entries[threadID(th.name)]; e == nil || e.panics != 0 || strings.Join(m.actions(th), ",") != "open,repeat" {
+		t.Fatalf("after a success: %+v, %v", e, m.actions(th))
+	}
 	recorded := make(chan string, 4)
 	m.n.recordDropped = func(kind string) { recorded <- kind }
 	for i := 0; i < maxThreadPanics; i++ {
@@ -283,4 +295,113 @@ func TestR5AFarewellThatPanicsIsRecordedLost(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Error("the queue of farewells stays stopped")
+}
+
+// Found by the model with late events (TestModelWithLateEvents, seeds 373,
+// 700, 1064, 1244): a source changes its state, the reconcile sends the
+// opening from the level, then the source's own notification of that
+// episode arrives: it is the same episode, not a second opening. An
+// opening after that is a new one again (P2).
+func TestR5LateEventIsTheSameEpisode(t *testing.T) {
+	th := reachThread("reach:connect")
+	th.registered = true
+	m := scripted(t, th)
+	m.truth(th, true) // the source's state, its notification not written yet
+	m.n.reconcile()
+	m.settle(5 * time.Minute)
+	nt := m.notice(th, th.opening)
+	th.rowOpen, th.openRow = true, &nt
+	m.n.Notify(nt)
+	m.settle(5 * time.Minute)
+	if got := strings.Join(m.actions(th), ","); got != "open" || len(m.pinnedNow()) != 1 {
+		t.Fatalf("the late notification of the same episode: %s, pinned %v", got, m.pinnedNow())
+	}
+	// ended quietly and opened again before any look: a new opening
+	m.quietEnd(th)
+	m.open(th)
+	m.settle(5 * time.Minute)
+	if got := strings.Join(m.actions(th), ","); got != "open,open" || len(m.pinnedNow()) != 1 {
+		t.Errorf("a re-opening the chat did not see the end of: %s, pinned %v", got, m.pinnedNow())
+	}
+}
+
+// Minor: a threads file that would pass its bound is still written, without
+// the entries' notices (the level gives them back), and that is logged
+// once.
+func TestR5TheThreadsFileIsBoundedByItsContent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), threadsFileName)
+	mem := newThreadMemory(path)
+	logged := []string{}
+	mem.logf = func(line string) { logged = append(logged, line) }
+	big := func(i int) *savedNotice {
+		vars := map[string]string{}
+		for k := 0; k < 12; k++ {
+			vars["v"+strconv.Itoa(k)] = strings.Repeat("Ж", 300)
+		}
+		return &savedNotice{Kind: "disk.filling", Vars: vars, What: strings.Repeat("Ж", 300), Thread: "fill:/b/" + strconv.Itoa(i)}
+	}
+	for round := 0; round < 2; round++ {
+		entries := map[string]*savedEntry{}
+		for i := 0; i < maxThreads; i++ {
+			name := "fill:/b/" + strconv.Itoa(i)
+			entries[threadID(name)] = &savedEntry{Name: name, Kind: "disk.filling", Open: true, Since: time.Unix(int64(round), 0), Opening: big(i), Closing: big(i)}
+		}
+		mem.saveEntries(entries)
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Size() > maxThreadsBytes {
+		t.Fatalf("the file: %v, %v", info, err)
+	}
+	raw, _ := os.ReadFile(path)
+	var file threadFile
+	if err := json.Unmarshal(raw, &file); err != nil || len(file.Entries) != maxThreads {
+		t.Fatalf("entries kept: %d, %v", len(file.Entries), err)
+	}
+	for _, e := range file.Entries {
+		if !e.Open || e.Name == "" || e.Kind != "disk.filling" {
+			t.Fatalf("an entry lost its state: %+v", e)
+		}
+	}
+	if len(logged) != 0 {
+		t.Errorf("logged although written: %v", logged)
+	}
+}
+
+// Minor: a reconcile that changes nothing does not write the threads file.
+func TestR5AReconcileThatChangesNothingWritesNothing(t *testing.T) {
+	th := reachThread("reach:connect")
+	m := scripted(t, th)
+	m.open(th)
+	m.settle(5 * time.Minute)
+	before, err := os.Stat(m.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		m.n.reconcile()
+		m.settle(5 * time.Minute)
+	}
+	after, err := os.Stat(m.path)
+	if err != nil || !os.SameFile(before, after) {
+		t.Errorf("the threads file was written again (%v)", err)
+	}
+}
+
+// Minor: an entry forgotten between the reconcile's reads and its apply
+// (its end was sent meanwhile) is not made again from the stale read.
+func TestR5AStaleReadDoesNotBringBackAForgottenEntry(t *testing.T) {
+	th := reachThread("reach:connect")
+	m := scripted(t, th)
+	m.open(th)
+	m.settle(5 * time.Minute)
+	m.n.reconcileHook = func() {
+		m.n.reconcileHook = nil
+		m.closeWith(th)
+		m.settle(time.Minute)
+	}
+	m.n.reconcile()
+	m.settle(time.Minute)
+	if got := strings.Join(m.actions(th), ","); got != "open,close" || len(m.pinnedNow()) != 0 {
+		t.Errorf("after a stale read: %s, pinned %v", got, m.pinnedNow())
+	}
 }

@@ -279,7 +279,7 @@ func (n *notifier) reconcile() {
 		case tr.open && !e.open:
 			e.open, e.since = true, look.since
 			e.episode++
-			e.closing, e.repeat = nil, nil
+			e.closing, e.repeat, e.byLevel = nil, nil, true
 			if o, has := opens[id]; has {
 				e.opening = &o
 			}

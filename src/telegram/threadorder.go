@@ -90,7 +90,11 @@ type threadEntry struct {
 	since    time.Time
 	episode  int
 	// fresh: an opening came while the chat held an older one
-	fresh   bool
+	fresh bool
+	// byLevel: the reconcile opened this episode from the level, before
+	// the source's own event came (a source changes its state before it
+	// writes): that event is this episode's, not a new one
+	byLevel bool
 	opening *notice // the opening of the current (or last) episode
 	closing *notice // the closing of the last episode
 	repeat  *notice // a repeat waiting to be sent
@@ -170,6 +174,8 @@ func (n *notifier) threadEventLocked(st settings, nt notice, now time.Time) bool
 		e.kind = nt.kind
 	}
 	c := nt
+	byLevel := e.byLevel
+	e.byLevel = false
 	switch {
 	case nt.resolves != "":
 		if e.open {
@@ -194,6 +200,10 @@ func (n *notifier) threadEventLocked(st settings, nt notice, now time.Time) bool
 			o.repeat = false
 			e.opening = &o
 		}
+	case byLevel:
+		// the event of the episode the level opened already: its words,
+		// no second opening
+		e.opening = &c
 	default:
 		// an opening while open: the source ended it and opened it again
 		// without the chat seeing the end (P2)
@@ -480,14 +490,12 @@ func (n *notifier) deliverThread(it *item) bool {
 				return true
 			}
 			if failure.Reason == ReasonTimeout {
-				n.mu.Lock()
-				switch d.action {
-				case actionOpen:
+				if d.action == actionOpen {
 					// it may have arrived: the same opening waits for the brake
+					n.mu.Lock()
 					n.brakes[brakeKey(st, e.id)] = brake{at: n.now()}
-				case actionClose:
+					n.mu.Unlock()
 				}
-				n.mu.Unlock()
 				if d.action == actionClose {
 					// review 5, S2: this chat may show it over: a re-opening
 					// before the retry is sent as a new opening

@@ -10,12 +10,22 @@ package telegram
 //
 // The level is a separate, fallible thing (as in production): per thread
 // either a source that registered its level (unknown for a while after each
-// start, and late: it sees the truth as of its last look) or the
-// notifications' rows (an open row, resolved rows, closing rows), which the
-// generator deletes while the problem lasts (the owner's "delete read",
-// the 30-day retention); any read can fail (an error) or be unknown. The
-// reconcile runs between steps, DURING them (events between its reads and
-// its apply), and on the switch-on path as the loop serves it.
+// start) or the notifications' rows (an open row, resolved rows, closing
+// rows), which the generator deletes while the problem lasts (the owner's
+// "delete read", the 30-day retention); any read can fail (an error) or be
+// unknown. The reconcile runs between steps, DURING them (events between
+// its reads and its apply), and on the switch-on path as the loop serves
+// it.
+//
+// Late (TestModelWithLateEvents): a source that registered its level
+// changes its state first and writes its notification (row and event)
+// up to two minutes later, or never when the server restarts in between;
+// the level is then AHEAD of the events. Every source of the server
+// changes its state before it writes, or under the same lock (watch: inside
+// store.with; Docker: remember() first; reachwatch: under w.mu; cron: the
+// run's result first), so a level BEHIND its events is not produced and
+// not modelled: a level that said "over" after the opening's event came
+// would be wrong evidence, which the rule "over needs evidence" excludes.
 //
 // The generator also changes the chat (inside the brake window too), makes
 // closings time out, fills the table beyond its bound, and lets 31 days
@@ -37,7 +47,8 @@ package telegram
 //	   it was told
 //
 // A fixed list of seeds runs every time; MODEL_SECONDS=n adds a random
-// pass of n seconds, MODEL_SEED=n replays one seed with its trace. Every
+// pass of n seconds, MODEL_SEED=n replays one seed with its trace (MODEL_LATE=1
+// with late events). Every
 // failing seed becomes a named test (review4_test.go, review5_test.go).
 
 import (
@@ -216,6 +227,14 @@ type modelThread struct {
 	closedAt   []time.Time // every end
 	quietAt    []time.Time // the ends without an event
 	openedAt   []time.Time // every opening event
+	lastDue    time.Time   // the last late event of this thread waiting
+}
+
+// lateEvent is a notification a source writes after its state changed.
+type lateEvent struct {
+	due time.Time
+	th  *modelThread
+	do  func()
 }
 
 type modelChange struct {
@@ -343,6 +362,12 @@ type model struct {
 	features      map[string]bool
 	// the level's faults, per run
 	errP, unknownP, pruneP float64
+	// late events (TestModelWithLateEvents): a registered source's
+	// notification comes after its state changed
+	lateP   float64
+	lateRng *rand.Rand
+	pending []lateEvent
+	stats   map[string]int
 	final                  bool
 	lastOpenSent           time.Time
 }
@@ -568,39 +593,88 @@ func (m *model) truth(th *modelThread, open bool) {
 	}
 }
 
+// emit writes what a source writes (its rows, its event): now, or, for a
+// registered source in a run with late events, up to two minutes after
+// its state changed, in order per thread.
+func (m *model) emit(th *modelThread, what string, do func()) {
+	late := m.lateP > 0 && th.registered && !m.final && m.lateRng.Float64() < m.lateP
+	if !late && !th.lastDue.After(m.clock) {
+		do()
+		return
+	}
+	due := th.lastDue
+	if late {
+		if at := m.clock.Add(time.Duration(1+m.lateRng.Intn(120)) * time.Second); at.After(due) {
+			due = at
+		}
+		m.feature("event late")
+	}
+	th.lastDue = due
+	m.pending = append(m.pending, lateEvent{due: due, th: th, do: do})
+	m.log("%s of %s written at %s", what, th.marker, due.Format("15:04:05"))
+}
+
+// deliverDue writes the late notifications that are due, in order.
+func (m *model) deliverDue(all bool) {
+	for len(m.pending) > 0 {
+		i := -1
+		for j, ev := range m.pending {
+			if all || !ev.due.After(m.clock) {
+				i = j
+				break
+			}
+		}
+		if i < 0 {
+			return
+		}
+		ev := m.pending[i]
+		m.pending = append(m.pending[:i], m.pending[i+1:]...)
+		ev.do()
+	}
+}
+
 // the events of a thread
 func (m *model) openThread(th *modelThread) {
 	nt := m.notice(th, th.opening)
 	m.truth(th, true)
-	th.rowOpen, th.openRow = true, &nt
-	m.log("event open %s", th.marker)
-	m.n.Notify(nt)
+	m.emit(th, "the opening", func() {
+		th.rowOpen, th.openRow = true, &nt
+		m.log("event open %s", th.marker)
+		m.n.Notify(nt)
+	})
 }
 
 func (m *model) repeatThread(th *modelThread) {
 	nt := m.notice(th, th.opening)
 	nt.repeat, nt.count = true, 2
-	m.log("event repeat %s", th.marker)
-	m.n.Notify(nt)
+	m.emit(th, "a repeat", func() {
+		m.log("event repeat %s", th.marker)
+		m.n.Notify(nt)
+	})
 }
 
 func (m *model) closeThread(th *modelThread) {
 	nt := m.notice(th, th.closing)
 	m.truth(th, false)
-	th.rowOpen, th.openRow = false, nil
-	th.resolvedAt = append(th.resolvedAt, m.clock)
-	th.lastClosing, th.closingAt = &nt, m.clock
-	m.log("event close %s", th.marker)
-	m.n.Notify(nt)
+	at := m.clock
+	m.emit(th, "the closing", func() {
+		th.rowOpen, th.openRow = false, nil
+		th.resolvedAt = append(th.resolvedAt, m.clock)
+		th.lastClosing, th.closingAt = &nt, at
+		m.log("event close %s", th.marker)
+		m.n.Notify(nt)
+	})
 }
 
 func (m *model) quietEnd(th *modelThread) {
 	m.truth(th, false)
 	th.quietAt = append(th.quietAt, m.clock)
-	th.rowOpen, th.openRow = false, nil
-	th.resolvedAt = append(th.resolvedAt, m.clock)
-	th.lastClosing = nil
-	m.log("event quiet close %s", th.marker)
+	m.emit(th, "the quiet end", func() {
+		th.rowOpen, th.openRow = false, nil
+		th.resolvedAt = append(th.resolvedAt, m.clock)
+		th.lastClosing = nil
+		m.log("event quiet close %s", th.marker)
+	})
 }
 
 // event makes one thing happen.
@@ -680,6 +754,7 @@ func (m *model) change() {
 	case 3:
 		m.changeChat()
 	case 4:
+		m.deliverDue(true) // what the sources write comes within minutes
 		m.clock = m.clock.Add(31 * 24 * time.Hour)
 		m.monthAt = append(m.monthAt, m.clock)
 		m.feature("31 days pass")
@@ -716,6 +791,15 @@ func (m *model) restartKeeping(keep bool) {
 		m.feature("restart with the file")
 	}
 	m.log("restart (file kept: %v)", keep)
+	if len(m.pending) > 0 {
+		// what a source had not written yet is lost with the process; its
+		// state (registered) is not
+		m.feature("late event lost at a restart")
+		m.pending = nil
+	}
+	for _, th := range m.threads {
+		th.lastDue = time.Time{}
+	}
 	m.restartAt = append(m.restartAt, m.clock)
 	m.restarted = true
 	m.notePlain()
@@ -737,6 +821,7 @@ func (m *model) fillTable() {
 // step lets the sender do one thing, or the time pass; a reconcile asked
 // for (the switch-on path) is served as the loop serves it.
 func (m *model) step() bool {
+	m.deliverDue(false)
 	m.n.persist()
 	it, wait := m.n.next()
 	select {
@@ -795,6 +880,7 @@ func (m *model) run(steps int) {
 	// at the level
 	m.bot.failing = false
 	m.final = true
+	m.deliverDue(true)
 	m.config.Telegram.Enabled = true
 	start := m.clock
 	for i := 0; i < 3; i++ {
@@ -1012,16 +1098,25 @@ func (m *model) report() string {
 var modelStats = map[string]int{}
 
 func runModel(t *testing.T, seed int64) bool {
+	return runModelWith(t, seed, false, modelStats)
+}
+
+// runModelWith runs one seed, with late events or not.
+func runModelWith(t *testing.T, seed int64, late bool, stats map[string]int) bool {
 	t.Helper()
 	m := newModel(t, seed)
+	if late {
+		// its own random source: the seed's other choices stay as they are
+		m.lateP, m.lateRng = 0.5, rand.New(rand.NewSource(seed*7919+17))
+	}
 	m.run(40 + m.rng.Intn(120))
 	for name := range m.features {
-		modelStats[name]++
+		stats[name]++
 	}
 	if len(m.threads) >= 5 {
-		modelStats["5 or more threads"]++
+		stats["5 or more threads"]++
 	}
-	modelStats["runs"]++
+	stats["runs"]++
 	if len(m.violations) > 0 {
 		t.Errorf("%s", m.report())
 		return false
@@ -1068,6 +1163,33 @@ func TestModelOfTheThreads(t *testing.T) {
 	}
 }
 
+// TestModelWithLateEvents: the sources' notifications come up to two
+// minutes after their state changed (see the header), on 1500 seeds.
+func TestModelWithLateEvents(t *testing.T) {
+	runs := 1500
+	if testing.Short() {
+		runs = 150
+	}
+	stats := map[string]int{}
+	failed := 0
+	for seed := int64(1); seed <= int64(runs); seed++ {
+		if !runModelWith(t, seed, true, stats) {
+			failed++
+			if failed > 3 {
+				t.Fatal("stopped after 4 failing seeds")
+			}
+		}
+	}
+	names := []string{}
+	for name := range stats {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		t.Logf("generator: %-40s %d", name, stats[name])
+	}
+}
+
 // between: one of the moments lies in [from, to].
 func between(moments []time.Time, from time.Time, to time.Time) bool {
 	for _, at := range moments {
@@ -1090,13 +1212,17 @@ func latestBefore(moments []time.Time, t time.Time) time.Time {
 	return best
 }
 
-// TestModelSeed replays one seed with its trace: MODEL_SEED=n.
+// TestModelSeed replays one seed with its trace: MODEL_SEED=n (MODEL_LATE=1
+// with late events).
 func TestModelSeed(t *testing.T) {
 	seed, _ := strconv.ParseInt(os.Getenv("MODEL_SEED"), 10, 64)
 	if seed == 0 {
 		t.Skip("MODEL_SEED=n replays a seed")
 	}
 	m := newModel(t, seed)
+	if os.Getenv("MODEL_LATE") != "" {
+		m.lateP, m.lateRng = 0.5, rand.New(rand.NewSource(seed*7919+17))
+	}
 	m.run(40 + m.rng.Intn(120))
 	t.Logf("seed %d: %s\n%s", m.seed, strings.Join(m.violations, "\n"), strings.Join(m.trace, "\n"))
 }
