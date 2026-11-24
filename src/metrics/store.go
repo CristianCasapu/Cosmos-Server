@@ -71,9 +71,17 @@ func aggregateArg(aggloType string, dp DataPush) int {
 
 // writeBuckets persists one flush worth of accumulator entries in a single transaction.
 func writeBuckets(buckets []DataPush) error {
-	db, err := utils.MonitoringWriteDB()
+	_, _, err := writeBucketsTx(buckets, nil) // Fork addition (plan 51): see fork_flush.go
+	return err
+}
+
+// writeBucketsTx is writeBuckets with the fork's bookkeeping rows written in
+// the same transaction (fork_flush.go); committing says that the error came
+// from the commit, whose outcome is then not known.
+func writeBucketsTx(buckets []DataPush, kv map[string]string) (db *sql.DB, committing bool, err error) {
+	db, err = utils.MonitoringWriteDB()
 	if err != nil {
-		return err
+		return nil, false, err
 	}
 
 	dialect := utils.MonitoringDialectOf(db)
@@ -81,17 +89,26 @@ func writeBuckets(buckets []DataPush) error {
 
 	tx, err := db.Begin()
 	if err != nil {
-		return err
+		return db, false, err
 	}
 
 	for _, dp := range buckets {
 		if err := writeBucket(tx, dialect, node, dp); err != nil {
 			tx.Rollback()
-			return err
+			return db, false, err
+		}
+	}
+	for key, value := range kv {
+		if _, err := tx.Exec(utils.RebindFor(dialect, "INSERT INTO monitoring_kv(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"), key, value); err != nil {
+			tx.Rollback()
+			return db, false, err
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return db, true, err
+	}
+	return db, false, nil
 }
 
 func writeBucket(tx *sql.Tx, dialect string, node string, dp DataPush) error {

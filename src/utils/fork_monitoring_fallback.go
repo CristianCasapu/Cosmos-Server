@@ -28,8 +28,10 @@ package utils
 // the store again; a move to "local file only" closes the open outage.
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -108,6 +110,32 @@ var (
 func fallbackLead() time.Duration {
 	t := timing()
 	return time.Duration(t.pingFailures)*(t.pingEvery+t.pingWithin) + 5*time.Second
+}
+
+// LedgerID names a store for the ledgers of the copy and the metrics'
+// flush tokens: the local file by its path, PostgreSQL by server, database
+// and user (nothing secret).
+func LedgerID(dialect, identity string) string {
+	sum := sha256.Sum256([]byte(identity))
+	return dialect + ":" + fmt.Sprintf("%x", sum[:8])
+}
+
+func postgresLedgerID(db DatabaseConfig) string {
+	return LedgerID(DialectPostgres, db.PostgresHost+"/"+db.PostgresDatabase+"/"+db.PostgresUsername)
+}
+
+func localLedgerID() string { return LedgerID(DialectSQLite, CONFIGFOLDER+"database.db") }
+
+// handleLedger: the ledger id of each handle of the store.
+var handleLedger sync.Map // *sql.DB -> string
+
+// MonitoringLedgerIDOf is the ledger id of a handle of the store ("" for a
+// handle it does not know).
+func MonitoringLedgerIDOf(db *sql.DB) string {
+	if id, ok := handleLedger.Load(db); ok {
+		return id.(string)
+	}
+	return ""
 }
 
 // withLocalFile runs fn with a handle of its own on the local file (the
@@ -416,7 +444,7 @@ var catchUpFallback = func(db DatabaseConfig, rec fallbackRecord, told bool, aft
 	}
 	window := CatchUpWindow{From: MillisToTime(rec.From), To: MillisToTime(rec.To), Back: MillisToTime(rec.Ended), After: rec.After, Before: rec.Before}
 	finish := func(caught CatchUpResult) {
-		catchUpsRunning.Add(-1)
+		defer catchUpsRunning.Add(-1) // after "answers again": the history is partial until then
 		if caught.Ran {
 			forgetFallback(db, rec)
 		}

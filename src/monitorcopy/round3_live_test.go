@@ -222,7 +222,10 @@ func TestNothingLeftBehindLive(t *testing.T) {
 		fellBack := time.Now()
 		time.Sleep(20 * time.Second) // records go on in the local file
 		proxy.up(t)
-		waitFor(t, "the switch back", 6*time.Minute, func() bool { s := utils.GetMonitoringStoreState(); return !s.Fallback && s.InUse == utils.DialectPostgres })
+		waitFor(t, "the switch back", 6*time.Minute, func() bool {
+			s := utils.GetMonitoringStoreState()
+			return !s.Fallback && s.InUse == utils.DialectPostgres
+		})
 		back := time.Now()
 		waitFor(t, "the catch-up", 4*time.Minute, func() bool {
 			c := Status().CatchUp

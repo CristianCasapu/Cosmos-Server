@@ -92,7 +92,7 @@ browser() { # [VAR=value…] -- <script>
   docker rm -f "$PREFIX-browser" >/dev/null 2>&1 || true
   # shellcheck disable=SC2086
   docker run --rm --name "$PREFIX-browser" --network "$NET" --ip "$SUBNET.9" --ipc=host \
-    --add-host "$HOST:$SUBNET.5" -v "$SCRATCH/pw:/work" -w /work \
+    --add-host "$HOST:$SUBNET.5" -v "$SCRATCH/pw:/work" -v "$SCRATCH/run/config:/cosmos-config" -w /work \
     -e BASE="http://$HOST:2052" -e DIND="http://$SUBNET.5:2375" -e LAN="$SUBNET.5" $envs "$PLAYWRIGHT_IMAGE" node "$@"
 }
 

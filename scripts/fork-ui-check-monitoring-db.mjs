@@ -19,6 +19,7 @@
 // ENGINES=chromium,firefox,webkit  SIZES=d,m (1366x900, 393x851)  BASE, DIND (the test Docker's API),
 // LAN (the server's home-network address). Pictures go to ./shots. Ends with "ALL OK" or the failures.
 import { chromium, firefox, webkit } from 'playwright';
+import { DatabaseSync } from 'node:sqlite';
 
 const base = process.env.BASE || 'http://monitoring-db.example.org:2052';
 const dind = process.env.DIND || 'http://192.0.2.5:2375';
@@ -58,6 +59,18 @@ const execIn = async (container, cmd) => {
   }
   return out;
 };
+// the test Cosmos' local file (its configuration folder, mounted by the sh script), read only
+const localRows = (sql, ...args) => {
+  const db = new DatabaseSync(process.env.LOCAL_DB || '/cosmos-config/database.db', { readOnly: true });
+  try { return db.prepare(sql).all(...args); } finally { db.close(); }
+};
+const ID_TABLES = ['events', 'notifications', 'fork_security_events'];
+const localMarks = () => Object.fromEntries(ID_TABLES.map((t) => {
+  try { return [t, Number(localRows(`SELECT COALESCE(MAX(id), 0) AS m FROM ${t}`)[0].m)]; } catch { return [t, 0]; }
+}));
+const pgLines = async (sql) => (await execIn('postgresql',
+  `PGPASSWORD=${DB_PASSWORD} psql -h 127.0.0.1 -U cosmos -d cosmos_monitoring -At -F '|' -c "${sql}"`)).trim().split('\n').filter(Boolean);
+const dayOf = (ms) => ms - (ms % 86400000);
 const tables = async () => (await execIn('postgresql',
   `PGPASSWORD=${DB_PASSWORD} psql -h 127.0.0.1 -U cosmos -d cosmos_monitoring -At -c "select string_agg(tablename, ',' order by tablename) from pg_tables where schemaname='public'"`)).trim();
 const pgCount = async (table) => Number((await execIn('postgresql',
@@ -305,6 +318,10 @@ phases.move = async (page, id, size, ctx) => {
 phases.down = async (page, id, size, ctx) => {
   let s = await storeState(ctx);
   expect(id + ': PostgreSQL is the store before', s.inUse === 'pgx', JSON.stringify(s));
+  // before the outage: the local file's highest ids, and PostgreSQL's day totals of the summed metrics
+  const marksBefore = localMarks();
+  const today = dayOf(Date.now());
+  const dayBefore = Object.fromEntries((await pgLines(`SELECT m.key, v.value FROM metric_values v JOIN metrics m ON m.node = v.node AND m.key = v.key WHERE m.agglo_type = 'sum' AND v.granularity = 'day' AND v.date = ${today}`)).map((l) => { const [k, v] = l.split('|'); return [k, Number(v)]; }));
   const stoppedAt = Date.now();
   await docker('/containers/postgresql/stop?t=2');
   s = await waitState(ctx, (st) => st.fallback && st.inUse === 'sqlite', 90);
@@ -342,6 +359,46 @@ phases.down = async (page, id, size, ctx) => {
   expect(id + ': External says it', /Caught up [\d.,\s\u00a0\u202f]+ records written while the database was away/.test(await line2.innerText().catch(() => '')), await line2.innerText().catch(() => ''));
   await shotOf(line2, id, 'catchup');
   await layout(page, id, null, size);
+  // review round 3: the catch-up's numbers against what the local file got
+  const marksAfter = localMarks();
+  const since = new Date(s.localFrom).getTime();
+  const tableOf = (name) => (caught.tables || []).find((x) => x.table === name) || {};
+  const written = Object.fromEntries(ID_TABLES.map((t) => [t, marksAfter[t] - marksBefore[t]]));
+  expect(id + ': the catch-up went through exactly the events and security entries written aside',
+    tableOf('events').sourceRows === written.events && (tableOf('fork_security_events').sourceRows || 0) === written.fork_security_events,
+    JSON.stringify({ written, events: tableOf('events'), security: tableOf('fork_security_events') }));
+  expect(id + ': and every notification written aside', (tableOf('notifications').sourceRows || 0) >= written.notifications, JSON.stringify({ written, notifications: tableOf('notifications') }));
+  expect(id + ': its numbers are true (all present, none missing or unchecked)', caught.aside === caught.present && !caught.missing && !caught.unchecked && !caught.inexact && caught.counted, JSON.stringify(caught));
+  // nothing left only in the local file: every event and security entry the local file got since
+  // the outage began is in PostgreSQL, those dated before the fallback included
+  const localEvents = localRows('SELECT event_id, label, date FROM events WHERE id > ?', marksBefore.events);
+  const pgEvents = new Set(await pgLines(`SELECT event_id, label, date FROM events WHERE date >= ${Math.min(...localEvents.map((e) => Number(e.date)), Date.now()) }`));
+  const eventsLeft = localEvents.filter((e) => !pgEvents.has(`${e.event_id}|${e.label}|${e.date}`)).length;
+  const keptEarlier = localEvents.filter((e) => Number(e.date) < since).length;
+  let securityLeft = 0;
+  let securityAside = 0;
+  try {
+    const localSec = localRows('SELECT kind, target, ip, ts FROM fork_security_events WHERE id > ?', marksBefore.fork_security_events);
+    securityAside = localSec.length;
+    const pgSec = new Set(await pgLines(`SELECT kind, target, ip, ts FROM fork_security_events WHERE ts >= ${Math.min(...localSec.map((e) => Number(e.ts)), Date.now())}`));
+    securityLeft = localSec.filter((e) => !pgSec.has(`${e.kind}|${e.target}|${e.ip}|${e.ts}`)).length;
+  } catch { /* no security entry made yet */ }
+  note(`  ${id}: written aside ${JSON.stringify(written)}; events dated before the fallback ${keptEarlier}; catch-up aside ${caught.aside}, present ${caught.present}, written ${caught.written}`);
+  expect(id + ': no event left only in the local file', eventsLeft === 0, `${eventsLeft} of ${localEvents.length}`);
+  expect(id + ': no security entry left only in the local file', securityLeft === 0, `${securityLeft} of ${securityAside}`);
+  // a day total: before, during (the local file's own part), after (PostgreSQL's, with that part added once)
+  const localDays = localRows("SELECT v.node AS node, v.key AS key, v.value AS value FROM metric_values v JOIN metrics m ON m.node = v.node AND m.key = v.key WHERE m.agglo_type = 'sum' AND v.granularity = 'day' AND v.date = ?", today);
+  const pick = localDays.sort((a, b) => Number(b.value) - Number(a.value))[0];
+  if (pick) {
+    const during = Number(pick.value);
+    const after = Number((await pgLines(`SELECT value FROM metric_values WHERE key = '${pick.key}' AND granularity = 'day' AND date = ${today}`))[0] || 0);
+    const absorbed = (await pgLines(`SELECT value FROM monitoring_kv WHERE key LIKE 'fork_monitoring_copy:absorbed:%:${pick.node}|${pick.key}|day|${today}'`))[0] || '0|0';
+    const before = dayBefore[pick.key] || 0;
+    note(`  ${id}: day total of ${pick.key}: before ${before}, the local file's own part ${during}, after ${after}, PostgreSQL absorbed ${absorbed}`);
+    expect(id + ': the day total holds the local file\'s part once', Number(absorbed.split('|')[0]) === during && after >= before + during, JSON.stringify({ before, during, after, absorbed }));
+  } else {
+    expect(id + ': a summed metric with a day total in the local file', false);
+  }
   await sleep(2000);
   expect(id + ': the notice that it answers again is in PostgreSQL', (await pgCount("notifications where fork_kind='monitoring.store.restored'")) >= 1);
 };

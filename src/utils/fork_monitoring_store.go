@@ -237,6 +237,7 @@ func openMonitoringStore() error {
 			err = prepareStoreSchema(w, db)
 		}
 		if err == nil {
+			handleLedger.Store(w, postgresLedgerID(db))
 			swapMonitoringStore(w, r, DialectPostgres, key, node)
 			swapped = true
 			markPostgresInUse(db)
@@ -394,6 +395,7 @@ func openLocalStore(node string) error {
 		return err
 	}
 	r.SetMaxOpenConns(4)
+	handleLedger.Store(w, localLedgerID())
 	swapMonitoringStore(w, r, DialectSQLite, key, node)
 	Log("Monitoring database ready (" + DialectSQLite + ", node " + node + ")")
 	return nil
@@ -440,6 +442,7 @@ func swapMonitoringStore(w, r *sql.DB, dialect string, key string, node string) 
 			oldR.Close()
 		}
 		forgetHandles(oldW, oldR)
+		handleLedger.Delete(oldW)
 	})
 }
 

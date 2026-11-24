@@ -199,3 +199,37 @@ func TestTouchingWindowsAreOneRun(t *testing.T) {
 	}
 	_ = context.Background
 }
+
+// A flush into PostgreSQL whose commit's answer was lost, and whose change
+// the local file got again (carried note): when PostgreSQL holds its token,
+// the merge does not add that change again; when not, it does.
+func TestAnUncertainFlushIsNotAddedTwice(t *testing.T) {
+	for _, committed := range []bool{true, false} {
+		t.Run(map[bool]string{true: "committed", false: "not committed"}[committed], func(t *testing.T) {
+			src, dst := openStore(t, utils.DialectSQLite), openStore(t, utils.DialectSQLite)
+			now := time.Now().UnixMilli()
+			day := now - now%int64(24*time.Hour/time.Millisecond)
+			pgOwn := int64(3)
+			if committed {
+				pgOwn += 10
+				exec(t, dst, "INSERT INTO monitoring_kv(key, value) VALUES(?, '1')", flushToken+"tok")
+			}
+			totals(t, dst, "sum", "sum", map[string][3]int64{"day": {day, pgOwn, 1}})
+			totals(t, src, "sum", "sum", map[string][3]int64{"day": {day, 15, 1}}) // 10 again, and 5 new
+			note := `{"store":"` + dst.id() + `","token":"tok","deltas":{"server.local|sum|day|` + itoa(day) + `":[10,0]}}`
+			exec(t, src, "INSERT INTO monitoring_kv(key, value) VALUES(?, ?)", uncertainPrefix+"0000000000001:tok", note)
+			report := copyOnce(t, src, dst, testOptions("uncertain", true))
+			want := int64(3 + 10 + 5)
+			if v, _ := bucketValue(t, dst, "sum", "day"); v != want {
+				t.Errorf("day total %d, want %d", v, want)
+			}
+			if got := tableOf(report, "metric_values"); got.Missing != 0 {
+				t.Errorf("checked: %+v", got)
+			}
+			copyOnce(t, src, dst, testOptions("uncertain2", true)) // again: nothing twice
+			if v, _ := bucketValue(t, dst, "sum", "day"); v != want {
+				t.Errorf("again: day total %d, want %d", v, want)
+			}
+		})
+	}
+}

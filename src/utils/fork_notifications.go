@@ -311,15 +311,21 @@ type writeOutcome struct {
 // forkWriteNotification is the hook of WriteNotification. It writes every
 // notification; false only when the database is not open, so that
 // upstream's path reports the error as before.
-func forkWriteNotification(n Notification) bool { return writeNotificationAs(n, "") }
+func forkWriteNotification(n Notification) bool { return writeNotificationAs(n, "", time.Time{}) }
 
 // writeNotificationAs writes a notification whose new rows carry ref ("": a
 // new one). A notification kept because its rows could not be written keeps
 // its ref, so that it is looked up before it is written again (plan 51,
 // review round 3: a commit whose answer was lost is not stored twice).
-func writeNotificationAs(n Notification, ref string) bool {
+// at is the time of its first try (zero: now): written again, its rows
+// carry that time, so that a copy that matches rows by time and reference
+// sees the same notification in both stores.
+func writeNotificationAs(n Notification, ref string, at time.Time) bool {
 	if ref == "" {
 		ref = newRef()
+	}
+	if at.IsZero() {
+		at = notificationClock()
 	}
 	db, err := MonitoringWriteDB()
 	if err != nil {
@@ -359,10 +365,10 @@ func writeNotificationAs(n Notification, ref string) bool {
 		}
 	}
 
-	outcome, err := writeRows(db, n, info, explicit, recipients, audience, ref)
+	outcome, err := writeRows(db, n, info, explicit, recipients, audience, ref, at)
 	if err != nil {
 		Error("Notifications: Error while writing notification", err)
-		keepNotification(original, ref) // written again a few seconds later, see fork_write_retry.go
+		keepNotification(original, ref, at) // written again a few seconds later, see fork_write_retry.go
 		return true
 	}
 	if outcome.alert {
@@ -404,8 +410,7 @@ func searchText(n Notification, info NotificationInfo, explicit bool) string {
 	return text
 }
 
-func writeRows(db *sql.DB, n Notification, info NotificationInfo, explicit bool, recipients []string, audience string, ref string) (writeOutcome, error) {
-	now := notificationClock()
+func writeRows(db *sql.DB, n Notification, info NotificationInfo, explicit bool, recipients []string, audience string, ref string, now time.Time) (writeOutcome, error) {
 	nowMs := TimeToMillis(now)
 	outcome := writeOutcome{}
 	search := searchText(n, info, explicit)

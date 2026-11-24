@@ -57,16 +57,17 @@ func forkKeepEvent(e Event, err error) error {
 type keptNotification struct {
 	n   Notification
 	ref string
+	at  time.Time // its first try
 }
 
 // keepNotification keeps a notification whose rows could not be written.
-func keepNotification(n Notification, ref string) {
+func keepNotification(n Notification, ref string, at time.Time) {
 	pendingMu.Lock()
 	if len(pendingNotifications) >= maxPendingNotifications {
 		pendingNotifications = pendingNotifications[1:]
 		pendingDropped++
 	}
-	pendingNotifications = append(pendingNotifications, keptNotification{n, ref})
+	pendingNotifications = append(pendingNotifications, keptNotification{n, ref, at})
 	startPendingLocked()
 	pendingMu.Unlock()
 }
@@ -97,8 +98,8 @@ func writePending() {
 			if notificationStored(k.ref) {
 				continue // its commit went through although its answer was lost
 			}
-			if !writeNotificationAs(k.n, k.ref) {
-				keepNotification(k.n, k.ref)
+			if !writeNotificationAs(k.n, k.ref, k.at) {
+				keepNotification(k.n, k.ref, k.at)
 			}
 		}
 		pendingMu.Lock()

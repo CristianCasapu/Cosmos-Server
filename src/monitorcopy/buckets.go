@@ -117,6 +117,84 @@ func (c *copier) periodEnd(b bucket) int64 {
 
 func ledgerKey(other string, b bucket) string { return ledgerPrefix + other + ":" + b.id() }
 
+// The notes of uncertain flushes the metrics writer carried into the source
+// (src/metrics/fork_flush.go): a flush into the target whose commit's answer
+// was lost, and whose change the source got again.
+const (
+	uncertainPrefix = markerPrefix + "uncertain:"
+	uncertainDone   = markerPrefix + "uncertain-done:"
+	flushToken      = markerPrefix + "flush:"
+)
+
+type uncertainNote struct {
+	Store  string              `json:"store"`
+	Token  string              `json:"token"`
+	Deltas map[string][2]int64 `json:"deltas"`
+}
+
+// absorbUncertain: for each such flush whose token the target holds (the
+// commit did happen), the target holds that change already: it is counted
+// as absorbed from the source, so that the merge does not add it again. Once
+// per flush (a done key, in the same transaction).
+func (c *copier) absorbUncertain(ctx context.Context) error {
+	rows, err := c.src.DB.QueryContext(ctx, c.src.bind("SELECT value FROM monitoring_kv WHERE key >= ? AND key < ?"), uncertainPrefix, uncertainPrefix+"~")
+	if err != nil {
+		return err
+	}
+	notes := []uncertainNote{}
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			rows.Close()
+			return err
+		}
+		var n uncertainNote
+		if json.Unmarshal([]byte(value), &n) == nil && n.Store == c.dst.id() && n.Token != "" {
+			notes = append(notes, n)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, n := range notes {
+		tx, err := c.dst.begin(ctx)
+		if err != nil {
+			return err
+		}
+		_, done, err := c.dst.getKV(ctx, tx, uncertainDone+n.Token)
+		if err == nil && !done {
+			var written bool
+			if _, written, err = c.dst.getKV(ctx, tx, flushToken+n.Token); err == nil && written {
+				for id, d := range n.Deltas {
+					key := ledgerPrefix + c.src.id() + ":" + id
+					value, _, e := c.dst.getKV(ctx, tx, key)
+					if e != nil {
+						err = e
+						break
+					}
+					a, _ := parseAbsorbed(value)
+					if err = c.dst.setKV(ctx, tx, key, absorbed{a.value + d[0], a.index + d[1]}.String()); err != nil {
+						break
+					}
+				}
+			}
+			if err == nil {
+				err = c.dst.setKV(ctx, tx, uncertainDone+n.Token, "1")
+			}
+		}
+		if err == nil {
+			err = tx.Commit()
+		} else {
+			tx.Rollback()
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type absorbed struct{ value, index int64 }
 
 func parseAbsorbed(text string) (absorbed, bool) {

@@ -122,15 +122,9 @@ func SaveMetrics() {
 	}
 
 	if len(buckets) > 0 {
-		if err := writeBuckets(buckets); err != nil {
+		if err := flushBuckets(flushKeys, buckets); err != nil { // Fork addition (plan 51): marks what it wrote; a flush whose commit's answer was lost is resolved, see fork_flush.go
 			utils.Error("Metrics - Save Error", err)
 		} else {
-			for i, cacheKey := range flushKeys {
-				dp := dataBuffer[cacheKey]
-				dp.Written = buckets[i].Value
-				dp.Contributed = true
-				dataBuffer[cacheKey] = dp
-			}
 			utils.Debug("Data - Saved " + strconv.Itoa(len(buckets)) + " buckets")
 		}
 	} else {

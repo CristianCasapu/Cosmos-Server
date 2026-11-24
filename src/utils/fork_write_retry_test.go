@@ -83,11 +83,12 @@ func TestAKeptNotificationIsNotWrittenTwice(t *testing.T) {
 	InitMetricsDatabase()
 	n := Notification{Recipient: "tester", Title: "once", Message: "once", Level: "info"}
 	ref := newRef()
-	if !writeNotificationAs(n, ref) { // stored...
+	at := time.Now().Add(-time.Minute)
+	if !writeNotificationAs(n, ref, at) { // stored...
 		t.Fatal("not written")
 	}
-	keepNotification(n, ref) // ...but its answer was "lost"
-	keepNotification(Notification{Recipient: "tester", Title: "kept", Message: "kept", Level: "info"}, newRef())
+	keepNotification(n, ref, at) // ...but its answer was "lost"
+	keepNotification(Notification{Recipient: "tester", Title: "kept", Message: "kept", Level: "info"}, newRef(), at)
 	for i := 0; i < 100; i++ {
 		pendingMu.Lock()
 		running := pendingRunning
@@ -98,10 +99,18 @@ func TestAKeptNotificationIsNotWrittenTwice(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	db, _ := MonitoringWriteDB()
-	var once, kept int
-	db.QueryRow("SELECT COUNT(*) FROM notifications WHERE title = 'once'").Scan(&once)
+	var once, kept, times int
+	db.QueryRow("SELECT COUNT(*), COALESCE(SUM(fork_count), 0) FROM notifications WHERE title = 'once'").Scan(&once, &times)
 	db.QueryRow("SELECT COUNT(*) FROM notifications WHERE title = 'kept'").Scan(&kept)
-	if once != 1 || kept != 1 {
-		t.Errorf("once %d, kept %d", once, kept)
+	// once: one row, counted once (written again it would be a second row in
+	// another store, or a repeat grouped into this one)
+	if once != 1 || times != 1 || kept != 1 {
+		t.Errorf("once %d rows counted %d times, kept %d", once, times, kept)
+	}
+	// written again later, a kept notification carries the time of its first try
+	var date int64
+	db.QueryRow("SELECT date FROM notifications WHERE title = 'kept'").Scan(&date)
+	if date != TimeToMillis(at) {
+		t.Errorf("the kept notification is dated %d, its first try %d", date, TimeToMillis(at))
 	}
 }

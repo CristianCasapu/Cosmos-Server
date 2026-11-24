@@ -513,6 +513,14 @@ func (c *copier) copyTable(ctx context.Context, i int, r rule) error {
 	if err != nil {
 		return c.fail(r, "marker", err)
 	}
+	if r.table == "metric_values" {
+		bctx, cancel := batchContext()
+		err := c.absorbUncertain(bctx) // a flush whose commit's answer was lost (src/metrics/fork_flush.go)
+		cancel()
+		if err != nil {
+			return c.fail(r, "copying", err)
+		}
+	}
 	if m.Done {
 		c.track.set(i, func(p *TableProgress) {
 			p.Done, p.Written, p.Replaced, p.State = p.Total, m.Written, m.Replaced, "copied"

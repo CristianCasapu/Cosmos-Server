@@ -34,11 +34,9 @@ func (s Store) id() string {
 	return s.Dialect + ":" + fmt.Sprintf("%p", s.DB)
 }
 
-// storeID names a store by what identifies it.
-func storeID(dialect, identity string) string {
-	sum := sha256.Sum256([]byte(identity))
-	return dialect + ":" + fmt.Sprintf("%x", sum[:8])
-}
+// storeID names a store by what identifies it (as the metrics writer's flush
+// tokens name it).
+func storeID(dialect, identity string) string { return utils.LedgerID(dialect, identity) }
 
 func (s Store) postgres() bool { return s.Dialect == utils.DialectPostgres }
 
