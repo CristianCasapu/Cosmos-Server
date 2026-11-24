@@ -50,9 +50,30 @@ option() { # key: a value of $CONF/options (key=value lines written by the insta
 	[ -r "$CONF/options" ] || return 0
 	sed -n "s/^$1=//p" "$CONF/options" | head -n 1
 }
-record() { # kind: the values of $CONF/home lines "<kind> <value>"
+record() { # kind: the values of $CONF/home lines "<kind> <value>"; a bad one is skipped (and said)
 	[ -r "$CONF/home" ] || return 0
-	awk -v k="$1" '$1 == k {print $2}' "$CONF/home"
+	awk -v k="$1" '$1 == k {print $2}' "$CONF/home" | while read -r v; do
+		if valid_record "$1" "$v"; then printf '%s\n' "$v"; else note "skipped a bad line of $CONF/home ($1)"; fi
+	done
+}
+# valid_record <kind> <value>: what the installer writes there, nothing else
+valid_record() {
+	case "$1" in
+		if|pass4|nopass4|pass4any) valid_ifname "$2" ;;
+		net4|net6)
+			case "$2" in */*) ;; *) return 1 ;; esac
+			len=${2#*/}
+			case "$len" in ''|*[!0-9]*) return 1 ;; esac
+			valid_addr "${2%/*}" || return 1
+			case "$1:${2%/*}" in
+				net4:*:*|net6:*.*) return 1 ;;
+				net4:*) [ "$len" -ge 16 ] && [ "$len" -le 32 ] ;;
+				*) [ "$len" -ge 64 ] && [ "$len" -le 128 ] ;;
+			esac ;;
+		priv4) case "$2" in 10.0.0.0/8|172.16.0.0/12|192.168.0.0/16) return 0 ;; esac; return 1 ;;
+		ula) [ "$2" = yes ] ;;
+		*) return 1 ;;
+	esac
 }
 
 valid_ifname() { printf '%s\n' "$1" | grep -qE '^[A-Za-z0-9_.:-]{1,15}$'; }
@@ -97,15 +118,63 @@ block4() { # the RFC 1918 block of an address or prefix
 ula6() { case "$1" in [fF][cCdD]*) return 0 ;; esac; return 1; }
 plen() { case "$1" in */*) echo "${1#*/}" ;; *:*) echo 128 ;; *) echo 32 ;; esac; }
 
-# default routes in every routing table, IPv4 and IPv6: "<dev> <gateway or ->"
+# The routes that make an interface an uplink, in every routing table (whether a
+# policy rule uses the table or not: what arrives through the interface is what
+# counts), IPv4 and IPv6: "<dev> <gateway or ->" per nexthop. A default route,
+# each nexthop of a multipath one and of a nexthop object; and a route that
+# covers most of the internet without being called default, as OpenVPN's def1
+# (0.0.0.0/1 + 128.0.0.0/1) or split IPv6 tunnels (::/1, 2000::/3, 2000::/4):
+# an IPv4 prefix shorter than /8, an IPv6 prefix of /16 or shorter that holds
+# global unicast addresses (2000::/3). A VPN's routes to its own networks (10/8,
+# 100.64/10, a ULA, a /48) do not make it an uplink.
 default_routes() {
+	raw=$({
+		ip -o -4 route show table all 2>/dev/null || true
+		ip -o -6 route show table all 2>/dev/null || true
+	} | awk '
+	function hexval(h,   i, v) { h = tolower(h); v = 0; for (i = 1; i <= length(h); i++) v = v * 16 + index("0123456789abcdef", substr(h, i, 1)) - 1; return v }
+	function wide(p,   n, len, first, bits) {
+		if (p !~ /^[0-9a-fA-F.:]+\/[0-9]+$/) return 0
+		len = substr(p, index(p, "/") + 1) + 0
+		n = substr(p, 1, index(p, "/") - 1)
+		if (n ~ /^[0-9.]+$/) return len < 8
+		if (len > 16) return 0
+		first = (n ~ /^::/) ? 0 : hexval(substr(n, 1, index(n, ":") - 1))
+		# its first min(len, 3) bits are those of 2000::/3 (001)
+		bits = (len < 3) ? len : 3
+		return int(first / 2 ^ (16 - bits)) == int(8192 / 2 ^ (16 - bits))
+	}
 	{
-		ip -o -4 route show table all default 2>/dev/null || true
-		ip -o -6 route show table all default 2>/dev/null || true
-	} | awk '$1 == "default" || ($1 == "unicast" && $2 == "default") {
-		dev = ""; via = "-"
-		for (i = 1; i < NF; i++) { if ($i == "dev") dev = $(i + 1); if ($i == "via") via = $(i + 1) }
-		if (dev != "") print dev, via }'
+		i = 1
+		if ($1 == "unicast") i = 2
+		else if ($1 ~ /^(local|broadcast|multicast|anycast|unreachable|blackhole|prohibit|throw|nat)$/) next
+		if ($i != "default" && !wide($i)) next
+		via = "-"; devs = ""; nh = ""
+		for (j = i + 1; j < NF; j++) {
+			if ($j == "nexthop") via = "-"
+			else if ($j == "via") { via = $(j + 1); if (via == "inet" || via == "inet6") via = $(j + 2) }
+			else if ($j == "nhid") nh = $(j + 1)
+			else if ($j == "dev") { devs = devs " " $(j + 1) "=" via; via = "-" }
+		}
+		k = split(devs, d, " ")
+		for (x = 1; x <= k; x++) { sub(/=/, " ", d[x]); print d[x] }
+		if (k == 0 && nh ~ /^[0-9]+$/) print "nhid", nh
+	}')
+	printf '%s\n' "$raw" | grep -v '^nhid ' || true
+	for id in $(printf '%s\n' "$raw" | awk '$1 == "nhid" {print $2}' | sort -u); do nexthop_devs "$id" 0; done
+}
+# nexthop_devs <id> <depth>: "<dev> <gateway or ->" of a nexthop object or group
+nexthop_devs() {
+	case "$1" in ''|*[!0-9]*) return 0 ;; esac
+	[ "$2" -lt 3 ] || return 0
+	line=$(ip -o nexthop show id "$1" 2>/dev/null) || return 0
+	case " $line " in
+		*" group "*)
+			for m in $(printf '%s\n' "$line" | awk '{for (i = 1; i < NF; i++) if ($i == "group") print $(i + 1)}' | tr '/' '\n' | cut -d, -f1); do
+				nexthop_devs "$m" $(($2 + 1))
+			done ;;
+		*) printf '%s\n' "$line" | awk '{via = "-"; for (i = 1; i < NF; i++) { if ($i == "via") via = $(i + 1); if ($i == "dev") { print $(i + 1), via; exit } }}' ;;
+	esac
 }
 
 addrs4() { ip -o -4 addr show dev "$1" scope global 2>/dev/null | awk '{sub(/\/.*/, "", $4); print $4}'; }
@@ -122,11 +191,28 @@ home_evidence() { # dev
 	gw=$(printf '%s\n' "$ROUTES" | awk -v d="$1" '$1 == d && $2 ~ /^[0-9.]+$/ {print $2; exit}')
 	[ -n "$gw" ] && private4 "$gw"
 }
-# only private, unique-local or link-local addresses (or none)
+# evidence AGAINST a home network behind a router: a public or carrier-grade
+# IPv4 address on the interface, or an uplink route through it to an IPv4
+# gateway that is not private. Missing evidence is no evidence against: a boot
+# where the router's IPv6 advert comes before the DHCPv4 lease (dhcpcd probes
+# the address for seconds first), a lease that ran out while the router was
+# away, a router that is restarting: what was recorded as home stays home.
+against_home() { # dev
+	for a in $(addrs4 "$1"); do
+		case "$a" in 169.254.*) continue ;; esac
+		private4 "$a" || return 0
+	done
+	for gw in $(printf '%s\n' "$ROUTES" | awk -v d="$1" '$1 == d && $2 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {print $2}'); do
+		private4 "$gw" || return 0
+	done
+	return 1
+}
+# at least one private or unique-local address and no other (link-local aside)
 private_only() { # dev
-	for a in $(addrs4 "$1"); do private4 "$a" || return 1; done
-	for a in $(addrs6 "$1"); do ula6 "$a" || return 1; done
-	return 0
+	n=0
+	for a in $(addrs4 "$1"); do private4 "$a" || return 1; n=1; done
+	for a in $(addrs6 "$1"); do ula6 "$a" || return 1; n=1; done
+	[ "$n" = 1 ]
 }
 
 # the prefixes on-link on an interface (routes without a gateway), at least /64
@@ -161,15 +247,38 @@ docker_bridge() { # dev
 	case " $DOCKER_IDS " in *" ${1#br-} "*) return 0 ;; esac
 	return 1
 }
-# a recognised VPN interface: Tailscale's with tailscaled.service running, or
-# a kernel WireGuard interface (only root can make either)
+# the main process of tailscaled.service when it runs as root from the packaged
+# binary (what a normal user cannot fake)
+tailscaled_pid() {
+	pid=$(systemctl show -p MainPID --value tailscaled.service 2>/dev/null || true)
+	case "$pid" in ''|0|*[!0-9]*) return 1 ;; esac
+	exe=$(readlink "/proc/$pid/exe" 2>/dev/null || true)
+	{ [ "$exe" = /usr/sbin/tailscaled ] || [ "$exe" = /usr/bin/tailscaled ]; } || return 1
+	[ "$(awk '/^Uid:/ {print $2}' "/proc/$pid/status" 2>/dev/null)" = 0 ] || return 1
+	echo "$pid"
+}
+# Tailscale's interface: the name tailscaled was given with --tun (tailscale0 by
+# default; none with userspace networking)
+TS_IF=-
+tailscale_if() {
+	if [ "$TS_IF" = - ]; then
+		TS_IF=""
+		if tpid=$(tailscaled_pid); then
+			name=$(tr '\0' '\n' < "/proc/$tpid/cmdline" 2>/dev/null | awk '
+				p { print; exit }
+				/^--?tun=/ { sub(/^--?tun=/, ""); print; exit }
+				/^--?tun$/ { p = 1 }')
+			[ -n "$name" ] || name=tailscale0
+			if [ "$name" != userspace-networking ] && valid_ifname "$name"; then TS_IF=$name; fi
+		fi
+	fi
+	[ -n "$TS_IF" ] && printf '%s\n' "$TS_IF"
+}
+# a recognised VPN interface: Tailscale's, or a kernel WireGuard interface (only
+# root can make either)
 recognised_vpn() { # dev
-	kind=$(ip -d -o link show dev "$1" 2>/dev/null | grep -o -E ' (wireguard|tun) ' | head -n 1 || true)
-	case "$kind" in
-		' wireguard ') return 0 ;;
-		' tun ') [ "$1" = tailscale0 ] && systemctl is-active --quiet tailscaled.service 2>/dev/null ;;
-		*) return 1 ;;
-	esac
+	if ip -d -o link show dev "$1" 2>/dev/null | grep -q ' wireguard '; then return 0; fi
+	[ "$1" = "$(tailscale_if || true)" ]
 }
 
 # The network as the guard takes it now.
@@ -179,8 +288,10 @@ recognised_vpn() { # dev
 #                   loopback, a bridge of Docker's (or its containers' ends), a
 #                   recognised VPN or trusted, filtered until a default route appears
 #   lan_if          outside interfaces that are home: recorded as home at install and
-#                   still meeting the evidence; with fail-closed, recorded ones and
-#                   those with only private/unique-local/link-local addresses
+#                   with no evidence against it now; with fail-closed, recorded ones and
+#                   those with private/unique-local addresses only
+#   vpnhome_if      Tailscale's interface when it carries a default route (an exit
+#                   node): outside, but its own peers' addresses count as home on it
 #   pass4_if        home interfaces on which IPv4 was recorded as not filtered
 #   onlink4/6       their prefixes that count as home; pending6: new global prefixes
 #                   there, waiting for `cosmos-host-guard confirm`
@@ -214,7 +325,7 @@ dynamic() {
 		for dev in $wan; do
 			if [ -n "$failclosed" ]; then
 				if in_csv "$dev" "$homes" || private_only "$dev"; then lan="$lan $dev"; fi
-			elif in_csv "$dev" "$homes" && home_evidence "$dev"; then
+			elif in_csv "$dev" "$homes" && ! against_home "$dev"; then
 				lan="$lan $dev"
 			fi
 		done
@@ -229,21 +340,28 @@ dynamic() {
 	for dev in $wan; do
 		in_csv "$dev" "$p4any" && pass4="$pass4 $dev"
 	done
-	# IPv4 filtering may start by itself, never stop by itself: an interface that
-	# lost the home evidence (a public address appeared) stays filtered over IPv4
-	# until a new install or `confirm` (written to the record, as it is a
-	# narrowing)
+	# IPv4 filtering may start by itself, never stop by itself: an interface with
+	# evidence against home now (a public or carrier-grade address, a public
+	# gateway) stays filtered over IPv4 until a new install or `confirm` (written
+	# to the record, as it is a narrowing). Only evidence is written down, never
+	# its absence: a moment without an IPv4 address changes nothing.
 	if [ -z "$failclosed" ] && [ "${DYNAMIC_READONLY:-}" != 1 ]; then
 		for dev in $(printf '%s' "$p4" | tr ',' ' '); do
 			in_csv "$dev" "$nop4" && continue
 			# shellcheck disable=SC2086
 			in_csv "$dev" "$(words $lan)" && continue
 			printf '%s\n' "$wan" | grep -qw -- "$dev" || continue
+			against_home "$dev" || continue
 			if [ -w "$CONF/home" ]; then
 				printf 'nopass4 %s\n' "$dev" >> "$CONF/home"
-				note "IPv4 on $dev is filtered from now on: it no longer looks like a home network behind a router (confirm or install again to change that)"
+				note "IPv4 on $dev is filtered from now on: a public or carrier-grade address, or a public gateway, appeared on it (confirm or install again to change that)"
 			fi
 		done
+	fi
+	vpnhome=""
+	ts=$(tailscale_if || true)
+	if [ -n "$ts" ] && [ -z "$failclosed" ]; then
+		for dev in $wan; do [ "$dev" != "$ts" ] || vpnhome="$vpnhome $dev"; done
 	fi
 	net6=$(record net6 | tr '\n' ' ')
 	net4=$(record net4 | tr '\n' ' ')
@@ -279,6 +397,7 @@ dynamic() {
 		printf 'trusted_if=%s\n' "$(words $trusted)"
 		printf 'failclosed_if=%s\n' "$(words $failclosed)"
 		printf 'lan_if=%s\n' "$(words $lan)"
+		printf 'vpnhome_if=%s\n' "$(words $vpnhome)"
 		printf 'pass4_if=%s\n' "$(words $pass4)"
 		printf 'rpf_if=%s\n' "$(words $rpf)"
 		printf 'onlink4=%s\n' "$(words $on4)"
@@ -347,22 +466,16 @@ vpn_ports() {
 }
 # "<name>:<port or unknown>" per VPN found
 vpn_list() {
-	pid=$(systemctl show -p MainPID --value tailscaled.service 2>/dev/null || true)
-	case "$pid" in ''|0|*[!0-9]*) pid="" ;; esac
-	if [ -n "$pid" ]; then
-		exe=$(readlink "/proc/$pid/exe" 2>/dev/null || true)
-		uid=$(awk '/^Uid:/ {print $2}' "/proc/$pid/status" 2>/dev/null || true)
-		if { [ "$exe" = /usr/sbin/tailscaled ] || [ "$exe" = /usr/bin/tailscaled ]; } && [ "$uid" = 0 ]; then
-			port=$(tr '\0' '\n' < "/proc/$pid/cmdline" | awk '
-				p { print; exit }
-				/^--?port=/ { sub(/^--?port=/, ""); print; exit }
-				/^--?port$/ { p = 1 }')
-			[ -n "$port" ] || port=41641
-			if ss -Hulnp 2>/dev/null | grep "pid=$pid," | awk '{n = split($4, a, ":"); print a[n]}' | grep -qx "$port"; then
-				echo "tailscale:$port"
-			else
-				echo "tailscale:unknown"
-			fi
+	if pid=$(tailscaled_pid); then
+		port=$(tr '\0' '\n' < "/proc/$pid/cmdline" | awk '
+			p { print; exit }
+			/^--?port=/ { sub(/^--?port=/, ""); print; exit }
+			/^--?port$/ { p = 1 }')
+		[ -n "$port" ] || port=41641
+		if ss -Hulnp 2>/dev/null | grep "pid=$pid," | awk '{n = split($4, a, ":"); print a[n]}' | grep -qx "$port"; then
+			echo "tailscale:$port"
+		else
+			echo "tailscale:unknown"
 		fi
 	fi
 	for dev in $(ip -o link show type wireguard 2>/dev/null | awk -F': ' '{sub(/@.*/, "", $2); print $2}'); do
@@ -438,9 +551,21 @@ locked() { # command...: one refresh or load at a time
 	"$@"
 }
 
-build_load() { # file: writes the whole load transaction to it
+# the load transaction without the SSH allowances (their timeouts are computed
+# when sent), kept in $RUN for a fast reload: written by every load and by every
+# refresh that changed the sets
+reload_base() { # sets
+	{
+		printf 'table %s\ndelete table %s\n' "$TABLE" "$TABLE"
+		cat "$CONF/cosmos-host-guard.nft"
+		[ ! -r "$CONF/settings.nft" ] || cat "$CONF/settings.nft"
+		set_commands "$1"
+	} > "$RUN/reload.base.new" && mv -f "$RUN/reload.base.new" "$RUN/reload.base"
+}
+
+build_load() { # file [sets]: writes the whole load transaction to it (the sets: dynamic's output; by default the network now)
 	[ -r "$CONF/cosmos-host-guard.nft" ] || die "$CONF/cosmos-host-guard.nft is missing: run fork/nftables/install.sh"
-	now=$(dynamic)
+	if [ -n "${2:-}" ]; then now=$2; else now=$(dynamic); fi
 	mkdir -p "$RUN"
 	{
 		printf 'table %s\ndelete table %s\n' "$TABLE" "$TABLE"
@@ -456,6 +581,7 @@ do_load() {
 	nft -f "$RUN/load.nft"
 	printf '%s\n' "$now" > "$RUN/dynamic"
 	rm -f "$RUN/load.nft"
+	reload_base "$now"
 	: > "$RUN/last-refresh"
 	other_filters
 }
@@ -498,24 +624,79 @@ other_filters() {
 	set_state udp_not_open "$(udp_not_open)"
 }
 
+# The guard's table was removed by something else (nftables.service's "flush
+# ruleset", a hand-typed command, a tool that rewrites the whole ruleset): it is
+# loaded again at once from the sets of the last refresh, in one nft
+# transaction without a look at the network ($RUN/reload.base: cheap enough to keep up with a
+# program that flushes the ruleset every second; the network's own changes are
+# followed by the watcher as always). Each time is counted: more than twice in a minute
+# is said loudly in the journal (once a minute) and on the panel's card.
+fast_reload() {
+	have_table && return 0
+	mkdir -p "$RUN"
+	if [ -r "$RUN/reload.base" ] && [ -r "$CONF/cosmos-host-guard.nft" ]; then
+		{ cat "$RUN/reload.base"; allow_commands; } | nft -f -
+	else
+		do_load
+	fi
+	note "the guard's table was missing (something removed it): loading it again"
+	count_removal
+}
+count_removal() {
+	t=$(date +%s)
+	{ tail -n 499 "$RUN/removed" 2>/dev/null || true; echo "$t"; } > "$RUN/removed.new"
+	mv -f "$RUN/removed.new" "$RUN/removed"
+	minute=$(awk -v t="$t" '$1 > t - 60' "$RUN/removed" | wc -l)
+	hour=$(awk -v t="$t" '$1 > t - 3600' "$RUN/removed" | wc -l)
+	if [ "$minute" -ge 3 ]; then
+		warned=$(cat "$RUN/removed.warned" 2>/dev/null || echo 0)
+		case "$warned" in ''|*[!0-9]*) warned=0 ;; esac
+		if [ $((t - warned)) -ge 60 ]; then
+			echo "$t" > "$RUN/removed.warned"
+			note "WARNING: something removed the guard's table $minute times in the last minute ($hour in the last hour). It is loaded again within moments each time, but in between nothing is filtered: find what keeps flushing the firewall (nftables.service, a script or tool running 'nft flush ruleset') and stop it"
+		fi
+	fi
+	set_state table_removed_hour "$hour"
+	set_state table_removed_at "$(date -u -d "@$t" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
+}
+
 do_refresh() {
 	if ! have_table; then
-		# removed by something else (nftables.service's "flush ruleset", a
-		# hand-typed command): loaded again while the guard is meant to run
+		# removed by something else and the watcher did not see it (the timer's
+		# refresh): loaded again while the guard is meant to run
 		if systemctl is-active --quiet cosmos-host-guard.service 2>/dev/null; then
 			note "the guard's table was missing (something removed it): loading it again"
 			do_load
+			count_removal
 		fi
 		return 0
 	fi
 	now=$(dynamic)
 	[ "${1:-}" != periodic ] || other_filters
 	: > "$RUN/last-refresh"
-	if [ -r "$RUN/dynamic" ] && [ "$(cat "$RUN/dynamic")" = "$now" ] && [ "${1:-}" != force ]; then
+	old=""
+	[ ! -r "$RUN/dynamic" ] || old=$(cat "$RUN/dynamic")
+	if [ "$old" = "$now" ] && [ -n "$old" ] && [ "${1:-}" != force ]; then
 		return 0
 	fi
 	set_commands "$now" | nft -f -
 	printf '%s\n' "$now" > "$RUN/dynamic"
+	reload_base "$now"
+	# an interface that became outside is said (a new uplink, a VPN that now
+	# carries a default route, a full tunnel): it is filtered from now on
+	oldwan=$(printf '%s\n' "$old" | sed -n 's/^wan_if=//p')
+	newwan=$(printf '%s\n' "$now" | sed -n 's/^wan_if=//p')
+	vh=$(printf '%s\n' "$now" | sed -n 's/^vpnhome_if=//p')
+	if [ -n "$old" ]; then
+		for dev in $(printf '%s' "$newwan" | tr ',' ' '); do
+			in_csv "$dev" "$oldwan" && continue
+			if in_csv "$dev" "$vh"; then
+				note "$dev is an outside interface now (Tailscale's, carrying a default route: an exit node): it is filtered; its own peers (100.64.0.0/10, fd7a:115c:a1e0::/48) still count as home"
+			else
+				note "$dev is an outside interface now (a default route, or one that covers most of the internet, goes through it): it is filtered"
+			fi
+		done
+	fi
 }
 
 do_confirm() {
@@ -537,20 +718,27 @@ case "${1:-}" in
 		# A deleted table (nftables.service's flush ruleset, a hand-typed command)
 		# is loaded again at once, never held back by the debounce below: nft
 		# monitor reports it (listening before the first refresh, so nothing falls
-		# between), and the ticker below looks for the table every 2 s besides. The
-		# server is without the table at most for the time of a refresh already
-		# running plus 2 s; with the watcher dead, the one-minute timer does it.
+		# between), and the ticker below looks for the table every second besides.
+		# The reload takes the sets of the last refresh (fast_reload): one nft
+		# transaction. The server is without the table for the time it takes nft
+		# to report the deletion and load the table again, a fraction of a second;
+		# with the watcher dead, the one-minute timer does it.
 		( nft monitor tables 2>/dev/null | while read -r line; do
 			case "$line" in
-				*"$TNAME"*|*"flush ruleset"*) ( locked do_refresh ) || note "reload failed" ;;
+				*"delete table"*"$TNAME"*|*"flush ruleset"*) ( locked fast_reload ) || note "reload failed" ;;
 			esac
 		done; kill $$ 2>/dev/null ) &
 		# One line per change of a link, an address or a route. Docker's ends and
 		# bridges change all the time and never carry a default route: left out.
-		# Listening before the first refresh, so that nothing falls between.
-		( ip -o monitor link address route | while read -r line; do
+		# A line about a default route (or a route covering most of the internet,
+		# or lines lost to a full netlink buffer) is followed at once, without the
+		# debounce. Listening before the first refresh, so that nothing falls between.
+		( ip -o monitor link address route 2>&1 | while read -r line; do
 			case "$line" in
 				*veth*|*docker0*|*" br-"[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) continue ;;
+			esac
+			case "$line" in
+				*default*|*nexthop*|*"No buffer space"*|*.*.*.*/[0-7]" "*|*::/[0-9]" "*|*::/1[0-6]" "*) : > "$RUN/urgent" ;;
 			esac
 			[ -e "$RUN/dirty.first" ] || : > "$RUN/dirty.first"
 			: > "$RUN/dirty"
@@ -561,16 +749,22 @@ case "${1:-}" in
 		: > "$RUN/dirty"
 		( locked do_refresh force )
 		# One refresh per burst of changes: after 2 s without a change (or 10 s
-		# into a burst that does not end), and at most one every 10 s; a route or
-		# address change is followed within about 4 s, within 12 s in a burst. It
-		# also marks the watcher alive for the panel.
+		# into a burst that does not end), and at most one every 10 s; a change of
+		# an uplink route at once (within about a second). The ticker also marks
+		# the watcher alive for the panel.
 		last=0
 		while :; do
-			sleep 2
+			sleep 1
 			: > "$RUN/alive"
-			if ! have_table; then ( locked do_refresh ) || note "reload failed"; continue; fi
-			[ -e "$RUN/dirty" ] || continue
+			if ! have_table; then ( locked fast_reload ) || note "reload failed"; continue; fi
 			t=$(date +%s)
+			if [ -e "$RUN/urgent" ]; then
+				rm -f "$RUN/urgent" "$RUN/dirty" "$RUN/dirty.first"
+				last=$t
+				( locked do_refresh ) || note "refresh failed"
+				continue
+			fi
+			[ -e "$RUN/dirty" ] || continue
 			changed=$(stat -c %Y "$RUN/dirty" 2>/dev/null || echo "$t")
 			first=$(stat -c %Y "$RUN/dirty.first" 2>/dev/null || echo "$t")
 			if [ $((t - changed)) -lt 2 ] && [ $((t - first)) -lt 10 ]; then continue; fi
@@ -583,7 +777,7 @@ case "${1:-}" in
 		;;
 	unload)
 		if have_table; then nft delete table inet "$TNAME"; fi
-		rm -f "$RUN/dynamic"
+		rm -f "$RUN/dynamic" "$RUN/reload.base"
 		;;
 	show) dynamic ;;
 	judge) judge ;;

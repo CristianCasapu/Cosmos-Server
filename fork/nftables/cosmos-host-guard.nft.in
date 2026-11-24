@@ -26,8 +26,9 @@
 # tables (Docker's, ufw's, firewalld's) let in, never open anything.
 
 table inet cosmos_host_guard {
-	# The outside interfaces: those with a default route in any routing table
-	# (VPN interfaces left out). When none is found, every interface that is not
+	# The outside interfaces: those with a default route in any routing table (or
+	# a route that covers most of the internet, as a VPN's 0.0.0.0/1 + 128.0.0.0/1),
+	# every nexthop of it. When none is found, every interface that is not
 	# loopback, a bridge of Docker's or a VPN, and failclosed_if says so.
 	set wan_if {
 		type ifname
@@ -37,6 +38,11 @@ table inet cosmos_host_guard {
 	}
 	# The outside interfaces judged to be a home network behind a router.
 	set lan_if {
+		type ifname
+	}
+	# Tailscale's interface when it carries a default route (an exit node): it is
+	# outside, but its own peers (the tailnet's addresses) count as home on it.
+	set vpnhome_if {
 		type ifname
 	}
 	# The interfaces on which IPv4 is not filtered: home networks behind a router
@@ -147,6 +153,8 @@ table inet cosmos_host_guard {
 		iifname @lan_if ip6 saddr @onlink6 accept
 		iifname @lan_if ip6 saddr fe80::/10 accept
 		iifname @lan_if ip saddr 169.254.0.0/16 accept
+		iifname @vpnhome_if ip saddr 100.64.0.0/10 accept comment "Tailscale's own peers through an exit node"
+		iifname @vpnhome_if ip6 saddr fd7a:115c:a1e0::/48 accept comment "Tailscale's own peers through an exit node"
 		ip saddr @home4 accept
 		ip6 saddr @home6 accept
 
@@ -192,6 +200,8 @@ table inet cosmos_host_guard {
 		iifname @lan_if ip saddr @onlink4 accept
 		iifname @lan_if ip6 saddr @onlink6 accept
 		iifname @lan_if ip6 saddr fe80::/10 accept
+		iifname @vpnhome_if ip saddr 100.64.0.0/10 accept
+		iifname @vpnhome_if ip6 saddr fd7a:115c:a1e0::/48 accept
 		ip saddr @home4 accept
 		ip6 saddr @home6 accept
 		icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } accept

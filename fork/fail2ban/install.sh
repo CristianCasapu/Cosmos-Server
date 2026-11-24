@@ -334,42 +334,22 @@ if [ -n "$SESSION" ]; then
 fi
 
 # Every signed-in SSH session open now is never banned either. They are found
-# from the sockets (an established connection held by "sshd...: user@pts/N" or
-# "...@notty" that descends from OpenSSH's root daemon): under sudo, su, tmux or
-# screen the environment may not name the session, or name an old one. A
-# connection still signing in does not count.
+# from the sockets by the host guard's helper (fork/nftables/ssh-sessions.sh):
+# a connection ACCEPTED by a root SSH server, whose monitor says it is signed in.
+# Under sudo, su, tmux or screen the environment may not name the session, or
+# name an old one. A connection still signing in, a connection an SSH session
+# makes outwards (a -L or -D forward) and a process with a forged name or title
+# do not count.
 LIVE_NOTE=""
-# the root-owned listening sshd (or ssh.service's main process): a signed-in
-# session's process descends from it (a user's process with a forged title does not)
-SSHD_PIDS=$({ ss -Htlnp 2>/dev/null | grep -oE '"sshd",pid=[0-9]+' | grep -oE '[0-9]+$'
-	systemctl show -p MainPID --value ssh.service sshd.service 2>/dev/null; } | grep -E '^[1-9][0-9]*$' | sort -u | while read -r p; do
-	[ "$(awk '/^Uid:/ {print $2}' "/proc/$p/status" 2>/dev/null)" = 0 ] && echo "$p"; done | tr '\n' ' ')
-from_sshd() { # pid: an ancestor is OpenSSH's root daemon (SSHD_PIDS, or one systemd started)
-	p=$1; depth=0
-	while [ "$p" -gt 1 ] 2>/dev/null && [ "$depth" -lt 64 ]; do
-		pp=$(awk '/^PPid:/ {print $2}' "/proc/$p/status" 2>/dev/null || echo 0)
-		if [ "$p" != "$1" ]; then
-			case " $SSHD_PIDS " in *" $p "*) return 0 ;; esac
-			c=$(cat "/proc/$p/comm" 2>/dev/null || true)
-			case "$c" in sshd|sshd-session)
-				[ "$pp" = 1 ] && [ "$(awk '/^Uid:/ {print $2}' "/proc/$p/status" 2>/dev/null)" = 0 ] && return 0 ;;
-			esac
-		fi
-		p=$pp
-		depth=$((depth + 1))
-	done
-	return 1
-}
-# (any port: with socket activation or ListenAddress the configuration may not name it)
-for peer in $(ss -Htnp state established 2>/dev/null | while read -r _ _ _ remote procs; do
-	for pid in $(printf '%s' "$procs" | grep -oE 'pid=[0-9]+' | cut -d= -f2); do
-		if tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -qE '^sshd[^ ]*: [^ ]+@(pts/[0-9]+|notty)' && from_sshd "$pid"; then
-			a=${remote%:*}; a=${a#[}; a=${a%]}; a=${a%%%*}
-			printf '%s\n' "$a"
-			break
-		fi
-	done
-done | sort -u); do
+LIVE_NOTE_MISSING=""
+SESSIONS_TOOL="$HERE/../nftables/ssh-sessions.sh"
+LIVE_PEERS=""
+if [ -r "$SESSIONS_TOOL" ]; then
+	LIVE_PEERS=$(sh "$SESSIONS_TOOL" sessions 2>/dev/null | awk '$4 == "yes" {a = $1; sub(/%.*/, "", a); print a}' | sort -u)
+else
+	LIVE_NOTE_MISSING="the SSH sessions open now could not be looked for ($SESSIONS_TOOL is missing): only this run's own session is kept from bans"
+fi
+for peer in $LIVE_PEERS; do
 	status=0
 	# shellcheck disable=SC2086
 	covered "$peer" $IGNORE || status=$?
@@ -607,6 +587,7 @@ for network in $IGNORE; do
 done
 [ -z "$SESSION_NOTE" ] || say "    ($SESSION_NOTE)"
 [ -z "$LIVE_NOTE" ] || say "    (signed-in SSH sessions open now from outside:$LIVE_NOTE: added to the addresses that are never banned)"
+[ -z "$LIVE_NOTE_MISSING" ] || say "    ($LIVE_NOTE_MISSING)"
 case " $IGNORE " in *" 100.64.0.0/10 "*)
 	say "    (100.64.0.0/10 is never banned: Tailscale and other VPNs use it. It is also the range of"
 	say "    carrier-grade NAT: on a server whose own outside address is in it, the carrier's other"

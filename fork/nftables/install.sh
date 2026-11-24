@@ -225,7 +225,7 @@ fi
 
 [ "$(id -u)" = 0 ] || fail 1 "run this as root (sudo sh $0)"
 
-for f in cosmos-host-guard cosmos-host-guard.nft.in $UNITS; do
+for f in cosmos-host-guard cosmos-host-guard.nft.in ssh-sessions.sh $UNITS; do
 	[ -f "$HERE/$f" ] || fail 1 "missing $HERE/$f: run the script from the unpacked release or a checkout of the fork"
 done
 
@@ -447,7 +447,7 @@ DMI=${COSMOS_HOST_GUARD_DMI:-/sys/class/dmi/id}
 dmi() { tr -cd 'A-Za-z0-9 ._()/-' < "$DMI/$1" 2>/dev/null | cut -c1-64 || true; }
 CLOUD=""
 vendor=$(dmi sys_vendor); product=$(dmi product_name); asset=$(dmi chassis_asset_tag); bios=$(dmi bios_vendor)
-case "$vendor|$product|$bios" in
+case "$vendor|$product|$bios|$asset" in
 	*"Amazon EC2"*|*Amazon*) CLOUD="Amazon EC2" ;;
 	*Google*) CLOUD="Google Compute Engine" ;;
 	*OracleCloud*) CLOUD="Oracle Cloud" ;;
@@ -513,6 +513,7 @@ DYNAMIC=$(guard_tool show)
 dyn() { printf '%s\n' "$DYNAMIC" | sed -n "s/^$1=//p"; }
 WAN=$(dyn wan_if)
 LAN=$(dyn lan_if)
+VPNHOME=$(dyn vpnhome_if)
 PASS4=$(dyn pass4_if)
 TRUSTED=$(dyn trusted_if)
 FAILCLOSED=$(dyn failclosed_if)
@@ -562,9 +563,14 @@ for dev in $(csv_words "$TRUSTED"); do
   outside     $dev: trusted with --trust-interface: it carries a default route and NOTHING that
               arrives through it is filtered, over IPv4 and IPv6"
 done
-# a recognised VPN that carries a default route is filtered like any outside interface
+# a VPN that carries a default route is filtered like any outside interface
 for dev in $(csv_words "$WAN"); do
-	if ip -d -o link show dev "$dev" 2>/dev/null | grep -qE ' (wireguard|tun) '; then
+	if in_csv "$dev" "$VPNHOME"; then
+		IF_NOTES="$IF_NOTES
+  outside     $dev is Tailscale's and carries a default route (an exit node): it is filtered
+              like any outside interface, but its own peers (100.64.0.0/10,
+              fd7a:115c:a1e0::/48) still count as home on it"
+	elif ip -d -o link show dev "$dev" 2>/dev/null | grep -qE ' (wireguard|tun) '; then
 		IF_NOTES="$IF_NOTES
   outside     $dev is a VPN that carries a default route (an exit node or a full tunnel): it is
               filtered like any outside interface; trust it with --trust-interface $dev if you mean to"
@@ -584,111 +590,26 @@ fi
 
 # ------------------------------------------------ the SSH sessions open now ---
 
-# SSH servers: what listens, owned by root, under a known SSH server's name
-# (OpenSSH, dropbear, tinysshd), the ports in sshd's configuration (Port and
-# ListenAddress), and a socket unit that starts one.
-LISTEN=$(ss -Htlnp 2>/dev/null || true)
-server_pids() { # names (regex): pids of root-owned listeners
-	printf '%s\n' "$LISTEN" | grep -oE "\"($1)\",pid=[0-9]+" | grep -oE '[0-9]+$' | sort -u | while read -r pid; do
-		[ "$(awk '/^Uid:/ {print $2}' "/proc/$pid/status" 2>/dev/null)" = 0 ] && echo "$pid"
-	done
-}
-pid_ports() { # pid...: the ports they listen on
-	for pid in "$@"; do
-		printf '%s\n' "$LISTEN" | grep "pid=$pid," | awk '{n = split($4, a, ":"); print a[n]}'
-	done
-}
-OPENSSH_PIDS=$(server_pids 'sshd|sshd-session' | tr '\n' ' ')
-OTHER_PIDS=$(server_pids 'dropbear|tinysshd|tinysshd-.*' | tr '\n' ' ')
-# shellcheck disable=SC2086
-OPENSSH_PORTS=$({
-	pid_ports $OPENSSH_PIDS
+# SSH servers and the sessions open now: ssh-sessions.sh (shared with Fail2ban's
+# installer) says what listens and what was accepted there, from the sockets and
+# the processes' executables, never from a name or a title. The ports in sshd's
+# configuration (Port, ListenAddress) and its socket units count too.
+sessions_tool() { sh "$HERE/ssh-sessions.sh" "$@"; }
+LISTENERS=$(sessions_tool listeners)
+# shellcheck disable=SC2016
+SSH_PORTS=$({
+	printf '%s\n' "$LISTENERS" | awk 'NF {print $4}'
 	sshd -T 2>/dev/null | awk '$1 == "port" {print $2} $1 == "listenaddress" {n = split($2, a, ":"); print a[n]}'
-	systemctl show -p Listen --value ssh.socket sshd.socket 2>/dev/null | tr ' ' '\n' | grep -E ':[0-9]+$' | sed 's/.*://'
+	systemctl show -p Listen --value ssh.socket sshd.socket dropbear.socket tinysshd.socket 2>/dev/null | tr ' ' '\n' | grep -E ':[0-9]+$' | sed 's/.*://'
 } | grep -E '^[0-9]{1,5}$' | sort -un | tr '\n' ' ')
-# shellcheck disable=SC2086
-OTHER_PORTS=$({
-	pid_ports $OTHER_PIDS
-	systemctl show -p Listen --value dropbear.socket tinysshd.socket 2>/dev/null | tr ' ' '\n' | grep -E ':[0-9]+$' | sed 's/.*://'
-} | grep -E '^[0-9]{1,5}$' | sort -un | tr '\n' ' ')
-[ -n "$OPENSSH_PORTS$OTHER_PORTS" ] || OPENSSH_PORTS=22
-# shellcheck disable=SC2086
-SSH_PORTS=$(printf '%s\n' $OPENSSH_PORTS $OTHER_PORTS | sort -un | tr '\n' ' ')
-SSH_MAIN=$(systemctl show -p MainPID --value ssh.service sshd.service 2>/dev/null | grep -E '^[1-9][0-9]*$' | tr '\n' ' ')
+[ -n "$SSH_PORTS" ] || SSH_PORTS="22 "
 
-
-# The SSH sessions open now, from the sockets: a connection to an SSH port.
-# OpenSSH's count when a process holding it is signed in ("sshd...: user@pts/N" or
-# "...@notty") and descends from the root-owned listening server; a stranger
-# still signing in does not count. Another SSH server's (dropbear, tinysshd)
-# all count: they cannot be told apart.
-# from_sshd <pid>: an ancestor is OpenSSH's root daemon: the listener, ssh.service's
-# main process, or a root sshd that systemd started per connection (ssh@.service)
-from_sshd() {
-	p=$1
-	depth=0
-	while [ "$p" -gt 1 ] 2>/dev/null && [ "$depth" -lt 64 ]; do
-		pp=$(awk '/^PPid:/ {print $2}' "/proc/$p/status" 2>/dev/null || echo 0)
-		if [ "$p" != "$1" ]; then
-			c=$(cat "/proc/$p/comm" 2>/dev/null || true)
-			u=$(awk '/^Uid:/ {print $2}' "/proc/$p/status" 2>/dev/null || true)
-			case "$c" in sshd|sshd-session)
-				if [ "$u" = 0 ]; then
-					case " $OPENSSH_PIDS $SSH_MAIN " in *" $p "*) return 0 ;; esac
-					[ "$pp" = 1 ] && return 0
-				fi ;;
-			esac
-		fi
-		p=$pp
-		depth=$((depth + 1))
-	done
-	return 1
-}
-# from_server <pid> <name>: the process is root's, or an ancestor is root's
-# process of that name (the listening server it was forked from)
-from_server() {
-	p=$1
-	depth=0
-	while [ "$p" -gt 1 ] 2>/dev/null && [ "$depth" -lt 64 ]; do
-		if [ "$(cat "/proc/$p/comm" 2>/dev/null)" = "$2" ] && [ "$(awk '/^Uid:/ {print $2}' "/proc/$p/status" 2>/dev/null)" = 0 ]; then
-			return 0
-		fi
-		p=$(awk '/^PPid:/ {print $2}' "/proc/$p/status" 2>/dev/null || echo 0)
-		depth=$((depth + 1))
-	done
-	return 1
-}
-live_peers() { # "<address> <local port>" per session
-	ss -Htnp state established 2>/dev/null | while read -r _ _ local peer procs; do
-		lport=${local##*:}
-		session=0
-		for pid in $(printf '%s' "$procs" | grep -oE 'pid=[0-9]+' | cut -d= -f2); do
-			comm=$(cat "/proc/$pid/comm" 2>/dev/null || true)
-			case "$comm" in
-				dropbear|tinysshd)
-					# another SSH server: every connection it holds counts (signed in or
-					# not), when the process is root's or descends from root's server (once
-					# signed in, the connection's process runs as the user)
-					from_server "$pid" "$comm" && session=1 ;;
-				sshd|sshd-session)
-					# OpenSSH, however it was started (its own listener, or systemd's
-					# ssh.socket): signed in, and descended from the root-owned daemon
-					tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -qE '^sshd[^ ]*: [^ ]+@(pts/[0-9]+|notty)' || continue
-					from_sshd "$pid" && session=1 ;;
-			esac
-		done
-		[ "$session" = 1 ] || continue
-		addr=${peer%:*}
-		addr=${addr#[}; addr=${addr%]}
-		case "$addr" in ::ffff:*.*) addr=${addr#::ffff:} ;; esac
-		printf '%s %s\n' "$addr" "$lport"
-	done | sort -u
-}
-SESSIONS=$(live_peers)
-PEERS=$(printf '%s\n' "$SESSIONS" | awk 'NF {print $1}' | sort -u)
-# the ports the sessions came in on are SSH ports too, whatever the configuration says
-# shellcheck disable=SC2086,SC2046
-SSH_PORTS=$(printf '%s\n' $SSH_PORTS $(printf '%s\n' "$SESSIONS" | awk 'NF {print $2}') | grep -E '^[0-9]{1,5}$' | sort -un | tr '\n' ' ')
+# "<address> <local port> <server> <yes|unsure>": OpenSSH's sessions are signed in
+# (a stranger still signing in is not listed); dropbear's and tinysshd's are
+# "unsure" when a stranger still signing in cannot be told from root's own tunnel
+SESSIONS=$(sessions_tool sessions)
+PEERS=$(printf '%s\n' "$SESSIONS" | awk '$4 == "yes" {print $1}' | sort -u)
+UNSURE=$(printf '%s\n' "$SESSIONS" | awk '$4 == "unsure" {print $1}' | sort -u)
 
 
 # the environment's session is only a hint: under sudo it is in a parent's
@@ -721,14 +642,7 @@ if [ "${tty_nr:-0}" != 0 ]; then
 	case "$tty_name" in
 		pts/*)
 			explained=0
-			pid=$$
-			depth=0
-			while [ "$pid" -gt 1 ] 2>/dev/null && [ "$depth" -lt 64 ]; do
-				comm=$(cat "/proc/$pid/comm" 2>/dev/null || true)
-				case "$comm" in sshd|sshd-session|dropbear|tinysshd) explained=1; break ;; esac
-				pid=$(awk '/^PPid:/ {print $2}' "/proc/$pid/status" 2>/dev/null || echo 0)
-				depth=$((depth + 1))
-			done
+			sessions_tool explained $$ && explained=1
 			[ "$explained" = 1 ] || UNEXPLAINED_TTY=$tty_name ;;
 	esac
 fi
@@ -745,6 +659,7 @@ where_from() {
 	if ! in_csv "$dev" "$WAN"; then echo "through ${dev:-an interface} the guard does not filter (loopback, a VPN, a bridge)"; return; fi
 	case "$a" in *:*) fam=6 ;; *) fam=4 ;; esac
 	if [ "$fam" = 4 ] && in_csv "$dev" "$PASS4"; then echo "over IPv4 on $dev, which the guard leaves alone"; return; fi
+	if in_csv "$dev" "$VPNHOME" && in_net "$a" 100.64.0.0/10 fd7a:115c:a1e0::/48; then echo "through $dev from one of the VPN's own peers"; return; fi
 	# shellcheck disable=SC2086
 	if in_net "$a" $HOMES; then echo "from a --home network"; return; fi
 	if in_csv "$dev" "$LAN"; then
@@ -776,6 +691,13 @@ for p in $PEERS; do
 		u=$(vpn_unknown_for "$p")
 		[ -z "$u" ] || VPN_UNKNOWN_SESSION="$VPN_UNKNOWN_SESSION ${p%%%*} (through $u)"
 	fi
+done
+
+# connections to dropbear or tinysshd that may still be signing in, from outside:
+# never an allowance; an unattended run is refused (it may be root's own tunnel)
+UNSURE_OUTSIDE=""
+for p in $UNSURE; do
+	[ "$(where_from "$p")" = outside ] && UNSURE_OUTSIDE="$UNSURE_OUTSIDE ${p%%%*}"
 done
 
 # Without a home network and without a VPN, nothing brings the owner back once
@@ -942,6 +864,8 @@ if [ -n "$PEERS" ]; then
 else
 	say "  SSH         no SSH session is open now (ports $SSH_PORTS)"
 fi
+[ -z "$UNSURE_OUTSIDE" ] || say "              connections from outside to dropbear or tinysshd that may still be signing in
+              (they cannot be told apart from root's own session):$UNSURE_OUTSIDE; no allowance"
 [ -z "$HINT_NOTE" ] || say "              ($HINT_NOTE)"
 [ -z "$UNEXPLAINED_TTY" ] || say "              this run's terminal ($UNEXPLAINED_TTY) belongs to no SSH session (tmux, screen, a web terminal?)"
 case "$SSH_MODE" in
@@ -992,6 +916,7 @@ if [ "$YES" = 1 ] && [ "$SSH_OPEN" = 0 ]; then
 	why=""
 	[ -z "$OUTSIDE_PEERS" ] || why="SSH sessions are open from outside the home network (${OUTSIDE_PEERS# })"
 	[ -z "$VPN_UNKNOWN_SESSION" ] || why="${why:+$why; }SSH sessions come through a VPN whose own port the guard cannot find:$VPN_UNKNOWN_SESSION"
+	[ -z "$UNSURE_OUTSIDE" ] || why="${why:+$why; }connections from outside to dropbear or tinysshd may be signed-in sessions (${UNSURE_OUTSIDE# }: a stranger still signing in cannot be told apart from root's own session)"
 	[ -z "$UNEXPLAINED_TTY" ] || why="${why:+$why; }this run's terminal ($UNEXPLAINED_TTY) belongs to no SSH session the guard can see, so it cannot tell where you are"
 	if [ -n "$why" ]; then
 		record status "refused ssh-session-from-outside"
@@ -1062,7 +987,7 @@ if [ -s "$RUN_DIR/previous.nft" ]; then
 else
 	$NFT list table $TABLE >/dev/null 2>&1 && $NFT delete table $TABLE
 fi
-rm -f "$RUN_DIR/dynamic"
+rm -f "$RUN_DIR/dynamic" "$RUN_DIR/reload.base"
 : > "$RUN_DIR/undone"
 [ "$REINSTALL" = 0 ] || systemctl --no-block start cosmos-host-guard-watch.service cosmos-host-guard-refresh.timer 2>/dev/null
 [ ! -s "$RUN_DIR/installer.pid" ] || kill -TERM "\$(cat "$RUN_DIR/installer.pid")" 2>/dev/null
@@ -1286,6 +1211,7 @@ fi
 	say "udp_not_open=$UDP_CLOSED"
 	say "ssh_mode=$SSH_MODE"
 	say "trusted_if=$TRUSTED"
+	say "outside_at_install=$WAN"
 } > "$STATE.new"
 chmod 644 "$STATE.new"
 mv -f "$STATE.new" "$STATE"
