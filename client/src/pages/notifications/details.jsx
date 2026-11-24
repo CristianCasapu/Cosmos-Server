@@ -175,15 +175,17 @@ const LogLines = ({ part, t }) => {
 // can no longer follow is over; a watch that still sees it keeps it open.
 const MarkResolved = ({ item, onDone, t }) => {
   const [busy, setBusy] = React.useState(false);
+  const [still, setStill] = React.useState(false);
   const run = () => {
     setBusy(true);
     API.notifications.resolve(item.id).then((res) => {
-      if (!(res && res.data && res.data.resolved)) notify(t(...TEXT.markResolvedStill), 'info');
-      onDone();
+      if (res && res.data && res.data.resolved) onDone();
+      else setStill(true); // a watch still sees it: said where the button is
     }).catch(() => {}).finally(() => setBusy(false));
   };
   return <Stack spacing={1}>
     <Typography variant="body2" color="textSecondary" sx={wrapAnywhere}>{t(...TEXT.markResolvedHelp)}</Typography>
+    {still && <Alert severity="info" sx={wrapAnywhere}>{t(...TEXT.markResolvedStill)}</Alert>}
     <Box><Button variant="outlined" onClick={run} disabled={busy} sx={touch}
       startIcon={busy ? <CircularProgress size={14} /> : null}>{t(...TEXT.markResolved)}</Button></Box>
   </Stack>;
