@@ -117,7 +117,9 @@ const openTab = async (page, label) => {
   await page.locator('main [role=combobox]').first().click();
   await page.getByRole('option', { name: label, exact: true }).click();
 };
-const shotOf = (locator, id, name) => locator.screenshot({ path: `shots/${id}-${name}-part.png` }).catch(() => {});
+// centred first: an element scrolled to the top edge would be under the panel's sticky header
+const shotOf = (locator, id, name) => locator.evaluate((e) => e.scrollIntoView({ block: 'center' }))
+  .then(() => locator.screenshot({ path: `shots/${id}-${name}-part.png` })).catch(() => {});
 const shot = (page, id, name) => page.screenshot({ path: `shots/${id}-${name}.png`, fullPage: true }).catch(() => {});
 
 const openExternal = async (page) => {
@@ -339,6 +341,7 @@ phases.down = async (page, id, size, ctx) => {
   await line2.waitFor({ timeout: 20000 }).catch(() => {});
   expect(id + ': External says it', /Caught up [\d.,\s\u00a0\u202f]+ records written while the database was away/.test(await line2.innerText().catch(() => '')), await line2.innerText().catch(() => ''));
   await shotOf(line2, id, 'catchup');
+  await layout(page, id, null, size);
   await sleep(2000);
   expect(id + ': the notice that it answers again is in PostgreSQL', (await pgCount("notifications where fork_kind='monitoring.store.restored'")) >= 1);
 };
