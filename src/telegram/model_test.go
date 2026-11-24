@@ -46,10 +46,11 @@ package telegram
 //	I9 the chat is never told a problem ended while it never ended since
 //	   it was told
 //
-// A fixed list of seeds runs every time; MODEL_SECONDS=n adds a random
-// pass of n seconds, MODEL_SEED=n replays one seed with its trace (MODEL_LATE=1
-// with late events). Every
-// failing seed becomes a named test (review4_test.go, review5_test.go).
+// A fixed list of seeds runs every time; MODEL_RUNS=n (or MODEL_SECONDS=n)
+// adds a random pass, MODEL_RANDOM_ONLY=1 runs it alone, MODEL_SEED=n
+// replays one seed with its trace (MODEL_LATE=1 with late events). Every
+// failing seed of a random pass goes into the fixed lists
+// (TestModelSeedsThatFailedOnce) or becomes a named test.
 
 import (
 	"context"
@@ -109,12 +110,23 @@ type modelBot struct {
 	refuseOnce    bool
 	timeoutTaken  bool
 	timeoutLost   bool
+	badFormOnce   bool // the next send is refused for its form
 	during        func(msg modelMessage)
 	sentTo        map[string]map[int]bool
 	timedOutCount int
+	// refusedForms: the threads of the messages refused for their form, in
+	// order; the plain form sent later names nothing (its values are left
+	// out) and is matched by its first line
+	refusedForms []refusedForm
+	plainSeen    map[string]bool // threads whose plain form came
 }
 
 var markerPattern = regexp.MustCompile(`model thread (T[0-9]+)`)
+
+type refusedForm struct {
+	marker string
+	at     time.Time
+}
 
 func (b *modelBot) sendMessage(ctx context.Context, st settings, out outgoing) (int, *sendError) {
 	m := b.m
@@ -125,12 +137,19 @@ func (b *modelBot) sendMessage(ctx context.Context, st settings, out outgoing) (
 	switch {
 	case b.down:
 		return 0, &sendError{Reason: ReasonTelegramError, Message: "bad gateway", Retryable: true}
+	case b.badFormOnce:
+		b.badFormOnce, outcome = false, "400bad"
 	case b.timeoutTaken:
 		b.timeoutTaken, outcome = false, "timeout"
 	case b.timeoutLost:
 		b.timeoutLost = false
-		m.lostSend(out)
+		m.lostSend(out, st)
 		return 0, &sendError{Reason: ReasonTimeout, Message: "timeout", Retryable: true}
+	case b.failing && m.store:
+		// review 6: refusals of the settings (a wrong token, the bot
+		// blocked, the chat not found) and of the message's form too
+		outcome = m.pick([]string{"ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "502", "502", "429", "429", "timeout", "timeout",
+			"lost", "lost", "button", "401", "403", "400chat", "400bad"})
 	case b.failing:
 		outcome = m.pick([]string{"ok", "ok", "ok", "ok", "502", "429", "timeout", "lost", "button"})
 	}
@@ -144,9 +163,40 @@ func (b *modelBot) sendMessage(ctx context.Context, st settings, out outgoing) (
 		return 0, &sendError{Reason: ReasonRateLimited, Message: "flood", Retryable: true, RetryAfter: 3 * time.Second}
 	case "button":
 		return 0, &sendError{Reason: ReasonBadButton, Message: "button"}
+	case "401", "403", "400chat":
+		m.pauses = append(m.pauses, [2]time.Time{m.clock, m.clock.Add(m.n.limits.settingsPause)})
+	case "400bad":
+		for marker := range m.unpaired {
+			if strings.Contains(out.message.text, marker) {
+				m.unpairedPlain[marker] = true
+			}
+		}
+		marker := m.threadOfText(out.message.text)
+		if markerPattern.FindStringSubmatch(out.message.text) == nil && strings.Contains(out.message.text, "are in the panel") {
+			// the plain form refused too: the thread of the refusal it follows
+			marker = b.plainThread(out.message.text)
+		}
+		if marker != "" {
+			b.refusedForms = append(b.refusedForms, refusedForm{marker, m.clock})
+		}
+		m.log("refused for its form: %q", strings.ReplaceAll(out.message.text, "\n", " | "))
+	}
+	switch outcome {
+	case "401":
+		m.feature("token refused")
+		return 0, &sendError{Reason: ReasonWrongToken, Settings: true, Message: "token"}
+	case "403":
+		m.feature("bot blocked")
+		return 0, &sendError{Reason: ReasonBlocked, Settings: true, Message: "blocked"}
+	case "400chat":
+		m.feature("chat not found")
+		return 0, &sendError{Reason: ReasonChatNotFound, Settings: true, Message: "chat not found"}
+	case "400bad":
+		m.feature("message refused for its form")
+		return 0, &sendError{Reason: ReasonBadMessage, Message: "entities"}
 	case "lost":
 		// not taken, but the notifier cannot know: its fate is unknown
-		m.lostSend(out)
+		m.lostSend(out, st)
 		return 0, &sendError{Reason: ReasonTimeout, Message: "timeout", Retryable: true}
 	}
 	b.nextID++
@@ -156,6 +206,23 @@ func (b *modelBot) sendMessage(ctx context.Context, st settings, out outgoing) (
 		b.sentTo[msg.chat] = map[int]bool{}
 	}
 	b.sentTo[msg.chat][msg.id] = true
+	// only the plain form says that the values are in the panel
+	if markerPattern.FindStringSubmatch(msg.text) == nil && strings.Contains(msg.text, "are in the panel") {
+		// the latest refusal first: the plain form follows its own refusal
+		if marker := b.plainThread(msg.text); marker != "" {
+			m.plainOf[msg.id] = marker // one refusal can stand for several plain sends
+		}
+	} else if found := markerPattern.FindStringSubmatch(msg.text); found != nil {
+		// the full form went through: its refusals are over
+		kept := b.refusedForms[:0]
+		for _, r := range b.refusedForms {
+			if r.marker != found[1] {
+				kept = append(kept, r)
+			}
+		}
+		b.refusedForms = kept
+		delete(b.plainSeen, found[1])
+	}
 	m.classify(&msg)
 	b.chat = append(b.chat, msg)
 	m.sentAt(msg, st)
@@ -163,6 +230,11 @@ func (b *modelBot) sendMessage(ctx context.Context, st settings, out outgoing) (
 		b.during(msg)
 	}
 	if outcome == "timeout" {
+		for marker := range m.unpaired {
+			if strings.Contains(msg.text, marker) {
+				m.unpairedTimedOut[marker] = true // this one's answer was lost
+			}
+		}
 		b.timedOutCount++
 		m.feature("timeout taken")
 		if msg.action == "close" {
@@ -171,6 +243,26 @@ func (b *modelBot) sendMessage(ctx context.Context, st settings, out outgoing) (
 		return 0, &sendError{Reason: ReasonTimeout, Message: "timeout", Retryable: true}
 	}
 	return msg.id, nil
+}
+
+// plainThread: the thread of a plain form, from the latest refusal whose
+// thread can have its first line.
+func (b *modelBot) plainThread(text string) string {
+	line := PreviewLine(text)
+	// a refused thread whose plain form has not come yet first
+	for _, first := range []bool{true, false} {
+		for i := len(b.refusedForms) - 1; i >= 0; i-- {
+			r := b.refusedForms[i]
+			if b.m.linesOf(r.marker)[line] && (!first || !b.plainSeen[r.marker]) {
+				if b.plainSeen == nil {
+					b.plainSeen = map[string]bool{}
+				}
+				b.plainSeen[r.marker] = true
+				return r.marker
+			}
+		}
+	}
+	return ""
 }
 
 func (b *modelBot) pin(ctx context.Context, st settings, messageID int, pin bool) *sendError {
@@ -199,13 +291,17 @@ func (b *modelBot) pin(ctx context.Context, st settings, messageID int, pin bool
 }
 
 // lostSend records a send that timed out before Telegram took it.
-func (m *model) lostSend(out outgoing) {
-	msg := modelMessage{text: out.message.text, replyTo: out.replyTo}
+func (m *model) lostSend(out outgoing, st settings) {
+	msg := modelMessage{text: out.message.text, replyTo: out.replyTo, chat: st.chatID}
 	m.classify(&msg)
 	if m.unknownFateAt == nil {
 		m.unknownFateAt = map[string][]time.Time{}
 	}
 	m.unknownFateAt[msg.thread] = append(m.unknownFateAt[msg.thread], m.clock)
+	if msg.action == "close" {
+		m.lostCloseAt[msg.thread] = append(m.lostCloseAt[msg.thread], m.clock)
+	}
+	m.log("lost %s %s reply=%d %q", msg.action, msg.thread, msg.replyTo, PreviewLine(msg.text))
 }
 
 // modelThread is one problem: its truth, what the notifications hold of
@@ -228,6 +324,8 @@ type modelThread struct {
 	quietAt    []time.Time // the ends without an event
 	openedAt   []time.Time // every opening event
 	lastDue    time.Time   // the last late event of this thread waiting
+	rowAt      time.Time   // when its open row was last written
+	writtenAt  time.Time   // when its last opening was written (heard by the notifier)
 }
 
 // lateEvent is a notification a source writes after its state changed.
@@ -370,6 +468,25 @@ type model struct {
 	stats   map[string]int
 	final                  bool
 	lastOpenSent           time.Time
+	// review 6: the real store and level (model_store_test.go)
+	store            bool
+	lagging          bool              // the registered sources answer up to two minutes late
+	nextReconcile    time.Time         // the reconcile at its real cadence
+	unpairedTimedOut map[string]bool   // messages of their own whose answer was lost
+	lines            map[string]firstLine // first lines that do not name the thread
+	leftChats        map[string]int    // chats left (their pins taken away), with the pins that stayed
+	leftAt           map[string]time.Time
+	// while the settings are refused, messages of their own are counted
+	// into a summary (by design); one refused for its form goes in a form
+	// that names nothing
+	pauses        [][2]time.Time
+	unpairedPlain map[string]bool
+	closingOffAt  map[string][]time.Time // a closing kind switched off by itself
+	closingOnAt   map[string][]time.Time // ... and on again
+	plainOf       map[int]string         // the thread of a message sent in its plain form
+	lostCloseAt   map[string][]time.Time // a closing whose fate is unknown (S2: the chat may show it over)
+	fillAt        time.Time
+	threadLines   map[string]map[string]bool
 }
 
 func (m *model) now() time.Time { return m.clock }
@@ -389,12 +506,43 @@ func (m *model) log(format string, args ...interface{}) {
 func (m *model) settings() settings { return settingsOf(m.config) }
 
 // classify reads a recorded message: which thread, what it says.
-func (m *model) classify(msg *modelMessage) {
+// threadOfText is the model thread a message names: its marker, or a
+// first line that only that thread's kinds have (review 6).
+func (m *model) threadOfText(text string) string {
+	if found := markerPattern.FindStringSubmatch(text); found != nil {
+		return found[1]
+	}
+	return m.lines[PreviewLine(text)].marker
+}
+
+// threadOfMessage: the marker in its text, else the stand-in's record of a
+// plain form, else a first line only one registered thread has.
+func (m *model) threadOfMessage(msg modelMessage) string {
 	if found := markerPattern.FindStringSubmatch(msg.text); found != nil {
-		msg.thread = found[1]
+		return found[1]
+	}
+	if plain := m.plainOf[msg.id]; plain != "" {
+		return plain
+	}
+	return m.lines[PreviewLine(msg.text)].marker
+}
+
+func (m *model) classify(msg *modelMessage) {
+	plain := ""
+	if markerPattern.FindStringSubmatch(msg.text) == nil {
+		plain = m.plainOf[msg.id]
+	}
+	msg.thread = m.threadOfText(msg.text)
+	if plain != "" {
+		msg.thread = plain // the plain form of a refused message: the stand-in's record
+	}
+	line, generic := m.lines[PreviewLine(msg.text)]
+	if plain != "" {
+		line, generic = firstLine{marker: plain, closing: m.isClosingLine(plain, PreviewLine(msg.text))}, true
 	}
 	switch {
-	case strings.Contains(msg.text, "End of model thread") && strings.Contains(msg.text, "(was: "):
+	case strings.Contains(msg.text, "End of model thread") && strings.Contains(msg.text, "(was: "),
+		strings.Contains(msg.text, "could not be sent while it lasted"): // the merged message, in either form
 		msg.action = "merged"
 	case strings.Contains(msg.text, "End of model thread"):
 		msg.action = "close"
@@ -405,6 +553,12 @@ func (m *model) classify(msg *modelMessage) {
 		msg.action = "repeat"
 	case strings.Contains(msg.text, "Opening of model thread"):
 		msg.action = "open"
+	case generic && line.closing:
+		msg.action = "close"
+	case generic && msg.replyTo != 0:
+		msg.action = "repeat"
+	case generic:
+		msg.action = "open"
 	default:
 		msg.action = "plain"
 	}
@@ -412,9 +566,17 @@ func (m *model) classify(msg *modelMessage) {
 		// "No longer followed" names no thread: the opening it answers does
 		for _, other := range m.bot.chat {
 			if other.id == msg.replyTo && other.chat == msg.chat {
-				if found := markerPattern.FindStringSubmatch(other.text); found != nil {
-					msg.thread = found[1]
+				if thread := m.threadOfMessage(other); thread != "" {
+					msg.thread = thread
 				}
+			}
+		}
+		// a reply in its plain form (values left out): a repeat or a
+		// closing of the thread it answers, by its first line
+		if msg.thread != "" && msg.action == "plain" {
+			msg.action = "repeat"
+			if m.isClosingLine(msg.thread, PreviewLine(msg.text)) {
+				msg.action = "close"
 			}
 		}
 	}
@@ -423,7 +585,11 @@ func (m *model) classify(msg *modelMessage) {
 // sentAt checks I5 for what was accepted.
 func (m *model) sentAt(msg modelMessage, st settings) {
 	m.classify(&msg)
-	m.log("sent #%d %s %s reply=%d %q", msg.id, msg.action, msg.thread, msg.replyTo, PreviewLine(msg.text))
+	body := strings.ReplaceAll(msg.text, "\n", " | ")
+	if r := []rune(body); len(r) > 400 {
+		body = string(r[:400])
+	}
+	m.log("sent #%d %s %s reply=%d %q", msg.id, msg.action, msg.thread, msg.replyTo, body)
 	if msg.thread == "" {
 		for marker := range m.unpaired {
 			if strings.Contains(msg.text, marker) {
@@ -452,12 +618,16 @@ func (m *model) sentAt(msg modelMessage, st settings) {
 		if on, set := st.kinds[th.closing]; set && !on {
 			m.violate("I5", "a closing switched off by itself was sent")
 		}
+		// I9, live (review 6): never told over while it is open
+		if m.store && th.open && !m.closeExcused(th) {
+			m.violate("I9", "%s told over at #%d while it is open", th.marker, msg.id)
+		}
 	}
 }
 
 func (m *model) byName(name string) *modelThread {
 	for _, th := range m.threads {
-		if th.name == name {
+		if th.name == name || utils.ThreadName(th.name) == name {
 			return th
 		}
 	}
@@ -488,13 +658,18 @@ var modelPairs = [][2]string{
 	{"fail2ban.down", "fail2ban.restored"},
 	{"smart.failing", "smart.restored"},
 	{"disk.filling", "disk.filling.over"},
-	{"reach.down", "reach.restored"},
+	{"snapshots.late", "snapshots.ontime"}, // review 6: a kind per thread (level-only openings name it)
 }
 
-func newModel(t *testing.T, seed int64) *model {
+func newModel(t *testing.T, seed int64) *model { return newModelWith(t, seed, false) }
+
+// newModelWith: store, the real notifications store and level (inside
+// modelStoreEnv).
+func newModelWith(t *testing.T, seed int64, store bool) *model {
 	m := &model{t: t, seed: seed, rng: rand.New(rand.NewSource(seed)),
 		clock: time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC), config: testConfig(),
-		unpaired: map[string]int{}, unpairedAt: map[string]time.Time{}, features: map[string]bool{}}
+		unpaired: map[string]int{}, unpairedAt: map[string]time.Time{}, features: map[string]bool{},
+		store: store, unpairedTimedOut: map[string]bool{}, leftChats: map[string]int{}, leftAt: map[string]time.Time{}, closingOffAt: map[string][]time.Time{}, closingOnAt: map[string][]time.Time{}, plainOf: map[int]string{}, lostCloseAt: map[string][]time.Time{}, unpairedPlain: map[string]bool{}}
 	m.config.Telegram.MaxPerMinute = maxMaxPerMinute
 	m.config.Telegram.ChatID = modelChatA
 	m.path = filepath.Join(t.TempDir(), threadsFileName)
@@ -512,6 +687,23 @@ func newModel(t *testing.T, seed int64) *model {
 	}
 	if m.rng.Intn(2) == 0 {
 		m.pruneP = 0.1
+	}
+	if store {
+		if m.rng.Intn(3) == 0 {
+			// more pinned critical problems than may be pinned at once
+			m.feature("four more critical outages")
+			for _, cause := range []string{"dns", "tls", "refused", "cloudflare"} {
+				m.addThread("reach:"+cause, "reach.down", "reach.restored", false)
+			}
+		}
+		m.lagging = m.rng.Intn(4) == 0
+		m.lines = m.firstLines()
+		for _, th := range m.threads {
+			if !strings.HasPrefix(th.name, "fill:/bulk/") {
+				m.log("thread %s %s (%s, registered %v)", th.marker, short(threadID(utils.ThreadName(th.name))), th.opening, th.registered)
+			}
+		}
+		m.startStoreRun()
 	}
 	m.boot()
 	return m
@@ -532,6 +724,10 @@ func (m *model) boot() {
 	n.threads = newThreadMemory(m.path)
 	n.threads.now = m.now
 	n.levels = modelLevels{m}
+	if m.store {
+		n.levels = faultyLevels{m}
+		std.Store(n) // the forwarder's notifier
+	}
 	n.logf = func(line string) { m.log("log %s", line) }
 	n.raise = func(string) {}
 	n.traceDecision = func(id string, action string, told bool, open bool) {
@@ -549,7 +745,10 @@ func (m *model) boot() {
 		}
 	}
 	n.limits.pace = 0
-	n.limits.reconcileDelay = 5 * time.Second
+	if !m.store {
+		n.limits.reconcileDelay = 5 * time.Second
+	}
+	m.nextReconcile = m.clock.Add(n.limits.reconcileDelay)
 	n.limits.normalBurst, n.limits.criticalBurst = 1000, 1000
 	n.limits.normalAge, n.limits.criticalAge = 24*time.Hour, 24*time.Hour
 	n.limits.backoff = []time.Duration{5 * time.Second, 15 * time.Second, time.Minute}
@@ -598,11 +797,19 @@ func (m *model) truth(th *modelThread, open bool) {
 // its state changed, in order per thread.
 func (m *model) emit(th *modelThread, what string, do func()) {
 	late := m.lateP > 0 && th.registered && !m.final && m.lateRng.Float64() < m.lateP
-	if !late && !th.lastDue.After(m.clock) {
+	waiting := false
+	for _, ev := range m.pending {
+		waiting = waiting || ev.th == th
+	}
+	if !late && !waiting {
 		do()
 		return
 	}
+	// after what the source has not written yet, in its order
 	due := th.lastDue
+	if due.Before(m.clock) {
+		due = m.clock
+	}
 	if late {
 		if at := m.clock.Add(time.Duration(1+m.lateRng.Intn(120)) * time.Second); at.After(due) {
 			due = at
@@ -638,9 +845,14 @@ func (m *model) openThread(th *modelThread) {
 	nt := m.notice(th, th.opening)
 	m.truth(th, true)
 	m.emit(th, "the opening", func() {
+		th.writtenAt = m.clock
 		th.rowOpen, th.openRow = true, &nt
 		m.log("event open %s", th.marker)
-		m.n.Notify(nt)
+		if m.store {
+			m.storeOpening(th)
+		} else {
+			m.n.Notify(nt)
+		}
 	})
 }
 
@@ -649,7 +861,12 @@ func (m *model) repeatThread(th *modelThread) {
 	nt.repeat, nt.count = true, 2
 	m.emit(th, "a repeat", func() {
 		m.log("event repeat %s", th.marker)
-		m.n.Notify(nt)
+		if m.store {
+			th.rowOpen = true
+			m.storeOpening(th) // the store groups it, or not (a day later, rows deleted: D1)
+		} else {
+			m.n.Notify(nt)
+		}
 	})
 }
 
@@ -662,7 +879,11 @@ func (m *model) closeThread(th *modelThread) {
 		th.resolvedAt = append(th.resolvedAt, m.clock)
 		th.lastClosing, th.closingAt = &nt, at
 		m.log("event close %s", th.marker)
-		m.n.Notify(nt)
+		if m.store {
+			m.storeClosing(th)
+		} else {
+			m.n.Notify(nt)
+		}
 	})
 }
 
@@ -670,8 +891,15 @@ func (m *model) quietEnd(th *modelThread) {
 	m.truth(th, false)
 	th.quietAt = append(th.quietAt, m.clock)
 	m.emit(th, "the quiet end", func() {
+		resolved := true
+		if m.store {
+			// the store resolves only a row it holds (deleted rows: none)
+			_, resolved = utils.ResolveThread(th.name)
+		}
 		th.rowOpen, th.openRow = false, nil
-		th.resolvedAt = append(th.resolvedAt, m.clock)
+		if resolved {
+			th.resolvedAt = append(th.resolvedAt, m.clock)
+		}
 		th.lastClosing = nil
 		m.log("event quiet close %s", th.marker)
 	})
@@ -701,6 +929,9 @@ func (m *model) event() {
 		}
 		th.rowOpen, th.resolvedAt, th.lastClosing = false, nil, nil
 		m.log("event rows of %s deleted", th.marker)
+		if m.store {
+			m.storeDelete(th)
+		}
 	default:
 		marker := "m" + strconv.Itoa(m.rng.Intn(1e9))
 		if len(m.unpaired) < 8 {
@@ -717,7 +948,37 @@ func (m *model) event() {
 // change switches a setting, restarts, changes the chat, or lets a month
 // pass.
 func (m *model) change() {
-	switch m.rng.Intn(8) {
+	cases := 8
+	if m.store {
+		cases = 10
+	}
+	switch m.rng.Intn(cases) {
+	case 8:
+		// a closing kind switched off by itself (A3: the opening stays the
+		// chat's last word, unpinned)
+		th := m.threads[m.rng.Intn(len(m.threads))]
+		if m.config.Telegram.Kinds == nil {
+			m.config.Telegram.Kinds = map[string]bool{}
+		}
+		if _, set := m.config.Telegram.Kinds[th.closing]; set {
+			delete(m.config.Telegram.Kinds, th.closing)
+			m.closingOnAt[th.closing] = append(m.closingOnAt[th.closing], m.clock)
+		} else {
+			m.config.Telegram.Kinds[th.closing] = false
+			m.closingOffAt[th.closing] = append(m.closingOffAt[th.closing], m.clock)
+		}
+		m.feature("closing kind toggled")
+		m.settingAt = append(m.settingAt, m.clock)
+		m.log("setting kind %s %v", th.closing, m.config.Telegram.Kinds)
+	case 9:
+		if m.config.Telegram.QuietFrom == "" {
+			m.config.Telegram.QuietFrom, m.config.Telegram.QuietTo = "00:00", "23:59"
+			m.config.Telegram.QuietSilenceCritical = m.rng.Intn(2) == 0
+		} else {
+			m.config.Telegram.QuietFrom, m.config.Telegram.QuietTo = "", ""
+		}
+		m.feature("quiet hours")
+		m.log("setting quiet hours %q-%q", m.config.Telegram.QuietFrom, m.config.Telegram.QuietTo)
 	case 0:
 		kind := m.threads[m.rng.Intn(len(m.threads))].opening
 		if m.config.Telegram.Kinds == nil {
@@ -744,7 +1005,14 @@ func (m *model) change() {
 		m.settingAt = append(m.settingAt, m.clock)
 		m.log("setting info %q", m.config.Telegram.Delivery["info"])
 	case 2:
+		was := m.settings()
 		m.config.Telegram.Enabled = !m.config.Telegram.Enabled
+		if m.store && m.n != nil && was.usable && !m.config.Telegram.Enabled {
+			// "were switched off" leaves the chat as a change of chat does
+			m.leftChats[was.chatID] += leaveChatPins(m.n, was, m.bot) // the pins that stayed, over every leave
+			m.leftAt[was.chatID] = m.clock
+			m.feature("chat-leave unpin")
+		}
 		m.toggledOff = true
 		if !m.config.Telegram.Enabled {
 			m.offAt = append(m.offAt, m.clock)
@@ -765,6 +1033,15 @@ func (m *model) change() {
 }
 
 func (m *model) changeChat() {
+	was := m.settings()
+	defer func() {
+		if m.store && m.n != nil && was.usable {
+			// the chat that loses the notifications: its pins taken away there
+			m.leftChats[was.chatID] += leaveChatPins(m.n, was, m.bot) // the pins that stayed, over every leave
+			m.leftAt[was.chatID] = m.clock
+			m.feature("chat-leave unpin")
+		}
+	}()
 	if m.config.Telegram.ChatID == modelChatA {
 		m.config.Telegram.ChatID = modelChatB
 	} else {
@@ -806,13 +1083,24 @@ func (m *model) restartKeeping(keep bool) {
 	m.n = nil
 	m.boot()
 	m.unpaired = map[string]int{} // what waited in memory is dropped by design
+	if m.store {
+		// a source that keeps its state in memory tells an open problem
+		// again after a start (Fail2ban, the router, a job that fails again)
+		for _, th := range m.threads {
+			if th.registered && th.open && m.rng.Intn(2) == 0 {
+				m.feature("told again after a restart")
+				m.repeatThread(th)
+			}
+		}
+	}
 }
 
 // fillTable opens more problems than the table holds.
 func (m *model) fillTable() {
 	m.feature("full table")
+	m.fillAt = m.clock
 	for i := 0; i < maxThreadEntries+6; i++ {
-		th := m.addThread("fill:/bulk/"+strconv.Itoa(i), "disk.filling", "disk.filling.over", true)
+		th := m.addThread("fill:/bulk/"+strconv.Itoa(i), "disk.filling", "disk.filling.over", !m.store)
 		th.readyAt = m.clock
 		m.openThread(th)
 	}
@@ -822,6 +1110,13 @@ func (m *model) fillTable() {
 // for (the switch-on path) is served as the loop serves it.
 func (m *model) step() bool {
 	m.deliverDue(false)
+	if m.store && !m.clock.Before(m.nextReconcile) {
+		// the reconcile at its real cadence (30 s after a start, then every
+		// 10 minutes)
+		m.log("reconcile (cadence)")
+		m.n.reconcile()
+		m.nextReconcile = m.clock.Add(m.n.limits.reconcileEvery)
+	}
 	m.n.persist()
 	it, wait := m.n.next()
 	select {
@@ -863,7 +1158,16 @@ func (m *model) run(steps int) {
 	if m.rng.Intn(25) == 0 {
 		m.fillTable()
 	}
+	checkpoints := map[int]bool{}
+	if m.store {
+		// I1 and I6 during the run, twice (review 6)
+		checkpoints[m.rng.Intn(steps)] = true
+		checkpoints[m.rng.Intn(steps)] = true
+	}
 	for i := 0; i < steps; i++ {
+		if checkpoints[i] {
+			m.checkpoint()
+		}
 		switch r := m.rng.Intn(10); {
 		case r < 4:
 			m.event()
@@ -898,7 +1202,9 @@ func (m *model) knownAtEnd(th *modelThread) bool {
 		return true
 	}
 	if th.open {
-		return th.rowOpen
+		// an open row the chat never heard of is not told once it is older
+		// than the horizon (a stale row, by design)
+		return th.rowOpen && (!m.store || m.clock.Sub(th.rowAt) <= reconcileHorizon)
 	}
 	return len(th.resolvedAt) > 0 || th.lastClosing != nil
 }
@@ -924,7 +1230,9 @@ func (m *model) check(start time.Time) {
 	byThread := map[string][]modelMessage{}
 	for _, msg := range m.bot.chat {
 		m.classify(&msg)
-		if msg.thread != "" && msg.chat == chat {
+		// what the chat was told before it was last left is no longer
+		// followed there (its farewell says so)
+		if msg.thread != "" && msg.chat == chat && !msg.at.Before(m.leftAt[chat]) {
 			byThread[msg.thread] = append(byThread[msg.thread], msg)
 		}
 		// I9 in every chat
@@ -939,7 +1247,7 @@ func (m *model) check(start time.Time) {
 			}
 			if th != nil && opening != nil {
 				from := latestBefore(th.openedAt, opening.at)
-				if !between(th.closedAt, from, msg.at) {
+				if !between(th.closedAt, from, msg.at) && !(m.lagging && lagWindow(th, msg.at)) {
 					m.violate("I9", "%s: told over at #%d while it never ended since #%d", msg.thread, msg.id, opening.id)
 				}
 			}
@@ -959,10 +1267,10 @@ func (m *model) check(start time.Time) {
 		known := m.knownAtEnd(th) && !m.plainIDs[threadID(th.name)]
 		lostSince := between(m.lostAt, last.at, m.clock)
 		// I1
-		if th.open && wanted && known && last.action != "open" && last.action != "repeat" {
+		if th.open && wanted && known && last.action != "open" && last.action != "repeat" && !m.beyondTheBound(th) {
 			m.violate("I1", "%s is open, the chat's last word is %q", th.marker, last.action)
 		}
-		if !th.open && known && (last.action == "open" || last.action == "repeat") && !last.timedOut && !lostSince {
+		if !th.open && known && (last.action == "open" || last.action == "repeat") && !last.timedOut && !lostSince && !m.beyondTheBound(th) && !m.closingOff(th, last.at) {
 			m.violate("I1", "%s is over, the chat's last word is %q (#%d)", th.marker, last.action, last.id)
 		}
 		// I3, I4
@@ -970,13 +1278,18 @@ func (m *model) check(start time.Time) {
 		for _, msg := range msgs {
 			switch msg.action {
 			case "open":
-				from := latestBefore(th.openedAt, outstanding.at)
-				unheard := between(th.closedAt, from, msg.at) && (between(th.quietAt, from, msg.at) || between(m.restartAt, from, msg.at) ||
-					between(m.offAt, from, msg.at) || between(m.chatAt, from, msg.at))
-				// a message of its own (the table full) is sent again after a
-				// restart: whether it went before is not known
-				plainAgain := m.plainIDs[threadID(th.name)] || between(m.unknownFateAt[th.marker], outstanding.at, msg.at)
-				if outstanding.id != 0 && !outstanding.timedOut && !between(m.lostAt, outstanding.at, msg.at) && !unheard && !plainAgain {
+				// review 6: excused only when the earlier opening's answer was
+				// lost (it is sent again), the threads file was lost, the chat
+				// was left in between (its threads forgotten there), or the
+				// thread went as messages of their own (the table full)
+				// its closing kind switched off by itself: the end was not
+				// told (A3), and the next episode opens anew
+				// a closing in between whose fate is unknown (S2: sent again
+				// as a new opening)
+				left := between(m.chatAt, outstanding.at, msg.at) || m.closingOffDuring(th, outstanding.at, msg.at) ||
+					between(m.lostCloseAt[th.marker], outstanding.at, msg.at)
+				plainAgain := m.plainIDs[threadID(th.name)]
+				if outstanding.id != 0 && !outstanding.timedOut && !between(m.lostAt, outstanding.at, msg.at) && !left && !plainAgain {
 					m.violate("I4", "%s opened twice (#%d then #%d)", th.marker, outstanding.id, msg.id)
 				}
 				outstanding = msg
@@ -1024,9 +1337,14 @@ func (m *model) check(start time.Time) {
 			}
 		}
 		// the opening the chat shows for an open problem is to be pinned
-		if th.open && (last.action == "open" || last.action == "repeat") && texts.Kinds[th.opening].Pin && newNotice(th.opening, nil).severity == sevCritical {
+		if th.open && wanted && (last.action == "open" || last.action == "repeat") && texts.Kinds[th.opening].Pin && newNotice(th.opening, nil).severity == sevCritical {
 			for i := len(msgs) - 1; i >= 0; i-- {
 				if msgs[i].action == "open" {
+					// an opening whose episode ended while its closing kind
+					// was off is unpinned and stays (A3): not this episode's
+					if m.closingOff(th, msgs[i].at) {
+						break
+					}
 					// a message of its own (the table full) is not pinned
 					if !between(m.lostAt, msgs[i].at, m.clock) && !msgs[i].timedOut && !m.plainIDs[threadID(th.name)] {
 						pinWanted = append(pinWanted, msgs[i].id)
@@ -1061,7 +1379,9 @@ func (m *model) check(start time.Time) {
 				}
 			}
 		}
-		if !allowed[id] && knowable && !between(m.lostAt, at, m.clock) {
+		// a pin older than the chat's last leave was taken away then, or
+		// named in the farewell as one that could not be
+		if !allowed[id] && knowable && !between(m.lostAt, at, m.clock) && !at.Before(m.leftAt[chat]) {
 			m.violate("I2", "message %d is pinned, its problem is over", id)
 		}
 	}
@@ -1073,13 +1393,44 @@ func (m *model) check(start time.Time) {
 	if len(pinned) < want {
 		m.violate("I2", "%d pinned of %d open critical problems (%v of %v)", len(pinned), len(pinWanted), pinned, pinWanted)
 	}
+	// I2 in the chats left: their pins were taken away, but for those
+	// Telegram refused to take away
+	for left, stuck := range m.leftChats {
+		if left == chat {
+			continue
+		}
+		kept := 0
+		for id := range m.bot.pinned[left] {
+			pinnedAt := time.Time{}
+			for _, p := range m.bot.pins {
+				if p.chat == left && p.id == id && p.pin && p.ok {
+					pinnedAt = p.at
+				}
+			}
+			// a pin whose record went with a lost threads file is not known
+			if !between(m.lostAt, pinnedAt, m.leftAt[left]) {
+				kept++
+			}
+		}
+		if kept > stuck {
+			m.violate("I2", "chat %s was left with %d pinned (%d could not be taken away)", left, kept, stuck)
+		}
+	}
 	// I8
 	if !m.toggledOff && len(m.chatAt) == 0 {
 		for marker, times := range m.unpaired {
-			if times == 0 && !between(m.monthAt, m.unpairedAt[marker], m.clock) {
+			paused := false
+			for _, p := range m.pauses {
+				// made before a pause ended and never delivered: it waited
+				// into the pause, which counts it into a summary
+				if !m.unpairedAt[marker].After(p[1]) {
+					paused = true
+				}
+			}
+			if times == 0 && !between(m.monthAt, m.unpairedAt[marker], m.clock) && !paused && !m.unpairedPlain[marker] {
 				m.violate("I8", "message of its own %s never delivered", marker)
 			}
-			if times > 1 && m.bot.timedOutCount == 0 {
+			if times > 1 && !m.unpairedTimedOut[marker] {
 				m.violate("I8", "message of its own %s delivered %d times", marker, times)
 			}
 		}
@@ -1104,7 +1455,7 @@ func runModel(t *testing.T, seed int64) bool {
 // runModelWith runs one seed, with late events or not.
 func runModelWith(t *testing.T, seed int64, late bool, stats map[string]int) bool {
 	t.Helper()
-	m := newModel(t, seed)
+	m := newModelWith(t, seed, true)
 	if late {
 		// its own random source: the seed's other choices stay as they are
 		m.lateP, m.lateRng = 0.5, rand.New(rand.NewSource(seed*7919+17))
@@ -1125,60 +1476,55 @@ func runModelWith(t *testing.T, seed int64, late bool, stats map[string]int) boo
 }
 
 func TestModelOfTheThreads(t *testing.T) {
-	failed := 0
-	runs := 3000
+	modelSuite(t, false, 3000, modelStats)
+}
+
+// TestModelWithLateEvents: the sources' notifications come up to two
+// minutes after their state changed (see the header), on 1500 seeds.
+func TestModelWithLateEvents(t *testing.T) {
+	modelSuite(t, true, 1500, map[string]int{})
+}
+
+// modelSuite runs the fixed seeds (a tenth with -short), then a random pass:
+// MODEL_RUNS=n random seeds, or MODEL_SECONDS=n seconds of them;
+// MODEL_RANDOM_ONLY=1 leaves the fixed seeds out. The random pass goes on
+// after a failure and lists every failing seed (for the fixed lists).
+func modelSuite(t *testing.T, late bool, runs int, stats map[string]int) {
+	modelStoreEnv(t)
 	if testing.Short() {
-		runs = 300
+		runs /= 10
 	}
-	for seed := int64(1); seed <= int64(runs); seed++ {
-		if !runModel(t, seed) {
-			failed++
-			if failed > 3 {
-				t.Fatal("stopped after 4 failing seeds")
-			}
-		}
-	}
-	if seconds, _ := strconv.Atoi(os.Getenv("MODEL_SECONDS")); seconds > 0 {
-		end := time.Now().Add(time.Duration(seconds) * time.Second)
-		count := 0
-		for time.Now().Before(end) {
-			seed := time.Now().UnixNano()
-			count++
-			if !runModel(t, seed) {
+	failed := 0
+	if os.Getenv("MODEL_RANDOM_ONLY") == "" {
+		for seed := int64(1); seed <= int64(runs); seed++ {
+			if !runModelWith(t, seed, late, stats) {
 				failed++
 				if failed > 3 {
 					t.Fatal("stopped after 4 failing seeds")
 				}
 			}
 		}
-		t.Logf("random pass: %d runs", count)
 	}
-	names := []string{}
-	for name := range modelStats {
-		names = append(names, name)
+	count, limit := 0, 0
+	end := time.Time{}
+	if n, _ := strconv.Atoi(os.Getenv("MODEL_RUNS")); n > 0 {
+		limit = n
+	} else if seconds, _ := strconv.Atoi(os.Getenv("MODEL_SECONDS")); seconds > 0 {
+		end = time.Now().Add(time.Duration(seconds) * time.Second)
 	}
-	sort.Strings(names)
-	for _, name := range names {
-		t.Logf("generator: %-40s %d", name, modelStats[name])
-	}
-}
-
-// TestModelWithLateEvents: the sources' notifications come up to two
-// minutes after their state changed (see the header), on 1500 seeds.
-func TestModelWithLateEvents(t *testing.T) {
-	runs := 1500
-	if testing.Short() {
-		runs = 150
-	}
-	stats := map[string]int{}
-	failed := 0
-	for seed := int64(1); seed <= int64(runs); seed++ {
-		if !runModelWith(t, seed, true, stats) {
-			failed++
-			if failed > 3 {
-				t.Fatal("stopped after 4 failing seeds")
+	failing := []int64{}
+	for (limit > 0 && count < limit) || (!end.IsZero() && time.Now().Before(end)) {
+		seed := time.Now().UnixNano()
+		count++
+		if !runModelWith(t, seed, late, stats) {
+			failing = append(failing, seed)
+			if len(failing) >= 50 {
+				break
 			}
 		}
+	}
+	if count > 0 {
+		t.Logf("random pass (late events %v): %d runs, %d failing: %v", late, count, len(failing), failing)
 	}
 	names := []string{}
 	for name := range stats {
@@ -1219,7 +1565,8 @@ func TestModelSeed(t *testing.T) {
 	if seed == 0 {
 		t.Skip("MODEL_SEED=n replays a seed")
 	}
-	m := newModel(t, seed)
+	modelStoreEnv(t)
+	m := newModelWith(t, seed, true)
 	if os.Getenv("MODEL_LATE") != "" {
 		m.lateP, m.lateRng = 0.5, rand.New(rand.NewSource(seed*7919+17))
 	}
@@ -1230,6 +1577,7 @@ func TestModelSeed(t *testing.T) {
 // The seeds of the random passes that failed once, kept (the fixed list
 // 1..3000 covers the others).
 func TestModelSeedsThatFailedOnce(t *testing.T) {
+	modelStoreEnv(t)
 	for _, seed := range []int64{
 		1794975629699488876, 1794975695255890122, 1794975913016431987, 1794975931023152618, // review 4
 		1794986394991302526, // review 5: an entry that forgot its kind could not be looked at
@@ -1237,5 +1585,12 @@ func TestModelSeedsThatFailedOnce(t *testing.T) {
 		1794991808159429524, // review 5: a closing that timed out is uncertain in its chat, across a change of chat
 	} {
 		runModel(t, seed)
+	}
+	// review 6, with late events
+	for _, seed := range []int64{
+		1795509994520303309, // a closing sent after a restart lost the reopening's write, the source still starting
+		1795510390319121856, // plain forms of several threads of one kind, refused one after the other
+	} {
+		runModelWith(t, seed, true, map[string]int{})
 	}
 }
