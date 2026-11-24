@@ -883,10 +883,23 @@ m_migrate_refusals_4() { # upstream, each refusal on its own; then a licence mig
 	refused 2 exists --backup-dir /root/real
 	refused 2 relative --backup-dir backups
 	umount /mnt/small /mnt/big /root/ro
+	# the file system of the backup's place: the decision, fed each type as
+	# stat -f reports it (the test mode stands in for the mount: vfat, NFS and
+	# the like are not mounted in the test machines)
+	for t in msdos vfat exfat ntfs fuseblk fuse cifs smb2 smb3 nfs nfs4 9p unknown tmpfs ramfs; do
+		take_now "fs-$t"
+		rc=0; COSMOS_INSTALL_TEST_FSTYPE=$t migrate_test --yes --dry-run </dev/null >"/e2e/out/fs-$t.txt" 2>&1 || rc=$?
+		check "a backup place on $t: refused with 6" test "$rc" = 6
+		unchanged_since "fs-$t"
+	done
+	for t in ext2/ext3 xfs btrfs zfs; do
+		rc=0; COSMOS_INSTALL_TEST_FSTYPE=$t migrate_test --yes --dry-run </dev/null >"/e2e/out/fs-ok.txt" 2>&1 || rc=$?
+		check "a backup place on $t: taken (the dry run ends with 0)" test "$rc" = 0
+	done
 	# a licence: 18 without the flag, and the words say what really happens
 	/e2e/bin/helper config-set "$config" Licence '"e2e-made-up-licence"'
 	refused 18 licence
-	check "it says the licence client stays and talks to upstream's server" grep -q "renews it with upstream's licence server" /e2e/out/licence.txt
+	check "it says what the licence keeps and what it loses" sh -c "grep -q 'renewed with upstream' /e2e/out/licence.txt && grep -q 'Pro build alone' /e2e/out/licence.txt"
 	# the other script's options
 	refused 2 install-option --http-port 8080
 	refused 2 storage-option --storage-tools no
@@ -1053,6 +1066,21 @@ m_migrate_interrupt_2() { # P2: killed while the manifests are written; upstream
 m_migrate_interrupt_3() { # killed after the swap, nothing ran since: a run finishes it
 	upstream_install 0.24.0
 	note_upstream
+	add_snapshot_hooks
+	# killed after the swap, then the unit started (as a reboot would start
+	# it): the fork ran on the data since, so a run waits for the owner's word
+	plant_marker before-swap-and-start
+	mig_bg sw1 COSMOS_INSTALL_TEST_PAUSE_AT=swapped TEST=1 -- --yes
+	kill_on_text sw1 "waiting at 'swapped'"
+	systemctl start CosmosCloud
+	wait_panel 80
+	take_now swap-started
+	expect_rc 21 swap-started-run --yes
+	unchanged_since swap-started
+	expect_rc 0 swap-started-undo --undo
+	rolled_back_exactly
+	upstream_back 0.24.0
+	# killed after the swap with nothing run since: a run finishes it
 	plant_marker before-resume
 	mig_bg sw COSMOS_INSTALL_TEST_PAUSE_AT=swapped TEST=1 -- --yes
 	kill_on_text sw "waiting at 'swapped'"

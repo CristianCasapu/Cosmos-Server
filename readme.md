@@ -251,11 +251,10 @@ It is the same script as `install.sh` with its role changed: the system checks, 
   - a first-run wizard that is not finished;
   - an update of upstream waiting in the folder;
   - a Cosmos that is not running.
-- **A licence in the settings stops it with exit 18; `--accept-community-edition` migrates all the same.** The script only reads whether a licence is set. The message says what happens to a licence after the move:
-  - The fork is built as upstream's community edition and keeps upstream's licence client as it is.
-  - The licence stays in the settings. The fork renews it with upstream's licence server (`api.cosmos-cloud.io`) when it starts and once a day. It sends the licence, whether the server is an agent node and the number of users, as upstream's community edition does.
-  - While the licence is valid, the features upstream ties to it in the community edition keep working (Constellation, remote storage, backups), with the licence's user and server limits.
-  - The features of upstream's Pro edition (groups, CI and functions, managed databases, the registry, SeaweedFS, the scheduler) are not in the fork.
+- **A licence in the settings stops it with exit 18; `--accept-community-edition` migrates all the same.** The script only reads whether a licence is set. The message says what happens after the move:
+  - The fork is built as upstream's community edition, with upstream's licence client unchanged.
+  - **What the licence gives on upstream's community edition, it keeps on the fork.** The licence stays in the settings and is renewed with upstream's licence server (`api.cosmos-cloud.io`) when the fork starts and once a day. The licence, whether the server is an agent node and the number of users are sent, as upstream's community edition sends them. While the licence is valid, Constellation, remote storage and backups keep working, with its user and server limits.
+  - **It loses only what exists in upstream's Pro build alone:** groups, CI and functions, managed databases, the registry, SeaweedFS and the scheduler.
 - The backup's place must be:
   - new, and under folders only root can change;
   - on a local Linux file system (not vfat, exfat, NTFS, CIFS or NFS);

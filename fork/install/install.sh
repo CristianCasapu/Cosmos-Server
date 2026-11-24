@@ -216,7 +216,7 @@ SCRIPT_ROLE=install
 # version and repository from the environment (the test bed's own key, never
 # the real one). A stamped script ignores these variables: nothing a user
 # passes makes it trust another key.
-TEST_MODE=0 TEST_FAIL_AT="" TEST_PAUSE_AT=""
+TEST_MODE=0 TEST_FAIL_AT="" TEST_PAUSE_AT="" TEST_FSTYPE=""
 if [ "$RELEASE_KEYS" = "@FORK_""RELEASE_KEYS@" ]; then
 	TEST_MODE=1
 	RELEASE_KEYS=${COSMOS_INSTALL_TEST_KEYS:-}
@@ -228,6 +228,9 @@ if [ "$RELEASE_KEYS" = "@FORK_""RELEASE_KEYS@" ]; then
 	TEST_FAIL_AT=${COSMOS_INSTALL_TEST_FAIL_AT:-}
 	# a step it waits at (two minutes), for a kill at an exact point
 	TEST_PAUSE_AT=${COSMOS_INSTALL_TEST_PAUSE_AT:-}
+	# the file system type the backup's place is said to be on (the decision
+	# is tested on every type; the real mounts are not made in the test bed)
+	TEST_FSTYPE=${COSMOS_INSTALL_TEST_FSTYPE:-}
 fi
 case $SCRIPT_ROLE in
 install) SELF=install.sh ;;
@@ -916,6 +919,16 @@ migrate_rollback() {
 changed_lines() {
 	{ diff -- "$1" "$2" || true; } | grep '^[<>]' | head -n "$3" | tr '\n' ' ' || true
 }
+# backup_fs_refusal <type as stat -f -c %T says it>: why a backup cannot go
+# on such a file system, or nothing (the only ones taken: local Linux file
+# systems that keep root's owners, modes and links)
+backup_fs_refusal() {
+	case $1 in
+	ext2/ext3 | ext4 | xfs | btrfs | zfs | f2fs | jfs | reiserfs | overlayfs) ;;
+	tmpfs | ramfs) printf '%s' "is in memory ($1): the backup would be lost at the next reboot" ;;
+	*) printf '%s' "is on a $1 file system, which this script does not know to keep root's owners, modes and links (the data must come back exactly): give a place on a local Linux file system (ext4, xfs, btrfs, zfs)" ;;
+	esac
+}
 # migrate_backup_place: the backup's folder: new, private, on a disk that
 # keeps root's owners and modes and survives a reboot, with room for the
 # copy and for what the rollback may move into it; refused before any change
@@ -956,11 +969,10 @@ migrate_backup_place() {
 		die $EXIT_PREREQ "not enough free space next to $DATA_DIR for a rollback's copy of the data: $(( ${have:-0} / 1024 )) MiB free, $((need_data / 1024)) MiB needed. Nothing was changed."
 	fi
 	fstype=$(stat -f -c %T -- "$parent" 2>/dev/null || echo unknown)
-	case $fstype in
-	tmpfs | ramfs) die $EXIT_PREREQ "$parent is in memory ($fstype): the backup would be lost at the next reboot (give another place with --backup-dir). Nothing was changed." ;;
-	msdos | vfat | exfat | fat | ntfs | fuseblk | fuse | cifs | smb | smb2 | smb3 | nfs | nfs4 | 9p | unknown)
-		die $EXIT_PREREQ "$parent is on a $fstype file system, which may not keep root's owners and modes (the data must come back exactly): give a place on a local Linux file system with --backup-dir. Nothing was changed." ;;
-	esac
+	if [ "$TEST_MODE" = 1 ] && [ -n "$TEST_FSTYPE" ]; then fstype=$TEST_FSTYPE; fi
+	local why
+	why=$(backup_fs_refusal "$fstype")
+	[ -z "$why" ] || die $EXIT_PREREQ "$parent $why (give another place with --backup-dir). Nothing was changed."
 	[ -w "$parent" ] || die $EXIT_PREREQ "$parent cannot be written (a read-only disk?): give another place with --backup-dir. Nothing was changed."
 	MIG_BACKUP=$b
 }
@@ -1032,7 +1044,7 @@ migrate_checks() {
 	[ "$(unit_active)" = active ] ||
 		die $EXIT_CANNOT "upstream's Cosmos is not running: start it first (sudo systemctl start $UNIT). The migration compares how it answers before and after. Nothing was changed."
 	if [ "$DATA_PROBLEM" = licence ] && [ "$ACCEPT_CE" = 0 ]; then
-		die $EXIT_LICENCE "this Cosmos has a licence in its settings. The fork is built as upstream's community edition, and keeps upstream's licence client as it is: the licence stays in the settings, and the fork renews it with upstream's licence server (api.cosmos-cloud.io) when it starts and once a day, sending the licence, whether this is an agent node and the number of users, as upstream's community edition does. While the licence is valid, the features upstream ties to it in the community edition keep working (Constellation, remote storage, backups), with the licence's user and server limits. The features of upstream's Pro edition (groups, CI and functions, managed databases, the registry, SeaweedFS, the scheduler) are not in the fork. To migrate all the same, run again with --accept-community-edition. Nothing was changed."
+		die $EXIT_LICENCE "this Cosmos has a licence in its settings. The fork is built as upstream's community edition, with upstream's licence client unchanged. What this licence gives on upstream's community edition, it keeps on the fork: the licence stays in the settings and is renewed with upstream's licence server (api.cosmos-cloud.io) when the fork starts and once a day (the licence, whether this is an agent node and the number of users are sent, as upstream's community edition sends them), and while it is valid Constellation, remote storage and backups keep working, with its user and server limits. What it loses is only what exists in upstream's Pro build alone: groups, CI and functions, managed databases, the registry, SeaweedFS and the scheduler. If this server is a Pro installation, those stop. To migrate all the same, run again with --accept-community-edition. Nothing was changed."
 	fi
 	[ "$DATA_PROBLEM" != licence ] || warn "this Cosmos has a licence: migrating to the community edition as asked (--accept-community-edition); upstream's licence client stays as it is, the Pro edition's features are not in the fork."
 }
