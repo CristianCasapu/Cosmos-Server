@@ -528,7 +528,7 @@ type model struct {
 	plainOf       map[int]string         // the thread of a message sent in its plain form
 	lostCloseAt   map[string][]time.Time // a closing whose fate is unknown (S2: the chat may show it over)
 	fillAt        time.Time
-	readsAt       []time.Time // review 7: when a reconcile read the level
+	readsAt       []time.Time    // review 7: when a reconcile read the level
 	leftPins      map[string]int // review 7: per chat, the pin records made before it was last left
 	persistedAt   time.Time
 	threadLines   map[string]map[string]bool
