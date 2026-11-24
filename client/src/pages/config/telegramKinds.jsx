@@ -41,8 +41,8 @@ import { telegramUnsaved } from '../../utils/telegramSettings';
 import { MAX_FILL_DAYS, watchProblem } from '../../utils/watchSettings';
 
 const SEVERITY_TEXT = {
-  critical: ['🔴', ['mgmt.config.telegram.kinds.critical', 'Critical'], ['mgmt.config.telegram.kinds.criticalHelp', 'Something is wrong now and needs you: rings, also in the quiet hours, and stays pinned in the chat while it lasts.']],
-  error: ['🟠', ['mgmt.config.telegram.kinds.error', 'Error'], ['mgmt.config.telegram.kinds.errorHelp', 'Something failed and stays failed until it is looked at.']],
+  critical: ['🔴', ['mgmt.config.telegram.kinds.critical', 'Critical'], ['mgmt.config.telegram.kinds.criticalHelp', "Something is wrong now and needs you: rings, also in the quiet hours, and stays pinned in the chat while it lasts. If Cosmos can no longer tell when it is over (what it was about was removed), \"Mark resolved\" on its notification in the panel ends it here as \"No longer followed\"."]],
+  error: ['🟠', ['mgmt.config.telegram.kinds.error', 'Error'], ['mgmt.config.telegram.kinds.errorHelp', "Something failed and stays failed until it is looked at. If Cosmos can no longer tell when it is over (the job or backup was removed), \"Mark resolved\" on its notification in the panel ends it here as \"No longer followed\"."]],
   warn: ['🟡', ['mgmt.config.telegram.kinds.warn', 'Warning'], ['mgmt.config.telegram.kinds.warnHelp', 'Worth knowing soon; often nothing to do.']],
   info: ['🔵', ['mgmt.config.telegram.kinds.info', 'Info'], ['mgmt.config.telegram.kinds.infoHelp', 'For the record, and the messages that say something is over (🟢 OK): they answer the message that told it.']],
 };

@@ -15,7 +15,7 @@ import dayjs from 'dayjs';
 import * as API from '../../api';
 import MainCard from '../../components/MainCard';
 import { useClientInfos } from '../../utils/hooks';
-import { PERM_ADMIN_READ } from '../../utils/permissions';
+import { PERM_ADMIN_READ, PERM_CONFIGURATION } from '../../utils/permissions';
 import { formatTime, zoneName } from '../../utils/auditFilters';
 import { auditSentence } from '../../utils/auditSentences';
 import { notify } from '../../utils/activity';
@@ -171,11 +171,31 @@ const LogLines = ({ part, t }) => {
   </Stack>;
 };
 
+// MarkResolved (plan 48, review 7): the owner's word that a problem Cosmos
+// can no longer follow is over; a watch that still sees it keeps it open.
+const MarkResolved = ({ item, onDone, t }) => {
+  const [busy, setBusy] = React.useState(false);
+  const run = () => {
+    setBusy(true);
+    API.notifications.resolve(item.id).then((res) => {
+      if (!(res && res.data && res.data.resolved)) notify(t(...TEXT.markResolvedStill), 'info');
+      onDone();
+    }).catch(() => {}).finally(() => setBusy(false));
+  };
+  return <Stack spacing={1}>
+    <Typography variant="body2" color="textSecondary" sx={wrapAnywhere}>{t(...TEXT.markResolvedHelp)}</Typography>
+    <Box><Button variant="outlined" onClick={run} disabled={busy} sx={touch}
+      startIcon={busy ? <CircularProgress size={14} /> : null}>{t(...TEXT.markResolved)}</Button></Box>
+  </Stack>;
+};
+
 const NotificationDetails = () => {
   const { t } = useTranslation();
   const { id, ref } = useParams();
   const { hasPermission } = useClientInfos();
   const isAdmin = hasPermission(PERM_ADMIN_READ);
+  const canResolve = hasPermission(PERM_CONFIGURATION);
+  const [reload, setReload] = React.useState(0);
   const [details, setDetails] = React.useState(null);
   const [missing, setMissing] = React.useState(false);
   const [context, setContext] = React.useState(null);
@@ -201,7 +221,7 @@ const NotificationDetails = () => {
       }
     }).catch(() => { if (!gone) setMissing(true); });
     return () => { gone = true; };
-  }, [id, ref, isAdmin]);
+  }, [id, ref, isAdmin, reload]);
 
   const back = <Box><Button component={RouterLink} to="/cosmos-ui/notifications" startIcon={<ArrowLeftOutlined />} sx={touch}>{t(...TEXT.back)}</Button></Box>;
 
@@ -217,6 +237,7 @@ const NotificationDetails = () => {
   const steps = Array.isArray(item.steps) ? item.steps : [];
   const link = safeLink(item.link);
   const subjectLink = item.subject && item.subject.link;
+  const openProblem = !item.resolved && !item.legacy && (item.level === 'error' || item.level === 'warning');
 
   return <Stack spacing={2} sx={{ maxWidth: '1000px', margin: 'auto', minWidth: 0 }} data-notification-details={item.id}>
     {back}
@@ -256,10 +277,11 @@ const NotificationDetails = () => {
 
     {means && <Section title={t(...TEXT.whatItMeans)}><Typography variant="body1" sx={wrapAnywhere}>{means}</Typography></Section>}
 
-    {(doing || item.resolved) && <Section title={t(...TEXT.whatCosmosDid)}>
+    {(doing || item.resolved || (canResolve && openProblem)) && <Section title={t(...TEXT.whatCosmosDid)}>
       <Stack spacing={1}>
         {doing && <Typography variant="body1" sx={wrapAnywhere}>{doing}</Typography>}
         {item.resolved && <Alert severity="success">{t(TEXT.resolvedAt[0], TEXT.resolvedAt[1], { when: formatTime(item.resolved) + ' (' + dayjs(item.resolved).fromNow() + ')' })}</Alert>}
+        {canResolve && openProblem && <MarkResolved item={item} t={t} onDone={() => setReload((r) => r + 1)} />}
       </Stack>
     </Section>}
 
