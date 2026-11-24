@@ -35,6 +35,8 @@ m_fresh_1() {
 		check "the wizard does not answer on the network" test "$(curl -s -o /dev/null -m 5 -w "%{http_code}" "http://$(hostname -I | cut -d" " -f1)/cosmos-ui/" || true)" = 000
 		check "install.sh printed the tunnel" grep -q "ssh -L 8080:127.0.0.1:80 " /e2e/out/install.txt
 		check "and why" grep -q "placement is unknown, not home" /e2e/out/install.txt
+		check "the server says where the wizard answers" sh -c "journalctl -u CosmosCloud --no-pager | grep -q \"Setup: the first-run wizard answers on 127.0.0.1 only\""
+		check "port 80 listens on 127.0.0.1 only" sh -c "awk '\$4 == \"0A\" && \$2 ~ /:0050\$/ {print \$2}' /proc/net/tcp /proc/net/tcp6 | sort -u | grep -vx 0100007F:0050 | grep -c . | grep -qx 0"
 		echo "$printed" >/e2e/out/printed-code
 		check "nobody else can read the data folder (it is $(stat -c %a /var/lib/cosmos): 700 when made, 711 once Cosmos ran)" sh -c "stat -c %a /var/lib/cosmos | grep -qE \"^7[01][01]\$\""
 		mkdir -p /root/up && cp /opt/cosmos/cosmos /root/up/ && printf "#!/bin/sh\n" >/root/up/start.sh && chmod 755 /root/up/start.sh
@@ -157,9 +159,12 @@ m_tampered_4() {
 
 m_dryrun_1() {
 	printf "APT::Update::Post-Invoke { \"touch /e2e-hook-ran\"; };\nAPT::Update::Pre-Invoke { \"touch /e2e-hook-ran\"; };\nAPT::Update::Post-Invoke-Success { \"touch /e2e-hook-ran\"; };\nDPkg::Pre-Invoke { \"touch /e2e-hook-ran\"; };\n" >/etc/apt/apt.conf.d/50e2e-probe
+		# and in the main file, which apt reads after the folder
+		printf "APT::Update::Post-Invoke { \"touch /e2e-main-hook-ran\"; };\nAPT::Update::Pre-Invoke { \"touch /e2e-main-hook-ran\"; };\n" >/etc/apt/apt.conf
 		snap before; expect_exit 0 install_a --dry-run </dev/null; snap after; same before after
 		check "the simulation ran none of the apt hooks" test ! -e /e2e-hook-ran
-		rm /etc/apt/apt.conf.d/50e2e-probe
+		check "not even those of /etc/apt/apt.conf" test ! -e /e2e-main-hook-ran
+		rm /etc/apt/apt.conf.d/50e2e-probe /etc/apt/apt.conf
 }
 
 m_dryrun_2() {
@@ -230,13 +235,22 @@ m_interrupt_1() {
 }
 
 m_interrupt_2() { # point from the host
-	(setsid bash -c "echo \$\$ >/e2e/out/pgid; exec install_a --yes </dev/null >/e2e/out/run-$point.txt 2>&1" &)
+	(setsid bash -c "echo \$\$ >/e2e/out/pgid; exec bash /e2e/releases/v$VA/install.sh --yes </dev/null >/e2e/out/run-$point.txt 2>&1" &)
 			killed=0
 			for i in $(seq 1 3000); do
 				s=$(sed -n "s/^step=//p" /var/lib/cosmos-installer/state 2>/dev/null | tail -n1 || true)
 				if [ "$s" = $point ]; then
 					if [ $point = packages ]; then grep -qsx dpkg /proc/[0-9]*/comm || { sleep 0.2; continue; }; sleep 2; fi
-					kill -9 -- -$(cat /e2e/out/pgid); echo "killed at $point"; killed=1; break
+					kill -9 -- -$(cat /e2e/out/pgid); echo "killed at $point"; killed=1
+					# SIGKILL lands when a process leaves the kernel (a busy disk can
+					# take seconds): the next run starts once the killed one is gone
+					# and its lock is free; a lock still held after that is a leak
+					for _ in $(seq 1 300); do flock -n /run/cosmos-installer.lock true && break; sleep 0.2; done
+					if ! flock -n /run/cosmos-installer.lock true; then
+						lslocks -n -o COMMAND,PID,PATH | grep cosmos-installer.lock || true
+						echo "FAIL: 60 s after the kill at $point, something still holds install.sh's lock"
+					fi
+					break
 				fi
 				sleep 0.2
 			done
@@ -479,6 +493,106 @@ m_byhand_1() {
 	# 3. install.sh refuses over it before anything (10)
 	expect_exit 10 install_a --yes </dev/null
 	same before after-install
+	# 4. a record or state install.sh did not write: empty, stray, open to all,
+	# naming nothing, or a state alone; refused the same, nothing run
+	# (no apt-get update, the folder of the installer left as it is)
+	for planted in "empty" "0644" "names-nothing" "state-only"; do
+		mkdir -p /var/lib/cosmos-installer
+		case $planted in
+		empty) : >/var/lib/cosmos-installer/record; chmod 600 /var/lib/cosmos-installer/record ;;
+		0644) echo "dir /opt/cosmos" >/var/lib/cosmos-installer/record; chmod 644 /var/lib/cosmos-installer/record ;;
+		names-nothing) printf "data /var/lib/cosmos\nnonsense\n" >/var/lib/cosmos-installer/record; chmod 600 /var/lib/cosmos-installer/record ;;
+		state-only) echo "step=packages" >/var/lib/cosmos-installer/state ;;
+		esac
+		snap "planted-$planted"
+		lists=$(stat -c %Y /var/lib/apt/lists 2>/dev/null || echo none)
+		rc=0; bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null >/e2e/out/un-$planted.txt 2>&1 || rc=$?
+		check "a $planted record: uninstall.sh refuses with 3" test $rc = 3
+		check "and says this Cosmos was not installed by install.sh" grep -q "this Cosmos was not installed by install.sh: nothing to remove" /e2e/out/un-$planted.txt
+		check "it ran no apt-get update" test "$(stat -c %Y /var/lib/apt/lists 2>/dev/null || echo none)" = "$lists"
+		check "the installer's folder is left as it was" test -d /var/lib/cosmos-installer
+		same "planted-$planted" "after-planted-$planted"
+		rm -rf /var/lib/cosmos-installer
+	done
 	systemctl start CosmosCloud
 	wait_panel 80
+}
+
+m_apthang_1() {
+	# a package script that hangs: install.sh stops the WHOLE apt transaction
+	# at its bound (apt, dpkg and the script), says so, and the next run
+	# finishes the package database and installs
+	printf "#!/bin/sh\nwhile read -r f; do case \$f in */snapraid_*.deb) d=\$(mktemp -d); dpkg-deb -R \"\$f\" \$d; printf \"#!/bin/sh\\\\nexec sleep 3600\\\\n\" >\$d/DEBIAN/postinst; chmod 755 \$d/DEBIAN/postinst; dpkg-deb -b \$d \"\$f\" >/dev/null; rm -rf \$d;; esac; done\n" >/root/hang-snapraid
+	chmod 755 /root/hang-snapraid
+	printf "DPkg::Pre-Install-Pkgs { \"/root/hang-snapraid\"; };\n" >/etc/apt/apt.conf.d/99e2e-hang-snapraid
+	snap before
+	start=$(date +%s); rc=0
+	COSMOS_INSTALL_APT_TIMEOUT=240 install_a --yes </dev/null >/e2e/out/hang.txt 2>&1 || rc=$?
+	took=$(( $(date +%s) - start ))
+	tail -n 12 /e2e/out/hang.txt
+	check "the hung transaction ends the run with 1" test $rc = 1
+	check "within the bound, not the script's hour (took ${took}s)" test "$took" -lt 900
+	check "it says what was stopped" grep -q "it was stopped, with everything it had started (dpkg, package scripts)" /e2e/out/hang.txt
+	running=$(for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' <"$f" 2>/dev/null; echo; done)
+	check "no package script is left running" sh -c "! printf '%s\n' \"\$1\" | grep -q '^sleep 3600'" _ "$running"
+	check "no dpkg is left running" sh -c "! grep -qsx dpkg /proc/[0-9]*/comm"
+	check "nobody holds dpkg's lock" sh -c "! lslocks -n -r -o PATH | grep -q '^/var/lib/dpkg/lock'"
+	rm /etc/apt/apt.conf.d/99e2e-hang-snapraid /root/hang-snapraid
+	if [ -e /var/lib/dpkg/info/snapraid.postinst ]; then printf "#!/bin/sh\nexit 0\n" >/var/lib/dpkg/info/snapraid.postinst; fi
+	expect_exit 0 install_a --yes </dev/null
+	installed_ok 80; record_matches before
+}
+
+m_wizardbind_1() {
+	# the marker made untrusted before the server reads it (a drop-in of the
+	# unit, as a careless admin's could: here a second name for it): the server listens on every address,
+	# says so, and install.sh says it LOUDLY instead of "this server only"
+	mkdir -p /etc/systemd/system/CosmosCloud.service.d
+	# (a second name: the server tightens the modes of its folder's files itself)
+	printf "[Service]\nExecStartPre=-/bin/ln -f /var/lib/cosmos/setup-loopback /var/lib/cosmos/setup-loopback.second-name\n" >/etc/systemd/system/CosmosCloud.service.d/e2e.conf
+	rc=0; install_a --yes </dev/null >/e2e/out/install.txt 2>&1 || rc=$?
+	tail -n 20 /e2e/out/install.txt
+	check "installed" test $rc = 0
+	echo "marker: $(stat -c '%a %U %h names' /var/lib/cosmos/setup-loopback 2>&1); the server says: $(journalctl -u CosmosCloud --no-pager | grep -o 'Setup: [^[]*' | tail -n 2 | tr '\n' '|')"
+	check "install.sh says loudly that the wizard answers on the network" grep -q "THE FIRST-RUN WIZARD ANSWERS ON THE NETWORK, NOT ON 127.0.0.1 ONLY AS ASKED" /e2e/out/install.txt
+	check "and never that it answers on this server only" sh -c "! grep -q 'answers on this server only' /e2e/out/install.txt"
+	check "the server said so in its journal" sh -c "journalctl -u CosmosCloud --no-pager | grep -q 'Setup: WARNING: .*EVERY address'"
+}
+
+m_wizardbind_2() {
+	# at home, but with a global IPv6 address: the wizard answers on 127.0.0.1 only
+	check "the machine has a global IPv6 address" sh -c "awk '\$4 == \"00\"' /proc/net/if_inet6 | grep -q '^20010db8'"
+	rc=0; install_a --yes --placement home </dev/null >/e2e/out/install.txt 2>&1 || rc=$?
+	tail -n 14 /e2e/out/install.txt
+	check "installed" test $rc = 0
+	check "a global IPv6 makes it loopback" grep -q "the server has a global IPv6 address (2001:db8:" /e2e/out/install.txt
+	check "it says this server only" grep -q "answers on this server only (127.0.0.1)" /e2e/out/install.txt
+	check "nothing listens on [::]:80 nor 0.0.0.0:80" sh -c "! awk '\$4 == \"0A\" {print \$2}' /proc/net/tcp /proc/net/tcp6 | grep -qE '^0+:0050\$'"
+	check "the wizard does not answer on the IPv6 address" test "$(curl -s -o /dev/null -m 5 -w "%{http_code}" "http://[$(ip -6 -o addr show scope global | awk '{sub(/\/.*/, "", $4); print $4; exit}')]/cosmos-ui/" || true)" = 000
+}
+
+m_aptrace_1() {
+	# another apt holds the lock while it installs psmisc, a package of
+	# install.sh's plan; install.sh waits for it, and psmisc is not recorded
+	# as install.sh's (apt's history says whose transaction installed it)
+	# the container image's docker-clean deletes downloaded packages after
+	# every apt run, the other's included (a server does not have it)
+	rm -f /etc/apt/apt.conf.d/docker-clean
+	DEBIAN_FRONTEND=noninteractive apt-get -q update >/dev/null
+	(DEBIAN_FRONTEND=noninteractive setsid sh -c 'apt-get install -y -q -o "DPkg::Pre-Invoke::=sleep 120" psmisc </dev/null >/e2e/out/admin.txt 2>&1; echo "admin-exit $?" >>/e2e/out/admin.txt' &)
+	for _ in $(seq 1 30); do lslocks -n -r -o PATH | grep -q '^/var/lib/dpkg/lock' && break; sleep 1; done
+	check "the other apt holds dpkg's lock" sh -c "lslocks -n -r -o PATH | grep -q '^/var/lib/dpkg/lock'"
+	check "psmisc is not installed yet" sh -c "! dpkg-query -W -f='\${db:Status-Abbrev}' psmisc 2>/dev/null | grep -q '^ii'"
+	snap before
+	rc=0; install_a --yes </dev/null >/e2e/out/install.txt 2>&1 || rc=$?
+	tail -n 6 /e2e/out/install.txt
+	check "installed" test $rc = 0
+	check "it waited for the other apt" grep -qE "Waiting for cache lock|Another program is using apt" /e2e/out/install.txt
+	for _ in $(seq 1 60); do grep -q "^admin-exit" /e2e/out/admin.txt && break; sleep 1; done
+	check "the other apt installed psmisc (it ended with 0)" grep -qx "admin-exit 0" /e2e/out/admin.txt
+	check "psmisc is installed" sh -c "dpkg-query -W -f='\${db:Status-Abbrev}' psmisc | grep -q '^ii'"
+	check "psmisc is not in install.sh's record" sh -c "! grep -qx 'package psmisc' /var/lib/cosmos-installer/record"
+	grep -A3 "sleep 120" /var/log/apt/history.log || true
+	check "apt's history names psmisc in the other transaction" sh -c "grep -A3 'sleep 120' /var/log/apt/history.log | grep -q '^Install: .*psmisc'"
+	installed_ok 80
 }

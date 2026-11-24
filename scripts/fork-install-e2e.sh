@@ -66,7 +66,7 @@ SCRATCH=${SCRATCH:-/storage/dev/.cache/$PREFIX/e2e}
 RESULTS=${RESULTS:-$SCRATCH-results}
 ALL_SYSTEMS="debian12 debian13 ubuntu2404 ubuntu2604"
 SYSTEMS=${SYSTEMS:-$ALL_SYSTEMS}
-ALL_CASES="fresh byhand refusals tampered dryrun unavailable locked aptdaily aptfail netcut interrupt docker-there hop trust env pieces"
+ALL_CASES="fresh byhand refusals tampered dryrun unavailable locked aptdaily aptrace apthang aptfail netcut interrupt docker-there hop trust env pieces wizardbind"
 CASES=${CASES:-$ALL_CASES}
 JOBS=${JOBS:-4}
 REPO=example-owner/cosmos-fork
@@ -763,6 +763,30 @@ case_byhand() { # a fork installed by hand (no record), as the owner's server is
 	local sys=$1 m
 	m=$(start_machine "$sys" byhand docker)
 	M "$m" m_byhand_1
+}
+
+case_apthang() { # a package script that hangs: the whole transaction is stopped at the bound, the next run finishes
+	local sys=$1 m
+	m=$(start_machine "$sys" apthang)
+	M "$m" m_apthang_1
+}
+
+case_aptrace() { # another apt installs a package of the plan while install.sh waits: not recorded as install.sh's
+	local sys=$1 m
+	m=$(start_machine "$sys" aptrace docker)
+	M "$m" m_aptrace_1
+}
+
+case_wizardbind() { # where the wizard really listens: an untrusted marker said loudly; at home with a global IPv6, loopback
+	local sys=$1 m
+	m=$(start_machine "$sys" wizardbind)
+	M "$m" m_wizardbind_1
+	m=$(start_machine "$sys" wizardbind6)
+	D network create --ipv6 --subnet 2001:db8:60:"$(printf '%x' "$RANDOM")"::/64 "${LABELS[@]}" "$PREFIX-$sys-v6" >/dev/null
+	D network connect "$PREFIX-$sys-v6" "$m"
+	M "$m" m_wizardbind_2
+	D network disconnect "$PREFIX-$sys-v6" "$m" >/dev/null 2>&1 || true
+	D network rm "$PREFIX-$sys-v6" >/dev/null 2>&1 || true
 }
 
 case_fresh_fast() { # the checks of every push: install, refusal over it, a tampered zip, uninstall
