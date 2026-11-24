@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -75,5 +76,27 @@ func TestADeletedNotificationIsNotAnEnd(t *testing.T) {
 	*now = now.Add(time.Hour)
 	if _, over, _, _ := ForkThreadState("upnp:cosmos:HTTPS", nil, now.Add(-time.Minute)); over {
 		t.Error("a resolution before `since` read as the end")
+	}
+}
+
+// review 6: a thread is stored under its cleaned name (trimmed, cut at 200
+// characters); a source that gives the name as it has it still finds it.
+func TestALongThreadNameIsFoundAsItIsGiven(t *testing.T) {
+	now := notificationEnv(t)
+	long := " fill:/mnt/" + strings.Repeat("данные", 40)
+	WriteNotification(Notification{Recipient: "admin", Level: "warning", Fork: &NotificationInfo{
+		Kind: "disk.filling", Thread: long, What: NText("notif.update.attention.what", "summary", "x")}})
+	if !ThreadOpen(long) {
+		t.Fatal("not open under the name given")
+	}
+	if open, _, _, err := ForkThreadState(long, nil, now.Add(-time.Hour)); err != nil || !open {
+		t.Fatalf("state: open %v err %v", open, err)
+	}
+	*now = now.Add(time.Minute)
+	if _, ok := ResolveThread(long); !ok {
+		t.Fatal("not resolved under the name given")
+	}
+	if open, over, _, err := ForkThreadState(long, nil, now.Add(-time.Hour)); err != nil || open || !over {
+		t.Errorf("after: open %v over %v err %v", open, over, err)
 	}
 }

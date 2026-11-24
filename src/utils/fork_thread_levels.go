@@ -140,6 +140,7 @@ func ForkOpenThreads(kinds []string, within time.Duration, limit int) ([]Notific
 // unknown, never "over". closing is the newest closing row since `since`.
 // Any error of the store is an error: the caller treats it as unknown.
 func ForkThreadState(thread string, closings []string, since time.Time) (open bool, over bool, closing *Notification, err error) {
+	thread = ThreadName(thread) // as it was stored (review 6)
 	if thread == "" {
 		return false, false, nil, errors.New("no thread")
 	}
