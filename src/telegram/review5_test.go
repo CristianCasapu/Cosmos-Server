@@ -195,9 +195,12 @@ func TestR5ThreadAgeKeepsTheOpening(t *testing.T) {
 	}
 }
 
-// The table full: a problem sent as a message of its own has its end told
-// as a message of its own too.
-func TestR5FullTableTellsTheEnd(t *testing.T) {
+// The table full: a problem sent as a message of its own (review 5).
+// Review 7 (N8): beyond the table the opening goes as a message of its
+// own, and the end is silent: a message of its own goes under the cap and
+// the summaries, so an "OK" could overtake a reopening (the chat would say
+// "OK" while it is open). Silence, never a false "OK".
+func TestR5FullTableTellsTheOpeningAndKeepsTheEndSilent(t *testing.T) {
 	m := scripted(t)
 	m.config.Telegram.Kinds = map[string]bool{"disk.filling": false}
 	for i := 0; i < maxThreadEntries; i++ {
@@ -209,8 +212,14 @@ func TestR5FullTableTellsTheEnd(t *testing.T) {
 	m.settle(time.Minute)
 	m.closeWith(th)
 	m.settle(time.Minute)
-	if got := strings.Join(m.actions(th), ","); got != "open,close" {
+	if got := strings.Join(m.actions(th), ","); got != "open" {
 		t.Errorf("beyond the table: %q", got)
+	}
+	// open again: told again, as a message of its own
+	m.open(th)
+	m.settle(time.Minute)
+	if got := strings.Join(m.actions(th), ","); got != "open,open" {
+		t.Errorf("open again beyond the table: %q", got)
 	}
 }
 

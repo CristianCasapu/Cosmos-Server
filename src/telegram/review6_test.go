@@ -135,6 +135,9 @@ func TestR6TheLeftChatsPinsAreUnpinnedThere(t *testing.T) {
 	defer std.Store(previous)
 	fake := newFakeTelegram(t)
 	useFake(t, fake)
+	// the announcement runs on after the unpin: it ends before the stand-in
+	// goes (review 7: it raced with the next test's)
+	t.Cleanup(func() { waitForNoChanges(t) })
 	AnnounceSettingsChange(before, after, "owner", "192.0.2.7")
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
