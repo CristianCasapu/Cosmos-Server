@@ -4,6 +4,7 @@ package security
 // failure whose commit had in fact gone through is not stored twice.
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -33,5 +34,28 @@ func TestRetriedBatchIsNotStoredTwice(t *testing.T) {
 	}
 	if n := len(all(t)); n != 3 {
 		t.Errorf("%d rows, want 3", n)
+	}
+}
+
+// A batch whose handle a switch of the store closed under it is stored at
+// once on the store in use, each event looked up first.
+func TestBatchOnAClosedHandleStoredAtOnce(t *testing.T) {
+	prev := insertBatch
+	t.Cleanup(func() { insertBatch = prev })
+	calls := []int{}
+	insertBatch = func(events []Event, retried int) error {
+		calls = append(calls, retried)
+		if len(calls) == 1 {
+			return errors.New("sql: database is closed")
+		}
+		return nil
+	}
+	if err := insert([]Event{{Kind: "a"}, {Kind: "b"}}); err != nil || len(calls) != 2 || calls[1] != 2 {
+		t.Errorf("err %v, calls %v", err, calls)
+	}
+	calls = nil
+	insertBatch = func(events []Event, retried int) error { calls = append(calls, retried); return errors.New("other") }
+	if err := insert([]Event{{Kind: "a"}}); err == nil || len(calls) != 1 {
+		t.Errorf("another error is not tried again here: %v %v", err, calls)
 	}
 }

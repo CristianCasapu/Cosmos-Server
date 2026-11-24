@@ -137,7 +137,19 @@ const insertSQL = "INSERT INTO " + tableName +
 
 // insert stores the events in one transaction, in their order, and sets
 // their IDs. Either all of them are stored or none.
-func insert(events []Event) error { return insertRetrying(events, 0) }
+func insert(events []Event) error {
+	err := insertBatch(events, 0)
+	if utils.IsClosedHandle(err) {
+		// Fork addition (plan 51): the handle was closed by a switch of the
+		// store under this batch: once more at once on the store in use, each
+		// event looked up first
+		err = insertBatch(events, len(events))
+	}
+	return err
+}
+
+// insertBatch is insertRetrying; replaced by the tests.
+var insertBatch = insertRetrying
 
 // sameEventSQL finds a stored event equal to one about to be stored.
 const sameEventSQL = "SELECT id FROM " + tableName + " WHERE node = ? AND ts = ? AND kind = ? AND actor = ? AND ip = ? AND target = ? AND n = ? AND details = ? LIMIT 1"

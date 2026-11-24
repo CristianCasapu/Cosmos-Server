@@ -121,6 +121,13 @@ func itoa64(n int64) string { return strconv.FormatInt(n, 10) }
 // closedHandle: the statement ran on a store's handle that a switch closed
 // (database/sql's error is not exported).
 func closedHandle(err error) bool {
+	return IsClosedHandle(err)
+}
+
+// IsClosedHandle reports whether err is database/sql's "database is closed":
+// a writer of the monitoring store that took its handle just before a switch
+// and ran after the drain closed it; written again on the store in use.
+func IsClosedHandle(err error) bool {
 	return err != nil && err.Error() == "sql: database is closed"
 }
 
