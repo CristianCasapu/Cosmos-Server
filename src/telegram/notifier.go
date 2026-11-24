@@ -162,6 +162,7 @@ type notifier struct {
 	brakes          map[string]brake                                     // the openings sent lately, per thread
 	overflow        map[string]bool                                      // threads sent as messages of their own (the table was full)
 	plainSent       map[string]bool                                      // threads whose opening this process sent as a message of its own
+	plainSeq        map[string]uint64                                    // review 7, N8: the seq of the last event of a thread beyond the table
 	plainEver       map[string]bool                                      // the threads that went as messages of their own in this run (bounded)
 	overflowed      int                                                  // thread events sent as messages of their own: the table was full
 	seq             uint64                                               // events counted, for the reconcile

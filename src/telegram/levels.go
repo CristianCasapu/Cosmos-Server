@@ -293,7 +293,11 @@ func (n *notifier) reconcile() {
 		look := known[id]
 		if n.threads.isPlain(id) {
 			// its messages go as messages of their own (the table was full):
-			// its opening once per run of the server, if it is still open
+			// its opening once per run of the server (and again after an
+			// end), if it is still open and no event came since the read
+			if n.plainSeq[id] > start {
+				continue
+			}
 			if o, has := opens[id]; has && tr.open && !n.plainSent[brakeKey(st, id)] {
 				n.plainSent[brakeKey(st, id)] = true
 				n.notePlainLocked(id)
@@ -319,7 +323,7 @@ func (n *notifier) reconcile() {
 			if tr.open && len(n.entries) >= maxThreadEntries && !n.evictLocked() {
 				// the table is full of open problems: an open one the chat
 				// was not told goes as a message of its own, once
-				if o, has := opens[id]; has && tr.open && !told && !n.plainSent[brakeKey(st, id)] && n.threads.markPlain(id, true) {
+				if o, has := opens[id]; has && tr.open && !told && n.plainSeq[id] <= start && !n.plainSent[brakeKey(st, id)] && n.threads.markPlain(id, true) {
 					n.plainSent[brakeKey(st, id)] = true
 					n.notePlainLocked(id)
 					n.overflowed++

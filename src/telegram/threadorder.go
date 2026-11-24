@@ -148,17 +148,32 @@ func (n *notifier) threadEventLocked(st settings, nt notice, now time.Time) bool
 	name := pairedThread(nt)
 	id := threadID(name)
 	if n.threads.isPlain(id) {
-		// its opening went as a message of its own: so do its other events,
-		// its end included (review 5)
+		// its opening went as a message of its own: so do its repeats. Its
+		// end is not told (review 7, N8): messages of their own go under
+		// the cap and the summaries, so an "OK" could arrive after, or
+		// instead of, a reopening told meanwhile; beyond the table the
+		// chat gets silence rather than a false "OK". A later opening is
+		// told again, as a message of its own.
 		n.notePlainLocked(id)
 		if nt.resolves != "" {
 			n.threads.markPlain(id, false)
+			delete(n.plainSent, brakeKey(st, id))
+			return true
 		}
 		return false
 	}
 	e := n.entries[id]
 	if e == nil {
-		if len(n.entries) >= maxThreadEntries && !n.evictLocked() {
+		_, told := n.threads.get(st, id)
+		if nt.resolves != "" && !told && len(n.entries) >= maxThreadEntries && !n.evictLocked() {
+			// review 7, N8: the end of a problem the chat was not told, the
+			// table full: nothing to answer, and never an "OK" of its own
+			n.notePlainLocked(id)
+			return true
+		}
+		// the end of a problem the chat holds always gets its entry (as in
+		// the reconcile: bounded by the chat's told threads)
+		if !(nt.resolves != "" && told) && len(n.entries) >= maxThreadEntries && !n.evictLocked() {
 			if nt.resolves == "" && n.threads.markPlain(id, true) {
 				n.plainSent[brakeKey(st, id)] = true
 			}
@@ -237,6 +252,13 @@ func (n *notifier) notePlainLocked(id string) {
 	if len(n.plainEver) < 4*maxThreadEntries {
 		n.plainEver[id] = true
 	}
+	// review 7, N8: the seq of a thread beyond the table, for the
+	// reconcile's guard (an event newer than its read wins); bounded
+	if n.plainSeq == nil || len(n.plainSeq) >= 4*maxThreadEntries {
+		n.plainSeq = map[string]uint64{}
+	}
+	n.seq++
+	n.plainSeq[id] = n.seq
 }
 
 // evictLocked makes room: the oldest closed entry that has nothing to do.

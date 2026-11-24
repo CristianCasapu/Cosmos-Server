@@ -502,6 +502,7 @@ type model struct {
 	plainOf       map[int]string         // the thread of a message sent in its plain form
 	lostCloseAt   map[string][]time.Time // a closing whose fate is unknown (S2: the chat may show it over)
 	fillAt        time.Time
+	readsAt       []time.Time // review 7: when a reconcile read the level
 	persistedAt   time.Time
 	threadLines   map[string]map[string]bool
 	excusedClose  map[int]bool // closings the live I9 excused (the model's own doing)
@@ -1059,8 +1060,17 @@ func (m *model) change() {
 
 func (m *model) changeChat() {
 	was := m.settings()
+	// review 7 (m07): both kinds of change of chat: one the notifier sees
+	// (it leaves the old chat: leaveChatPins), and one it does not (the
+	// settings changed while the server was down, or the announcement did
+	// not run): the old chat keeps its memory, and the new one has its own
+	// (drawn apart from m.rng: the kept seeds replay as before)
+	leave := rand.New(rand.NewSource(m.seed*7907+int64(len(m.chatAt)))).Intn(2) == 0
+	if !leave {
+		m.feature("chat changed without leaving")
+	}
 	defer func() {
-		if m.store && m.n != nil && was.usable {
+		if m.store && m.n != nil && was.usable && leave {
 			// the chat that loses the notifications: its pins taken away there
 			m.leftChats[was.chatID] += leaveChatPins(m.n, was, m.bot) // the pins that stayed, over every leave
 			m.leftAt[was.chatID] = m.clock
@@ -1236,10 +1246,29 @@ func (m *model) knownAtEnd(th *modelThread) bool {
 	}
 	if th.open {
 		// an open row the chat never heard of is not told once it is older
-		// than the horizon (a stale row, by design)
-		return th.rowOpen && (!m.store || m.clock.Sub(th.rowAt) <= reconcileHorizon)
+		// than the horizon (a stale row, by design); review 7: only one the
+		// chat never heard of
+		return th.rowOpen && (!m.store || m.clock.Sub(th.rowAt) <= reconcileHorizon || m.heardOf(th))
 	}
 	return len(th.resolvedAt) > 0 || th.lastClosing != nil
+}
+
+// heardOf: the chat in use was told the thread's opening since it was
+// last left, and the notifier still knows it (no threads file lost since).
+func (m *model) heardOf(th *modelThread) bool {
+	chat := m.config.Telegram.ChatID
+	since := m.leftAt[chat]
+	if last := latestBefore(m.lostAt, m.clock); len(m.lostAt) > 0 && last.After(since) {
+		since = last
+	}
+	for _, msg := range m.bot.chat {
+		c := msg
+		m.classify(&c)
+		if c.thread == th.marker && c.chat == chat && !c.at.Before(since) && (c.action == "open" || c.action == "repeat") {
+			return true
+		}
+	}
+	return false
 }
 
 // notePlain keeps which threads the notifier sent as messages of their
@@ -1440,8 +1469,10 @@ func (m *model) check(start time.Time) {
 					pinnedAt = p.at
 				}
 			}
-			// a pin whose record went with a lost threads file is not known
-			if !between(m.lostAt, pinnedAt, m.leftAt[left]) {
+			// a pin whose record went with a lost threads file is not known;
+			// one pinned after the chat was last left stays when the chat is
+			// changed again without the notifier seeing it (review 7, m07)
+			if !between(m.lostAt, pinnedAt, m.leftAt[left]) && !pinnedAt.After(m.leftAt[left]) {
 				kept++
 			}
 		}
@@ -1518,9 +1549,10 @@ func TestModelWithLateEvents(t *testing.T) {
 	modelSuite(t, true, 1500, map[string]int{})
 }
 
-// modelSuite runs the fixed seeds (a tenth with -short), then a random pass:
-// MODEL_RUNS=n random seeds, or MODEL_SECONDS=n seconds of them;
-// MODEL_RANDOM_ONLY=1 leaves the fixed seeds out. The random pass goes on
+// modelSuite runs the fixed seeds (a tenth with -short; MODEL_SEED_RANGE=a-b
+// a part of them), then a random pass: MODEL_RUNS=n random seeds, or
+// MODEL_SECONDS=n seconds of them; MODEL_RANDOM_ONLY=1 leaves the fixed
+// seeds out. The random pass goes on
 // after a failure and lists every failing seed (for the fixed lists).
 func modelSuite(t *testing.T, late bool, runs int, stats map[string]int) {
 	modelStoreEnv(t)
@@ -1528,8 +1560,16 @@ func modelSuite(t *testing.T, late bool, runs int, stats map[string]int) {
 		runs /= 10
 	}
 	failed := 0
+	from, to := int64(1), int64(runs)
+	if part := os.Getenv("MODEL_SEED_RANGE"); part != "" {
+		// MODEL_SEED_RANGE=a-b: only those fixed seeds (the race run split
+		// over containers)
+		if _, err := fmt.Sscanf(part, "%d-%d", &from, &to); err != nil {
+			t.Fatalf("MODEL_SEED_RANGE=%q: %v", part, err)
+		}
+	}
 	if os.Getenv("MODEL_RANDOM_ONLY") == "" {
-		for seed := int64(1); seed <= int64(runs); seed++ {
+		for seed := from; seed <= to; seed++ {
 			if !runModelWith(t, seed, late, stats) {
 				failed++
 				if failed > 3 {
@@ -1626,6 +1666,9 @@ func TestModelSeedsThatFailedOnce(t *testing.T) {
 		1795512767026516955, // the same
 		1795515786879045332, // a lagging source's wrong "over", sent after Telegram's refusals and a month
 		1795518914437939061, // a thread's full form refused again after an earlier plain form (the stand-in's record)
+		// review 7 (N8): more than the table holds open at once
+		1795530366717436634, // the end of a thread beyond the table told twice (its closing answered another message)
+		1795534412523359670, // the end of a thread beyond the table sent after its reopening: "OK" while open
 	} {
 		runModel(t, seed)
 	}

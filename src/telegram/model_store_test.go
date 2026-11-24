@@ -122,6 +122,7 @@ func (l faultyLevels) openThreads(kinds []string) ([]notice, error) {
 		m.feature("store error")
 		return nil, errReadFailed
 	}
+	m.readsAt = append(m.readsAt, m.clock) // a reconcile's reads (review 7: closeExcused)
 	return storeLevels{now: m.now}.openThreads(kinds)
 }
 
@@ -385,10 +386,16 @@ func (m *model) beyondTheBound(th *modelThread) bool {
 	if !strings.HasPrefix(th.name, "fill:/bulk/") {
 		return false
 	}
-	// a restart after the fill: the threads file keeps at most maxThreads
-	// entries, the store lists at most maxThreadEntries open problems
-	if len(m.restartAt) > 0 && m.restartAt[len(m.restartAt)-1].After(m.fillAt.Add(-time.Second)) {
-		return true
+	// a restart after the fill, with more problems open then than the
+	// store lists (maxThreadEntries) or without the threads file (review 7:
+	// only then, as the comment says)
+	for _, at := range m.restartAt {
+		if at.Before(m.fillAt) {
+			continue
+		}
+		if between(m.lostAt, at, at) || m.openAt(at) > maxThreadEntries {
+			return true
+		}
 	}
 	told := map[string]bool{}
 	for _, msg := range m.bot.chat {
@@ -404,6 +411,34 @@ func (m *model) beyondTheBound(th *modelThread) bool {
 // closeExcused: a closing sent while the problem is open is the model's
 // own doing, not the notifier's: a late write of the source is still to
 // come, or the source lags (it said over from an older look).
+// openAt counts the problems open at a moment.
+func (m *model) openAt(at time.Time) int {
+	count := 0
+	for _, th := range m.threads {
+		open := false
+		for _, change := range th.history {
+			if !change.at.After(at) {
+				open = change.open
+			}
+		}
+		if open {
+			count++
+		}
+	}
+	return count
+}
+
+// readSince: a reconcile read the level after from, at a moment the
+// source was ready.
+func (m *model) readSince(from time.Time, ready time.Time) bool {
+	for _, at := range m.readsAt {
+		if at.After(from) && !at.Before(ready) {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *model) closeExcused(th *modelThread) bool {
 	for _, ev := range m.pending {
 		if ev.th == th {
@@ -411,15 +446,15 @@ func (m *model) closeExcused(th *modelThread) bool {
 		}
 	}
 	// the latest opening was heard but not written down before a restart:
-	// until the level is looked at again (a reconcile period)
-	if !th.lostOpenAt.IsZero() && m.clock.Sub(th.lostOpenAt) <= 11*time.Minute {
+	// until the level is looked at again with the source ready (review 7:
+	// that read, not a fixed time)
+	if !th.lostOpenAt.IsZero() && !m.readSince(th.lostOpenAt, th.readyAt) {
 		return true
 	}
-	// the latest opening's write was lost in a restart and the source does
-	// not know yet: nothing tells the notifier it opened again
-	if last := latestBefore(th.openedAt, m.clock); last.After(th.writtenAt) && m.clock.Before(th.readyAt) {
-		return true
-	}
+	// review 7 (N7): no excuse for "the reopening's write was lost in a
+	// restart, the source still starting": T1 keeps that closing back (the
+	// end is believed only on evidence newer than the moment the thread was
+	// last seen open), and the excuse hid its regression (m36)
 	// a source lagging up to two minutes said over from a look before the
 	// opening, and no read corrected it since (or within the period after)
 	return m.lagging && (th.wrongOver || lagWindow(th, m.clock))
