@@ -1580,6 +1580,13 @@ g_strangers() {
 	sleep 3
 	log "  (root at LogLevel ERROR: $(sessions_of "$OC6"))"
 	check "LogLevel ERROR: root's tunnel is unsure" test "$(sessions_of "$OC6")" = "openssh unsure;"
+	# root forges sshd's line of success under that connection's own monitor (its pid, so
+	# its _EXE and _UID) for another port of the same address: still unsure
+	rport=$(peer_port "$OC6" 22)
+	mon=$(m sh -c "for p in \$(ss -Htnp state established | awk '\$3 ~ /:22\$/ && index(\$4, \"$OC6\")' | grep -oE 'pid=[0-9]+' | cut -d= -f2); do pp=\$(awk '/^PPid:/ {print \$2}' /proc/\$p/status); tr '\\0' ' ' < /proc/\$pp/cmdline | grep -q '\\[listener\\]' && { echo \$p; break; }; done")
+	jforge "$mon" 1 "Accepted publickey for root from $OC6 port $((rport + 1)) ssh2"
+	sleep 1
+	check "a root-forged line under the monitor's pid for another port: still unsure" test "$(sessions_of "$OC6")" = "openssh unsure;"
 	guard_install "$HC" --yes --port 2053
 	expect_rc 4 "LogLevel ERROR: root's tunnel from outside refuses the unattended run"
 	guard_uninstall # (when a broken guard installed itself, the next cases start from nothing again)

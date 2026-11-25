@@ -30,6 +30,9 @@
 # firewalld's or Fail2ban's.
 
 set -eu
+# its files under /run are read back only as root's and not writable by others: never
+# inherit a looser umask (a service manager or a container may start it with 000)
+umask 077
 
 TNAME=cosmos_host_guard
 TABLE="inet $TNAME"
@@ -718,7 +721,7 @@ set_state() { # key value: only when it changed
 	[ -f "$STATE" ] || return 0
 	old=$(sed -n "s/^$1=//p" "$STATE" | head -n 1)
 	[ "$2" = "$old" ] && return 0
-	{ grep -v "^$1=" "$STATE"; printf '%s=%s\n' "$1" "$2"; } > "$STATE.new" && mv -f "$STATE.new" "$STATE"
+	{ grep -v "^$1=" "$STATE"; printf '%s=%s\n' "$1" "$2"; } > "$STATE.new" && chmod 644 "$STATE.new" && mv -f "$STATE.new" "$STATE"
 }
 other_filters() {
 	[ -f "$STATE" ] || return 0
