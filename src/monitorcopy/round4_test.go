@@ -226,3 +226,36 @@ func TestABatchInADeadlockIsTriedAgain(t *testing.T) {
 		t.Errorf("day total %d", v)
 	}
 }
+
+// A last-value total in a catch-up: the local file's value wins only for a
+// bucket that ended during that fallback (even when no count changed there);
+// one that ended before (another period's) keeps PostgreSQL's value and is
+// not "missing" (round 4: the replay found 14 such, and the window stayed
+// pending for ever).
+func TestLastValuesOfOtherPeriodsAreNotMissing(t *testing.T) {
+	src, dst := openStore(t, utils.DialectSQLite), openStore(t, utils.DialectSQLite)
+	hour := int64(time.Hour / time.Millisecond)
+	now := time.Now().UnixMilli()
+	since, back := now-now%hour-hour/2, now-now%hour-hour/4 // the fallback, within the hour before this one
+	before := since - since%hour - hour                     // an hour that ended before the fallback began
+	for _, s := range []struct {
+		store Store
+		v     int64
+	}{{src, 7}, {dst, 3}} {
+		totals(t, s.store, "last", "", map[string][3]int64{"hour": {before, s.v, 2}})
+	}
+	// an earlier fallback of the same server touched it: its part is absorbed already
+	for _, id := range []string{"server.local|last|hour|" + itoa(before)} {
+		exec(t, src, "INSERT INTO monitoring_kv(key, value) VALUES(?, '0|0')", utils.OwnPrefix+"pgx:me:"+id)
+	}
+	opt := testOptions("last-other", true)
+	opt.From, opt.End, opt.Back, opt.Since, opt.Store = since-60000, back+60000, back, since, "pgx:me"
+	opt.IDs = map[string][2]int64{"events": {0, 0}, "notifications": {0, 0}, "fork_security_events": {0, 0}}
+	report := copyOnce(t, src, dst, opt)
+	if v, _ := bucketValue(t, dst, "last", "hour"); v != 3 {
+		t.Errorf("an hour that ended before the fallback took the local file's value: %d", v)
+	}
+	if got := tableOf(report, "metric_values"); got.Missing != 0 || report.Mismatch {
+		t.Errorf("checked: %+v", got)
+	}
+}

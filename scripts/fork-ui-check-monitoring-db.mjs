@@ -359,6 +359,7 @@ phases.down = async (page, id, size, ctx) => {
   expect(id + ': the period in the local file is known', !!s.localFrom && !!s.localTo, JSON.stringify(s));
   // the rows written meanwhile into the local file are caught up by themselves
   const caught = await waitCatchUp(ctx, stoppedAt, 120);
+  note(`  ${id}: catch-up tables ${JSON.stringify((caught.tables || []).filter((x) => x.total || x.missing || x.sourceRows))}`);
   expect(id + ': the rows of the outage are caught up by themselves', caught.outcome === 'done' && caught.written > 0 && !caught.missing, JSON.stringify(caught));
   await openExternal(page);
   const line2 = page.locator('[data-fork-copy-catchup]');

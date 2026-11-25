@@ -342,6 +342,16 @@ func (c *copier) rawSourceWins(b bucket) bool {
 	return !c.opt.TargetInUse
 }
 
+// endedDuringFallback: the bucket ended while the local file stood in for
+// the catch-up's server (after its fallback began, before PostgreSQL came
+// back): its last flush went into the local file. A bucket that ended before
+// was last flushed elsewhere (another period), one still open goes on in
+// PostgreSQL.
+func (c *copier) endedDuringFallback(b bucket) bool {
+	end := c.periodEnd(b)
+	return c.opt.Back > 0 && end > c.opt.Since && end <= c.opt.Back
+}
+
 // mergeKind: how a bucket both stores hold is merged.
 func (c *copier) mergeKind(b bucket) string {
 	switch c.metrics[b.node+"|"+b.key].agg {
@@ -423,8 +433,12 @@ func (c *copier) batchBuckets(ctx context.Context, r rule, m *tableMarker) (int6
 		if !exists {
 			kind = "add" // the target has nothing of this bucket: the change is all of it
 		}
-		if d[1] < 0 || d == (tally{}) && (kind == "add" || exists) {
+		lastHere := kind == "last" && c.endedDuringFallback(b)
+		if d[1] < 0 || d == (tally{}) && (kind == "add" || exists) && !lastHere {
 			continue // nothing new (a negative count is refused: said by the check)
+		}
+		if d[1] < 0 {
+			d[1] = 0
 		}
 		switch kind {
 		case "add":
@@ -439,7 +453,7 @@ func (c *copier) batchBuckets(ctx context.Context, r rule, m *tableMarker) (int6
 				b.node, b.key, b.granularity, b.date, b.value, d[1], b.expire)
 		case "last":
 			value := "metric_values.value"
-			if c.periodEnd(b) <= c.opt.Back {
+			if lastHere {
 				value = "excluded.value"
 			}
 			err = exec(insert+"DO UPDATE SET value = "+value+", avg_index = metric_values.avg_index + excluded.avg_index, expire = "+greatest+"(metric_values.expire, excluded.expire)",
@@ -554,7 +568,7 @@ func (c *copier) checkBuckets(ctx context.Context, r rule, batch []row) (present
 				missing++
 			}
 		case "last":
-			if c.periodEnd(b) > c.opt.Back || there.value == b.value {
+			if !c.endedDuringFallback(b) || there.value == b.value {
 				present++
 			} else {
 				missing++
