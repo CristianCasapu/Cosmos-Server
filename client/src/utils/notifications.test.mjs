@@ -149,6 +149,7 @@ test('toasts: marking all and deleting are named; marking named ones is not', ()
   assert.equal(commandLabel('/api/notifications/mark', 'POST', '{"ids":[1],"read":true}'), null);
   assert.deepEqual(commandLabel('/api/notifications/delete', 'POST', '{"read":true}')[0], 'activity.notifications.deleteRead');
   assert.deepEqual(commandLabel('/api/notifications/delete', 'POST', '{"ids":[3]}')[0], 'activity.notifications.delete');
+  assert.deepEqual(commandLabel('/api/notifications/resolve', 'POST', '{"ids":[3]}')[0], 'activity.notifications.resolve');
   assert.equal(commandLabel('/api/notifications/delete', 'GET', ''), null);
   assert.equal(commandLabel('/api/notifications/mark', 'POST', 'not json'), null);
   assert.ok(knownAction('upnp.check'));

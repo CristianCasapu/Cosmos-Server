@@ -1,0 +1,982 @@
+{
+  "words": {
+    "info": "Info",
+    "warn": "Warning",
+    "error": "Error",
+    "critical": "Critical",
+    "closing": "OK",
+    "todo": "What to do: ",
+    "button": "Open in Cosmos",
+    "hidden": "The names and addresses are in the panel.",
+    "sample": "sample, nothing happened",
+    "seen": "Seen {{count}} times since {{first}}.",
+    "counted": "{{count}} events of this kind, counted together by the security record.",
+    "again": "Still going on.",
+    "raw": "Error text:",
+    "request": "The request:",
+    "rawHidden": "details in the panel",
+    "mergedWas": " (was: {{label}}, {{duration}})",
+    "mergedWhy": "The message that told it could not be sent while it lasted.",
+    "summaryOne": "{{count}} more {{many}} {{span}}",
+    "summaryMany": "{{count}} more events {{span}}: {{list}}",
+    "summaryWhat": "These were not sent one by one, so that the chat is not flooded:",
+    "summaryTodo": "look at the notifications or the security record in the panel.",
+    "summaryMeans": "Nothing was lost: every event is in the panel.",
+    "spanMinute": "in the last minute",
+    "spanMinutes": "in the last {{n}} min",
+    "spanHours": "in the last {{n}} h",
+    "otherEvents": "other events"
+  },
+  "kinds": {
+    "auth.mfa.locked": {
+      "severity": "critical", "category": "security",
+      "label": "Two-factor check locked", "many": "two-factor locks",
+      "preview": "Two-factor locked for {{actor}}: someone has the password",
+      "what": "Too many wrong two-factor codes were typed for the account {{actor}}, from {{ip}}. The check is locked for a while.",
+      "means": "Whoever typed them knew the password of this account.",
+      "todo": "if it was not you, change the password of {{actor}} now and look at its sessions.",
+      "page": "/cosmos-ui/security-audit",
+      "sample": {"actor": "admin", "ip": "203.0.113.7"}
+    },
+    "access.grant.denied": {
+      "severity": "critical", "category": "security",
+      "label": "Permission grant refused", "many": "refused permission grants",
+      "preview": "{{actor}} tried to grant a permission they lack",
+      "what": "The account {{actor}} (from {{ip}}) tried to hand out the permission {{permission}}, which it does not hold itself. It was refused.",
+      "means": "An account tried to raise its own rights or someone else's.",
+      "todo": "if this was not expected, look at what {{actor}} did in the security record.",
+      "page": "/cosmos-ui/security-audit",
+      "sample": {"actor": "editor", "ip": "192.168.1.20", "permission": "admin"}
+    },
+    "shield.ban.temporary": {
+      "severity": "critical", "category": "security",
+      "label": "Client banned for a while", "many": "temporary bans",
+      "preview": "SmartShield banned {{ip}} for a while",
+      "what": "SmartShield banned the client {{ip}} after three strikes ({{reason}}).",
+      "means": "It cannot reach Cosmos until the ban ends.",
+      "todo": "nothing, unless it is one of your own devices: then lift the ban in the panel.",
+      "page": "/cosmos-ui/security",
+      "sample": {"ip": "198.51.100.23", "reason": "too many requests"}
+    },
+    "shield.ban.permanent": {
+      "severity": "critical", "category": "security",
+      "label": "Client banned for good", "many": "permanent bans",
+      "preview": "SmartShield banned {{ip}} for good",
+      "what": "SmartShield banned the client {{ip}} until it is unbanned ({{reason}}).",
+      "means": "It cannot reach Cosmos any more.",
+      "todo": "nothing, unless it is one of your own devices: then lift the ban in the panel.",
+      "page": "/cosmos-ui/security",
+      "sample": {"ip": "198.51.100.23", "reason": "repeated strikes"}
+    },
+    "user.role.changed": {
+      "severity": "critical", "category": "security",
+      "label": "Role of an account changed", "many": "role changes",
+      "preview": "Role of {{target}} changed to {{role}}",
+      "what": "{{actor}} changed the role of the account {{target}} to {{role}}, from {{ip}}.",
+      "means": "What this account may do in Cosmos changed.",
+      "todo": "if it was not you, take the role back under Users and change your password.",
+      "page": "/cosmos-ui/config-users",
+      "sample": {"actor": "admin", "ip": "192.168.1.20", "target": "guest", "role": "Admin"}
+    },
+    "host.terminal.opened": {
+      "severity": "critical", "category": "security",
+      "label": "Terminal opened on the server", "many": "server terminals opened",
+      "preview": "Root terminal opened on the server by {{actor}}",
+      "what": "{{actor}} opened a terminal on the server itself, as root, from {{ip}}.",
+      "means": "Whoever holds it can do anything on this machine.",
+      "todo": "if it was not you, sign out every session of {{actor}} and change its password.",
+      "page": "/cosmos-ui/security-audit",
+      "sample": {"actor": "admin", "ip": "192.168.1.20"}
+    },
+    "snapshot.restore.started": {
+      "severity": "critical", "category": "security",
+      "label": "Snapshot restore started", "many": "snapshot restores",
+      "preview": "Restore of {{target}} started by {{actor}}",
+      "what": "{{actor}} started replacing the folder {{target}} with its snapshot {{snapshot}}, from {{ip}}.",
+      "means": "The folder's current content is being replaced.",
+      "todo": "if it was not you, look at the server now.",
+      "page": "/cosmos-ui/backups",
+      "sample": {"actor": "admin", "ip": "192.168.1.20", "target": "/mnt/data/photos", "snapshot": "2026-11-16 03:00"}
+    },
+    "server.update.rejected": {
+      "severity": "critical", "category": "security",
+      "label": "Unsigned update refused", "many": "refused updates",
+      "preview": "Update {{target}} refused: signature not valid",
+      "what": "The release {{target}} was not installed because it could not be verified as signed by this fork ({{reason}}).",
+      "means": "The server stays on its version. A release that does not verify may have been tampered with.",
+      "todo": "do not install that release by hand; wait for the next one.",
+      "page": "/cosmos-ui/config-general",
+      "sample": {"target": "0.24.0-fork.36", "reason": "signature does not match"}
+    },
+    "upnp.port.opened": {
+      "severity": "critical", "category": "security",
+      "label": "Port opened on the router", "many": "ports opened",
+      "preview": "Router port opened for {{target}}",
+      "what": "{{actor}} asked the router to forward a port to {{target}}, from {{ip}}.",
+      "means": "The app is reachable from the internet directly, without Cosmos' sign-in.",
+      "todo": "if it was not you, close the port in the app's Internet settings.",
+      "page": "/cosmos-ui/servapps",
+      "sample": {"actor": "admin", "ip": "192.168.1.20", "target": "jellyfin:8096"}
+    },
+    "expose.opened": {
+      "severity": "critical", "category": "security",
+      "label": "App exposed to the internet", "many": "apps exposed",
+      "preview": "{{target}} exposed to the internet by {{actor}}",
+      "what": "{{actor}} made {{target}} reachable from outside, from {{ip}}.",
+      "means": "Anyone on the internet can now reach this app; a forwarded port reaches it without Cosmos' sign-in.",
+      "todo": "if it was not you, withdraw it in the app's Internet settings.",
+      "page": "/cosmos-ui/servapps",
+      "sample": {"actor": "admin", "ip": "192.168.1.20", "target": "jellyfin"}
+    },
+    "edge.blocked": {
+      "severity": "critical", "category": "security",
+      "label": "Address blocked at Cloudflare", "many": "blocks at Cloudflare",
+      "preview": "{{ip}} blocked at Cloudflare",
+      "what": "The address {{ip}} kept offending through Cloudflare ({{reason}}); Cloudflare now blocks or challenges it for a limited time ({{via}}).",
+      "means": "It does not reach the server while the block lasts.",
+      "todo": "nothing, unless it was a mistake: then lift it under Configuration > Domains.",
+      "page": "/cosmos-ui/config-general",
+      "sample": {"ip": "198.51.100.23", "reason": "probes", "via": "an IP Access Rule of the domain"}
+    },
+    "auth.login.failed": {
+      "severity": "warn", "category": "security",
+      "label": "Failed sign-in", "many": "failed sign-ins",
+      "preview": "Failed sign-in as {{target}} from {{ip}}",
+      "what": "A sign-in as {{target}} from {{ip}} was refused ({{reason}}).",
+      "means": "Someone typed a wrong password or a user that does not exist.",
+      "todo": "nothing if it was you; many of them from one address are banned by SmartShield and Fail2ban.",
+      "page": "/cosmos-ui/security",
+      "sample": {"target": "admin", "ip": "203.0.113.7", "reason": "wrong password"}
+    },
+    "auth.mfa.failed": {
+      "severity": "warn", "category": "security",
+      "label": "Wrong two-factor code", "many": "wrong two-factor codes",
+      "preview": "Wrong two-factor code for {{actor}} from {{ip}}",
+      "what": "A wrong two-factor code was typed for {{actor}} from {{ip}}, after a correct password.",
+      "means": "Whoever typed it knows the password of {{actor}}.",
+      "todo": "if it was not you, change the password of {{actor}}.",
+      "page": "/cosmos-ui/security-audit",
+      "sample": {"actor": "admin", "ip": "203.0.113.7"}
+    },
+    "auth.sudo.failed": {
+      "severity": "warn", "category": "security",
+      "label": "Wrong password at the confirmation", "many": "wrong confirmations",
+      "preview": "Wrong password confirmation by {{actor}}",
+      "what": "{{actor}}, signed in, typed a wrong password at the confirmation prompt, from {{ip}}.",
+      "means": "Someone who holds a session of {{actor}} does not know its password.",
+      "todo": "if it was not you, sign out the sessions of {{actor}}.",
+      "page": "/cosmos-ui/security-audit",
+      "sample": {"actor": "admin", "ip": "192.168.1.20"}
+    },
+    "auth.session.forged": {
+      "severity": "warn", "category": "security",
+      "label": "Forged session", "many": "forged sessions",
+      "preview": "Forged session cookie from {{ip}}",
+      "what": "A session cookie this server did not sign was presented from {{ip}}.",
+      "means": "Someone tries to get in without signing in. It was refused.",
+      "todo": "nothing; repeated, the address is banned.",
+      "page": "/cosmos-ui/security",
+      "sample": {"ip": "198.51.100.23"}
+    },
+    "scan.probe": {
+      "severity": "warn", "category": "security",
+      "label": "Probe for a known weakness", "many": "probes",
+      "preview": "Probe from {{ip}}: {{probe}}",
+      "what": "{{ip}} asked for a path that scanners look for ({{probe}}).",
+      "means": "A robot looks for a weak spot. It got nothing.",
+      "todo": "nothing; repeated, the address is banned.",
+      "page": "/cosmos-ui/security",
+      "sample": {"ip": "198.51.100.23", "probe": "wordpress"}
+    },
+    "shield.strike": {
+      "severity": "warn", "category": "security",
+      "label": "SmartShield strike", "many": "strikes",
+      "preview": "SmartShield strike for {{ip}}",
+      "what": "SmartShield gave the client {{ip}} a strike ({{reason}}).",
+      "means": "At three strikes it is banned.",
+      "todo": "nothing.",
+      "page": "/cosmos-ui/security",
+      "sample": {"ip": "198.51.100.23", "reason": "too many requests"}
+    },
+    "firewall.ban": {
+      "severity": "warn", "category": "security",
+      "label": "Fail2ban banned an address", "many": "Fail2ban bans",
+      "preview": "Fail2ban banned {{ip}} ({{jail}})",
+      "what": "Fail2ban banned {{ip}} at the firewall, in the jail {{jail}}.",
+      "means": "That address cannot reach any service of this server until the ban ends.",
+      "todo": "nothing, unless it is one of your devices: then unban it under Security.",
+      "page": "/cosmos-ui/security",
+      "sample": {"ip": "198.51.100.23", "jail": "cosmos-auth"}
+    },
+    "config.saved": {
+      "severity": "warn", "category": "security",
+      "label": "Settings changed", "many": "changes of settings",
+      "preview": "Settings changed by {{actor}}: {{sections}}",
+      "what": "{{actor}} saved the settings from {{ip}}. Changed: {{sections}}.",
+      "means": "The server works with the new settings from now on.",
+      "todo": "if it was not you, look at the security record and change your password.",
+      "page": "/cosmos-ui/security-audit",
+      "sample": {"actor": "admin", "ip": "192.168.1.20", "sections": "HTTPConfig.Hostname, Telegram"}
+    },
+    "user.created": {
+      "severity": "warn", "category": "security",
+      "label": "Account created", "many": "accounts created",
+      "preview": "Account {{target}} created by {{actor}}",
+      "what": "{{actor}} created the account {{target}} from {{ip}}.",
+      "means": "Someone new can sign in once the invitation is used.",
+      "todo": "if it was not you, delete the account under Users.",
+      "page": "/cosmos-ui/config-users",
+      "sample": {"actor": "admin", "ip": "192.168.1.20", "target": "guest"}
+    },
+    "user.deleted": {
+      "severity": "warn", "category": "security",
+      "label": "Account deleted", "many": "accounts deleted",
+      "preview": "Account {{target}} deleted by {{actor}}",
+      "what": "{{actor}} deleted the account {{target}} from {{ip}}.",
+      "means": "That person can no longer sign in.",
+      "todo": "if it was not you, look at the security record.",
+      "page": "/cosmos-ui/config-users",
+      "sample": {"actor": "admin", "ip": "192.168.1.20", "target": "guest"}
+    },
+    "auth.password.changed": {
+      "severity": "warn", "category": "security",
+      "label": "Password changed", "many": "password changes",
+      "preview": "Password of {{actor}} changed",
+      "what": "The password of {{actor}} was changed from {{ip}}.",
+      "means": "The old password no longer works.",
+      "todo": "if it was not you, reset it from another administrator account at once.",
+      "page": "/cosmos-ui/config-users",
+      "sample": {"actor": "admin", "ip": "192.168.1.20"}
+    },
+    "token.created": {
+      "severity": "warn", "category": "security",
+      "label": "API token created", "many": "API tokens created",
+      "preview": "API token {{token}} created by {{actor}}",
+      "what": "{{actor}} created the API token {{token}} from {{ip}}.",
+      "means": "A program holding it can use the API with the token's rights.",
+      "todo": "if it was not you, delete it under Configuration > API tokens.",
+      "page": "/cosmos-ui/config-general",
+      "sample": {"actor": "admin", "ip": "192.168.1.20", "token": "backup-script"}
+    },
+    "container.terminal.opened": {
+      "severity": "warn", "category": "security",
+      "label": "Terminal opened in an app", "many": "app terminals opened",
+      "preview": "Terminal opened in {{target}} by {{actor}}",
+      "what": "{{actor}} opened a terminal inside the container {{target}} from {{ip}}.",
+      "means": "Whoever holds it can change that app and read its data.",
+      "todo": "if it was not you, look at the security record.",
+      "page": "/cosmos-ui/servapps",
+      "sample": {"actor": "admin", "ip": "192.168.1.20", "target": "jellyfin"}
+    },
+    "credentials.revealed": {
+      "severity": "warn", "category": "security",
+      "label": "Sign-in details shown", "many": "sign-in details shown",
+      "preview": "Sign-in details of {{target}} shown to {{actor}}",
+      "what": "{{actor}} looked at the sign-in details of {{target}} from {{ip}}.",
+      "means": "They can now sign in to that app.",
+      "todo": "if it was not you, change the app's password.",
+      "page": "/cosmos-ui/security-audit",
+      "sample": {"actor": "admin", "ip": "192.168.1.20", "target": "nextcloud"}
+    },
+    "recorder.dropped": {
+      "severity": "warn", "category": "security",
+      "label": "Security events lost", "many": "losses of security events",
+      "preview": "Security record lost {{count}} events",
+      "what": "The security record could not keep up and lost {{count}} events.",
+      "means": "Some events are missing from the record; the server works as before.",
+      "todo": "look at what caused the flood in the security dashboard.",
+      "page": "/cosmos-ui/security",
+      "sample": {"count": "120"}
+    },
+    "auth.login.new": {
+      "severity": "warn", "category": "logins",
+      "label": "Sign-in from a new address", "many": "sign-ins from new addresses",
+      "preview": "{{actor}} signed in from new address {{ip}}",
+      "what": "A password was accepted for {{actor}} from {{ip}}, an address not seen before for this account.",
+      "means": "That is you on a new network, or someone who has the password.",
+      "todo": "if it was not you, change the password of {{actor}} and sign out its sessions.",
+      "page": "/cosmos-ui/security-audit",
+      "sample": {"actor": "admin", "ip": "203.0.113.7"}
+    },
+    "security.other": {
+      "severity": "warn", "category": "security",
+      "label": "Security event", "many": "security events",
+      "preview": "{{_label}}: {{subject}}",
+      "what": "{{_description}}",
+      "means": "It is kept in the security record with who, from where and what.",
+      "todo": "look at the security record if it was not expected.",
+      "page": "/cosmos-ui/security-audit",
+      "sample": {"_label": "Permission refused", "subject": "editor · 192.168.1.20", "_description": "An action was refused because the account lacks the permission."}
+    },
+
+    "smart.failing": {
+      "severity": "error", "category": "storage",
+      "label": "Disk failing (S.M.A.R.T.)", "many": "failing disks",
+      "preview": "Disk {{disk}} failing: {{reason}}",
+      "whatKey": "notif.smart.failing.what",
+      "todo": "copy what matters off this disk now, and plan to replace it.",
+      "page": "/cosmos-ui/storage",
+      "sample": {"disk": "/dev/sdb", "model": "WDC WD40EFRX", "serial": "4F2A", "mounts": "/mnt/data", "reason": "12 reallocated sectors (5 more since the last check)"}
+    },
+    "smart.restored": {
+      "severity": "info", "category": "storage", "closing": true, "closes": "smart.failing",
+      "label": "Disk healthy again", "many": "disks healthy again",
+      "preview": "Disk {{disk}} reads healthy again",
+      "whatKey": "notif.smart.restored.what",
+      "todo": "nothing.",
+      "page": "/cosmos-ui/storage",
+      "sample": {"disk": "/dev/sdb", "model": "WDC WD40EFRX", "serial": "4F2A"}
+    },
+    "smart.gone": {
+      "severity": "warn", "category": "storage", "closing": true, "closes": "smart.failing", "neutral": true,
+      "label": "Failing disk no longer present", "many": "failing disks gone",
+      "preview": "Failing disk {{disk}} no longer present",
+      "whatKey": "notif.smart.gone.what",
+      "means": "A disk that is gone is not a healthy disk: if it was not replaced on purpose, it may have died.",
+      "todo": "check that the disk was replaced on purpose, and that what was on it is safe.",
+      "page": "/cosmos-ui/storage",
+      "sample": {"disk": "/dev/sdb", "model": "WDC WD40EFRX", "serial": "4F2A"}
+    },
+    "thread.ended": {
+      "severity": "info", "category": "system", "closing": true, "neutral": true,
+      "label": "No longer followed", "many": "problems no longer followed",
+      "preview": "No longer followed: {{_label}}",
+      "what": "Cosmos stopped following this problem without seeing it end: its cause changed, what it was about is gone, or its watch was switched off. The pin is removed.",
+      "todo": "open the panel to see whether it still holds.",
+      "sample": {"_label": "Cosmos unreachable from the internet"}
+    },
+    "disk.filling": {
+      "severity": "warn", "category": "storage",
+      "label": "Disk filling fast", "many": "disks filling fast",
+      "preview": "{{mount}} full in about {{left}} at this rate",
+      "whatKey": "notif.disk.filling.what",
+      "todo": "find what grows (downloads, logs, backups) and free space or move it.",
+      "page": "/cosmos-ui/storage",
+      "sample": {"mount": "/mnt/data", "grown": "180 GB", "hours": "24", "left": "2 days", "free": "350 GB"}
+    },
+    "disk.filling.over": {
+      "severity": "info", "category": "storage", "closing": true, "closes": "disk.filling",
+      "label": "Disk no longer filling fast", "many": "disks no longer filling fast",
+      "preview": "{{mount}} no longer fills fast",
+      "whatKey": "notif.disk.filling.over.what",
+      "todo": "nothing.",
+      "page": "/cosmos-ui/storage",
+      "sample": {"mount": "/mnt/data", "free": "410 GB"}
+    },
+    "docker.down": {
+      "severity": "error", "category": "apps",
+      "label": "Docker does not answer", "many": "Docker outages",
+      "preview": "Docker not answering for {{minutes}} min",
+      "whatKey": "notif.docker.down.what",
+      "todo": "on the server: systemctl status docker, and the free space of its disk.",
+      "page": "/cosmos-ui/servapps",
+      "sample": {"minutes": "3", "reason": "the connection was refused"}
+    },
+    "docker.restored": {
+      "severity": "info", "category": "apps", "closing": true, "closes": "docker.down",
+      "label": "Docker answers again", "many": "Docker recoveries",
+      "preview": "Docker answers again",
+      "whatKey": "notif.docker.restored.what",
+      "todo": "nothing; look at the apps if some did not start again.",
+      "page": "/cosmos-ui/servapps",
+      "sample": {"duration": "7 minutes"}
+    },
+    "snapshots.late": {
+      "severity": "warn", "category": "system",
+      "label": "No recent snapshot", "many": "late snapshots",
+      "preview": "No snapshot of {{folder}} for {{age}}",
+      "whatKey": "notif.snapshots.late.what",
+      "todo": "look at the incremental backup card: the destination disk and the last run's errors.",
+      "page": "/cosmos-ui/config-general",
+      "sample": {"folder": "/mnt/data/photos", "age": "2 days", "last": "15 Nov 03:00", "period": "day"}
+    },
+    "snapshots.ontime": {
+      "severity": "info", "category": "system", "closing": true, "closes": "snapshots.late",
+      "label": "Snapshots made again", "many": "folders snapshotted again",
+      "preview": "{{folder}} has a new snapshot",
+      "whatKey": "notif.snapshots.ontime.what",
+      "todo": "nothing.",
+      "page": "/cosmos-ui/config-general",
+      "sample": {"folder": "/mnt/data/photos", "last": "17 Nov 03:00"}
+    },
+    "update.proven": {
+      "severity": "info", "category": "system",
+      "label": "Update proved itself", "many": "updates proven",
+      "preview": "Version {{version}} proved itself after its update",
+      "whatKey": "notif.update.proven.what",
+      "todo": "nothing.",
+      "page": "/cosmos-ui/config-general",
+      "sample": {"version": "0.24.0-fork.36", "duration": "2 minutes", "run": "1"}
+    },
+    "job.restored": {
+      "severity": "info", "category": "system", "closing": true, "closes": "error.job",
+      "label": "Scheduled job works again", "many": "jobs working again",
+      "preview": "Scheduled job {{name}} works again",
+      "whatKey": "notif.job.restored.what",
+      "todo": "nothing.",
+      "page": "/cosmos-ui/cron",
+      "sample": {"name": "nightly-cleanup"}
+    },
+    "login.newcountry": {
+      "severity": "warn", "category": "security", "off": true,
+      "label": "Sign-in from a new country", "many": "sign-ins from new countries",
+      "preview": "{{user}} signed in from {{country}}, a new country",
+      "whatKey": "notif.login.newcountry.what",
+      "todo": "if it was not you, change the password of {{user}} and sign out its sessions.",
+      "page": "/cosmos-ui/security-audit",
+      "sample": {"user": "admin", "country": "PT", "ip": "203.0.113.7", "known": "RO"}
+    },
+
+    "smart.unreadable": {
+      "severity": "error", "category": "storage",
+      "label": "Disk cannot be read", "many": "disks that cannot be read",
+      "preview": "Disk {{disk}} cannot be read any more",
+      "whatKey": "notif.smart.unreadable.what",
+      "todo": "look at the disk now: copy what matters off it if it still mounts.",
+      "page": "/cosmos-ui/storage",
+      "sample": {"disk": "/dev/sdb", "model": "WDC WD40EFRX", "serial": "…4F2A", "mounts": "/mnt/data"}
+    },
+    "smart.unwatchable": {
+      "severity": "info", "category": "storage",
+      "label": "Disk health not watched", "many": "disks not watched",
+      "preview": "Health of {{disk}} not watched (it could wake)",
+      "whatKey": "notif.smart.unwatchable.what",
+      "todo": "nothing; connect the disk directly (not through USB) to have it watched.",
+      "page": "/cosmos-ui/storage",
+      "sample": {"disk": "/dev/sdc", "model": "USB disk"}
+    },
+    "watch.stuck": {
+      "severity": "warn", "category": "system",
+      "label": "A check does not answer", "many": "checks that do not answer",
+      "preview": "The check of {{what}} does not answer",
+      "whatKey": "notif.watch.stuck.what",
+      "todo": "look for a disk or a network share that hangs (an NFS or SMB mount).",
+      "sample": {"what": "disks filling fast", "age": "1 hour"}
+    },
+    "smart.readable": {
+      "severity": "info", "category": "storage", "closing": true, "closes": "smart.unreadable",
+      "label": "Disk can be read again", "many": "disks readable again",
+      "preview": "Disk {{disk}} can be read again",
+      "whatKey": "notif.smart.readable.what",
+      "todo": "nothing; keep an eye on it.",
+      "page": "/cosmos-ui/storage",
+      "sample": {"disk": "/dev/sdb", "model": "WDC WD40EFRX"}
+    },
+    "watch.recovered": {
+      "severity": "info", "category": "system", "closing": true, "closes": "watch.stuck",
+      "label": "A check answers again", "many": "checks answering again",
+      "preview": "The check of {{what}} answers again",
+      "whatKey": "notif.watch.recovered.what",
+      "todo": "nothing.",
+      "sample": {"what": "disks filling fast", "age": "2 hours"}
+    },
+    "docker.unwatched": {
+      "severity": "info", "category": "apps", "closing": true, "closes": "docker.down", "neutral": true,
+      "label": "Docker no longer watched", "many": "watches switched off",
+      "preview": "Docker no longer watched (switched off)",
+      "whatKey": "notif.docker.unwatched.what",
+      "todo": "switch the watch on again to know when Docker answers.",
+      "page": "/cosmos-ui/servapps",
+      "sample": {}
+    },
+    "upnp.forward.failed": {
+      "severity": "error", "category": "system",
+      "label": "Router stopped forwarding a port", "many": "lost port forwards",
+      "preview": "Router does not forward port {{port}}",
+      "whatKey": "notif.upnp.forward.failed.https.absent",
+      "todo": "check the router's UPnP setting; Cosmos tries again by itself.",
+      "sample": {"port": "443", "app": "Cosmos"}
+    },
+    "upnp.forward.restored": {
+      "severity": "info", "category": "system", "closing": true, "closes": "upnp.forward.failed",
+      "label": "Port forwarded again", "many": "ports forwarded again",
+      "preview": "Port {{port}} is forwarded again",
+      "whatKey": "notif.upnp.forward.restored.https",
+      "todo": "nothing.",
+      "sample": {"port": "443", "at": "14:21", "duration": "12 minutes"}
+    },
+    "upnp.router.unreachable": {
+      "severity": "error", "category": "system",
+      "label": "Router does not answer", "many": "router outages",
+      "preview": "Router does not answer: port forwards at risk",
+      "whatKey": "notif.upnp.router.unreachable.what",
+      "todo": "check that the router is on and UPnP is enabled on it.",
+      "sample": {}
+    },
+    "upnp.router.restored": {
+      "severity": "info", "category": "system", "closing": true, "closes": "upnp.router.unreachable",
+      "label": "Router answers again", "many": "router recoveries",
+      "preview": "Router answers again",
+      "whatKey": "notif.upnp.router.restored.what",
+      "todo": "nothing.",
+      "sample": {"at": "14:21", "duration": "9 minutes"}
+    },
+    "upnp.config.invalid": {
+      "raw": ["answer"], "severity": "warn", "category": "system",
+      "label": "Port forwarding settings refused", "many": "refused forwarding settings",
+      "preview": "Router refuses the port forwarding settings",
+      "whatKey": "notif.upnp.config.invalid.what",
+      "todo": "correct the router settings under Configuration > Internet.",
+      "sample": {"answer": "ConflictInMappingEntry"}
+    },
+    "cert.order.failed": {
+      "raw": ["reason"], "severity": "error", "category": "system",
+      "label": "No certificate obtained", "many": "failed certificate orders",
+      "preview": "No certificate for {{domain}}",
+      "whatKey": "notif.cert.order.failed.what",
+      "means": "Visitors of this name get a warning or no connection until a certificate is obtained.",
+      "todo": "read the reason and fix the DNS or the provider's token; Cosmos tries again.",
+      "sample": {"domain": "example.org", "reason": "the DNS provider refused the token"}
+    },
+    "cert.expiring": {
+      "raw": ["why"], "severity": "warn", "category": "system", "level": true,
+      "label": "Certificate ends soon", "many": "certificates ending",
+      "preview": "Certificate of {{domain}} ends {{left}}",
+      "whatKey": "notif.cert.expiring.what",
+      "todo": "open the certificates card and renew it, or fix what stops the renewal.",
+      "sample": {"domain": "example.org", "until": "2026-11-24", "left": "in 7 days", "why": "the last order failed"}
+    },
+    "cert.renewed": {
+      "severity": "info", "category": "system",
+      "label": "Certificate renewed", "many": "certificates renewed",
+      "preview": "Certificate of {{domains}} renewed",
+      "whatKey": "notif.cert.renewed.what",
+      "todo": "nothing.",
+      "sample": {"domains": "example.org"}
+    },
+    "cert.untrusted": {
+      "severity": "warn", "category": "system",
+      "label": "Addresses without a trusted certificate", "many": "untrusted addresses",
+      "preview": "Untrusted certificate on {{hosts}}",
+      "whatKey": "notif.cert.untrusted.what",
+      "todo": "give these names a certificate from Let's Encrypt in the certificates card.",
+      "sample": {"hosts": "app.example.org"}
+    },
+    "container.updated": {
+      "severity": "info", "category": "apps",
+      "label": "App updated", "many": "apps updated",
+      "preview": "{{name}} updated to a new image",
+      "whatKey": "notif.container.updated.what",
+      "todo": "nothing; if it misbehaves, look at its logs.",
+      "sample": {"name": "jellyfin", "image": "jellyfin/jellyfin:10.11"}
+    },
+    "container.update.failed": {
+      "severity": "error", "category": "apps",
+      "label": "App could not be updated", "many": "failed app updates",
+      "preview": "{{name}} could not be updated",
+      "whatKey": "notif.container.update.failed.what",
+      "todo": "open the app's page: start it if it is stopped, and read its log.",
+      "sample": {"name": "jellyfin"}
+    },
+    "container.dying": {
+      "severity": "error", "category": "apps",
+      "label": "App keeps stopping", "many": "apps that keep stopping",
+      "preview": "{{name}} keeps stopping (exit {{code}})",
+      "whatKey": "notif.container.dying.what",
+      "todo": "open the app's page and read the end of its log.",
+      "sample": {"name": "jellyfin", "exits": "4", "code": "137"}
+    },
+    "container.startFailed": {
+      "raw": ["reason"], "severity": "error", "category": "apps",
+      "label": "New app does not start", "many": "apps that do not start",
+      "preview": "{{name}} does not start",
+      "whatKey": "notif.container.startFailed.what",
+      "todo": "open the app's page and press \"Why?\": Cosmos offers the settings its log asks for.",
+      "sample": {"name": "nextcloud", "reason": "it stopped with exit code 1"}
+    },
+    "container.leftover": {
+      "severity": "warn", "category": "apps",
+      "label": "Interrupted change of an app", "many": "interrupted changes",
+      "preview": "Change of {{app}} interrupted",
+      "whatKey": "notif.container.leftover.what",
+      "todo": "open ServApps: put the old container back or remove it.",
+      "sample": {"app": "jellyfin", "name": "jellyfin-cosmos-old-1a2b"}
+    },
+    "app.installed": {
+      "severity": "info", "category": "apps",
+      "label": "App installed", "many": "apps installed",
+      "preview": "{{name}} installed",
+      "whatKey": "notif.app.installed.what",
+      "todo": "nothing; its sign-in details are on its page.",
+      "sample": {"name": "nextcloud"}
+    },
+    "app.installMail.failed": {
+      "raw": ["reason"], "severity": "warn", "category": "apps",
+      "label": "Installation e-mail not sent", "many": "installation e-mails not sent",
+      "preview": "E-mail about {{name}} not sent",
+      "whatKey": "notif.app.installMail.what",
+      "todo": "check the e-mail settings; the details are on the app's page.",
+      "sample": {"name": "nextcloud", "reason": "the mail server refused the sender"}
+    },
+    "route.protected": {
+      "severity": "info", "category": "apps",
+      "label": "URL made administrators-only", "many": "URLs protected",
+      "preview": "{{names}} now for administrators only",
+      "whatKey": "notif.route.protected.what",
+      "todo": "nothing.",
+      "sample": {"names": "pgadmin.example.org"}
+    },
+    "snapshots.failed": {
+      "raw": ["summary"], "severity": "error", "category": "system",
+      "label": "Incremental backup had problems", "many": "backup problems",
+      "preview": "Backup had problems: {{summary}}",
+      "whatKey": "notif.snapshots.failed.what",
+      "todo": "open Backups and look at the folders that failed.",
+      "sample": {"summary": "2 of 5 folders failed"}
+    },
+    "alert.disk": {
+      "severity": "error", "category": "storage", "level": true,
+      "label": "Disk nearly full", "many": "disk alerts",
+      "preview": "Disk {{disk}} nearly full",
+      "whatKey": "notif.alert.disk.what",
+      "todo": "free space on it, or move data to another disk.",
+      "page": "/cosmos-ui/storage",
+      "sample": {"disk": "/mnt/data", "name": "Disk Full Notification (/mnt/data)"}
+    },
+    "alert.triggered": {
+      "severity": "warn", "category": "system", "level": true,
+      "label": "Monitoring alert", "many": "monitoring alerts",
+      "preview": "Alert {{name}} triggered",
+      "whatKey": "notif.alert.triggered.what",
+      "todo": "open Monitoring to see the value that went past its limit.",
+      "page": "/cosmos-ui/monitoring",
+      "sample": {"name": "Anti Memory Leak"}
+    },
+    "fail2ban.down": {
+      "severity": "error", "category": "system",
+      "label": "Fail2ban not running", "many": "Fail2ban outages",
+      "preview": "Fail2ban not running: no firewall bans",
+      "whatKey": "notif.fail2ban.down.what",
+      "todo": "on the server: systemctl status fail2ban.",
+      "sample": {}
+    },
+    "fail2ban.restored": {
+      "severity": "info", "category": "system", "closing": true, "closes": "fail2ban.down",
+      "label": "Fail2ban runs again", "many": "Fail2ban recoveries",
+      "preview": "Fail2ban runs again",
+      "whatKey": "notif.fail2ban.restored.what",
+      "todo": "nothing.",
+      "sample": {"at": "14:21", "duration": "6 minutes"}
+    },
+    "update.rejected": {
+      "raw": ["summary"], "severity": "error", "category": "system",
+      "label": "Server update refused", "many": "refused updates",
+      "preview": "Server update refused: {{summary}}",
+      "whatKey": "notif.update.rejected.what",
+      "todo": "do not install that release by hand; the next one is tried as usual.",
+      "sample": {"summary": "the signature does not verify"}
+    },
+    "update.rolledback": {
+      "severity": "error", "category": "system",
+      "label": "Server update undone", "many": "updates undone",
+      "preview": "Update to {{failed}} undone: back on {{back}}",
+      "whatKey": "notif.update.rolledback.what.stopped",
+      "todo": "nothing now; that version is not offered again.",
+      "sample": {"failed": "0.24.0-fork.36", "back": "0.24.0-fork.35", "starts": "3", "file": "cosmos-update.failed"}
+    },
+    "update.attention": {
+      "raw": ["summary"], "severity": "critical", "category": "system",
+      "label": "Server update needs attention", "many": "updates needing attention",
+      "preview": "Update needs you: {{summary}}",
+      "whatKey": "notif.update.attention.what",
+      "todo": "follow cosmos-update.README in the installation folder.",
+      "sample": {"summary": "the previous version could not be restored", "file": "cosmos-update.README"}
+    },
+    "deps.updated": {
+      "severity": "info", "category": "system",
+      "label": "Dependencies updated", "many": "dependency updates",
+      "preview": "Dependencies updated in {{release}}",
+      "whatKey": "notif.deps.updated.what.tonight",
+      "todo": "nothing.",
+      "sample": {"summary": "14 minor, 1 major", "release": "0.24.0-fork.36", "at": "03:00"}
+    },
+    "deps.failed": {
+      "severity": "error", "category": "system", "level": true,
+      "label": "Dependency update failed", "many": "failed dependency updates",
+      "preview": "Dependency update failed: needs a session",
+      "whatKey": "notif.deps.failed.what",
+      "todo": "start a session on the repository; this server keeps its version.",
+      "sample": {}
+    },
+    "deps.paused": {
+      "severity": "info", "category": "system",
+      "label": "Dependency updates paused", "many": "pauses",
+      "preview": "Dependency updates paused on GitHub",
+      "whatKey": "notif.deps.paused.what",
+      "todo": "switch the workflow on again on GitHub when you want them.",
+      "sample": {}
+    },
+    "deps.quiet": {
+      "severity": "info", "category": "system",
+      "label": "No dependency to update", "many": "quiet weeks",
+      "preview": "Dependencies: nothing to update since {{date}}",
+      "whatKey": "notif.deps.quiet.what",
+      "todo": "nothing.",
+      "sample": {"date": "2026-10-17"}
+    },
+    "deps.stale": {
+      "severity": "warn", "category": "system",
+      "label": "Dependency update has not run", "many": "missed runs",
+      "preview": "Dependency update not run since {{date}}",
+      "whatKey": "notif.deps.stale.what",
+      "todo": "look at the workflow on GitHub: it may be disabled.",
+      "sample": {"date": "2026-11-01"}
+    },
+    "reach.down": {
+      "severity": "critical", "category": "system", "level": true, "pin": true,
+      "label": "Cosmos unreachable from the internet", "many": "outages",
+      "preview": "Unreachable from the internet (port {{port}})",
+      "whatKey": "notif.reach.down.connect.what",
+      "means": "Nobody outside your home reaches the panel or the apps; at home everything works.",
+      "todo": "check the router's port forward to this server; Cosmos keeps testing.",
+      "sample": {"since": "14:02", "port": "443", "name": "example.org", "code": "522"}
+    },
+    "reach.restored": {
+      "severity": "info", "category": "system", "closing": true, "closes": "reach.down",
+      "label": "Reachable from the internet again", "many": "recoveries",
+      "preview": "Reachable from the internet again",
+      "whatKey": "notif.reach.restored.what",
+      "todo": "nothing.",
+      "sample": {"at": "14:20", "duration": "18 minutes", "since": "14:02"}
+    },
+    "edgeblock.problem": {
+      "raw": ["text"], "severity": "error", "category": "system",
+      "label": "Blocks at Cloudflare paused", "many": "problems with blocks",
+      "preview": "Blocks at Cloudflare paused for {{text}}",
+      "what": "Cosmos cannot make or lift blocks at Cloudflare for {{text}}: the domain's token lacks a permission or is refused.",
+      "todo": "add the permission named in the panel to the token in Cloudflare's dashboard.",
+      "sample": {"text": "example.org"}
+    },
+    "originpull.expiring": {
+      "raw": ["text"], "severity": "warn", "category": "system",
+      "label": "Cloudflare certificate ends soon", "many": "warnings",
+      "preview": "Cloudflare origin certificate ends in {{text}}",
+      "what": "The certificate Cloudflare presents to this server ends in {{text}}.",
+      "means": "After that, requests through Cloudflare are refused while the check is enforced.",
+      "todo": "follow the steps in the Cloudflare card.",
+      "sample": {"text": "20 days"}
+    },
+    "originpull.stopped": {
+      "severity": "warn", "category": "system",
+      "label": "Cloudflare certificate check back to testing", "many": "warnings",
+      "preview": "Cloudflare certificate check back to testing",
+      "what": "Requiring a certificate from Cloudflare's proxy was not confirmed in time; it is back to testing and nothing is refused.",
+      "todo": "confirm it again in the Cloudflare card when it works.",
+      "sample": {}
+    },
+    "turnstile.problem": {
+      "severity": "error", "category": "system",
+      "label": "Sign-in check unavailable", "many": "problems",
+      "preview": "Sign-in check (Turnstile) unavailable",
+      "what": "Cloudflare's sign-in check cannot be used: it does not answer, or it refuses the secret key.",
+      "means": "Visitors from the internet cannot sign in meanwhile; the home network can.",
+      "todo": "from home, check the keys under Configuration > Domains > Sign-in check.",
+      "sample": {}
+    },
+    "error.backup": {
+      "raw": ["message"], "severity": "error", "category": "system",
+      "label": "Configuration backup failed", "many": "failed backups",
+      "preview": "Configuration backup failed",
+      "whatKey": "notif.error.backup.what",
+      "todo": "check the free space and the backup folder.",
+      "sample": {"message": "no space left on device"}
+    },
+    "error.job": {
+      "severity": "error", "category": "system",
+      "label": "Scheduled job failed", "many": "failed jobs",
+      "preview": "Scheduled job {{name}} failed",
+      "whatKey": "notif.error.job.what",
+      "todo": "open Scheduled jobs and read its last output.",
+      "page": "/cosmos-ui/cron",
+      "sample": {"name": "nightly-cleanup"}
+    },
+    "error.snapraid": {
+      "raw": ["message"], "severity": "error", "category": "storage",
+      "label": "SnapRAID task failed", "many": "SnapRAID failures",
+      "preview": "SnapRAID task failed",
+      "whatKey": "notif.error.snapraid.what",
+      "todo": "open Storage > Parity and read the task's output.",
+      "page": "/cosmos-ui/storage",
+      "sample": {"message": "sync stopped: disk d2 missing"}
+    },
+    "error.internet": {
+      "severity": "error", "category": "system",
+      "label": "No internet connection", "many": "losses of connection",
+      "preview": "Server has no internet connection",
+      "whatKey": "notif.error.internet.what",
+      "todo": "check the router and the server's network cable.",
+      "sample": {}
+    },
+    "error.database": {
+      "raw": ["message"], "severity": "error", "category": "system",
+      "label": "Database problem", "many": "database problems",
+      "preview": "Database problem on the server",
+      "whatKey": "notif.error.database.what",
+      "todo": "look at the server's log and the free space.",
+      "sample": {"message": "database is locked"}
+    },
+    "error.export": {
+      "raw": ["message"], "severity": "error", "category": "apps",
+      "label": "Export of the apps' settings failed", "many": "failed exports",
+      "preview": "Export of the apps' settings failed",
+      "whatKey": "notif.error.export.what",
+      "todo": "check Docker and the free space.",
+      "sample": {"message": "Docker does not answer"}
+    },
+    "error.migration": {
+      "raw": ["message"], "severity": "error", "category": "system",
+      "label": "Old settings not carried over", "many": "migration problems",
+      "preview": "Old settings could not be carried over",
+      "whatKey": "notif.error.migration.what",
+      "todo": "check the settings named in the panel.",
+      "sample": {"message": "unknown field"}
+    },
+    "error.socketproxy": {
+      "raw": ["message"], "severity": "error", "category": "system",
+      "label": "Two URLs on one port", "many": "port conflicts",
+      "preview": "Two URLs want the same port",
+      "whatKey": "notif.error.socketproxy.what",
+      "todo": "give one of the URLs another port.",
+      "page": "/cosmos-ui/config-url",
+      "sample": {"message": "port 8443 already in use"}
+    },
+    "error.mail": {
+      "raw": ["message"], "severity": "error", "category": "system",
+      "label": "E-mail not sent", "many": "e-mails not sent",
+      "preview": "E-mail could not be sent",
+      "whatKey": "notif.error.mail.what",
+      "todo": "check the e-mail settings and send a test e-mail.",
+      "sample": {"message": "authentication failed"}
+    },
+    "error.setup": {
+      "raw": ["message"], "severity": "error", "category": "system",
+      "label": "Setup step failed", "many": "setup problems",
+      "preview": "Setup step failed",
+      "whatKey": "notif.error.setup.what",
+      "todo": "repeat the step in the setup.",
+      "sample": {"message": "the certificate could not be made"}
+    },
+    "error.other": {
+      "raw": ["message"], "severity": "error", "category": "system",
+      "label": "Server error", "many": "server errors",
+      "preview": "Server error: {{message}}",
+      "whatKey": "notif.error.other.what",
+      "todo": "look at the notification in the panel.",
+      "sample": {"message": "the remote storage did not answer"}
+    },
+    "notification.other": {
+      "raw": ["title", "text"], "severity": "warn", "category": "other", "level": true,
+      "label": "Notification", "many": "notifications",
+      "preview": "{{title}}",
+      "what": "{{text}}",
+      "todo": "look at it in the panel.",
+      "sample": {"title": "Something Cosmos tells administrators", "text": "The text of the notification."}
+    },
+
+    "update.available": {
+      "severity": "info", "category": "system",
+      "label": "Server update available", "many": "updates available",
+      "preview": "Server update {{version}} available",
+      "what": "Version {{version}} is available; this server runs {{current}}.",
+      "whatAuto": "Version {{version}} is available; this server runs {{current}}. It is installed automatically at {{at}}.",
+      "todo": "nothing if updates are automatic; otherwise install it under Configuration > General.",
+      "page": "/cosmos-ui/config-general",
+      "sample": {"version": "0.24.0-fork.36", "current": "0.24.0-fork.35", "at": "03:00"}
+    },
+    "update.failed": {
+      "severity": "error", "category": "system",
+      "label": "Server update not installed", "many": "failed updates",
+      "preview": "Server update {{version}} not installed",
+      "what": "The update to {{version}} could not be installed; Cosmos keeps running the current version.",
+      "todo": "read the reason; the next attempt is made by itself.",
+      "page": "/cosmos-ui/config-general",
+      "sample": {"version": "0.24.0-fork.36", "reason": "the download was interrupted"}
+    },
+    "update.installed": {
+      "severity": "info", "category": "system",
+      "label": "Server updated", "many": "updates installed",
+      "preview": "Server updated to {{version}}",
+      "what": "Cosmos was updated from {{from}} to {{version}} and is running again.",
+      "todo": "nothing.",
+      "page": "/cosmos-ui/config-general",
+      "sample": {"from": "0.24.0-fork.35", "version": "0.24.0-fork.36"}
+    },
+    "update.failed.start": {
+      "severity": "error", "category": "system",
+      "label": "Update came back on the old version", "many": "failed updates",
+      "preview": "Update to {{to}} failed: still on {{version}}",
+      "what": "The server update was not installed: Cosmos started again with version {{version}}.",
+      "todo": "nothing now; the next attempt is made by itself.",
+      "page": "/cosmos-ui/config-general",
+      "sample": {"to": "0.24.0-fork.36", "version": "0.24.0-fork.35"}
+    },
+    "cosmos.started": {
+      "severity": "info", "category": "system",
+      "label": "Cosmos started", "many": "starts",
+      "preview": "Cosmos {{version}} started",
+      "what": "Cosmos started. Running version {{version}}.",
+      "todo": "nothing.",
+      "sample": {"version": "0.24.0-fork.35"}
+    },
+    "cosmos.restarted": {
+      "severity": "info", "category": "system",
+      "label": "Cosmos restarted", "many": "restarts",
+      "preview": "Cosmos restarted after a change of settings",
+      "what": "Cosmos restarted, as asked for in the panel or after a change of settings. Running version {{version}}.",
+      "todo": "nothing.",
+      "sample": {"version": "0.24.0-fork.35"}
+    },
+    "cosmos.signal": {
+      "severity": "warn", "category": "system",
+      "label": "Cosmos started after a stop or reboot", "many": "starts after a stop",
+      "preview": "Cosmos back after a stop or reboot",
+      "what": "Cosmos started again after it was stopped by the system: the service was stopped or restarted, or the machine rebooted. Running version {{version}}.",
+      "todo": "nothing, if you rebooted it; otherwise ask who did.",
+      "sample": {"version": "0.24.0-fork.35"}
+    },
+    "cosmos.crashed": {
+      "severity": "error", "category": "system",
+      "label": "Cosmos started after a crash", "many": "crashes",
+      "preview": "Cosmos back after a crash or power loss",
+      "what": "Cosmos started again after an unexpected stop: a crash, a kill or a power loss. Running version {{version}}.",
+      "todo": "look at the server's log (journalctl -u CosmosCloud) around that time.",
+      "sample": {"version": "0.24.0-fork.35"}
+    },
+    "cosmos.restarting": {
+      "severity": "critical", "category": "system",
+      "label": "Cosmos keeps restarting", "many": "restart loops",
+      "preview": "Cosmos keeps restarting",
+      "what": "Cosmos started several times within ten minutes. Running version {{version}}. Further starts are not announced for an hour.",
+      "means": "The panel and the apps behind it come and go.",
+      "todo": "look at the server's log (journalctl -u CosmosCloud) now.",
+      "sample": {"version": "0.24.0-fork.35"}
+    },
+    "address.changed": {
+      "severity": "warn", "category": "system", "level": true,
+      "label": "Public address changed", "many": "address changes",
+      "preview": "Public address changed to {{new}}",
+      "what": "The server's address on the internet changed from {{old}} to {{new}}.",
+      "means": "Visitors reach the server through the new address once the records point to it.",
+      "todo": "nothing if the records were updated; otherwise update them under Configuration > Domains.",
+      "page": "/cosmos-ui/config-general",
+      "sample": {"old": "203.0.113.7", "new": "203.0.113.42", "records": "not_updated", "shared": "no"}
+    },
+    "telegram.test": {
+      "severity": "info", "category": "system",
+      "label": "Test message", "many": "test messages",
+      "preview": "Test message from {{server}}",
+      "what": "Notifications from this server arrive in this chat.",
+      "todo": "nothing.",
+      "sample": {"server": "server.local"}
+    },
+    "telegram.moved": {
+      "severity": "critical", "category": "security",
+      "label": "Telegram notifications taken away", "many": "changes",
+      "preview": "Telegram notifications {{_what}}",
+      "what": "The Telegram notifications of this server {{_what}}: this chat no longer receives them as before.",
+      "means": "If that was not you, someone with an administrator's session changed them.",
+      "todo": "if it was not you, look at the server.",
+      "sample": {"_what": "were switched off", "actor": "admin", "ip": "192.168.1.20"}
+    }
+  }
+}

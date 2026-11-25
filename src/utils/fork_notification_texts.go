@@ -429,3 +429,14 @@ func NotificationTextKeys() []string {
 	sort.Strings(keys)
 	return keys
 }
+
+// NotificationKindNames lists the kinds of notifications there are (plan 48:
+// the Telegram messages test that each has its texts).
+func NotificationKindNames() []string {
+	names := make([]string, 0, len(notificationKinds))
+	for name := range notificationKinds {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}

@@ -383,7 +383,7 @@ func jobRunner_OnFail(schedulerName, jobName string) func(err error) {
 			job.Running = false
 			jobsList[job.Scheduler][job.Name] = job
 			triggerJobUpdated("fail", job.Name, err.Error())
-			utils.MajorError("CRON job " + job.Name + " failed", err)
+			utils.ForkJobFailed(job.Scheduler, job.Name, err) // Fork addition (plan 48, review 6): the job's own thread, naming its scheduler
 			
 			InternalProcessTracker.EndProcess()
 
@@ -403,6 +403,7 @@ func jobRunner_OnSuccess(schedulerName, jobName string) func() {
 			job.Running = false
 			jobsList[job.Scheduler][job.Name] = job
 			triggerJobUpdated("success", job.Name)
+			go utils.ForkJobSucceeded(job.Scheduler, job.Name) // Fork addition (plan 48): a failed job that works again is said so
 			utils.Log("CRON job " + job.Name + " finished")
 			
 			InternalProcessTracker.EndProcess()
@@ -491,12 +492,14 @@ func InitScheduler() {
 			)
 
 			if err != nil {
-				utils.MajorError("CRON job scheduling", err)
+				forkScheduled(job, err) // Fork addition (plan 48, review 6): a scheduling failure has its own thread, see fork_level.go
 			} else {
 				count++
+				forkScheduled(job, nil) // Fork addition (plan 48, review 6)
 			}
 		}
 	}
+	forkPruneScheduled() // Fork addition (plan 48, review 7)
 
 	// start
 	

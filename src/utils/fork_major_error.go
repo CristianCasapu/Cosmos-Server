@@ -8,7 +8,12 @@ import "strings"
 
 // majorErrorInfo is the hook of MajorError.
 func majorErrorInfo(message string, errText string) *NotificationInfo {
-	kind := majorErrorKind(message)
+	return majorErrorInfoOf(majorErrorKind(message), message, errText)
+}
+
+// majorErrorInfoOf is majorErrorInfo with the kind given (review 7, N5: a
+// job's failure is error.job whatever its name, SnapRAID's included).
+func majorErrorInfoOf(kind string, message string, errText string) *NotificationInfo {
 	raw := message
 	if errText != "" {
 		raw += ": " + errText

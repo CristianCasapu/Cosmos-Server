@@ -63,7 +63,8 @@ test('saving the form as it was loaded changes nothing and keeps the stored toke
   const values = telegramInitialValues(saved);
   const out = telegramToConfig(values, saved);
   assert.equal(out.BotToken, MASKED, 'the mask goes back: the server keeps what it has');
-  assert.deepEqual({ ...out, Categories: undefined }, { ...saved.Telegram, Categories: undefined });
+  // settings saved before plan 48 have no switches per kind and no delivery: empty ones mean the same
+  assert.deepEqual({ ...out, Categories: undefined }, { ...saved.Telegram, Categories: undefined, Kinds: {}, Delivery: {}, HideErrors: false });
   assert.deepEqual(out.Categories, { security: true, logins: true, system: true, storage: true, apps: false, other: true });
   assert.equal(telegramUnsaved(values, saved), false);
   assert.equal(telegramUnsaved({ ...values, Telegram_ChatID: '5' }, saved), true);
@@ -152,4 +153,12 @@ test('a test message needs a token and a chat, saved or typed, and nothing wrong
   assert.equal(canSendTest(telegramInitialValues(saved), saved), true, 'the saved token');
   assert.equal(canSendTest({ ...telegramInitialValues(saved), Telegram_ForgetToken: true }, saved), false, 'the saved token is being removed');
   assert.equal(canSendTest({ ...telegramInitialValues(saved), Telegram_TopicID: 'x' }, saved), false);
+});
+
+test('plan 48: error details are included unless switched off, and saved as HideErrors', () => {
+  const values = telegramInitialValues({ Telegram: {} });
+  assert.equal(values.Telegram_IncludeErrors, true);
+  assert.equal(telegramToConfig(values, {}).HideErrors, false);
+  assert.equal(telegramToConfig({ ...values, Telegram_IncludeErrors: false }, {}).HideErrors, true);
+  assert.equal(telegramInitialValues({ Telegram: { HideErrors: true } }).Telegram_IncludeErrors, false);
 });

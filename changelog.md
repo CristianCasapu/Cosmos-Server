@@ -10,7 +10,23 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 Merged into `custom` since `0.24.0-fork.39`, to be part of the next release:
 
-- Nothing yet.
+### Added
+- Telegram messages by severity: the first line, the one a phone shows before you open the message, says Info, Warning, Error or Critical, what happened and to what. The new "Telegram messages" card lists every kind with its preview and a sample to send yourself, a switch per kind, how each severity arrives (with sound, silently or not at all) and whether error details are included.
+- A critical problem rings, also in quiet hours, and stays pinned while it lasts. A problem that ends gets its "OK" as a reply to the message that told it, and its pin is removed.
+- New watches: failing disks, a disk filling fast, Docker not answering, late snapshots and a check that hangs; also a message when someone signs in from a new country (off on Telegram until switched on), when an update proved itself after its trial and when a failed scheduled job works again. Each watch can be switched off on the same card.
+- "Mark resolved" on a notification's details, for a problem Cosmos can no longer follow (for example the backup was deleted); the chat then says "No longer followed". A problem a watch still sees is not resolved, and the panel says so beside the button.
+
+### Changed
+- A problem is reported as over only when the watch that owns it saw it end since Cosmos started, or when you removed it in the settings; otherwise it stays open in the chat.
+- When Telegram cannot be reached for a while, the messages that wait longer than 15 minutes now arrive together as one summary instead of late, one by one; when too many wait, the least important go first and room is kept for critical ones.
+- "An update needs your attention" is now a critical message: it rings even in quiet hours. So do "Cosmos unreachable from the internet" (unless Cloudflare is the cause) and "Cosmos keeps restarting".
+- SnapRAID job failures are now "a scheduled job failed": switching off SnapRAID errors alone no longer silences them.
+- With more than 256 problems open at once, the newest arrive as separate messages and their end is not reported.
+
+### Fixed
+- A disk remounted read-only, or briefly missing, no longer ends its "filling fast" warning.
+- A job removed from the schedule, or a Restic backup deleted, no longer keeps its failure open for ever.
+- An invalid router setting no longer ends a port-forward problem.
 
 ## Fork 0.24.0-fork.39 — 2026-11-18
 

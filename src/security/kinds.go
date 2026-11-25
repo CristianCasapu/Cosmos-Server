@@ -189,6 +189,8 @@ var catalogue = func() map[string]Kind {
 		audit(utils.SecEdgeUnblocked, SeverityMedium, "Block at Cloudflare lifted", "A block Cosmos made at Cloudflare was removed. Target: the address or IPv6 network. Details: reason is admin (lifted by an administrator), all (everything lifted), off (the feature was switched off), expired (its time was up), removed_at_cloudflare (somebody deleted it in Cloudflare's dashboard) or admin_seen (an administrator signed in from it)."),
 
 		incident(utils.SecRecorderDropped, SeverityMedium, OutcomeFailed, "Events lost", "The record could not keep up (the database did not answer): Count events were not stored."),
+		incident(utils.SecTelegramThreadDropped, SeverityMedium, OutcomeFailed, "Telegram problem dropped", "The Telegram notifier failed three times on the message of an open problem and stopped sending it; it is looked at again within 10 minutes. Details: kind (the kind of the problem)."),
+		incident(utils.SecTelegramWarningLost, SeverityMedium, OutcomeFailed, "Telegram warning not delivered", "The Telegram chat that lost (part of) the notifications could not be told for 30 minutes. Details: what (what was changed), by (who changed it, from where)."),
 	}
 	byKind := make(map[string]Kind, len(kinds))
 	for _, kind := range kinds {

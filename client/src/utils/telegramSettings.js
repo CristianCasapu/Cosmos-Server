@@ -9,6 +9,8 @@
 // starts empty, and saving sends back what the server sent unless a new
 // token was typed.
 
+import { kindConfig, kindValues } from './telegramMessage.js'; // plan 48: the switches per kind and the delivery per severity
+
 // What the server sends in place of a stored secret, and takes back as "keep it".
 export const MASKED = '***';
 
@@ -55,6 +57,8 @@ export const telegramInitialValues = (config) => {
     Telegram_QuietTo: saved.QuietTo || '07:00',
     Telegram_QuietCriticalRings: !saved.QuietSilenceCritical,
     Telegram_MaxPerMinute: saved.MaxPerMinute || DEFAULT_MAX_PER_MINUTE,
+    ...kindValues(saved),
+    Telegram_IncludeErrors: !saved.HideErrors, // plan 48
   };
   TELEGRAM_CATEGORIES.forEach(({ name, byDefault }) => {
     values['Telegram_Cat_' + name] = typeof categories[name] === 'boolean' ? categories[name] : byDefault;
@@ -91,6 +95,8 @@ export const telegramToConfig = (values, config) => {
     QuietTo: quiet ? text(values.Telegram_QuietTo) : '',
     QuietSilenceCritical: !values.Telegram_QuietCriticalRings,
     MaxPerMinute: Number(values.Telegram_MaxPerMinute) || 0,
+    ...kindConfig(values),
+    HideErrors: values.Telegram_IncludeErrors === false, // plan 48
   };
 };
 

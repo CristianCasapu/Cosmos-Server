@@ -124,15 +124,13 @@ func TestRoute(w http.ResponseWriter, req *http.Request) {
 	config.Telegram = cfg
 	st := settingsOf(config)
 
-	c := &composer{}
-	header(c, st, "Test")
-	c.fixed("This is a test message: notifications from this server arrive in this chat.").line()
-	c.fixed(time.Now().Format(stampLayout))
-	text, entities := c.result()
+	nt := newNotice("telegram.test", map[string]string{"server": st.serverName})
+	nt.at = time.Now()
+	m := render(st, nt)
 
 	ctx, cancel := context.WithTimeout(req.Context(), requestTimeout+5*time.Second)
 	defer cancel()
-	failure := directClient.send(ctx, st, text, entities, false)
+	_, failure := directClient.sendMessage(ctx, st, outgoing{message: m}) // with sound, as always: it checks that messages arrive
 
 	result := TestResult{Success: failure == nil}
 	if failure != nil {

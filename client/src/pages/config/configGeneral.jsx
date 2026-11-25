@@ -26,6 +26,7 @@ import EmailSettings from './emailSettings'; // Fork addition: the email setting
 import ServerUpdate from '../../components/serverUpdate';
 import Snapshots from './snapshots'; // fork addition
 import Telegram from './telegram'; // fork addition
+import TelegramKinds from './telegramKinds'; // Fork addition (plan 48)
 import AppSignIn from './appSignIn'; // Fork addition (plan 45)
 import TimezoneInput from './timezoneInput'; // fork addition
 import { PaidOnly, HidePaidSwitch } from '../../components/paidVisibility'; // Fork addition
@@ -377,6 +378,7 @@ const ConfigGeneral = ({ formik, config, status, isAdmin }) => {
         </Grid>
       </MainCard>
       {/* Fork addition: notifications through Telegram (src/telegram), a card of their own above the e-mail settings */}<Telegram formik={formik} config={config} />
+      <TelegramKinds formik={formik} config={config} />{/* Fork addition (plan 48): every kind of message by severity, with its preview */}
       <AppSignIn formik={formik} />{/* Fork addition (plan 45): sign-in details for new apps */}
 
       <MainCard title="Emails - SMTP">

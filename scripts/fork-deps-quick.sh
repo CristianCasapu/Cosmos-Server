@@ -32,7 +32,7 @@ go_checks() {
   # the list of .github/actions/fork-build/action.yml
   go test ./src/forkrelease/ ./src/launcher/ -count=1
   go test ./src/utils/ ./src/authorizationserver/ -count=1
-  go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ ./src/telegram/ ./src/fail2ban/ ./src/maildetect/ ./src/dnsrecords/ ./src/cloudflare/... ./src/certs/ ./src/market/ ./src/turnstile/ ./src/edgeblock/ ./src/reachwatch/ ./src/anyimage/ ./src/behind/ ./src/appsignin/ ./src/cron/ ./src/guides/ ./src/edithints/ -count=1
+  go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ ./src/telegram/ ./src/fail2ban/ ./src/maildetect/ ./src/dnsrecords/ ./src/cloudflare/... ./src/certs/ ./src/market/ ./src/turnstile/ ./src/edgeblock/ ./src/reachwatch/ ./src/anyimage/ ./src/behind/ ./src/appsignin/ ./src/cron/ ./src/guides/ ./src/edithints/ ./src/watch/ -count=1
   go test ./src/ -skip TestEveryRouteIsDocumented -count=1
   go test ./src/docker/ ./src/proxy/ -count=1
   rm -f src/launcher/update.go

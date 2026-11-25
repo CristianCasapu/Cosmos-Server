@@ -1236,6 +1236,7 @@ func InitServer() *mux.Router {
 	registerSecurityRoutes(srapiAdmin) // Fork addition: the security record, read only
 	registerUserAuditRoutes(srapiAdmin, srapi) // Fork addition: the user audit panel, read only
 	registerTelegramRoutes(srapiAdmin) // Fork addition: notifications through Telegram, see fork_telegram.go
+	registerTelegramMessageRoutes(srapiAdmin) // Fork addition (plan 48): previews of the messages, see fork_telegram_messages.go
 	registerNotificationRoutes(srapiAdmin) // Fork addition: the notifications page and details, see fork_notifications.go
 	registerFail2banRoutes(srapiAdmin) // Fork addition: Fail2ban status, unban and settings, see fork_fail2ban.go
 	registerTurnstileRoutes(srapiAdmin) // Fork addition: Cloudflare Turnstile settings, see fork_turnstile.go

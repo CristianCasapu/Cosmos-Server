@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"net/netip"
-	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -20,53 +19,31 @@ import (
 // Every sentence is written here. What comes from an event or a notification
 // only ever goes through composer.value.
 
-// securitySentences are the titles of the events a phone is most likely to
-// show. The other kinds use the label of the catalogue.
+// securitySentences were the titles of the security events before the
+// table of messages.go; the kinds with words of their own are in the table
+// now. Kept as the list of the events the old messages had sentences for:
+// fork_edge.go and fork_upnp.go add to it, and a test checks that each of
+// them has its kind in the table.
 var securitySentences = map[string]string{
-	utils.SecMFALocked:            "Two-factor check locked: too many wrong codes. Whoever tried has the password of the account.",
-	utils.SecAccessGrantDenied:    "Refused to grant a permission: someone tried to hand out a permission they do not hold themselves.",
-	utils.SecShieldBanTemp:        "Temporary ban: SmartShield banned a client after three strikes.",
-	utils.SecShieldBanPerm:        "Permanent ban: SmartShield banned a client until it is unbanned.",
-	utils.SecUserRoleChanged:      "Role changed: the role of an account was changed.",
-	utils.SecHostTerminal:         "Host terminal opened: a terminal was opened on the server itself, as root.",
-	utils.SecSnapshotRestore:      "Snapshot restore started: a folder is being replaced by one of its snapshots.",
-	utils.SecServerUpdateRejected: "Update refused: a release was not installed because it could not be verified as signed by this fork. The server stays on its version.",
-	utils.SecLoginFailed:          "Failed login: a login was refused.",
-	utils.SecSudoFailed:           "Wrong password at the confirmation prompt, from a session that is logged in.",
-	utils.SecMFAFailed:            "Wrong two-factor code, from a session that has the password.",
-	utils.SecSessionForged:        "Forged session: a session cookie this server did not sign was presented.",
-	utils.SecScanProbe:            "Probe: a path that scanners look for was requested.",
-	utils.SecRecorderDropped:      "The security record could not keep up: events were lost.",
+	utils.SecMFALocked:            "",
+	utils.SecAccessGrantDenied:    "",
+	utils.SecShieldBanTemp:        "",
+	utils.SecShieldBanPerm:        "",
+	utils.SecUserRoleChanged:      "",
+	utils.SecHostTerminal:         "",
+	utils.SecSnapshotRestore:      "",
+	utils.SecServerUpdateRejected: "",
+	utils.SecLoginFailed:          "",
+	utils.SecSudoFailed:           "",
+	utils.SecMFAFailed:            "",
+	utils.SecSessionForged:        "",
+	utils.SecScanProbe:            "",
+	utils.SecRecorderDropped:      "",
 }
 
-// detailLabels are the details of an event that are shown, in this order,
-// under these names. A detail that is not listed is not sent.
-var detailLabels = []struct{ key, label string }{
-	{"reason", "Reason"},
-	{"form", "Form"},
-	{"role", "New role"},
-	{"permission", "Permission"},
-	{"what", "What"},
-	{"route", "URL"},
-	{"limit", "Limit"},
-	{"probe", "Probe"},
-	{"country", "Country"},
-	{"action", "Action"},
-	{"mode", "Mode"},
-	{"via", "At Cloudflare with"}, // Fork addition: how an edge block is made (src/edgeblock)
-	{"scope", "Scope"},
-	{"snapshot", "Snapshot"},
-	{"sections", "Changed"},
-	{"token", "API token"},
-	{"sources", "Sources"},
-}
-
-var outcomeWords = map[string]string{
-	security.OutcomeFailed:  "failed",
-	security.OutcomeDenied:  "denied",
-	security.OutcomeBlocked: "blocked",
-	security.OutcomeOK:      "done",
-}
+// eventVars are the details of an event that are passed to the texts, and
+// so may be shown. A detail that is not listed is never sent.
+var eventVars = []string{"reason", "form", "role", "permission", "what", "route", "limit", "probe", "country", "action", "mode", "via", "scope", "snapshot", "sections", "token", "sources", "jail"}
 
 // loginHistory returns the last logins of an account, newest first. A
 // variable so the tests need no database.
@@ -79,108 +56,106 @@ var loginHistory = func(actor string) ([]security.Event, error) {
 // and how.
 func noticeFromEvent(event security.Event, st settings) (notice, bool) {
 	if event.Kind == utils.SecLoginSuccess {
-		if !st.categories[CategoryLogins] || !isNewAddress(event) {
+		if !(st.categories[CategoryLogins] || st.forced("auth.login.new")) || !isNewAddress(event) {
 			return notice{}, false
 		}
 		return newAddressNotice(event), true
-	}
-	if !st.categories[CategorySecurity] {
-		return notice{}, false
 	}
 
 	kind, known := security.KindOf(event.Kind)
 	if !known {
 		return notice{}, false
 	}
-	severity, _ := security.ParseSeverity(event.Severity)
-	minimum, _ := security.ParseSeverity(st.minSeverity)
-	if severity < minimum || severity < security.SeverityLow {
-		return notice{}, false
+	name := kind.Kind
+	if !knownKind(name) || texts.Kinds[name].Category != CategorySecurity {
+		name = "security.other"
+	}
+	// review N4: "security.other" switched on lifts its category, not the
+	// minimum severity: it is every other event at the chosen severity
+	if forced := st.forced(name); !forced || name == "security.other" {
+		if !forced && !st.categories[CategorySecurity] {
+			return notice{}, false
+		}
+		severity, _ := security.ParseSeverity(event.Severity)
+		minimum, _ := security.ParseSeverity(st.minSeverity)
+		if severity < minimum || severity < security.SeverityLow {
+			return notice{}, false
+		}
 	}
 
-	nt := notice{
-		category: CategorySecurity,
-		key:      "sec:" + kind.Kind,
-		label:    kind.Label,
-		priority: priorityNormal,
-		at:       event.Time,
-		title:    kind.Label,
+	vars := map[string]string{
+		"actor": event.Actor, "ip": event.IP, "target": event.Target,
+		"_label": kind.Label, "_description": kind.Description,
 	}
-	switch {
-	case severity >= security.SeverityHigh:
-		nt.priority = priorityCritical
-	case severity <= security.SeverityLow:
-		nt.priority = priorityLow
+	for _, key := range eventVars {
+		if value := event.Details[key]; value != "" {
+			vars[key] = value
+		}
 	}
-	if sentence, has := securitySentences[kind.Kind]; has {
-		nt.title = sentence
+	if event.Kind == utils.SecLoginFailed && event.Details["reason"] == "unknown_user" {
+		// review N2: people type passwords into the name field; a name
+		// that is no account is not repeated
+		vars["target"] = "an unknown user name"
+	}
+	if words, known := reasonWords[vars["reason"]]; known {
+		vars["reason"] = words
+	}
+	subject := []string{}
+	for _, part := range []string{event.Actor, event.Target, event.IP} {
+		if part != "" {
+			subject = append(subject, part)
+		}
+	}
+	vars["subject"] = strings.Join(subject, " · ")
+	if vars["count"] == "" {
+		vars["count"] = event.Details["count"]
+	}
+
+	nt := newNotice(name, vars)
+	nt.key = "sec:" + kind.Kind
+	nt.at = event.Time
+	if name == "security.other" {
+		severity, _ := security.ParseSeverity(event.Severity)
+		switch {
+		case severity >= security.SeverityHigh:
+			nt.severity = sevCritical
+		case severity >= security.SeverityMedium:
+			nt.severity = sevWarn
+		default:
+			nt.severity = sevInfo
+		}
 	}
 	if event.Count > 1 {
 		// a summary row of the record: that many more, not stored one by one
-		nt.title = strconv.Itoa(event.Count) + " more of: " + kind.Label
-	}
-	nt.details = func(c *composer) { eventDetails(c, event, kind) }
-	return nt, true
-}
-
-// eventDetails writes who, from where, about what, and the details that
-// have a name.
-func eventDetails(c *composer, event security.Event, kind security.Kind) {
-	wrote := false
-	if event.Actor != "" {
-		c.fixed("By ").value(event.Actor, maxValue)
-		wrote = true
-	}
-	if event.IP != "" {
-		if wrote {
-			c.fixed(" from ")
-		} else {
-			c.fixed("From ")
-		}
-		c.value(event.IP, maxValue)
-		wrote = true
-	}
-	if event.Target != "" {
-		if wrote {
-			c.fixed(" · ")
-		}
-		c.fixed("About ").value(event.Target, maxValue)
-		wrote = true
-	}
-
-	second := false
-	add := func(label string, value string) {
-		if !second {
-			if wrote {
-				c.line()
-			}
-			second = true
-		} else {
-			c.fixed(" · ")
-		}
-		c.fixed(label+": ").value(value, maxValue)
-	}
-	for _, detail := range detailLabels {
-		if value := event.Details[detail.key]; value != "" {
-			add(detail.label, value)
-		}
+		nt.counted = event.Count
 	}
 	if event.Outcome != "" && event.Outcome != kind.Outcome {
 		if word, known := outcomeWords[event.Outcome]; known {
-			if !second {
-				if wrote {
-					c.line()
-				}
-				second = true
-			} else {
-				c.fixed(" · ")
-			}
-			c.fixed("Outcome: " + word)
+			nt.extra = func(c *composer) { c.fixed("Outcome: " + word + ".") }
 		}
 	}
-	if kind.Class == security.ClassIncident && event.Path != "" {
-		add("Asked for", strings.TrimSpace(event.Method+" "+event.Host+event.Path))
+	if kind.Class == security.ClassIncident && event.Path != "" && name != utils.SecLoginFailed {
+		nt.raw = strings.TrimSpace(event.Method + " " + event.Host + event.Path)
+		nt.rawIsRequest = true
 	}
+	return nt, true
+}
+
+// reasonWords are the reasons the security record keeps as identifiers.
+var reasonWords = map[string]string{
+	"wrong_password": "wrong password",
+	"unknown_user":   "no account of that name",
+	"wrong_code":     "wrong code",
+	"locked":         "the check is locked",
+	"bad_key":        "the link is not valid",
+	"expired":        "the link has expired",
+}
+
+var outcomeWords = map[string]string{
+	security.OutcomeFailed:  "failed",
+	security.OutcomeDenied:  "denied",
+	security.OutcomeBlocked: "blocked",
+	security.OutcomeOK:      "done",
 }
 
 // isNewAddress reports whether the account of a login was not seen at this
@@ -223,20 +198,12 @@ func sameSource(a string, b string) bool {
 }
 
 func newAddressNotice(event security.Event) notice {
-	return notice{
-		category: CategoryLogins,
-		key:      "login.new",
-		label:    "Login from a new address",
-		priority: priorityNormal,
-		at:       event.Time,
-		title:    "Login from a new address: a password was accepted from an address not seen before for this account.",
-		details: func(c *composer) {
-			c.fixed("Account ").value(event.Actor, maxValue).fixed(" from ").value(event.IP, maxValue)
-			if event.Details["mfa"] == "pending" {
-				c.fixed(" · a two-factor code is still to come")
-			}
-		},
+	nt := newNotice("auth.login.new", map[string]string{"actor": event.Actor, "ip": event.IP})
+	nt.at = event.Time
+	if event.Details["mfa"] == "pending" {
+		nt.extra = func(c *composer) { c.fixed("A two-factor code is still to come.") }
 	}
+	return nt
 }
 
 // The titles of the notifications Cosmos raises, as translation keys.
@@ -256,8 +223,8 @@ const (
 	titleTurnstileProblem      = "header.notification.title.turnstileProblem"
 	messageTurnstileKeyRefused = "header.notification.message.turnstileKeyRefused"
 	// raised by src/edgeblock/events.go (Fork addition)
-	titleEdgeBlocksProblem = "header.notification.title.edgeBlocksProblem"
-	messageEdgeBlocksToken = "header.notification.message.edgeBlocksToken"
+	titleEdgeBlocksProblem   = "header.notification.title.edgeBlocksProblem"
+	messageEdgeBlocksToken   = "header.notification.message.edgeBlocksToken"
 	messageEdgeBlocksWAF     = "header.notification.message.edgeBlocksPermissionWAF"
 	messageEdgeBlocksAccount = "header.notification.message.edgeBlocksPermissionAccount"
 	// TitleDeliveryFailed is this package's own notification. It is never
@@ -279,21 +246,20 @@ var appAlertNames = map[string]bool{"Anti Crypto-Miner": true, "Anti Memory Leak
 // catch-all.
 var serverErrors = []struct {
 	prefix   string
+	kind     string
 	category string
-	key      string
-	title    string
 }{
-	{"Backup: ", CategorySystem, "err:backup", "The backup of the configuration failed."},
-	{"Couldn't get the TLS certificate", CategorySystem, "err:certificate", "A certificate could not be obtained."},
-	{"Zones: couldn't get the TLS certificate", CategorySystem, "err:certificate", "A certificate could not be obtained."},
-	{"CRON job SnapRAID", CategoryStorage, "err:snapraid", "A SnapRAID job failed."},
-	{"Failed to status ", CategoryStorage, "err:snapraid", "SnapRAID could not report its status."},
-	{"Failed to create SnapRAID", CategoryStorage, "err:snapraid", "The SnapRAID configuration could not be written."},
-	{"CRON job ", CategorySystem, "err:job", "A scheduled job failed."},
-	{"Container failed to update", CategoryApps, "err:container-update", "A container could not be updated."},
-	{"Your server has no internet connection", CategorySystem, "err:internet", "The server had no internet connection."},
-	{"Database Retention", CategorySystem, "err:database", "The clean-up of the database failed."},
-	{"Cannot open the monitoring database", CategorySystem, "err:database", "The monitoring database could not be opened."},
+	{"Backup: ", "error.backup", ""},
+	{"Couldn't get the TLS certificate", "cert.order.failed", ""},
+	{"Zones: couldn't get the TLS certificate", "cert.order.failed", ""},
+	{"CRON job SnapRAID", "error.snapraid", ""},
+	{"Failed to status ", "error.snapraid", ""},
+	{"Failed to create SnapRAID", "error.snapraid", ""},
+	{"CRON job ", "error.job", ""},
+	{"Container failed to update", "container.update.failed", ""},
+	{"Your server has no internet connection", "error.internet", ""},
+	{"Database Retention", "error.database", ""},
+	{"Cannot open the monitoring database", "error.database", ""},
 }
 
 // noticeFromNotification turns a notification for the administrators into
@@ -311,133 +277,135 @@ func noticeFromNotification(n utils.Notification, config utils.Config) (notice, 
 	}
 
 	vars := n.Vars
-	withVars := func(before string, after string) func(c *composer) {
-		return func(c *composer) {
-			c.fixed(before).value(hideSecrets(vars, config), maxFreeText).fixed(after)
+	// the old notifications carry one free text: it names the subject of
+	// the first line when it is short, and is shown as the text at the end
+	withVar := func(kind string, name string) notice {
+		// review T3: the free text names the subject only when it looks like
+		// a name; anything else (an error's words) is the error text
+		value := ""
+		if nameLike(vars) || rawVar(kind, name) {
+			value = vars
 		}
+		nt := newNotice(kind, map[string]string{name: value})
+		if texts.Kinds[nt.kind].What == "" || value == "" {
+			nt.raw = vars
+		}
+		return nt
 	}
 
 	switch n.Title {
 	case titleServerError:
-		text := hideSecrets(n.Message, config)
-		nt := notice{category: CategoryOther, key: "err:other", label: "Server error", priority: priorityNormal,
-			title: "Server error."}
+		nt := newNotice("error.other", map[string]string{})
+		nt.category = CategoryOther // as before plan 48, for an error no prefix names
 		for _, known := range serverErrors {
 			if strings.HasPrefix(n.Message, known.prefix) {
-				nt.category, nt.key, nt.title = known.category, known.key, known.title
-				nt.label = strings.TrimSuffix(known.title, ".")
+				nt = newNotice(known.kind, map[string]string{})
 				break
 			}
 		}
-		nt.details = func(c *composer) { c.value(strings.TrimSuffix(strings.TrimSpace(text), ":"), maxFreeText) }
+		// the text of the error: what happened, at the end, shortened
+		nt.vars["message"] = strings.TrimSuffix(strings.TrimSpace(n.Message), ":")
+		nt.raw = nt.vars["message"]
 		return nt, true
 
 	case titleCertificateRenewed:
-		return notice{category: CategorySystem, key: "certificate.renewed", label: "Certificate renewed", priority: priorityLow,
-			title: "A certificate was renewed.", details: withVars("For ", "")}, true
-
+		return withVar("cert.renewed", "domains"), true
 	case titleCertExpiring:
-		return notice{category: CategorySystem, key: "certificate.expiring", label: "Certificate not renewed", priority: priorityNormal,
-			title:   "A certificate is close to its end and could not be renewed. See Configuration > Domains > Certificates.",
-			details: withVars("", "")}, true
-
+		return withVar("cert.expiring", "domain"), true
 	case titleCertUntrusted:
-		return notice{category: CategorySystem, key: "certificate.untrusted", label: "Address without a trusted certificate", priority: priorityNormal,
-			title:   "Addresses served directly are answered with a certificate browsers do not trust: visitors get a warning. See Configuration > Domains > Certificates.",
-			details: withVars("", "")}, true
-
+		return withVar("cert.untrusted", "hosts"), true
 	case titleUPnPFailed:
-		return notice{category: CategorySystem, key: "upnp.failed", label: "Router port forwarding failed", priority: priorityNormal,
-			title:   "Router port forwarding failed: Cosmos could not open its port on the router over UPnP and will not try again by itself.",
-			details: withVars("Reason: ", "")}, true
-
+		nt := newNotice("upnp.forward.failed", map[string]string{})
+		nt.raw = vars
+		return nt, true
 	case titleSnapshotsFailed:
-		return notice{category: CategorySystem, key: "snapshots.failed", label: "Incremental backup: problems", priority: priorityNormal,
-			title:   "The incremental backup did not go cleanly.",
-			details: withVars("", "")}, true
-
+		return withVar("snapshots.failed", "summary"), true
 	case titleOriginPullExpiring:
-		return notice{category: CategorySystem, key: "originpull.expiring", label: "Cloudflare certificate expires", priority: priorityNormal,
-			title:   "The certificate Cloudflare's proxy presents to this server expires soon. After that, requests through Cloudflare are refused while the check is enforced.",
-			details: withVars("Expires in ", "")}, true
-
+		return withVar("originpull.expiring", "text"), true
 	case titleOriginPullStopped:
-		return notice{category: CategorySystem, key: "originpull.stopped", label: "Cloudflare certificate check not confirmed", priority: priorityNormal,
-			title: "Requiring a certificate from Cloudflare's proxy was not confirmed in time and is back to testing: nothing is refused."}, true
-
+		return newNotice("originpull.stopped", nil), true
 	case titleTurnstileProblem:
-		nt := notice{category: CategorySystem, key: "turnstile.unreachable", label: "Sign-in check unavailable", priority: priorityNormal,
-			title: "Cloudflare's sign-in check (Turnstile) cannot be reached: visitors from the internet cannot sign in meanwhile. The home network signs in without it."}
+		nt := newNotice("turnstile.problem", nil)
 		if n.Message == messageTurnstileKeyRefused {
 			nt.key = "turnstile.key"
-			nt.title = "Cloudflare refuses the secret key of the sign-in check (Turnstile): visitors from the internet cannot sign in. Put in a new key in Configuration > Domains > Sign-in check, from the home network."
 		}
 		return nt, true
-
 	case titleEdgeBlocksProblem:
-		nt := notice{category: CategorySystem, key: "edgeblocks.permission", label: "Blocks at Cloudflare paused", priority: priorityNormal,
-			title:   "Cosmos cannot make or lift blocks at Cloudflare: the token of the domain may not manage IP Access Rules. Add the permission Zone > Firewall Services > Edit to it in Cloudflare's dashboard.",
-			details: withVars("Domain ", "")}
-		switch n.Message {
-		case messageEdgeBlocksToken:
-			nt.key = "edgeblocks.token"
-			nt.title = "Cosmos cannot make or lift blocks at Cloudflare: Cloudflare refuses the token of the domain."
-		case messageEdgeBlocksWAF:
-			nt.key = "edgeblocks.permission.waf"
-			nt.title = "Cosmos cannot make or lift blocks at Cloudflare: the token of the domain may not change its custom rules. Add the permission Zone > Zone WAF > Edit to it in Cloudflare's dashboard."
-		case messageEdgeBlocksAccount:
-			nt.key = "edgeblocks.permission.account"
-			nt.title = "Cosmos cannot make or lift blocks at Cloudflare: the token may not manage the IP Access Rules of the account. Add Account > Account Firewall Access Rules > Edit, or switch the blocks on again to use the domain's custom rules (Zone > Zone WAF > Edit)."
-		}
+		nt := withVar("edgeblock.problem", "text")
+		nt.key = "edgeblocks:" + n.Message
 		return nt, true
-
 	case titleContainerUpdate:
-		return notice{category: CategoryApps, key: "container.updated", label: "Container updated", priority: priorityLow,
-			title: "A container was updated to the latest version.", details: withVars("Container ", "")}, true
-
+		return withVar("container.updated", "name"), true
 	case titleAlertTriggered:
-		nt := notice{category: CategorySystem, key: "alert:other", label: "Monitoring alert", priority: priorityNormal,
-			title: "A monitoring alert was triggered.", details: withVars("Alert ", "")}
+		nt := withVar("alert.triggered", "name")
 		// The notification carries the alert's name only. The alerts
 		// themselves are in a map that the monitoring changes in place
 		// while it runs, so it is not read here: the alerts Cosmos and
 		// this fork create are told by their names, any other is "system".
 		switch {
 		case strings.HasPrefix(vars, diskAlertPrefix):
-			nt.category, nt.key, nt.label = CategoryStorage, "alert:disk", "Disk alert"
-			nt.title = "A disk alert was triggered: a disk is nearly full."
+			nt = newNotice("alert.disk", map[string]string{"name": vars, "disk": strings.Trim(strings.TrimSpace(strings.TrimPrefix(vars, diskAlertPrefix)), "()")})
+			if nt.vars["disk"] == "" {
+				nt.vars["disk"] = "/"
+			}
 		case appAlertNames[vars]:
-			nt.category, nt.key, nt.label = CategoryApps, "alert:apps", "App alert"
-			nt.title = "A monitoring alert about an app was triggered."
+			nt.category = CategoryApps
 		}
-		if n.Level == "info" {
-			nt.priority = priorityLow
-		}
+		nt.severity = levelSeverity(n.Level, nt.severity)
 		return nt, true
 	}
 
 	// anything else Cosmos raises, now or in a later version
-	nt := notice{category: CategoryOther, key: "notification:other", label: "Notification", priority: priorityNormal,
-		title: "Cosmos raised a notification."}
-	if n.Level == "info" || n.Level == "success" {
-		nt.priority = priorityLow
-	}
-	title, message := n.Title, n.Message
-	nt.details = func(c *composer) {
-		wrote := false
-		for _, text := range []string{title, message, vars} {
-			// a translation key says nothing on a phone
-			if text == "" || isTranslationKey(text) {
-				continue
-			}
-			if wrote {
-				c.fixed(" · ")
-			}
-			c.value(hideSecrets(text, config), maxFreeText)
-			wrote = true
+	parts := []string{}
+	for _, text := range []string{n.Title, n.Message, vars} {
+		// a translation key says nothing on a phone
+		if text != "" && !isTranslationKey(text) {
+			parts = append(parts, text)
 		}
 	}
+	nt := newNotice("notification.other", map[string]string{"text": strings.Join(parts, " · ")})
+	if len(parts) > 0 {
+		nt.vars["title"] = parts[0]
+	}
+	nt.severity = levelSeverity(n.Level, sevWarn)
 	return nt, true
+}
+
+// nameLike reports whether a free text is a name, an address or a list of
+// them, not the words of an error (which say "something: why").
+func nameLike(text string) bool {
+	text = strings.TrimSpace(text)
+	return text != "" && len(text) <= 80 && !strings.Contains(text, ": ") && !strings.ContainsAny(text, "\n\r")
+}
+
+// rawVar reports whether a value of a kind is marked as an error text.
+func rawVar(kind string, name string) bool {
+	for _, v := range texts.Kinds[kind].Raw {
+		if v == name {
+			return true
+		}
+	}
+	return false
+}
+
+// levelSeverity is the severity a notification's level allows: an
+// information stays one, a warning stays a warning; an error is what the
+// kind says (at least an error).
+func levelSeverity(level string, kind severity) severity {
+	switch strings.ToLower(level) {
+	case "info", "success":
+		return sevInfo
+	case "warning", "warn":
+		if kind > sevWarn {
+			return sevWarn
+		}
+		return kind
+	case "error":
+		if kind < sevError {
+			return sevError
+		}
+	}
+	return kind
 }
 
 // isTranslationKey recognises "header.notification.title.something".
@@ -483,6 +451,16 @@ func RememberSecrets(config utils.Config) {
 	for _, client := range config.OpenIDClients {
 		secrets = append(secrets, client.Secret)
 	}
+	// plan 48: the remote storage's settings that name a secret, and the
+	// Turnstile secret key
+	for _, share := range config.RemoteStorage.Shares {
+		for key, value := range share.Settings {
+			if secretKeyName(key) {
+				secrets = append(secrets, value)
+			}
+		}
+	}
+	secrets = append(secrets, config.Turnstile.SecretKey, config.EmailConfig.Password, config.Database.PostgresPassword)
 	kept := secrets[:0]
 	for _, secret := range secrets {
 		if worthHiding(secret) {
@@ -496,6 +474,17 @@ func RememberSecrets(config utils.Config) {
 }
 
 const maxKnownSecrets = 256
+
+// secretKeyName recognises the name of a setting that holds a secret.
+func secretKeyName(key string) bool {
+	key = strings.ToLower(key)
+	for _, part := range []string{"pass", "secret", "key", "token", "credential"} {
+		if strings.Contains(key, part) {
+			return true
+		}
+	}
+	return false
+}
 
 // worthHiding: short values are not secrets worth the name, and cutting
 // them out of every text would shred ordinary words.
@@ -530,34 +519,56 @@ func hideSecrets(text string, config utils.Config) string {
 func noticeFromSituation(kind string, values map[string]string) (notice, bool) {
 	switch kind {
 	case utils.NoticeUpdateAvailable:
-		return notice{category: CategorySystem, key: kind, label: "Server update available", priority: priorityLow,
-			title: "A server update is available.",
-			details: func(c *composer) {
-				c.fixed("Version ").value(values["version"], maxValue).fixed(" (running: ").value(values["current"], maxValue).fixed(").")
-				if values["at"] != "" {
-					c.fixed(" It is installed automatically at ").value(values["at"], 5).fixed(".")
-				} else {
-					c.fixed(" Automatic updates are off: install it under Configuration > General.")
-				}
-			}}, true
+		return newNotice("update.available", values), true
 
 	case utils.NoticeUpdateFailed:
-		return notice{category: CategorySystem, key: kind, label: "Server update failed", priority: priorityNormal,
-			title: "The server update could not be installed: Cosmos keeps running the current version.",
-			details: func(c *composer) {
-				c.fixed("Version ").value(values["version"], maxValue)
-				if values["reason"] != "" {
-					c.fixed(" · Reason: ").value(values["reason"], maxFreeText)
-				}
-			}}, true
+		nt := newNotice("update.failed", values)
+		nt.raw = values["reason"]
+		return nt, true
 
 	case utils.NoticeContainerDying:
-		return notice{category: CategoryApps, key: kind, label: "Container keeps stopping", priority: priorityNormal,
-			title: "A container keeps stopping with an error.",
-			details: func(c *composer) {
-				c.fixed("Container ").value(values["name"], maxValue).fixed(" stopped ").value(values["exits"], 4).
-					fixed(" times within ten minutes (last exit code ").value(values["code"], 8).fixed(").")
-			}}, true
+		return newNotice("container.dying", values), true
+
+	case utils.NoticePublicAddressChanged:
+		return addressNotice(values), true
 	}
 	return notice{}, false
+}
+
+// addressNotice tells that the server's address on the internet changed
+// (plan 47, E4, reports it): old, new, records ("updated", "not_updated",
+// "none") and shared ("yes" when the new address is a carrier's shared one,
+// which visitors cannot reach).
+func addressNotice(values map[string]string) notice {
+	vars := map[string]string{"old": values["old"], "new": values["new"]}
+	nt := newNotice("address.changed", vars)
+	nt.key = "address.changed"
+	sentences := map[string]string{
+		"updated":     "The DNS records were updated.",
+		"not_updated": "The DNS records could not be updated: visitors are sent to the old address.",
+		"none":        "Cosmos manages no DNS record for it.",
+	}
+	records := sentences[values["records"]]
+	switch values["records"] {
+	case "updated", "none":
+		nt.severity = sevInfo
+	case "not_updated":
+		nt.severity = sevError
+	}
+	shared := values["shared"] == "yes"
+	if shared && nt.severity < sevError {
+		nt.severity = sevError
+	}
+	nt.extra = func(c *composer) {
+		if records != "" {
+			c.fixed(records)
+		}
+		if shared {
+			if records != "" {
+				c.fixed(" ")
+			}
+			c.fixed("The new address is shared by the internet provider among many customers (CGNAT): visitors from outside cannot reach this server directly.")
+		}
+	}
+	return nt
 }
