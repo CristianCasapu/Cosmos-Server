@@ -8,7 +8,11 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Merged into `custom` since `0.24.0-fork.39`, to be part of the next release:
+Merged into `custom` since `0.24.0-fork.40`, to be part of the next release:
+
+- Nothing yet.
+
+## Fork 0.24.0-fork.40 — 2026-11-25
 
 ### Added
 - Telegram messages by severity: the first line, the one a phone shows before you open the message, says Info, Warning, Error or Critical, what happened and to what. The new "Telegram messages" card lists every kind with its preview and a sample to send yourself, a switch per kind, how each severity arrives (with sound, silently or not at all) and whether error details are included.
