@@ -41,6 +41,10 @@ export const TEXT = {
   resolved: ['notifications.state.resolved', 'Resolved'],
   resolvedAt: ['notifications.state.resolvedAt', 'Resolved {{when}}'],
   open_: ['notifications.state.open', 'Still going on'],
+  // plan 48, review 7: the owner's word that a problem Cosmos can no longer follow is over
+  markResolved: ['notifications.state.markResolved', 'Mark resolved'],
+  markResolvedHelp: ['notifications.state.markResolvedHelp', 'Cosmos says that it is over on its own. If it can no longer tell (what it was about was removed), "Mark resolved" on its notification ends it; a problem that is still seen stays open.'],
+  markResolvedStill: ['notifications.state.markResolvedStill', 'A watch still sees this problem: it stays open.'],
   times: ['notifications.occurrence.times', '{{count}} times since {{since}}'],
   lastSeen: ['notifications.occurrence.lastSeen', 'last {{when}}'],
   // the bell
@@ -273,6 +277,7 @@ export const markBody = (list, read, store) => withStore({ ids: ids(list), read:
 export const markAllBody = () => ({ all: true });
 export const deleteBody = (list, store) => withStore({ ids: ids(list) }, store);
 export const deleteReadBody = () => ({ read: true });
+export const resolveBody = (id, store) => withStore({ ids: ids([id]) }, store);
 
 // ---- items as the server sends them: checked and completed ----
 
@@ -393,6 +398,7 @@ export const COMMAND_TEXT = {
   markAll: ['activity.notifications.markAll', 'Mark every notification as read'],
   deleteSome: ['activity.notifications.delete', 'Delete the notification'],
   deleteRead: ['activity.notifications.deleteRead', 'Delete the read notifications'],
+  resolve: ['activity.notifications.resolve', 'Mark the problem resolved'],
 };
 
 // commandLabel: the toast's name of a request to the notifications routes;
@@ -408,5 +414,6 @@ export function commandLabel(path, method, body) {
   }
   if (path === '/api/notifications/mark') return parsed.all ? COMMAND_TEXT.markAll : null;
   if (path === '/api/notifications/delete') return parsed.read ? COMMAND_TEXT.deleteRead : COMMAND_TEXT.deleteSome;
+  if (path === '/api/notifications/resolve') return COMMAND_TEXT.resolve;
   return null;
 }

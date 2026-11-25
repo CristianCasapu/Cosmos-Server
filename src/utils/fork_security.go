@@ -138,6 +138,13 @@ const (
 
 	// the record about itself
 	SecRecorderDropped = "recorder.dropped"
+
+	// plan 48: a warning to the Telegram chat about a change of its
+	// settings could not be delivered
+	SecTelegramWarningLost = "telegram.warning.lost"
+	// plan 48, review 5: a problem the Telegram notifier dropped after its
+	// message code failed three times
+	SecTelegramThreadDropped = "telegram.thread.dropped"
 )
 
 // SecurityEvent is one entry of the security record. A caller fills in Kind

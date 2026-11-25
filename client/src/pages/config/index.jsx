@@ -1,4 +1,5 @@
 import { unansweredError } from '../../utils/serverAnswer'; // Fork addition
+import { watchInitialValues, watchToConfig } from '../../utils/watchSettings'; // Fork addition (plan 48): what Cosmos watches
 import * as React from 'react';
 import * as API from '../../api';
 import MainCard from '../../components/MainCard';
@@ -240,6 +241,7 @@ const ConfigManagement = () => {
           BackupWeekday: String(config.BackupWeekday || 0), // text: the select treats the number 0 as empty
           ...snapshotsInitialValues(config), // fork addition: Snapshots_*, the incremental backup
           ...telegramInitialValues(config), // fork addition: Telegram_*, the notifications; never the token
+          ...watchInitialValues(config), // Fork addition (plan 48): Watch_*, see telegramKinds.jsx
           IncrBackupOutputDir: config.Backup && config.Backup.Backups && config.Backup.Backups["Cosmos Internal Backup"] ? config.Backup.Backups["Cosmos Internal Backup"].Repository : "",
 
           AdminWhitelistIPs: config.AdminWhitelistIPs && config.AdminWhitelistIPs.join(', '),
@@ -322,6 +324,7 @@ const ConfigManagement = () => {
             BackupWeekday: Number(values.BackupWeekday) || 0,
             Snapshots: snapshotsToConfig(values), // fork addition
             Telegram: telegramToConfig(values, config), // fork addition: a token left empty keeps the stored one
+            Watch: watchToConfig(values), // Fork addition (plan 48)
             AdminConstellationOnly: values.AdminConstellationOnly,
             AdminWhitelistIPs: (values.AdminWhitelistIPs && values.AdminWhitelistIPs != "") ?
               values.AdminWhitelistIPs.split(',').map((x) => x.trim()) : [],

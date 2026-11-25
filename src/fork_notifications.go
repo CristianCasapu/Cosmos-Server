@@ -35,6 +35,7 @@ func registerNotificationRoutes(api *mux.Router) {
 	api.HandleFunc("/api/notifications/context", notificationsContextRoute)
 	api.HandleFunc("/api/notifications/mark", notificationsMarkRoute)
 	api.HandleFunc("/api/notifications/delete", notificationsDeleteRoute)
+	api.HandleFunc("/api/notifications/resolve", notificationsResolveRoute) // plan 48, review 7
 }
 
 // notificationReader is who asks: the nickname, and whether the rows of
@@ -328,4 +329,41 @@ func notificationsDeleteRoute(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	answerNotifications(w, map[string]interface{}{"deleted": n})
+}
+
+// notificationsResolveRoute godoc
+// @Summary Mark the problem a notification is about resolved (plan 48, review 7)
+// @Description For a problem Cosmos can no longer follow (what it was about was removed): its notifications are marked resolved, and the Telegram chat ends it as "No longer followed". A watch that still sees the problem keeps it open.
+// @Tags Notifications
+// @Accept json
+// @Produce json
+// @Param body body notificationChange true "{ids: [one id]}"
+// @Security BearerAuth
+// @Router /api/notifications/resolve [post]
+func notificationsResolveRoute(w http.ResponseWriter, req *http.Request) {
+	nickname, admin, ok := notificationReader(w, req, "POST")
+	if !ok {
+		return
+	}
+	if utils.CheckPermissions(w, req, utils.PERM_CONFIGURATION) != nil {
+		return
+	}
+	change, ok := readNotificationChange(w, req)
+	if !ok {
+		return
+	}
+	if len(change.IDs) != 1 || change.Read != nil || change.All {
+		utils.HTTPError(w, "Give the id of one notification", http.StatusBadRequest, "NOTIF002")
+		return
+	}
+	resolved, err := utils.ResolveNotificationByHand(nickname, admin, change.IDs[0])
+	if err != nil {
+		utils.Error("Notifications: could not resolve", err)
+		utils.HTTPError(w, "Could not change the notification", http.StatusInternalServerError, "NOTIF003")
+		return
+	}
+	if resolved {
+		utils.Log("Notifications: " + nickname + " marked a problem resolved by hand")
+	}
+	answerNotifications(w, map[string]interface{}{"resolved": resolved})
 }

@@ -32,11 +32,11 @@ func TestHighSeverityEventsAreCritical(t *testing.T) {
 	high = append(high, moreHighKinds...) // Fork addition: kinds whose sentence lives in a file of their own (fork_upnp.go)
 	for _, kind := range high {
 		nt, tell := noticeFromEvent(eventOf(kind), st)
-		if !tell || nt.priority != priorityCritical || nt.category != CategorySecurity || nt.key != "sec:"+kind {
+		if !tell || nt.priority() != priorityCritical || nt.category != CategorySecurity || nt.key != "sec:"+kind {
 			t.Errorf("%s: told %v, %+v", kind, tell, nt)
 		}
-		if _, has := securitySentences[kind]; !has {
-			t.Errorf("%s has no sentence of its own", kind)
+		if !knownKind(kind) {
+			t.Errorf("%s has no texts of its own in messages.en.json", kind)
 		}
 	}
 	// every kind of high severity there is in the catalogue is covered above
@@ -65,8 +65,8 @@ func TestTheMinimumSeverityDecides(t *testing.T) {
 	config := testConfig()
 	config.Telegram.MinSeverity = "medium"
 	st := settingsOf(config)
-	if nt, tell := noticeFromEvent(eventOf(utils.SecLoginFailed), st); !tell || nt.priority != priorityNormal {
-		t.Errorf("a failed login at medium: told %v, priority %v", tell, nt.priority)
+	if nt, tell := noticeFromEvent(eventOf(utils.SecLoginFailed), st); !tell || nt.priority() != priorityNormal {
+		t.Errorf("a failed login at medium: told %v, priority %v", tell, nt.priority())
 	}
 	if _, tell := noticeFromEvent(eventOf(utils.SecShieldHostname), st); tell {
 		t.Error("a low event is told at medium")
@@ -74,8 +74,8 @@ func TestTheMinimumSeverityDecides(t *testing.T) {
 
 	config.Telegram.MinSeverity = "low"
 	st = settingsOf(config)
-	if nt, tell := noticeFromEvent(eventOf(utils.SecShieldHostname), st); !tell || nt.priority != priorityLow {
-		t.Errorf("a low event at low: told %v, priority %v", tell, nt.priority)
+	if nt, tell := noticeFromEvent(eventOf(utils.SecShieldHostname), st); !tell || nt.priority() != priorityLow {
+		t.Errorf("a low event at low: told %v, priority %v", tell, nt.priority())
 	}
 	// informational entries (logins, logouts) are never told as security events
 	if _, tell := noticeFromEvent(eventOf(utils.SecLogout), st); tell {
@@ -99,15 +99,15 @@ func TestAnEventInWords(t *testing.T) {
 	nt, _ := noticeFromEvent(event, testSettings())
 	text, entities := textOf(t, testSettings(), nt)
 
-	want := "Cosmos · home.example · Security alert\n" +
-		"Role changed: the role of an account was changed.\n" +
-		"By admin from 192.0.2.7 · About bob\n" +
-		"New role: 2\n" +
-		event.Time.Format(stampLayout)
+	want := "🔴 Critical · Role of bob changed to 2\n\n" +
+		"admin changed the role of the account bob to 2, from 192.0.2.7.\n" +
+		"What this account may do in Cosmos changed.\n" +
+		"What to do: if it was not you, take the role back under Users and change your password.\n" +
+		"home.example · " + event.Time.Format("2 Jan 15:04")
 	if text != want {
 		t.Errorf("message:\n%s\nwant:\n%s", text, want)
 	}
-	if got := strings.Join(covered(t, text, entities), "|"); got != "home.example|admin|192.0.2.7|bob|2" {
+	if got := strings.Join(covered(t, text, entities), "|"); got != "bob|2|admin|bob|2|192.0.2.7|home.example" {
 		t.Errorf("the entities cover %q", got)
 	}
 
@@ -119,26 +119,26 @@ func TestAnEventInWords(t *testing.T) {
 	config.Telegram.MinSeverity = "medium"
 	nt, _ = noticeFromEvent(event, settingsOf(config))
 	text, _ = textOf(t, settingsOf(config), nt)
-	if !strings.Contains(text, "From 2001:db8::7\nProbe: dotfile · Asked for: GET home.example/.env\n") {
+	if !strings.HasPrefix(text, "🟡 Warning · Probe from 2001:db8::7: dotfile\n") || !strings.Contains(text, "\nGET home.example/.env\n") {
 		t.Errorf("a probe: %s", text)
 	}
 
 	// a summary row of the record
 	event = eventOf(utils.SecLoginFailed)
-	event.Count, event.IP, event.Details = 33, "198.51.100.1", map[string]string{"summary": "1"}
+	event.Count, event.IP, event.Target, event.Details = 33, "198.51.100.1", "admin", map[string]string{"summary": "1"}
 	nt, _ = noticeFromEvent(event, settingsOf(config))
 	text, _ = textOf(t, settingsOf(config), nt)
-	if !strings.Contains(text, "\n33 more of: Failed login\nFrom 198.51.100.1\n") {
+	if !strings.HasPrefix(text, "🟡 Warning · Failed sign-in as admin from 198.51.100.1\n") || !strings.Contains(text, "\n33 events of this kind, counted together by the security record.\n") {
 		t.Errorf("a summary row: %s", text)
 	}
 
 	// with the details switched off, no name and no address
 	config.Telegram.HideDetails = true
 	text, entities = textOf(t, settingsOf(config), nt)
-	if strings.Contains(text, "198.51.100.1") || !strings.Contains(text, "The details are in the panel.") {
+	if strings.Contains(text, "198.51.100.1") || strings.Contains(text, "admin") || !strings.Contains(text, "The names and addresses are in the panel.") || !strings.HasPrefix(text, "🟡 Warning · Failed sign-in\n") {
 		t.Errorf("details were sent: %s", text)
 	}
-	if parts := covered(t, text, entities); len(parts) != 1 {
+	if parts := covered(t, text, entities); len(parts) != 2 || parts[0] != "33" {
 		t.Errorf("entities without details: %q", parts)
 	}
 }
@@ -151,8 +151,8 @@ func TestAHostileEventCannotForgeAMessage(t *testing.T) {
 	event.Actor, event.IP, event.Target, event.Host, event.Path, event.Method = attack, attack, attack, attack, attack, attack
 	event.Outcome = attack
 	event.Details = map[string]string{}
-	for _, detail := range detailLabels {
-		event.Details[detail.key] = attack
+	for _, key := range eventVars {
+		event.Details[key] = attack
 	}
 	event.Details["unlisted"] = attack
 
@@ -162,8 +162,12 @@ func TestAHostileEventCannotForgeAMessage(t *testing.T) {
 	}
 	text, entities := textOf(t, testSettings(), nt)
 
-	if lines := strings.Count(text, "\n"); lines != 4 {
-		t.Errorf("the message has %d lines, want 5:\n%s", lines+1, text)
+	benign := eventOf(utils.SecAccessGrantDenied)
+	benign.Actor, benign.IP, benign.Target, benign.Host, benign.Path, benign.Method = "x", "x", "x", "x", "x", "x"
+	plain, _ := noticeFromEvent(benign, testSettings())
+	plainText, _ := textOf(t, testSettings(), plain)
+	if lines, want := strings.Count(text, "\n"), strings.Count(plainText, "\n"); lines != want {
+		t.Errorf("the message has %d lines, want %d:\n%s", lines+1, want+1, text)
 	}
 	rest := uncovered(t, text, entities)
 	for _, bad := range []string{"evil", "bank", "@everyone", "tg://", "<b>", "https", "Pay"} {
@@ -219,7 +223,7 @@ func TestALoginFromANewAddress(t *testing.T) {
 		}
 		if tell {
 			text, _ := textOf(t, st, nt)
-			if nt.category != CategoryLogins || !strings.Contains(text, "Account alice from "+ip+" · a two-factor code is still to come") {
+			if nt.category != CategoryLogins || !strings.HasPrefix(text, "🟡 Warning · alice signed in from new address "+ip) || !strings.Contains(text, "A two-factor code is still to come.") {
 				t.Errorf("message: %s", text)
 			}
 		}
@@ -245,11 +249,19 @@ func TestALoginFromANewAddress(t *testing.T) {
 	}
 	// plan 51: while the history is partial, a new address is told, hedged; a known one is not
 	storePartial = func() bool { return true }
-	if nt, tell := noticeFromEvent(login("192.0.2.98"), st); !tell || !strings.Contains(nt.title, "not in the history available now") {
-		t.Errorf("not told, or not hedged, from a partial history: %v %q", tell, nt.title)
+	if nt, tell := noticeFromEvent(login("192.0.2.98"), st); !tell {
+		t.Error("not told from a partial history")
+	} else if text := render(st, nt).text; !strings.Contains(text, "not in the history available now") || strings.Contains(text, "not seen before") || !strings.Contains(text, "192.0.2.98") {
+		t.Errorf("not hedged from a partial history: %q", text)
 	}
 	if _, tell := noticeFromEvent(login("192.0.2.7"), st); tell {
 		t.Error("a known address told while the history is partial")
+	}
+	storePartial = func() bool { return false }
+	if nt, tell := noticeFromEvent(login("192.0.2.98"), st); !tell {
+		t.Error("not told from a whole history")
+	} else if text := render(st, nt).text; strings.Contains(text, "not in the history available now") || !strings.Contains(text, "not seen before") {
+		t.Errorf("hedged although the history is whole: %q", text)
 	}
 	storePartial = utils.MonitoringStorePartial
 	// an earlier login is earlier by time, not by id (ids are per store)
@@ -276,30 +288,30 @@ func TestNotificationsBecomeMessagesOfTheRightCategory(t *testing.T) {
 		says     []string
 	}{
 		{utils.Notification{Title: titleServerError, Message: "Backup: Error creating zip file : open /backups/x.zip: permission denied"}, CategorySystem, priorityNormal,
-			[]string{"The backup of the configuration failed.", "Backup: Error creating zip file : open /backups/x.zip: permission denied"}},
+			[]string{"🟠 Error · Configuration backup failed\n", "Backup: Error creating zip file : open /backups/x.zip: permission denied"}},
 		{utils.Notification{Title: titleServerError, Message: "Couldn't get the TLS certificate of example.org. Keeping the previous one if any, the self-signed one otherwise : rate limited"}, CategorySystem, priorityNormal,
-			[]string{"A certificate could not be obtained.", "rate limited"}},
-		{utils.Notification{Title: titleServerError, Message: "CRON job SnapRAID sync array failed : exit status 2"}, CategoryStorage, priorityNormal, []string{"A SnapRAID job failed."}},
-		{utils.Notification{Title: titleServerError, Message: "CRON job nightly failed : exit status 1"}, CategorySystem, priorityNormal, []string{"A scheduled job failed."}},
-		{utils.Notification{Title: titleServerError, Message: "Container failed to update : no such image"}, CategoryApps, priorityNormal, []string{"A container could not be updated."}},
-		{utils.Notification{Title: titleServerError, Message: "Something nobody thought of : "}, CategoryOther, priorityNormal, []string{"Server error.", "Something nobody thought of"}},
+			[]string{"🟠 Error · No certificate obtained\n", "rate limited"}},
+		{utils.Notification{Title: titleServerError, Message: "CRON job SnapRAID sync array failed : exit status 2"}, CategoryStorage, priorityNormal, []string{"🟠 Error · SnapRAID task failed\n"}},
+		{utils.Notification{Title: titleServerError, Message: "CRON job nightly failed : exit status 1"}, CategorySystem, priorityNormal, []string{"🟠 Error · Scheduled job failed\n"}},
+		{utils.Notification{Title: titleServerError, Message: "Container failed to update : no such image"}, CategoryApps, priorityNormal, []string{"🟠 Error · App could not be updated\n"}},
+		{utils.Notification{Title: titleServerError, Message: "Something nobody thought of : "}, CategoryOther, priorityNormal, []string{"🟠 Error · Server error: Something nobody thought of\n"}},
 		{utils.Notification{Title: titleCertificateRenewed, Message: "header.notification.message.certificateRenewed", Vars: "a.example.org, b.example.org", Level: "info"}, CategorySystem, priorityLow,
-			[]string{"A certificate was renewed.", "For a.example.org, b.example.org"}},
-		{utils.Notification{Title: titleUPnPFailed, Vars: "the router did not answer"}, CategorySystem, priorityNormal, []string{"Router port forwarding failed", "Reason: the router did not answer"}},
+			[]string{"🔵 Info · Certificate of a.example.org, b.example.org renewed\n"}},
+		{utils.Notification{Title: titleUPnPFailed, Vars: "the router did not answer"}, CategorySystem, priorityNormal, []string{"🟠 Error · Router stopped forwarding a port\n", "the router did not answer"}},
 		{utils.Notification{Title: titleCertExpiring, Vars: "example.org (14 days left): The DNS provider refused the credentials", Level: "warning"}, CategorySystem, priorityNormal,
-			[]string{"could not be renewed", "example.org (14 days left): The DNS provider refused the credentials"}},
+			[]string{"🟡 Warning · Certificate ends soon\n", "example.org (14 days left): The DNS provider refused the credentials"}},
 		{utils.Notification{Title: titleCertUntrusted, Vars: "a.b.example.org, app.example.org", Level: "warning"}, CategorySystem, priorityNormal,
-			[]string{"a certificate browsers do not trust", "a.b.example.org, app.example.org"}},
-		{utils.Notification{Title: titleSnapshotsFailed, Vars: "/storage/photos: destination not mounted"}, CategorySystem, priorityNormal, []string{"The incremental backup did not go cleanly.", "/storage/photos: destination not mounted"}},
-		{utils.Notification{Title: titleContainerUpdate, Vars: "jellyfin", Level: "info"}, CategoryApps, priorityLow, []string{"A container was updated", "Container jellyfin"}},
-		{utils.Notification{Title: titleAlertTriggered, Vars: "Disk Full Notification (storage)", Level: "warn"}, CategoryStorage, priorityNormal, []string{"a disk is nearly full", "Alert Disk Full Notification (storage)"}},
-		{utils.Notification{Title: titleAlertTriggered, Vars: "Anti Crypto-Miner", Level: "warn"}, CategoryApps, priorityNormal, []string{"about an app"}},
-		{utils.Notification{Title: titleAlertTriggered, Vars: "Disk Full Notification", Level: "warn"}, CategoryStorage, priorityNormal, []string{"a disk is nearly full"}},
-		{utils.Notification{Title: titleAlertTriggered, Vars: "CPU", Level: "warn"}, CategorySystem, priorityNormal, []string{"A monitoring alert was triggered."}},
-		{utils.Notification{Title: titleAlertTriggered, Vars: "An alert that was deleted", Level: "info"}, CategorySystem, priorityLow, []string{"Alert An alert that was deleted"}},
+			[]string{"🟡 Warning · Untrusted certificate on a.b.example.org, app.exampl…\n", "a.b.example.org, app.example.org"}},
+		{utils.Notification{Title: titleSnapshotsFailed, Vars: "/storage/photos: destination not mounted"}, CategorySystem, priorityNormal, []string{"🟠 Error · Backup had problems: /storage/photos: destinatio…\n", "/storage/photos: destination not mounted"}},
+		{utils.Notification{Title: titleContainerUpdate, Vars: "jellyfin", Level: "info"}, CategoryApps, priorityLow, []string{"🔵 Info · jellyfin updated to a new image\n"}},
+		{utils.Notification{Title: titleAlertTriggered, Vars: "Disk Full Notification (storage)", Level: "warn"}, CategoryStorage, priorityNormal, []string{"🟡 Warning · Disk storage nearly full\n"}},
+		{utils.Notification{Title: titleAlertTriggered, Vars: "Anti Crypto-Miner", Level: "warn"}, CategoryApps, priorityNormal, []string{"🟡 Warning · Alert Anti Crypto-Miner triggered\n"}},
+		{utils.Notification{Title: titleAlertTriggered, Vars: "Disk Full Notification", Level: "warn"}, CategoryStorage, priorityNormal, []string{"🟡 Warning · Disk / nearly full\n"}},
+		{utils.Notification{Title: titleAlertTriggered, Vars: "CPU", Level: "warn"}, CategorySystem, priorityNormal, []string{"🟡 Warning · Alert CPU triggered\n"}},
+		{utils.Notification{Title: titleAlertTriggered, Vars: "An alert that was deleted", Level: "info"}, CategorySystem, priorityLow, []string{"🔵 Info · Alert An alert that was deleted triggered\n"}},
 		{utils.Notification{Title: "header.notification.title.somethingNew", Message: "header.notification.message.somethingNew", Vars: "the variable part", Level: "error"}, CategoryOther, priorityNormal,
-			[]string{"Cosmos raised a notification.", "the variable part"}},
-		{utils.Notification{Title: "A title in words", Message: "and a message in words", Level: "info"}, CategoryOther, priorityLow, []string{"A title in words · and a message in words"}},
+			[]string{"🟠 Error · the variable part\n"}},
+		{utils.Notification{Title: "A title in words", Message: "and a message in words", Level: "info"}, CategoryOther, priorityLow, []string{"🔵 Info · A title in words\n", "A title in words · and a message in words"}},
 	}
 	for _, tc := range cases {
 		tc.n.Recipient = "admin"
@@ -308,8 +320,8 @@ func TestNotificationsBecomeMessagesOfTheRightCategory(t *testing.T) {
 			t.Errorf("%s / %s is not told", tc.n.Title, tc.n.Message)
 			continue
 		}
-		if nt.category != tc.category || nt.priority != tc.priority {
-			t.Errorf("%s / %s: category %s priority %d, want %s %d", tc.n.Title, tc.n.Vars, nt.category, nt.priority, tc.category, tc.priority)
+		if nt.category != tc.category || nt.priority() != tc.priority {
+			t.Errorf("%s / %s: category %s priority %d, want %s %d", tc.n.Title, tc.n.Vars, nt.category, nt.priority(), tc.category, tc.priority)
 		}
 		text, entities := textOf(t, st, nt)
 		for _, part := range tc.says {
@@ -328,8 +340,8 @@ func TestNotificationsBecomeMessagesOfTheRightCategory(t *testing.T) {
 			}
 		}
 		// the label is what a summary prints as its own words: it holds nothing from the notification
-		if tc.n.Vars != "" && strings.Contains(nt.label, tc.n.Vars) {
-			t.Errorf("the label %q holds the variable part", nt.label)
+		if tc.n.Vars != "" && strings.Contains(nt.label(), tc.n.Vars) {
+			t.Errorf("the label %q holds the variable part", nt.label())
 		}
 	}
 }
@@ -390,27 +402,47 @@ func TestSituationsInWords(t *testing.T) {
 	st := testSettings()
 	nt, tell := noticeFromSituation(utils.NoticeUpdateAvailable, map[string]string{"version": "0.24.0-fork.9", "current": "0.24.0-fork.8", "at": "02:00"})
 	text, _ := textOf(t, st, nt)
-	if !tell || nt.category != CategorySystem || nt.priority != priorityLow ||
-		!strings.Contains(text, "A server update is available.\nVersion 0.24.0-fork.9 (running: 0.24.0-fork.8). It is installed automatically at 02:00.\n") {
+	if !tell || nt.category != CategorySystem || nt.priority() != priorityLow ||
+		!strings.HasPrefix(text, "🔵 Info · Server update 0.24.0-fork.9 available\n\nVersion 0.24.0-fork.9 is available; this server runs 0.24.0-fork.8. It is installed automatically at 02:00.\n") {
 		t.Errorf("update available: %s", text)
 	}
 	nt, _ = noticeFromSituation(utils.NoticeUpdateAvailable, map[string]string{"version": "9", "current": "8"})
-	if text, _ = textOf(t, st, nt); !strings.Contains(text, "Automatic updates are off") {
+	if text, _ = textOf(t, st, nt); strings.Contains(text, "automatically at") {
 		t.Errorf("update available, not automatic: %s", text)
 	}
 
 	nt, tell = noticeFromSituation(utils.NoticeUpdateFailed, map[string]string{"version": "9", "reason": "the download was cut"})
-	if text, _ = textOf(t, st, nt); !tell || nt.priority != priorityNormal || !strings.Contains(text, "Version 9 · Reason: the download was cut") {
+	if text, _ = textOf(t, st, nt); !tell || nt.priority() != priorityNormal || !strings.HasPrefix(text, "🟠 Error · Server update 9 not installed\n") || !strings.Contains(text, "\nthe download was cut\n") {
 		t.Errorf("update failed: %s", text)
 	}
 
 	nt, tell = noticeFromSituation(utils.NoticeContainerDying, map[string]string{"name": "jellyfin", "exits": "3", "code": "137"})
-	if text, _ = textOf(t, st, nt); !tell || nt.category != CategoryApps ||
-		!strings.Contains(text, "Container jellyfin stopped 3 times within ten minutes (last exit code 137).") {
+	if text, _ = textOf(t, st, nt); !tell || nt.category != CategoryApps || !strings.HasPrefix(text, "🟠 Error · jellyfin keeps stopping (exit 137)\n") {
 		t.Errorf("container: %s", text)
 	}
 
 	if _, tell := noticeFromSituation("made.up", nil); tell {
 		t.Error("an unknown situation is told")
+	}
+}
+
+// The public address (plan 47, E4, reports it; plan 48 gives it words).
+func TestThePublicAddressChange(t *testing.T) {
+	st := testSettings()
+	for _, tc := range []struct {
+		values map[string]string
+		start  string
+		says   string
+	}{
+		{map[string]string{"old": "203.0.113.7", "new": "203.0.113.42", "records": "updated"}, "🔵 Info · Public address changed to 203.0.113.42\n", "The DNS records were updated."},
+		{map[string]string{"old": "203.0.113.7", "new": "203.0.113.42", "records": "not_updated"}, "🟠 Error · Public address changed to 203.0.113.42\n", "could not be updated"},
+		{map[string]string{"old": "203.0.113.7", "new": "100.64.1.2", "records": "updated", "shared": "yes"}, "🟠 Error · Public address changed to 100.64.1.2\n", "CGNAT"},
+		{map[string]string{"old": "203.0.113.7", "new": "203.0.113.42"}, "🟡 Warning · Public address changed to 203.0.113.42\n", "from 203.0.113.7 to 203.0.113.42"},
+	} {
+		nt, tell := noticeFromSituation(utils.NoticePublicAddressChanged, tc.values)
+		text, _ := textOf(t, st, nt)
+		if !tell || !strings.HasPrefix(text, tc.start) || !strings.Contains(text, tc.says) {
+			t.Errorf("%v:\n%s", tc.values, text)
+		}
 	}
 }

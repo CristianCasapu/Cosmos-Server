@@ -15,13 +15,13 @@ import dayjs from 'dayjs';
 import * as API from '../../api';
 import MainCard from '../../components/MainCard';
 import { useClientInfos } from '../../utils/hooks';
-import { PERM_ADMIN_READ } from '../../utils/permissions';
+import { PERM_ADMIN_READ, PERM_CONFIGURATION } from '../../utils/permissions';
 import { formatTime, zoneName } from '../../utils/auditFilters';
 import { auditSentence } from '../../utils/auditSentences';
 import { notify } from '../../utils/activity';
 import EventDetails from '../securityAudit/eventDetails';
 import {
-  LEVEL_TEXT, TEXT, auditLink, cleanItem, knownAction, markBody, messageOf, ordinal, safeLink, sentence, tableOf,
+  LEVEL_TEXT, TEXT, auditLink, cleanItem, knownAction, markBody, messageOf, ordinal, resolveBody, safeLink, sentence, tableOf,
   timeline, titleOf, detailsLink,
 } from '../../utils/notifications';
 import { Field, LevelIcon, RawText, SourceChip, SubjectChip, When, wrapAnywhere } from './parts';
@@ -171,12 +171,35 @@ const LogLines = ({ part, t }) => {
   </Stack>;
 };
 
+// MarkResolved (plan 48, review 7): the owner's word that a problem Cosmos
+// can no longer follow is over; a watch that still sees it keeps it open.
+const MarkResolved = ({ item, store, onDone, t }) => {
+  const [busy, setBusy] = React.useState(false);
+  const [still, setStill] = React.useState(false);
+  const run = () => {
+    setBusy(true);
+    API.notifications.resolve(resolveBody(item.id, store)).then((res) => { // Fork addition (plan 51): the store the id was read from
+      if (res && res.data && res.data.resolved) onDone();
+      else setStill(true); // a watch still sees it: said where the button is
+    }).catch((e) => { if (e && e.code === 'NOTIF009') onDone(); }).finally(() => setBusy(false)); // the store changed: read it again
+  };
+  return <Stack spacing={1}>
+    <Typography variant="body2" color="textSecondary" sx={wrapAnywhere}>{t(...TEXT.markResolvedHelp)}</Typography>
+    {still && <Alert severity="info" sx={wrapAnywhere}>{t(...TEXT.markResolvedStill)}</Alert>}
+    <Box><Button variant="outlined" onClick={run} disabled={busy} sx={touch}
+      startIcon={busy ? <CircularProgress size={14} /> : null}>{t(...TEXT.markResolved)}</Button></Box>
+  </Stack>;
+};
+
 const NotificationDetails = () => {
   const { t } = useTranslation();
   const { id, ref } = useParams();
   const { hasPermission } = useClientInfos();
   const isAdmin = hasPermission(PERM_ADMIN_READ);
+  const canResolve = hasPermission(PERM_CONFIGURATION);
+  const [reload, setReload] = React.useState(0);
   const [details, setDetails] = React.useState(null);
+  const store = React.useRef(''); // Fork addition (plan 51): the monitoring store the item was read from
   const [missing, setMissing] = React.useState(false);
   const [context, setContext] = React.useState(null);
   const [contextError, setContextError] = React.useState('');
@@ -193,6 +216,7 @@ const NotificationDetails = () => {
       if (gone) return;
       const item = cleanItem(res.data);
       if (!item) { setMissing(true); return; }
+      store.current = typeof res.store === 'string' ? res.store : '';
       setDetails({ ...res.data, ...item });
       if (!item.read) API.notifications.mark(markBody([item.id], true, res.store)).catch(() => {}); // Fork addition (plan 51): res.store
       if (isAdmin) {
@@ -201,7 +225,7 @@ const NotificationDetails = () => {
       }
     }).catch(() => { if (!gone) setMissing(true); });
     return () => { gone = true; };
-  }, [id, ref, isAdmin]);
+  }, [id, ref, isAdmin, reload]);
 
   const back = <Box><Button component={RouterLink} to="/cosmos-ui/notifications" startIcon={<ArrowLeftOutlined />} sx={touch}>{t(...TEXT.back)}</Button></Box>;
 
@@ -217,6 +241,7 @@ const NotificationDetails = () => {
   const steps = Array.isArray(item.steps) ? item.steps : [];
   const link = safeLink(item.link);
   const subjectLink = item.subject && item.subject.link;
+  const openProblem = !item.resolved && !item.legacy && (item.level === 'error' || item.level === 'warning');
 
   return <Stack spacing={2} sx={{ maxWidth: '1000px', margin: 'auto', minWidth: 0 }} data-notification-details={item.id}>
     {back}
@@ -256,10 +281,11 @@ const NotificationDetails = () => {
 
     {means && <Section title={t(...TEXT.whatItMeans)}><Typography variant="body1" sx={wrapAnywhere}>{means}</Typography></Section>}
 
-    {(doing || item.resolved) && <Section title={t(...TEXT.whatCosmosDid)}>
+    {(doing || item.resolved || (canResolve && openProblem)) && <Section title={t(...TEXT.whatCosmosDid)}>
       <Stack spacing={1}>
         {doing && <Typography variant="body1" sx={wrapAnywhere}>{doing}</Typography>}
         {item.resolved && <Alert severity="success">{t(TEXT.resolvedAt[0], TEXT.resolvedAt[1], { when: formatTime(item.resolved) + ' (' + dayjs(item.resolved).fromNow() + ')' })}</Alert>}
+        {canResolve && openProblem && <MarkResolved item={item} store={store.current} t={t} onDone={() => setReload((r) => r + 1)} />}
       </Stack>
     </Section>}
 

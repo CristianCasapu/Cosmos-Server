@@ -33,8 +33,19 @@ func Start(version string) {
 
 		n := newNotifier(newAPIClient(), currentSettings)
 		n.raise = raiseInPanel
+		n.threads = newThreadMemory(threadsPath())
+		n.threads.logf = utils.Warn
+		n.levels = storeLevels{}
+		n.recordDropped = func(kind string) {
+			utils.RecordSecurityEvent(utils.SecurityEvent{Kind: utils.SecTelegramThreadDropped, Details: map[string]string{"kind": cleanValue(kind, 64)}})
+		}
 		n.logf = utils.Warn
 		n.start()
+		// review 4, T4: a warning that was waiting when the server stopped
+		if mark := n.threads.takeFarewell(); mark != nil {
+			lost := lostWarning
+			go lost(mark.What, mark.By)
+		}
 		std.Store(n)
 
 		utils.SetNotificationForwarder(forwardNotification)
@@ -125,7 +136,7 @@ func handleSituation(kind string, values map[string]string) {
 		values["reason"] = hideSecrets(reason, utils.GetMainConfig())
 	}
 	nt, tell := noticeFromSituation(kind, values)
-	if !tell || !st.categories[nt.category] {
+	if !tell || !st.wants(nt) {
 		return
 	}
 	if kind == utils.NoticeUpdateAvailable && !firstAnnouncement(statePath(), values["version"]) {

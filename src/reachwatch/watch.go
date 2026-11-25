@@ -104,6 +104,11 @@ type watcher struct {
 	router    string // what the router module said when last asked
 	seenAs    string // the server's public address as Cloudflare saw it
 	lastRound time.Time
+	// plan 48, review 5: what is known of the outage (fork_level.go): its
+	// state was read from the file, or a round concluded
+	stateRead bool
+	settled   bool
+	suspect   bool // review 6: a name is not concluded: nothing is concluded
 	running   bool
 	started   bool
 	dirty     bool
@@ -457,6 +462,19 @@ func routerSays(st upnp.Status) string {
 
 // settle opens, changes and closes the outage. The caller holds mu.
 func (w *watcher) settle(now time.Time, p Plan) {
+	// plan 48, reviews 5 and 6: the level of the outage is known once a
+	// round settles with every name concluded (reachable or down): one
+	// being confirmed, not tested yet, or whose test could not conclude is
+	// no evidence
+	w.suspect = false
+	for _, st := range w.names {
+		if st.State != StateReachable && st.State != StateDown {
+			w.suspect = true
+		}
+	}
+	if !w.suspect {
+		w.settled = true
+	}
 	down := []*NameState{}
 	for _, host := range w.sortedHosts() {
 		if st := w.names[host]; st.State == StateDown {

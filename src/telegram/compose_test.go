@@ -84,7 +84,7 @@ func TestHostileValuesStayInsideTheirEntity(t *testing.T) {
 	}
 	for _, value := range hostile {
 		c := &composer{}
-		header(c, testSettings(), "Security")
+		c.fixed("Cosmos ·  · Security").line()
 		c.fixed("Failed login").line()
 		c.fixed("By ").value(value, maxValue).fixed(" from ").value(value, maxValue).line()
 		c.fixed("2026-11-13 10:00:00 UTC")

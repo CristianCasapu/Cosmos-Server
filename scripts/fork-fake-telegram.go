@@ -36,7 +36,9 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -134,7 +136,7 @@ func main() {
 		io.WriteString(w, answer.body)
 	})
 	go func() {
-		server := &http.Server{Addr: ":443", Handler: api, TLSConfig: &tls.Config{
+		server := &http.Server{Addr: ":443", Handler: withMessages(api), TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}},
 		}}
 		log.Fatal(server.ListenAndServeTLS("", ""))
@@ -167,6 +169,127 @@ func main() {
 		}
 		json.NewEncoder(w).Encode(got)
 	})
+	registerMessageRoutes(control) // plan 48: the messages as a chat shows them
 	log.Println("fake Telegram ready")
 	log.Fatal(http.ListenAndServe(":8080", control))
+}
+
+// Fork addition (plan 48): the stand-in numbers the messages it accepts as
+// Telegram does (message_id 1, 2, 3, …), keeps pins, and lists the messages
+// as a chat shows them: GET /messages (?clear=1) gives, per accepted
+// sendMessage, its id, text, entities, parse mode (empty when none was
+// sent), whether it was silent (disable_notification), the message it
+// replies to (reply_parameters, or the older reply_to_message_id) and its
+// buttons; GET /pins the ids pinned now. How the other answers are chosen
+// (/mode, /updates) is unchanged.
+
+type shown struct {
+	ID        int                    `json:"id"`
+	At        time.Time              `json:"at"`
+	Text      string                 `json:"text"`
+	Entities  []interface{}          `json:"entities"`
+	ParseMode string                 `json:"parse_mode"`
+	Silent    bool                   `json:"silent"`
+	ReplyTo   int                    `json:"reply_to"`
+	Buttons   []shownButton          `json:"buttons"`
+	Preview   string                 `json:"preview"`
+	Raw       map[string]interface{} `json:"-"`
+}
+
+type shownButton struct {
+	Text string `json:"text"`
+	URL  string `json:"url"`
+}
+
+var (
+	nextID        int
+	shownMessages []shown
+	pinned        = map[int]bool{}
+)
+
+// withMessages answers like the API it wraps, then numbers an accepted
+// message and records it.
+func withMessages(api http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		r.Body = io.NopCloser(strings.NewReader(string(raw)))
+		rec := httptest.NewRecorder()
+		api.ServeHTTP(rec, r)
+		body := rec.Body.String()
+		if rec.Code == http.StatusOK {
+			var request map[string]interface{}
+			json.Unmarshal(raw, &request)
+			mu.Lock()
+			switch {
+			case strings.HasSuffix(r.URL.Path, "/sendMessage"):
+				nextID++
+				m := shown{ID: nextID, At: time.Now(), Raw: request}
+				m.Text, _ = request["text"].(string)
+				m.Entities, _ = request["entities"].([]interface{})
+				m.ParseMode, _ = request["parse_mode"].(string)
+				m.Silent, _ = request["disable_notification"].(bool)
+				if reply, ok := request["reply_parameters"].(map[string]interface{}); ok {
+					if id, ok := reply["message_id"].(float64); ok {
+						m.ReplyTo = int(id)
+					}
+				} else if id, ok := request["reply_to_message_id"].(float64); ok {
+					m.ReplyTo = int(id)
+				}
+				if markup, ok := request["reply_markup"].(map[string]interface{}); ok {
+					rows, _ := markup["inline_keyboard"].([]interface{})
+					for _, row := range rows {
+						buttons, _ := row.([]interface{})
+						for _, b := range buttons {
+							button, _ := b.(map[string]interface{})
+							text, _ := button["text"].(string)
+							url, _ := button["url"].(string)
+							m.Buttons = append(m.Buttons, shownButton{text, url})
+						}
+					}
+				}
+				m.Preview = strings.SplitN(m.Text, "\n", 2)[0]
+				shownMessages = append(shownMessages, m)
+				body = `{"ok":true,"result":{"message_id":` + strconv.Itoa(m.ID) + `,"date":` + strconv.FormatInt(m.At.Unix(), 10) + `,"chat":{"id":1,"type":"private"}}}`
+			case strings.HasSuffix(r.URL.Path, "/pinChatMessage"), strings.HasSuffix(r.URL.Path, "/unpinChatMessage"):
+				if id, ok := request["message_id"].(float64); ok {
+					if strings.HasSuffix(r.URL.Path, "/pinChatMessage") {
+						pinned[int(id)] = true
+					} else {
+						delete(pinned, int(id))
+					}
+				}
+				body = `{"ok":true,"result":true}`
+			}
+			mu.Unlock()
+		}
+		for name, values := range rec.Header() {
+			w.Header()[name] = values
+		}
+		w.WriteHeader(rec.Code)
+		io.WriteString(w, body)
+	})
+}
+
+func registerMessageRoutes(control *http.ServeMux) {
+	control.HandleFunc("/messages", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.URL.Query().Get("clear") != "" {
+			shownMessages = nil
+		}
+		list := shownMessages
+		if list == nil {
+			list = []shown{}
+		}
+		json.NewEncoder(w).Encode(list)
+	})
+	control.HandleFunc("/pins", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		ids := []int{}
+		for id := range pinned {
+			ids = append(ids, id)
+		}
+		json.NewEncoder(w).Encode(ids)
+	})
 }

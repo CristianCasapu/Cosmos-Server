@@ -192,6 +192,8 @@ var catalogue = func() map[string]Kind {
 		audit(utils.SecMonitoringCopy, SeverityMedium, "Monitoring history copy", "An administrator started or cancelled the copy of the monitoring history (metrics, events, notifications, this record) between the local file and PostgreSQL. Details: action is start or cancel, direction is to-postgres or to-local; action catchup: Cosmos itself caught up the rows a fallback wrote into the local file (no user; details copied, missing, from, to). Nothing is deleted by it."), // Fork addition (plan 51)
 
 		incident(utils.SecRecorderDropped, SeverityMedium, OutcomeFailed, "Events lost", "The record could not keep up (the database did not answer): Count events were not stored."),
+		incident(utils.SecTelegramThreadDropped, SeverityMedium, OutcomeFailed, "Telegram problem dropped", "The Telegram notifier failed three times on the message of an open problem and stopped sending it; it is looked at again within 10 minutes. Details: kind (the kind of the problem)."),
+		incident(utils.SecTelegramWarningLost, SeverityMedium, OutcomeFailed, "Telegram warning not delivered", "The Telegram chat that lost (part of) the notifications could not be told for 30 minutes. Details: what (what was changed), by (who changed it, from where)."),
 	}
 	byKind := make(map[string]Kind, len(kinds))
 	for _, kind := range kinds {

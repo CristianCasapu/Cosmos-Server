@@ -2,7 +2,12 @@ package telegram
 
 import (
 	"context"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
+
+	"github.com/azukaar/cosmos-server/src/security"
 
 	"github.com/azukaar/cosmos-server/src/utils"
 )
@@ -12,11 +17,9 @@ import (
 // the notifications. A variable so the tests can point it at a fake.
 var directClient = newAPIClient()
 
-// changeSlots bounds how many farewell messages are under way at once.
-var changeSlots = make(chan struct{}, 2)
-
-// changeRetries are the waits between the attempts of a farewell message.
-var changeRetries = []time.Duration{5 * time.Second, 15 * time.Second}
+// changeRetries are the waits between the attempts of a farewell message;
+// the last one repeats until changeRetryFor has passed.
+var changeRetries = []time.Duration{5 * time.Second, 15 * time.Second, time.Minute, 5 * time.Minute}
 
 // AnnounceSettingsChange tells the chat that received the notifications so
 // far when a save of the settings takes them away from it: they were
@@ -44,34 +47,382 @@ func AnnounceSettingsChange(before utils.Config, after utils.Config, actor strin
 	case was.categories[CategorySecurity] && !is.categories[CategorySecurity]:
 		what = "no longer include security events"
 	default:
+		// plan 48: what the severities and the switches per kind silence
+		what = silenced(was, is)
+		if more := watchesSilenced(before.Watch, after.Watch); more != "" {
+			if what != "" {
+				what += "; "
+			}
+			what += more
+		}
+		if what == "" {
+			return
+		}
+	}
+
+	queueChange(was, what, actor, ip)
+}
+
+// The announcements waiting, one entry per chat (the settings as they
+// were): what was switched off, and every account and address that did
+// it, each bounded (review T4). An entry is never pushed out by another
+// chat's: a chat beyond maxChangeChats is logged and recorded instead.
+type chatChange struct {
+	was       settings
+	whats     []string
+	moreWhats int
+	actors    []string // "account from address"
+	moreBy    int
+}
+
+const (
+	maxChangeChats  = 16
+	maxChangeWhats  = 12
+	maxChangeActors = 6
+)
+
+var (
+	changeMu      sync.Mutex
+	changeChats   = map[string]*chatChange{}
+	changeOrder   []string
+	changeRunning bool
+	changeSending *chatChange // the one being sent
+	// changeRetryFor is how long a warning is tried; changeRetries the
+	// waits between attempts (the last one repeats). Variables for the tests.
+	changeRetryFor = 30 * time.Minute
+)
+
+func queueChange(was settings, what string, actor string, ip string) {
+	by := strings.TrimSpace(actor)
+	if ip != "" {
+		by = strings.TrimSpace(by + " from " + ip)
+	}
+	changeMu.Lock()
+	defer changeMu.Unlock()
+	entry := changeChats[was.fingerprint]
+	if entry == nil {
+		if len(changeChats) >= maxChangeChats {
+			lost := lostWarning
+			go lost(what, by)
+			return
+		}
+		entry = &chatChange{was: was}
+		changeChats[was.fingerprint] = entry
+		changeOrder = append(changeOrder, was.fingerprint)
+	}
+	if !contains(entry.whats, what) {
+		if len(entry.whats) < maxChangeWhats {
+			entry.whats = append(entry.whats, what)
+		} else {
+			entry.moreWhats++
+		}
+	}
+	if by != "" && !contains(entry.actors, by) {
+		if len(entry.actors) < maxChangeActors {
+			entry.actors = append(entry.actors, by)
+		} else {
+			entry.moreBy++
+		}
+	}
+	markFarewellsLocked()
+	utils.Log("Telegram: the chat is told that its notifications " + what)
+	if !changeRunning {
+		changeRunning = true
+		go sendChanges()
+	}
+}
+
+// markFarewellsLocked keeps in the threads file what waits to be told, so
+// that a restart before it is sent records it as lost (review 4, T4).
+func markFarewellsLocked() {
+	n := std.Load()
+	if n == nil || n.threads == nil {
 		return
 	}
-
-	c := &composer{}
-	header(c, was, "Security alert")
-	c.fixed("The Telegram notifications of this server " + what + ": this chat no longer receives them as before. If that was not you, look at the server.").line()
-	if !was.hideDetails && (actor != "" || ip != "") {
-		c.fixed("Changed by ").value(actor, maxValue).fixed(" from ").value(ip, maxValue).line()
+	whats, bys := []string{}, []string{}
+	for _, key := range changeOrder {
+		if entry := changeChats[key]; entry != nil {
+			whats = append(whats, entry.whats...)
+			bys = append(bys, entry.actors...)
+		}
 	}
-	c.fixed(time.Now().Format(stampLayout))
-	text, entities := c.result()
-
-	select {
-	case changeSlots <- struct{}{}:
-	default:
-		return // two are already under way
+	if changeSending != nil {
+		whats = append(whats, changeSending.whats...)
+		bys = append(bys, changeSending.actors...)
 	}
-	go func() {
-		defer func() { <-changeSlots }()
-		defer func() { recover() }()
-		for attempt := 0; ; attempt++ {
-			ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)
-			failure := directClient.send(ctx, was, text, entities, false)
-			cancel()
-			if failure == nil || !failure.Retryable || attempt >= len(changeRetries) {
-				return
+	if len(whats) == 0 {
+		n.threads.farewell(nil)
+		return
+	}
+	n.threads.farewell(&farewellMark{What: cleanValue(strings.Join(whats, "; "), 300), By: cleanValue(strings.Join(bys, ", "), 200), At: time.Now()})
+}
+
+// leavesChat: the change takes the notifications away from the chat.
+func leavesChat(whats []string) bool {
+	for _, what := range whats {
+		switch what {
+		case "were switched off", "now use another bot", "now go to another chat":
+			return true
+		}
+	}
+	return false
+}
+
+func contains(list []string, value string) bool {
+	for _, v := range list {
+		if v == value {
+			return true
+		}
+	}
+	return false
+}
+
+// leaveChatPins takes away the pins of the chat that loses the
+// notifications, in THAT chat, and forgets its threads; it returns how many
+// could not be taken away.
+func leaveChatPins(n *notifier, was settings, client botClient) int {
+	// what the notifier remembers of messages in that chat goes too: a
+	// brake of the chat left must not stand for an opening there later
+	// (review 6)
+	prefix := chatKey(was) + ":"
+	n.mu.Lock()
+	for key := range n.brakes {
+		if strings.HasPrefix(key, prefix) {
+			delete(n.brakes, key)
+		}
+	}
+	for key := range n.plainSent {
+		if strings.HasPrefix(key, prefix) {
+			delete(n.plainSent, key)
+		}
+	}
+	n.mu.Unlock()
+	stuck := 0
+	for _, id := range n.threads.leave(was) {
+		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)
+		if client.pin(ctx, was, id, false) != nil {
+			stuck++
+		}
+		cancel()
+	}
+	return stuck
+}
+
+func sendChanges() {
+	defer func() {
+		if recover() != nil {
+			// review 5: a panic never leaves the queue stopped until a restart
+			changeMu.Lock()
+			changeRunning, changeSending = false, nil
+			markFarewellsLocked()
+			again := len(changeOrder) > 0
+			if again {
+				changeRunning = true
 			}
-			time.Sleep(changeRetries[attempt])
+			changeMu.Unlock()
+			if again {
+				go sendChanges()
+			}
 		}
 	}()
+	for {
+		changeMu.Lock()
+		if len(changeOrder) == 0 {
+			changeRunning = false
+			changeSending = nil
+			markFarewellsLocked()
+			changeMu.Unlock()
+			return
+		}
+		key := changeOrder[0]
+		changeOrder = changeOrder[1:]
+		entry := changeChats[key]
+		delete(changeChats, key) // what comes meanwhile for this chat is told after
+		changeSending = entry
+		changeMu.Unlock()
+		if entry != nil {
+			sendChange(entry)
+		}
+	}
+}
+
+// sendChange tells one chat what saves took away from it, with who did,
+// trying for changeRetryFor and honouring Telegram's waits; when it cannot,
+// the server's log, the security record and the panel say so.
+func sendChange(entry *chatChange) {
+	defer func() {
+		if recover() != nil {
+			// review 5: an entry that failed this way is recorded as lost
+			what, by := strings.Join(entry.whats, "; "), strings.Join(entry.actors, ", ")
+			changeMu.Lock()
+			lost := lostWarning
+			changeMu.Unlock()
+			go lost(what, by)
+		}
+	}()
+	what := strings.Join(entry.whats, "; ")
+	if entry.moreWhats > 0 {
+		what += " and " + strconv.Itoa(entry.moreWhats) + " more changes"
+	}
+	by := strings.Join(entry.actors, ", ")
+	if entry.moreBy > 0 {
+		by += " and " + strconv.Itoa(entry.moreBy) + " more"
+	}
+	nt := newNotice("telegram.moved", map[string]string{"_what": what})
+	nt.at = time.Now()
+	nt.key = "telegram.moved"
+	if by != "" {
+		nt.extra = func(c *composer) { c.fixed("Changed by ").value(by, maxFreeText).fixed(".") }
+	}
+	// review 4: the chat that loses the notifications keeps no pin of a
+	// problem it will not hear the end of; the pins that cannot be taken
+	// away are said
+	if left := leavesChat(entry.whats); left {
+		if n := std.Load(); n != nil && n.threads != nil {
+			stuck := leaveChatPins(n, entry.was, directClient)
+			if stuck > 0 {
+				before := nt.extra
+				nt.extra = func(c *composer) {
+					if before != nil {
+						before(c)
+						c.fixed("\n")
+					}
+					c.fixed(strconv.Itoa(stuck) + " pinned messages of problems still open could not be unpinned: they are no longer followed here.")
+				}
+			}
+		}
+	}
+	m := render(entry.was, nt)
+	changeMu.Lock()
+	retries, retryFor, lost := changeRetries, changeRetryFor, lostWarning
+	changeMu.Unlock()
+	deadline := time.Now().Add(retryFor)
+	for attempt := 0; ; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)
+		_, failure := directClient.sendMessage(ctx, entry.was, outgoing{message: m})
+		cancel()
+		if failure == nil {
+			return
+		}
+		wait := failure.RetryAfter
+		if wait <= 0 {
+			step := attempt
+			if step >= len(retries) {
+				step = len(retries) - 1
+			}
+			wait = retries[step]
+		}
+		if !failure.Retryable || time.Now().Add(wait).After(deadline) {
+			lost(what, by)
+			return
+		}
+		time.Sleep(wait)
+	}
+}
+
+// lostWarning is what happens when a chat could not be told: a line in the
+// log, an entry of the security record, a notification in the panel. A
+// variable for the tests.
+var lostWarning = func(what string, by string) {
+	defer func() { recover() }()
+	utils.Warn("Telegram: the chat could not be told that its notifications " + what + " (changed by " + by + ")")
+	utils.RecordSecurityEvent(utils.SecurityEvent{Kind: utils.SecTelegramWarningLost, Details: map[string]string{"what": cleanValue(what, 300), "by": cleanValue(by, 200)}})
+	raiseInPanel("The Telegram chat could not be told that its notifications " + what + ".")
+}
+
+// silenced says, in fixed words, what a change of the delivery per
+// severity, of the switches per kind or of the minimum severity stops
+// sending that was sent before: errors or critical messages switched off,
+// a critical or security kind switched off, the minimum severity raised.
+// "" when it stops nothing of that.
+func silenced(was settings, is settings) string {
+	parts := []string{}
+	for _, sev := range []severity{sevCritical, sevError} {
+		if was.delivery[sev] != DeliverOff && is.delivery[sev] == DeliverOff {
+			parts = append(parts, "no longer send "+strings.ToLower(word(sev.String()))+" messages")
+		}
+	}
+	// every critical, error or security kind that was being sent and is not
+	// any more: its switch, its group, or the minimum severity (review R6)
+	for _, name := range Categories() {
+		if was.categories[name] && !is.categories[name] && name != CategorySecurity {
+			for _, kind := range KindNames() {
+				if kt := texts.Kinds[kind]; kt.Category == name && kt.severity >= sevError && kindOn(was, kind) {
+					parts = append(parts, "no longer include the group \""+name+"\"")
+					break
+				}
+			}
+		}
+	}
+	labels := []string{}
+	for _, name := range KindNames() {
+		kt := texts.Kinds[name]
+		if ownKinds[name] || (kt.severity < sevError && kt.Category != CategorySecurity) {
+			continue
+		}
+		if _, set := is.kinds[name]; set && kindOn(was, name) && !kindOn(is, name) {
+			labels = append(labels, kt.Label)
+		}
+	}
+	if len(labels) > 0 {
+		more := ""
+		if len(labels) > 3 {
+			more = " and " + strconv.Itoa(len(labels)-3) + " more"
+			labels = labels[:3]
+		}
+		parts = append(parts, "no longer send: "+strings.Join(labels, ", ")+more)
+	}
+	if rank := map[string]int{"low": 1, "medium": 2, "high": 3}; rank[is.minSeverity] > rank[was.minSeverity] {
+		parts = append(parts, "now send fewer security events (minimum severity raised to "+is.minSeverity+")")
+	}
+	return strings.Join(parts, "; ")
+}
+
+// watchesSilenced says which of the server's own watches a save switches off.
+func watchesSilenced(before utils.WatchConfig, after utils.WatchConfig) string {
+	names := []string{}
+	for _, w := range []struct {
+		was, is bool
+		name    string
+	}{
+		{before.SMARTOff, after.SMARTOff, "failing disks"},
+		{before.FillOff, after.FillOff, "disks filling fast"},
+		{before.DockerOff, after.DockerOff, "Docker not answering"},
+		{before.SnapshotsOff, after.SnapshotsOff, "late snapshots"},
+		{before.CountryOff, after.CountryOff, "sign-ins from a new country"},
+	} {
+		if !w.was && w.is {
+			names = append(names, w.name)
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	return "no longer watch for " + strings.Join(names, ", ")
+}
+
+// kindOn reports whether a kind is sent with these settings, as far as
+// they decide it (its switch, its category, the minimum severity for an
+// event of the security record).
+func kindOn(st settings, name string) bool {
+	if on, set := st.kinds[name]; set {
+		return on
+	}
+	kt := texts.Kinds[name]
+	if !st.categories[kt.Category] || kt.Off {
+		return false
+	}
+	if known, ok := security.KindOf(name); ok {
+		severity, _ := security.ParseSeverity(known.Severity)
+		minimum, _ := security.ParseSeverity(st.minSeverity)
+		return severity >= minimum
+	}
+	return true
+}
+
+// movedBy writes who changed the settings, from where.
+func movedBy(actor string, ip string) func(c *composer) {
+	return func(c *composer) {
+		c.fixed("Changed by ").value(actor, maxValue).fixed(" from ").value(ip, maxValue).fixed(".")
+	}
 }

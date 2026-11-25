@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import {
   TEXT, normalizeLevel, sentence, fill, cleanVars, titleOf, messageOf, safeLink, detailsLink, cleanFilters, filtersFromSearch,
-  searchFromFilters, apiParams, markBody, deleteBody, markAllBody, deleteReadBody, cleanItem, cleanItems, mergePage, ordinal, occurrence,
+  searchFromFilters, apiParams, markBody, deleteBody, resolveBody, markAllBody, deleteReadBody, cleanItem, cleanItems, mergePage, ordinal, occurrence,
   timeline, tableOf, auditLink, allTexts, commandLabel, knownAction,
 } from './notifications.js';
 
@@ -88,6 +88,8 @@ test('command bodies: numbers only, bounded', () => {
   assert.equal(markBody(Array.from({ length: 500 }, (_, i) => i + 1), true).ids.length, 200);
   assert.deepEqual(deleteBody([9]), { ids: [9] });
   assert.deepEqual(markBody([3], true, 'a1b2c3d4e5f6'), { ids: [3], read: true, store: 'a1b2c3d4e5f6' }, 'plan 51: the store the ids came from');
+  assert.deepEqual(resolveBody(5, 'a1b2c3d4e5f6'), { ids: [5], store: 'a1b2c3d4e5f6' }, 'plan 51: a resolve names the store too');
+  assert.deepEqual(resolveBody(5), { ids: [5] });
   assert.deepEqual(deleteBody([9], 'a1b2c3d4e5f6'), { ids: [9], store: 'a1b2c3d4e5f6' });
   assert.deepEqual(markBody([3], true, 'not a store!'), { ids: [3], read: true });
   assert.deepEqual(markAllBody(), { all: true });
@@ -152,6 +154,7 @@ test('toasts: marking all and deleting are named; marking named ones is not', ()
   assert.equal(commandLabel('/api/notifications/mark', 'POST', '{"ids":[1],"read":true}'), null);
   assert.deepEqual(commandLabel('/api/notifications/delete', 'POST', '{"read":true}')[0], 'activity.notifications.deleteRead');
   assert.deepEqual(commandLabel('/api/notifications/delete', 'POST', '{"ids":[3]}')[0], 'activity.notifications.delete');
+  assert.deepEqual(commandLabel('/api/notifications/resolve', 'POST', '{"ids":[3]}')[0], 'activity.notifications.resolve');
   assert.equal(commandLabel('/api/notifications/delete', 'GET', ''), null);
   assert.equal(commandLabel('/api/notifications/mark', 'POST', 'not json'), null);
   assert.ok(knownAction('upnp.check'));

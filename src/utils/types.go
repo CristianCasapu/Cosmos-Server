@@ -219,6 +219,8 @@ type Config struct {
 	Snapshots SnapshotsConfig `json:"Snapshots,omitempty"`
 	// Fork addition: notifications through Telegram, see src/telegram.
 	Telegram TelegramConfig `json:"Telegram,omitempty"`
+	// Fork addition (plan 48): what Cosmos watches by itself, see src/watch.
+	Watch WatchConfig `json:"Watch,omitempty"`
 	// Fork addition: what the panel set for the Fail2ban jails, see src/fail2ban.
 	Fail2ban Fail2banConfig `json:"Fail2ban,omitempty"`
 	// Fork addition: show the panel's features that need a licence when there is
@@ -443,6 +445,15 @@ type SnapshotsConfig struct {
 // still ring unless QuietSilenceCritical is set. MaxPerMinute caps the
 // messages that are not critical (0 means 6).
 //
+// Kinds (plan 48) switches single kinds of messages ("auth.login.failed",
+// "container.dying", see telegram.KindNames): absent follows the category
+// and, for the security record, the minimum severity; true sends the kind
+// even below the minimum severity; false never sends it. Delivery says per
+// severity ("info", "warn", "error", "critical") how a message arrives:
+// "sound", "silent" or "off"; absent is silent for info, with sound for the
+// others. Neither existed before 0.24.0-fork.35: empty is the behaviour of
+// before.
+//
 // Every zero value is the default. The values are checked by
 // telegram.ValidateConfig when the settings are saved; there are no validate
 // tags, for the reasons given at SnapshotsConfig.
@@ -459,6 +470,25 @@ type TelegramConfig struct {
 	QuietTo              string
 	QuietSilenceCritical bool
 	MaxPerMinute         int
+	Kinds                map[string]bool   `json:"Kinds,omitempty"`
+	Delivery             map[string]string `json:"Delivery,omitempty"`
+	// HideErrors (plan 48) leaves the text of errors out of the messages.
+	HideErrors bool `json:"HideErrors,omitempty"`
+}
+
+// WatchConfig (fork addition, plan 48) tunes the watches of src/watch.
+// Every zero value is the default: everything watched, a disk warned about
+// when it fills within FillDays (3) at its present rate, a snapshot folder
+// late when its last snapshot is older than its schedule plus a margin
+// (SnapshotLateHours overrides that, 0: derived from the schedule).
+type WatchConfig struct {
+	SMARTOff          bool
+	FillOff           bool
+	FillDays          int
+	DockerOff         bool
+	SnapshotsOff      bool
+	SnapshotLateHours int
+	CountryOff        bool
 }
 
 const (
