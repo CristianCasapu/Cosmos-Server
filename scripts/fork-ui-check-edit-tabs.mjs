@@ -116,8 +116,8 @@ const shape = (c) => {
     fresh = answer.status() === 200 && (await answer.json()).status === 'OK';
   } catch (e) { /* set up already */ }
   if (fresh) {
-    const step = (data) => api.post(plain + '/cosmos/api/newInstall', { data }).then((r) => r.status()).catch(() => 'exit');
-    note('wizard:', await step({ step: '2', mongodbMode: 'Create' }),
+    const step = (data) => api.post(plain + '/cosmos/api/newInstall', { data, headers: { 'X-Cosmos-Setup-Code': process.env.SETUP_CODE || '' } }).then((r) => r.status()).catch(() => 'exit');
+    note('wizard:', await step({ step: '-1' }), await step({ step: '2', mongodbMode: 'Create' }),
       await step({ step: '3', httpsCertificateMode: 'SELFSIGNED', hostname: ip, allowHTTPLocalIPAccess: true }),
       await step({ step: '4', nickname: 'admin', password, email: 'admin@example.org' }), await step({ step: '5' }));
     await sleep(4000);

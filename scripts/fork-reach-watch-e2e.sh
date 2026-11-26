@@ -125,7 +125,10 @@ wait_for() {
 	echo "  FAIL $1 does not answer"; return 1
 }
 wait_for http://192.168.1.10:2052/cosmos/api/status
-step() { ctl curl -s -o /dev/null -w "step: %{http_code}\n" -H 'Content-Type: application/json' -d "$1" http://192.168.1.10:2052/cosmos/api/newInstall; }
+# the wizard asks for the instance's one-time setup code (src/fork_setup_code.go): read from its file
+SETUP_CODE=$(cat "$SCRATCH/config/setup-code")
+step() { ctl curl -s -o /dev/null -w "step: %{http_code}\n" -H 'Content-Type: application/json' -H "X-Cosmos-Setup-Code: $SETUP_CODE" -d "$1" http://192.168.1.10:2052/cosmos/api/newInstall; }
+step '{"step":"-1"}' # the wizard's default: clean install first
 step '{"step":"2","mongodbMode":"Create"}'
 step '{"step":"3","httpsCertificateMode":"SELFSIGNED","hostname":"example.org","allowHTTPLocalIPAccess":true}'
 step "{\"step\":\"4\",\"nickname\":\"admin\",\"password\":\"$PASSWORD\",\"email\":\"admin@example.org\"}"

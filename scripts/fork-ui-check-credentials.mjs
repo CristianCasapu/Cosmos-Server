@@ -31,6 +31,8 @@
 // NO_CREATE=1    the story stops before the first Create (steps 1 and 2's review only)
 // ENGINES (chromium,firefox,webkit), SIZES (d=1366x900, m=393x851), MODES (light,dark).
 // Screenshots go to ./shots.
+//
+// SETUP_CODE: the fresh test instance's one-time setup code, which its wizard asks for: cat <its config folder>/setup-code (src/fork_setup_code.go).
 import { chromium, firefox, webkit, request } from 'playwright';
 
 const host = process.env.HOST || 'cosmos-test.example.org';
@@ -284,8 +286,8 @@ if (phase === 'setup') {
     } catch (e) { await sleep(2000); }
   }
   if (fresh) {
-    const step = (data) => api.post(plain + '/cosmos/api/newInstall', { data }).then((r) => r.status()).catch(() => 'exit');
-    note('wizard:', await step({ step: '2', mongodbMode: 'Create' }),
+    const step = (data) => api.post(plain + '/cosmos/api/newInstall', { data, headers: { 'X-Cosmos-Setup-Code': process.env.SETUP_CODE || '' } }).then((r) => r.status()).catch(() => 'exit');
+    note('wizard:', await step({ step: '-1' }), await step({ step: '2', mongodbMode: 'Create' }),
       await step({ step: '3', httpsCertificateMode: 'SELFSIGNED', hostname: host, allowHTTPLocalIPAccess: true }),
       await step({ step: '4', nickname: 'admin', password, email: OWNER_EMAIL }), await step({ step: '5' }));
     await sleep(5000);

@@ -30,6 +30,8 @@
 // It finishes the set-up wizard, sets the data path to /srv/cosmos-storage
 // (on the test Cosmos' system disk, as on a fresh install) and adds the
 // market source. Screenshots go to ./shots. ENGINES, SIZES as in the other checks.
+//
+// SETUP_CODE: the fresh test instance's one-time setup code, which its wizard asks for: cat <its config folder>/setup-code (src/fork_setup_code.go).
 import { chromium, firefox, webkit, request } from 'playwright';
 
 const ip = process.env.SERVER_IP || '172.31.88.10';
@@ -68,8 +70,8 @@ const inspect = async (name) => {
     fresh = answer.status() === 200 && (await answer.json()).status === 'OK';
   } catch (e) { /* set up already */ }
   if (fresh) {
-    const step = (data) => api.post(plain + '/cosmos/api/newInstall', { data }).then((r) => r.status()).catch(() => 'exit');
-    note('wizard:', await step({ step: '2', mongodbMode: 'Create' }),
+    const step = (data) => api.post(plain + '/cosmos/api/newInstall', { data, headers: { 'X-Cosmos-Setup-Code': process.env.SETUP_CODE || '' } }).then((r) => r.status()).catch(() => 'exit');
+    note('wizard:', await step({ step: '-1' }), await step({ step: '2', mongodbMode: 'Create' }),
       await step({ step: '3', httpsCertificateMode: 'SELFSIGNED', hostname: ip, allowHTTPLocalIPAccess: true }),
       await step({ step: '4', nickname: 'admin', password, email: 'admin@example.org' }), await step({ step: '5' }));
     await sleep(4000);

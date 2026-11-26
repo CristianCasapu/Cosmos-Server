@@ -125,7 +125,7 @@ func newRestarts() *restarts {
 		wanted:    make(chan struct{}, 1),
 		bindFor:   10 * time.Second,
 		bindEvery: 50 * time.Millisecond,
-		listen:    func(addr string) (net.Listener, error) { return net.Listen("tcp", addr) },
+		listen:    func(addr string) (net.Listener, error) { return net.Listen("tcp", setupListenAddr(addr)) }, // the wizard on 127.0.0.1 only when install.sh asked for it, see fork_setup_code.go
 		log:       utils.Log,
 		kept:      map[string]*keptSocket{},
 		fresh:     map[net.Conn]chan struct{}{},

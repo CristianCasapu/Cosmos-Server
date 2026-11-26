@@ -316,6 +316,20 @@ cool-down, the 72 hours the previous files are kept, the 15-minute window.
   Cloudflare, e-mail, Telegram, Fail2ban and UPnP checks, were each run on
   their own branch only (each needs a set-up of its own).
 
+## The installer: left for later (2026-11-24)
+
+- `migrate.sh` from upstream's Docker container (plan 47, D2); the bare-metal move is done. Not tested: a backup on another local file system (a move across devices), real vfat, NFS or CIFS places (the test mode stands in for their type), a kill during `--continue`'s copy, 0.23.4 through interruptions (only through failures), ACLs and extended attributes (not compared).
+- The questions at installation (plan 47, E1): asked in the terminal, proposals first; `--address`, `--upnp` and `--router` are accepted already and unused.
+- The protection pieces run through the installer (the guard merged, 2026-11-26: `pieces` and `docker-there` pass). Not run: `fresh` with `--reachable internet` from an outside SSH session (the guard's exit 4 reported, nothing recorded); the test machines are reached with `docker exec`, not SSH.
+- The first simulation also checks the pieces' fallback packages (fail2ban, python3, nftables, unattended-upgrades) when protection is chosen, although the pieces may then be skipped: a system where one of them cannot be had refuses to install (exit 6).
+- The setup code is also in the journal (the owner's choice): members of `adm` or `systemd-journal`, and log shippers that send the journal off the server, can read it until the setup is done.
+- The courtesy pause is per address: someone behind the owner's NAT, or a DNS-rebinding page open in the owner's browser, can make the owner's address wait (the right code is still accepted). Once the table of 4096 addresses is full, each new address scans it twice under one lock (throughput only).
+- Upstream: `/oauth2/token`, `/oauth2/introspect`, `/oauth2/revoke` and `/.well-known/jwks.json` panic (recovered per request) while the installation is new.
+- The release build's `e2e` job can still delete or overwrite the `release` artifact by name: publish then fails (a denial only; what is signed is checked by ID and SHA-256).
+- The test bed runs privileged Docker in Docker on the host's Docker: a VM for local runs, or fewer privileges for the machines.
+- The install scripts were run on amd64 machines only, never on arm64.
+- apt follows the caller's proxy variables while the script's own downloads ignore them (`--proxy`).
+
 ## The monitoring database: left for later (2026-11-25)
 
 - Before the fallback takes over (two failed looks, about 20 to 35 seconds), the rows that cannot be written are kept in memory and written again, but only up to 5 000 events and 500 notifications; beyond that they are dropped (counted and logged). A long write burst during the first half-minute of an outage can still lose rows. Metric buckets and the security record keep theirs as before.

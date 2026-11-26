@@ -16,6 +16,8 @@
 //
 // The security pages get their rows from scripts/fork-ui-gallery-noise.sh,
 // which must run from other addresses than this script's.
+//
+// SETUP_CODE: the fresh test instance's one-time setup code, which its wizard asks for: cat <its config folder>/setup-code (src/fork_setup_code.go).
 import { request } from 'playwright';
 import { readFileSync } from 'node:fs';
 
@@ -29,7 +31,7 @@ const api = await request.newContext({ baseURL: base });
 const call = async (method, path, data) => {
   let r;
   // the last step of the wizard and a save of the settings end the process: no answer then
-  try { r = await api.fetch('/cosmos/api/' + path, { method, data, failOnStatusCode: false }); } catch (e) { return { status: 0, body: null }; }
+  try { r = await api.fetch('/cosmos/api/' + path, { method, data, failOnStatusCode: false, headers: { 'X-Cosmos-Setup-Code': process.env.SETUP_CODE || '' } }); } catch (e) { return { status: 0, body: null }; }
   let body = null;
   try { body = await r.json(); } catch (e) { /* not JSON */ }
   return { status: r.status(), body };
@@ -44,6 +46,7 @@ const waitUp = async () => {
 
 // --- the setup wizard (the server answers 403 to it once it is done)
 await waitUp();
+await call('POST', 'newInstall', { step: '-1' }); // the wizard's default: clean install first
 const first = await call('POST', 'newInstall', { step: '2' });
 if (first.status === 200) {
   note('wizard: 2', first.status);

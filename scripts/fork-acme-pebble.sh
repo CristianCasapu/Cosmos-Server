@@ -124,6 +124,7 @@ check() {
 	docker run --rm --name "$PREFIX-check" --network "$NET" --ip "$SUBNET.20" --dns "$SUBNET.2" \
 		-v "$SCRATCH/bin:/work:ro" -v "$SCRATCH/shared:/shared" \
 		-e SERVER="$SUBNET.10" -e FAKE="http://$SUBNET.2:8080" -e FAKE_DNS="$SUBNET.2:53" \
+		-e SETUP_CODE="$(cat "$SCRATCH/config/setup-code" 2>/dev/null)" \
 		"$GO_IMAGE" /work/acme-check "$@"
 }
 

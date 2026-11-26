@@ -44,8 +44,11 @@ if [ -n "$STATIC" ]; then docker cp "$STATIC/." "$D:/cosmos/static/"; else docke
 docker exec "$D" sh -c 'echo "{\"version\":\"test\"}" > /cosmos/meta.json'
 docker exec -d "$D" sh -c 'cd /cosmos && while [ ! -e /cosmos/stop ]; do COSMOS_CONFIG_FOLDER=/cosmos/config/ COSMOS_HTTP_PORT=2052 COSMOS_HTTPS_PORT=2053 ./cosmos >> /cosmos/log 2>&1; sleep 1; done'
 for _ in $(seq 1 60); do [ "$(docker exec "$D" curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:2052/cosmos-ui/)" = 200 ] && break; sleep 1; done
+# the wizard asks for the instance's one-time setup code (src/fork_setup_code.go): read from its file
 docker exec -e PASSWORD="$PASSWORD" "$D" sh -c '
-  s() { curl -s -m 20 -X POST -H "Content-Type: application/json" -d "$1" http://127.0.0.1:2052/cosmos/api/newInstall >/dev/null; }
+  code=$(cat /cosmos/config/setup-code)
+  s() { curl -s -m 20 -X POST -H "Content-Type: application/json" -H "X-Cosmos-Setup-Code: $code" -d "$1" http://127.0.0.1:2052/cosmos/api/newInstall >/dev/null; }
+  s "{\"step\":\"-1\"}" # the default of the wizard: clean install first
   s "{\"step\":\"2\",\"mongodbMode\":\"Create\"}"
   s "{\"step\":\"3\",\"httpsCertificateMode\":\"SELFSIGNED\",\"hostname\":\"server.example.org\",\"allowHTTPLocalIPAccess\":true}"
   s "{\"step\":\"4\",\"nickname\":\"admin\",\"password\":\"$PASSWORD\",\"email\":\"admin@example.org\"}"

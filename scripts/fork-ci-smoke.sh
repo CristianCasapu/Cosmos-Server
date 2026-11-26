@@ -124,6 +124,9 @@ for _ in $(seq 1 90); do
 done
 [ -n "$up" ] || { tail -n 60 "$SCRATCH/server.log" 2>/dev/null || docker logs --tail 60 "$PREFIX-server"; die "the server did not answer on port $PORT"; }
 say "the server answers after $(( $(date +%s) - t0 )) s"
+# the wizard asks for the instance's one-time setup code (src/fork_setup_code.go): read from its file
+SETUP_CODE=$(cat "$SCRATCH/config/setup-code" 2>/dev/null || true)
+[ -n "$SETUP_CODE" ] || die "the test instance made no setup code in $SCRATCH/config/setup-code"
 
 # --- playwright from the lock file, without its install scripts (the image carries the browsers)
 npm_cache=""
@@ -136,7 +139,7 @@ docker run --rm --name "$PREFIX-npm" --user "$user" -e HOME=/tmp $npm_cache -v "
 status=0
 # shellcheck disable=SC2086
 docker run --rm --name "$PREFIX-browser" $net --ipc=host --user "$user" -e HOME=/tmp \
-  -e BASE="$BASE" -e OUT=/out -v "$here:/smoke/scripts:ro" -v "$SCRATCH/deps/node_modules:/smoke/node_modules:ro" \
+  -e BASE="$BASE" -e OUT=/out -e SETUP_CODE="$SETUP_CODE" -v "$here:/smoke/scripts:ro" -v "$SCRATCH/deps/node_modules:/smoke/node_modules:ro" \
   -v "$OUT:/out" -w /smoke "$PLAYWRIGHT_IMAGE" node scripts/fork-ci-smoke.mjs || status=$?
 say "done in $(( $(date +%s) - t0 )) s, exit $status; see $OUT/summary.txt"
 [ "$status" = 0 ] || exit 1

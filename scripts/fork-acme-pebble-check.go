@@ -355,7 +355,14 @@ func setUp() {
 	if fresh {
 		step := func(data object) int {
 			encoded, _ := json.Marshal(data)
-			response, err := http.Post(plain+"/cosmos/api/newInstall", "application/json", bytes.NewReader(encoded))
+			// the instance's one-time setup code (src/fork_setup_code.go), read from its file by fork-acme-pebble.sh
+			request, err := http.NewRequest("POST", plain+"/cosmos/api/newInstall", bytes.NewReader(encoded))
+			if err != nil {
+				return 0
+			}
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("X-Cosmos-Setup-Code", os.Getenv("SETUP_CODE"))
+			response, err := http.DefaultClient.Do(request)
 			if err != nil {
 				return 0
 			}

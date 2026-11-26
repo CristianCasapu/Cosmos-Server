@@ -188,6 +188,7 @@ WantedBy=multi-user.target`
 
 func main() {
 	armUpdateTrialStop() // Fork addition: a stop of a version on trial is noted as clean from here on, see fork_update_trial.go
+	if forkDetectCommand() { return } // Fork addition: `cosmos fork-detect` for the install scripts, before anything touches Docker or the configuration, see fork_detect.go
 	docker.IsInsideContainer()
 
 	if utils.IsInsideContainer && pro.IsPro() {
@@ -355,6 +356,7 @@ func cosmos() {
 	// a new server handed a constellation file needs no setup at all
 	JoinFromFile()
 	config = utils.GetMainConfig()
+	forkSetupCodeAtStart() // Fork addition: the first-run wizard asks for a one-time code, see fork_setup_code.go
 
 	if !config.NewInstall {
 		MigratePre013()

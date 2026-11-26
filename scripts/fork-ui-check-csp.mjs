@@ -43,6 +43,8 @@
 //   OUT=csp-check  ADMIN_PASSWORD=...  ONLY=<regexp> (gallery views)
 //   CONTAINER=jellyfin           the container whose terminal is tried (Docker in Docker, has sh)
 //   INTERNET=1                   the network reaches the internet: Market images must load
+//
+// SETUP_CODE: the fresh test instance's one-time setup code, which its wizard asks for: cat <its config folder>/setup-code (src/fork_setup_code.go).
 import { chromium, firefox, webkit } from 'playwright';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -210,12 +212,21 @@ const signIn = async (page) => {
   return page.evaluate((password) => fetch('/cosmos/api/sudo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }).then((r) => r.status), admin.password);
 };
 
-const api = (page, method, path, body) => page.evaluate(async ([m, p, b]) => {
-  const r = await fetch('/cosmos/api/' + p, { method: m, headers: { 'Content-Type': 'application/json' }, body: b ? JSON.stringify(b) : undefined });
+const api = (page, method, path, body) => page.evaluate(async ([m, p, b, c]) => {
+  const r = await fetch('/cosmos/api/' + p, { method: m, headers: { 'Content-Type': 'application/json', 'X-Cosmos-Setup-Code': c }, body: b ? JSON.stringify(b) : undefined });
   let json = null;
   try { json = await r.json(); } catch (e) { /* none */ }
   return { status: r.status, json };
-}, [method, path, body]);
+}, [method, path, body, process.env.SETUP_CODE || '']);
+
+// the wizard's first screen asks for the instance's setup code (SETUP_CODE)
+const passSetupCode = async (page) => {
+  const box = page.locator('[data-fork-setup-code] input');
+  if (!(await box.waitFor({ timeout: 10000 }).then(() => true, () => false))) return;
+  await box.fill(process.env.SETUP_CODE || '');
+  await page.locator('[data-fork-setup-code] button[type=submit]').click();
+  await page.waitForTimeout(1500);
+};
 
 // ---------------------------------------------------------------------------
 // wizard
@@ -226,6 +237,8 @@ const wizardPhase = async () => {
       const { browser, page, label, errors } = await open(engineName, vp);
       await page.goto(base + '/cosmos-ui/newInstall', { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(2500);
+      await shot(page, label, 'wizard-code');
+      await passSetupCode(page);
       await shot(page, label, 'wizard-0');
       const next = page.locator('button:has-text("Start"), button:has-text("Next"), button:has-text("Skip")').last();
       for (let step = 1; step <= 2; step++) {
@@ -242,6 +255,7 @@ const wizardPhase = async () => {
   await page.goto(base + '/cosmos-ui/newInstall', { waitUntil: 'domcontentloaded' });
   const host = new URL(base).hostname;
   const say = async (body) => (await api(page, 'POST', 'newInstall', body)).status;
+  check('wizard', 'step -1 (clean install, the default)', (await say({ step: '-1' })) === 200);
   check('wizard', 'step 2', (await say({ step: '2' })) === 200);
   check('wizard', 'step 3 (Cosmos\' own certificate)', (await say({ step: '3', httpsCertificateMode: 'SELFSIGNED', hostname: host })) === 200);
   await sleep(1500);

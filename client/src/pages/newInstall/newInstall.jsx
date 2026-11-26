@@ -24,6 +24,8 @@ import { DnsChallengeComp } from '../../utils/dns-challenge-comp';
 import { LanguagesSelect } from '../../layout/MainLayout/Drawer/languages';
 import UploadButtons from '../../components/fileUpload';
 import { usePaidVisibility } from '../../components/paidVisibility'; // Fork addition: joining a cluster needs a licence (Constellation)
+import SetupCodeGate from './setupCodeGate'; // Fork addition: the one-time setup code comes first
+import { forgetSetupCode, heldSetupCode, setupCodeAnswer, SETUP_REFUSED_EVENT } from '../../utils/setupCode'; // Fork addition
 // ================================|| LOGIN ||================================ //
 
 const debounce = (func, wait) => {
@@ -57,6 +59,18 @@ const hostnameSyntaxReg = /^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)(\.[a-z
 const NewInstall = () => {
     const { t } = useTranslation();
     const [activeStep, setActiveStep] = useState(0);
+    const [codeAccepted, setCodeAccepted] = useState(() => Boolean(heldSetupCode())); // Fork addition: see setupCodeGate.jsx
+    // Fork addition: a refused code (wrong, or the server made a new one) brings the code screen back, saying why
+    const [codeRefusal, setCodeRefusal] = useState(null);
+    useEffect(() => {
+        const refused = (event) => {
+            const detail = (event && event.detail) || {};
+            setCodeRefusal(setupCodeAnswer(detail.status, detail.code));
+            setCodeAccepted(false);
+        };
+        window.addEventListener(SETUP_REFUSED_EVENT, refused);
+        return () => window.removeEventListener(SETUP_REFUSED_EVENT, refused);
+    }, []);
     const [status, setStatus] = useState(null);
     const [counter, setCounter] = useState(0);
     let [hostname, setHostname] = useState('');
@@ -519,6 +533,8 @@ const NewInstall = () => {
         }
     ];
 
+    if (!codeAccepted) return <AuthWrapper><SetupCodeGate key={codeRefusal ? codeRefusal[0] + codeRefusal[1] : 'first'} reason={codeRefusal} configFolder={status && status.ConfigFolder} onAccepted={() => { setCodeRefusal(null); setCodeAccepted(true); }} /></AuthWrapper>; // Fork addition
+
     return <AuthWrapper>
         <Grid container spacing={3}>
             <Grid size={{ xs: 12 }}>
@@ -558,7 +574,7 @@ const NewInstall = () => {
                             if(activeStep >= steps.length - 1) {
                                 API.newInstall({
                                     step: "5",
-                                })
+                                }).finally(forgetSetupCode) // Fork addition: the code has served
                                 setTimeout(() => {
                                     redirectTo(hostname + "/cosmos-ui/login");
                                 }, 500);

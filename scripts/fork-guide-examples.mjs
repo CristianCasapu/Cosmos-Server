@@ -35,10 +35,15 @@ const results = [];
 
 let cookie = '';
 let base = BASE;
+// the fresh test server's one-time setup code, which its wizard asks for (src/fork_setup_code.go)
+const setupCode = () => {
+  if (process.env.SETUP_CODE) return process.env.SETUP_CODE;
+  try { return readFileSync('/scratch/run/config/setup-code', 'utf8').trim(); } catch (e) { return ''; }
+};
 const call = async (method, path, data) => {
   try {
     const r = await fetch(base + '/cosmos/api/' + path, {
-      method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: data === undefined ? undefined : JSON.stringify(data),
+      method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}), ...(path === 'newInstall' ? { 'X-Cosmos-Setup-Code': setupCode() } : {}) }, body: data === undefined ? undefined : JSON.stringify(data),
     });
     const set = r.headers.getSetCookie ? r.headers.getSetCookie() : [];
     if (set.length) cookie = set.map((c) => c.split(';')[0]).join('; ');
@@ -64,6 +69,7 @@ const setUp = async () => {
   // before the setup wizard the server answers on plain HTTP only
   base = 'http://cosmos.example.org:2052';
   await waitUp();
+  await call('POST', 'newInstall', { step: '-1' }); // the wizard's default: clean install first
   if ((await call('POST', 'newInstall', { step: '2' })).status === 200) {
     log('wizard', (await call('POST', 'newInstall', { step: '3', httpsCertificateMode: 'SELFSIGNED', hostname: 'cosmos.example.org' })).status);
     await sleep(1500);

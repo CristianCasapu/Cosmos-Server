@@ -11,6 +11,10 @@ The full description of every change, with its files and routes, is in [`FORK.md
 Merged into `custom` since `0.24.0-fork.40`, to be part of the next release:
 
 ### Added
+- An installer: on a clean Debian 12 or 13, or Ubuntu 24.04 or 26.04 server (amd64 or arm64), `sudo bash install.sh` installs the fork with everything it needs, Docker included (from Docker's own repository), without questions. It checks first that every package can be installed, verifies the release's signature before it unpacks anything, writes the `CosmosCloud` service, and prints where to finish the setup. It refuses to run where a Cosmos is already installed (an installed fork updates itself from the panel), continues where it stopped after an interruption, and lists everything it installed so that `uninstall.sh` removes exactly that (the data and the packages only when asked). See "Install" in the README.
+- `migrate.sh` moves upstream's Cosmos installed on the system (as upstream's `get.sh` installs it) to the fork, keeping its settings, users, URLs and containers. It refuses what it cannot move before changing anything: the fork already there, a Docker container, a Cosmos newer than the fork's base, users in MongoDB, data or installation behind a link or on a disk of its own, a unit set up in ways it does not know, and a licence unless `--accept-community-edition`. It backs up both folders and checks the copy file by file, puts the fork in place, and checks that everything answers as before. On any failure it puts everything back by itself and starts upstream's Cosmos again; it never deletes anything it did not make, and moves what it replaces into the backup. Interrupted, it continues when that is safe; once the server ran since, it waits for `--undo` or `--continue`. `--dry-run` only describes. The backup holds `GOING-BACK.txt`, how to return to upstream by hand. See "Moving upstream's Cosmos to the fork" in the README.
+- Every release carries `install.sh`, `migrate.sh` and `uninstall.sh`, inside its zips and next to them, with a signed list of the scripts, so that they can be checked by hand.
+- The release notes name exactly the systems the installer accepts (Ubuntu 22.04 is not among them), and an install that asks for protection no longer stops because a package of a protection piece that will not run is missing from apt.
 - Saving the monitoring database first checks that Cosmos can reach it and use it, and says in plain words what is wrong and which server to use instead. Administrators can still save anyway.
 - The server field proposes the PostgreSQL containers of this server, at an address that works from Cosmos.
 - External can copy the monitoring history between the local file and PostgreSQL, with progress, either way.
@@ -28,6 +32,10 @@ Merged into `custom` since `0.24.0-fork.40`, to be part of the next release:
 - A notification marked read, deleted or marked resolved from a page opened before the monitoring database changed is no longer applied to another notification: the page loads again.
 
 ### Security
+- The first-run wizard asks for a one-time setup code before anything else. A new Cosmos makes it at its first start, readable by root only (`/var/lib/cosmos/setup-code`, and in the journal); the installer prints it. Without the code the server refuses every setup request, so nobody else on the network, on the internet or on the server can make themselves the administrator of a new installation. This holds for a Cosmos installed by hand too.
+- A server installed by the script that is not at home (a cloud server, the router's exposed host, a public address) answers its first-run wizard on 127.0.0.1 only, reached through an SSH tunnel, so that the code and the administrator's password never cross the network in clear.
+- The server's databases (`auth.db` with the password hashes, `database.db`) are readable by Cosmos' own user only; before, they could be read by other users of the server until its next restart.
+- The release build signs only files that the build itself made, checked file by file.
 - No value derived from the database password reaches the browser any more.
 - The database's connections are bounded, so a database that stops answering cannot hold Cosmos.
 - A sign-in from a new address is still alerted while the history is incomplete, with a hedged wording.

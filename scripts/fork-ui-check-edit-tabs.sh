@@ -92,7 +92,8 @@ browser() { # [VAR=value…] -- <script>
   docker rm -f "$PREFIX-browser" >/dev/null 2>&1 || true
   # shellcheck disable=SC2086
   docker run --rm --name "$PREFIX-browser" --network "$NET" --ip "$SUBNET.9" --ipc=host \
-    -v "$SCRATCH/pw:/work" -w /work -e SERVER_IP="$SUBNET.5" -e LAN_IP="$LAN.5" $envs "$PLAYWRIGHT_IMAGE" node "$@"
+    -v "$SCRATCH/pw:/work" -w /work -e SERVER_IP="$SUBNET.5" -e LAN_IP="$LAN.5" \
+    -e SETUP_CODE="$(cat "$SCRATCH/run/config/setup-code" 2>/dev/null || true)" $envs "$PLAYWRIGHT_IMAGE" node "$@" # the wizard asks for the code (src/fork_setup_code.go)
 }
 
 playwright() {

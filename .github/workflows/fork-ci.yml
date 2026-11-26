@@ -41,6 +41,26 @@ jobs:
           START: host
           OUT: ${{ runner.temp }}/fork-ci-smoke-out
 
+      # The install scripts (fork/install/) on a clean Debian 13 machine with
+      # systemd, inside a Docker in Docker of the check's own, against a
+      # stand-in for GitHub and a test signing key: shellcheck, an install,
+      # the refusal over it, uninstall back to the package list of before,
+      # a tampered zip refused. The full set of cases on every system runs
+      # in the release build. About ten minutes.
+      - name: Check the install scripts on a clean machine
+        if: ${{ !cancelled() }}
+        run: bash scripts/fork-install-e2e.sh fast
+        env:
+          BUILD: build
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: install-e2e
+          path: ${{ runner.temp }}/fork-install-e2e-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:

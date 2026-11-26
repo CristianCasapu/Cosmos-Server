@@ -50,6 +50,7 @@ type gateway struct {
 	controlURL  string
 	serviceType string
 	name        string
+	model       string // the description's modelName, read for fork-detect (fork_probe.go)
 }
 
 // soapError is a UPnP error returned by the router.
@@ -310,7 +311,7 @@ func loadGateway(location string, gw net.IP) (*gateway, error) {
 		if name == "" {
 			name = strings.TrimSpace(desc.Device.ModelName)
 		}
-		return &gateway{ip: gw, controlURL: control.String(), serviceType: serviceType, name: name}, nil
+		return &gateway{ip: gw, controlURL: control.String(), serviceType: serviceType, name: name, model: strings.TrimSpace(desc.Device.ModelName)}, nil
 	}
 	return nil, errors.New("the router does not offer a port-forwarding service over UPnP")
 }
