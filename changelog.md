@@ -10,7 +10,13 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 Merged into `custom` since `0.24.0-fork.40`, to be part of the next release:
 
-- Nothing yet.
+### Added
+- A host guard you can install on the server (`sudo sh /opt/cosmos/fork/nftables/install.sh`): from outside your home network only Cosmos' public port answers, for the server and for the apps' published ports; your home network, VPNs and established connections keep working. It follows address and route changes by itself, never locks out the SSH session that installs it (an interactive install undoes itself unless you confirm from a new connection), and is removed with `uninstall.sh`.
+- Automatic security updates you can switch on the same way (`fork/unattended-upgrades/install.sh`): security updates only, never a restart.
+- The security page shows the guard, Fail2ban and the automatic updates: whether each is installed and working, what it lets through, and the command to install or remove it.
+
+### Security
+- Fail2ban's installer no longer treats strangers at the login prompt, forwarded connections or processes with a faked name as your SSH session: only a sign-in the SSH server itself recorded keeps an address from being banned.
 
 ## Fork 0.24.0-fork.40 — 2026-11-25
 

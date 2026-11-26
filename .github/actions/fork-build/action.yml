@@ -126,7 +126,7 @@ runs:
         go test ./src/forkrelease/ -count=1
         cp src/update.go src/launcher/update.go && go test ./src/launcher/ -count=1 && rm src/launcher/update.go
         go test ./src/utils/ ./src/authorizationserver/ -count=1
-        go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ ./src/telegram/ ./src/fail2ban/ ./src/maildetect/ ./src/dnsrecords/ ./src/cloudflare/... ./src/certs/ ./src/market/ ./src/turnstile/ ./src/edgeblock/ ./src/reachwatch/ ./src/anyimage/ ./src/behind/ ./src/appsignin/ ./src/cron/ ./src/guides/ ./src/edithints/ ./src/watch/ -count=1 -timeout 30m # the Telegram model takes 6 to 10 minutes on a runner
+        go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ ./src/telegram/ ./src/fail2ban/ ./src/maildetect/ ./src/dnsrecords/ ./src/cloudflare/... ./src/certs/ ./src/market/ ./src/turnstile/ ./src/edgeblock/ ./src/reachwatch/ ./src/anyimage/ ./src/behind/ ./src/appsignin/ ./src/cron/ ./src/guides/ ./src/edithints/ ./src/watch/ ./src/protection/ -count=1 -timeout 30m # the Telegram model takes 6 to 10 minutes on a runner
         go test ./src/ -skip TestEveryRouteIsDocumented -count=1
         go test ./src/docker/ -count=1
         go test ./src/proxy/ -count=1 # the live Avahi test in it skips without AVAHI_LIVE=1

@@ -316,6 +316,15 @@ cool-down, the 72 hours the previous files are kept, the 15-minute window.
   Cloudflare, e-mail, Telegram, Fail2ban and UPnP checks, were each run on
   their own branch only (each needs a set-up of its own).
 
+## The host guard: left for later (2026-11-26)
+
+- The guard's test bed on other kernels: a VM mode (a qemu/KVM guest per distribution from its cloud image, two NICs on the Docker in Docker's bridges) so that Debian 12's 6.1 and Ubuntu's 6.8 kernels (nft_fib, set timeouts, hooks) are exercised, not only the host's.
+- fwmark/connmark policy routing against the guard's strict reverse-path check (an uplink chosen by a mark).
+- A real cloud image (EC2/GCE/Hetzner) for the cloud detection and the exposed default.
+- Probes the reviews listed as missing: tinysshd at all; journald rate limiting and a journald restart during a dropbear connection; other kernels; a real Tailscale client with an exit node; a router swap with DHCPv6 and a new delegated prefix at once.
+- Wire `sh scripts/fork-guard-e2e.sh fast` into the checks of every push (it is not in `.github/` yet).
+- The check "the session survived (ticks without a gap)" of the `ssh` group failed 2 times in 15 runs on debian12-ce (2026-11-26). Both times the install's exit code and its output came back through the same session, so the session was not cut; whether it was a pause of the ticks over 3 s or the client's exit code is not known. The check now prints both when it fails: look at the next failure.
+
 ## Telegram messages: left for later (2026-11-25)
 
 - A message of its own when a data disk goes read-only or disappears from the listing (today its "filling fast" warning only stays open, then reads "No longer followed" after 24 hours).
