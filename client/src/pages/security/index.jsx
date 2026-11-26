@@ -19,6 +19,7 @@ import Timeline from './timeline';
 import Addresses from './addresses';
 import Incidents from './incidents';
 import Fail2banSection from './fail2banSection';
+import ProtectionCards from './protection'; // Fork addition: the protection cards
 
 // The page refreshes this often while the tab is visible, never faster
 // than every 30 seconds.
@@ -195,6 +196,11 @@ const SecurityDashboard = () => {
           />
         </Grid>
       </>}
+
+      {/* Fork addition: the protection cards (pages/security/protection.jsx) */}
+      <Grid size={{ xs: 12 }}>
+        <ProtectionCards />
+      </Grid>
 
       {/* Fork addition: the Fail2ban status goes here (pages/security/fail2banSection.jsx) */}
       <Grid size={{ xs: 12 }} sx={{ '&:empty': { display: 'none' } }}>

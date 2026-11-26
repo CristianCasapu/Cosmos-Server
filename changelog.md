@@ -15,6 +15,9 @@ Merged into `custom` since `0.24.0-fork.40`, to be part of the next release:
 - The server field proposes the PostgreSQL containers of this server, at an address that works from Cosmos.
 - External can copy the monitoring history between the local file and PostgreSQL, with progress, either way.
 - The image download is its own step when an app is created, with "Try again".
+- A host guard you can install on the server (`sudo sh /opt/cosmos/fork/nftables/install.sh`): from outside your home network only Cosmos' public port answers, for the server and for the apps' published ports; your home network, VPNs and established connections keep working. It follows address and route changes by itself, never locks out the SSH session that installs it (an interactive install undoes itself unless you confirm from a new connection), and is removed with `uninstall.sh`.
+- Automatic security updates you can switch on the same way (`fork/unattended-upgrades/install.sh`): security updates only, never a restart.
+- The security page shows the guard, Fail2ban and the automatic updates: whether each is installed and working, what it lets through, and the command to install or remove it.
 
 ### Fixed
 - Monitoring no longer stops when the monitoring database does not answer: the local file records meanwhile, and Cosmos switches back by itself once the database answers steadily.
@@ -28,6 +31,7 @@ Merged into `custom` since `0.24.0-fork.40`, to be part of the next release:
 - No value derived from the database password reaches the browser any more.
 - The database's connections are bounded, so a database that stops answering cannot hold Cosmos.
 - A sign-in from a new address is still alerted while the history is incomplete, with a hedged wording.
+- Fail2ban's installer no longer treats strangers at the login prompt, forwarded connections or processes with a faked name as your SSH session: only a sign-in the SSH server itself recorded keeps an address from being banned.
 
 ## Fork 0.24.0-fork.40 — 2026-11-25
 

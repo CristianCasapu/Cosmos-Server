@@ -1,0 +1,239 @@
+#!/usr/sbin/nft -f
+# The host guard of the Cosmos fork: the structure of its table.
+#
+# Written to /etc/cosmos-host-guard/cosmos-host-guard.nft by fork/nftables/install.sh;
+# run that again to change it, do not edit the copy. It is never loaded on its own:
+# `cosmos-host-guard load` sends it to the kernel in ONE transaction together with
+# `table inet cosmos_host_guard` / `delete table inet cosmos_host_guard` before it (so
+# a load replaces the table atomically and never flushes anything else), the
+# settings of this machine (settings.nft), the SSH allowances still valid, and the
+# current interfaces and prefixes.
+#
+# What it does: on the outside interfaces (those that carry a default route), a new
+# connection from an address that is not at home reaches only the public ports, both
+# for the host's own ports (input) and for the containers' published ports
+# (forward). Loopback, Docker's bridges and VPN interfaces are not filtered.
+#
+# What counts as home on an outside interface: the addresses named with --home, and,
+# only on an interface judged to be a home network behind a router (a private IPv4
+# address there and the default route through a private gateway: set lan_if), the
+# prefixes on-link there and link-local sources. On any other outside interface (a
+# public or carrier-grade IPv4 address on it, no IPv4 at all, --exposed) the on-link
+# segment belongs to the provider: link-local sources get only what IPv6 and DHCP
+# need, never a service.
+#
+# A drop here is final, an accept is not: the guard can only take away what other
+# tables (Docker's, ufw's, firewalld's) let in, never open anything.
+
+table inet cosmos_host_guard {
+	# The outside interfaces: those with a default route in any routing table (or
+	# a route that covers most of the internet, as a VPN's 0.0.0.0/1 + 128.0.0.0/1),
+	# every nexthop of it. When none is found, every interface that is not
+	# loopback, a bridge of Docker's or a VPN, and failclosed_if says so.
+	set wan_if {
+		type ifname
+	}
+	set failclosed_if {
+		type ifname
+	}
+	# The outside interfaces judged to be a home network behind a router.
+	set lan_if {
+		type ifname
+	}
+	# Tailscale's interface when it carries a default route (an exit node): it is
+	# outside, but its own peers' addresses (vpnpeer4/6) count as home on it.
+	set vpnhome_if {
+		type ifname
+	}
+	# The interfaces on which IPv4 is not filtered: home networks behind a router
+	# that were judged so at install (the refresh only ever takes one away).
+	set pass4_if {
+		type ifname
+	}
+	# The interfaces with a single uplink, where the strict reverse-path check runs.
+	set rpf_if {
+		type ifname
+	}
+	# Interfaces the administrator trusted with --trust-interface: they carry a
+	# default route and nothing arriving through them is filtered.
+	set trusted_if {
+		type ifname
+	}
+	# New prefixes on a home interface waiting for the administrator's
+	# confirmation (cosmos-host-guard confirm): not home yet; only SSH answers them.
+	set pending6 {
+		type ipv6_addr
+		flags interval
+		auto-merge
+	}
+	# Another private IPv4 network on a home interface (a new router, or the server
+	# moved): not home, IPv4 there is filtered and only SSH answers it until it is
+	# confirmed.
+	set pending4 {
+		type ipv4_addr
+		flags interval
+		auto-merge
+	}
+	# The addresses of Tailscale's peers (not the exit node's), from tailscaled: on
+	# an exit node's interface only these count as home.
+	set vpnpeer4 {
+		type ipv4_addr
+	}
+	set vpnpeer6 {
+		type ipv6_addr
+	}
+	# The DHCP servers of the current leases (their unicast renewal replies).
+	set dhcp_server4 {
+		type ipv4_addr
+	}
+
+	# --home: networks that count as home on every interface.
+	set home4 {
+		type ipv4_addr
+		flags interval
+		auto-merge
+	}
+	set home6 {
+		type ipv6_addr
+		flags interval
+		auto-merge
+	}
+
+	# The prefixes on-link on the lan_if interfaces: kept current by the refresh.
+	set onlink4 {
+		type ipv4_addr
+		flags interval
+		auto-merge
+	}
+	set onlink6 {
+		type ipv6_addr
+		flags interval
+		auto-merge
+	}
+	# The prefixes on-link on any outside interface: only DHCP replies from them.
+	set wanlink4 {
+		type ipv4_addr
+		flags interval
+		auto-merge
+	}
+
+	# What answers from outside (settings.nft): Cosmos' public port(s) and
+	# whatever --port added.
+	set public_tcp {
+		type inet_service
+	}
+	set public_udp {
+		type inet_service
+	}
+
+	# The UDP port of a VPN daemon run by systemd as root (tailscaled), and the
+	# listening ports of kernel WireGuard: found by the refresh.
+	set vpn_udp {
+		type inet_service
+	}
+
+	# SSH sessions that installed the guard from outside the home network: their
+	# addresses may reach the SSH port until the allowance expires.
+	set ssh_port {
+		type inet_service
+	}
+	set ssh_allow4 {
+		type ipv4_addr
+		flags timeout
+	}
+	set ssh_allow6 {
+		type ipv6_addr
+		flags timeout
+	}
+
+	counter dropped_input {
+	}
+	counter dropped_forward {
+	}
+	counter dropped_spoofed {
+	}
+	counter dropped_rpf {
+	}
+
+	chain input {
+		type filter hook input priority filter - 5; policy accept;
+
+		iifname != @wan_if accept comment "no default route through it: loopback, Docker's networks, VPN interfaces"
+		iifname @trusted_if accept comment "trusted with --trust-interface"
+		iifname @pass4_if meta nfproto ipv4 accept comment "IPv4 on a home network behind a router"
+		ct state established,related accept
+
+		# home: on a home network behind a router its on-link prefixes and link-local
+		# sources; anywhere, the networks named with --home
+		iifname @lan_if ip saddr @onlink4 accept
+		iifname @lan_if ip6 saddr @onlink6 accept
+		iifname @lan_if ip6 saddr fe80::/10 accept
+		iifname @lan_if ip saddr 169.254.0.0/16 accept
+		iifname @vpnhome_if ip saddr @vpnpeer4 accept comment "Tailscale's own peers through an exit node"
+		iifname @vpnhome_if ip6 saddr @vpnpeer6 accept comment "Tailscale's own peers through an exit node"
+		ip saddr @home4 accept
+		ip6 saddr @home6 accept
+		# a new network on a home interface waiting for confirmation (a new router, a
+		# new prefix): its hosts reach SSH only, so that the owner can confirm it
+		iifname @lan_if ip saddr @pending4 tcp dport @ssh_port accept comment "a new home network, until confirmed: SSH only"
+		iifname @lan_if ip6 saddr @pending6 tcp dport @ssh_port accept comment "a new home prefix, until confirmed: SSH only"
+
+		ip saddr @ssh_allow4 tcp dport @ssh_port accept comment "an SSH session that installed the guard"
+		ip6 saddr @ssh_allow6 tcp dport @ssh_port accept comment "an SSH session that installed the guard"
+
+		# what IPv6 needs to work (RFC 4890): errors and path MTU from anywhere;
+		# neighbour discovery and router adverts only with hop limit 255 (never
+		# routed, the unspecified source of address autoconfiguration included);
+		# multicast listener messages only from link-local with hop limit 1
+		icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, echo-request, echo-reply } accept
+		icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, nd-redirect } ip6 hoplimit 255 accept
+		ip6 saddr fe80::/10 ip6 hoplimit 1 icmpv6 type { 130, 131, 132, 143 } accept
+		icmp type { destination-unreachable, time-exceeded, parameter-problem, echo-request } accept
+		# the DHCP clients: replies of a server on the link only
+		ip6 saddr fe80::/10 udp sport 547 udp dport 546 accept comment "DHCPv6 client"
+		ip saddr @wanlink4 udp sport 67 udp dport 68 accept comment "DHCP client"
+		ip saddr @dhcp_server4 udp sport 67 udp dport 68 accept comment "DHCP client: renewals through a relay"
+		ip daddr 255.255.255.255 udp sport 67 udp dport 68 accept comment "DHCP client"
+
+		# from outside, private, unique-local and link-local sources are forged
+		ip saddr { 0.0.0.0/8, 10.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/3 } counter name dropped_spoofed drop
+		ip6 saddr { ::/128, ::1/128, ::ffff:0:0/96, fc00::/7, fe80::/10, ff00::/8 } counter name dropped_spoofed drop
+		# a source that would not be answered through this interface (one uplink only:
+		# with several, the kernel compares only the best route)
+		iifname @rpf_if fib saddr . iif oif missing counter name dropped_rpf drop
+		ct state invalid counter name dropped_input drop
+
+		tcp dport @public_tcp accept
+		udp dport @public_udp accept
+		udp dport @vpn_udp accept comment "VPN direct connections"
+
+		counter name dropped_input drop comment "from outside the home network"
+	}
+
+	chain forward {
+		type filter hook forward priority filter - 5; policy accept;
+
+		iifname != @wan_if accept comment "from containers and VPNs"
+		iifname @trusted_if accept comment "trusted with --trust-interface"
+		iifname @pass4_if meta nfproto ipv4 accept comment "IPv4 on a home network behind a router"
+		ct state established,related accept
+		iifname @lan_if ip saddr @onlink4 accept
+		iifname @lan_if ip6 saddr @onlink6 accept
+		iifname @lan_if ip6 saddr fe80::/10 accept
+		iifname @vpnhome_if ip saddr @vpnpeer4 accept
+		iifname @vpnhome_if ip6 saddr @vpnpeer6 accept
+		ip saddr @home4 accept
+		ip6 saddr @home6 accept
+		icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } accept
+		icmp type { destination-unreachable, time-exceeded, parameter-problem } accept
+		ip saddr { 0.0.0.0/8, 10.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/3 } counter name dropped_spoofed drop
+		ip6 saddr { ::/128, ::1/128, ::ffff:0:0/96, fc00::/7, fe80::/10, ff00::/8 } counter name dropped_spoofed drop
+		iifname @rpf_if fib saddr . iif oif missing counter name dropped_rpf drop
+		# a container's published port: the port the visitor asked for, before
+		# Docker's address translation
+		meta l4proto tcp ct original proto-dst @public_tcp accept
+		meta l4proto udp ct original proto-dst @public_udp accept
+
+		counter name dropped_forward drop comment "to containers, from outside the home network"
+	}
+}
