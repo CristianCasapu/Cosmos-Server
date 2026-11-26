@@ -311,11 +311,27 @@ type writeOutcome struct {
 // forkWriteNotification is the hook of WriteNotification. It writes every
 // notification; false only when the database is not open, so that
 // upstream's path reports the error as before.
-func forkWriteNotification(n Notification) bool {
+func forkWriteNotification(n Notification) bool { return writeNotificationAs(n, "", time.Time{}) }
+
+// writeNotificationAs writes a notification whose new rows carry ref ("": a
+// new one). A notification kept because its rows could not be written keeps
+// its ref, so that it is looked up before it is written again (plan 51,
+// review round 3: a commit whose answer was lost is not stored twice).
+// at is the time of its first try (zero: now): written again, its rows
+// carry that time, so that a copy that matches rows by time and reference
+// sees the same notification in both stores.
+func writeNotificationAs(n Notification, ref string, at time.Time) bool {
+	if ref == "" {
+		ref = newRef()
+	}
+	if at.IsZero() {
+		at = notificationClock()
+	}
 	db, err := MonitoringWriteDB()
 	if err != nil {
 		return false
 	}
+	original := n // kept as it came when its rows cannot be written (plan 51)
 	explicit := n.Fork != nil
 	var info NotificationInfo
 	if explicit {
@@ -349,9 +365,10 @@ func forkWriteNotification(n Notification) bool {
 		}
 	}
 
-	outcome, err := writeRows(db, n, info, explicit, recipients, audience)
+	outcome, err := writeRows(db, n, info, explicit, recipients, audience, ref, at)
 	if err != nil {
 		Error("Notifications: Error while writing notification", err)
+		keepNotification(original, ref, at) // written again a few seconds later, see fork_write_retry.go
 		return true
 	}
 	if outcome.alert {
@@ -393,11 +410,9 @@ func searchText(n Notification, info NotificationInfo, explicit bool) string {
 	return text
 }
 
-func writeRows(db *sql.DB, n Notification, info NotificationInfo, explicit bool, recipients []string, audience string) (writeOutcome, error) {
-	now := notificationClock()
+func writeRows(db *sql.DB, n Notification, info NotificationInfo, explicit bool, recipients []string, audience string, ref string, now time.Time) (writeOutcome, error) {
 	nowMs := TimeToMillis(now)
 	outcome := writeOutcome{}
-	ref := newRef()
 	search := searchText(n, info, explicit)
 
 	tx, err := db.Begin()
@@ -414,7 +429,7 @@ func writeRows(db *sql.DB, n Notification, info NotificationInfo, explicit bool,
 			count                int
 			first                int64
 		)
-		err := tx.QueryRow(MonitoringRebind(
+		err := tx.QueryRow(MonitoringRebindFor(db,
 			"SELECT id, level, fork_ref, fork_count, fork_first, fork_info FROM notifications"+
 				" WHERE recipient = ? AND fork_thread = ? AND fork_kind = ? AND fork_resolved = 0 AND date >= ?"+
 				" ORDER BY date DESC, id DESC LIMIT 1"),
@@ -434,7 +449,7 @@ func writeRows(db *sql.DB, n Notification, info NotificationInfo, explicit bool,
 			if info.Resolves != "" {
 				resolved = nowMs
 			}
-			if _, err := tx.Exec(MonitoringRebind(
+			if _, err := tx.Exec(MonitoringRebindFor(db,
 				"INSERT INTO notifications(node, recipient, title, message, vars, icon, link, date, level, read, actions,"+
 					" fork_kind, fork_source, fork_thread, fork_ref, fork_audience, fork_count, fork_first, fork_resolved, fork_search, fork_info)"+
 					" VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)"),
@@ -479,7 +494,7 @@ func writeRows(db *sql.DB, n Notification, info NotificationInfo, explicit bool,
 		if levelRank(n.Level) > levelRank(level) {
 			newLevel = n.Level
 		}
-		if _, err := tx.Exec(MonitoringRebind(
+		if _, err := tx.Exec(MonitoringRebindFor(db,
 			"UPDATE notifications SET title = ?, message = ?, vars = ?, link = ?, date = ?, level = ?, fork_count = ?, fork_search = ?, fork_info = ?"+readClause+
 				" WHERE id = ?"),
 			n.Title, n.Message, n.Vars, n.Link, nowMs, newLevel, count, search, stored, id); err != nil {
@@ -534,13 +549,22 @@ func ResolveThread(thread string) (time.Time, bool) {
 	if err != nil || thread == "" {
 		return time.Time{}, false
 	}
+	return resolveThreadIn(db, MonitoringDialectOf(db), thread)
+}
+
+// resolveThreadIn is ResolveThread in a given store (plan 51: the local file
+// left behind by a switch of the monitoring store).
+func resolveThreadIn(db *sql.DB, dialect string, thread string) (time.Time, bool) {
+	if db == nil || thread == "" {
+		return time.Time{}, false
+	}
 	var first sql.NullInt64
-	if err := db.QueryRow(MonitoringRebind(
+	if err := db.QueryRow(rebindFor(dialect,
 		"SELECT MIN(CASE WHEN fork_first > 0 THEN fork_first ELSE date END) FROM notifications WHERE fork_thread = ? AND fork_resolved = 0 AND fork_info <> ''"),
 		thread).Scan(&first); err != nil || !first.Valid {
 		return time.Time{}, false
 	}
-	res, err := db.Exec(MonitoringRebind(
+	res, err := db.Exec(rebindFor(dialect,
 		"UPDATE notifications SET fork_resolved = ? WHERE fork_thread = ? AND fork_resolved = 0 AND fork_info <> ''"),
 		TimeToMillis(notificationClock()), thread)
 	if err != nil {
@@ -561,7 +585,7 @@ func ThreadOpen(thread string) bool {
 		return false
 	}
 	var n int
-	db.QueryRow(MonitoringRebind("SELECT COUNT(*) FROM notifications WHERE fork_thread = ? AND fork_resolved = 0 AND fork_info <> ''"), thread).Scan(&n)
+	db.QueryRow(MonitoringRebindFor(db, "SELECT COUNT(*) FROM notifications WHERE fork_thread = ? AND fork_resolved = 0 AND fork_info <> ''"), thread).Scan(&n)
 	return n > 0
 }
 

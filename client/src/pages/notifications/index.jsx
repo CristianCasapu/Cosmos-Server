@@ -110,6 +110,7 @@ const NotificationsPage = () => {
   const [error, setError] = React.useState('');
   const [confirm, setConfirm] = React.useState(null);
   const request = React.useRef(0);
+  const store = React.useRef(''); // Fork addition (plan 51): the monitoring store the ids were listed from
 
   const load = (cursor) => {
     const id = ++request.current;
@@ -117,6 +118,7 @@ const NotificationsPage = () => {
     return API.notifications.list(apiParams(filters, cursor, PAGE_SIZE), true).then((res) => {
       if (id !== request.current) return;
       const data = res.data || {};
+      if (!cursor) store.current = typeof res.store === 'string' ? res.store : '';
       setItems((shown) => (cursor ? mergePage(shown, data.items) : cleanItems(data.items)));
       setNext(typeof data.next === 'string' ? data.next : '');
       setUnread(Number(data.unread) || 0);
@@ -131,20 +133,20 @@ const NotificationsPage = () => {
   React.useEffect(() => { load(''); }, [filters.level, filters.source, filters.read, filters.q]);
 
   const markOne = (item, read) => {
-    API.notifications.mark(markBody([item.id], read)).then(() => {
+    API.notifications.mark(markBody([item.id], read, store.current)).then(() => {
       setItems((shown) => (shown || []).map((n) => (n.id === item.id ? { ...n, read } : n)));
       setUnread((u) => Math.max(0, u + (read ? -1 : 1)));
-    }).catch(() => {});
+    }).catch((e) => { if (e && e.code === 'NOTIF009') load(''); }); // the store changed: the list again
   };
   const markAll = () => API.notifications.mark(markAllBody()).then(() => load('')).catch(() => {});
   const doDelete = () => {
     const what = confirm;
     setConfirm(null);
-    const body = what === 'read' ? deleteReadBody() : deleteBody([what.id]);
+    const body = what === 'read' ? deleteReadBody() : deleteBody([what.id], store.current);
     API.notifications.remove(body).then(() => {
       if (what === 'read') load('');
       else setItems((shown) => (shown || []).filter((n) => n.id !== what.id));
-    }).catch(() => {});
+    }).catch((e) => { if (e && e.code === 'NOTIF009') load(''); }); // Fork addition (plan 51): the store changed: the list again
   };
 
   return (

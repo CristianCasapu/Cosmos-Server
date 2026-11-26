@@ -65,6 +65,7 @@ func cleanInstall() error {
 		return errors.New("refusing to clean the filesystem root")
 	}
 
+	defer utils.PauseMonitoringStore()() // Fork addition (plan 51): the monitoring store's watcher does not reopen the file being deleted
 	utils.CloseStore()
 	utils.CloseMetricsDatabase()
 

@@ -16,7 +16,7 @@ import RestartModal from './users/restart';
 import { ArrowDownOutlined, DeleteOutlined, SyncOutlined } from '@ant-design/icons';
 import { Button as LoadingButton } from '@mui/material'; // Fork addition: MUI 9 has no LoadingButton (Button has the loading state since 6.4)
 import { useClientInfos } from '../../utils/hooks';
-import { PERM_CONFIGURATION, PERM_ADMIN_READ } from '../../utils/permissions';
+import { PERM_CONFIGURATION, PERM_ADMIN_READ, PERM_ADMIN } from '../../utils/permissions'; // Fork addition (plan 51): PERM_ADMIN
 import ConfirmModal from '../../components/confirmModal';
 import PermissionGuard from '../../components/permissionGuard';
 import PrettyTabbedView from '../../components/tabbedView/tabbedView';
@@ -46,6 +46,8 @@ import { telegramInitialValues, telegramToConfig, telegramValidation } from './t
 import ConfigHTTP from './configHTTP';
 import ConfigHTTPS from './configHTTPS';
 import ConfigExternal, { postgresValidation } from './configExternal'; // Fork addition (plan 47): postgresValidation
+import { askStoreMove, StoreMoveDialog } from './forkPostgresProposals'; // Fork addition (plan 51): the history sentence before a save that moves the store
+import { databaseRefusal, moveKey, storeMove, takeSaveAnyway } from '../../utils/monitoringStoreForm'; // Fork addition (plan 51)
 import ConfigAppearance from './configAppearance';
 import { PWASettings } from '../../components/pwa'; // Fork addition: the installable app
 import ConfigAPITokens from './configAPITokens';
@@ -101,6 +103,8 @@ const ConfigManagement = () => {
   const { hasPermission } = useClientInfos();
   const isAdmin = hasPermission(PERM_CONFIGURATION);
   const canViewAdmin = hasPermission(PERM_ADMIN_READ);
+  const isAdministrator = hasPermission(PERM_ADMIN); // Fork addition (plan 51): "Save anyway" of the monitoring database
+  const askedMove = React.useRef(''); // Fork addition (plan 51): the store move already confirmed
 
   // Fork addition: `retries`. Saving makes the server restart its listener, which refuses the
   // reload that follows the save; the page then kept showing the settings from before the save
@@ -275,8 +279,15 @@ const ConfigManagement = () => {
           ...httpSettingsValidation(t, config), // fork addition: hostname, ports and address lists, only when changed (forkHttpSettings.jsx)
         })}
 
-        onSubmit={async (values, { setSubmitting, setFieldValue }) => {
+        onSubmit={async (values, { setSubmitting, setFieldValue, setStatus: setFormStatus }) => {
           setSubmitting(true);
+          // Fork addition (plan 51): a save that moves the monitoring store says what happens to the history first, once
+          const unchecked = takeSaveAnyway();
+          const move = storeMove(config.Database, values);
+          if (move && askedMove.current !== moveKey(move)) {
+            if (!(await askStoreMove(move))) { setSubmitting(false); return; }
+            askedMove.current = moveKey(move);
+          }
 
           if(!values.IncrBackupOutputDir && config.Backup.Backups && config.Backup.Backups["Cosmos Internal Backup"]) {
             delete config.Backup.Backups["Cosmos Internal Backup"];
@@ -388,7 +399,8 @@ const ConfigManagement = () => {
             }
           }
 
-          return API.config.set(toSave).then(() => {
+          return (unchecked ? API.config.setDatabaseUnchecked(toSave) : API.config.set(toSave)).then(() => { // Fork addition (plan 51): "Save anyway"
+            setFormStatus({ databaseRefusal: null }); askedMove.current = ''; // Fork addition (plan 51)
             if (values.Email_Password) setFieldValue('Email_Password', '***'); // Fork addition: a mail password that was saved is from now on the stored one (emailSettings.jsx)
             refresh(15); // fork addition: the server may be restarting its listener
             refreshPaidVisibility(); // Fork addition: the menu follows the switch and the licence
@@ -396,7 +408,8 @@ const ConfigManagement = () => {
             setTimeout(() => {
               setSaveLabel(t('global.saveAction'));
             }, 3000);
-          }).catch(() => {
+          }).catch((e) => {
+            setFormStatus({ databaseRefusal: databaseRefusal(e) }); // Fork addition (plan 51): said on the External tab, with "Save anyway"
             setSaveLabel(t('global.savedError'));
             setTimeout(() => {
               setSaveLabel(t('global.saveAction'));
@@ -406,6 +419,7 @@ const ConfigManagement = () => {
       >
         {(formik) => (
           <form noValidate onSubmit={formik.handleSubmit}>
+            <StoreMoveDialog />{/* Fork addition (plan 51) */}
             <PrettyTabbedView
               rootURL="/cosmos-ui/config-general"
               tabs={[
@@ -431,7 +445,7 @@ const ConfigManagement = () => {
                 },
                 {
                   title: t('mgmt.config.externalTitle'),
-                  children: wrapTab(formik, <ConfigExternal formik={formik} />),
+                  children: wrapTab(formik, <ConfigExternal formik={formik} isAdmin={isAdministrator} />), // Fork addition (plan 51): isAdmin
                   url: "/external",
                 },
                 {

@@ -59,7 +59,7 @@ func noticeFromEvent(event security.Event, st settings) (notice, bool) {
 		if !(st.categories[CategoryLogins] || st.forced("auth.login.new")) || !isNewAddress(event) {
 			return notice{}, false
 		}
-		return newAddressNotice(event), true
+		return newAddressNotice(event, storePartial()), true // Fork addition (plan 51): hedged while the history is partial
 	}
 
 	kind, known := security.KindOf(event.Kind)
@@ -158,6 +158,11 @@ var outcomeWords = map[string]string{
 	security.OutcomeOK:      "done",
 }
 
+// storePartial is utils.MonitoringStorePartial (plan 51): the history is the
+// local file's while it stands in for the monitoring database; replaced by
+// the tests.
+var storePartial = utils.MonitoringStorePartial
+
 // isNewAddress reports whether the account of a login was not seen at this
 // address before: the same IPv4 address, or the same /64 for IPv6, among
 // its last 200 logins in the record. When that cannot be known (no
@@ -171,7 +176,8 @@ func isNewAddress(event security.Event) bool {
 		return false
 	}
 	for _, login := range earlier {
-		if login.ID >= event.ID {
+		// earlier by time, not by id (plan 51: ids are per store)
+		if login.ID == event.ID || !login.Time.Before(event.Time) {
 			continue
 		}
 		if sameSource(login.IP, event.IP) {
@@ -197,9 +203,12 @@ func sameSource(a string, b string) bool {
 	return prefixA == prefixB
 }
 
-func newAddressNotice(event security.Event) notice {
+func newAddressNotice(event security.Event, partial bool) notice {
 	nt := newNotice("auth.login.new", map[string]string{"actor": event.Actor, "ip": event.IP})
 	nt.at = event.Time
+	if partial { // Fork addition (plan 51): the local file stands in for the monitoring database
+		nt.what = "A password was accepted for {{actor}} from {{ip}}, an address not in the history available now (the monitoring database is away: earlier sign-ins may be missing)."
+	}
 	if event.Details["mfa"] == "pending" {
 		nt.extra = func(c *composer) { c.fixed("A two-factor code is still to come.") }
 	}

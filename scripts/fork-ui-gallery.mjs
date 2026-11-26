@@ -90,6 +90,10 @@ const anyImageLook = async (page, text) => {
 // the page's main action ("Create", "New ..."): the first filled button with a plus, above the list
 const create = async (page) => { await page.locator('main button.MuiButton-contained:has(.anticon-plus-circle), main button.MuiButton-contained:has(.anticon-plus)').first().click({ timeout: 8000 }); };
 
+// Fork addition (plan 51): the answer of /api/monitoring-store while PostgreSQL does not answer
+const monitoringFallback = { status: 'OK', data: { configured: 'postgres', inUse: 'sqlite', host: '192.168.1.10:5432', database: 'cosmos', fallback: true,
+  since: '2026-11-17T08:12:00Z', reason: 'closed', message: 'Nothing answers at 192.168.1.10:5432: check the address and the port, and that the database runs.', attempts: 4 } };
+
 const anonymousViews = [
   { id: 'auth-login', path: '/cosmos-ui/login', core: true, captures: [
     {},
@@ -306,6 +310,13 @@ const views = [
   // the seeded instance is past that, so the answers are replaced on their way to the page
   { id: 'home-no-metrics', path: '/cosmos-ui/', core: true, wait: 1200, mock: [['/cosmos/api/metrics', { status: 'OK', data: null }], ['/cosmos/api/dashboard', { status: 'OK', data: null }]] },
   { id: 'home-empty-metrics', path: '/cosmos-ui/', wait: 1200, mock: [['/cosmos/api/metrics', { status: 'OK', data: [] }], ['/cosmos/api/dashboard', { status: 'OK', data: null }]] },
+  // Fork addition (plan 51): monitoring recording into the local file while its PostgreSQL does not answer, said on
+  // both pages; the External tab with the database section open (its proposals as the test server answers them)
+  // (not guarded: the charts' legends of the page are 16 px tall, upstream's)
+  { id: 'monitoring-store-fallback', path: '/cosmos-ui/monitoring', wait: 1500, mock: [['/cosmos/api/monitoring-store', monitoringFallback]] },
+  { id: 'config-monitoring-db', path: '/cosmos-ui/config-general/general', guard: true, mock: [['/cosmos/api/monitoring-store', monitoringFallback]], captures: [
+    { id: 'external', tab: 'External', open: async (page) => { await page.getByText('Postgres (optional)').first().click(); await sleep(800); }, close: async () => {} },
+  ] },
   { id: 'monitoring-no-metrics', path: '/cosmos-ui/monitoring', wait: 1500, mock: [['/cosmos/api/metrics', { status: 'OK', data: null }]], captures: [{}, { id: 'proxy', tab: 1, wait: 800 }] },
   { id: 'monitoring-empty-metrics', path: '/cosmos-ui/monitoring', wait: 1500, mock: [['/cosmos/api/metrics', { status: 'OK', data: [] }]], captures: [{}, { id: 'proxy', tab: 1, wait: 800 }] },
   { id: 'container-no-metrics', path: '/cosmos-ui/servapps/containers/jellyfin', wait: 800, mock: [['/cosmos/api/metrics', { status: 'OK', data: null }]], captures: [{ id: 'monitoring', tab: 2, wait: 1200 }] },

@@ -100,7 +100,7 @@ func CheckPostgres(ctx context.Context, db DatabaseConfig) *PostgresProblem {
 	if err != nil {
 		return &PostgresProblem{"settings", "These settings do not make a database address"}
 	}
-	conn, err := pgx.ConnectConfig(ctx, cfg)
+	conn, err := pgxConnect(ctx, cfg)
 	if err == nil {
 		defer conn.Close(context.Background())
 		err = conn.Ping(ctx)
@@ -119,6 +119,7 @@ func postgresCheckConfig(db DatabaseConfig) (*pgx.ConnConfig, error) {
 		return nil, err
 	}
 	explicitPostgresConfig(cfg, db)
+	boundPostgresConfig(cfg) // plan 51: the same bounds as the store's own connections
 	return cfg, nil
 }
 
@@ -148,6 +149,24 @@ func explicitPostgresConfig(cfg *pgx.ConnConfig, db DatabaseConfig) {
 		}
 	}
 	cfg.Fallbacks = kept
+}
+
+// PostgresHostAdvice names the likely right server after a typed one failed
+// for a reason (closed, dns, timeout, network), from the PostgreSQL
+// containers of this server; "" when nothing better is known. Set by
+// src/appsignin (plan 51), which knows the containers.
+var PostgresHostAdvice = func(ctx context.Context, typed string, reason string) string { return "" }
+
+// pgxConnect is pgx.ConnectConfig; replaced by the tests.
+var pgxConnect = pgx.ConnectConfig
+
+// postgresErrorCode is the SQLSTATE of a server's error, "" for anything else.
+func postgresErrorCode(err error) string {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code
+	}
+	return ""
 }
 
 // postgresCode is what a server's error code looks like (SQLSTATE); anything

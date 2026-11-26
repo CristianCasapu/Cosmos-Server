@@ -26,6 +26,7 @@ import CreationReview, { reviewHolds, useCreation, useServerSensitive } from '..
 import { sensitiveAccess, withServerItems } from '../../../utils/sensitiveAccess'; // Fork addition
 import { StartProblem } from '../../../components/startProblem'; // Fork addition (plan 43): a new app that does not start
 import { START_MARKER, parseStartCheck, repairDefinition, withoutStartCheck } from '../../../utils/services'; // Fork addition (plan 43)
+import ForkPullProgress, { usePullProgress } from '../../../components/forkPullProgress'; // Fork addition: the image pull as a step
 
 import Editor from 'react-simple-code-editor';
 import { highlight, languages } from 'prismjs/components/prism-core';
@@ -77,6 +78,7 @@ const NewDockerService = ({service, refresh, edit, notes, holdReason}) => {
   const [watching, setWatching] = React.useState(false);
   const [repairs, setRepairs] = React.useState(0);
   const streamed = React.useRef('');
+  const pull = usePullProgress(); // Fork addition: the image pull as a step
   const screenMin = useMediaQuery((theme) => theme.breakpoints.up('sm'))
 
   let installer = {...service['cosmos-installer']};
@@ -115,13 +117,14 @@ const NewDockerService = ({service, refresh, edit, notes, holdReason}) => {
     ])
     streamed.current = '';
     setStartCheck(null);
+    pull.reset(); // Fork addition
     API.docker.createService(definition, (newlog) => {
       // Fork addition (plan 43): the start check's line is read, not shown
       streamed.current = (streamed.current + newlog).slice(-262144);
       if (newlog.includes('Checking that the new app starts')) setWatching(true);
       const check = streamed.current.includes(START_MARKER) ? parseStartCheck(streamed.current) : null;
       if (check) { setStartCheck(check); setWatching(false); streamed.current = ''; }
-      newlog = withoutStartCheck(newlog);
+      newlog = withoutStartCheck(pull.take(newlog)); // Fork addition: the pull's lines are shown as a step, not in the log
       if (!newlog.trim()) return;
       setLog((old) => smartDockerLogConcat(old, newlog));
       if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight;
@@ -165,6 +168,7 @@ const NewDockerService = ({service, refresh, edit, notes, holdReason}) => {
         signIn={creation.signIn} signInMail={creation.signInMail} onSignInReplace={creation.replaceSignIn} /* Fork addition (plan 45): who signs in with what */ />
       {!edit && <InstallExposure service={current} definition={dockerCompose} done={isDone} />}
       {failed && <Alert severity="error" sx={{ overflowWrap: 'anywhere' }} data-create-failed>{failed}</Alert>}
+      {!!log.length && <ForkPullProgress pulls={pull.pulls} onRetry={failed ? () => create() : null} />/* Fork addition: the image pull, its reason and "Try again" */}
       {/* Fork addition (plan 47, I2c, third review m-6): the server's check did not answer */}
       {serverSensitive.failed && !isDone && !log.length && <Alert severity="warning" sx={{ overflowWrap: 'anywhere' }} data-create-check-failed
         action={<Button color="inherit" size="small" onClick={serverSensitive.retry}>{t('mgmt.servapps.creation.checkAgain', 'Check again')}</Button>}>

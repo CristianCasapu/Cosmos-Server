@@ -10,7 +10,24 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 Merged into `custom` since `0.24.0-fork.40`, to be part of the next release:
 
-- Nothing yet.
+### Added
+- Saving the monitoring database first checks that Cosmos can reach it and use it, and says in plain words what is wrong and which server to use instead. Administrators can still save anyway.
+- The server field proposes the PostgreSQL containers of this server, at an address that works from Cosmos.
+- External can copy the monitoring history between the local file and PostgreSQL, with progress, either way.
+- The image download is its own step when an app is created, with "Try again".
+
+### Fixed
+- Monitoring no longer stops when the monitoring database does not answer: the local file records meanwhile, and Cosmos switches back by itself once the database answers steadily.
+- Records written meanwhile are brought back by themselves. The notice says how many and that each was checked.
+- Totals and averages of that time are added exactly once; a falling value or a change of server no longer skews them.
+- An outage notice is closed whatever ends the outage, and a later outage is told again.
+- A copy run while monitoring writes no longer reports a false mismatch.
+- A notification marked read, deleted or marked resolved from a page opened before the monitoring database changed is no longer applied to another notification: the page loads again.
+
+### Security
+- No value derived from the database password reaches the browser any more.
+- The database's connections are bounded, so a database that stops answering cannot hold Cosmos.
+- A sign-in from a new address is still alerted while the history is incomplete, with a hedged wording.
 
 ## Fork 0.24.0-fork.40 — 2026-11-25
 

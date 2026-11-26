@@ -60,6 +60,28 @@ func answerNotifications(w http.ResponseWriter, data interface{}) {
 	json.NewEncoder(w).Encode(utils.APIResponse{Status: "OK", Data: data})
 }
 
+// answerNotificationsOfStore also names the monitoring store the ids belong
+// to (plan 51: ids are per store; a change sent with another store's ids
+// after a switch is refused instead of marking other rows).
+func answerNotificationsOfStore(w http.ResponseWriter, data interface{}, store string) {
+	json.NewEncoder(w).Encode(map[string]interface{}{"status": "OK", "data": data, "store": store})
+}
+
+// ofOneStore runs read and names the store it read from: read again once
+// when the store changed while it read (review round 2, M5).
+func ofOneStore(read func() bool) (string, bool) {
+	for try := 0; try < 2; try++ {
+		before := utils.MonitoringStoreID()
+		if !read() {
+			return "", false
+		}
+		if utils.MonitoringStoreID() == before {
+			return before, true
+		}
+	}
+	return "", true // changing all the time: no store named, the ids are taken as they come
+}
+
 // notificationsListRoute godoc
 // @Summary The caller's notifications, newest first
 // @Tags Notifications
@@ -95,19 +117,32 @@ func notificationsListRoute(w http.ResponseWriter, req *http.Request) {
 		}
 		q.Limit = n
 	}
-	items, next, err := utils.ListNotificationViews(q)
-	if err == utils.ErrBadNotificationQuery {
-		utils.HTTPError(w, "This filter is not one the list takes", http.StatusBadRequest, "NOTIF002")
+	var items interface{}
+	var next string
+	var unread int
+	var sources []string
+	store, ok := ofOneStore(func() bool {
+		var err error
+		var listed []utils.NotificationView
+		listed, next, err = utils.ListNotificationViews(q)
+		if err == utils.ErrBadNotificationQuery {
+			utils.HTTPError(w, "This filter is not one the list takes", http.StatusBadRequest, "NOTIF002")
+			return false
+		}
+		if err != nil {
+			utils.Error("Notifications: could not list", err)
+			utils.HTTPError(w, "Could not read the notifications", http.StatusInternalServerError, "NOTIF003")
+			return false
+		}
+		items = listed
+		unread, _ = utils.CountUnreadNotifications(nickname, admin)
+		sources, _ = utils.NotificationSourcesOf(nickname, admin)
+		return true
+	})
+	if !ok {
 		return
 	}
-	if err != nil {
-		utils.Error("Notifications: could not list", err)
-		utils.HTTPError(w, "Could not read the notifications", http.StatusInternalServerError, "NOTIF003")
-		return
-	}
-	unread, _ := utils.CountUnreadNotifications(nickname, admin)
-	sources, _ := utils.NotificationSourcesOf(nickname, admin)
-	answerNotifications(w, map[string]interface{}{"items": items, "next": next, "unread": unread, "sources": sources})
+	answerNotificationsOfStore(w, map[string]interface{}{"items": items, "next": next, "unread": unread, "sources": sources}, store)
 }
 
 // notificationsItemRoute godoc
@@ -128,17 +163,26 @@ func notificationsItemRoute(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "Give an id or a ref", http.StatusBadRequest, "NOTIF002")
 		return
 	}
-	details, found, err := utils.GetNotificationDetails(nickname, admin, id, ref)
-	if err != nil {
-		utils.Error("Notifications: could not read one", err)
-		utils.HTTPError(w, "Could not read the notification", http.StatusInternalServerError, "NOTIF003")
+	var details utils.NotificationDetails
+	store, ok := ofOneStore(func() bool {
+		var found bool
+		var err error
+		details, found, err = utils.GetNotificationDetails(nickname, admin, id, ref)
+		if err != nil {
+			utils.Error("Notifications: could not read one", err)
+			utils.HTTPError(w, "Could not read the notification", http.StatusInternalServerError, "NOTIF003")
+			return false
+		}
+		if !found {
+			utils.HTTPError(w, "There is no such notification of yours", http.StatusNotFound, "NOTIF004")
+			return false
+		}
+		return true
+	})
+	if !ok {
 		return
 	}
-	if !found {
-		utils.HTTPError(w, "There is no such notification of yours", http.StatusNotFound, "NOTIF004")
-		return
-	}
-	answerNotifications(w, details)
+	answerNotificationsOfStore(w, details, store)
 }
 
 func notificationTarget(req *http.Request) (int64, string, bool) {
@@ -183,6 +227,8 @@ type notificationChange struct {
 	IDs  []int64 `json:"ids"`
 	Read *bool   `json:"read"`
 	All  bool    `json:"all"`
+	// Store: the monitoring store the ids were read from (plan 51), optional
+	Store string `json:"store,omitempty"`
 }
 
 func readNotificationChange(w http.ResponseWriter, req *http.Request) (notificationChange, bool) {
@@ -202,6 +248,10 @@ func readNotificationChange(w http.ResponseWriter, req *http.Request) (notificat
 			utils.HTTPError(w, "Not a notification id", http.StatusBadRequest, "NOTIF002")
 			return change, false
 		}
+	}
+	if len(change.IDs) > 0 && change.Store != "" && change.Store != utils.MonitoringStoreID() {
+		utils.HTTPError(w, "The notifications moved to another store since this page was loaded: load the page again", http.StatusConflict, "NOTIF009")
+		return change, false
 	}
 	return change, true
 }

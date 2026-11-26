@@ -88,7 +88,7 @@ cp src/update.go src/launcher/update.go
 CGO_ENABLED=0 go build -o /tmp/cosmos src/*.go
 CGO_ENABLED=0 go build -o /tmp/cosmos-launcher ./src/launcher/launcher.go ./src/launcher/update.go
 go test ./src/utils/ ./src/authorizationserver/ -count=1
-go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ ./src/telegram/ ./src/fail2ban/ ./src/maildetect/ ./src/dnsrecords/ ./src/cloudflare/... ./src/forkrelease/ ./src/market/ ./src/turnstile/ ./src/edgeblock/ ./src/certs/ ./src/reachwatch/ ./src/anyimage/ ./src/behind/ ./src/appsignin/ ./src/cron/ ./src/guides/ ./src/edithints/ ./src/watch/ -count=1
+go test ./src/upnp/ ./src/configapi/ ./src/snapshots/ ./src/storage/ ./src/metrics/ ./src/user/ ./src/reach/ ./src/security/ ./src/telegram/ ./src/fail2ban/ ./src/maildetect/ ./src/dnsrecords/ ./src/cloudflare/... ./src/forkrelease/ ./src/market/ ./src/turnstile/ ./src/edgeblock/ ./src/certs/ ./src/reachwatch/ ./src/anyimage/ ./src/behind/ ./src/appsignin/ ./src/cron/ ./src/guides/ ./src/edithints/ ./src/watch/ ./src/monitorcopy/ -count=1
 go test ./src/ -skip TestEveryRouteIsDocumented -count=1
 go test ./src/docker/ -count=1
 go test ./src/proxy/ -count=1
@@ -101,6 +101,33 @@ go test ./src/proxy/ -count=1
 # The container edit against a real Docker, never the server's: start
 # docker:29-dind on a network of its own and run
 #   COSMOS_FORK_LIVE_DOCKER=1 DOCKER_HOST=tcp://<dind>:2375 go test ./src/docker/ -run SafeEditLive -count=1
+#
+# The monitoring database against a real PostgreSQL (the store, its fallback to
+# the local file, the catch-up and the history copy): start postgres:18 on a
+# `docker network create --internal` network with POSTGRES_USER=cosmos,
+# POSTGRES_PASSWORD=cosmos-test-pw, POSTGRES_DB=cosmos, and add the roles the
+# tests expect to be refused ("reader": may sign in, may not create tables;
+# "other": may create tables, owns none of Cosmos'):
+#   psql -U cosmos -d cosmos -c "CREATE ROLE reader LOGIN PASSWORD 'reader-test-pw'" \
+#     -c "CREATE ROLE other LOGIN PASSWORD 'other-test-pw'" -c "GRANT CREATE ON SCHEMA public TO other"
+# then run the Go container on that network (module cache mounted, GOPROXY=off):
+#   COSMOS_FORK_PG_TEST=<pg>:5432 COSMOS_FORK_PG_TEST_DB=cosmos COSMOS_FORK_PG_TEST_USER=cosmos \
+#   COSMOS_FORK_PG_TEST_PASSWORD=cosmos-test-pw \
+#   COSMOS_FORK_PG_TEST_DSN='postgres://cosmos:cosmos-test-pw@<pg>:5432/cosmos?sslmode=disable' \
+#   go test -race ./src/utils/ ./src/monitorcopy/ -count=1 -timeout 40m
+# (./src/metrics/ ./src/security/ ./src/configapi/ ./src/appsignin/ have live
+# tests too). Without the variables those tests skip; ROUND4_CUTS=n also runs
+# TestManyCutsLive with n outages.
+#
+# The browser replay of the monitoring database (masked password, wrong
+# addresses, the proposal, the save, the database stopped and started, a start
+# with it down, the history copy) runs a throwaway Cosmos inside docker:29-dind
+# on an --internal network, never the server's; the script's header says what it
+# makes and which saved images it loads (IMAGES_DIR; PREFIX and SCRATCH name
+# the containers and the scratch folder):
+#   sh scripts/fork-ui-check-monitoring-db.sh up
+#   sh scripts/fork-ui-check-monitoring-db.sh check PHASE=story   # also copy, down, move, start PART=before|after, bridge
+#   sh scripts/fork-ui-check-monitoring-db.sh clean
 
 # the frontend's pure logic (quote the glob)
 node --test "client/src/utils/*.test.mjs"

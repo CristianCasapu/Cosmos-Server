@@ -159,7 +159,7 @@ func List(filter Filter, cursor int64, limit int) (Page, error) {
 		return page, err
 	}
 	// one more than asked for tells whether there is a next page
-	rows, err := db.Query(utils.MonitoringRebind(
+	rows, err := db.Query(utils.MonitoringRebindFor(db,
 		"SELECT "+eventColumns+" FROM "+tableName+" WHERE "+where+" ORDER BY id DESC LIMIT "+strconv.Itoa(limit+1)), args...)
 	if err != nil {
 		return page, err
@@ -225,7 +225,7 @@ func CountByKind(filter Filter) ([]KindCount, error) {
 	if err != nil {
 		return counts, err
 	}
-	rows, err := db.Query(utils.MonitoringRebind(
+	rows, err := db.Query(utils.MonitoringRebindFor(db,
 		"SELECT kind, COUNT(*), SUM(n), MAX(ts) FROM "+tableName+" WHERE "+where+
 			" GROUP BY kind ORDER BY SUM(n) DESC, kind"), args...)
 	if err != nil {
@@ -290,7 +290,7 @@ func Buckets(filter Filter, size time.Duration, offset time.Duration) ([]Bucket,
 	}
 	// the arguments of the bucket expression come before those of the filter
 	queryArgs := append([]interface{}{offsetMs, sizeMs}, args...)
-	rows, err := db.Query(utils.MonitoringRebind(
+	rows, err := db.Query(utils.MonitoringRebindFor(db,
 		"SELECT (ts + ?) / ? AS bucket, class, SUM(n) FROM "+tableName+" WHERE "+where+
 			" GROUP BY bucket, class ORDER BY bucket"), queryArgs...)
 	if err != nil {
@@ -349,7 +349,7 @@ func TopIPs(filter Filter, limit int) ([]IPCount, error) {
 	if err != nil {
 		return top, err
 	}
-	rows, err := db.Query(utils.MonitoringRebind(
+	rows, err := db.Query(utils.MonitoringRebindFor(db,
 		"SELECT ip, SUM(n), COUNT(*), COUNT(DISTINCT kind), MIN(ts), MAX(ts) FROM "+tableName+
 			" WHERE "+where+" AND ip != '' GROUP BY ip ORDER BY SUM(n) DESC, MAX(ts) DESC, ip LIMIT "+strconv.Itoa(limit)), args...)
 	if err != nil {

@@ -381,6 +381,35 @@
       "page": "/cosmos-ui/servapps",
       "sample": {"duration": "7 minutes"}
     },
+    "monitoring.store.down": {
+      "severity": "error", "category": "system",
+      "label": "Monitoring database does not answer", "many": "monitoring database outages",
+      "preview": "Monitoring database at {{host}} not answering",
+      "whatKey": "notif.monitoring.store.down.what",
+      "means": "Monitoring records into the local file meanwhile; nothing is lost, and Cosmos switches back by itself.",
+      "todo": "check that the PostgreSQL container or server runs and that Cosmos can reach it.",
+      "page": "/cosmos-ui/config-general",
+      "sample": {"host": "192.168.1.20:5432", "at": "14:05", "reason": "the connection was refused"},
+      "raw": ["reason"]
+    },
+    "monitoring.store.restored": {
+      "severity": "info", "category": "system", "closing": true, "closes": "monitoring.store.down",
+      "label": "Monitoring database answers again", "many": "monitoring database recoveries",
+      "preview": "Monitoring database at {{host}} answers again",
+      "whatKey": "notif.monitoring.store.restored.what",
+      "todo": "nothing; the records of the outage are brought over by themselves.",
+      "page": "/cosmos-ui/config-general",
+      "sample": {"host": "192.168.1.20:5432", "at": "14:12"}
+    },
+    "monitoring.store.ended": {
+      "severity": "info", "category": "system", "closing": true, "closes": "monitoring.store.down", "neutral": true,
+      "label": "Monitoring database outage closed", "many": "monitoring database outages closed",
+      "preview": "Monitoring database outage closed",
+      "what": "The outage of the monitoring database is closed: the settings changed, or Cosmos was stopped for a long time during it.",
+      "todo": "open Configuration > External to see which database is in use.",
+      "page": "/cosmos-ui/config-general",
+      "sample": {}
+    },
     "snapshots.late": {
       "severity": "warn", "category": "system",
       "label": "No recent snapshot", "many": "late snapshots",

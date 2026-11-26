@@ -24,6 +24,7 @@ import EventsExplorer from './eventsExplorer';
 import MetricHeaders from './MetricHeaders';
 import { metricsByKey, hasMeasurements } from '../../utils/metricsState'; // Fork addition: a server that has measured nothing yet
 import { NoMeasurements } from '../../components/emptyState';
+import { MonitoringStoreLine } from '../config/forkPostgresProposals'; // Fork addition (plan 51): the local file meanwhile, said
 
 const DashboardDefault = () => {
     const { t } = useTranslation();
@@ -126,6 +127,7 @@ const DashboardDefault = () => {
           />
         </Box>}
         {metrics && <div style={{zIndex:2, position: 'relative'}}>
+            <Box sx={{ mb: 2, '&:empty': { display: 'none' } }}><MonitoringStoreLine /></Box>{/* Fork addition (plan 51) */}
             {currentTab <= 1 && !hasMeasurements(metrics) && <NoMeasurements sx={{ mb: 3 }} />}{/* Fork addition */}
             <Grid container rowSpacing={4.5} columnSpacing={2.75} >
                 <Grid size={{ xs: 12 }} sx={{ mb: -2.25 }}>

@@ -71,27 +71,57 @@ func aggregateArg(aggloType string, dp DataPush) int {
 
 // writeBuckets persists one flush worth of accumulator entries in a single transaction.
 func writeBuckets(buckets []DataPush) error {
-	db, err := utils.MonitoringWriteDB()
+	_, _, err := writeBucketsTx(buckets, nil) // Fork addition (plan 51): see fork_flush.go
+	return err
+}
+
+// writeBucketsTx is writeBuckets with the fork's bookkeeping rows written in
+// the same transaction (fork_flush.go); committing says that the error came
+// from the commit, whose outcome is then not known.
+func writeBucketsTx(buckets []DataPush, kv map[string]string) (db *sql.DB, committing bool, err error) {
+	db, committing, err = writeBucketsOnce(buckets, kv)
+	if err != nil && !committing && utils.IsClosedHandle(err) {
+		// Fork addition (plan 51): the handle was closed by a switch of the
+		// store before the transaction ran: once more on the store in use
+		return writeBucketsOnce(buckets, kv)
+	}
+	return db, committing, err
+}
+
+// bucketsHandle is the store's handle for a flush; replaced by the tests.
+var bucketsHandle = utils.MonitoringWriteDB
+
+func writeBucketsOnce(buckets []DataPush, kv map[string]string) (db *sql.DB, committing bool, err error) {
+	db, err = bucketsHandle()
 	if err != nil {
-		return err
+		return nil, false, err
 	}
 
-	dialect := utils.MonitoringDialect()
+	dialect := utils.MonitoringDialectOf(db)
 	node := utils.MonitoringNode()
 
 	tx, err := db.Begin()
 	if err != nil {
-		return err
+		return db, false, err
 	}
 
 	for _, dp := range buckets {
 		if err := writeBucket(tx, dialect, node, dp); err != nil {
 			tx.Rollback()
-			return err
+			return db, false, err
+		}
+	}
+	for key, value := range kv {
+		if _, err := tx.Exec(utils.RebindFor(dialect, "INSERT INTO monitoring_kv(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"), key, value); err != nil {
+			tx.Rollback()
+			return db, false, err
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return db, true, err
+	}
+	return db, false, nil
 }
 
 func writeBucket(tx *sql.Tx, dialect string, node string, dp DataPush) error {
@@ -100,14 +130,14 @@ func writeBucket(tx *sql.Tx, dialect string, node string, dp DataPush) error {
 		scale = dp.Scale
 	}
 
-	_, err := tx.Exec(utils.MonitoringRebind(catalogUpsert),
+	_, err := tx.Exec(utils.RebindFor(dialect, catalogUpsert),
 		node, dp.Key, dp.Label, dp.Unit, int64(dp.Max), dp.AggloType, scale, dp.Object,
 		float64(dp.Period/(time.Second*30)), utils.TimeToMillis(dp.Date))
 	if err != nil {
 		return err
 	}
 
-	_, err = tx.Exec(utils.MonitoringRebind(rawUpsert),
+	_, err = tx.Exec(utils.RebindFor(dialect, rawUpsert),
 		node, dp.Key, utils.TimeToMillis(dp.Date), dp.Value, dp.AvgIndex,
 		utils.TimeToMillis(dp.Date.Add(rawRetention)))
 	if err != nil {
@@ -131,8 +161,16 @@ func writeBucket(tx *sql.Tx, dialect string, node string, dp DataPush) error {
 		poolDate := ModuloTime(dp.Date, pool.period)
 		expire := poolDate.Add(pool.period).Add(pool.retention)
 
+		// Fork addition (plan 51, review round 4, M5): a raw bucket flushed
+		// before into another store meets no row of its hour or day in this one
+		// (the store changed): the row gets the whole bucket (it reads right on
+		// its own) and this store notes the part that went elsewhere, see
+		// fork_flush.go
+		if err := notePrior(tx, dialect, node, pool.granularity, poolDate, dp); err != nil {
+			return err
+		}
 		query := aggregateInsert + aggregateMerge(dp.AggloType, dialect)
-		_, err = tx.Exec(utils.MonitoringRebind(query),
+		_, err = tx.Exec(utils.RebindFor(dialect, query),
 			node, dp.Key, pool.granularity, utils.TimeToMillis(poolDate),
 			dp.Value, 1, utils.TimeToMillis(expire),
 			aggregateArg(dp.AggloType, dp), countInc)
@@ -177,7 +215,7 @@ func loadMetrics(metricsList []string) ([]DataDefDB, error) {
 	predicate, predicateArgs := keyPredicate(metricsList)
 
 	catalogArgs := append([]interface{}{node}, predicateArgs...)
-	rows, err := db.Query(utils.MonitoringRebind(
+	rows, err := db.Query(utils.MonitoringRebindFor(db,
 		"SELECT key, label, unit, max, agglo_type, scale, object, time_scale, last_update"+
 			" FROM metrics WHERE node = ?"+predicate+" ORDER BY key"), catalogArgs...)
 	if err != nil {
@@ -214,7 +252,7 @@ func loadMetrics(metricsList []string) ([]DataDefDB, error) {
 
 	valueArgs := append([]interface{}{node}, predicateArgs...)
 	valueArgs = append(valueArgs, rawFrom, now)
-	vrows, err := db.Query(utils.MonitoringRebind(
+	vrows, err := db.Query(utils.MonitoringRebindFor(db,
 		"SELECT key, granularity, date, value, avg_index, expire FROM metric_values"+
 			" WHERE node = ?"+predicate+
 			" AND ((granularity = '"+granularityRaw+"' AND date >= ?)"+
@@ -285,7 +323,7 @@ func poolValues(granularity string, poolDate time.Time) (map[string]poolAlertRow
 		return nil, err
 	}
 
-	rows, err := db.Query(utils.MonitoringRebind(
+	rows, err := db.Query(utils.MonitoringRebindFor(db,
 		"SELECT m.key, m.object, m.max, m.agglo_type, v.value, v.avg_index"+
 			" FROM metric_values v JOIN metrics m ON m.node = v.node AND m.key = v.key"+
 			" WHERE v.node = ? AND v.granularity = ? AND v.date = ?"),
@@ -326,7 +364,7 @@ func listMetricNames() (map[string]string, error) {
 		return nil, err
 	}
 
-	rows, err := db.Query(utils.MonitoringRebind(
+	rows, err := db.Query(utils.MonitoringRebindFor(db,
 		"SELECT key, label FROM metrics WHERE node = ?"), utils.MonitoringNode())
 	if err != nil {
 		return nil, err
@@ -353,7 +391,7 @@ func resetLocalMetrics() error {
 
 	node := utils.MonitoringNode()
 	for _, table := range []string{"metric_values", "metrics"} {
-		if _, err := db.Exec(utils.MonitoringRebind("DELETE FROM "+table+" WHERE node = ?"), node); err != nil {
+		if _, err := db.Exec(utils.MonitoringRebindFor(db, "DELETE FROM "+table+" WHERE node = ?"), node); err != nil {
 			return err
 		}
 	}

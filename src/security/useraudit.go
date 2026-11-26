@@ -200,7 +200,7 @@ func AuditList(filter AuditFilter, cursor int64, limit int) (Page, error) {
 	if err != nil {
 		return page, err
 	}
-	rows, err := db.Query(utils.MonitoringRebind(
+	rows, err := db.Query(utils.MonitoringRebindFor(db,
 		"SELECT "+eventColumns+" FROM "+tableName+" WHERE "+where+" ORDER BY id DESC LIMIT "+strconv.Itoa(limit+1)), args...)
 	if err != nil {
 		return page, err
@@ -264,7 +264,7 @@ func lastSighting(db *sql.DB, kinds []string, actor string) (*Sighting, error) {
 	args := append(stringArgs(kinds), actor)
 	var at int64
 	var sighting Sighting
-	err := db.QueryRow(utils.MonitoringRebind(
+	err := db.QueryRow(utils.MonitoringRebindFor(db,
 		"SELECT ts, ip, kind FROM "+tableName+" WHERE kind IN ("+placeholders(len(kinds))+") AND actor = ? ORDER BY id DESC LIMIT 1"),
 		args...).Scan(&at, &sighting.IP, &sighting.Kind)
 	if err == sql.ErrNoRows {
@@ -279,7 +279,7 @@ func lastSighting(db *sql.DB, kinds []string, actor string) (*Sighting, error) {
 
 func sumOf(db *sql.DB, condition string, args ...interface{}) (int64, error) {
 	var total sql.NullInt64
-	err := db.QueryRow(utils.MonitoringRebind("SELECT SUM(n) FROM "+tableName+" WHERE "+condition), args...).Scan(&total)
+	err := db.QueryRow(utils.MonitoringRebindFor(db, "SELECT SUM(n) FROM "+tableName+" WHERE "+condition), args...).Scan(&total)
 	return total.Int64, err
 }
 
@@ -348,7 +348,7 @@ func UserSummary(user string, now time.Time) (Summary, error) {
 		return summary, err
 	}
 
-	rows, err := db.Query(utils.MonitoringRebind(
+	rows, err := db.Query(utils.MonitoringRebindFor(db,
 		"SELECT ip, SUM(n), MAX(ts) FROM "+tableName+" WHERE actor = ? AND ip != '' AND ts >= ?"+
 			" GROUP BY ip ORDER BY MAX(ts) DESC, ip LIMIT "+strconv.Itoa(summaryAddresses)),
 		user, utils.TimeToMillis(now.Add(-summaryAddressAge)))

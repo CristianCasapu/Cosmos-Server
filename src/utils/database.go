@@ -38,6 +38,9 @@ var ErrDatabaseClosed = errors.New("database: not initialized")
 // runs its schema. Deliberately close-then-open so it can be re-invoked when
 // CONFIGFOLDER or the Postgres config changes, mirroring InitStore.
 func InitMetricsDatabase() error {
+	if forkOpensMonitoringStore { // Fork addition (plan 51): opened new-then-swapped, a PostgreSQL that cannot be the store leaves it on the local file, see fork_monitoring_store.go
+		return openMonitoringStore()
+	}
 	config := GetMainConfig()
 
 	monitorMu.Lock()
@@ -261,12 +264,11 @@ func RunDatabaseRetention() {
 		{"DELETE FROM events WHERE node = ? AND date < ?", []interface{}{node, monthAgo}},
 		{"DELETE FROM notifications WHERE node = ? AND date < ?", []interface{}{node, monthAgo}},
 	} {
-		res, err := db.Exec(MonitoringRebind(q.sql), q.args...)
+		n, err := retentionDelete(db, q.sql, q.args...) // Fork addition (plan 51): in chunks, each with a generous bound, see fork_retention.go
 		if err != nil {
 			MajorError("Database Retention", err)
 			return
 		}
-		n, _ := res.RowsAffected()
 		deleted += n
 	}
 

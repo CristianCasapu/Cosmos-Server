@@ -422,6 +422,27 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     }), true)
   }
 
+  // Fork addition (plan 51): "Save anyway" (administrators: the monitoring database is saved
+  // without the server's connection check, recorded), and the monitoring store in use
+  function setDatabaseUnchecked(values) {
+    return wrap(apiFetch('/cosmos/api/config?database=unchecked', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(values),
+    }))
+  }
+
+  function monitoringStore() {
+    return wrap(apiFetch('/cosmos/api/monitoring-store', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }), true)
+  }
+
   function snapshotsCleanup(source: string, name: string) {
     return wrap(apiFetch('/cosmos/api/snapshots/cleanup', {
       method: 'POST',
@@ -430,6 +451,35 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
       },
       body: JSON.stringify({ Source: source, Name: name }),
     }))
+  }
+
+  // Fork addition (plan 51): the copy of the monitoring history between the local file and PostgreSQL (src/monitorcopy)
+  function monitoringCopyStatus() {
+    return wrap(apiFetch('/cosmos/api/monitoring-copy', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }), true)
+  }
+
+  function monitoringCopyStart(direction: 'to-postgres' | 'to-local') {
+    return wrap(apiFetch('/cosmos/api/monitoring-copy/start', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ direction }),
+    }), true)
+  }
+
+  function monitoringCopyCancel() {
+    return wrap(apiFetch('/cosmos/api/monitoring-copy/cancel', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    }), true)
   }
 
   async function rawUpdateRoute(routeName: string, operation: Operation, newRoute?: Route): Promise<ApiResponse> {
@@ -603,9 +653,14 @@ export default function createConfigAPI(apiFetch: ApiFetch) {
     snapshotsRun,
     snapshotsRestore,
     snapshotsCleanup,
+    monitoringCopyStatus, // Fork addition (plan 51)
+    monitoringCopyStart, // Fork addition (plan 51)
+    monitoringCopyCancel, // Fork addition (plan 51)
     snapshotsLook, // Fork addition (plan 47)
     postgresProposals, // Fork addition (plan 47)
     postgresTest, // Fork addition (plan 47)
+    setDatabaseUnchecked, // Fork addition (plan 51)
+    monitoringStore, // Fork addition (plan 51)
     telegramStatus,
     telegramTest,
     telegramChats,

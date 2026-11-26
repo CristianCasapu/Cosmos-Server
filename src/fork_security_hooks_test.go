@@ -114,6 +114,7 @@ var securityHooks = []struct {
 	{"proxy/fork_local.go", "utils.RecordSecurity(req, utils.SecAccessLocalDenied", 1},
 	{"proxy/fork_cloudflare.go", "utils.RecordSecurity(req, utils.SecAccessOriginDenied", 1},
 	{"snapshots/api.go", "utils.AuditSecurity(req, utils.SecSnapshotRestore", 1},
+	{"monitorcopy/route.go", "utils.RecordSecurity(req, utils.SecMonitoringCopy", 2}, // Fork addition (plan 51)
 }
 
 func TestSecurityHooksAreInPlace(t *testing.T) {

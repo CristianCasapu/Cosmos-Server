@@ -120,7 +120,7 @@ func ForkOpenThreads(kinds []string, within time.Duration, limit int) ([]Notific
 	}
 	in, args := kindList(kinds)
 	args = append(args, TimeToMillis(notificationClock().Add(-within)))
-	rows, err := db.Query(MonitoringRebind("SELECT "+notificationColumnsSQL+" FROM notifications"+
+	rows, err := db.Query(MonitoringRebindFor(db, "SELECT "+notificationColumnsSQL+" FROM notifications"+
 		" WHERE fork_resolved = 0 AND fork_info <> '' AND fork_kind IN "+in+" AND date >= ?"+
 		" ORDER BY date DESC, id DESC LIMIT "+strconv.Itoa(maxThreadRows)), args...)
 	if err != nil {
@@ -156,7 +156,7 @@ func ForkThreadState(thread string, closings []string, since time.Time) (open bo
 		return false, false, nil, err
 	}
 	var count int
-	if err := db.QueryRow(MonitoringRebind("SELECT COUNT(*) FROM notifications WHERE fork_thread = ? AND fork_resolved = 0 AND fork_info <> ''"),
+	if err := db.QueryRow(MonitoringRebindFor(db, "SELECT COUNT(*) FROM notifications WHERE fork_thread = ? AND fork_resolved = 0 AND fork_info <> ''"),
 		thread).Scan(&count); err != nil {
 		return false, false, nil, err
 	}
@@ -165,7 +165,7 @@ func ForkThreadState(thread string, closings []string, since time.Time) (open bo
 	}
 	sinceMs := TimeToMillis(since)
 	var resolved int
-	if err := db.QueryRow(MonitoringRebind("SELECT COUNT(*) FROM notifications WHERE fork_thread = ? AND fork_resolved >= ? AND fork_resolved > 0 AND fork_info <> ''"),
+	if err := db.QueryRow(MonitoringRebindFor(db, "SELECT COUNT(*) FROM notifications WHERE fork_thread = ? AND fork_resolved >= ? AND fork_resolved > 0 AND fork_info <> ''"),
 		thread, sinceMs).Scan(&resolved); err != nil {
 		return false, false, nil, err
 	}
@@ -173,7 +173,7 @@ func ForkThreadState(thread string, closings []string, since time.Time) (open bo
 		in, args := kindList(closings)
 		args = append([]interface{}{thread}, args...)
 		args = append(args, sinceMs)
-		rows, err := db.Query(MonitoringRebind("SELECT "+notificationColumnsSQL+" FROM notifications"+
+		rows, err := db.Query(MonitoringRebindFor(db, "SELECT "+notificationColumnsSQL+" FROM notifications"+
 			" WHERE fork_thread = ? AND fork_info <> '' AND fork_kind IN "+in+" AND date >= ?"+
 			" ORDER BY date DESC, id DESC LIMIT 1"), args...)
 		if err != nil {
