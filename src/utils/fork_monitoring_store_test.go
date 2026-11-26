@@ -683,8 +683,18 @@ func TestCheckPostgresStoreLive(t *testing.T) {
 		t.Fatalf("store on PostgreSQL: %v %s", err, MonitoringDialect())
 	}
 	other := DatabaseConfig{PostgresHost: ok.PostgresHost, PostgresDatabase: ok.PostgresDatabase, PostgresUsername: "other", PostgresPassword: "other-test-pw"}
-	if p := CheckPostgresStore(ctx, other); p == nil || p.Reason != "owner" || !strings.Contains(p.Message, "belong to "+ok.PostgresUsername) ||
-		!strings.Contains(p.Message, `REASSIGN OWNED BY "`+ok.PostgresUsername+`" TO "other"`) {
+	// the advice depends on the owner: REASSIGN OWNED BY for an ordinary role,
+	// one ALTER TABLE per table for a superuser (REASSIGN would move the
+	// system's own objects); the documented test set-up's owner is a superuser
+	p := CheckPostgresStore(ctx, other)
+	if p == nil || p.Reason != "owner" || !strings.Contains(p.Message, "belong to "+ok.PostgresUsername) {
+		t.Fatalf("other: %+v", p)
+	}
+	if strings.Contains(p.Message, "a superuser, not to user") {
+		if !strings.Contains(p.Message, `ALTER TABLE "events" OWNER TO "other"`) || strings.Contains(p.Message, "REASSIGN OWNED") {
+			t.Errorf("other (superuser owner): %+v", p)
+		}
+	} else if !strings.Contains(p.Message, `REASSIGN OWNED BY "`+ok.PostgresUsername+`" TO "other"`) {
 		t.Errorf("other: %+v", p)
 	}
 }

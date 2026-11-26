@@ -316,6 +316,14 @@ cool-down, the 72 hours the previous files are kept, the 15-minute window.
   Cloudflare, e-mail, Telegram, Fail2ban and UPnP checks, were each run on
   their own branch only (each needs a set-up of its own).
 
+## The monitoring database: left for later (2026-11-25)
+
+- Before the fallback takes over (two failed looks, about 20 to 35 seconds), the rows that cannot be written are kept in memory and written again, but only up to 5 000 events and 500 notifications; beyond that they are dropped (counted and logged). A long write burst during the first half-minute of an outage can still lose rows. Metric buckets and the security record keep theirs as before.
+- When the settings change to another database, the raw metric bucket open at that moment (30 s of data, an hour for hourly metrics) is written whole into the new database's hour and day totals. It is noted there and never merged twice, but the new database's first day total holds up to one bucket recorded just before it became the store.
+- Max and min totals in a catch-up take the local file's value: when two servers' outages fall in the same hour or day, the value may be the other server's (Cosmos records no max/min totals today).
+- "Mark resolved" during an outage resolves the problem in the local file only; rows of the same problem written to PostgreSQL before the outage stay open there after the return (a watch that later sees the problem over resolves them; otherwise they stay until they are pruned).
+- The tests cut PostgreSQL through proxies and stopped containers on one host, not on a virtual machine or a real network: a server that loses power mid-transaction, packets dropped by a router, and the kernel's retransmission wait on systems without the TCP user timeout (it is Linux-only) were not exercised.
+
 ## Telegram messages: left for later (2026-11-25)
 
 - A message of its own when a data disk goes read-only or disappears from the listing (today its "filling fast" warning only stays open, then reads "No longer followed" after 24 hours).
