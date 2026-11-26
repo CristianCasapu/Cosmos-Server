@@ -306,7 +306,7 @@ m_docker_there_1() {
 		check "a cloud server: the wizard on 127.0.0.1 only" test -f /var/lib/cosmos/setup-loopback
 		check "the wizard does not answer on the network" test "$(curl -s -o /dev/null -m 5 -w "%{http_code}" "http://$(hostname -I | cut -d" " -f1):8080/cosmos-ui/" || true)" = 000
 		check "but on 127.0.0.1" test "$(curl -s -o /dev/null -m 5 -w "%{http_code}" http://127.0.0.1:8080/cosmos-ui/)" = 200
-		check "the guard got where the server stands and how SSH answers" grep -q -- "--exposed --ssh from:192.0.2.0/24,2001:db8::/32" /run/cosmos-e2e-stub-nftables.install.args
+		check "the guard got where the server stands and how SSH answers" grep -q -- "--exposed --ssh from 192.0.2.0/24,2001:db8::/32" /run/cosmos-e2e-stub-nftables.install.args
 		check "no Docker package in the record" sh -c "! grep -q \"^package docker\" /var/lib/cosmos-installer/record"
 		check "Docker's repository was not added" test ! -e /etc/apt/sources.list.d/docker.sources
 		check "docker.io unchanged" sh -c "dpkg-query -W docker.io | cmp - /e2e/out/docker-before"
@@ -427,27 +427,35 @@ m_env_1() { # VA from the host
 }
 
 m_pieces_1() { # VR from the host
+	# the real pieces of the repository (the guard merged, 2026-11-26).
+	# 1. reachable from the internet on a machine with no home network and no
+	# answer for SSH: the guard refuses for the SSH sessions' safety; the
+	# other pieces run; the install ends with 16 and names what is missing
 	rc=0; install_a --yes --version $VR --reachable internet --http-port 8080 --https-port 8443 </dev/null >/e2e/out/pieces.txt 2>&1 || rc=$?
-		grep -E "Protection|PIECE|piece|done\\.|not installed" /e2e/out/pieces.txt || true
-		# Cosmos is installed whatever the pieces are; protection that was asked
-		# for (reachable from the internet) and is missing ends with 16 and says so
-		if grep -qE "not installed:|failed:" /e2e/out/pieces.txt; then
-			check "protection asked for but missing: exit 16" test $rc = 16
-			check "and the last line says so" sh -c "tail -n 1 /e2e/out/pieces.txt | grep -q \"installed WITHOUT the protection you asked for:\""
-		else
-			check "every piece ran: exit 0" test $rc = 0
-		fi
-		installed_ok 8080
-		for p in unattended-upgrades fail2ban nftables; do
-			if grep -q "PIECE NOT RUN: $p" /e2e/out/pieces.txt || grep -q "protection piece $p is not in this release" /e2e/out/pieces.txt; then
-				echo "SKIPPED: the real piece $p does not speak the installer's interface yet (work/guard not merged): it was not run"
-				check "and nothing of $p is recorded" sh -c "! grep -qE \"^piece(-ran)? $p\" /var/lib/cosmos-installer/record"
-			else
-				check "the real piece $p ran and is recorded" grep -qx "piece-ran $p" /var/lib/cosmos-installer/record
-			fi
-		done
-		bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null >/e2e/out/pieces-uninstall.txt 2>&1
-		check "uninstall ends well" sh -c "test ! -e /opt/cosmos"
+	grep -E "Protection|done\\.|not installed|Refused" /e2e/out/pieces.txt || true
+	check "no answer for SSH and no home network: exit 16" test $rc = 16
+	check "the guard's reason is said, with the three choices" sh -c "grep -q \"Refused for the SSH sessions' safety\" /e2e/out/pieces.txt && grep -q -- '--ssh open' /e2e/out/pieces.txt"
+	check "the last line names the missing piece" sh -c "tail -n 1 /e2e/out/pieces.txt | grep -q 'installed WITHOUT the protection you asked for: nftables'"
+	installed_ok 8080
+	for p in unattended-upgrades fail2ban; do
+		check "the real piece $p ran and is recorded" grep -qx "piece-ran $p" /var/lib/cosmos-installer/record
+	done
+	grep '^piece nftables' /var/lib/cosmos-installer/record || true
+	check "the guard is not recorded as run nor installed (what it installed before refusing is recorded, for the uninstall)" sh -c "! grep -qx 'piece-ran nftables' /var/lib/cosmos-installer/record && ! grep -qP '^piece nftables\\tstatus\\tinstalled' /var/lib/cosmos-installer/record"
+	check "no table of the guard" sh -c "! nft list table inet cosmos_host_guard >/dev/null 2>&1"
+	bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null >/e2e/out/pieces-uninstall.txt 2>&1
+	check "uninstall ends well" sh -c "test ! -e /opt/cosmos"
+	# 2. the same with an answer for SSH: every piece runs, exit 0
+	rc=0; install_a --yes --version $VR --reachable internet --ssh open --http-port 8080 --https-port 8443 </dev/null >/e2e/out/pieces-ssh.txt 2>&1 || rc=$?
+	grep -E "Protection|done\\.|not installed|Refused" /e2e/out/pieces-ssh.txt || true
+	check "with --ssh open every piece ran: exit 0" test $rc = 0
+	installed_ok 8080
+	for p in unattended-upgrades fail2ban nftables; do
+		check "the real piece $p ran and is recorded" grep -qx "piece-ran $p" /var/lib/cosmos-installer/record
+	done
+	check "the guard's table is loaded" nft list table inet cosmos_host_guard
+	bash /opt/cosmos/fork/install/uninstall.sh --yes --remove-packages --purge --yes-delete-data </dev/null >/e2e/out/pieces-uninstall2.txt 2>&1
+	check "uninstall ends well, the guard removed" sh -c "test ! -e /opt/cosmos && ! nft list table inet cosmos_host_guard >/dev/null 2>&1"
 }
 
 m_pieces_2() {

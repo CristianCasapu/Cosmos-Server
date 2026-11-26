@@ -20,7 +20,9 @@ while [ $# -gt 0 ]; do
 	--yes) yes=1 ;;
 	--dry-run) exit 0 ;;
 	--record) record=$2; shift ;;
-	--cosmos-config | --https-port | --http-port | --log | --port | --home | --ipv4 | --confirm-timeout | --ignore | --ssh | --ssh-allowance-hours) shift ;;
+	# --ssh from <addresses> takes two values, as the guard reads it
+	--ssh) if [ "${2:-}" = from ]; then shift; fi; shift ;;
+	--cosmos-config | --https-port | --http-port | --log | --port | --home | --ipv4 | --confirm-timeout | --ignore | --ssh-allowance-hours) shift ;;
 	--allow-ssh-from-outside | --accept-nftables-service | --sshd | --no-sshd | --no-cosmos-jails | --exposed) ;;
 	*) echo "unknown flag $1" >&2; exit 2 ;;
 	esac
