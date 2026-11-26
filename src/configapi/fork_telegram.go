@@ -9,6 +9,7 @@ import (
 
 	"github.com/azukaar/cosmos-server/src/telegram"
 	"github.com/azukaar/cosmos-server/src/utils"
+	"github.com/azukaar/cosmos-server/src/watch"
 )
 
 // maskTelegram hides the Telegram secrets in a configuration that is about
@@ -39,6 +40,10 @@ func keepTelegramSecrets(request *utils.Config, stored utils.Config) error {
 	// the request is still this handler's alone: the moment to note the
 	// secrets that forwarded texts must not carry
 	telegram.RememberSecrets(*request)
+	// plan 48: the watches' settings live beside the Telegram ones
+	if err := watch.Validate(&request.Watch); err != nil {
+		return err
+	}
 	if sameSetting(request.Telegram, stored.Telegram) {
 		return nil
 	}

@@ -551,6 +551,37 @@ func MarkNotifications(recipient string, admin bool, ids []int64, read bool) (in
 	return res.RowsAffected()
 }
 
+// ResolveNotificationByHand marks the problem a notification of the
+// recipient's is about resolved, for every recipient: the owner's word
+// that it is over (plan 48, review 7, N3). A problem a watch still sees
+// (its source says open) is left open, in the panel and in the chat (the
+// source comes first); otherwise the chat ends it as "No longer followed".
+// It reports whether a problem was resolved.
+func ResolveNotificationByHand(recipient string, admin bool, id int64) (bool, error) {
+	db, err := MonitoringReadDB()
+	if err != nil {
+		return false, err
+	}
+	where, args, err := notificationWhere(NotificationQuery{Recipient: recipient, Admin: admin})
+	if err != nil || id <= 0 {
+		return false, ErrBadNotificationQuery
+	}
+	var thread, kind string
+	err = db.QueryRow(MonitoringRebind("SELECT fork_thread, fork_kind FROM notifications WHERE "+where+
+		" AND id = ? AND fork_resolved = 0 AND fork_info <> ''"), append(args, id)...).Scan(&thread, &kind)
+	if err == sql.ErrNoRows || (err == nil && thread == "") {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if open, known := SourceThreadLevel(kind, thread); open && known {
+		return false, nil // a watch still sees it
+	}
+	_, resolved := ResolveThread(thread)
+	return resolved, nil
+}
+
 // DeleteNotifications deletes the recipient's rows by id, or every read
 // one when ids is nil.
 func DeleteNotifications(recipient string, admin bool, ids []int64) (int64, error) {

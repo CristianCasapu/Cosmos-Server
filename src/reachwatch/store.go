@@ -74,6 +74,7 @@ func (w *watcher) load() {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.stateRead = true
 	if len(s.History) > maxHistory {
 		s.History = s.History[len(s.History)-maxHistory:]
 	}

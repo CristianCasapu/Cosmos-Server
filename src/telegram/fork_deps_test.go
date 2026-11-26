@@ -33,7 +33,7 @@ func TestAnInstalledDependencyUpdateSaysSo(t *testing.T) {
 	}
 	SetDependencyUpdate(d)
 	text := say(updated)
-	if !strings.Contains(text, "From version 0.24.0-fork.30 to 0.24.0-fork.31.\nIt was an automatic dependency update: 14 minor, 1 major (react 19.0.0).") {
+	if !strings.Contains(text, "from 0.24.0-fork.30 to 0.24.0-fork.31 and is running again.\nIt was an automatic dependency update: 14 minor, 1 major (react 19.0.0).") {
 		t.Errorf("message:\n%s", text)
 	}
 	if text := say(restarted); strings.Contains(text, "dependency") {

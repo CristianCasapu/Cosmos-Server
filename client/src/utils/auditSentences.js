@@ -285,6 +285,8 @@ const SENTENCES = {
     },
   },
   'recorder.dropped': { text: '{{count}} events could not be stored (the database did not answer)' },
+  'telegram.thread.dropped': { text: 'the Telegram notifier stopped sending the message of an open problem ({{kind}})' }, // plan 48, review 5
+  'telegram.warning.lost': { text: 'the Telegram chat could not be told that its notifications {{what}}' }, // plan 48
 };
 
 // The parts added around a sentence.
@@ -387,7 +389,7 @@ export function auditSentence(event, t = identity) {
 
 // The outcome a kind has by itself (the catalogue's): a "failed login" that
 // failed needs no ": it failed".
-const FAILED_KINDS = ['auth.login.failed', 'auth.mfa.failed', 'auth.sudo.failed', 'auth.reset.rejected', 'auth.register.failed', 'recorder.dropped', 'auth.turnstile.unavailable'];
+const FAILED_KINDS = ['auth.login.failed', 'auth.mfa.failed', 'auth.sudo.failed', 'auth.reset.rejected', 'auth.register.failed', 'recorder.dropped', 'auth.turnstile.unavailable', 'telegram.warning.lost', 'telegram.thread.dropped'];
 const DENIED_KINDS = ['auth.session.forged', 'auth.session.rejected', 'token.invalid', 'token.expired', 'token.ip.denied', 'access.denied', 'access.grant.denied', 'access.ip.denied', 'access.local.denied', 'access.origin.denied', 'access.foreign.denied', 'auth.turnstile.missing', 'auth.turnstile.failed'];
 
 function defaultOutcome(kind) {
@@ -414,7 +416,7 @@ export const KIND_GROUPS = [
   { id: 'containers', label: 'Containers and terminals', kinds: ['container.*', 'host.*', 'snapshot.*', 'credentials.*' /* Fork addition (plan 45) */] },
   { id: 'server', label: 'Server and SmartShield', kinds: ['server.*', 'shield.unban', 'firewall.unban', 'firewall.settings.saved', 'upnp.*', 'expose.*', 'edge.block.added', 'edge.unblocked'] },
   { id: 'refused', label: 'Permissions refused', kinds: ['access.*'] },
-  { id: 'other', label: 'Other changes', kinds: ['api.change'] },
+  { id: 'other', label: 'Other changes', kinds: ['api.change', 'telegram.*' /* plan 48 */] },
 ];
 
 // kindInGroup says whether a kind is selected by a group's entries.

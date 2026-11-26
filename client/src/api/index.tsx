@@ -26,6 +26,7 @@ import createNotificationsAPI from './notifications'; // Fork addition: the noti
 import createReachWatchAPI from './reachWatch'; // Fork addition: the watch of the reachability from the internet
 import createSignInAPI from './signIn'; // Fork addition (plan 45): the sign-in details of apps
 import createUrlCheckAPI from './urlCheck'; // Fork addition (plan 44): does an app accept its address
+import createTelegramMessagesAPI from './telegramMessages'; // Fork addition (plan 48): the Telegram messages' samples
 
 import * as authDemo from './authentication.demo';
 import * as usersDemo from './users.demo';
@@ -90,6 +91,7 @@ export function createClient({ baseUrl, token }) {
     reachWatch: createReachWatchAPI(apiFetch), // Fork addition: the watch of the reachability from the internet
     signIn: createSignInAPI(apiFetch), // Fork addition (plan 45)
     urlCheck: createUrlCheckAPI(apiFetch), // Fork addition (plan 44)
+    telegramMessages: createTelegramMessagesAPI(apiFetch), // Fork addition (plan 48)
 
     getStatus: () => {
       return wrap(apiFetch('/cosmos/api/status', {
@@ -456,6 +458,7 @@ let notifications = createNotificationsAPI(defaultFetch); // Fork addition: the 
 let reachWatch = createReachWatchAPI(defaultFetch); // Fork addition: the watch of the reachability from the internet
 let signIn = createSignInAPI(defaultFetch); // Fork addition (plan 45): the sign-in details of apps
 let urlCheck = createUrlCheckAPI(defaultFetch); // Fork addition (plan 44): does an app accept its address
+let telegramMessages = createTelegramMessagesAPI(defaultFetch); // Fork addition (plan 48): the Telegram messages' samples
 
 if(isDemo) {
   auth = authDemo;
@@ -523,4 +526,5 @@ export {
   reachWatch, // Fork addition: the watch of the reachability from the internet
   signIn, // Fork addition (plan 45): the sign-in details of apps
   urlCheck, // Fork addition (plan 44)
+  telegramMessages, // Fork addition (plan 48)
 };

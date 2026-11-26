@@ -529,6 +529,7 @@ func encodeInfo(info NotificationInfo) (string, error) {
 // every recipient. It returns when the oldest of them was first seen, and
 // whether any was open.
 func ResolveThread(thread string) (time.Time, bool) {
+	thread = ThreadName(thread) // as it was stored (review 6)
 	db, err := MonitoringWriteDB()
 	if err != nil || thread == "" {
 		return time.Time{}, false
@@ -554,6 +555,7 @@ func ResolveThread(thread string) (time.Time, bool) {
 
 // ThreadOpen reports whether a thread has an open notification.
 func ThreadOpen(thread string) bool {
+	thread = ThreadName(thread) // as it was stored (review 6)
 	db, err := MonitoringReadDB()
 	if err != nil {
 		return false
@@ -569,6 +571,16 @@ func SetNotificationRecipients(recipients func(group string) []string) func() {
 	previous := notificationRecipients
 	notificationRecipients = recipients
 	return func() { notificationRecipients = previous }
+}
+
+// SetNotificationClock replaces the clock the notifications are dated by,
+// for the tests of other packages (plan 48: the Telegram model test runs
+// the real store on its frozen clock); it returns what puts the real one
+// back.
+func SetNotificationClock(clock func() time.Time) func() {
+	previous := notificationClock
+	notificationClock = clock
+	return func() { notificationClock = previous }
 }
 
 // NotificationDuration says how long, in words: "14 minutes", "1 hour 5 minutes".

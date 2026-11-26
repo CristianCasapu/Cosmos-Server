@@ -264,6 +264,18 @@ export const KIND_TEXT = {
     todo: 'Nothing to do. If it is one of your own devices, lift the block in the list of the card "Block abusers at Cloudflare".',
     link: 'domains',
   },
+  'telegram.thread.dropped': { // plan 48, review 5
+    label: 'Telegram problem dropped',
+    what: 'The Telegram notifier failed three times on the message of an open problem and stopped sending it. It looks at the open problems again within 10 minutes.',
+    stopped: 'na',
+    todo: 'Look at the server log for the error, and at the notifications in the panel: the problem itself is there.',
+  },
+  'telegram.warning.lost': { // plan 48
+    label: 'Telegram warning not delivered',
+    what: 'The Telegram chat that lost (part of) the notifications could not be told about it for 30 minutes.',
+    stopped: 'na',
+    todo: 'Look at who changed the Telegram settings in the security record, and at the settings themselves.',
+  },
   'recorder.dropped': {
     label: 'Security events lost',
     what: 'Cosmos could not store some security events in time because the database did not answer.',

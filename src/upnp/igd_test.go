@@ -135,6 +135,13 @@ func (r *fakeRouter) left(f *fakeForward) string {
 }
 
 // reboot is what a power cut does to a router: every UPnP mapping is gone.
+// setBreakAdd switches breakAdd under the lock the handler reads it with.
+func (r *fakeRouter) setBreakAdd(on bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.breakAdd = on
+}
+
 func (r *fakeRouter) reboot() {
 	r.mu.Lock()
 	defer r.mu.Unlock()

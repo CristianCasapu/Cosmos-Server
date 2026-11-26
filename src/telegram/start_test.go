@@ -3,7 +3,9 @@ package telegram
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -51,14 +53,14 @@ func TestTheSourcesReachTheChat(t *testing.T) {
 	if len(fake.received()) != 3 {
 		t.Fatalf("%d messages, want 3:\n%s", len(fake.received()), texts)
 	}
-	for _, part := range []string{"Host terminal opened", "By admin from 192.0.2.7", "Router port forwarding failed", "Reason: no answer", "Container jellyfin stopped 3 times"} {
+	for _, part := range []string{"🔴 Critical · Root terminal opened on the server by admin\n", "from 192.0.2.7", "🟠 Error · Router stopped forwarding a port\n", "\nno answer\n", "🟠 Error · jellyfin keeps stopping (exit 1)\n"} {
 		if !strings.Contains(texts, part) {
 			t.Errorf("no message says %q:\n%s", part, texts)
 		}
 	}
 	// the critical one overtook nothing here, but it is marked
 	first, _ := got[0].body["text"].(string)
-	if !strings.Contains(first, "Security alert") {
+	if !strings.HasPrefix(first, "🔴 Critical · ") {
 		t.Errorf("the first message: %s", first)
 	}
 }
@@ -125,7 +127,7 @@ func TestStartsAndEndsAreToldAcrossRuns(t *testing.T) {
 
 	fake.waitFor(t, 3)
 	texts := strings.Join(fake.texts(), "\n---\n")
-	for _, part := range []string{"From version 0.24.0-fork.8 to 0.24.0-fork.9", "Cosmos restarted, as asked for", "after an unexpected stop"} {
+	for _, part := range []string{"🔵 Info · Server updated to 0.24.0-fork.9\n", "from 0.24.0-fork.8 to 0.24.0-fork.9", "🔵 Info · Cosmos restarted after a change of settings\n", "🟠 Error · Cosmos back after a crash or power loss\n"} {
 		if !strings.Contains(texts, part) {
 			t.Errorf("no message says %q:\n%s", part, texts)
 		}
@@ -143,7 +145,7 @@ func TestAnUpdateThatFailedIsToldWithoutSecrets(t *testing.T) {
 
 	handleSituation(utils.NoticeUpdateFailed, map[string]string{"version": "9", "reason": "could not write: smtp-password-123 and " + testToken})
 	text, _ := fake.waitFor(t, 1)[0].body["text"].(string)
-	if !strings.Contains(text, "The server update could not be installed") || !strings.Contains(text, "[hidden]") {
+	if !strings.HasPrefix(text, "🟠 Error · Server update 9 not installed\n") || !strings.Contains(text, "[hidden]") {
 		t.Errorf("message: %s", text)
 	}
 	mustNotContain(t, "the message", text, "smtp-password-123")
@@ -153,17 +155,35 @@ func TestAnUpdateThatFailedIsToldWithoutSecrets(t *testing.T) {
 func TestTheChatIsToldWhenItLosesTheNotifications(t *testing.T) {
 	fake := newFakeTelegram(t)
 	useFake(t, fake)
+	waitForNoChanges(t)
 	before := testConfig()
 
+	before.Telegram.MinSeverity = "medium" // so that raising it can be seen
 	changes := map[string]func(*utils.Config){
 		"were switched off":                 func(c *utils.Config) { c.Telegram.Enabled = false },
 		"now use another bot":               func(c *utils.Config) { c.Telegram.BotToken = "987654321:BBotherOtherOtherOtherOtherOtherOther" },
 		"now go to another chat":            func(c *utils.Config) { c.Telegram.ChatID = "666" },
 		"no longer include security events": func(c *utils.Config) { c.Telegram.Categories = map[string]bool{"security": false} },
+		// plan 48: what the severities and the switches per kind silence
+		"no longer send critical messages":        func(c *utils.Config) { c.Telegram.Delivery = map[string]string{"critical": "off"} },
+		"no longer send error messages":           func(c *utils.Config) { c.Telegram.Delivery = map[string]string{"error": "off"} },
+		"no longer send: Two-factor check locked": func(c *utils.Config) { c.Telegram.Kinds = map[string]bool{"auth.mfa.locked": false} },
+		// review R6: groups, error kinds on their own, the watches
+		"no longer include the group \"system\"":    func(c *utils.Config) { c.Telegram.Categories = map[string]bool{"system": false} },
+		"no longer include the group \"storage\"":   func(c *utils.Config) { c.Telegram.Categories = map[string]bool{"storage": false} },
+		"no longer send: Disk failing (S.M.A.R.T.)": func(c *utils.Config) { c.Telegram.Kinds = map[string]bool{"smart.failing": false} },
+		"no longer send: Docker does not answer":    func(c *utils.Config) { c.Telegram.Kinds = map[string]bool{"docker.down": false} },
+		"no longer watch for failing disks, Docker not answering": func(c *utils.Config) {
+			c.Watch.SMARTOff, c.Watch.DockerOff = true, true
+		},
+		"now send fewer security events (minimum severity raised to high)": func(c *utils.Config) {
+			c.Telegram.MinSeverity = "high"
+		},
 	}
 	sent := 0
 	for what, change := range changes {
 		after := testConfig()
+		after.Telegram.MinSeverity = "medium"
 		change(&after)
 		AnnounceSettingsChange(before, after, "mallory", "203.0.113.66")
 		sent++
@@ -173,7 +193,7 @@ func TestTheChatIsToldWhenItLosesTheNotifications(t *testing.T) {
 		if req.path != "/bot"+testToken+"/sendMessage" || !strings.Contains(req.raw, `"chat_id":`+testChat) {
 			t.Errorf("%s: sent to %s %s", what, req.path, req.raw)
 		}
-		if !strings.Contains(text, "Security alert") || !strings.Contains(text, "The Telegram notifications of this server "+what) || !strings.Contains(text, "Changed by mallory from 203.0.113.66") {
+		if !strings.HasPrefix(text, "🔴 Critical · Telegram notifications ") || !strings.Contains(text, "The Telegram notifications of this server "+what) || !strings.Contains(text, "Changed by mallory from 203.0.113.66") {
 			t.Errorf("%s: %s", what, text)
 		}
 	}
@@ -182,7 +202,15 @@ func TestTheChatIsToldWhenItLosesTheNotifications(t *testing.T) {
 	quiet := []func(*utils.Config, *utils.Config){
 		func(was, is *utils.Config) {},
 		func(was, is *utils.Config) { is.Telegram.MaxPerMinute = 3; is.Telegram.ServerName = "x" },
-		func(was, is *utils.Config) { is.Telegram.Categories = map[string]bool{"apps": false} },
+		func(was, is *utils.Config) { is.Telegram.Categories = map[string]bool{"other": false} },
+		// silent is still delivered; a warning switched off; a kind that was not sent anyway
+		func(was, is *utils.Config) {
+			is.Telegram.Delivery = map[string]string{"critical": "silent", "warn": "off"}
+		},
+		func(was, is *utils.Config) {
+			is.Telegram.Kinds = map[string]bool{"auth.login.failed": false, "container.leftover": false}
+		},
+		func(was, is *utils.Config) { was.Telegram.MinSeverity = "high"; is.Telegram.MinSeverity = "medium" },
 		func(was, is *utils.Config) { was.Telegram.Enabled = false },
 		func(was, is *utils.Config) { was.Telegram.BotToken = ""; is.Telegram.ChatID = "5" },
 	}
@@ -218,7 +246,7 @@ func TestTheNotifierHearsTheSecurityRecord(t *testing.T) {
 	utils.RecordSecurityEvent(utils.SecurityEvent{Kind: utils.SecShieldBanPerm, IP: "203.0.113.9"})
 
 	text, _ := fake.waitFor(t, 1)[0].body["text"].(string)
-	if !strings.Contains(text, "Permanent ban") || !strings.Contains(text, "From 203.0.113.9") {
+	if !strings.HasPrefix(text, "🔴 Critical · SmartShield banned 203.0.113.9 for good\n") {
 		t.Errorf("message: %s", text)
 	}
 }
@@ -251,5 +279,178 @@ func TestAQuietStartSendsNoStartMessage(t *testing.T) {
 	fake.waitFor(t, 1)
 	if texts := strings.Join(fake.texts(), "\n"); !strings.Contains(texts, "Cosmos was updated") {
 		t.Errorf("the control start said %q", texts)
+	}
+}
+
+// Review R6: saves that follow each other while an announcement is under
+// way are not dropped: they are told together.
+func TestSavesInARowAreAllTold(t *testing.T) {
+	fake := newFakeTelegram(t)
+	fake.always(fakeAnswer{status: 200, body: answerOK.body, delay: 300 * time.Millisecond})
+	useFake(t, fake)
+	waitForNoChanges(t)
+	before := testConfig()
+	for _, change := range []func(*utils.Config){
+		func(c *utils.Config) { c.Telegram.Kinds = map[string]bool{"smart.failing": false} },
+		func(c *utils.Config) { c.Telegram.Kinds = map[string]bool{"docker.down": false} },
+		func(c *utils.Config) { c.Watch.CountryOff = true },
+		func(c *utils.Config) { c.Telegram.Delivery = map[string]string{"error": "off"} },
+	} {
+		after := testConfig()
+		change(&after)
+		AnnounceSettingsChange(before, after, "mallory", "203.0.113.66")
+	}
+	all := ""
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		all = strings.Join(fake.texts(), "\n")
+		if strings.Contains(all, "no longer send error messages") && strings.Contains(all, "Disk failing") {
+			break
+		}
+	}
+	time.Sleep(300 * time.Millisecond)
+	for _, want := range []string{"Disk failing", "Docker does not answer", "sign-ins from a new country", "no longer send error messages"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("%q was not told: %s", want, all)
+		}
+	}
+	if n := len(fake.received()); n > 2 {
+		t.Errorf("%d messages for four saves in a row, want them told together: %q", n, fake.texts())
+	}
+}
+
+// waitForNoChanges waits until no announcement of an earlier test is under way.
+func waitForNoChanges(t *testing.T) {
+	t.Helper()
+	changeMu.Lock()
+	previous := changeRetries
+	changeRetries = []time.Duration{10 * time.Millisecond}
+	changeMu.Unlock()
+	t.Cleanup(func() { changeMu.Lock(); changeRetries = previous; changeMu.Unlock() })
+	deadline := time.Now().Add(40 * time.Second)
+	for time.Now().Before(deadline) {
+		changeMu.Lock()
+		running := changeRunning
+		changeMu.Unlock()
+		if !running {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("an announcement of an earlier test is still under way")
+}
+
+// Review T4: the farewell to the old chat is not pushed out by many saves
+// to the new chat, and every account that changed something is named.
+func TestTheFarewellCannotBePushedOut(t *testing.T) {
+	fake := newFakeTelegram(t)
+	fake.always(fakeAnswer{status: 200, body: answerOK.body, delay: 200 * time.Millisecond})
+	useFake(t, fake)
+	waitForNoChanges(t)
+	before := testConfig()
+	minor := testConfig()
+	minor.Telegram.Kinds = map[string]bool{"smart.failing": false}
+	AnnounceSettingsChange(before, minor, "owner", "192.0.2.7") // being sent
+	moved := testConfig()
+	moved.Telegram.BotToken = "987654321:BBotherOtherOtherOtherOtherOtherOther"
+	AnnounceSettingsChange(minor, moved, "mallory", "203.0.113.66") // the farewell to the old chat
+	for i := 0; i < 40; i++ {
+		was, is := moved, moved
+		is.Telegram.Kinds = map[string]bool{"docker.down": false, "auth.mfa.locked": i%2 == 0}
+		AnnounceSettingsChange(was, is, "mallory", "203.0.113.66")
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, req := range fake.received() {
+			text, _ := req.body["text"].(string)
+			if strings.Contains(text, "now use another bot") && req.path == "/bot"+testToken+"/sendMessage" {
+				if !strings.Contains(text, "mallory from 203.0.113.66") {
+					t.Errorf("the farewell does not name who: %s", text)
+				}
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("the farewell to the old chat never came: %q", fake.texts())
+}
+
+func TestCoalescedSavesNameEveryone(t *testing.T) {
+	fake := newFakeTelegram(t)
+	fake.always(fakeAnswer{status: 200, body: answerOK.body, delay: 300 * time.Millisecond})
+	useFake(t, fake)
+	waitForNoChanges(t)
+	before := testConfig()
+	for i, who := range []string{"owner", "mallory", "eve"} {
+		after := testConfig()
+		after.Telegram.Kinds = map[string]bool{[]string{"smart.failing", "docker.down", "auth.mfa.locked"}[i]: false}
+		AnnounceSettingsChange(before, after, who, "198.51.100."+strconv.Itoa(i+1))
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		all := strings.Join(fake.texts(), "\n")
+		if strings.Contains(all, "mallory from 198.51.100.2") && strings.Contains(all, "eve from 198.51.100.3") && strings.Contains(all, "owner from 198.51.100.1") {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Errorf("not everyone was named: %q", fake.texts())
+}
+
+// A warning waits out a Telegram outage; when it cannot be delivered in
+// time, the server says so.
+func TestAWarningOutlastsAnOutageOrIsReported(t *testing.T) {
+	fake := newFakeTelegram(t)
+	var mu sync.Mutex
+	down := true
+	fake.answerWith(func(int, fakeRequest) fakeAnswer {
+		mu.Lock()
+		defer mu.Unlock()
+		if down {
+			return fakeAnswer{status: 502, body: "bad gateway"}
+		}
+		return answerOK
+	})
+	useFake(t, fake)
+	waitForNoChanges(t)
+	lost := make(chan string, 4)
+	changeMu.Lock()
+	changeRetries = []time.Duration{50 * time.Millisecond}
+	previousLost, previousFor := lostWarning, changeRetryFor
+	lostWarning = func(what string, by string) { lost <- what + " | " + by }
+	changeMu.Unlock()
+	t.Cleanup(func() { changeMu.Lock(); lostWarning, changeRetryFor = previousLost, previousFor; changeMu.Unlock() })
+
+	after := testConfig()
+	after.Telegram.Enabled = false
+	AnnounceSettingsChange(testConfig(), after, "mallory", "203.0.113.66")
+	time.Sleep(300 * time.Millisecond)
+	mu.Lock()
+	down = false
+	refused := len(fake.received())
+	mu.Unlock()
+	// delivered once Telegram answers: a request after the outage, and the sender idle
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && len(fake.received()) <= refused {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(fake.received()) <= refused || refused < 2 {
+		t.Fatalf("the warning did not outlast the outage (%d refused)", refused)
+	}
+	waitForNoChanges(t)
+	// never delivered within the time: reported
+	changeMu.Lock()
+	changeRetryFor = 200 * time.Millisecond
+	changeMu.Unlock()
+	mu.Lock()
+	down = true
+	mu.Unlock()
+	AnnounceSettingsChange(testConfig(), after, "mallory", "203.0.113.66")
+	select {
+	case got := <-lost:
+		if !strings.Contains(got, "were switched off") || !strings.Contains(got, "mallory from 203.0.113.66") {
+			t.Errorf("%s", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("a lost warning was not reported")
 	}
 }

@@ -29,6 +29,11 @@ const (
 	NoticeUpdateAvailable = "update.available" // version, current, at ("HH:MM"; empty when updates are not automatic)
 	NoticeUpdateFailed    = "update.failed"    // version, reason
 	NoticeContainerDying  = "container.dying"  // name, exits, code
+	// NoticePublicAddressChanged (plan 48, for plan 47 E4): the server's
+	// address on the internet changed. old, new, records ("updated",
+	// "not_updated", "none"), shared ("yes" when the new address is a
+	// carrier's shared one).
+	NoticePublicAddressChanged = "address.changed"
 	// The two below are not told to anyone: they say why the process is
 	// about to end, so that the next start can tell. They are handled
 	// before ForkNotice returns.

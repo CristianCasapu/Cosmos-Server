@@ -1,13 +1,11 @@
 package telegram
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -51,6 +49,8 @@ const (
 	ReasonCertificate   = "certificate"
 	ReasonNetwork       = "network"
 	ReasonSettings      = "settings"
+	// plan 48: Telegram refused the button (its address), not the message
+	ReasonBadButton = "bad_button"
 )
 
 // sendError says why a message was not accepted. Message is a sentence for
@@ -83,12 +83,32 @@ type linkPreview struct {
 // sendRequest is the body of sendMessage. There is no parse_mode: the text
 // is never parsed for formatting.
 type sendRequest struct {
-	ChatID      json.RawMessage `json:"chat_id"`
-	ThreadID    int             `json:"message_thread_id,omitempty"`
-	Text        string          `json:"text"`
-	Entities    []entity        `json:"entities,omitempty"`
-	LinkPreview linkPreview     `json:"link_preview_options"`
-	Silent      bool            `json:"disable_notification,omitempty"`
+	ChatID      json.RawMessage  `json:"chat_id"`
+	ThreadID    int              `json:"message_thread_id,omitempty"`
+	Text        string           `json:"text"`
+	Entities    []entity         `json:"entities,omitempty"`
+	LinkPreview linkPreview      `json:"link_preview_options"`
+	Silent      bool             `json:"disable_notification,omitempty"`
+	Reply       *replyParameters `json:"reply_parameters,omitempty"`
+	Markup      *inlineKeyboard  `json:"reply_markup,omitempty"`
+}
+
+// replyParameters makes a message a reply. It is sent even when the message
+// replied to is gone.
+type replyParameters struct {
+	MessageID                int  `json:"message_id"`
+	AllowSendingWithoutReply bool `json:"allow_sending_without_reply"`
+}
+
+type inlineKeyboard struct {
+	Rows [][]button `json:"inline_keyboard"`
+}
+
+// pinRequest is the body of pinChatMessage and unpinChatMessage.
+type pinRequest struct {
+	ChatID    json.RawMessage `json:"chat_id"`
+	MessageID int             `json:"message_id"`
+	Silent    bool            `json:"disable_notification,omitempty"`
 }
 
 type apiAnswer struct {
@@ -99,6 +119,23 @@ type apiAnswer struct {
 		RetryAfter      int   `json:"retry_after"`
 		MigrateToChatID int64 `json:"migrate_to_chat_id"`
 	} `json:"parameters"`
+	Result json.RawMessage `json:"result"`
+}
+
+// outgoing is one message to send, with how it is to arrive.
+type outgoing struct {
+	message message
+	silent  bool
+	replyTo int // the message it answers, 0 for none
+	// trace names the thread and the action for the tests; never sent
+	trace string
+}
+
+// botClient is what the notifier sends with; apiClient, or a stand-in of
+// the tests.
+type botClient interface {
+	sendMessage(ctx context.Context, st settings, out outgoing) (int, *sendError)
+	pin(ctx context.Context, st settings, messageID int, pin bool) *sendError
 }
 
 // apiClient talks to the Bot API.
@@ -140,65 +177,69 @@ func newHTTPClient(roots *x509.CertPool) *http.Client {
 	}
 }
 
-// send posts one message. A nil result means Telegram accepted it.
+// send posts one message without a button. A nil result means Telegram
+// accepted it.
 func (c *apiClient) send(ctx context.Context, st settings, text string, entities []entity, silent bool) *sendError {
-	if !ValidToken(st.token) {
-		return &sendError{Reason: ReasonSettings, Settings: true, Message: "The bot token is missing or is not a bot token."}
-	}
-	if !ValidChatID(st.chatID) {
-		return &sendError{Reason: ReasonSettings, Settings: true, Message: "The chat ID is missing or is not a chat ID."}
-	}
-	if !strings.HasPrefix(c.base, "https://") {
-		return &sendError{Reason: ReasonSettings, Message: "Telegram is only reached over HTTPS."}
-	}
+	_, failure := c.sendMessage(ctx, st, outgoing{message: message{text: text, entities: entities}, silent: silent})
+	return failure
+}
 
-	text, entities = clampMessage(text, entities)
+// sendMessage posts one message and returns the id Telegram gave it (0 when
+// the answer did not say).
+func (c *apiClient) sendMessage(ctx context.Context, st settings, out outgoing) (int, *sendError) {
+	text, entities := clampMessage(out.message.text, out.message.entities)
 	if strings.TrimSpace(text) == "" {
-		return &sendError{Reason: ReasonBadMessage, Message: "The message is empty."}
+		return 0, &sendError{Reason: ReasonBadMessage, Message: "The message is empty."}
 	}
-
 	request := sendRequest{
 		ChatID:      chatIDValue(st.chatID),
 		ThreadID:    st.topicID,
 		Text:        text,
 		Entities:    entities,
 		LinkPreview: linkPreview{Disabled: true},
-		Silent:      silent,
+		Silent:      out.silent,
 	}
-	body, err := json.Marshal(request)
-	if err != nil {
-		return &sendError{Reason: ReasonBadMessage, Message: "The message could not be prepared."}
+	if out.replyTo > 0 {
+		request.Reply = &replyParameters{MessageID: out.replyTo, AllowSendingWithoutReply: true}
 	}
+	if b := out.message.button; b != nil && b.URL != "" && b.Text != "" {
+		request.Markup = &inlineKeyboard{Rows: [][]button{{*b}}}
+	}
+	answer, failure := c.botCall(ctx, st, "sendMessage", request)
+	if failure != nil {
+		return 0, failure
+	}
+	var sent struct {
+		MessageID int `json:"message_id"`
+	}
+	json.Unmarshal(answer.Result, &sent)
+	return sent.MessageID, nil
+}
 
-	// The token is part of the path: this URL must never reach a log line
-	// or an error. Everything below that fails goes through networkError.
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/bot"+st.token+"/sendMessage", bytes.NewReader(body))
-	if err != nil {
-		return &sendError{Reason: ReasonSettings, Message: "The request to Telegram could not be prepared."}
+// pin pins (or unpins) a message of this bot in the chat, without a
+// notification of its own.
+func (c *apiClient) pin(ctx context.Context, st settings, messageID int, pin bool) *sendError {
+	method := "unpinChatMessage"
+	if pin {
+		method = "pinChatMessage"
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "cosmos-server")
+	_, failure := c.botCall(ctx, st, method, pinRequest{ChatID: chatIDValue(st.chatID), MessageID: messageID, Silent: pin})
+	return failure
+}
 
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return networkError(err, st.token)
+// botCall posts one method of the Bot API with the settings' token and
+// chat, through the one caller of this package (call, fork_chats.go).
+func (c *apiClient) botCall(ctx context.Context, st settings, method string, payload interface{}) (apiAnswer, *sendError) {
+	if !ValidChatID(st.chatID) {
+		return apiAnswer{}, &sendError{Reason: ReasonSettings, Settings: true, Message: "The chat ID is missing or is not a chat ID."}
 	}
-	defer resp.Body.Close()
-
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxAnswerBytes))
-	if err != nil {
-		return networkError(err, st.token)
+	raw, failure := c.call(ctx, st.token, method, payload, maxAnswerBytes)
+	if failure != nil {
+		return apiAnswer{}, failure
 	}
-
 	var answer apiAnswer
-	parsed := json.Unmarshal(raw, &answer) == nil
-	if resp.StatusCode == http.StatusOK && parsed && answer.OK {
-		return nil
-	}
-	if !parsed {
-		answer = apiAnswer{}
-	}
-	return answerError(resp.StatusCode, resp.Header.Get("Retry-After"), answer, st.token)
+	json.Unmarshal(raw, &answer)
+	return answer, nil
 }
 
 // chatIDValue is the chat as JSON: a number when it is one, else the name.
@@ -283,6 +324,10 @@ func answerError(status int, retryAfterHeader string, answer apiAnswer, token st
 	case has("chat not found", "peer_id_invalid", "chat_id is empty", "chat_id_invalid"):
 		return &sendError{Reason: ReasonChatNotFound, Settings: true,
 			Message: "Telegram cannot find this chat. Check the chat ID. For a private chat, open the bot in Telegram and press Start first; for a group or channel, add the bot to it (group IDs are negative)."}
+
+	case has("button_url_invalid", "button url", "inline keyboard", "wrong http url", "url host is empty", "reply markup"):
+		return &sendError{Reason: ReasonBadButton,
+			Message: "Telegram refused the button of the message (the address of the panel)."}
 
 	case has("can't parse entities", "cant parse entities", "message is too long", "message text is empty", "entity", "entities"):
 		return &sendError{Reason: ReasonBadMessage,
