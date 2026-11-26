@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"context"
-	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -23,27 +22,6 @@ const (
 	priorityCritical
 )
 
-// notice is one thing to tell the administrator, before it is put into
-// words for the settings in use.
-type notice struct {
-	category string
-	// key is what the budget is kept per: a kind of security event, a
-	// kind of notification. It comes from a bounded set, never from input.
-	key string
-	// label is what a summary calls this, in fixed words.
-	label    string
-	priority priority
-	at       time.Time
-	// title is the first line of the body, in fixed words.
-	title string
-	// details writes what is known about this one event: who, where,
-	// what. It is left out when the settings say so. May be nil.
-	details func(c *composer)
-	// link is the address of the notification's details in the panel,
-	// built by this server from its own name; "" when there is none.
-	link string
-}
-
 // limits are the numbers the notifier works with. The tests shorten them.
 type limits struct {
 	pace           time.Duration // between two requests: Telegram allows about one a second per chat
@@ -62,6 +40,10 @@ type limits struct {
 	settingsPause  time.Duration // no request for this long after the token or the chat was refused
 	maxKeys        int
 	maxLabels      int
+	// reconcileDelay: the first look at the level of the threads after the
+	// start; reconcileEvery: then this often (review 4, (d))
+	reconcileDelay time.Duration
+	reconcileEvery time.Duration
 }
 
 func defaultLimits() limits {
@@ -82,6 +64,8 @@ func defaultLimits() limits {
 		settingsPause:  5 * time.Minute,
 		maxKeys:        512,
 		maxLabels:      16,
+		reconcileDelay: 30 * time.Second,
+		reconcileEvery: 10 * time.Minute,
 	}
 }
 
@@ -96,17 +80,34 @@ type bucket struct {
 type item struct {
 	priority priority
 	at       time.Time // the age limit counts from here
-	// what it stands for, by label: one event, or for a summary many
+	// what it stands for, by kind: one event, or for a summary many
 	counts map[string]int
 	since  time.Time // the first of them
 	digest bool
 
-	text          string
-	entities      []entity
-	plainText     string // the same without values
-	plainEntities []entity
-	triedPlain    bool
+	message    message
+	plain      message // the same without values
+	triedPlain bool
+
+	// plan 48: how it arrives, and what it opens or closes
+	nt notice
+	// a retried message waits for its turn again; others pass meanwhile
+	attempts  int
+	notBefore time.Time
+	// thread: the item stands for a thread (threadorder.go): what it sends
+	// is decided when it is sent; noButton: sent without the button
+	thread   string
+	noButton bool
+	// pins: the pins and unpins to try again (threads.go)
+	pins bool
 }
+
+// visitorCaused are the critical kinds a visitor without an account can
+// cause (bans, blocks at Cloudflare). They may not take the last
+// criticalReserve places of the critical queue.
+var visitorCaused = map[string]bool{"shield.ban.temporary": true, "shield.ban.permanent": true, "edge.blocked": true}
+
+const criticalReserve = 8
 
 // Status is what the settings page shows about deliveries.
 type Status struct {
@@ -130,13 +131,17 @@ type Status struct {
 // notifier takes notices, keeps them within their budgets and sends them.
 type notifier struct {
 	limits   limits
-	client   *apiClient
+	client   botClient
 	settings func() settings
 	now      func() time.Time
+	// threads remembers the messages that opened something that lasts.
+	threads *threadMemory
 	// raise tells the administrators in the panel that deliveries fail.
 	raise func(reason string)
 	// logf writes a line to the server's log.
 	logf func(line string)
+	// levels says whether threads are open (levels.go); nil: none
+	levels levelSource
 
 	mu              sync.Mutex
 	buckets         map[string]*bucket // budgets of normal and low messages, by key
@@ -151,6 +156,24 @@ type notifier struct {
 	digestLast      time.Time
 	lastDigest      time.Time
 	lastRequest     time.Time
+	holdUntil       time.Time                                            // no message before then (flood control, back-off)
+	entries         map[string]*threadEntry                              // the threads, see threadorder.go
+	removed         map[string]bool                                      // entries forgotten, to drop from the threads file
+	brakes          map[string]brake                                     // the openings sent lately, per thread
+	overflow        map[string]bool                                      // threads sent as messages of their own (the table was full)
+	plainSent       map[string]bool                                      // threads whose opening this process sent as a message of its own
+	plainSeq        map[string]uint64                                    // review 7, N8: the seq of the last event of a thread beyond the table
+	plainEver       map[string]bool                                      // the threads that went as messages of their own in this run (bounded)
+	overflowed      int                                                  // thread events sent as messages of their own: the table was full
+	seq             uint64                                               // events counted, for the reconcile
+	current         string                                               // the thread being sent, for the recovery
+	wantsKey        string                                               // the settings that decide what is wanted, as last seen
+	panics          int                                                  // the sender's restarts after a panic
+	traceDecision   func(id string, action string, told bool, open bool) // the tests follow the decisions
+	levelWait       time.Time                                            // the threads wait for a look at their level until then
+	recordDropped   func(kind string)                                    // the security record of a dropped thread
+	reconcileHook   func()                                               // the tests: called between the reconcile's reads and its apply
+	pinsDue         bool                                                 // pins and unpins refused earlier are to be tried again
 
 	pausedUntil time.Time
 	pausedFor   string // the fingerprint of the settings that were refused
@@ -158,31 +181,50 @@ type notifier struct {
 
 	status Status
 
-	wake chan struct{}
-	stop chan struct{}
-	done chan struct{}
+	wake         chan struct{}
+	reconcileNow chan struct{}
+	stop         chan struct{}
+	done         chan struct{}
 }
 
 func newNotifier(client *apiClient, getSettings func() settings) *notifier {
+	var bot botClient
+	if client != nil {
+		bot = client
+	}
+	return newNotifierWith(bot, getSettings)
+}
+
+func newNotifierWith(client botClient, getSettings func() settings) *notifier {
 	return &notifier{
 		limits:          defaultLimits(),
 		client:          client,
 		settings:        getSettings,
 		now:             time.Now,
 		raise:           func(string) {},
+		recordDropped:   func(string) {},
 		logf:            func(string) {},
 		buckets:         map[string]*bucket{},
 		criticalBuckets: map[string]*bucket{},
 		digest:          map[string]int{},
+		entries:         map[string]*threadEntry{},
+		removed:         map[string]bool{},
+		brakes:          map[string]brake{},
+		plainSent:       map[string]bool{},
+		plainEver:       map[string]bool{},
+		threads:         newThreadMemory(""),
+		reconcileNow:    make(chan struct{}, 1),
 		wake:            make(chan struct{}, 1),
 		stop:            make(chan struct{}),
 		done:            make(chan struct{}),
 	}
 }
 
-// start runs the goroutine that sends.
+// start runs the goroutines that send and that reconcile.
 func (n *notifier) start() {
+	n.loadEntries()
 	go n.run()
+	go n.reconcileLoop()
 }
 
 // close ends the goroutine. What waits is dropped.
@@ -198,44 +240,108 @@ func (n *notifier) close() {
 // Notify takes a notice. It never waits: the notice is queued, counted for
 // a summary, or dropped because its category is off, and the call returns.
 func (n *notifier) Notify(nt notice) {
+	defer func() {
+		if r := recover(); r != nil {
+			n.logf("Telegram: a notice could not be taken: " + panicText(r))
+		}
+	}()
 	st := n.settings()
-	if !st.usable || !st.categories[nt.category] {
+	if !st.usable {
 		return
 	}
 	if nt.at.IsZero() {
 		nt.at = n.now()
 	}
 	now := n.now()
+	if pairedThread(nt) != "" {
+		// a thread's events change its state whether or not their message
+		// is wanted: decided when sent (threadorder.go)
+		n.mu.Lock()
+		taken := n.threadEventLocked(st, nt, now)
+		n.mu.Unlock()
+		if taken {
+			return
+		}
+	}
+	if !st.wants(nt) {
+		return
+	}
+	// the budgets first (cheap), then the words outside the lock (the guard
+	// can take a while), then the queue
+	p := nt.priority()
+	n.mu.Lock()
+	held := false
+	switch {
+	case n.pausedLocked(st, now):
+		// while the token or the chat is refused nothing is queued: it is
+		// counted, and told in one message once sending works again
+		held = true
+	case !n.takeLocked(nt.budgetKey(), p, now):
+		held = true
+	case p != priorityCritical && !n.underCapLocked(st.maxPerMinute, now):
+		held = true
+	}
+	if held {
+		n.holdLocked(nt.kind, 1, p, now)
+		n.mu.Unlock()
+		return
+	}
+	n.mu.Unlock()
+	rendered := render(st, nt)
+	plain := renderWith(st, nt, false)
+	plain.button = nil
 
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	// while the token or the chat is refused nothing is queued: it is
-	// counted, and told in one message once sending works again
-	if n.pausedLocked(st, now) {
-		n.holdLocked(nt.label, 1, nt.priority, now)
-		return
-	}
-	if !n.takeLocked(nt.key, nt.priority, now) {
-		n.holdLocked(nt.label, 1, nt.priority, now)
-		return
-	}
-	if nt.priority != priorityCritical && !n.underCapLocked(st.maxPerMinute, now) {
-		n.holdLocked(nt.label, 1, nt.priority, now)
-		return
-	}
-
-	it := &item{priority: nt.priority, at: now, since: nt.at, counts: map[string]int{nt.label: 1}}
-	it.text, it.entities = composeNotice(st, nt, !st.hideDetails)
-	it.plainText, it.plainEntities = composeNotice(st, nt, false)
+	it := &item{priority: p, at: now, since: nt.at, counts: map[string]int{nt.kind: 1}, nt: nt}
+	it.message = rendered
+	it.plain = plain
 
 	queue, room := &n.normal, n.limits.normalQueue
-	if nt.priority == priorityCritical {
+	if p == priorityCritical {
 		queue, room = &n.critical, n.limits.criticalQueue
+		if visitorCaused[nt.kind] {
+			// what a stranger can cause keeps out of the last places
+			count := 0
+			for _, waiting := range n.critical {
+				if visitorCaused[waiting.nt.kind] {
+					count++
+				}
+			}
+			if count >= room-criticalReserve {
+				n.holdLocked(nt.kind, 1, p, now)
+				return
+			}
+		}
 	}
 	if len(*queue) >= room {
-		n.holdLocked(nt.label, 1, nt.priority, now)
-		return
+		// full: the least severe, oldest message gives way, counted in the
+		// summary; a critical one makes room by the oldest a stranger
+		// caused; when none can give way, this one is counted
+		victim := -1
+		for i, waiting := range *queue {
+			if waiting.priority < p && (victim < 0 || waiting.priority < (*queue)[victim].priority) {
+				victim = i
+			}
+		}
+		if victim < 0 && p == priorityCritical && !visitorCaused[nt.kind] {
+			for i, waiting := range *queue {
+				if visitorCaused[waiting.nt.kind] {
+					victim = i
+					break
+				}
+			}
+		}
+		if victim < 0 {
+			n.holdLocked(nt.kind, 1, p, now)
+			return
+		}
+		dropped := (*queue)[victim]
+		*queue = append((*queue)[:victim], (*queue)[victim+1:]...)
+		for kind, count := range dropped.counts {
+			n.holdLocked(kind, count, dropped.priority, now)
+		}
 	}
 	*queue = append(*queue, it)
 	n.signal()
@@ -331,7 +437,7 @@ func (n *notifier) underCapLocked(max int, now time.Time) bool {
 
 // holdLocked counts events that are not sent one by one. They go out
 // together, as one summary.
-func (n *notifier) holdLocked(label string, count int, p priority, now time.Time) {
+func (n *notifier) holdLocked(kind string, count int, p priority, now time.Time) {
 	if count <= 0 {
 		return
 	}
@@ -342,8 +448,8 @@ func (n *notifier) holdLocked(label string, count int, p priority, now time.Time
 	if p > n.digestTop {
 		n.digestTop = p
 	}
-	if _, known := n.digest[label]; known || len(n.digest) < n.limits.maxLabels {
-		n.digest[label] += count
+	if _, known := n.digest[kind]; known || len(n.digest) < n.limits.maxLabels {
+		n.digest[kind] += count
 	} else {
 		n.digestOther += count
 	}
@@ -372,10 +478,32 @@ func (n *notifier) next() (*item, time.Duration) {
 		// switched off: nothing waits for a later that may never come
 		n.normal, n.critical = nil, nil
 		n.digest, n.digestOther = map[string]int{}, 0
+		n.wantsKey = ""
 		return nil, time.Hour
+	}
+	if key := st.wantsFingerprint(); key != n.wantsKey {
+		// switched on, or what is wanted changed: every thread is decided
+		// again, and the truth is looked at (B2)
+		n.allDueLocked()
+		if n.wantsKey == "" {
+			// switched on (or started): what happened meanwhile was not
+			// heard; the threads wait for one look at their level
+			if n.levels != nil {
+				n.levelWait = now.Add(2*n.limits.reconcileDelay + time.Minute)
+			}
+			select {
+			case n.reconcileNow <- struct{}{}:
+			default:
+			}
+		}
+		n.wantsKey = key
 	}
 	if n.pausedLocked(st, now) {
 		return nil, n.pausedUntil.Sub(now)
+	}
+	if now.Before(n.holdUntil) {
+		// Telegram asked to wait, or could not be reached: everyone waits
+		return nil, n.holdUntil.Sub(now)
 	}
 
 	wait := time.Hour
@@ -393,28 +521,103 @@ func (n *notifier) next() (*item, time.Duration) {
 		wait = due.Sub(now)
 	}
 
-	if len(n.critical) > 0 {
-		it := n.critical[0]
-		n.critical = n.critical[1:]
+	if n.pinsDue {
+		n.pinsDue = false
+		return &item{pins: true}, 0
+	}
+	e, threadWait := n.nextThreadLocked(now)
+	if threadWait < wait {
+		wait = threadWait
+	}
+	threadItem := func() (*item, time.Duration) {
+		return &item{thread: e.id, priority: e.priority(), at: e.touched}, 0
+	}
+	if e != nil && e.priority() == priorityCritical {
+		if it := n.firstReadyLocked(&n.critical, now, &wait, false); it != nil && !it.at.After(e.touched) {
+			return n.firstReadyLocked(&n.critical, now, &wait, true), 0
+		}
+		return threadItem()
+	}
+	if it := n.firstReadyLocked(&n.critical, now, &wait, true); it != nil {
 		return it, 0
 	}
-	if len(n.normal) > 0 {
-		it := n.normal[0]
-		n.normal = n.normal[1:]
+	if e != nil {
+		if it := n.firstReadyLocked(&n.normal, now, &wait, false); it != nil && it.at.Before(e.touched) {
+			return n.firstReadyLocked(&n.normal, now, &wait, true), 0
+		}
+		return threadItem()
+	}
+	if it := n.firstReadyLocked(&n.normal, now, &wait, true); it != nil {
 		return it, 0
 	}
 	return nil, wait
+}
+
+// firstReadyLocked is the first item of a queue that may be sent now,
+// taken out of it when take.
+func (n *notifier) firstReadyLocked(queue *[]*item, now time.Time, wait *time.Duration, take bool) *item {
+	for i, it := range *queue {
+		if it.notBefore.After(now) {
+			if until := it.notBefore.Sub(now); until < *wait {
+				*wait = until
+			}
+			continue
+		}
+		if take {
+			*queue = append((*queue)[:i], (*queue)[i+1:]...)
+		}
+		return it
+	}
+	return nil
+}
+
+// requeue puts a message that failed for a reason that can pass back in its
+// queue, to be tried after wait; the others are tried before it meanwhile.
+func (n *notifier) requeue(it *item, wait time.Duration) {
+	now := n.now()
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	it.notBefore = now.Add(wait)
+	// the next attempt of anything waits at least the shortest back-off
+	if hold := now.Add(n.limits.backoff[0]); n.holdUntil.Before(hold) {
+		n.holdUntil = hold
+	}
+	queue, room := &n.normal, n.limits.normalQueue
+	if it.priority == priorityCritical {
+		queue, room = &n.critical, n.limits.criticalQueue
+	}
+	if len(*queue) >= room {
+		for kind, count := range it.counts {
+			n.holdLocked(kind, count, it.priority, now)
+		}
+		return
+	}
+	*queue = append(*queue, it)
+	n.signal()
 }
 
 // takeDigestLocked turns what was counted into one message.
 func (n *notifier) takeDigestLocked(st settings, now time.Time) *item {
 	counts := n.digest
 	if n.digestOther > 0 {
-		counts[otherLabel] += n.digestOther
+		counts[otherKinds] += n.digestOther
+	}
+	top := sevInfo
+	switch n.digestTop {
+	case priorityCritical:
+		top = sevCritical
+	case priorityNormal:
+		top = sevWarn
+	}
+	for kind := range counts {
+		if kt, known := texts.Kinds[kind]; known && kt.severity > top && kt.severity < sevCritical {
+			top = kt.severity
+		}
 	}
 	it := &item{priority: n.digestTop, at: now, since: n.digestSince, counts: counts, digest: true}
-	it.text, it.entities = composeDigest(st, counts, n.digestSince, now, n.digestTop)
-	it.plainText, it.plainEntities = it.text, it.entities
+	it.message = composeDigest(st, counts, n.digestSince, now, top)
+	it.plain = it.message
+	it.nt = notice{kind: "summary", severity: top}
 
 	n.digest, n.digestOther = map[string]int{}, 0
 	n.digestTop = priorityLow
@@ -422,17 +625,33 @@ func (n *notifier) takeDigestLocked(st settings, now time.Time) *item {
 	return it
 }
 
-// run sends what waits, one message at a time.
+// run sends what waits, one message at a time. A panic in the code of a
+// message never ends the server (review 4, (b)): it is logged, counted, and
+// the loop starts again; a thread that panics maxThreadPanics times is
+// dropped.
 func (n *notifier) run() {
 	defer close(n.done)
+	for !n.runLoop() {
+	}
+}
+
+// runLoop reports true when the notifier was closed.
+func (n *notifier) runLoop() (closed bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			n.recovered(r)
+			closed = !n.sleep(n.limits.backoff[0])
+		}
+	}()
 	for {
+		n.persist()
 		it, wait := n.next()
 		if it == nil {
 			timer := time.NewTimer(wait)
 			select {
 			case <-n.stop:
 				timer.Stop()
-				return
+				return true
 			case <-n.wake:
 				timer.Stop()
 			case <-timer.C:
@@ -440,9 +659,59 @@ func (n *notifier) run() {
 			continue
 		}
 		if !n.deliver(it) {
-			return
+			return true
 		}
 	}
+}
+
+// recovered records a panic of the sender, and settles the thread that was
+// being sent.
+func (n *notifier) recovered(r interface{}) {
+	n.mu.Lock()
+	n.panics++
+	count := n.panics
+	dropped, kind := false, ""
+	if e := n.entries[n.current]; e != nil && n.current != "" {
+		e.inFlight = false
+		e.panics++
+		if e.panics >= maxThreadPanics {
+			delete(n.entries, e.id)
+			n.removed[e.id] = true
+			dropped = true
+			if e.opening != nil {
+				kind = e.opening.kind
+			} else if e.closing != nil {
+				kind = e.closing.kind
+			}
+		} else {
+			e.queued, e.notBefore = true, n.now().Add(n.limits.backoff[len(n.limits.backoff)-1])
+		}
+	}
+	n.current = ""
+	n.mu.Unlock()
+	line := "Telegram: the sender stopped on an error and starts again (" + strconv.Itoa(count) + " so far): " + panicText(r)
+	if dropped {
+		line += "; the problem it was sending (" + kind + ") is dropped, and looked at again within 10 minutes"
+		record := n.recordDropped
+		go func() {
+			defer func() { recover() }()
+			record(kind)
+		}()
+	}
+	n.logf(line)
+}
+
+func panicText(r interface{}) string {
+	text := ""
+	switch v := r.(type) {
+	case error:
+		text = v.Error()
+	case string:
+		text = v
+	default:
+		text = "unexpected value"
+	}
+	return cleanValue(text, 200)
 }
 
 // sleep waits, and reports false when the notifier is closed meanwhile.
@@ -468,6 +737,20 @@ func (n *notifier) sleep(d time.Duration) bool {
 // deliver sends one message, trying again while that can help. It reports
 // false when the notifier was closed.
 func (n *notifier) deliver(it *item) bool {
+	if it.pins {
+		if st := n.settings(); st.usable {
+			n.tidyPins(st)
+		}
+		return true
+	}
+	if it.thread != "" {
+		ok := n.deliverThread(it)
+		n.mu.Lock()
+		n.current = "" // a later panic elsewhere is not this thread's
+		n.mu.Unlock()
+		n.persist() // what a failure changed (a closing that timed out) too
+		return ok
+	}
 	for attempt := 0; ; attempt++ {
 		st := n.settings()
 		if !st.usable {
@@ -482,33 +765,25 @@ func (n *notifier) deliver(it *item) bool {
 		}
 
 		now := n.now()
-		silent := it.priority == priorityLow ||
-			(st.inQuietHours(now.Hour()*60+now.Minute()) && (it.priority != priorityCritical || st.silenceCrit))
+		silent := n.silent(st, it, now)
 
-		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)
-		go func() {
-			select {
-			case <-n.stop:
-				cancel()
-			case <-ctx.Done():
-			}
-		}()
-		failure := n.client.send(ctx, st, it.text, it.entities, silent)
-		cancel()
-
-		n.mu.Lock()
-		n.lastRequest = n.now()
-		n.mu.Unlock()
+		_, failure := n.send(st, outgoing{message: it.message, silent: silent})
 
 		if failure == nil {
 			n.succeeded()
 			return true
 		}
 
+		// the button was refused (the panel's address): once more without it
+		if failure.Reason == ReasonBadButton && it.message.button != nil {
+			it.message.button = nil
+			attempt--
+			continue
+		}
 		// refused for its form: once more, without the values
 		if failure.Reason == ReasonBadMessage && !it.triedPlain && !it.digest {
 			it.triedPlain = true
-			it.text, it.entities = it.plainText, it.plainEntities
+			it.message = it.plain
 			attempt--
 			continue
 		}
@@ -525,12 +800,20 @@ func (n *notifier) deliver(it *item) bool {
 
 		wait := failure.RetryAfter
 		if wait <= 0 {
-			step := attempt
+			step := it.attempts
 			if step >= len(n.limits.backoff) {
 				step = len(n.limits.backoff) - 1
 			}
 			wait = n.limits.backoff[step]
+		} else {
+			// Telegram's flood control is for the whole bot: everyone waits
+			n.mu.Lock()
+			if until := n.now().Add(wait); n.holdUntil.Before(until) {
+				n.holdUntil = until
+			}
+			n.mu.Unlock()
 		}
+		it.attempts++
 		age := n.limits.normalAge
 		if it.priority == priorityCritical {
 			age = n.limits.criticalAge
@@ -543,10 +826,37 @@ func (n *notifier) deliver(it *item) bool {
 			n.giveUp(it)
 			return true
 		}
-		if !n.sleep(wait) {
-			return false
-		}
+		n.requeue(it, wait)
+		return true
 	}
+}
+
+// silent decides whether a message arrives without sound: its severity
+// says so, or it is the quiet hours (critical ones still ring, unless the
+// settings say otherwise).
+func (n *notifier) silent(st settings, it *item, now time.Time) bool {
+	if st.mode(it.nt) == DeliverSilent {
+		return true
+	}
+	return st.inQuietHours(now.Hour()*60+now.Minute()) && (it.priority != priorityCritical || st.silenceCrit)
+}
+
+// pinMessage pins or unpins a message; it reports whether Telegram did.
+func (n *notifier) pinMessage(st settings, messageID int, pin bool) bool {
+	if !n.paceWait() {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+5*time.Second)
+	failure := n.client.pin(ctx, st, messageID, pin)
+	cancel()
+	n.mu.Lock()
+	n.lastRequest = n.now()
+	n.mu.Unlock()
+	if failure != nil {
+		n.logf("Telegram: a message could not be pinned or unpinned, tried again later: " + failure.Message)
+		return false
+	}
+	return true
 }
 
 // giveUp moves what a message stood for into the next summary.
@@ -555,8 +865,8 @@ func (n *notifier) giveUp(it *item) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	empty := n.heldLocked() == 0
-	for label, count := range it.counts {
-		n.holdLocked(label, count, it.priority, now)
+	for kind, count := range it.counts {
+		n.holdLocked(kind, count, it.priority, now)
 	}
 	if empty || it.since.Before(n.digestSince) {
 		n.digestSince = it.since
@@ -578,7 +888,10 @@ func (n *notifier) succeeded() {
 	n.mu.Unlock()
 	if wasFailing {
 		n.logf("Telegram: messages are delivered again")
-		go resolveInPanel()
+		go func() {
+			defer func() { recover() }()
+			resolveInPanel()
+		}()
 	}
 }
 
@@ -633,109 +946,15 @@ func (n *notifier) Status() Status {
 	status.Enabled = st.enabled
 	status.Ready = st.usable
 	status.Waiting = len(n.normal) + len(n.critical)
+	for _, e := range n.entries {
+		if e.queued || e.inFlight {
+			status.Waiting++
+		}
+	}
 	status.Held = n.heldLocked()
 	if n.pausedLocked(st, now) {
 		until := n.pausedUntil
 		status.PausedUntil = &until
 	}
 	return status
-}
-
-// otherLabel stands for the kinds a summary has no room to name.
-const otherLabel = "other events"
-
-var categoryTitles = map[string]string{
-	CategorySecurity: "Security",
-	CategoryLogins:   "Login",
-	CategorySystem:   "System",
-	CategoryStorage:  "Storage",
-	CategoryApps:     "Apps",
-	CategoryOther:    "Notice",
-}
-
-const stampLayout = "2006-01-02 15:04:05 MST"
-
-// header writes the first line: where the message comes from.
-func header(c *composer, st settings, what string) {
-	c.fixed("Cosmos · ").value(st.serverName, maxServerName).fixed(" · " + what).line()
-}
-
-// composeNotice puts a notice into words.
-func composeNotice(st settings, nt notice, details bool) (string, []entity) {
-	c := &composer{}
-	what := categoryTitles[nt.category]
-	if what == "" {
-		what = categoryTitles[CategoryOther]
-	}
-	if nt.priority == priorityCritical {
-		what += " alert"
-	}
-	header(c, st, what)
-	c.fixed(nt.title).line()
-	if details && nt.details != nil {
-		before := c.length
-		nt.details(c)
-		if c.length > before {
-			c.line()
-		}
-	} else if nt.details != nil {
-		c.fixed("The details are in the panel.").line()
-	}
-	if nt.link != "" {
-		c.fixed("Details: " + nt.link).line()
-	}
-	c.fixed(nt.at.Local().Format(stampLayout))
-	return c.result()
-}
-
-// composeDigest writes the summary of what was not sent one by one. It
-// holds fixed words and numbers only.
-func composeDigest(st settings, counts map[string]int, since time.Time, now time.Time, top priority) (string, []entity) {
-	labels := make([]string, 0, len(counts))
-	total := 0
-	for label, count := range counts {
-		labels = append(labels, label)
-		total += count
-	}
-	sort.Slice(labels, func(i, j int) bool {
-		if (labels[i] == otherLabel) != (labels[j] == otherLabel) {
-			return labels[j] == otherLabel
-		}
-		if counts[labels[i]] != counts[labels[j]] {
-			return counts[labels[i]] > counts[labels[j]]
-		}
-		return labels[i] < labels[j]
-	})
-
-	c := &composer{}
-	what := "Summary"
-	if top == priorityCritical {
-		what = "Summary with alerts"
-	}
-	header(c, st, what)
-
-	events := " more events"
-	if total == 1 {
-		events = " more event"
-	}
-	c.fixed(strconv.Itoa(total) + events + " " + spanWords(now.Sub(since)) + ", not sent one by one:").line()
-	for _, label := range labels {
-		c.fixed(strconv.Itoa(counts[label]) + " × " + label).line()
-	}
-	c.fixed("The details are in the panel.").line()
-	c.fixed(now.Local().Format(stampLayout))
-	return c.result()
-}
-
-// spanWords says how long ago the first event of a summary was.
-func spanWords(span time.Duration) string {
-	minutes := int((span + 30*time.Second) / time.Minute)
-	switch {
-	case minutes <= 1:
-		return "in the last minute"
-	case minutes < 120:
-		return "in the last " + strconv.Itoa(minutes) + " minutes"
-	default:
-		return "in the last " + strconv.Itoa((minutes+30)/60) + " hours"
-	}
 }

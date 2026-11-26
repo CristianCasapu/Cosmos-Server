@@ -10,16 +10,22 @@ import (
 // Fork addition: the edge blocks' notification names the permission of the
 // way the domain's blocks are made, and a block says how it was made.
 func TestEdgeBlockNoticesSayWhichPermission(t *testing.T) {
-	for message, want := range map[string]string{
-		"header.notification.message.edgeBlocksPermission":        "Zone > Firewall Services > Edit",
-		"header.notification.message.edgeBlocksPermissionWAF":     "Zone > Zone WAF > Edit",
-		"header.notification.message.edgeBlocksPermissionAccount": "Account Firewall Access Rules",
-		"header.notification.message.edgeBlocksToken":             "refuses the token",
+	keys := map[string]bool{}
+	for _, message := range []string{
+		"header.notification.message.edgeBlocksPermission",
+		"header.notification.message.edgeBlocksPermissionWAF",
+		"header.notification.message.edgeBlocksPermissionAccount",
+		"header.notification.message.edgeBlocksToken",
 	} {
 		nt, ok := noticeFromNotification(utils.Notification{Recipient: "admin", Title: titleEdgeBlocksProblem, Message: message, Vars: "example.org"}, testConfig())
-		if !ok || !strings.Contains(nt.title, want) {
-			t.Errorf("%s: %q", message, nt.title)
+		text, _ := textOf(t, testSettings(), nt)
+		if !ok || nt.kind != "edgeblock.problem" || !strings.HasPrefix(text, "🟠 Error · Blocks at Cloudflare paused for example.org") {
+			t.Errorf("%s: %q", message, text)
 		}
+		keys[nt.budgetKey()] = true
+	}
+	if len(keys) != 4 {
+		t.Errorf("each problem has a budget of its own: %v", keys)
 	}
 	event := eventOf(utils.SecEdgeBlocked)
 	event.Details = map[string]string{"reason": "probe", "via": "a WAF custom rule of the domain"}

@@ -28,6 +28,7 @@ func withDependencyUpdate(details func(c *composer)) func(c *composer) {
 	if d == nil || (d.Minor == 0 && d.Major == 0) {
 		return details
 	}
+	// the line stands after what happened
 	minor, major, majors := d.Minor, d.Major, append([]string(nil), d.Majors...)
 	if len(majors) > 3 {
 		majors = majors[:3]
@@ -35,8 +36,9 @@ func withDependencyUpdate(details func(c *composer)) func(c *composer) {
 	return func(c *composer) {
 		if details != nil {
 			details(c)
+			c.line()
 		}
-		c.line().fixed("It was an automatic dependency update: ")
+		c.fixed("It was an automatic dependency update: ")
 		if minor > 0 {
 			c.fixed(strconv.Itoa(minor) + " minor")
 		}

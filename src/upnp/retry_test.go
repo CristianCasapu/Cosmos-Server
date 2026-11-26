@@ -22,7 +22,7 @@ func TestALostForwardComesBackByItself(t *testing.T) {
 	}
 
 	w.router.reboot()
-	w.router.breakAdd = true
+	w.router.setBreakAdd(true)
 	w.minutes(6) // the forward is looked for every five minutes
 	st := GetStatus()
 	if own(st, "HTTPS").Active || own(st, "HTTPS").State != StateFailed {
@@ -33,7 +33,7 @@ func TestALostForwardComesBackByItself(t *testing.T) {
 	}
 	asked := w.router.count("AddPortMapping", "TCP/2053")
 
-	w.router.breakAdd = false
+	w.router.setBreakAdd(false)
 	w.minutes(3)
 	st = GetStatus()
 	if !own(st, "HTTPS").Active || own(st, "HTTPS").Paused {
@@ -250,7 +250,7 @@ func TestAForwardThatWorksIsNeverRemovedAfterAFailedRenewal(t *testing.T) {
 	reconcile(true)
 	w.kinds()
 
-	w.router.breakAdd = true
+	w.router.setBreakAdd(true)
 	w.minutes(21) // the renewal gets no answer
 	if _, there := w.router.get("TCP/2053"); !there {
 		t.Fatal("the forward was removed from the router after a renewal without an answer")
@@ -270,7 +270,7 @@ func TestAForwardThatWorksIsNeverRemovedAfterAFailedRenewal(t *testing.T) {
 
 	// asked again after the pause, and renewed once the router answers
 	asked := w.router.count("AddPortMapping", "TCP/2053")
-	w.router.breakAdd = false
+	w.router.setBreakAdd(false)
 	w.minutes(2)
 	if got := w.router.count("AddPortMapping", "TCP/2053"); got <= asked {
 		t.Errorf("not asked again after the pause: %d then, %d now", asked, got)
@@ -289,7 +289,7 @@ func TestAWantedForwardIsNotALeftover(t *testing.T) {
 	held = map[string]heldMapping{} // as after a failure that dropped it from the books
 	lastPlan = ""
 	runMu.Unlock()
-	w.router.breakAdd = true
+	w.router.setBreakAdd(true)
 	w.router.leaseLeft = "900"
 	w.minutes(1)
 	if _, there := w.router.get("TCP/2053"); !there || w.router.count("DeletePortMapping", "TCP/2053") != 0 {

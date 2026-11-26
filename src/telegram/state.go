@@ -114,8 +114,12 @@ func startNotice(previous *runState, version string, now time.Time) (*notice, ru
 		next.Starts = next.Starts[len(next.Starts)-startsKept:]
 	}
 
-	nt := &notice{category: CategorySystem, key: "cosmos.started", label: "Cosmos started", priority: priorityNormal, at: now}
-	running := func(c *composer) { c.fixed("Running version ").value(version, maxValue).fixed(".") }
+	vars := map[string]string{"version": version}
+	start := func(kind string) *notice {
+		nt := newNotice(kind, vars)
+		nt.at = now
+		return &nt
+	}
 
 	// a restart that was asked for (from the panel, by a change of
 	// settings, by an update) is not part of a loop, however many there are
@@ -126,46 +130,26 @@ func startNotice(previous *runState, version string, now time.Time) (*notice, ru
 			return nil, next
 		}
 		next.LoopTold = now
-		nt.key, nt.label = "cosmos.restarting", "Cosmos keeps restarting"
-		nt.title = "Cosmos keeps restarting: it started several times within ten minutes. Further starts are not announced for an hour."
-		nt.details = running
-		return nt, next
+		return start("cosmos.restarting"), next
 	}
 
-	from, to := previous.Version, previous.UpdateTo
+	var nt *notice
 	switch {
 	case previous.Exit == exitUpdate && version == previous.Version:
-		nt.key, nt.label = "update.failed", "Server update failed"
-		nt.title = "The server update was not installed: Cosmos started again with the version it had."
-		nt.details = func(c *composer) {
-			c.fixed("Running version ").value(version, maxValue)
-			if to != "" {
-				c.fixed(", the update was to ").value(to, maxValue)
-			}
-			c.fixed(".")
-		}
+		vars["to"] = previous.UpdateTo
+		nt = start("update.failed.start")
 	case version != previous.Version && previous.Version != "" && version != "":
-		nt.key, nt.label = "update.installed", "Server update installed"
-		nt.title = "Cosmos was updated and is running again."
-		nt.details = func(c *composer) {
-			c.fixed("From version ").value(from, maxValue).fixed(" to ").value(version, maxValue).fixed(".")
-		}
-		nt.details = withDependencyUpdate(nt.details) // Fork addition: says when it was an automatic dependency update, see fork_deps.go
+		vars["from"] = previous.Version
+		nt = start("update.installed")
+		nt.extra = withDependencyUpdate(nil) // Fork addition: says when it was an automatic dependency update, see fork_deps.go
 	case previous.Exit == exitRestart:
-		nt.priority = priorityLow
-		nt.title = "Cosmos restarted, as asked for in the panel or after a change of settings."
-		nt.details = running
+		nt = start("cosmos.restarted")
 	case previous.Exit == exitSignal:
-		nt.title = "Cosmos started again after it was stopped by the system (the service was stopped or restarted, or the machine rebooted)."
-		nt.details = running
+		nt = start("cosmos.signal")
 	case previous.Running:
-		nt.key, nt.label = "cosmos.crashed", "Cosmos started after an unexpected stop"
-		nt.title = "Cosmos started again after an unexpected stop: a crash, a kill or a power loss."
-		nt.details = running
+		nt = start("cosmos.crashed")
 	default:
-		nt.priority = priorityLow
-		nt.title = "Cosmos started."
-		nt.details = running
+		nt = start("cosmos.started")
 	}
 	return nt, next
 }

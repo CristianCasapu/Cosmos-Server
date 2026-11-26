@@ -313,6 +313,7 @@ func cosmos() {
 	
 	LoadConfig()
 	startTelegram() // Fork addition: notifications through Telegram, see fork_telegram.go
+	startWatches() // Fork addition (plan 48): disks, Docker, snapshots, sign-in countries, see fork_watch.go
 
 	utils.CheckHostNetwork()
 	

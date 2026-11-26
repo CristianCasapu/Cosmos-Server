@@ -147,7 +147,7 @@ func TestTheTestMessage(t *testing.T) {
 		t.Fatalf("requests %+v", got)
 	}
 	text, _ := got[0].body["text"].(string)
-	if !strings.HasPrefix(text, "Cosmos · Cellar · Test\nThis is a test message") || got[0].body["chat_id"] != float64(4242) || got[0].body["message_thread_id"] != float64(7) {
+	if !strings.HasPrefix(text, "🔵 Info · Test message from Cellar\n\nNotifications from this server arrive in this chat.") || got[0].body["chat_id"] != float64(4242) || got[0].body["message_thread_id"] != float64(7) {
 		t.Errorf("the test message: %s", got[0].raw)
 	}
 	// nothing of the request is echoed, and nothing of the token

@@ -26,18 +26,21 @@ func TestAnExplainedNotificationIsToldInItsWordsWithALink(t *testing.T) {
 	defer func() { utils.IsHTTPS = https }()
 
 	nt, tell := noticeFromNotification(explainedNotification("0123456789abcdef"), config)
-	if !tell || nt.category != CategorySystem || nt.priority != priorityNormal || nt.key != "n:upnp.forward.failed" {
+	if !tell || nt.category != CategorySystem || nt.priority() != priorityNormal || nt.key != "n:upnp.forward.failed" {
 		t.Fatalf("%v %+v", tell, nt)
 	}
 	text, entities := textOf(t, settingsOf(config), nt)
 	for _, want := range []string{
+		"🟠 Error · Router does not forward port 2053\n",
 		"The router no longer forwards port 2053 to this server: Cosmos cannot be reached from the internet.",
-		"About: HTTPS 2053/TCP", "Seen 4 times since ",
-		"Details: https://home.example:2053/cosmos-ui/notifications/r/0123456789abcdef",
+		"Seen 4 times since ",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q in:\n%s", want, text)
 		}
+	}
+	if m := render(settingsOf(config), nt); m.button == nil || m.button.URL != "https://home.example:2053/cosmos-ui/notifications/r/0123456789abcdef" {
+		t.Errorf("button: %+v", m.button)
 	}
 	values := covered(t, text, entities)
 	if !strings.Contains(strings.Join(values, "|"), "2053") {
@@ -47,19 +50,22 @@ func TestAnExplainedNotificationIsToldInItsWordsWithALink(t *testing.T) {
 	// without "include addresses and names": the fixed label and the link only
 	st := settingsOf(config)
 	st.hideDetails = true
-	text, _ = composeNotice(st, nt, false)
-	if strings.Contains(text, "HTTPS 2053/TCP") || !strings.Contains(text, "Details: https://") || !strings.Contains(text, "The router does not forward port …") {
-		t.Errorf("hidden details:\n%s", text)
+	m := render(st, nt)
+	if strings.Contains(m.text, "2053") || m.button == nil || !strings.HasPrefix(m.text, "🟠 Error · Router stopped forwarding a port\n") {
+		t.Errorf("hidden details:\n%s", m.text)
 	}
 
-	// no name to reach the server by, or a ref of another shape: no link
+	// no name to reach the server by: no button; a ref of another shape:
+	// the kind's page, or nothing
 	config.HTTPConfig.Hostname = "localhost"
-	if nt, _ := noticeFromNotification(explainedNotification("0123456789abcdef"), config); nt.link != "" {
-		t.Errorf("a link to localhost: %q", nt.link)
+	nt, _ = noticeFromNotification(explainedNotification("0123456789abcdef"), config)
+	if m := render(settingsOf(config), nt); m.button != nil {
+		t.Errorf("a link to localhost: %+v", m.button)
 	}
 	config.HTTPConfig.Hostname = "home.example"
-	if nt, _ := noticeFromNotification(explainedNotification("../../x"), config); nt.link != "" {
-		t.Errorf("a link with a bad ref: %q", nt.link)
+	nt, _ = noticeFromNotification(explainedNotification("../../x"), config)
+	if m := render(settingsOf(config), nt); m.button == nil || m.button.URL != "https://home.example:2053/cosmos-ui/notifications" {
+		t.Errorf("a link with a bad ref: %+v", m.button)
 	}
 }
 
@@ -82,8 +88,9 @@ func TestAValueInASentenceCannotBecomeALink(t *testing.T) {
 func TestAFollowUpIsQuiet(t *testing.T) {
 	n := explainedNotification("0123456789abcdef")
 	n.Level, n.Fork.Resolves = "success", "upnp:cosmos:HTTPS"
-	if nt, _ := noticeFromNotification(n, testConfig()); nt.priority != priorityLow {
-		t.Errorf("priority %v", nt.priority)
+	nt, _ := noticeFromNotification(n, testConfig())
+	if nt.priority() != priorityLow || !nt.closing || nt.resolves != "upnp:cosmos:HTTPS" {
+		t.Errorf("priority %v, closing %v", nt.priority(), nt.closing)
 	}
 	n.Fork.Kind = "telegram.failed"
 	if _, tell := noticeFromNotification(n, testConfig()); tell {

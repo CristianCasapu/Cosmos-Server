@@ -180,7 +180,7 @@ cool-down, the 72 hours the previous files are kept, the 15-minute window.
 - Audit: where "Recent activity on your account" lives (home page for now);
   the 2000-line export cap; the own-activity view hides why a login failed.
 - Telegram: a "find my chat ID" button; the bell for "update available" and
-  "container keeps stopping"; SMART warnings (nothing raises them); alerts
+  "container keeps stopping"; alerts
   are sorted by name, not metric; no proxy setting.
 - Fail2ban: enabling single jails or banning by hand from the panel; bans of
   an IPv6 /64; SmartShield's whitelist as never-ban list; events for bans
@@ -330,6 +330,15 @@ cool-down, the 72 hours the previous files are kept, the 15-minute window.
 - The test bed runs privileged Docker in Docker on the host's Docker: a VM for local runs, or fewer privileges for the machines.
 - The install scripts were run on amd64 machines only, never on arm64.
 - apt follows the caller's proxy variables while the script's own downloads ignore them (`--proxy`).
+
+## Telegram messages: left for later (2026-11-25)
+
+- A message of its own when a data disk goes read-only or disappears from the listing (today its "filling fast" warning only stays open, then reads "No longer followed" after 24 hours).
+- "Mark resolved" also in the notifications list, and for several notifications at once.
+- Instead of silence beyond 256 open problems, one summary "N problems ended" per period.
+- Restic and pre-upgrade job threads: end them on the next InitBackups, which knows the full list.
+- The model of the threads (`src/telegram/model_test.go`) does not generate a source that is wrong by its own rules (only one that lags), the cron, UPnP and fill rules themselves (their packages' tests carry them), a restart during a send, events later than 2 minutes, two things on one thread, nor the farewell message (only its unpin).
+- Some faults are seen by one named test only, not by the model: a change of chat that keeps the old chat's memory, the brake dropping a message, the raw name instead of the hash, the reconcile marking every open entry. Keep those tests.
 
 ## The app's edit tabs: left for later (2026-11-18)
 

@@ -34,7 +34,7 @@ func TestTheOwnersMorningInWords(t *testing.T) {
 	w.config(func(c *utils.Config) { c.HTTPConfig.UPnP.Enabled = true })
 	reconcile(true)
 	w.router.reboot()
-	w.router.breakAdd = true
+	w.router.setBreakAdd(true)
 	w.minutes(6)
 	if len(w.notices) != 1 {
 		t.Fatalf("told %d times", len(w.notices))
@@ -71,7 +71,7 @@ func TestTheOwnersMorningInWords(t *testing.T) {
 		t.Errorf("the status says when it is tried again: %+v", st)
 	}
 
-	w.router.breakAdd = false
+	w.router.setBreakAdd(false)
 	w.minutes(3)
 	if len(w.resolved) != 1 {
 		t.Fatalf("resolved %d times", len(w.resolved))

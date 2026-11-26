@@ -349,7 +349,7 @@ const Telegram = ({ formik, config }) => {
           placeholder={(config && config.HTTPConfig && config.HTTPConfig.Hostname) || ''}
           autoComplete="off"
           formik={formik}
-          helperText={t('mgmt.config.telegram.serverName.help', 'Every message starts with it. Empty: the hostname of the HTTP settings.')}
+          helperText={t('mgmt.config.telegram.serverName.helpLast', 'Every message ends with it and the time. Empty: the hostname of the HTTP settings.')}
         />
 
         {/* what is sent */}
