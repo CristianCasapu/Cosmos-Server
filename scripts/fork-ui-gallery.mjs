@@ -922,9 +922,13 @@ const run = async (engineName, viewport, mode) => {
     const byName = typeof index === 'string';
     // a view without its own wait can still be loading: let the tabs or their select appear first
     // (config-monitoring-db--external once found neither on a slow runner)
-    await page.waitForFunction(() => document.querySelector('main [role=tablist]') ||
-      [...document.querySelectorAll('main .MuiSelect-select')].some((s) => s.closest('.MuiInputBase-root')?.parentElement?.querySelector(':scope > [role=tabpanel]')),
-    null, { timeout: 8000 }).catch(() => {});
+    // (page.evaluate in a loop: the panel's script policy refuses the eval of a waiting predicate)
+    for (let waited = 0; waited < 8000; waited += 200) {
+      const shown = await page.evaluate(() => !!document.querySelector('main [role=tablist]') ||
+        [...document.querySelectorAll('main .MuiSelect-select')].some((s) => s.closest('.MuiInputBase-root')?.parentElement?.querySelector(':scope > [role=tabpanel]'))).catch(() => false);
+      if (shown) break;
+      await page.waitForTimeout(200);
+    }
     if (!phone && await tabs.isVisible().catch(() => false)) {
       await (byName ? tabs.locator('[role=tab]', { hasText: index }).first() : tabs.locator('[role=tab]').nth(index)).click();
       return;
