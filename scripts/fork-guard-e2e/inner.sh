@@ -209,6 +209,13 @@ session_result() {
 	OUT=$SSH_OUT
 	docker exec "$c" sh -c 'pkill -f "sleep 900" 2>/dev/null; true'
 }
+# session_gaps: what a failed "survived" check saw (the exit code, the ticks
+# counted and every gap over 3 s with the lines around it)
+session_gaps() {
+	printf '  SSH_RC=%s, ticks: %s\n' "$SSH_RC" "$(printf '%s\n' "$SSH_OUT" | grep -c '^TICK ')"
+	printf '%s\n' "$SSH_OUT" | awk '/^TICK / {t = $2; if (last && t - last > 3) printf "  gap of %d s after line %d\n", t - last, NR; last = t}'
+	printf '%s\n' "$SSH_OUT" | grep -v '^TICK ' | tail -n 12 | sed 's/^/  | /'
+}
 # the ticks came without a gap longer than 3 s, and the session ended by itself
 no_gap() {
 	printf '%s\n' "$SSH_OUT" | awk '/^TICK / {t = $2; if (last && t - last > 3) gap = 1; last = t; n++} END {exit (gap || n < 3)}'
@@ -256,6 +263,7 @@ g_ssh() {
 	session_result
 	expect_rc 0 "interactive from outside, confirmed"
 	check "the session survived (ticks without a gap)" sh -c "[ '$SSH_RC' = 0 ] && printf '%s\n' \"\$1\" | awk '/^TICK / {t = \$2; if (last && t - last > 3) gap = 1; last = t; n++} END {exit (gap || n < 3)}'" _ "$SSH_OUT"
+	{ [ "$SSH_RC" = 0 ] && no_gap; } || session_gaps
 	check "the session's address was found from sshd's sockets and allowed" m grep -q "^$OC6 " /etc/cosmos-host-guard/allow
 	check "the allowance runs out in 24 hours (said, and in the kernel with an expiry)" sh -c "printf '%s' \"\$1\" | grep -q 'ONLY.*$OC6 may reach SSH from outside, until' && docker exec $M nft list set inet cosmos_host_guard ssh_allow6 | grep -q 'expires'" _ "$SSH_OUT"
 	# shellcheck disable=SC2016
