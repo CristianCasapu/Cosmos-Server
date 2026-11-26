@@ -244,7 +244,7 @@ It is the same script as `install.sh` with its role changed: the system checks, 
   - upstream's Docker container (not handled yet);
   - other folders than upstream's defaults;
   - a link or a mount point at `/opt/cosmos` or `/var/lib/cosmos` (or on their way): for example the data kept on another disk through a link;
-  - a unit whose configuration, as systemd runs it, holds something the script does not know: drop-ins, environment files, `COSMOS_CONFIG_FOLDER` / `CONFIG_FILE`, another folder or user;
+  - a unit whose configuration, as systemd runs it (drop-ins included), sets something the script does not know: an environment file other than upstream's, `COSMOS_CONFIG_FOLDER` / `CONFIG_FILE` or another `COSMOS_` variable than the two ports (in the unit, in systemd's own environment, or in the running Cosmos' environment), another folder or user. A drop-in that sets none of these is fine;
   - what an earlier migration left that no state of the script names;
   - a Cosmos newer than the version the fork is built on;
   - users still in MongoDB (before 0.23);
@@ -259,7 +259,7 @@ It is the same script as `install.sh` with its role changed: the system checks, 
   - new, and under folders only root can change;
   - on a local Linux file system (not vfat, exfat, NTFS, CIFS or NFS);
   - not in memory, and not under `/tmp` or `/var/tmp`;
-  - with room for the copy and for what a rollback keeps there.
+  - with room for the copy and for what a rollback keeps there: about twice `/opt/cosmos` and `/var/lib/cosmos` together. `/var/lib` needs room for the data's size again.
 - An older upstream (0.23, for example) is migrated directly: the fork runs at its first start the same forward migrations that upstream's own update would.
 
 **What it does:**
@@ -280,8 +280,10 @@ It is the same script as `install.sh` with its role changed: the system checks, 
 - Interrupted before the fork was put in place: it starts upstream's Cosmos again if it ran before, keeps the earlier backup (named), and migrates from the start.
 - Interrupted after the fork was put in place: it finishes only if nothing ran since and the data is still the backup's. Otherwise (a reboot started Cosmos, someone used the server) it replaces nothing. It stops with exit 21, says what it found, and waits for your word:
   - `sudo bash migrate.sh --undo` goes back to upstream. The data as it is now is moved into the backup (named), and the backup's copy is put back.
-  - `sudo bash migrate.sh --continue` keeps the fork. The data as it is now is first copied into the backup, then the fork is checked and the migration completed.
-- `--dry-run` never changes anything: over an interrupted migration it only says what a run and `--undo` would do.
+  - `sudo bash migrate.sh --continue` keeps the fork, and is offered only when the fork this migration put there is still in `/opt/cosmos`. It first checks that the backup has room for a copy of the data (refused otherwise, nothing changed), copies the data as it is now into the backup, then checks the fork and completes the migration. If the check finds differences from before, they are said, and nothing is put back: you chose the fork.
+- Interrupted while it was putting upstream back (after a failure): a run and `--continue` stop with exit 21 and change nothing; the message says how far it got and whether the data folder may be incomplete. Only `--undo` completes the way back.
+- Every attempt that is interrupted makes a new full backup at its next run. At the end of each run the script lists the backups and the kept upstream folder with their sizes; each stays until you delete it.
+- `--dry-run` never changes anything: over an interrupted migration it only says what a run, `--undo` and `--continue` would do.
 - `uninstall.sh` refuses to touch a server whose migration is not finished (exit 3).
 
 **Afterwards:**

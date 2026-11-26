@@ -817,6 +817,20 @@ m_migrate_refusals_4() { # upstream, each refusal on its own; then a licence mig
 	mkdir -p /etc/sysconfig; printf 'CONFIG_FILE=/srv/x/cosmos.config.json\n' >/etc/sysconfig/CosmosCloud
 	refused 17 sysconfig-config-file
 	rm /etc/sysconfig/CosmosCloud
+	# a value with a glob character (review N4), systemd's own environment (N5),
+	# and a variable only the running process still has (set, restarted, unset)
+	dropin glob 'Environment=COSMOS_CONFIG_FOLDER=/srv/cosmos-nomatch*'
+	refused 17 glob
+	check "glob: it names it" grep -q "COSMOS_CONFIG_FOLDER" /e2e/out/glob.txt
+	undropin glob
+	systemctl set-environment COSMOS_CONFIG_FOLDER=/srv/cosmos-elsewhere/
+	refused 17 manager-env
+	check "manager-env: it names systemd's own environment" grep -q "systemd's own environment" /e2e/out/manager-env.txt
+	systemctl restart CosmosCloud; wait_panel 80
+	systemctl unset-environment COSMOS_CONFIG_FOLDER
+	refused 17 process-env
+	check "process-env: it names the running Cosmos" grep -q "the running Cosmos (process" /e2e/out/process-env.txt
+	systemctl restart CosmosCloud; wait_panel 80
 	dropin unknown-var 'Environment=COSMOS_SOMETHING_NEW=1'
 	refused 17 unknown-var
 	undropin unknown-var
@@ -1098,5 +1112,79 @@ m_migrate_interrupt_3() { # killed after the swap, nothing ran since: a run fini
 	expect_rc 0 resume --yes
 	check "it said it finishes" grep -q "before it ever ran" /e2e/out/resume.txt
 	migrated_ok 0.24.0
+	migration_invariant
+}
+m_migrate_interrupt_4() { # review round 2: --continue (N6, S-N1, S-N3, its normal path) and a rollback killed half-way (N1, N2)
+	upstream_install 0.24.0
+	note_upstream
+	add_snapshot_hooks
+	# N6: --continue over a migration killed before the swap: refused (2) before anything is done
+	plant_marker before-n6
+	kill_at backed-up
+	take_now n6
+	expect_rc 2 n6-continue --yes --continue
+	check "n6: it says a run resumes it" grep -q "a run without --continue resumes it" /e2e/out/n6-continue.txt
+	unchanged_since n6
+	expect_rc 0 n6-undo --undo
+	if ls "$OUT"/hook-*-stop >/dev/null 2>&1; then rolled_back_exactly; fi
+	upstream_back 0.24.0
+	# N1: the fork failed its check, the way back was killed after the data was
+	# put back (upstream in /opt/cosmos): only --undo, never --continue
+	plant_marker before-n1
+	mig_bg n1 COSMOS_INSTALL_TEST_FAIL_AT=checked COSMOS_INSTALL_TEST_PAUSE_AT=rollback-data TEST=1 -- --yes
+	kill_on_text n1 "waiting at 'rollback-data'"
+	take_now n1
+	expect_rc 21 n1-run --yes
+	check "n1: it says the way back was interrupted, and only --undo" sh -c "grep -q 'way back to upstream began' /e2e/out/n1-run.txt && grep -q 'Only --undo completes it' /e2e/out/n1-run.txt"
+	check "n1: it does not offer --continue" sh -c "! grep -q -- '--continue' /e2e/out/n1-run.txt"
+	unchanged_since n1
+	expect_rc 21 n1-continue --yes --continue
+	unchanged_since n1
+	expect_rc 0 n1-dry --dry-run
+	check "n1: the dry run says the same" grep -q "way back to upstream began" /e2e/out/n1-dry.txt
+	unchanged_since n1
+	expect_rc 0 n1-undo --undo
+	rolled_back_exactly
+	upstream_back 0.24.0
+	# N2: killed while the data was out of its place (moved into the backup, not yet copied back)
+	plant_marker before-n2
+	mig_bg n2 COSMOS_INSTALL_TEST_FAIL_AT=checked COSMOS_INSTALL_TEST_PAUSE_AT=rollback-data-moved TEST=1 -- --yes
+	kill_on_text n2 "waiting at 'rollback-data-moved'"
+	take_now n2
+	expect_rc 21 n2-run --yes
+	check "n2: it names the data folder as missing or partly copied" grep -q "may be missing or only partly copied back" /e2e/out/n2-run.txt
+	expect_rc 21 n2-continue --yes --continue
+	unchanged_since n2
+	expect_rc 0 n2-undo --undo
+	rolled_back_exactly
+	upstream_back 0.24.0
+	# S-N3: --continue with no room for its copy: refused before Cosmos is
+	# stopped, nothing changed (the backup on a tmpfs taken as ext4 by the test mode)
+	mkdir -p /mnt/mid
+	mount -t tmpfs -o size=8g,mode=0755 tmpfs /mnt/mid
+	plant_marker before-sn3
+	mig_bg sn3 COSMOS_INSTALL_TEST_FSTYPE=ext2/ext3 COSMOS_INSTALL_TEST_PAUSE_AT=started TEST=1 -- --yes --backup-dir /mnt/mid/b
+	kill_on_text sn3 "waiting at 'started'"
+	plant_marker written-on-the-fork-before-continue
+	expect_rc 21 sn3-run --yes
+	check "sn3: the fork is in place, so --continue is offered" grep -q -- "--continue   keep the fork" /e2e/out/sn3-run.txt
+	data_k=$(du -sk /var/lib/cosmos | cut -f1)
+	free_k=$(df -Pk /mnt/mid | awk 'NR==2{print $4}')
+	fallocate -l "$(( (free_k - data_k / 2) * 1024 ))" /mnt/mid/e2e-fill
+	take_now sn3
+	rc=0; COSMOS_INSTALL_TEST_FSTYPE=ext2/ext3 migrate_test --yes --continue </dev/null >/e2e/out/sn3-continue.txt 2>&1 || rc=$?
+	tail -n 4 /e2e/out/sn3-continue.txt
+	check "sn3: no room: exit 1" test "$rc" = 1
+	check "sn3: it says there is not room, and nothing changed" sh -c "grep -q 'there is not room in' /e2e/out/sn3-continue.txt && grep -q 'nothing was changed' /e2e/out/sn3-continue.txt"
+	unchanged_since sn3
+	rm -f /mnt/mid/e2e-fill
+	# C1: --continue's normal path: the data copied first, the fork checked, the migration completed
+	rc=0; COSMOS_INSTALL_TEST_FSTYPE=ext2/ext3 migrate_test --yes --continue </dev/null >/e2e/out/c1-continue.txt 2>&1 || rc=$?
+	grep -vE '^  |debconf' /e2e/out/c1-continue.txt | tail -n 8
+	check "c1: --continue completed (exit 0)" test "$rc" = 0
+	check "c1: the owner's file written on the fork is in the copy made at --continue" sh -c "ls /mnt/mid/b/var-lib-cosmos-at-continue-*/e2e-owner-written-on-the-fork-before-continue"
+	check "c1: and still in the data" test -f /var/lib/cosmos/e2e-owner-written-on-the-fork-before-continue
+	migrated_ok 0.24.0
+	expect_rc 10 c1-undo-after --undo
 	migration_invariant
 }

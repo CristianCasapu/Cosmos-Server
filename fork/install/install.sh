@@ -418,6 +418,8 @@ cleanup() {
 	if [ -n "$WORK" ] && [ -d "$WORK" ]; then rm -rf -- "$WORK"; fi
 	if [ -n "$HOP_DIR" ] && [ -d "$HOP_DIR" ]; then rm -rf -- "$HOP_DIR"; fi
 	if [ -n "${SIM:-}" ] && [ -d "$SIM" ]; then rm -rf -- "$SIM"; fi
+	# migrate.sh: what its backups take on the disk, at the end of every run
+	if declare -F say_disk_cost >/dev/null; then say_disk_cost || true; fi
 	# the lock file stays (in /run): removing it while held would let a second
 	# run lock a new file
 }
@@ -560,6 +562,8 @@ record() { # one record line, written once
 	sync -f "$RECORD" 2>/dev/null || true
 }
 recorded() { [ -f "$RECORD" ] && grep -qxF -- "$*" "$RECORD"; }
+# free_kib <folder>: the KiB free on its file system (for root)
+free_kib() { df -Pk "$1" 2>/dev/null | awk 'NR==2{print $4}'; }
 
 # ---- The migration (migrate.sh's role) ---------------------------------------
 # The rules it keeps (plan 47, "D1 — design, second version"):
@@ -581,6 +585,9 @@ MIG_MARK=.made-by-migrate.sh
 RUN_MARK=$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')
 MIG_RESUME="" MIG_BACKUP="" MIG_FROM="" MIG_UNSTABLE="" MIG_MSTEP=""
 MIG_STEPS=" stopping stopped backing-up backed-up swapping swapped started "
+# the rollback's progress is the state's "rollback": begun, folder,
+# data-moving, data, unit (in that order)
+CONTINUE_COPY=""
 TMP_MARK=.made-by-cosmos-script
 # test_fail_at / test_pause_at <step>: the test mode (an unstamped copy) can
 # make a step fail on purpose, or wait at it, to prove the way back; a
@@ -690,9 +697,68 @@ mig_observe() {
 	ports_listening >"$MIG_DIR/$name.listen"
 	hostname=$(jq -r '.HTTPConfig.Hostname // ""' "$config" 2>/dev/null || true)
 	[[ $hostname =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$ ]] || hostname=localhost
-	code=$("${CURL[@]}" -s -o "$MIG_DIR/$name.wizard-body" -m 10 -w '%{http_code}' -X POST -H "Host: $hostname" \
-		-H 'Content-Type: application/json' --data '{"step":"2"}' -- "http://127.0.0.1:$HTTP_PORT/cosmos/api/newInstall" || true)
+	# a read (GET), never a write: the wizard's route refuses any method with
+	# 403 NI001 once the server is set up, before it reads anything
+	code=$("${CURL[@]}" -s -o "$MIG_DIR/$name.wizard-body" -m 10 -w '%{http_code}' -H "Host: $hostname" \
+		-- "http://127.0.0.1:$HTTP_PORT/cosmos/api/newInstall" || true)
 	if grep -q 'NI001' -- "$MIG_DIR/$name.wizard-body" 2>/dev/null; then echo "$code NI001" >"$MIG_DIR/$name.wizard"; else echo "$code" >"$MIG_DIR/$name.wizard"; fi
+}
+
+# clean_tmp_named_by <state file>: the private folders (work, simulation,
+# staging) of the run that wrote that state (an earlier run, whose state may
+# have been renamed .undone-* since), removed only when the state names each
+# in the exact form mktemp gives it AND it holds that run's mark; never a
+# folder that can hold the owner's data (data, installation, replaced and
+# backup folders are moved, never removed). This run's own are left to cleanup.
+clean_tmp_named_by() {
+	local st=$1 m k f
+	{ [ "$DRY_RUN" = 0 ] && [ -f "$st" ] && [ ! -L "$st" ]; } || return 0
+	m=$(sed -n 's/^tmp-mark=//p' -- "$st" | tail -n 1)
+	[[ $m =~ ^[0-9a-f]{24}$ ]] || return 0
+	for k in tmp-work tmp-sim tmp-staging; do
+		f=$(sed -n "s/^$k=//p" -- "$st" | tail -n 1)
+		[[ $f =~ ^(/var/tmp/cosmos-install|/var/tmp/cosmos-install-apt|/opt/\.cosmos-install)\.[A-Za-z0-9]{8}$ ]] || continue
+		{ [ "$f" != "$WORK" ] && [ "$f" != "$STAGING" ] && [ "$f" != "${SIM:-}" ]; } || continue
+		if [ -d "$f" ] && [ ! -L "$f" ] && [ "$(cat -- "$f/$TMP_MARK" 2>/dev/null)" = "$m" ]; then
+			rm -rf -- "$f"
+			say "Removed $f, a temporary folder of an earlier run (its state names it, and it holds that run's mark)."
+		fi
+	done
+}
+# say_disk_cost: what migrate.sh's backups (one full copy per attempt) and
+# the kept installation folder take on this server, each with its place,
+# said at the end of every run of migrate.sh. Only folders a state or the
+# record of migrate.sh names (a backup also holding its mark).
+DISK_COST_SAID=0
+say_disk_cost() {
+	{ [ "$SCRIPT_ROLE" = migrate ] && [ "$DISK_COST_SAID" = 0 ]; } || return 0
+	DISK_COST_SAID=1
+	local st p kind dir dirs=() seen=" " lines=""
+	for st in "$STATE" "$STATE".undone-*; do
+		{ [ -f "$st" ] && [ ! -L "$st" ]; } || continue
+		p=$(sed -n 's/^backup=//p' -- "$st" | tail -n 1)
+		[ -z "$p" ] || dirs+=("backup $p")
+	done
+	if [ -f "$RECORD" ]; then
+		while read -r p; do dirs+=("backup $p"); done < <(sed -n 's/^backup //p' -- "$RECORD")
+		while read -r p; do dirs+=("upstream $p"); done < <(sed -n 's/^upstream-folder //p' -- "$RECORD")
+	fi
+	for p in "${dirs[@]}"; do
+		kind=${p%% *} dir=${p#* }
+		{ [[ $dir =~ ^/[A-Za-z0-9._/-]{1,240}$ ]] && [ -d "$dir" ] && [ ! -L "$dir" ]; } || continue
+		{ [ "$kind" != backup ] || [ -f "$dir/$MIG_MARK" ]; } || continue
+		case $seen in *" $dir "*) continue ;; esac
+		seen="$seen$dir "
+		if [ "$kind" = backup ]; then
+			lines="$lines
+  $(du -sh -- "$dir" 2>/dev/null | cut -f1)	$dir (a backup migrate.sh made)"
+		else
+			lines="$lines
+  $(du -sh -- "$dir" 2>/dev/null | cut -f1)	$dir (upstream's installation folder, kept)"
+		fi
+	done
+	[ -z "$lines" ] || say "
+Disk space taken by migrate.sh's folders here (each stays until you delete it; every attempt makes a new full backup):$lines"
 }
 
 # going_back_text <backup> <upstream version>: GOING-BACK.txt
@@ -764,9 +830,16 @@ restore_data() {
 	local b
 	b=$(state_get backup)
 	backup_ok "$b" || { warn "the backup in ${b:-(none named)} is not complete or does not match its lists: $DATA_DIR is NOT replaced"; return 1; }
+	# from here until "data", the data folder may be missing or incomplete
+	state_set rollback data-moving
 	if [ -e "$DATA_DIR" ]; then
-		move_into_backup "$DATA_DIR" var-lib-cosmos-as-it-was >/dev/null || { warn "$DATA_DIR could not be moved into the backup"; return 1; }
+		local target
+		target=$(move_into_backup "$DATA_DIR" var-lib-cosmos-as-it-was) || { warn "$DATA_DIR could not be moved into the backup"; return 1; }
+		MOVED="$MOVED
+  $DATA_DIR -> $target"
+		state_set rollback-data-moved "$target"
 	fi
+	test_pause_at rollback-data-moved
 	if ! cp -a -- "$b/var-lib-cosmos" "$DATA_DIR" || ! same_as_manifest "$DATA_DIR" "$b/MANIFEST.var-lib-cosmos"; then
 		warn "the copy of the backup's data into $DATA_DIR did not complete or does not match its list (what was there is in the backup, named above)"
 		return 1
@@ -807,12 +880,18 @@ migrate_rollback() {
 	# when asked always), and only when it differs from the backup's list
 	if [ -n "$b" ] && [ -f "$b/MANIFEST.var-lib-cosmos" ] && same_as_manifest "$DATA_DIR" "$b/MANIFEST.var-lib-cosmos" 2>/dev/null; then data_same=1; fi
 	if [ "$data_same" = 0 ] && { [ "$how" = always ] || { [ "$how" = auto ] && case $mstep in swapping | swapped | started) true ;; *) false ;; esac; }; }; then restore=1; fi
+	# from here on the state says that a rollback began, and how far it got
+	# (begun, folder, data-moving, data, unit): a later run offers only
+	# --undo, which completes it, and never starts upstream on data that is
+	# not the backup's
+	state_set rollback begun
 	# 1. the unit is stopped (whatever its state) when the fork is or was in
 	# place, or before the data is touched; an upstream that nothing is done to
 	# is left running
 	if [ "$(state_get old)" = "$MIG_OLD" ] || [ "$(cosmos_folder_kind "$INSTALL_DIR")" != upstream ] || [ "$restore" = 1 ]; then
 		systemctl stop "$UNIT.service" || ok=0
 	fi
+	test_pause_at rollback-begun
 	# 2. the installation folder: upstream's was only renamed (only when this
 	# migration's state says it renamed it)
 	if [ "$(state_get old)" = "$MIG_OLD" ] && [ -d "$MIG_OLD" ] && [ ! -L "$MIG_OLD" ]; then
@@ -836,6 +915,10 @@ migrate_rollback() {
   $INSTALL_DIR differs from the backup's list, and the backup cannot be used"
 		fi
 	fi
+	if [ "$ok" = 1 ]; then
+		state_set rollback folder
+		test_pause_at rollback-folder
+	fi
 	# 3. the data
 	if [ "$ok" = 1 ]; then
 		if [ "$data_same" = 1 ]; then
@@ -849,6 +932,10 @@ migrate_rollback() {
 			say "$DATA_DIR is left as it is (the fork never ran on it; there is no complete backup list to compare)."
 		fi
 	fi
+	if [ "$ok" = 1 ]; then
+		state_set rollback data
+		test_pause_at rollback-data
+	fi
 	# 4. the unit and its environment file (migrate.sh changes neither)
 	if [ -n "$b" ] && [ -f "$b/$UNIT.service" ] && ! cmp -s -- "$b/$UNIT.service" "$UNIT_FILE"; then
 		cp -a -- "$b/$UNIT.service" "$UNIT_FILE" && say "$UNIT_FILE: put back as it was." || ok=0
@@ -857,8 +944,11 @@ migrate_rollback() {
 	if [ -n "$b" ] && [ -f "$b/sysconfig-$UNIT" ] && ! cmp -s -- "$b/sysconfig-$UNIT" "/etc/sysconfig/$UNIT"; then
 		cp -a -- "$b/sysconfig-$UNIT" "/etc/sysconfig/$UNIT" && say "/etc/sysconfig/$UNIT: put back as it was." || ok=0
 	fi
-	# 5. enabled and running as before
+	# 5. enabled and running as before (only now: upstream is started only
+	# once its folder, the data and the unit are those of before)
 	if [ "$ok" = 1 ]; then
+		state_set rollback unit
+		test_pause_at rollback-unit
 		[ "$(state_get was-enabled)" != enabled ] || [ "$(unit_enabled)" = enabled ] || systemctl enable "$UNIT.service" >/dev/null 2>&1 || ok=0
 		if [ "$(state_get was-active)" = active ] && [ "$(unit_active)" != active ]; then
 			# the fork's starts may have used up the unit's start limit (5 in 10 s)
@@ -899,6 +989,9 @@ migrate_rollback() {
 		if [ -n "$b" ] && [ -d "$b" ]; then mv -T -- "$MIG_DIR" "$b/notes-$(date -u +%Y%m%dT%H%M%SZ)" 2>/dev/null || true; fi
 		[ ! -d "$MIG_DIR" ] || mv -T -- "$MIG_DIR" "$MIG_DIR.undone-$(date -u +%Y%m%dT%H%M%SZ)" || true
 	fi
+	# the interrupted run's temporary folders, read from its state before the
+	# state is renamed (the proof of ownership is the same as everywhere)
+	clean_tmp_named_by "$STATE"
 	mv -fT -- "$STATE" "$STATE.undone-$(date -u +%Y%m%dT%H%M%SZ)"
 	say "Upstream's Cosmos runs again, from its own folder and its data as they were."
 	[ -z "$MOVED" ] || say "Moved into the backup, not deleted:$MOVED"
@@ -979,7 +1072,7 @@ migrate_backup_place() {
 
 # migrate_checks: what must hold before a migration starts (it only reads)
 migrate_checks() {
-	local config=$DATA_DIR/cosmos.config.json env envfiles wd exec frag user left
+	local config=$DATA_DIR/cosmos.config.json envfiles wd exec frag user left
 	# the folders: their real paths, not mount points
 	for p in "$INSTALL_DIR" "$DATA_DIR"; do
 		if [ "$(realpath -e -- "$p" 2>/dev/null || echo "?")" != "$p" ] || [ -L "$p" ]; then
@@ -1014,17 +1107,29 @@ migrate_checks() {
 	"" | "/etc/sysconfig/$UNIT (ignore_errors=yes)") ;;
 	*) die $EXIT_CANNOT "systemd reads environment files for $UNIT that upstream's installation does not write: $envfiles. Nothing was changed." ;;
 	esac
-	env=$(unit_prop Environment)
-	if [ -f "/etc/sysconfig/$UNIT" ]; then env="$env $(grep -vE '^[[:space:]]*(#|$)' -- "/etc/sysconfig/$UNIT" | tr '\n' ' ')"; fi
-	local v unknown=""
-	for v in $env; do
-		case ${v%%=*} in
+	local v name unknown="" words=()
+	unit_env_words words
+	for v in "${words[@]}"; do
+		name=${v%%=*}
+		case $name in
 		COSMOS_HTTP_PORT | COSMOS_HTTPS_PORT | TZ | ACME_STAGING) ;;
-		COSMOS_CONFIG_FOLDER | CONFIG_FILE) die $EXIT_CANNOT "the unit sets ${v%%=*}: this Cosmos keeps its data outside $DATA_DIR, which migrate.sh does not move. Nothing was changed." ;;
-		*) unknown="$unknown ${v%%=*}" ;;
+		COSMOS_CONFIG_FOLDER | CONFIG_FILE) die $EXIT_CANNOT "the unit sets $name: this Cosmos keeps its data outside $DATA_DIR, which migrate.sh does not move. Nothing was changed." ;;
+		*) unknown="$unknown $name" ;;
 		esac
 	done
 	[ -z "$unknown" ] || die $EXIT_CANNOT "the unit sets variables migrate.sh does not know what they do to a move:$unknown. Nothing was changed."
+	# systemd's own environment, which every unit gets (systemctl
+	# set-environment, DefaultEnvironment= in system.conf): the fork's start
+	# would get it too
+	unknown=""
+	while IFS= read -r v; do
+		name=${v%%=*}
+		case $name in
+		COSMOS_HTTP_PORT | COSMOS_HTTPS_PORT) ;;
+		COSMOS_* | CONFIG_FILE) unknown="$unknown $name" ;;
+		esac
+	done < <(systemctl show-environment 2>/dev/null || true)
+	[ -z "$unknown" ] || die $EXIT_CANNOT "systemd's own environment (systemctl set-environment, or DefaultEnvironment= in /etc/systemd/system.conf) sets$unknown for every service: this Cosmos may keep its data elsewhere, and migrate.sh does not know what they do to a move. Nothing was changed."
 	[ -f "$config" ] || die $EXIT_CANNOT "$config is missing: there are no settings to keep. Nothing was changed."
 	cosmos_data_kind "$DATA_DIR"
 	if [ "$DATA_PROBLEM" = mongodb ]; then
@@ -1043,10 +1148,56 @@ migrate_checks() {
 	base_allows "$MIG_FROM" "$MIG_UNSTABLE" "$RELEASE_BASE"
 	[ "$(unit_active)" = active ] ||
 		die $EXIT_CANNOT "upstream's Cosmos is not running: start it first (sudo systemctl start $UNIT). The migration compares how it answers before and after. Nothing was changed."
+	# the environment the running Cosmos really has (whatever gave it: the
+	# unit, its drop-ins, environment files, systemd's own environment at its
+	# start): read from the process systemd names as the unit's main one,
+	# checked to be in the unit's control group
+	running_env_check
 	if [ "$DATA_PROBLEM" = licence ] && [ "$ACCEPT_CE" = 0 ]; then
 		die $EXIT_LICENCE "this Cosmos has a licence in its settings. The fork is built as upstream's community edition, with upstream's licence client unchanged. What this licence gives on upstream's community edition, it keeps on the fork: the licence stays in the settings and is renewed with upstream's licence server (api.cosmos-cloud.io) when the fork starts and once a day (the licence, whether this is an agent node and the number of users are sent, as upstream's community edition sends them), and while it is valid Constellation, remote storage and backups keep working, with its user and server limits. What it loses is only what exists in upstream's Pro build alone: groups, CI and functions, managed databases, the registry, SeaweedFS and the scheduler. If this server is a Pro installation, those stop. To migrate all the same, run again with --accept-community-edition. Nothing was changed."
 	fi
 	[ "$DATA_PROBLEM" != licence ] || warn "this Cosmos has a licence: migrating to the community edition as asked (--accept-community-edition); upstream's licence client stays as it is, the Pro edition's features are not in the fork."
+}
+# unit_env_words <array name>: the unit's variables as systemd gives them
+# (Environment, after its drop-ins) and /etc/sysconfig/CosmosCloud, one
+# assignment per element; split without pathname expansion (read -a), so a
+# value with a glob character is kept as it is; quotes around an assignment
+# removed
+unit_env_words() {
+	local -n env_words_out=$1
+	local line w
+	env_words_out=()
+	read -r -a env_words_out <<<"$(unit_prop Environment)" || true
+	for w in "${!env_words_out[@]}"; do env_words_out[w]=${env_words_out[w]#\"}; done
+	if [ -f "/etc/sysconfig/$UNIT" ]; then
+		while IFS= read -r line || [ -n "$line" ]; do
+			[[ $line =~ ^[[:space:]]*(#|$) ]] && continue
+			line=${line#"${line%%[![:space:]]*}"}
+			line=${line#export }
+			env_words_out+=("${line#\"}")
+		done <"/etc/sysconfig/$UNIT"
+	fi
+}
+# running_env_check: refuses (17) a COSMOS_* variable other than the two
+# ports, or CONFIG_FILE, in the environment of the running Cosmos
+# (/proc/<MainPID>/environ, NUL-separated), or a main process it cannot read
+running_env_check() {
+	local pid cg v name unknown=""
+	pid=$(unit_prop MainPID)
+	cg=$(unit_prop ControlGroup)
+	if ! [[ $pid =~ ^[1-9][0-9]{0,9}$ ]] || [ -z "$cg" ] || [ ! -r "/proc/$pid/environ" ] ||
+		! awk -F: -v cg="$cg" '$3 == cg { f = 1 } END { exit !f }' "/proc/$pid/cgroup" 2>/dev/null; then
+		die $EXIT_CANNOT "the environment of the running Cosmos cannot be read (systemd names ${pid:-no} main process for $UNIT, and it is not one of the unit's own): migrate.sh does not move a Cosmos whose settings it cannot place. Nothing was changed."
+	fi
+	while IFS= read -r -d '' v; do
+		name=${v%%=*}
+		case $name in
+		COSMOS_HTTP_PORT | COSMOS_HTTPS_PORT) ;;
+		COSMOS_* | CONFIG_FILE) unknown="$unknown $name" ;;
+		esac
+	done <"/proc/$pid/environ"
+	[ -z "$unknown" ] || die $EXIT_CANNOT "the running Cosmos (process $pid of $UNIT) has$unknown in its environment: it may keep its data elsewhere, and migrate.sh does not know what they do to a move (they may come from systemd's own environment at its start, which systemctl show-environment no longer shows). Nothing was changed."
+	return 0
 }
 # base_allows <x.y.z> <-unstableN or ""> <base x.y.z>: refuses an upstream newer than the fork's base
 base_allows() {
@@ -1061,11 +1212,10 @@ base_allows() {
 }
 # migrate_ports: the ports systemd gives the unit (else the settings, else 80/443)
 migrate_ports() {
-	local env v
-	env=$(unit_prop Environment)
-	if [ -f "/etc/sysconfig/$UNIT" ]; then env="$env $(grep -vE '^[[:space:]]*(#|$)' -- "/etc/sysconfig/$UNIT" | tr '\n' ' ')"; fi
+	local v words=()
+	unit_env_words words
 	HTTP_PORT="" HTTPS_PORT=""
-	for v in $env; do
+	for v in "${words[@]}"; do
 		v=${v//\"/}
 		case $v in
 		COSMOS_HTTP_PORT=*) [[ ${v#*=} =~ ^[0-9]{1,5}$ ]] && HTTP_PORT=${v#*=} ;;
@@ -1088,6 +1238,11 @@ migrate_describe() {
 		if backup_ok "$b"; then say "The backup in $b is complete and matches its lists now."; else say "The backup named by the state ($b) is not complete, or no longer matches its lists."; fi
 	fi
 	if ran_since_state; then say "Cosmos ran, or its data changed, after the state was written (newest file: $(newest_in_data))."; fi
+	if [ -n "$(state_get rollback)" ]; then
+		say "A way back to upstream began and was interrupted (it got to: $(state_get rollback)). A run and --continue would stop (exit 21) and change nothing."
+		say "--undo would: complete the way back: upstream's folder, the data as the backup has it (what is there moved into the backup when it differs), the unit as before, started as before."
+		exit 0
+	fi
 	case $mstep in
 	"" | stopping | stopped | backing-up | backed-up)
 		say "A run would: start upstream's Cosmos again if it ran before and does not run now, keep the earlier backup, then migrate from the start."
@@ -1119,9 +1274,14 @@ migrate_decide() {
 			say "The containers changed since before the migration (before < > now): $(changed_lines "$MIG_DIR/before.containers" <(printf '%s\n' "$now" | sed '/^$/d') 8)"
 	fi
 	if [ -n "$b" ] && backup_ok "$b"; then say "The backup of before is complete and checked: $b."; else say "The backup ${b:-(none)} is not complete or does not match its lists."; fi
-	die $EXIT_DECIDE "a migration was interrupted here (step: $(state_get mstep)), and Cosmos has run, or its data changed, since. Nothing is replaced without your word:
+	if [ "$(cosmos_folder_kind "$INSTALL_DIR")" = fork ] && [ "$(meta_version "$INSTALL_DIR")" = "$(state_get version)" ]; then
+		die $EXIT_DECIDE "a migration was interrupted here (step: $(state_get mstep)), and Cosmos has run, or its data changed, since. Nothing is replaced without your word:
   sudo bash $SELF --undo       back to upstream's Cosmos: the data as it is now is moved into the backup (named), the backup's data copied back
-  sudo bash $SELF --continue   keep the fork: the data as it is now is copied into the backup first, then the fork is checked and the migration completed
+  sudo bash $SELF --continue   keep the fork $(state_get version) that is in $INSTALL_DIR: the data as it is now is copied into the backup first, then the fork is checked and the migration completed
+Nothing was changed."
+	fi
+	die $EXIT_DECIDE "a migration was interrupted here (step: $(state_get mstep)), and Cosmos has run, or its data changed, since. $INSTALL_DIR does not hold the fork $(state_get version) this migration put there, so there is no fork to keep. Nothing is replaced without your word:
+  sudo bash $SELF --undo       back to upstream's Cosmos: the data as it is now is moved into the backup (named), the backup's data copied back
 Nothing was changed."
 }
 
@@ -1265,6 +1425,17 @@ migrate_on_exit() {
 	trap - ERR
 	# a success (the migration completed) is not a failure
 	if [ "$rc" = 0 ] || [ "$PHASE" = "done" ]; then cleanup; return 0; fi
+	if [ "$PHASE" = continue-said ]; then
+		cleanup
+		exit "$rc"
+	fi
+	if [ "$PHASE" = continue-copy ]; then
+		# stopped during --continue's copy (a signal): nothing but the stop and
+		# a partial copy happened; nothing is put back
+		printf '\nInterrupted during the copy of the data before --continue (exit %s): Cosmos is %s; nothing else changed.%s\nRun --continue again, or go back to upstream with: sudo bash %s --undo\n' "$rc" "$(unit_active)" "${CONTINUE_COPY:+ The partial copy $CONTINUE_COPY can be deleted.}" "$SELF" >&2
+		cleanup
+		exit "$rc"
+	fi
 	if [ "$PHASE" = continuing ]; then
 		printf '\nThe check after --continue did not pass (exit %s): nothing was put back, as you chose to keep the fork.\n' "$rc" >&2
 		printf 'The fork stays in %s (the unit is %s). The data as it was before --continue is in the backup (named above). To go back to upstream: sudo bash %s --undo\n' "$INSTALL_DIR" "$(unit_active)" "$SELF" >&2
@@ -1320,6 +1491,31 @@ if [ "$SCRIPT_ROLE" = migrate ]; then
 		detect_cosmos
 		[ "$DRY_RUN" = 0 ] || migrate_describe
 		case " $MIG_STEPS " in *" $MIG_MSTEP "*) ;; *) die $EXIT_FAILED "the state of the interrupted migration names a step this script does not know ('$MIG_MSTEP'): nothing was changed; the state is in $STATE" ;; esac
+		# a rollback that began and did not finish (review S-N1): only --undo
+		# completes it; neither a run nor --continue may start what is in
+		# $INSTALL_DIR on data that may be half put back
+		MIG_ROLLBACK=$(state_get rollback)
+		if [ -n "$MIG_ROLLBACK" ] && [ "$UNDO" = 0 ]; then
+			case $MIG_ROLLBACK in
+			data-moving) data_words="$DATA_DIR may be missing or only partly copied back from the backup" ;;
+			*) data_words="$DATA_DIR is $( { [ -n "$(state_get backup)" ] && same_as_manifest "$DATA_DIR" "$(state_get backup)/MANIFEST.var-lib-cosmos" 2>/dev/null; } && echo "the backup's (as before the migration)" || echo "not the backup's")" ;;
+			esac
+			die $EXIT_DECIDE "a way back to upstream began here and was interrupted (it got to: $MIG_ROLLBACK). $INSTALL_DIR holds $(cosmos_folder_kind "$INSTALL_DIR")${FOUND_VERSION:+ $FOUND_VERSION}; $data_words; the unit is $(unit_active). Only --undo completes it:
+  sudo bash $SELF --undo
+Nothing was changed."
+		fi
+		# --continue keeps a fork that is in place; checked before anything is
+		# done (review N6)
+		if [ "$CONTINUE" = 1 ]; then
+			if [ "$(cosmos_folder_kind "$INSTALL_DIR")" != fork ] || [ "$(meta_version "$INSTALL_DIR")" != "$(state_get version)" ]; then
+				die $EXIT_DECIDE "--continue keeps the fork, but $INSTALL_DIR holds $(cosmos_folder_kind "$INSTALL_DIR")${FOUND_VERSION:+ $FOUND_VERSION}, not the fork $(state_get version) this migration put there (step reached: $MIG_MSTEP). Run without --continue to see what can be done, or go back to upstream:
+  sudo bash $SELF --undo
+Nothing was changed."
+			fi
+			case $MIG_MSTEP in swapped | started) ;; *)
+				die $EXIT_USAGE "--continue goes only with an interrupted migration that waits for your word (this one stopped at '$MIG_MSTEP'; a run without --continue resumes it). Nothing was changed." ;;
+			esac
+		fi
 		if [ "$UNDO" = 1 ]; then
 			how=auto
 			[ "$MIG_MSTEP" != started ] || how=always
@@ -1372,15 +1568,32 @@ if [ "$SCRIPT_ROLE" = migrate ]; then
 		PHASE=migrating
 		trap 'migrate_on_exit $?' EXIT
 		if [ "$MIG_RESUME" = continue ]; then
+			# a refusal here is said, never answered with a way back: the owner
+			# chose the fork
+			PHASE=continue-said
 			b=$(state_get backup)
 			if [ -z "$b" ] || [ ! -d "$b" ] || [ ! -f "$b/$MIG_MARK" ]; then die $EXIT_FAILED "the backup named by the state (${b:-none}) is not there: nothing was changed"; fi
-			PHASE=continuing
 			step "Keeping the fork, as asked (--continue): first a copy of the data as it is now"
-			systemctl stop "$UNIT.service"
+			# room for the copy first (review S-N3): the data's size and a margin
+			cont_need=$(du -sk -- "$DATA_DIR" 2>/dev/null | cut -f1)
+			cont_free=$(free_kib "$b")
+			{ [[ $cont_need =~ ^[0-9]+$ ]] && [[ $cont_free =~ ^[0-9]+$ ]]; } || die $EXIT_FAILED "the room for a copy of $DATA_DIR in $b cannot be measured: nothing was changed"
+			[ "$cont_free" -ge $((cont_need + cont_need / 20 + 102400)) ] ||
+				die $EXIT_FAILED "there is not room in $b for a copy of $DATA_DIR (about $((cont_need / 1024 + 100)) MiB needed, $((cont_free / 1024)) MiB free): nothing was changed. Free room there and run --continue again, or go back to upstream with --undo."
+			was=$(unit_active)
 			copy=$b/var-lib-cosmos-at-continue-$(date -u +%Y%m%dT%H%M%SZ)
-			cp -a -- "$DATA_DIR/." "$copy"
-			write_manifest "$DATA_DIR" "$copy.MANIFEST"
-			same_as_manifest "$copy" "$copy.MANIFEST" || die $EXIT_FAILED "the copy of the data in $copy does not match the data"
+			CONTINUE_COPY=$copy
+			PHASE=continue-copy
+			systemctl stop "$UNIT.service"
+			if ! cp -a -- "$DATA_DIR/." "$copy" || ! write_manifest "$DATA_DIR" "$copy.MANIFEST" || ! same_as_manifest "$copy" "$copy.MANIFEST"; then
+				rm -rf -- "$copy" "$copy.MANIFEST"
+				CONTINUE_COPY=""
+				PHASE=continue-said
+				[ "$was" != active ] || systemctl start "$UNIT.service" || true
+				die $EXIT_FAILED "the copy of $DATA_DIR into the backup did not complete or does not match the data: the partial copy is removed and nothing else changed (Cosmos is $(unit_active)). Free room in $b and run --continue again, or go back to upstream with --undo."
+			fi
+			CONTINUE_COPY=""
+			PHASE=continuing
 			say "The data as it is now is copied, checked, to $copy."
 			migrate_start_and_check continue
 		fi
@@ -1537,7 +1750,6 @@ esac
 say "System: $OS_NAME, $ARCH."
 [ "$ASK" = 0 ] || say "(This version asks no questions yet: it takes the options given and the proposals below.)"
 
-free_kib() { df -Pk "$1" 2>/dev/null | awk 'NR==2{print $4}'; }
 need_space() { # folder, KiB, what
 	local have
 	have=$(free_kib "$1")
@@ -2077,11 +2289,6 @@ on_failure() {
 trap 'on_failure; cleanup' EXIT
 
 # A migration interrupted after the swap: start and check the fork
-if [ "$MIG_RESUME" = finish ]; then
-	VERSION=$(state_get version)
-	[[ $VERSION =~ ^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}-fork\.[1-9][0-9]{0,8}$ ]] || die $EXIT_FAILED "the state of the interrupted migration names no fork version: run migrate.sh --undo"
-	migrate_start_and_check
-fi
 
 start_state() {
 	[ "$DRY_RUN" = 1 ] && return 0

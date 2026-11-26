@@ -858,9 +858,9 @@ case_migrate_fail() { # a failure at each step on 0.24.0 and on 0.23.4, a releas
 	M "$m" m_migrate_fail_1 UPV
 }
 
-case_migrate_interrupt() { # kills at each step then --undo; the owner using the server meanwhile (run, dry run, uninstall, --undo); the backup moved; a kill during the rollback; a reboot after a kill; a resume
+case_migrate_interrupt() { # kills at each step then --undo; the owner using the server meanwhile (run, dry run, uninstall, --undo); the backup moved; a kill during the rollback; a reboot after a kill; a resume; --continue and a way back killed half-way
 	local sys=$1 m n
-	for n in 1 2 3; do
+	for n in 1 2 3 4; do
 		m=$(start_machine "$sys" "migrate-interrupt-$n" docker)
 		M "$m" "m_migrate_interrupt_$n"
 		D rm -f -v "$m" >/dev/null
