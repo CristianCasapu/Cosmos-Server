@@ -2975,7 +2975,12 @@ run_piece() { # piece
 		# host filters IPv4 too; a cloud server has no home network
 		case $(answer placement) in exposed-host) args+=(--ipv4 yes) ;; cloud) args+=(--exposed) ;; esac
 		# how SSH answers from outside, when the answer was given
-		[ -z "$(answer ssh)" ] || args+=(--ssh "$(answer ssh)") ;;
+		# (the guard takes "from" and the addresses as two arguments)
+		case $(answer ssh) in
+		"") ;;
+		from:*) args+=(--ssh from "$(answer ssh | sed 's/^from://')") ;;
+		*) args+=(--ssh "$(answer ssh)") ;;
+		esac ;;
 	fail2ban) args+=(--log "$DATA_DIR/cosmos.security.log" --cosmos-config "$DATA_DIR/cosmos.config.json") ;;
 	esac
 	step "Protection: $piece"
