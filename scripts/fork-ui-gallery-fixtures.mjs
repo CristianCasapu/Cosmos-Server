@@ -457,6 +457,83 @@ export const anyImageMock = [
   }],
 ];
 
+// The protection cards of the security page (GET /cosmos/api/protection, src/protection): nothing installed,
+// all installed and active (IPv4 filtered, a home network behind a router), the guard's table not loaded, a
+// Cosmos that may not read the firewall, and the guard's other states: fail-closed (no default route), no
+// outside interface, a flushed chain, IPv4 not filtered behind a router, SSH allowances with their end, other
+// tables that filter (one of them a guard made by hand). The shape is the one src/protection/protection_test.go
+// checks; the tables follow src/protection/testdata/nft-guard-v2-*.json.
+const protectionPiece = (piece, installed, extra = {}) => ({
+  installed, active: false, state: installed ? 'active' : 'notInstalled', stateFile: installed ? 'ok' : 'missing',
+  command: `sudo sh /opt/cosmos/fork/${piece}/${installed ? 'uninstall' : 'install'}.sh`, commandKind: installed ? 'uninstall' : 'install',
+  ...extra,
+});
+const emptySets = { publicTcp: [], publicUdp: [], vpnUdp: [], wanInterfaces: [], lanInterfaces: [], failClosedInterfaces: [], sshPorts: [], sshAllowed: [], homeNetworks: [] };
+const noTable = { loaded: false, inputHooked: false, forwardHooked: false, inputFilters: false, forwardFilters: false, ipv4Passed: false, ...emptySets };
+const liveTable = {
+  ...emptySets, loaded: true, inputHooked: true, forwardHooked: true, inputFilters: true, forwardFilters: true, ipv4Passed: false,
+  droppedInput: { packets: 48213, bytes: 2892780 }, droppedForward: { packets: 1290, bytes: 77400 }, droppedSpoofed: { packets: 37, bytes: 2220 },
+  publicTcp: [2052, 2053], vpnUdp: [41641], wanInterfaces: ['eth0'], lanInterfaces: ['eth0'], sshPorts: [22],
+};
+const reload = 'sudo systemctl reload cosmos-host-guard';
+const PROTECTION = {
+  none: {
+    time: '2026-11-17T10:00:00Z', cosmosPort: 2053,
+    guard: protectionPiece('nftables', false, { table: noTable, publicTcp: [], publicUdp: [], otherFilters: [], portMissing: false, keptOpen: [] }),
+    fail2ban: protectionPiece('fail2ban', false, { clientInstalled: false, running: false, configInstalled: false }),
+    updates: protectionPiece('unattended-upgrades', false, { binaryInstalled: true, enabled: false, timerEnabled: true, incomplete: false }),
+  },
+  all: {
+    time: '2026-11-17T10:00:00Z', cosmosPort: 2053,
+    guard: protectionPiece('nftables', true, {
+      active: true, since: '2026-11-17T10:00:00Z', by: 'fork', table: liveTable,
+      publicTcp: [2052, 2053], publicUdp: [], ipv4: true, sshOpen: false, ipv4Reason: 'asked-yes', exposed: false, otherFilters: [], portMissing: false, keptOpen: [2052, 2053],
+    }),
+    fail2ban: protectionPiece('fail2ban', true, { active: true, since: '2026-11-16T09:00:00Z', by: 'fork', clientInstalled: true, running: true, configInstalled: true, sshd: true, cosmosJails: true }),
+    updates: protectionPiece('unattended-upgrades', true, { active: true, since: '2026-11-15T08:00:00Z', by: 'fork', binaryInstalled: true, enabled: true, timerEnabled: true, config: '/etc/apt/apt.conf.d/52cosmos-security-upgrades', incomplete: false }),
+  },
+};
+const guardOf = (guard) => ({ ...PROTECTION.all, guard: { ...PROTECTION.all.guard, ...guard } });
+const inactive = (reason, table, extra = {}) => guardOf({ active: false, state: 'inactive', reason, table, ...extra });
+PROTECTION.unloaded = { ...inactive('tableMissing', noTable, { repairCommand: reload, portMissing: true, keptOpen: [2052, 2053] }), cosmosPort: 8443 };
+PROTECTION.unknown = {
+  ...PROTECTION.all,
+  guard: { ...PROTECTION.all.guard, active: false, state: 'unknown', reason: 'notPermitted', unknown: 'notPermitted', table: undefined },
+  updates: { ...PROTECTION.all.updates, by: 'administrator', stateFile: 'missing', since: '2025-03-02T07:41:00Z', config: '/etc/apt/apt.conf.d/20auto-upgrades', command: undefined, commandKind: undefined },
+};
+PROTECTION.failclosed = guardOf({ ipv4: false, ipv4Reason: 'behind-router', table: { ...liveTable, ipv4Passed: true, wanInterfaces: ['eth0', 'eth1'], lanInterfaces: [], failClosedInterfaces: ['eth0', 'eth1'] } });
+PROTECTION.nooutside = inactive('noOutside', { ...liveTable, wanInterfaces: [], lanInterfaces: [] });
+PROTECTION.flushed = inactive('chainEmpty', { ...liveTable, inputFilters: false, ipv4Passed: false }, { repairCommand: reload });
+PROTECTION.behindrouter = guardOf({
+  ipv4: false, ipv4Reason: 'behind-router', publicUdp: [443],
+  table: { ...liveTable, ipv4Passed: true, publicTcp: [2053], publicUdp: [443], wanInterfaces: ['eth0', 'wlan0'], lanInterfaces: ['eth0'], homeNetworks: ['192.0.2.0/24', '2001:db8:5::/48'] },
+});
+PROTECTION.sshallowed = guardOf({
+  table: {
+    ...liveTable, publicTcp: [2053], lanInterfaces: [],
+    sshAllowed: [{ address: '198.51.100.7', expires: 7199, until: '2026-11-17T12:00:00Z' }, { address: '2001:db8:2::20', expires: 86399, until: '2026-11-18T10:00:00Z' }],
+    homeNetworks: ['203.0.113.0/24'],
+  },
+  ipv4Reason: 'public-address',
+});
+PROTECTION.others = guardOf({ otherFilters: ['inet firewalld', 'ip filter', 'inet cosmos_guard'] });
+// the guard's third table (src/protection/testdata/nft-guard-v3-*.json): IPv4 passed per interface, trusted
+// uplinks, pending prefixes, the reverse-path counter; what the installer found; its watcher's liveness
+const v3Table = { ...liveTable, ipv4PassInterfaces: [], rpfInterfaces: ['eth0'], trustedInterfaces: [], pendingPrefixes: [], droppedRpf: { packets: 12, bytes: 720 } };
+const fresh = { watcherAt: '2026-11-17T09:59:55Z', refreshAt: '2026-11-17T09:59:20Z', watcherStale: false, refreshStale: false };
+const v3 = (table, extra = {}) => guardOf({ liveness: fresh, vpnFound: [], udpNotOpen: [], trustedInterfaces: [], table: { ...v3Table, ...table }, ...extra });
+PROTECTION.trusted = v3({ wanInterfaces: ['eth0', 'tun0'], trustedInterfaces: ['tun0'] }, { active: false, state: 'inactive', reason: 'trustedUplink', trustedInterfaces: ['tun0'] });
+PROTECTION.pass4 = v3({ wanInterfaces: ['eth0', 'wlan0'], lanInterfaces: ['eth0'], ipv4PassInterfaces: ['eth0'], rpfInterfaces: ['wlan0'], publicTcp: [2053] }, { ipv4: false, ipv4Reason: 'behind-router' });
+PROTECTION.pending = v3({ pendingPrefixes: ['2001:db8:5::/64'] });
+PROTECTION.cloud = v3({ lanInterfaces: [], publicTcp: [2053] }, { cloud: 'Amazon EC2', exposed: true, ipv4Reason: 'exposed', sshMode: 'console' });
+PROTECTION.vpnunknown = v3({}, { vpnFound: [{ kind: 'tailscale', port: 41641 }, { kind: 'wireguard', interface: 'wg0' }], udpNotOpen: [5353, 51820] });
+PROTECTION.stale = v3({}, { liveness: { watcherAt: '2026-11-17T09:20:00Z', refreshAt: '2026-11-17T09:21:00Z', watcherStale: true, refreshStale: true } });
+// after the third review: Tailscale switched to an exit node after the install, and a program that keeps
+// flushing the ruleset (counted by the watcher)
+PROTECTION.exitnode = v3({ wanInterfaces: ['eth0', 'tailscale0'], vpnHomeInterfaces: ['tailscale0'], rpfInterfaces: [] }, { outsideSinceInstall: ['tailscale0'], vpnFound: [{ kind: 'tailscale', port: 41641 }] });
+PROTECTION.removed = v3({}, { tableRemoved: { count: 57, at: '2026-11-17T09:58:00Z' } });
+PROTECTION.peersunreadable = v3({ wanInterfaces: ['eth0', 'tailscale0'], vpnHomeInterfaces: ['tailscale0'], rpfInterfaces: [] }, { tailnetPeers: 'unreadable', vpnFound: [{ kind: 'tailscale', port: 41641 }] });
+export const protectionMock = (state) => [['/cosmos/api/protection', ok(PROTECTION[state])]];
 // Fork addition (plan 47, I2c): what a container's edit tabs propose from (GET
 // /api/servapps/{id}/edit-hints), for the guarded view `container-edit`: a
 // linuxserver.io image whose data folder belongs to another user, a declared

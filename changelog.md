@@ -15,13 +15,31 @@ Merged into `custom` since `0.24.0-fork.40`, to be part of the next release:
 - `migrate.sh` moves upstream's Cosmos installed on the system (as upstream's `get.sh` installs it) to the fork, keeping its settings, users, URLs and containers. It refuses what it cannot move before changing anything: the fork already there, a Docker container, a Cosmos newer than the fork's base, users in MongoDB, data or installation behind a link or on a disk of its own, a unit set up in ways it does not know, and a licence unless `--accept-community-edition`. It backs up both folders and checks the copy file by file, puts the fork in place, and checks that everything answers as before. On any failure it puts everything back by itself and starts upstream's Cosmos again; it never deletes anything it did not make, and moves what it replaces into the backup. Interrupted, it continues when that is safe; once the server ran since, it waits for `--undo` or `--continue`. `--dry-run` only describes. The backup holds `GOING-BACK.txt`, how to return to upstream by hand. See "Moving upstream's Cosmos to the fork" in the README.
 - Every release carries `install.sh`, `migrate.sh` and `uninstall.sh`, inside its zips and next to them, with a signed list of the scripts, so that they can be checked by hand.
 - The release notes name exactly the systems the installer accepts (Ubuntu 22.04 is not among them), and an install that asks for protection no longer stops because a package of a protection piece that will not run is missing from apt.
-- In this release the installer's protection choice installs nothing yet: the host firewall guard and the automatic security updates are not in the release, and the Fail2ban piece is not run by the installer (install it by hand as before). An installation that asked for protection ends with exit code 16 and says so.
+- Saving the monitoring database first checks that Cosmos can reach it and use it, and says in plain words what is wrong and which server to use instead. Administrators can still save anyway.
+- The server field proposes the PostgreSQL containers of this server, at an address that works from Cosmos.
+- External can copy the monitoring history between the local file and PostgreSQL, with progress, either way.
+- The image download is its own step when an app is created, with "Try again".
+- A host guard you can install on the server (`sudo sh /opt/cosmos/fork/nftables/install.sh`): from outside your home network only Cosmos' public port answers, for the server and for the apps' published ports; your home network, VPNs and established connections keep working. It follows address and route changes by itself, never locks out the SSH session that installs it (an interactive install undoes itself unless you confirm from a new connection), and is removed with `uninstall.sh`.
+- Automatic security updates you can switch on the same way (`fork/unattended-upgrades/install.sh`): security updates only, never a restart.
+- The security page shows the guard, Fail2ban and the automatic updates: whether each is installed and working, what it lets through, and the command to install or remove it.
+
+### Fixed
+- Monitoring no longer stops when the monitoring database does not answer: the local file records meanwhile, and Cosmos switches back by itself once the database answers steadily.
+- Records written meanwhile are brought back by themselves. The notice says how many and that each was checked.
+- Totals and averages of that time are added exactly once; a falling value or a change of server no longer skews them.
+- An outage notice is closed whatever ends the outage, and a later outage is told again.
+- A copy run while monitoring writes no longer reports a false mismatch.
+- A notification marked read, deleted or marked resolved from a page opened before the monitoring database changed is no longer applied to another notification: the page loads again.
 
 ### Security
 - The first-run wizard asks for a one-time setup code before anything else. A new Cosmos makes it at its first start, readable by root only (`/var/lib/cosmos/setup-code`, and in the journal); the installer prints it. Without the code the server refuses every setup request, so nobody else on the network, on the internet or on the server can make themselves the administrator of a new installation. This holds for a Cosmos installed by hand too.
 - A server installed by the script that is not at home (a cloud server, the router's exposed host, a public address) answers its first-run wizard on 127.0.0.1 only, reached through an SSH tunnel, so that the code and the administrator's password never cross the network in clear.
 - The server's databases (`auth.db` with the password hashes, `database.db`) are readable by Cosmos' own user only; before, they could be read by other users of the server until its next restart.
 - The release build signs only files that the build itself made, checked file by file.
+- No value derived from the database password reaches the browser any more.
+- The database's connections are bounded, so a database that stops answering cannot hold Cosmos.
+- A sign-in from a new address is still alerted while the history is incomplete, with a hedged wording.
+- Fail2ban's installer no longer treats strangers at the login prompt, forwarded connections or processes with a faked name as your SSH session: only a sign-in the SSH server itself recorded keeps an address from being banned.
 
 ## Fork 0.24.0-fork.40 — 2026-11-25
 

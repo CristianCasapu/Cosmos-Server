@@ -51,7 +51,7 @@ func PullImageIfMissing(w http.ResponseWriter, req *http.Request) {
 			utils.Log("PullImageIfMissing - Image not found, pulling " + imageName)
 			fmt.Fprintf(w, "%s", "PullImageIfMissing - Image not found, pulling " + imageName + "\n")
 			flusher.Flush()
-			out, errPull := DockerPullImage(imageName)
+			out, errPull := forkPullImageTo(imageName, w, flusher.Flush) // Fork addition: a failure inside the stream is said, not taken for success (fork_pull_progress.go)
 			if errPull != nil {
 				utils.Error("PullImageIfMissing - Image not found.", errPull)
 				fmt.Fprintf(w, "%s", "[OPERATION FAILED] PullImageIfMissing - Image not found. " + errPull.Error() + "\n")
@@ -122,7 +122,7 @@ func PullImage(w http.ResponseWriter, req *http.Request) {
 		utils.Log("PullImageIfMissing - Image not found, pulling " + imageName)
 		fmt.Fprintf(w, "%s", "PullImageIfMissing - Image not found, pulling " + imageName + "\n")
 		flusher.Flush()
-		out, errPull := DockerPullImage(imageName)
+		out, errPull := forkPullImageTo(imageName, w, flusher.Flush) // Fork addition: a failure inside the stream is said, not taken for success (fork_pull_progress.go)
 		if errPull != nil {
 			utils.Error("PullImageIfMissing - Image not found.", errPull)
 			fmt.Fprintf(w, "%s", "[OPERATION FAILED] PullImageIfMissing - Image not found. " + errPull.Error() + "\n")

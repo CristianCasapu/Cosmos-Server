@@ -45,6 +45,6 @@ export default function createNotificationsAPI(apiFetch: ApiFetch) {
     mark: (body: object) => post('mark', body),
     remove: (body: object) => post('delete', body),
     // plan 48, review 7: the owner's word that the problem is over
-    resolve: (id: number) => post('resolve', { ids: [id] }),
+    resolve: (body: object) => post('resolve', body), // plan 51: {ids, store}
   };
 }

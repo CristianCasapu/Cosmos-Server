@@ -200,6 +200,18 @@ const SENTENCES = {
     pick: (e) => (!detail(e, 'sections') || detail(e, 'sections') === '(none)' ? 'nochange' : ''),
     variants: { nochange: '{{actor}} saved the settings without changing anything' },
   },
+  // Fork addition (plan 51): the copy of the monitoring history (src/monitorcopy)
+  'config.monitoring.copy': {
+    text: '{{actor}} started copying the monitoring history from the local file into PostgreSQL', ip: true,
+    pick: (e) => (detail(e, 'action') === 'catchup' ? 'catchup' : (detail(e, 'action') === 'cancel' ? 'cancel' : '') + (detail(e, 'direction') === 'to-local' ? 'local' : '')),
+    variants: {
+      // Fork addition (plan 51, S4b): no user, Cosmos did it after a fallback
+      catchup: 'Cosmos caught up {{copied}} monitoring records written into the local file while the database was away',
+      local: '{{actor}} started copying the monitoring records of PostgreSQL into the local file',
+      cancel: '{{actor}} cancelled the copy of the monitoring history',
+      cancellocal: '{{actor}} cancelled the copy of the monitoring history',
+    },
+  },
   'route.created': { text: '{{actor}} created the URL {{target}}', ip: true },
   'route.updated': { text: '{{actor}} changed the URL {{target}}', ip: true },
   'route.deleted': { text: '{{actor}} deleted the URL {{target}}', ip: true },
@@ -260,6 +272,8 @@ const SENTENCES = {
   },
   'snapshot.restore.started': { text: '{{actor}} started restoring {{target}} from the snapshot {{snapshot}}', ip: true },
   'api.change': { text: '{{actor}} sent {{method}} {{path}}', ip: true },
+  // Fork addition (plan 51): Configuration > External, "Save anyway"; never the password
+  'config.database.unchecked': { text: '{{actor}} saved the monitoring database {{target}} although it did not answer the check', ip: true },
 
   // Fork addition: blocks at Cloudflare's edge (src/edgeblock)
   'edge.blocked': {

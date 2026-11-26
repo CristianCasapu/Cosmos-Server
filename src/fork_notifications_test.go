@@ -133,7 +133,16 @@ func TestNotificationRoutesFollowThePermissions(t *testing.T) {
 			t.Errorf("mark %.40q: %d", bad, w.Code)
 		}
 	}
-	if w := call(router, adminReader, "POST", "/cosmos/api/notifications/mark", `{"ids":[`+id+`],"read":true}`); !strings.Contains(w.Body.String(), `"changed":1`) {
+	// plan 51: ids of another store (read before a switch) are refused; this store's taken
+	listed := call(router, adminReader, "GET", "/cosmos/api/notifications/list", "")
+	store := utils.MonitoringStoreID()
+	if store == "" || !strings.Contains(listed.Body.String(), `"store":"`+store+`"`) {
+		t.Errorf("the list does not name its store: %s", listed.Body.String())
+	}
+	if w := call(router, adminReader, "POST", "/cosmos/api/notifications/mark", `{"ids":[`+id+`],"read":true,"store":"0123456789ab"}`); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "NOTIF009") {
+		t.Errorf("another store's ids: %d %s", w.Code, w.Body.String())
+	}
+	if w := call(router, adminReader, "POST", "/cosmos/api/notifications/mark", `{"ids":[`+id+`],"read":true,"store":"`+store+`"}`); !strings.Contains(w.Body.String(), `"changed":1`) {
 		t.Errorf("mark: %s", w.Body.String())
 	}
 	if w := call(router, adminReader, "POST", "/cosmos/api/notifications/delete", `{"all":true}`); w.Code != http.StatusBadRequest {
@@ -220,5 +229,25 @@ func TestEveryNotificationTextUsedHasEnglish(t *testing.T) {
 	})
 	if count < 100 {
 		t.Errorf("only %d keys found: the scan is broken", count)
+	}
+}
+
+// Review round 2, M5: the list names the store it was read from; when the
+// store changed during the read, it is read again and the new store named.
+func TestNotificationsNameTheStoreTheyWereReadFrom(t *testing.T) {
+	notificationRouter(t)
+	reads := 0
+	store, ok := ofOneStore(func() bool {
+		reads++
+		if reads == 1 { // the store changes while the first read runs
+			utils.CloseMetricsDatabase()
+			if err := utils.InitMetricsDatabase(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return true
+	})
+	if !ok || reads != 2 || store == "" || store != utils.MonitoringStoreID() {
+		t.Errorf("ok %v, reads %d, store %q, now %q", ok, reads, store, utils.MonitoringStoreID())
 	}
 }

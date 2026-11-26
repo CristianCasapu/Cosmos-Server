@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,6 +42,8 @@ type pgCandidate struct {
 	Published []pgBinding
 	// Addresses: the container's own addresses on its networks
 	Addresses []string
+	// Networks: the names of its networks
+	Networks []string
 }
 
 type pgBinding struct {
@@ -56,8 +59,13 @@ type PostgresProposal struct {
 	// HostSource: published (a port of the server), container-network (Cosmos
 	// runs in a container and reaches it by name), address (the container's
 	// own address, which changes when the container is made again)
-	HostSource     string `json:"hostSource"`
-	HostNote       string `json:"hostNote,omitempty"`
+	HostSource string `json:"hostSource"`
+	HostNote   string `json:"hostNote,omitempty"`
+	// Addresses: the container's own addresses on its Docker networks, so
+	// that the form can tell a saved server that is one of them (plan 51)
+	Addresses []string `json:"addresses,omitempty"`
+	// Reach: answers / silent, a TCP connect from Cosmos to Host (plan 51)
+	Reach          string `json:"reach,omitempty"`
 	Database       string `json:"database,omitempty"`
 	User           string `json:"user,omitempty"`
 	PasswordSecret string `json:"passwordSecret,omitempty"`
@@ -118,6 +126,7 @@ var postgresCandidates = func(ctx context.Context) ([]pgCandidate, error) {
 			}
 			sort.Strings(names)
 			for _, name := range names {
+				c.Networks = append(c.Networks, name)
 				if n := full.NetworkSettings.Networks[name]; n != nil && n.IPAddress != "" {
 					c.Addresses = append(c.Addresses, n.IPAddress)
 				}
@@ -131,31 +140,101 @@ var postgresCandidates = func(ctx context.Context) ([]pgCandidate, error) {
 // insideContainer tells whether Cosmos runs in a container; replaced by the tests.
 var insideContainer = func() bool { return utils.IsInsideContainer }
 
-// hostFor picks the address Cosmos reaches the database at.
-func hostFor(c pgCandidate, name string) (string, string, string) {
+// cosmosNetworks are the Docker networks of Cosmos' own container (when it
+// runs in one); replaced by the tests.
+var cosmosNetworks = func(ctx context.Context) map[string]bool {
+	out := map[string]bool{}
+	self := os.Getenv("HOSTNAME")
+	if self == "" || docker.Connect() != nil {
+		return out
+	}
+	full, err := docker.DockerClient.ContainerInspect(ctx, self)
+	if err != nil || full.NetworkSettings == nil {
+		return out
+	}
+	for name := range full.NetworkSettings.Networks {
+		out[name] = true
+	}
+	return out
+}
+
+// The notes of the host choices (the panel has the same sentences under
+// mgmt.config.general.monitoringDb.fork.note.*).
+const (
+	noteAddress  = "The container's own address on Docker's network: it works now, but it changes when the container is made again (an update, an edit) or the containers start in another order. Better: publish its port 5432 on 127.0.0.1 (in the container's Network tab), then use 127.0.0.1:5432."
+	noteLAN      = "Its port is published on this address of the server only (not on 127.0.0.1)."
+	noteNetwork  = "Its name on a Docker network Cosmos shares with it."
+	noteNoShared = "Cosmos runs in a container and shares no Docker network with it: open the container's page and use \"Let these apps reach it\" to put Cosmos on its network, or publish its port 5432."
+)
+
+// bindingHost is the address of the server a published port is reached at
+// from the server itself, "" when the binding is not usable.
+func bindingHost(b pgBinding) (string, bool) {
+	port, err := strconv.Atoi(b.HostPort)
+	if err != nil || port < 1 || port > 65535 {
+		return "", false
+	}
+	switch b.HostIP {
+	case "", "0.0.0.0", "::":
+		return net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), true
+	}
+	ip := net.ParseIP(b.HostIP)
+	if ip == nil {
+		return "", false
+	}
+	return net.JoinHostPort(ip.String(), strconv.Itoa(port)), ip.IsLoopback()
+}
+
+// hostFor picks the address Cosmos reaches the database at, for where
+// Cosmos runs: (host, source, note). source: published (a port of the
+// server), container-network (by name, Cosmos in a container on a shared
+// network), address (the container's own address), none (no way found).
+func hostFor(c pgCandidate, name string, inside bool, shared map[string]bool) (string, string, string) {
+	if inside {
+		for _, network := range c.Networks {
+			if shared[network] {
+				return name + ":5432", "container-network", noteNetwork
+			}
+		}
+		// a port published on an address of the server that is not the
+		// loopback is reached from a container too; 127.0.0.1 is not
+		for _, b := range c.Published {
+			if host, _ := bindingHost(b); host != "" && b.HostIP != "" && b.HostIP != "0.0.0.0" && b.HostIP != "::" {
+				if ip := net.ParseIP(b.HostIP); ip != nil && !ip.IsLoopback() {
+					return host, "published", noteLAN
+				}
+			}
+		}
+		return "", "none", noteNoShared
+	}
+	// bare-metal: every address of the server or its loopback first, then
+	// the one address it is bound to
+	other := ""
 	for _, b := range c.Published {
-		port, err := strconv.Atoi(b.HostPort)
-		if err != nil || port < 1 || port > 65535 {
+		host, loopback := bindingHost(b)
+		if host == "" {
 			continue
 		}
-		switch b.HostIP {
-		case "", "0.0.0.0", "::", "127.0.0.1", "::1":
-			return net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), "published", ""
+		if loopback {
+			return host, "published", ""
+		}
+		if other == "" {
+			other = host
 		}
 	}
-	if insideContainer() {
-		return name + ":5432", "container-network", "Cosmos runs in a container: it reaches the database by its name when both are on the same Docker network."
+	if other != "" {
+		return other, "published", noteLAN
 	}
 	for _, address := range c.Addresses {
 		if ip := net.ParseIP(address); ip != nil {
-			return net.JoinHostPort(ip.String(), "5432"), "address", "The container's own address: it can change when the container is made again (an update, an edit). Publishing port 5432 on 127.0.0.1 gives an address that stays."
+			return net.JoinHostPort(ip.String(), "5432"), "address", noteAddress
 		}
 	}
 	return "", "", ""
 }
 
 // postgresProposals builds the proposals from what Docker answered.
-func postgresProposals(candidates []pgCandidate) []PostgresProposal {
+func postgresProposals(candidates []pgCandidate, inside bool, shared map[string]bool) []PostgresProposal {
 	out := []PostgresProposal{}
 	for _, c := range candidates {
 		if len(out) >= maxPostgresProposals {
@@ -167,9 +246,9 @@ func postgresProposals(candidates []pgCandidate) []PostgresProposal {
 		}
 		details := resolve(c.Info, nil, func(string) string { return "" })
 		clean(&details, details.secretValues)
-		p := PostgresProposal{Container: name, Image: shown(c.Info.Image), Source: details.Source}
-		p.Host, p.HostSource, p.HostNote = hostFor(c, name)
-		if p.Host == "" {
+		p := PostgresProposal{Container: name, Image: shown(c.Info.Image), Source: details.Source, Addresses: append([]string{}, c.Addresses...)}
+		p.Host, p.HostSource, p.HostNote = hostFor(c, name, inside, shared)
+		if p.Host == "" && p.HostSource != "none" {
 			continue
 		}
 		if len(details.Accounts) > 0 {
@@ -218,9 +297,10 @@ func PostgresProposalsRoute(w http.ResponseWriter, req *http.Request) {
 		utils.HTTPError(w, "Docker does not answer: the PostgreSQL containers cannot be listed", http.StatusServiceUnavailable, "SI010")
 		return
 	}
+	proposals := checkedProposals(ctx, candidates)
 	noStore(w)
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "OK", "data": map[string]interface{}{
 		"insideContainer": insideContainer(),
-		"proposals":       postgresProposals(candidates),
+		"proposals":       proposals,
 	}})
 }

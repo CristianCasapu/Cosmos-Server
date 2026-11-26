@@ -1,0 +1,23 @@
+# Installed by fork/nftables/install.sh (the Cosmos fork): keeps the guard's
+# interfaces and home prefixes current as soon as an address or a route changes.
+# Started before the network is configured, so the first default route is seen.
+[Unit]
+Description=Cosmos host guard: follow address and route changes
+DefaultDependencies=no
+After=cosmos-host-guard.service
+Before=network-pre.target shutdown.target
+Wants=network-pre.target
+Requires=cosmos-host-guard.service
+PartOf=cosmos-host-guard.service
+Conflicts=shutdown.target
+# it must always come back: no start limit (the timer covers the seconds between)
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/cosmos-host-guard watch
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=cosmos-host-guard.service

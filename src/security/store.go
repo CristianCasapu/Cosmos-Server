@@ -84,7 +84,7 @@ func writeDB() (*sql.DB, error) {
 	if schemaReady == db {
 		return db, nil
 	}
-	if err := createSchema(db, utils.MonitoringDialect()); err != nil {
+	if err := createSchema(db, utils.MonitoringDialectOf(db)); err != nil {
 		return nil, err
 	}
 	schemaReady = db
@@ -124,7 +124,8 @@ func createSchema(db *sql.DB, dialect string) error {
 	// later versions of the table are brought up to date here, by what the
 	// key says: "current < 2" and so on
 	set := "INSERT INTO monitoring_kv(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
-	if _, err := tx.Exec(utils.MonitoringRebind(set), schemaVersionKey, strconv.Itoa(schemaVersion)); err != nil {
+	// Fork addition (plan 51): the placeholders of dialect, not of the store in use: the history copy prepares the other store
+	if _, err := tx.Exec(utils.RebindFor(dialect, set), schemaVersionKey, strconv.Itoa(schemaVersion)); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -136,7 +137,31 @@ const insertSQL = "INSERT INTO " + tableName +
 
 // insert stores the events in one transaction, in their order, and sets
 // their IDs. Either all of them are stored or none.
-func insert(events []Event) error {
+func insert(events []Event) error { return insertKept(events, 0) }
+
+// insertKept is insert where the first retried events were in a batch that
+// failed (the recorder's path). Fork addition (plan 51): a batch whose handle
+// a switch of the store closed under it is stored at once on the store in
+// use, each event looked up first (review round 3: on the recorder's path).
+func insertKept(events []Event, retried int) error {
+	err := insertBatch(events, retried)
+	if utils.IsClosedHandle(err) {
+		err = insertBatch(events, len(events))
+	}
+	return err
+}
+
+// insertBatch is insertRetrying; replaced by the tests.
+var insertBatch = insertRetrying
+
+// sameEventSQL finds a stored event equal to one about to be stored.
+const sameEventSQL = "SELECT id FROM " + tableName + " WHERE node = ? AND ts = ? AND kind = ? AND actor = ? AND ip = ? AND target = ? AND n = ? AND details = ? LIMIT 1"
+
+// insertRetrying is insert where the first retried events were in a batch
+// that failed: a commit the server made but whose answer was lost looks
+// like a failure (review round 2, M4), so each of them is looked up first
+// and not stored twice.
+func insertRetrying(events []Event, retried int) error {
 	if len(events) == 0 {
 		return nil
 	}
@@ -152,7 +177,7 @@ func insert(events []Event) error {
 	}
 	defer tx.Rollback()
 
-	statement, err := tx.Prepare(utils.MonitoringRebind(insertSQL))
+	statement, err := tx.Prepare(utils.MonitoringRebindFor(db, insertSQL))
 	if err != nil {
 		return err
 	}
@@ -171,6 +196,14 @@ func insert(events []Event) error {
 		severity, _ := ParseSeverity(event.Severity)
 		if severity == 0 {
 			severity = SeverityInfo
+		}
+		if i < retried {
+			var id int64
+			if tx.QueryRow(utils.MonitoringRebindFor(db, sameEventSQL), node, utils.TimeToMillis(event.Time), event.Kind,
+				event.Actor, event.IP, event.Target, event.Count, details).Scan(&id) == nil {
+				ids[i] = id
+				continue
+			}
 		}
 		err := statement.QueryRow(node, utils.TimeToMillis(event.Time), event.Kind, event.Class, int(severity),
 			event.Actor, event.IP, event.Target, event.Host, event.Path, event.Method, event.Outcome,
@@ -197,14 +230,14 @@ func prune(now time.Time) (int64, error) {
 	}
 	node := utils.MonitoringNode()
 
-	result, err := db.Exec(utils.MonitoringRebind("DELETE FROM "+tableName+" WHERE node = ? AND ts < ?"),
+	result, err := db.Exec(utils.MonitoringRebindFor(db, "DELETE FROM "+tableName+" WHERE node = ? AND ts < ?"),
 		node, utils.TimeToMillis(now.Add(-retention)))
 	if err != nil {
 		return 0, err
 	}
 	deleted, _ := result.RowsAffected()
 
-	rows, err := db.Query(utils.MonitoringRebind("SELECT kind, COUNT(*) FROM "+tableName+" WHERE node = ? GROUP BY kind"), node)
+	rows, err := db.Query(utils.MonitoringRebindFor(db, "SELECT kind, COUNT(*) FROM "+tableName+" WHERE node = ? GROUP BY kind"), node)
 	if err != nil {
 		return deleted, err
 	}
@@ -227,7 +260,7 @@ func prune(now time.Time) (int64, error) {
 
 	for _, kind := range over {
 		// the row just past the cap, counted from the newest, and all before it
-		result, err := db.Exec(utils.MonitoringRebind(
+		result, err := db.Exec(utils.MonitoringRebindFor(db,
 			"DELETE FROM "+tableName+" WHERE node = ? AND kind = ? AND id <= ("+
 				"SELECT id FROM "+tableName+" WHERE node = ? AND kind = ? ORDER BY id DESC LIMIT 1 OFFSET ?)"),
 			node, kind, node, kind, capOf(kind))

@@ -6,9 +6,10 @@ import {
   Stack,
   FormHelperText,
 } from '@mui/material';
-import { PostgresProposals, PostgresTestButton, PostgresFoundNote, usePostgresProposals } from './forkPostgresProposals'; // Fork addition (plan 47)
+import { PostgresProposals, PostgresTestButton, PostgresFoundNote, usePostgresProposals, PostgresHostChoices, MaskedPasswordHint, DatabaseRefusal, MonitoringStoreLine, ContainerAddressWarning } from './forkPostgresProposals'; // Fork addition (plans 47, 51)
 import { postgresHostProblem, postgresNameProblem, postgresPasswordProblem } from '../../utils/postgresProposal'; // Fork addition (plan 47)
 import { CosmosCheckbox, CosmosCollapse, CosmosInputPassword, CosmosInputText } from './users/formShortcuts';
+import MonitoringCopy from './forkMonitoringCopy'; // Fork addition (plan 51): the copy of the monitoring history
 import { useTranslation } from 'react-i18next';
 import { FilePickerButton } from '../../components/filePicker';
 
@@ -24,7 +25,7 @@ export const postgresValidation = (t) => ({
     (value) => !postgresPasswordProblem(value)),
 });
 
-const ConfigExternal = ({ formik }) => {
+const ConfigExternal = ({ formik, isAdmin }) => { // Fork addition (plan 51): isAdmin, for "Save anyway"
   const { t } = useTranslation();
   const proposals = usePostgresProposals(); // Fork addition (plan 47)
 
@@ -65,11 +66,15 @@ const ConfigExternal = ({ formik }) => {
             <Stack spacing={1}>
               <FormHelperText>{t('mgmt.config.general.monitoringDb.introHelperText')}</FormHelperText>
               <PostgresFoundNote proposals={proposals} />{/* Fork addition (plan 47) */}
+              <MonitoringStoreLine />{/* Fork addition (plan 51): the local file meanwhile, said */}
+              <DatabaseRefusal formik={formik} isAdmin={isAdmin} />{/* Fork addition (plan 51): not saved, why, "Save anyway" */}
+              <MonitoringCopy saves={formik.submitCount} />{/* Fork addition (plan 51): copy the history between the local file and PostgreSQL */}
 
               <CosmosCollapse title={t('mgmt.config.general.monitoringDb.postgresTitle')}>
                 <Grid container spacing={3}>
                   {/* Fork addition (plan 47): the PostgreSQL containers of this server, proposed with their source */}
                   <PostgresProposals formik={formik} proposals={proposals} />
+                  <PostgresHostChoices formik={formik} proposals={proposals} />{/* Fork addition (plan 51): the proposals as choices, "Type it myself" */}
                   <Grid size={{ xs: 12 }}>
                     <CosmosInputText
                       label={t('mgmt.config.general.monitoringDb.hostInput.hostLabel')}
@@ -78,6 +83,7 @@ const ConfigExternal = ({ formik }) => {
                       placeholder={'localhost:5432'}
                     />
                     <FormHelperText>{t('mgmt.config.general.monitoringDb.hostInput.hostHelperText')}</FormHelperText>
+                    <ContainerAddressWarning formik={formik} proposals={proposals} />{/* Fork addition (plan 51): a container's address on Docker's network: works now, changes later */}
                   </Grid>
 
                   <Grid size={{ xs: 12 }}>
@@ -101,6 +107,7 @@ const ConfigExternal = ({ formik }) => {
                       formik={formik}
                       noStrength
                     />
+                    <MaskedPasswordHint formik={formik} />{/* Fork addition (plan 51) */}
                   </Grid>
 
                   <PostgresTestButton formik={formik} />{/* Fork addition (plan 47) */}

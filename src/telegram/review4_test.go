@@ -89,6 +89,7 @@ var declaredPairs = map[string][]string{
 	"snapshots.late":          {"snapshots.ontime"},
 	"watch.stuck":             {"watch.recovered"},
 	"error.job":               {"job.restored"},
+	"monitoring.store.down":   {"monitoring.store.ended", "monitoring.store.restored"},
 }
 
 func TestOnlyDeclaredPairsAreThreads(t *testing.T) {

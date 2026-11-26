@@ -128,7 +128,7 @@ func window(from time.Time, to time.Time) (Window, error) {
 		return result, err
 	}
 
-	rows, err := db.Query(utils.MonitoringRebind(
+	rows, err := db.Query(utils.MonitoringRebindFor(db,
 		"SELECT kind, SUM(n) FROM "+tableName+" WHERE "+where+" GROUP BY kind"), args...)
 	if err != nil {
 		return result, err
@@ -148,7 +148,7 @@ func window(from time.Time, to time.Time) (Window, error) {
 	}
 
 	expression, caseArgs := groupCase()
-	rows, err = db.Query(utils.MonitoringRebind(
+	rows, err = db.Query(utils.MonitoringRebindFor(db,
 		"SELECT grp, SUM(n), COUNT(DISTINCT NULLIF(ip, '')) FROM (SELECT "+expression+" AS grp, n, ip FROM "+tableName+
 			" WHERE "+where+") grouped GROUP BY grp"), append(caseArgs, args...)...)
 	if err != nil {
@@ -173,7 +173,7 @@ func window(from time.Time, to time.Time) (Window, error) {
 	for _, kind := range hostile {
 		hostileArgs = append(hostileArgs, kind)
 	}
-	err = db.QueryRow(utils.MonitoringRebind(
+	err = db.QueryRow(utils.MonitoringRebindFor(db,
 		"SELECT COALESCE(SUM(n), 0), COUNT(DISTINCT NULLIF(ip, '')) FROM "+tableName+" WHERE "+where+
 			" AND kind IN ("+strings.TrimSuffix(strings.Repeat("?, ", len(hostile)), ", ")+")"), hostileArgs...).
 		Scan(&result.Total, &result.Addresses)
@@ -208,7 +208,7 @@ func groupBuckets(from time.Time, to time.Time, size time.Duration, offset time.
 	}
 	expression, caseArgs := groupCase()
 	queryArgs := append([]interface{}{offsetMs, sizeMs}, caseArgs...)
-	rows, err := db.Query(utils.MonitoringRebind(
+	rows, err := db.Query(utils.MonitoringRebindFor(db,
 		"SELECT (ts + ?) / ? AS bucket, grp, SUM(n) FROM (SELECT "+expression+" AS grp, ts, n FROM "+tableName+
 			" WHERE "+where+") grouped GROUP BY bucket, grp"), append(queryArgs, args...)...)
 	if err != nil {
@@ -267,7 +267,7 @@ func topAddresses(from time.Time, to time.Time) ([]Address, error) {
 	if err != nil {
 		return addresses, err
 	}
-	rows, err := db.Query(utils.MonitoringRebind(
+	rows, err := db.Query(utils.MonitoringRebindFor(db,
 		"SELECT ip, kind, SUM(n) FROM "+tableName+" WHERE "+where+
 			" AND ip IN ("+strings.TrimSuffix(strings.Repeat("?, ", len(ipArgs)), ", ")+")"+
 			" GROUP BY ip, kind ORDER BY ip, SUM(n) DESC, kind"), append(args, ipArgs...)...)

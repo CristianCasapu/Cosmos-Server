@@ -17,6 +17,7 @@ import (
 		"github.com/azukaar/cosmos-server/src/docker"
 		"github.com/azukaar/cosmos-server/src/authorizationserver"
 		"github.com/azukaar/cosmos-server/src/market"
+		"github.com/azukaar/cosmos-server/src/monitorcopy" // Fork addition (plan 51)
 	"github.com/azukaar/cosmos-server/src/anyimage" // Fork addition: install any image
 	"github.com/azukaar/cosmos-server/src/appsignin" // Fork addition (plan 45): sign-in details of apps
 		"github.com/azukaar/cosmos-server/src/constellation"
@@ -1052,6 +1053,7 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/config/email-detect", maildetect.Route) // Fork addition: proposes SMTP settings for an email address
 	srapiAdmin.HandleFunc("/api/config/http-check", configapi.HTTPCheckRoute) // Fork addition: checks the HTTP settings before a save, see configapi/fork_http_settings.go
 	srapiAdmin.HandleFunc("/api/config/postgres-test", configapi.PostgresTestRoute) // Fork addition: does the monitoring database answer, see configapi/fork_postgres.go
+	srapiAdmin.HandleFunc("/api/monitoring-store", configapi.MonitoringStoreRoute) // Fork addition (plan 51): the monitoring store in use, see configapi/fork_monitoring_store.go
 	srapiAdmin.HandleFunc("/api/upnp", upnp.StatusRoute)
 	srapiAdmin.HandleFunc("/api/reachability", reach.StatusRoute) // Fork addition: can the apps be reached from the internet
 	srapiAdmin.HandleFunc("/api/local-names", proxy.LocalNamesRoute) // Fork addition: are the .local names published and answered, see proxy/fork_mdns_status.go
@@ -1097,6 +1099,9 @@ func InitServer() *mux.Router {
 	srapiAdmin.HandleFunc("/api/servapps/{containerId}/sign-in/reveal", appsignin.RevealRoute)   // Fork addition (plan 45): one of its secrets, recorded
 	srapiAdmin.HandleFunc("/api/app-sign-in/defaults", appsignin.DefaultsRoute)                  // Fork addition (plan 45): what an installation proposes
 	srapiAdmin.HandleFunc("/api/config/postgres-proposals", appsignin.PostgresProposalsRoute)    // Fork addition (plan 47): the PostgreSQL containers proposed for the monitoring database, no secret
+	srapiAdmin.HandleFunc("/api/monitoring-copy", monitorcopy.StatusRoute)        // Fork addition (plan 51): the copy of the monitoring history between the local file and PostgreSQL, see monitorcopy/
+	srapiAdmin.HandleFunc("/api/monitoring-copy/start", monitorcopy.StartRoute)   // Fork addition (plan 51)
+	srapiAdmin.HandleFunc("/api/monitoring-copy/cancel", monitorcopy.CancelRoute) // Fork addition (plan 51)
 	srapi.HandleFunc("/api/host-home-only", proxy.HostHomeOnlyRoute) // Fork addition (plan 50): does the proxy keep a host to the home network (proxy/fork_host_home_only.go)
 	srapiAdmin.HandleFunc("/api/lan-addresses", proxy.LANAddressesRoute) // Fork addition: where a service may be published for the home network (proxy/fork_lan_addresses.go)
 	// Fork addition: does an app accept the address it is reached at (src/behind, plan 44)
@@ -1240,6 +1245,7 @@ func InitServer() *mux.Router {
 	registerTelegramMessageRoutes(srapiAdmin) // Fork addition (plan 48): previews of the messages, see fork_telegram_messages.go
 	registerNotificationRoutes(srapiAdmin) // Fork addition: the notifications page and details, see fork_notifications.go
 	registerFail2banRoutes(srapiAdmin) // Fork addition: Fail2ban status, unban and settings, see fork_fail2ban.go
+	registerProtectionRoutes(srapiAdmin) // Fork addition: the state of the protection pieces, read only, see fork_protection.go
 	registerTurnstileRoutes(srapiAdmin) // Fork addition: Cloudflare Turnstile settings, see fork_turnstile.go
 	registerEdgeBlockRoutes(srapiAdmin) // Fork addition: blocks at Cloudflare's edge, see fork_edgeblock.go
 

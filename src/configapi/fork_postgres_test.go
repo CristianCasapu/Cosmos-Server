@@ -163,10 +163,11 @@ func TestCheckPostgresLive(t *testing.T) {
 }
 
 func TestPostgresSettingsCheckedOnSave(t *testing.T) {
+	stubPostgresStore(t, nil)
 	stored := utils.Config{Database: utils.DatabaseConfig{PostgresHost: "an odd value://", PostgresPassword: postgresTestSecret}}
 	request := stored
 	request.Database.PostgresPassword = "***"
-	if p := checkPostgresSettings(&request, stored); p != nil {
+	if p := checkPostgresSettings(nil, &request, stored); p != nil {
 		t.Fatalf("an unchanged odd value blocks the save: %v", p)
 	}
 	for _, good := range []utils.DatabaseConfig{
@@ -177,7 +178,7 @@ func TestPostgresSettingsCheckedOnSave(t *testing.T) {
 		{PostgresHost: " notes-db:5432 ", PostgresUsername: "owner_name"},
 	} {
 		request := utils.Config{Database: good}
-		if p := checkPostgresSettings(&request, stored); p != nil {
+		if p := checkPostgresSettings(nil, &request, stored); p != nil {
 			t.Errorf("%+v refused: %v", good, p)
 		}
 	}
@@ -189,7 +190,7 @@ func TestPostgresSettingsCheckedOnSave(t *testing.T) {
 		{PostgresHost: "db", PostgresUsername: "a;drop"},
 	} {
 		request := utils.Config{Database: bad}
-		if p := checkPostgresSettings(&request, stored); p == nil || p.Code != "UC045" {
+		if p := checkPostgresSettings(nil, &request, stored); p == nil || p.Code != "UC045" {
 			t.Errorf("%+v accepted", bad)
 		}
 	}
@@ -248,17 +249,233 @@ func TestTheMaskedPostgresPasswordStaysWithItsServer(t *testing.T) {
 		t.Error("the saved password was lost")
 	}
 
-	// another server with a password typed for it: fine
+	// another server with a password typed for it: not refused for the
+	// password; (plan 51) a closed local port is refused by the connection
+	// check, and saved with "Save anyway" by an administrator only
 	reset()
 	settings = readSettingsAs(t, asConfigurationToken)
-	// (a closed local port: the save opens the monitoring database there at once)
 	settings.Database.PostgresHost = "127.0.0.1:1"
 	settings.Database.PostgresPassword = "typed-for-the-new-server"
-	if w := save(asConfigurationToken, settings); w.Code != http.StatusOK {
-		t.Fatalf("a new server with its own password: %d %s", w.Code, w.Body.String())
+	if w := save(asConfigurationToken, settings); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "UC047") ||
+		!strings.Contains(w.Body.String(), "Nothing answers at 127.0.0.1:1") || strings.Contains(w.Body.String(), "typed-for-the-new-server") {
+		t.Fatalf("a closed port: %d %s", w.Code, w.Body.String())
+	}
+	if stored := utils.ReadConfigFromFile().Database; stored != saved {
+		t.Errorf("refused, but stored %+v", stored)
+	}
+	unchecked := func(as func(*http.Request) *http.Request) func(*http.Request) *http.Request {
+		return func(req *http.Request) *http.Request {
+			req.URL.RawQuery = "database=unchecked"
+			return as(req)
+		}
+	}
+	resetSaveGate()
+	if w := save(unchecked(asConfigurationToken), settings); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "UC048") {
+		t.Fatalf("Save anyway by a token without the admin permission: %d %s", w.Code, w.Body.String())
+	}
+	settings.Database.PostgresPassword = "typed-for-the-new-server"
+	recorded := captureSecurity(t)
+	if w := save(unchecked(asAdmin), settings); w.Code != http.StatusOK {
+		t.Fatalf("Save anyway by an administrator: %d %s", w.Code, w.Body.String())
+	}
+	kinds := []string{}
+	for _, e := range recorded() {
+		kinds = append(kinds, e.Kind)
+		if e.Kind == utils.SecDatabaseUnchecked && (e.Target != "127.0.0.1:1" || strings.Contains(fmtEvent(e), "typed-for-the-new-server")) {
+			t.Errorf("record %+v", e)
+		}
+	}
+	if !containsString(kinds, utils.SecDatabaseUnchecked) {
+		t.Errorf("Save anyway not recorded: %v", kinds)
 	}
 	if stored := utils.ReadConfigFromFile().Database; stored.PostgresPassword != "typed-for-the-new-server" || stored.PostgresHost != "127.0.0.1:1" {
 		t.Errorf("stored %+v", stored)
+	}
+}
+
+func stubPostgresStore(t *testing.T, problem *utils.PostgresProblem) *[]utils.DatabaseConfig {
+	t.Helper()
+	tried := &[]utils.DatabaseConfig{}
+	old, oldAdvice, oldGap := checkPostgresStore, postgresAdvice, saveCheckGap
+	saveCheckGap = 0 // the gate has a test of its own
+	resetSaveGate()
+	checkPostgresStore = func(ctx context.Context, d utils.DatabaseConfig) *utils.PostgresProblem {
+		*tried = append(*tried, d)
+		return problem
+	}
+	postgresAdvice = func(ctx context.Context, typed string, reason string) string {
+		return "On this server PostgreSQL's port is published on 192.168.1.10 only, not on localhost: use 192.168.1.10:5432."
+	}
+	t.Cleanup(func() { checkPostgresStore, postgresAdvice, saveCheckGap = old, oldAdvice, oldGap; resetSaveGate() })
+	return tried
+}
+
+// Plan 51: a save that changes the settings connects first; one that does
+// not never connects; the refusal says what failed and what to try.
+func TestPostgresSaveConnectsOnlyWhenTheSettingsChange(t *testing.T) {
+	refused := &utils.PostgresProblem{Reason: "closed", Message: "Nothing answers at localhost:5432: check the address and the port, and that the database runs."}
+	tried := stubPostgresStore(t, refused)
+	stored := utils.Config{Database: utils.DatabaseConfig{PostgresHost: "192.168.1.10:5432", PostgresDatabase: "cosmos", PostgresUsername: "cosmos", PostgresPassword: postgresTestSecret}}
+
+	// unchanged (the mask, or the password put back): nothing is tried, even with the database down
+	for _, password := range []string{"***", postgresTestSecret} {
+		request := stored
+		request.Database.PostgresPassword = password
+		request.ServerCountry = "RO"
+		if p := checkPostgresSettings(nil, &request, stored); p != nil {
+			t.Errorf("unchanged settings refused: %v", p)
+		}
+	}
+	// back to the local file: nothing to connect to
+	if p := checkPostgresSettings(nil, &utils.Config{}, stored); p != nil {
+		t.Errorf("back to the local file: %v", p)
+	}
+	if len(*tried) != 0 {
+		t.Fatalf("connected for an unchanged save: %+v", *tried)
+	}
+
+	request := stored
+	request.Database.PostgresHost = "localhost:5432"
+	p := checkPostgresSettings(nil, &request, stored)
+	if p == nil || p.Code != "UC047" || !strings.Contains(p.Message, "Nothing answers at localhost:5432") ||
+		!strings.Contains(p.Message, "use 192.168.1.10:5432") || !strings.Contains(p.Message, "Nothing was saved") {
+		t.Fatalf("refusal: %+v", p)
+	}
+	if len(*tried) != 1 || (*tried)[0].PostgresPassword != postgresTestSecret || (*tried)[0].PostgresHost != "localhost:5432" {
+		t.Errorf("tried %+v", *tried)
+	}
+	// a password in a remote's sentence is never repeated
+	*refused = utils.PostgresProblem{Reason: "refused", Message: "odd " + postgresTestSecret}
+	if p := checkPostgresSettings(nil, &request, stored); p == nil || strings.Contains(p.Message, postgresTestSecret) {
+		t.Errorf("the password came out: %+v", p)
+	}
+	// the database answers: saved
+	*refused = utils.PostgresProblem{}
+	checkPostgresStore = func(context.Context, utils.DatabaseConfig) *utils.PostgresProblem { return nil }
+	if p := checkPostgresSettings(nil, &request, stored); p != nil {
+		t.Errorf("working settings refused: %v", p)
+	}
+}
+
+func resetSaveGate() {
+	postgresSaveMu.Lock()
+	postgresSaveBusy, postgresSaveLast, postgresSaveCount = map[string]bool{}, map[string]time.Time{}, 0
+	postgresSaveMu.Unlock()
+}
+
+func asSaveToken(name string) func(*http.Request) *http.Request {
+	return func(req *http.Request) *http.Request {
+		return req.WithContext(context.WithValue(req.Context(), utils.AuthCtxKey, &utils.AuthContext{
+			Nickname: "admin",
+			APIToken: &utils.APITokenContext{Name: name, Owner: "admin", Permissions: []utils.Permission{utils.PERM_CONFIGURATION_READ, utils.PERM_CONFIGURATION}},
+		}))
+	}
+}
+
+// Review M3/M4: a caller has one check at a time and a gap; another caller
+// is not blocked by it; a bound on how many at once.
+func TestPostgresSaveCheckGate(t *testing.T) {
+	stubPostgresStore(t, nil)
+	saveCheckGap = 3 * time.Second
+	resetSaveGate()
+	t.Cleanup(resetSaveGate)
+	release, entered := make(chan struct{}), make(chan struct{}, 8)
+	checkPostgresStore = func(context.Context, utils.DatabaseConfig) *utils.PostgresProblem {
+		entered <- struct{}{}
+		<-release
+		return nil
+	}
+	stored := utils.Config{}
+	save := func(as func(*http.Request) *http.Request, host string) *httpSettingsProblem {
+		req := as(httptest.NewRequest("PUT", "https://cosmos.example.org/cosmos/api/config", nil))
+		request := utils.Config{Database: utils.DatabaseConfig{PostgresHost: host, PostgresUsername: "cosmos"}}
+		return checkPostgresSettings(req, &request, stored)
+	}
+	done := make(chan *httpSettingsProblem, 8)
+	go func() { done <- save(asSaveToken("looping"), "192.0.2.10:5432") }()
+	<-entered
+	if p := save(asSaveToken("looping"), "192.0.2.11:5432"); p == nil || p.Code != "UC049" {
+		t.Errorf("the same caller twice at once: %+v", p)
+	}
+	go func() { done <- save(asAdmin, "192.0.2.12:5432") }()
+	<-entered // another caller is not blocked
+	close(release)
+	for i := 0; i < 2; i++ {
+		if p := <-done; p != nil {
+			t.Errorf("%+v", p)
+		}
+	}
+	if p := save(asSaveToken("looping"), "192.0.2.13:5432"); p == nil || p.Code != "UC049" {
+		t.Errorf("the same caller again at once: %+v", p)
+	}
+	// at most saveChecksAtOnce callers at once
+	resetSaveGate()
+	release = make(chan struct{})
+	for i := 0; i < saveChecksAtOnce; i++ {
+		go func(i int) { done <- save(asSaveToken("t"+string(rune('a'+i))), "192.0.2.20:5432") }(i)
+		<-entered
+	}
+	if p := save(asSaveToken("one-more"), "192.0.2.20:5432"); p == nil || p.Code != "UC049" {
+		t.Errorf("one more than the bound: %+v", p)
+	}
+	close(release)
+	for i := 0; i < saveChecksAtOnce; i++ {
+		<-done
+	}
+}
+
+// Review S3: readers without the configuration permission get neither the
+// server nor the sentences that name it, the user or the containers.
+func TestMonitoringStoreRouteMasksForOtherReaders(t *testing.T) {
+	settingsTestServer(t)
+	old := monitoringStoreState
+	t.Cleanup(func() { monitoringStoreState = old })
+	monitoringStoreState = func() utils.MonitoringStoreState {
+		return utils.MonitoringStoreState{Configured: "postgres", InUse: "sqlite", Fallback: true, Host: "192.0.2.5:5432", Database: "cosmos_monitoring",
+			Reason: "password", Message: "The database refused the password of user cosmos.", Advice: "use 192.0.2.5:5432 (the PostgreSQL container postgresql)"}
+	}
+	resourcesReader := func(req *http.Request) *http.Request {
+		return req.WithContext(context.WithValue(req.Context(), utils.AuthCtxKey, &utils.AuthContext{
+			Nickname: "admin",
+			APIToken: &utils.APITokenContext{Name: "charts", Owner: "admin", Permissions: []utils.Permission{utils.PERM_RESOURCES_READ}},
+		}))
+	}
+	for name, c := range map[string]struct {
+		as   func(*http.Request) *http.Request
+		full bool
+	}{"administrator": {asAdmin, true}, "configuration token": {asConfigurationToken, false}, "resources reader": {resourcesReader, false}} {
+		w := httptest.NewRecorder()
+		MonitoringStoreRoute(w, c.as(httptest.NewRequest("GET", "https://cosmos.example.org/cosmos/api/monitoring-store", nil)))
+		body := w.Body.String()
+		if name == "configuration token" {
+			// it reads the configuration, but not the resources: refused
+			if w.Code == http.StatusOK && strings.Contains(body, "192.0.2.5") {
+				t.Errorf("%s: %s", name, body)
+			}
+			continue
+		}
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", name, w.Code, body)
+		}
+		names := strings.Contains(body, "192.0.2.5") || strings.Contains(body, "user cosmos") || strings.Contains(body, "postgresql") || strings.Contains(body, "cosmos_monitoring")
+		if names != c.full || !strings.Contains(body, `"reason":"password"`) {
+			t.Errorf("%s: %s", name, body)
+		}
+	}
+}
+
+// The test answers the advice next to the reason.
+func TestPostgresTestAnswersTheAdvice(t *testing.T) {
+	withSavedDatabase(t, utils.DatabaseConfig{})
+	stubPostgresStore(t, nil)
+	checkPostgres = func(context.Context, utils.DatabaseConfig) *utils.PostgresProblem {
+		return &utils.PostgresProblem{Reason: "closed", Message: "Nothing answers at localhost:5432."}
+	}
+	_, answer, body := postgresTestCall(t, `{"host":"localhost:5432","database":"cosmos","username":"cosmos","password":"x-typed"}`)
+	data, _ := answer["data"].(map[string]interface{})
+	advice, _ := data["advice"].(string)
+	if data["success"] != false || !strings.Contains(advice, "192.168.1.10:5432") {
+		t.Errorf("%s", body)
 	}
 }
 
@@ -282,5 +499,46 @@ func TestPostgresTestIsForAdministratorsOnly(t *testing.T) {
 	}
 	if len(*tried) != 0 {
 		t.Errorf("a connection was tried: %+v", *tried)
+	}
+}
+
+func fmtEvent(e utils.SecurityEvent) string {
+	out := e.Kind + " " + e.Target
+	for k, v := range e.Details {
+		out += " " + k + "=" + v
+	}
+	return out
+}
+
+func containsString(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+// Review M1: "Save anyway" for a save another check refuses is not recorded.
+func TestUncheckedSaveRecordedOnlyWhenSaved(t *testing.T) {
+	recorded := captureSecurity(t)
+	req := asAdmin(httptest.NewRequest("PUT", "https://cosmos.example.org/cosmos/api/config?database=unchecked", nil))
+	before := utils.Config{}
+	after := utils.Config{Database: utils.DatabaseConfig{PostgresHost: "192.0.2.10:5432"}}
+	request := after
+	if p := checkPostgresSettings(req, &request, before); p != nil {
+		t.Fatalf("%+v", p)
+	}
+	if len(recorded()) != 0 {
+		t.Errorf("recorded before the save went through: %+v", recorded())
+	}
+	recordUncheckedDatabase(req, before, before)                                                                                     // nothing changed in the end
+	recordUncheckedDatabase(asAdmin(httptest.NewRequest("PUT", "https://cosmos.example.org/cosmos/api/config", nil)), before, after) // no flag
+	if len(recorded()) != 0 {
+		t.Errorf("recorded without a change or without the flag: %+v", recorded())
+	}
+	recordUncheckedDatabase(req, before, after)
+	if events := recorded(); len(events) != 1 || events[0].Kind != utils.SecDatabaseUnchecked {
+		t.Errorf("%+v", events)
 	}
 }

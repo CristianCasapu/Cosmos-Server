@@ -6,8 +6,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/azukaar/cosmos-server/src/utils"
 )
@@ -15,10 +18,17 @@ import (
 func withPostgres(t *testing.T, candidates []pgCandidate, inside bool) {
 	t.Helper()
 	withFakes(t, map[string]containerInfo{})
-	oldList, oldInside := postgresCandidates, insideContainer
+	oldList, oldInside, oldNets, oldDial := postgresCandidates, insideContainer, cosmosNetworks, reachDial
 	postgresCandidates = func(context.Context) ([]pgCandidate, error) { return candidates, nil }
 	insideContainer = func() bool { return inside }
-	t.Cleanup(func() { postgresCandidates, insideContainer = oldList, oldInside })
+	cosmosNetworks = func(context.Context) map[string]bool { return map[string]bool{"cosmos-shared": true} }
+	reachDial = func(context.Context, string) error { return nil }
+	reachMu.Lock()
+	reachCache = map[string]reachEntry{}
+	reachMu.Unlock()
+	t.Cleanup(func() {
+		postgresCandidates, insideContainer, cosmosNetworks, reachDial = oldList, oldInside, oldNets, oldDial
+	})
 }
 
 func proposalsOf(t *testing.T, auth *utils.AuthContext) (int, []interface{}, string) {
@@ -62,11 +72,19 @@ func TestPostgresProposalHostChoices(t *testing.T) {
 		source  string
 		present bool
 	}{
+		// bare-metal (plan 51): the address the port is bound to, as it is
 		{"published on all addresses", pgCandidate{Info: db, Published: []pgBinding{{"0.0.0.0", "5433"}}}, false, "127.0.0.1:5433", "published", true},
-		{"published on loopback", pgCandidate{Info: db, Published: []pgBinding{{"127.0.0.1", "5432"}}}, true, "127.0.0.1:5432", "published", true},
-		{"published on another address only", pgCandidate{Info: db, Published: []pgBinding{{"192.168.1.20", "5432"}}, Addresses: []string{"172.18.0.2"}}, false, "172.18.0.2:5432", "address", true},
-		{"Cosmos in a container", pgCandidate{Info: db, Addresses: []string{"172.18.0.2"}}, true, "notes-db:5432", "container-network", true},
+		{"published on all IPv6 addresses", pgCandidate{Info: db, Published: []pgBinding{{"::", "5433"}}}, false, "127.0.0.1:5433", "published", true},
+		{"published on loopback", pgCandidate{Info: db, Published: []pgBinding{{"127.0.0.1", "5432"}}}, false, "127.0.0.1:5432", "published", true},
+		{"published on the home-network address only (the owner's)", pgCandidate{Info: db, Published: []pgBinding{{"192.168.1.20", "5432"}}, Addresses: []string{"172.17.0.2"}}, false, "192.168.1.20:5432", "published", true},
+		{"published on a LAN address and on loopback: loopback", pgCandidate{Info: db, Published: []pgBinding{{"192.168.1.20", "5432"}, {"127.0.0.1", "15432"}}}, false, "127.0.0.1:15432", "published", true},
+		{"published on an IPv6 address", pgCandidate{Info: db, Published: []pgBinding{{"2001:db8::5", "5432"}}}, false, "[2001:db8::5]:5432", "published", true},
 		{"own address", pgCandidate{Info: db, Addresses: []string{"not-an-ip", "172.18.0.9"}}, false, "172.18.0.9:5432", "address", true},
+		// in a container: the name on a shared network, else a published non-loopback address, else said
+		{"Cosmos in a container, a shared network", pgCandidate{Info: db, Networks: []string{"bridge", "cosmos-shared"}, Addresses: []string{"172.17.0.2", "172.20.0.2"}}, true, "notes-db:5432", "container-network", true},
+		{"Cosmos in a container, published on loopback only", pgCandidate{Info: db, Networks: []string{"bridge"}, Published: []pgBinding{{"127.0.0.1", "5432"}}}, true, "", "none", true},
+		{"Cosmos in a container, published on a LAN address", pgCandidate{Info: db, Networks: []string{"bridge"}, Published: []pgBinding{{"192.168.1.20", "5432"}}}, true, "192.168.1.20:5432", "published", true},
+		{"Cosmos in a container, nothing shared", pgCandidate{Info: db, Networks: []string{"bridge"}, Addresses: []string{"172.17.0.2"}}, true, "", "none", true},
 		{"unreachable", pgCandidate{Info: db}, false, "", "", false},
 	}
 	for _, c := range cases {
@@ -85,8 +103,14 @@ func TestPostgresProposalHostChoices(t *testing.T) {
 		if p["host"] != c.host || p["hostSource"] != c.source {
 			t.Errorf("%s: %v", c.name, p)
 		}
-		if c.source == "address" && !strings.Contains(p["hostNote"].(string), "change") {
+		if c.source == "address" && (!strings.Contains(p["hostNote"].(string), "changes") || !strings.Contains(p["hostNote"].(string), "127.0.0.1")) {
 			t.Errorf("%s: no note: %v", c.name, p)
+		}
+		if c.source == "none" && !strings.Contains(p["hostNote"].(string), "Let these apps reach it") {
+			t.Errorf("%s: no advice: %v", c.name, p)
+		}
+		if (c.host != "") != (p["reach"] == "answers") {
+			t.Errorf("%s: reach %v", c.name, p["reach"])
 		}
 	}
 }
@@ -124,5 +148,109 @@ func TestPostgresProposalsWhenDockerIsDown(t *testing.T) {
 	code, _, _ = call(PostgresProposalsRoute, "POST", "/x", nil, "", sudoed)
 	if code != http.StatusMethodNotAllowed {
 		t.Errorf("POST: %d", code)
+	}
+}
+
+// Plan 51: each proposal is checked from Cosmos, bounded and cached; only
+// the addresses the proposals name are dialled.
+func TestPostgresProposalsAreChecked(t *testing.T) {
+	db := postgresContainer()
+	other := postgresContainer()
+	other.Name = "/other-db"
+	withPostgres(t, []pgCandidate{
+		{Info: db, Published: []pgBinding{{"192.168.1.20", "5432"}}},
+		{Info: other, Addresses: []string{"172.17.0.3"}},
+	}, false)
+	dialled := []string{}
+	var mu sync.Mutex
+	reachDial = func(ctx context.Context, address string) error {
+		mu.Lock()
+		dialled = append(dialled, address)
+		mu.Unlock()
+		if address == "192.168.1.20:5432" {
+			return nil
+		}
+		<-ctx.Done() // a silent address: the bound ends it
+		return ctx.Err()
+	}
+	start := time.Now()
+	_, list, body := proposalsOf(t, sudoed)
+	if len(list) != 2 || time.Since(start) > 3*time.Second {
+		t.Fatalf("%s (%v)", body, time.Since(start))
+	}
+	got := map[string]string{}
+	for _, item := range list {
+		p := item.(map[string]interface{})
+		got[p["host"].(string)] = p["reach"].(string)
+	}
+	if got["192.168.1.20:5432"] != "answers" || got["172.17.0.3:5432"] != "silent" {
+		t.Errorf("reach %v", got)
+	}
+	sort.Strings(dialled)
+	if strings.Join(dialled, ",") != "172.17.0.3:5432,192.168.1.20:5432" {
+		t.Errorf("dialled %v", dialled)
+	}
+	// cached: asked again at once, nothing is dialled
+	proposalsOf(t, sudoed)
+	if len(dialled) != 2 {
+		t.Errorf("not cached: %v", dialled)
+	}
+}
+
+// Plan 51: the advice after a typed server failed, from the containers.
+func TestPostgresHostAdvice(t *testing.T) {
+	owner := postgresContainer()
+	owner.Name = "/postgresql"
+	lan := []pgCandidate{{Info: owner, Published: []pgBinding{{"192.168.1.20", "5432"}}, Networks: []string{"bridge"}, Addresses: []string{"172.17.0.2"}}}
+	unpublished := []pgCandidate{{Info: owner, Networks: []string{"bridge"}, Addresses: []string{"172.17.0.2"}}}
+	second := postgresContainer()
+	second.Name = "/second"
+	twoPorts := []pgCandidate{{Info: second, Published: []pgBinding{{"192.168.1.30", "5433"}}}, {Info: owner, Published: []pgBinding{{"192.168.1.20", "5432"}}}}
+	cases := []struct {
+		name, typed, reason string
+		candidates          []pgCandidate
+		inside              bool
+		want                []string
+	}{
+		{"localhost, port on the LAN address only", "localhost:5432", "closed", lan, false,
+			[]string{"published on 192.168.1.20 only, not on localhost", "use 192.168.1.20:5432"}},
+		{"127.0.0.1 the same", "127.0.0.1:5432", "closed", lan, false, []string{"use 192.168.1.20:5432"}},
+		{"the typed port first", "localhost:5432", "closed", twoPorts, false, []string{"published on 192.168.1.20 only", "use 192.168.1.20:5432"}},
+		{"a .local guess", "postgresql.local:5432", "dns", lan, false,
+			[]string{".local exist only for apps that have a URL", "use 192.168.1.20:5432"}},
+		{"the container's name on bare metal", "postgresql:5432", "dns", lan, false,
+			[]string{"A container's name is not a host name for Cosmos itself", "use 192.168.1.20:5432"}},
+		{"the container's name, nothing published", "postgresql:5432", "dns", unpublished, false,
+			[]string{"A container's name is not a host name for Cosmos itself", "use 172.17.0.2:5432"}},
+		{"localhost from a container", "localhost:5432", "closed", lan, true, []string{"Cosmos' own container", "use 192.168.1.20:5432"}},
+		{"another address that does not answer", "192.168.1.99:5432", "timeout", lan, false, []string{"PostgreSQL runs on this server in the container postgresql", "use 192.168.1.20:5432"}},
+		// the owner's later case: the bridge address saved, the container made again elsewhere
+		{"an old bridge address of another container", "172.17.0.9:5432", "network", lan, false,
+			[]string{"PostgreSQL runs on this server in the container postgresql", "use 192.168.1.20:5432"}},
+		{"the bridge address of the container, port elsewhere", "172.17.0.2:5433", "closed", lan, false,
+			[]string{"172.17.0.2 is the address of the container postgresql on Docker's network", "use 192.168.1.20:5432"}},
+		{"a refused password: no advice", "192.168.1.20:5432", "password", lan, false, nil},
+		{"nothing known", "localhost:5432", "closed", nil, false, nil},
+	}
+	for _, c := range cases {
+		withPostgres(t, c.candidates, c.inside)
+		got := postgresHostAdvice(context.Background(), c.typed, c.reason)
+		if len(c.want) == 0 && got != "" {
+			t.Errorf("%s: %q", c.name, got)
+		}
+		for _, w := range c.want {
+			if !strings.Contains(got, w) {
+				t.Errorf("%s: %q lacks %q", c.name, got, w)
+			}
+		}
+	}
+	// a proposal that does not answer is not advised
+	withPostgres(t, lan, false)
+	reachDial = func(context.Context, string) error { return errors.New("refused") }
+	if got := postgresHostAdvice(context.Background(), "localhost:5432", "closed"); !strings.Contains(got, "published on 192.168.1.20") {
+		t.Errorf("the binding is still the fact: %q", got)
+	}
+	if got := postgresHostAdvice(context.Background(), "192.168.1.99:5432", "timeout"); got != "" {
+		t.Errorf("a silent proposal advised: %q", got)
 	}
 }

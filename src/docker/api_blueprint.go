@@ -448,7 +448,7 @@ func CreateService(serviceRequest DockerServiceCreateRequest, OnLog func(string)
 		utils.Log(fmt.Sprintf("Pulling image %s", container.Image))
 		OnLog(fmt.Sprintf("Pulling image %s\n", container.Image))
 
-		out, err := DockerPullImage(container.Image)
+		out, err := forkPullImage(container.Image, OnLog) // Fork addition: the pull as a step with its progress, a failure inside the stream fails it (fork_pull_progress.go)
 		if err != nil {
 			utils.Error("CreateService: Rolling back changes because of -- Image pull", err)
 			OnLog(utils.DoErr("Rolling back changes because of -- Image pull error: %s\n", err.Error()))

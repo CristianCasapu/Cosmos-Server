@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -225,5 +226,81 @@ func TestResetLocalMetrics(t *testing.T) {
 	}
 	if docs, _ := loadMetrics([]string{}); len(docs) != 0 {
 		t.Fatalf("reset left %d metrics behind", len(docs))
+	}
+}
+
+// Review rounds 3 and 4: after a change of the monitoring store, the first
+// flush of an open raw bucket into a store that has no row for its hour or
+// day writes the whole bucket (the row reads right on its own, averages
+// included) and notes, in that store, the part flushed elsewhere: the
+// store's own part is the change since the last flush (counted once), and
+// with the first store's row it adds up to what was pushed.
+func TestANewStoreGetsTheChangeSinceTheLastFlush(t *testing.T) {
+	setupMetricsStore(t)
+	def := DataDef{Max: 100, Period: time.Hour, Label: "t", AggloType: "sum", SetOperation: "sum"}
+	pushSetMetric("split", 10, def)
+	SaveMetrics()
+	first := utils.CONFIGFOLDER
+	// the store changes (another file stands for the other store)
+	utils.CloseMetricsDatabase()
+	utils.CONFIGFOLDER = t.TempDir() + "/"
+	if err := utils.InitMetricsDatabase(); err != nil {
+		t.Fatal(err)
+	}
+	pushSetMetric("split", 5, def)
+	SaveMetrics()
+	day := func() (int64, int64, [2]int64) {
+		db, _ := utils.MonitoringReadDB()
+		var v, i, date int64
+		db.QueryRow("SELECT value, avg_index, date FROM metric_values WHERE key = 'cosmos.split' AND granularity = 'day'").Scan(&v, &i, &date)
+		var note string
+		db.QueryRow("SELECT value FROM monitoring_kv WHERE key = ?", utils.PriorPrefix+utils.MonitoringNode()+"|cosmos.split|day|"+strconv.FormatInt(date, 10)).Scan(&note)
+		prior, _ := utils.ParsePair(note)
+		return v, i, prior
+	}
+	bv, bi, bprior := day()
+	utils.CloseMetricsDatabase()
+	utils.CONFIGFOLDER = first
+	if err := utils.InitMetricsDatabase(); err != nil {
+		t.Fatal(err)
+	}
+	av, ai, aprior := day()
+	if bv != 15 || bi != 1 || bprior != [2]int64{10, 1} {
+		t.Errorf("second store %d/%d noting %v: want the whole bucket 15/1 noting 10|1", bv, bi, bprior)
+	}
+	if av != 10 || ai != 1 || aprior != [2]int64{} || av+(bv-bprior[0]) != 15 || ai+(bi-bprior[1]) != 1 {
+		t.Errorf("first store %d/%d (noting %v): the own parts do not add up to 15/1", av, ai, aprior)
+	}
+}
+
+// Review round 3: a raw bucket that closes while its flushes fail (the store
+// does not answer, before the fallback) is kept until a flush writes it.
+func TestAClosedBucketIsKeptUntilItIsWritten(t *testing.T) {
+	setupMetricsStore(t)
+	def := DataDef{Max: 100, Period: 30 * time.Second, Label: "t", AggloType: "sum", SetOperation: "sum"}
+	pushSetMetric("kept", 7, def)
+	lock <- true
+	for k, dp := range dataBuffer {
+		dp.Expire = time.Now().Add(-time.Second) // its period is over
+		dataBuffer[k] = dp
+	}
+	<-lock
+	utils.CloseMetricsDatabase() // the flush fails
+	SaveMetrics()
+	if err := utils.InitMetricsDatabase(); err != nil {
+		t.Fatal(err)
+	}
+	SaveMetrics()
+	db, _ := utils.MonitoringReadDB()
+	var v int64
+	db.QueryRow("SELECT value FROM metric_values WHERE key = 'cosmos.kept' AND granularity = 'day'").Scan(&v)
+	if v != 7 {
+		t.Errorf("the closed bucket's value: %d, want 7", v)
+	}
+	lock <- true
+	left := len(dataBuffer)
+	<-lock
+	if left != 0 {
+		t.Errorf("%d buckets kept after they were written", left)
 	}
 }

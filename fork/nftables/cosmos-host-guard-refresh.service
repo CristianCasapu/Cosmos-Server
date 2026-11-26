@@ -1,0 +1,8 @@
+# Installed by fork/nftables/install.sh (the Cosmos fork).
+[Unit]
+Description=Cosmos host guard: refresh the interfaces, home prefixes and VPN ports; load the table again if it was removed
+After=cosmos-host-guard.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cosmos-host-guard refresh periodic

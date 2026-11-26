@@ -34,8 +34,12 @@ func TestPostgresTestTakesNothingFromTheEnvironment(t *testing.T) {
 	if cfg.Password != "" || cfg.User != "cosmos" || cfg.Host != "127.0.0.1" || cfg.Port != 5433 || cfg.Database != "cosmos" {
 		t.Errorf("taken from elsewhere: password %q user %q host %q port %d database %q", cfg.Password, cfg.User, cfg.Host, cfg.Port, cfg.Database)
 	}
-	if len(cfg.RuntimeParams) != 0 {
-		t.Errorf("runtime parameters from the environment: %v", cfg.RuntimeParams)
+	// plan 51: only the store's own bounds, nothing from PGOPTIONS
+	if len(cfg.RuntimeParams) != 2 || cfg.RuntimeParams["statement_timeout"] != "30000" || cfg.RuntimeParams["idle_in_transaction_session_timeout"] != "60000" {
+		t.Errorf("runtime parameters: %v", cfg.RuntimeParams)
+	}
+	if cfg.ConnectTimeout != storeConnectTimeout || cfg.DialFunc == nil {
+		t.Errorf("unbounded: %v", cfg.ConnectTimeout)
 	}
 	for _, fallback := range cfg.Fallbacks {
 		if fallback.Host != "127.0.0.1" || fallback.Port != 5433 {

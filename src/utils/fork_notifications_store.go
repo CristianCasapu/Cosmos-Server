@@ -292,7 +292,7 @@ func ListNotificationViews(q NotificationQuery) ([]NotificationView, string, err
 	if limit > NotificationPageMax {
 		limit = NotificationPageMax
 	}
-	rows, err := db.Query(MonitoringRebind("SELECT "+notificationColumnsSQL+" FROM notifications WHERE "+where+
+	rows, err := db.Query(MonitoringRebindFor(db, "SELECT "+notificationColumnsSQL+" FROM notifications WHERE "+where+
 		" ORDER BY date DESC, id DESC LIMIT "+strconv.Itoa(limit+1)), args...)
 	if err != nil {
 		return nil, "", err
@@ -396,7 +396,7 @@ func CountUnreadNotifications(recipient string, admin bool) (int, error) {
 		return 0, err
 	}
 	var n int
-	err = db.QueryRow(MonitoringRebind("SELECT COUNT(*) FROM notifications WHERE "+where), args...).Scan(&n)
+	err = db.QueryRow(MonitoringRebindFor(db, "SELECT COUNT(*) FROM notifications WHERE "+where), args...).Scan(&n)
 	return n, err
 }
 
@@ -410,7 +410,7 @@ func NotificationSourcesOf(recipient string, admin bool) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(MonitoringRebind("SELECT DISTINCT fork_source FROM notifications WHERE "+where), args...)
+	rows, err := db.Query(MonitoringRebindFor(db, "SELECT DISTINCT fork_source FROM notifications WHERE "+where), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -456,7 +456,7 @@ func GetNotificationDetails(recipient string, admin bool, id int64, ref string) 
 	default:
 		return NotificationDetails{}, false, nil
 	}
-	row := db.QueryRow(MonitoringRebind("SELECT "+notificationColumnsSQL+" FROM notifications WHERE "+where+" ORDER BY date DESC, id DESC LIMIT 1"), args...)
+	row := db.QueryRow(MonitoringRebindFor(db, "SELECT "+notificationColumnsSQL+" FROM notifications WHERE "+where+" ORDER BY date DESC, id DESC LIMIT 1"), args...)
 	v, err := scanNotification(row)
 	if err == sql.ErrNoRows {
 		return NotificationDetails{}, false, nil
@@ -504,7 +504,7 @@ func GetNotificationDetails(recipient string, admin bool, id int64, ref string) 
 		tWhere, tArgs, _ := notificationWhere(NotificationQuery{Recipient: recipient, Admin: admin})
 		tWhere += " AND fork_thread = ? AND id <> ?"
 		tArgs = append(tArgs, threadKey, v.ID)
-		rows, err := db.Query(MonitoringRebind("SELECT "+notificationColumnsSQL+" FROM notifications WHERE "+tWhere+
+		rows, err := db.Query(MonitoringRebindFor(db, "SELECT "+notificationColumnsSQL+" FROM notifications WHERE "+tWhere+
 			" ORDER BY date DESC, id DESC LIMIT "+strconv.Itoa(NotificationThreadMax)), tArgs...)
 		if err == nil {
 			defer rows.Close()
@@ -544,7 +544,7 @@ func MarkNotifications(recipient string, admin bool, ids []int64, read bool) (in
 	if read {
 		flag = 1
 	}
-	res, err := db.Exec(MonitoringRebind("UPDATE notifications SET read = "+strconv.Itoa(flag)+" WHERE "+where), args...)
+	res, err := db.Exec(MonitoringRebindFor(db, "UPDATE notifications SET read = "+strconv.Itoa(flag)+" WHERE "+where), args...)
 	if err != nil {
 		return 0, err
 	}
@@ -567,7 +567,7 @@ func ResolveNotificationByHand(recipient string, admin bool, id int64) (bool, er
 		return false, ErrBadNotificationQuery
 	}
 	var thread, kind string
-	err = db.QueryRow(MonitoringRebind("SELECT fork_thread, fork_kind FROM notifications WHERE "+where+
+	err = db.QueryRow(MonitoringRebindFor(db, "SELECT fork_thread, fork_kind FROM notifications WHERE "+where+
 		" AND id = ? AND fork_resolved = 0 AND fork_info <> ''"), append(args, id)...).Scan(&thread, &kind)
 	if err == sql.ErrNoRows || (err == nil && thread == "") {
 		return false, nil
@@ -604,7 +604,7 @@ func DeleteNotifications(recipient string, admin bool, ids []int64) (int64, erro
 			args = append(args, id)
 		}
 	}
-	res, err := db.Exec(MonitoringRebind("DELETE FROM notifications WHERE "+where), args...)
+	res, err := db.Exec(MonitoringRebindFor(db, "DELETE FROM notifications WHERE "+where), args...)
 	if err != nil {
 		return 0, err
 	}

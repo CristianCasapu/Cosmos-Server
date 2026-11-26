@@ -107,6 +107,7 @@ const (
 	SecServerRestart        = "server.restart"
 	SecSnapshotRestore      = "snapshot.restore.started"
 	SecAPIChange            = "api.change"
+	SecDatabaseUnchecked    = "config.database.unchecked" // plan 51: monitoring database settings saved without the connection check
 
 	// Fail2ban (src/fail2ban). A kind is lower-case letters and dots, hence "firewall".
 	SecFail2banBan      = "firewall.ban"
@@ -130,6 +131,10 @@ const (
 	SecEdgeBlocked    = "edge.blocked"
 	SecEdgeBlockAdded = "edge.block.added"
 	SecEdgeUnblocked  = "edge.unblocked"
+
+	// Fork addition (plan 51): the copy of the monitoring history between the
+	// local file and PostgreSQL (src/monitorcopy) started or cancelled
+	SecMonitoringCopy = "config.monitoring.copy"
 
 	// the record about itself
 	SecRecorderDropped = "recorder.dropped"
