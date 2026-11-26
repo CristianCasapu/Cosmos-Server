@@ -920,6 +920,11 @@ const run = async (engineName, viewport, mode) => {
     // (a tablet in portrait gets the select too: ask the page which of the two it shows)
     const tabs = page.locator('main [role=tablist]').first();
     const byName = typeof index === 'string';
+    // a view without its own wait can still be loading: let the tabs or their select appear first
+    // (config-monitoring-db--external once found neither on a slow runner)
+    await page.waitForFunction(() => document.querySelector('main [role=tablist]') ||
+      [...document.querySelectorAll('main .MuiSelect-select')].some((s) => s.closest('.MuiInputBase-root')?.parentElement?.querySelector(':scope > [role=tabpanel]')),
+    null, { timeout: 8000 }).catch(() => {});
     if (!phone && await tabs.isVisible().catch(() => false)) {
       await (byName ? tabs.locator('[role=tab]', { hasText: index }).first() : tabs.locator('[role=tab]').nth(index)).click();
       return;
