@@ -88,6 +88,8 @@ keys=$(grep -oE '^[[:space:]]*"[A-Za-z0-9+/]{43}=",' "$KEYS" | grep -oE '[A-Za-z
 [ -n "$keys" ] || fail "$KEYS holds no release key: install.sh could verify nothing"
 
 mkdir -p "$OUT"
+# absolute: the zips are written from inside $WORK (the release workflow passes --out release)
+OUT=$(cd -- "$OUT" && pwd)
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/fork-release-package.XXXXXXXX")
 trap 'rm -rf -- "$WORK"' EXIT
 

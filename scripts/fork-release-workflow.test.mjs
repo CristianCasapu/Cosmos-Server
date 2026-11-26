@@ -93,3 +93,15 @@ test('every script asset (install.sh, migrate.sh, uninstall.sh) is listed, signe
   const pack = readFileSync(join(here, 'fork-release-package.sh'), 'utf8');
   assert.ok(/sha256sum install\.sh migrate\.sh uninstall\.sh >SHA256SUMS/.test(pack), 'SHA256SUMS lists the three scripts');
 });
+
+// fork.41's first build failed here: the workflow passes `--out release`
+// (relative) and the script writes the zips from inside its work folder, so
+// the out folder must be made absolute before the first `cd`.
+test('the package script makes --out absolute before it changes folder', () => {
+  assert.ok(/--out release\b/.test(workflow), 'the workflow passes a relative --out (else this test guards nothing)');
+  const pack = readFileSync(join(here, 'fork-release-package.sh'), 'utf8');
+  const abs = pack.search(/^OUT=\$\(cd -- "\$OUT" && pwd\)$/m);
+  const firstCd = pack.search(/\(cd "\$(WORK|OUT)"/);
+  assert.ok(abs > 0, 'OUT=$(cd -- "$OUT" && pwd)');
+  assert.ok(firstCd > abs, 'made absolute before the first (cd …)');
+});
