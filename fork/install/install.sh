@@ -1507,14 +1507,14 @@ Nothing was changed."
 		# --continue keeps a fork that is in place; checked before anything is
 		# done (review N6)
 		if [ "$CONTINUE" = 1 ]; then
+			case $MIG_MSTEP in swapping | swapped | started) ;; *)
+				die $EXIT_USAGE "--continue goes only with an interrupted migration that waits for your word (this one stopped at '$MIG_MSTEP'; a run without --continue resumes it). Nothing was changed." ;;
+			esac
 			if [ "$(cosmos_folder_kind "$INSTALL_DIR")" != fork ] || [ "$(meta_version "$INSTALL_DIR")" != "$(state_get version)" ]; then
 				die $EXIT_DECIDE "--continue keeps the fork, but $INSTALL_DIR holds $(cosmos_folder_kind "$INSTALL_DIR")${FOUND_VERSION:+ $FOUND_VERSION}, not the fork $(state_get version) this migration put there (step reached: $MIG_MSTEP). Run without --continue to see what can be done, or go back to upstream:
   sudo bash $SELF --undo
 Nothing was changed."
 			fi
-			case $MIG_MSTEP in swapped | started) ;; *)
-				die $EXIT_USAGE "--continue goes only with an interrupted migration that waits for your word (this one stopped at '$MIG_MSTEP'; a run without --continue resumes it). Nothing was changed." ;;
-			esac
 		fi
 		if [ "$UNDO" = 1 ]; then
 			how=auto

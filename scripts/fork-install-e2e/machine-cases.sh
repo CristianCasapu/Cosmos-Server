@@ -1120,7 +1120,9 @@ m_migrate_interrupt_4() { # review round 2: --continue (N6, S-N1, S-N3, its norm
 	add_snapshot_hooks
 	# N6: --continue over a migration killed before the swap: refused (2) before anything is done
 	plant_marker before-n6
-	kill_at backed-up
+	# (a pause, not kill_at: on small data a kill at a step can land past the swap)
+	mig_bg n6 COSMOS_INSTALL_TEST_PAUSE_AT=manifests TEST=1 -- --yes
+	kill_on_text n6 "waiting at 'manifests'"
 	take_now n6
 	expect_rc 2 n6-continue --yes --continue
 	check "n6: it says a run resumes it" grep -q "a run without --continue resumes it" /e2e/out/n6-continue.txt
