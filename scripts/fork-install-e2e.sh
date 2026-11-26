@@ -1,5 +1,5 @@
 #!/bin/bash
-# shellcheck disable=SC2016,SC2012,SC2317 # the snippets in single quotes run inside the test machines; SC2317: the functions are reached through main (see the last line)
+# shellcheck disable=SC2016,SC2012,SC2317,SC2329 # the snippets in single quotes run inside the test machines; SC2317, SC2329 (shellcheck 0.11): the functions are reached through main (see the last line)
 # Fork addition: the test bed of the install scripts (fork/install/).
 #
 #   bash scripts/fork-install-e2e.sh fast     shellcheck, the guard checks + one machine (Debian 13):

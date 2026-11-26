@@ -426,7 +426,7 @@ done
 # ------------------------------------------------ the network as it is ---
 
 WORK=$(mktemp -d)
-# shellcheck disable=SC2317
+# shellcheck disable=SC2317,SC2329 # called by the trap
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 mkdir -p "$WORK/etc" "$WORK/run"
