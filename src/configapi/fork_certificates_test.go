@@ -28,7 +28,20 @@ func settingsTestServer(t *testing.T) chan struct{} {
 
 	prevFolder := utils.CONFIGFOLDER
 	prevConfig := utils.GetBaseMainConfig()
+	// a save wakes the monitoring store's watcher, which opens database.db in
+	// the config folder by itself: it is held and the store closed before the
+	// folder is removed, and let go only after (cleanups run last-in first-out)
+	var release func()
+	t.Cleanup(func() {
+		if release != nil {
+			release()
+		}
+	})
 	utils.CONFIGFOLDER = t.TempDir() + "/"
+	t.Cleanup(func() {
+		release = utils.PauseMonitoringStore()
+		utils.CloseMetricsDatabase()
+	})
 	t.Setenv("CONFIG_FILE", "")
 
 	// what SoftRestartServer calls after a save; the last one tells the test it is over
