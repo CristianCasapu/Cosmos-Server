@@ -179,6 +179,8 @@ func runPoolAlerts(granularity string, period string, poolDate time.Time) {
 		return
 	}
 
+	beginAlertMails() // Fork addition: one e-mail per alert for this pool, see fork_alert_batch.go
+	defer sendAlertMails()
 	for _, pool := range pools {
 		CheckAlerts(pool.Key, period, utils.AlertMetricTrack{
 			Key:    pool.Key,

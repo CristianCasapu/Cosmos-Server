@@ -58,6 +58,10 @@ func CheckAlerts(TrackingMetric string, Period string, metric utils.AlertMetricT
 
 func ExecuteAllActions(alert utils.Alert, actions []utils.AlertAction, metric utils.AlertMetricTrack) {
 	utils.Debug("Alert triggered: " + alert.Name)
+	if alertOnGoneContainer(metric) { // Fork addition: nothing for a container that is gone, see fork_alert_batch.go
+		utils.Debug("Alert " + alert.Name + ": " + metric.Object + " no longer exists, nothing done")
+		return
+	}
 	for _, action := range actions {
 		ExecuteAction(alert, action, metric)
 	}
@@ -98,21 +102,9 @@ func ExecuteAction(alert utils.Alert, action utils.AlertAction, metric utils.Ale
 	if action.Type == "email" {
 		utils.Debug("Sending email to " + action.Target)
 
-		if utils.GetMainConfig().EmailConfig.Enabled {
-			users := utils.ListAllUsers("admin")
-			for _, user := range users {
-				if user.Email != "" {
-					utils.SendEmail([]string{user.Email}, "Alert Triggered: " + alert.Name,
-					fmt.Sprintf(`<h1>Alert Triggered [%s]</h1>
-You are recevining this email because you are admin on a Cosmos
-server where an Alert has been subscribed to.<br />
-You can manage your subscriptions in the Monitoring tab.<br />
-Alert triggered on %s. Please refer to the Monitoring tab for
-more information.<br />`, alert.Severity, metric.Key))
-				}
-			}
-		} else {
-			utils.Warn("Alert triggered but Email is not enabled")
+		// Fork addition: one e-mail per alert and run of the hourly/daily alerts, see fork_alert_batch.go
+		if !queueAlertMail(alert, metric) {
+			sendAlertMail(alert, []string{metric.Key})
 		}
 
 	} else if action.Type == "webhook" {

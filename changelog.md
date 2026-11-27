@@ -8,7 +8,13 @@ The full description of every change, with its files and routes, is in [`FORK.md
 
 ## Fork: Unreleased
 
-Merged into `custom` since `0.24.0-fork.40`, to be part of the next release:
+Merged into `custom` since `0.24.0-fork.41`, to be part of the next release:
+
+### Fixed
+- A Monitoring alert on containers (such as the default "Anti Crypto-Miner") no longer acts on containers that no longer exist. The daily check covers every container measured that day, also short-lived ones removed since (builds, test runs), and sent a notification, an e-mail and a failed stop for each of them every night. When Docker cannot be asked, the alert acts as before.
+- The hourly and daily alerts send one e-mail per alert, naming every container or metric it fired on, instead of one e-mail each.
+
+## Fork 0.24.0-fork.41 — 2026-11-27
 
 ### Added
 - An installer: on a clean Debian 12 or 13, or Ubuntu 24.04 or 26.04 server (amd64 or arm64), `sudo bash install.sh` installs the fork with everything it needs, Docker included (from Docker's own repository), without questions. It checks first that every package can be installed, verifies the release's signature before it unpacks anything, writes the `CosmosCloud` service, and prints where to finish the setup. It refuses to run where a Cosmos is already installed (an installed fork updates itself from the panel), continues where it stopped after an interruption, and lists everything it installed so that `uninstall.sh` removes exactly that (the data and the packages only when asked). See "Install" in the README.
