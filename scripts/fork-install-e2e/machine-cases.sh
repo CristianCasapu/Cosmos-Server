@@ -180,11 +180,12 @@ m_unavailable_1() {
 m_locked_1() {
 	# the lock is held until the installer says it waits for it (then 5 s more), not
 	# for a fixed time: a slow machine reaches apt only minutes in
-	(setsid /e2e/bin/helper lock-dpkg 900 >/e2e/out/lock.txt 2>&1 &); sleep 2; cat /e2e/out/lock.txt
+	# (its PID kept: pkill is not on a bare Debian, procps is not installed)
+	(setsid /e2e/bin/helper lock-dpkg 900 >/e2e/out/lock.txt 2>&1 & echo $! >/e2e/out/lock.pid); sleep 2; cat /e2e/out/lock.txt
 		: >/e2e/out/install.txt
-		(for _ in $(seq 1 850); do grep -qE "waiting for it|Waiting for cache lock" /e2e/out/install.txt && break; sleep 1; done; sleep 5; pkill -x helper) &
+		(for _ in $(seq 1 850); do grep -qE "waiting for it|Waiting for cache lock" /e2e/out/install.txt && break; sleep 1; done; sleep 5; kill "$(cat /e2e/out/lock.pid)") &
 		rc=0; install_a --yes --wizard-on-lan </dev/null >/e2e/out/install.txt 2>&1 || rc=$?; tail -n 5 /e2e/out/install.txt
-		pkill -x helper || true
+		kill "$(cat /e2e/out/lock.pid)" 2>/dev/null || true
 		check "it waited for the lock" grep -qE "waiting for it|Waiting for cache lock" /e2e/out/install.txt
 		check "then installed" test $rc = 0
 		installed_ok 80
@@ -336,11 +337,12 @@ m_hop_1() { # VB from the host
 m_aptfail_1() {
 	snap before
 		# held longer than any run takes to reach apt (the run gives up after 20 s of waiting)
-		(setsid /e2e/bin/helper lock-file /var/lib/apt/lists/lock 900 >/e2e/out/lock.txt 2>&1 &); sleep 2; cat /e2e/out/lock.txt
+		(setsid /e2e/bin/helper lock-file /var/lib/apt/lists/lock 900 >/e2e/out/lock.txt 2>&1 & echo $! >/e2e/out/lock.pid); sleep 2; cat /e2e/out/lock.txt
 		rc=0; COSMOS_INSTALL_APT_WAIT=20 install_a --yes </dev/null >/e2e/out/locked.txt 2>&1 || rc=$?; tail -n 4 /e2e/out/locked.txt
 		check "the lists held too long end the run with 6" test $rc = 6
 		check "it said so" grep -q "held apt for longer than 20 seconds" /e2e/out/locked.txt
-		pkill -x helper || true
+		kill "$(cat /e2e/out/lock.pid)" 2>/dev/null || true; sleep 1
+		check "the lock holder is gone" sh -c "! kill -0 $(cat /e2e/out/lock.pid) 2>/dev/null"
 		same before after-locked
 		# a package that apt simulates well but cannot install (its unpacking is refused)
 		printf "DPkg::Pre-Install-Pkgs { \"grep -q snapraid && exit 1 || exit 0\"; };\n" >/etc/apt/apt.conf.d/99e2e-refuse-snapraid
